@@ -1,0 +1,20 @@
+# Rendered docs and local reports
+site/
+dist/
+coverage/
+
+# Local dependency/cache directories
+node_modules/
+.pnpm-store/
+.venv/
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Local environment and secrets
+.env
+.env.*
+
+.DS_Store
