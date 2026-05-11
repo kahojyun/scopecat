@@ -30,7 +30,7 @@ Journey-first discovery
 | Input | Status | Notes |
 | --- | --- | --- |
 | Documentation policy | Ready | Captured in `README.md` and `AGENTS.md`. |
-| Greenfield architecture notes | Drafting | Stored as research input; not yet promoted into narrower docs. |
+| Greenfield architecture notes | Drafting | Stored as research input; contains historical first-direction hypotheses that must be revalidated. |
 
 ## Workstreams
 
@@ -47,6 +47,8 @@ Journey-first discovery
 
 ## Adoption Ladders To Define
 
+Rows are unordered. This table does not choose the first adoption path.
+
 | Capability | Starting User Pain | First Standalone Adoption Step | Later Composition Path | Status |
 | --- | --- | --- | --- | --- |
 | Measurement History | Data and run records are scattered or fragile. | Ordinary Python scripts write durable run and dataset records. | Scan points, parameter snapshots, code versions, execution records, and remote runs link into history. | Not Started |
@@ -58,9 +60,12 @@ Journey-first discovery
 
 ## Candidate Migration Wedges
 
+Rows are unordered. Wedge priority should be decided from evidence, user value,
+migration cost, and architectural learning.
+
 | Wedge | User-Visible Outcome | Capabilities Involved | Main Learning Goal | Status |
 | --- | --- | --- | --- | --- |
-| Ordinary Python script to durable measurement record | A simple script writes data, supports live inspection, survives interruption, and reopens by stable ID. | Measurement History | Validate the first adoption promise. | Not Started |
+| Ordinary Python script to durable measurement record | A simple script writes data, supports live inspection, survives interruption, and reopens by stable ID. | Measurement History | Test whether measurement history is a strong early wedge. | Not Started |
 | Legacy scan loop to previewable scan plan | A user replaces nested loops with a plan that can preview scan points before execution. | Scan Framework, Measurement History | Test scan semantics without requiring hardware control. | Not Started |
 | Scattered config files to parameter snapshot | A script uses a frozen parameter snapshot instead of local config drift. | Parameter Memory, Measurement History | Separate durable parameters from scan-local variables. | Not Started |
 | Copied scripts to code asset reference | A run records which external script, commit, and entrypoint were used. | Code Asset Registry, Measurement History | Separate code identity from execution identity. | Not Started |
@@ -73,12 +78,13 @@ Journey-first discovery
 | Step | Action | Expected Durable Output | Depends On |
 | --- | --- | --- | --- |
 | 1 | Distill the research note into current assumptions and open questions. | Research summary or project context document. | Existing research note. |
-| 2 | Write the first end-to-end journey for ordinary Python measurement recording. | Journey document. | Step 1. |
-| 3 | Define the Measurement History adoption ladder. | Adoption ladder entry or capability note. | Step 2. |
-| 4 | Define the first vertical wedge around durable measurement records. | Wedge note with scope and non-goals. | Step 3. |
-| 5 | Identify the minimum domain concepts for the wedge. | Concept notes or architecture section. | Step 4. |
-| 6 | Run a technical spike only after the wedge scope is explicit. | Spike note and decision impact. | Step 5. |
-| 7 | Promote validated decisions into ADRs or architecture docs. | Accepted decision records. | Step 6. |
+| 2 | Choose one concrete user journey to analyze first, based on evidence rather than subsystem preference. | Journey selection note. | Step 1. |
+| 3 | Write the selected journey in current-state and future-state form. | Journey document. | Step 2. |
+| 4 | Identify the capabilities touched by that journey and their standalone adoption steps. | Adoption ladder entries or capability note. | Step 3. |
+| 5 | Shape one candidate migration wedge from the selected journey. | Wedge note with scope and non-goals. | Step 4. |
+| 6 | Identify the minimum domain concepts and contracts needed for that wedge. | Concept notes or architecture section. | Step 5. |
+| 7 | Run a technical spike only after the wedge scope is explicit. | Spike note and decision impact. | Step 6. |
+| 8 | Promote validated decisions into ADRs or architecture docs. | Accepted decision records. | Step 7. |
 
 ## Review Cadence
 

@@ -4,6 +4,12 @@
 **Current inputs:** Interview-based pain-point analysis of the legacy experimental codebase, plus ongoing collection of external references and design precedents.
 **Document purpose:** Summarize the architectural reasoning from the design discussion and provide a working reference for subsystem boundaries, adoption strategy, documentation structure, and future research.
 
+**Current interpretation:** This is historical research input, not the current
+product plan. Sections that suggest a first implementation direction, maturity
+order, subsystem scaffold, or "do first" sequence are hypotheses to revalidate
+through journey-first discovery before promotion into durable product,
+architecture, or decision documents.
+
 ---
 
 ## 1. Executive Summary
