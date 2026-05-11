@@ -52,8 +52,8 @@ Meanings:
 - `raw/` contains source-like inputs, including user interview summaries.
 - `extracted/` contains compact, reusable research outputs that are safe entry
   points for future work.
-- `archived/` contains superseded notes that should not normally guide future
-  analysis.
+- `archived/` contains exceptional retained provenance that should not normally
+  guide future analysis.
 - `research-index.md` tracks extraction state once there is more than a small
   handful of research files.
 
@@ -73,8 +73,9 @@ Every research note should declare one status:
 | Superseded | Replaced by newer research, summary, or decision. |
 | Archived | Kept for provenance; should not normally be consulted. |
 
-`Extracted` does not mean the source should be deleted. It means future work
-should use the linked extracted or promoted artifact first.
+`Extracted` means future work should use the linked extracted or promoted
+artifact first. After extraction, decide whether the source should remain in
+the working tree, move to `archived/`, or be deleted.
 
 ## Required Fields
 
@@ -147,3 +148,32 @@ Last reviewed
 
 The index should make it clear which raw inputs are still worth reading and
 which ones have already been distilled.
+
+## Retention And Cleanup
+
+Git history is the long-term fallback for low-value research provenance. Do
+not keep extracted research files in the working tree merely because they once
+existed.
+
+After a research note reaches `Extracted` or `Superseded`, choose one outcome:
+
+- delete it when useful content has been promoted and remaining value is low;
+- archive it when it still has clear provenance, audit, citation, or rejection
+  rationale value;
+- keep it active only when additional extraction work remains.
+
+Delete by default when:
+
+- `Extracted To` covers the useful content;
+- `Remaining Value` is empty, low, or limited to historical curiosity;
+- keeping the note would confuse future AI sessions;
+- Git history is enough if someone needs to recover the old text.
+
+Archive only when:
+
+- the source may need later audit or citation;
+- it preserves context for why a direction was rejected;
+- deleting it would make a promoted decision hard to understand.
+
+`archived/` is not a default destination for old notes. It is for retained
+provenance with a clear reason.

@@ -15,6 +15,9 @@
 - Promote durable conclusions out of `research/` into the narrowest justified
   project doc. Do not leave accepted product or architecture truth only in raw
   research.
+- After extraction or supersession, prefer deleting low-value research notes
+  over keeping them indefinitely. Use `archived/` only when there is clear
+  provenance, audit, citation, or rejection-rationale value.
 - Do not create lifecycle folders, taxonomy folders, or placeholder files
   before there is real content for them.
 - Use normal Markdown links and indexes. Do not rely on Obsidian-only,
