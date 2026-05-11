@@ -21,6 +21,7 @@ Current durable documents:
 docs/
   AGENTS.md
   README.md
+  progressive-adoption-progress-tracker.md
   research/
     README.md
     greenfield-experimental-automation-architecture-notes.md
