@@ -1,14 +1,41 @@
 # Greenfield Architecture Notes for a Progressive Experimental Automation Platform
 
-**Project status:** Greenfield design phase
-**Current inputs:** Interview-based pain-point analysis of the legacy experimental codebase, plus ongoing collection of external references and design precedents.
-**Document purpose:** Summarize the architectural reasoning from the design discussion and provide a working reference for subsystem boundaries, adoption strategy, documentation structure, and future research.
+## Status
 
-**Current interpretation:** This is historical research input, not the current
-product plan. Sections that suggest a first implementation direction, maturity
-order, subsystem scaffold, or "do first" sequence are hypotheses to revalidate
-through journey-first discovery before promotion into durable product,
-architecture, or decision documents.
+Raw
+
+## Source
+
+Historical greenfield architecture discussion. Inputs included
+interview-based pain-point analysis of the legacy experimental codebase,
+ongoing external reference collection, and design precedents available at the
+time of discussion.
+
+## Summary
+
+This note captures an early architecture framing for a progressively adoptable
+experimental automation platform. It includes candidate capability boundaries,
+adoption ideas, documentation structure, open questions, and technical spike
+ideas.
+
+## Extracted To
+
+- `../document-index.md` records this note as raw research input with
+  first-direction and scaffold caveats.
+- `../progressive-adoption-progress-tracker.md` uses the progressive adoption
+  framing while requiring journey-first revalidation before selecting a first
+  product direction.
+- No accepted product plan, architecture contract, or decision has been
+  promoted from this note yet.
+
+## Remaining Value
+
+Use this note for historical context, vocabulary candidates, hypothesis
+discovery, and provenance when distilling a smaller architecture extraction.
+Do not use it as the current product plan. Sections that suggest a first
+implementation direction, maturity order, subsystem scaffold, or "do first"
+sequence are hypotheses to revalidate through journey-first discovery before
+promotion into durable product, architecture, or decision documents.
 
 ---
 
