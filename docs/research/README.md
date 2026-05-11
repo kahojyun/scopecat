@@ -147,10 +147,3 @@ Last reviewed
 
 The index should make it clear which raw inputs are still worth reading and
 which ones have already been distilled.
-
-## Reference Materials
-
-- `greenfield-experimental-automation-architecture-notes.md` captures the
-  initial greenfield architecture discussion for a progressively adoptable
-  experimental automation platform. Treat it as raw research input; accepted
-  structure and ownership rules require promotion into narrower durable docs.

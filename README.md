@@ -22,7 +22,7 @@ The documentation workspace is the long-lived project memory for product
 analysis, research, architecture decisions, and future user documentation.
 It should not be treated as a finalized product specification.
 
-## Current Guardrail
+## Guardrail
 
 Do not infer product commitments from this README. Treat specific product
 claims, capability boundaries, and adoption sequences as hypotheses until they
