@@ -18,7 +18,9 @@ status.
 | `progressive-adoption-progress-tracker.md` | Drafting | Tracking journey-first discovery, adoption ladders, migration wedges, contracts, and decision promotion. | Candidate ladders and wedges are unordered hypotheses, not priority commitments. |
 | `research/README.md` | Stable policy | Research directory purpose and promotion rule. | Does not define product direction. |
 | `research/AGENTS.md` | Stable policy | Always-applied AI instructions for work inside `docs/research/`. | Keeps raw research from being treated as product truth. |
+| `research/research-index.md` | Working index | Current research inputs, extraction state, and caveats. | Research entries are evidence inputs unless separately promoted. |
 | `research/greenfield-experimental-automation-architecture-notes.md` | Raw research input | Historical architecture vocabulary, candidate boundaries, and questions. | Contains first-direction and scaffold hypotheses; do not treat as current product plan. |
+| `research/raw/fricon-legacy-docs/README.md` | Raw research input | Fricon predecessor docs, especially measurement-history analysis and long-term experiment-memory goals. | Fricon is replaced by this project; re-evaluate all claims under the broader capability model before promotion. |
 
 ## Possible Future Areas
 
