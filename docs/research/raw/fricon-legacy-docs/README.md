@@ -2,21 +2,27 @@
 
 ## Status
 
-Raw
+Extracting
 
 ## Source
 
 Snapshot copied from the local Fricon predecessor workspace on 2026-05-11. The
-imported files are under `source/`.
+retained high-signal files are under `source/`.
 
-The predecessor root `AGENTS.md` was renamed to `root-AGENTS.imported.md` in
-the copied source tree so future tooling does not treat it as active
-instructions for this repository.
+Low-value predecessor scaffolding, templates, routing docs, and imported agent
+instructions were pruned after W1 because current Scopecat policy and the W1
+inventory supersede them. Git history is sufficient if those deleted process
+files are needed again.
 
 Fricon is the predecessor project to this project. Its docs are retained here
 because the measurement-history product analysis and long-term product goals
 remain useful evidence, even though the Fricon analysis stopped partway through
 when the work moved into this broader project model.
+
+Any status labels inside retained source files are Fricon-local historical
+statuses. They do not imply current Scopecat acceptance. Current acceptance is
+owned only by Scopecat wrappers, indexes, extracted notes, promoted durable
+docs, or explicit decisions.
 
 ## Summary
 
@@ -36,8 +42,7 @@ The most valuable material is:
 - long-term goals around parameters, managed code provenance, run manifests,
   calibration evidence, setup/device state, reviewed replay, and reviewable
   automation;
-- lessons from product-analysis cleanup, documentation governance, and
-  predecessor reset decisions.
+- lessons from product-analysis cleanup and predecessor reset decisions.
 
 The content should be treated as predecessor evidence, not as current product
 direction. In particular, Fricon analyzed measurement history as the central
@@ -48,6 +53,8 @@ execution can be analyzed on more equal terms.
 
 ## Extracted To
 
+- [`../../extracted/research-acceptance-readiness-triage.md`](../../extracted/research-acceptance-readiness-triage.md)
+  classifies Fricon predecessor content by acceptance readiness for Scopecat.
 - `../../research-index.md` records this import as raw predecessor evidence.
 - `../../../document-index.md` lists this import as a research entry point.
 - No product, journey, capability, domain, architecture, or decision document
@@ -70,12 +77,12 @@ Future extraction should preserve the provenance that Fricon was replaced by
 this project and should avoid treating any Fricon scope order as accepted for
 the current system.
 
+Cleanup note: after W1, this snapshot keeps only predecessor evidence, pressure,
+and rejection-rationale documents that may still support W2 fixture selection
+or later ADR/capability extraction. It no longer keeps predecessor docs
+scaffolding as an active reading path.
+
 ## Source Inventory
-
-Root files:
-
-- [`source/README.md`](source/README.md)
-- [`source/root-AGENTS.imported.md`](source/root-AGENTS.imported.md)
 
 Product docs:
 
@@ -90,27 +97,13 @@ Product docs:
 
 Research docs:
 
-- [`source/docs/research/README.md`](source/docs/research/README.md)
 - [`source/docs/research/lessons-for-fricon.md`](source/docs/research/lessons-for-fricon.md)
 - [`source/docs/research/legacy-measurement-sample-lessons.md`](source/docs/research/legacy-measurement-sample-lessons.md)
 - [`source/docs/research/strategic-follow-on-future-systems.md`](source/docs/research/strategic-follow-on-future-systems.md)
 
-Architecture, domain, and decision docs:
+Architecture, decision, and postmortem docs:
 
 - [`source/docs/architecture/README.md`](source/docs/architecture/README.md)
 - [`source/docs/architecture/compatibility-policy.md`](source/docs/architecture/compatibility-policy.md)
-- [`source/docs/domain/README.md`](source/docs/domain/README.md)
-- [`source/docs/decisions/ADR-000-template.md`](source/docs/decisions/ADR-000-template.md)
 - [`source/docs/decisions/ADR-001-v02-clean-reset-boundary.md`](source/docs/decisions/ADR-001-v02-clean-reset-boundary.md)
-- [`source/docs/decisions/ADR-002-documentation-governance.md`](source/docs/decisions/ADR-002-documentation-governance.md)
-
-AI, user, spec, implementation, and postmortem docs:
-
-- [`source/docs/README.md`](source/docs/README.md)
-- [`source/docs/ai/project-context.md`](source/docs/ai/project-context.md)
-- [`source/docs/ai/agent-steering.md`](source/docs/ai/agent-steering.md)
-- [`source/docs/ai/documentation-update-policy.md`](source/docs/ai/documentation-update-policy.md)
-- [`source/docs/user/documentation-plan.md`](source/docs/user/documentation-plan.md)
-- [`source/docs/specs/README.md`](source/docs/specs/README.md)
-- [`source/docs/implementation-plans/README.md`](source/docs/implementation-plans/README.md)
 - [`source/docs/postmortems/v0-lessons.md`](source/docs/postmortems/v0-lessons.md)

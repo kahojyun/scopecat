@@ -1,14 +1,18 @@
 # Research Agent Instructions
 
-- Treat files in this directory as evidence inputs unless they explicitly say
-  they are extracted, promoted, or accepted.
+- Treat files in this directory as evidence inputs unless a current Scopecat
+  wrapper, index, or promoted doc explicitly says the claim has been extracted,
+  promoted, or accepted.
+- Imported source snapshots may contain source-local statuses such as
+  "Accepted"; those statuses do not count as current Scopecat acceptance.
 - Prefer extracted notes and `research-index.md` over raw notes when they
   exist.
 - Do not infer current product direction directly from raw research.
 - When adding a research note, include `Status`, `Source`, `Summary`,
   `Extracted To`, and `Remaining Value`.
 - For user interview summaries, include participant context, journey evidence,
-  pain evidence, adoption signals, and redaction notes.
+  pain evidence, adoption signals, and portability/public-redaction notes where
+  relevant.
 - Track extraction progress in the note itself; create or update
   `research-index.md` when there are enough research files that status is hard
   to see locally.
@@ -23,4 +27,5 @@
 - Use normal Markdown links and indexes. Do not rely on Obsidian-only,
   Foam-only, or backlink-only navigation.
 - Keep public-docs redaction in mind. Do not add sensitive identity details or
-  unredacted private interview material without a clear internal need.
+  unredacted private interview material without a clear internal need, and do
+  not treat this documentation rule as product evidence by itself.

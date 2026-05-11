@@ -70,12 +70,18 @@ Every research note should declare one status:
 | Triaged | Read once; main possible value is known. |
 | Extracting | Claims are being pulled into extracted notes or durable docs. |
 | Extracted | Important content has been promoted or summarized elsewhere. |
+| Transitional | Extracted or summarized material kept temporarily until W2 or a later owner doc absorbs the remaining useful claims. |
+| Quarantined | Preserved for evidence, pressure, vocabulary, or provenance, but explicitly not accepted as product plan, scope, or architecture. |
 | Superseded | Replaced by newer research, summary, or decision. |
 | Archived | Kept for provenance; should not normally be consulted. |
 
 `Extracted` means future work should use the linked extracted or promoted
 artifact first. After extraction, decide whether the source should remain in
 the working tree, move to `archived/`, or be deleted.
+
+Statuses inside imported source snapshots are source-local. They do not imply
+current Scopecat acceptance unless a current Scopecat wrapper, index, extracted
+note, or promoted durable doc explicitly says so.
 
 ## Required Fields
 

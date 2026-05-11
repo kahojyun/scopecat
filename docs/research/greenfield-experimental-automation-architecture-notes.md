@@ -1,30 +1,40 @@
-# Greenfield Architecture Notes for a Progressive Experimental Automation Platform
+# Automation Architecture Notes for a Progressive Experimental Automation Platform
 
 ## Status
 
-Raw
+Quarantined
 
 ## Source
 
-Historical greenfield architecture discussion. Inputs included
-interview-based pain-point analysis of the legacy experimental codebase,
-ongoing external reference collection, and design precedents available at the
-time of discussion.
+Historical automation architecture discussion. Inputs included interview-based
+pain-point analysis of the legacy experimental codebase, ongoing external
+reference collection, and design precedents available at the time of
+discussion.
 
 ## Summary
 
 This note captures an early architecture framing for a progressively adoptable
 experimental automation platform. It includes candidate capability boundaries,
 adoption ideas, documentation structure, open questions, and technical spike
-ideas.
+ideas. Its lasting value is the broad capability pressure: replacing
+manual-discipline recordkeeping with reliable automatic versioned records, then
+using those records to improve configuration, code provenance, scan semantics,
+execution readiness, lineage, handoff, and later automation.
 
 ## Extracted To
 
+- [`extracted/research-acceptance-readiness-triage.md`](extracted/research-acceptance-readiness-triage.md)
+  classifies this note's guardrails, evidence-backed inferences, adoption
+  hypotheses, future pressure, ADR-gated directions, and rejected upfront
+  directions.
 - `../document-index.md` records this note as raw research input with
   first-direction and scaffold caveats.
 - `../progressive-adoption-progress-tracker.md` uses the progressive adoption
   framing while requiring journey-first revalidation before selecting a first
   product direction.
+- `../evidence-and-pain-point-inventory.md` preserves the capability pressures
+  behind this note while keeping subsystem order, implementation scope, and
+  scaffold shape unaccepted.
 - No accepted product plan, architecture contract, or decision has been
   promoted from this note yet.
 
@@ -36,6 +46,18 @@ Do not use it as the current product plan. Sections that suggest a first
 implementation direction, maturity order, subsystem scaffold, or "do first"
 sequence are hypotheses to revalidate through journey-first discovery before
 promotion into durable product, architecture, or decision documents.
+
+Do preserve the problem pressure behind its capabilities. Measurement History
+is useful and comparatively easy to adopt, but over-centering it would risk a
+measurement-system-shaped internal tool with weak differentiation. The other
+capability pressures in this note should be used to challenge that bias before
+W2 selects a first journey.
+
+Retain this note longer than the predecessor project import, but delete it
+after the first selected journey has produced a smaller capability/adoption
+hypothesis note, architecture-question list, and ADR trigger list. It should
+not remain as a regular source once capability specs or implementation plans
+start, because its subsystem map and migration order can bias current design.
 
 ---
 
