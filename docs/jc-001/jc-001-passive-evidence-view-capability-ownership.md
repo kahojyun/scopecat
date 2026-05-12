@@ -38,7 +38,7 @@ own storage, UI, services, execution, hardware, or write-back behavior.
 | Fact or contract family | Provisional owner | First-wedge responsibility | Non-ownership |
 | --- | --- | --- | --- |
 | Work bundle boundary | Measurement History | Own bundle ID, source boundary, included artifact list, excluded categories when needed, and the unresolved or preferred anchor state. | Does not own old-history import, durable database schema, acquisition, resumability, or live run records yet. |
-| Artifact-role inventory | Measurement History | Own the requirement that every included artifact has a role or `unknown`, evidence handling, sharing boundary, and included reason. | Does not decide selected settings authority, setup truth, code identity, or conflict winner. |
+| Artifact-role inventory | Measurement History | Own the requirement that every included artifact has a role or `unknown`, evidence handling, sharing boundary, and included reason. | Does not decide selected settings provenance, setup truth, code identity, or conflict winner. |
 | Selected context | Parameter Memory | Own selected-looking settings/context evidence, non-authoritative status, freshness labels, and selected-source missing facts. | Does not own write-back, rollback, calibration mutation, universal parameter schema, or source-of-record authority. |
 | Generated sidecar relation | Measurement History plus Parameter Memory | Measurement History owns bundle attachment and artifact-inventory presence; Parameter Memory owns generated-from relation semantics, freshness gaps, and invalidation-rule producer obligations when sidecars exist. | Does not prove sidecar freshness or execute generators. |
 | Copied snapshot relation | Measurement History plus Parameter Memory | Measurement History owns run/bundle attachment; Parameter Memory owns copied-from relation, coverage gaps, and context mismatch implications. | Does not provide transaction semantics, restore, rollback, or completeness guarantees. |
@@ -48,7 +48,7 @@ own storage, UI, services, execution, hardware, or write-back behavior.
 | Static readiness hint | Managed Code Runner | Own static readiness clues and readiness-gap wording when visible without execution. | Does not own execution supervision, package installation, environment solving, shell-command UX, workers, or logs. |
 | Conflict display | Comparability and known-good diff | Own within-bundle conflict records, affected producer fact, user-visible implication, and next-check wording. | Does not own known-good authority, scientific equivalence scoring, normalization, or cross-system transfer claims. |
 | Sharing boundary | Evidence view boundary, with input from each owner | Own report-level preservation of roles and relations for public-safe fixture labels. Each fact owner provides the boundary label for its artifacts or fields. | Does not define internal-safe view differences, external support export workflow, legal policy, or public documentation examples. |
-| Missing producer facts | Evidence view boundary, with one fact owner per gap | Own first-class display of missing facts and routing to the owner of the missing fact family. | Does not fabricate inferred truth or require write-side implementation before passive explanation. |
+| Missing producer facts | Evidence view boundary, with one fact owner per gap | Own first-class display of missing facts. Owner routing is a follow-on contract once producer-side facts are promoted. | Does not fabricate inferred truth, implement owner routing, or require write-side implementation before passive explanation. |
 
 ## Dependency Direction
 
@@ -85,7 +85,7 @@ The first wedge may rely on these provisional ownership decisions while avoiding
 broader subsystem promotion:
 
 - Measurement History owns the bundle and artifact inventory shape.
-- Parameter Memory owns selected-context, generated-sidecar, copied-context,
+- Parameter Memory owns selected-context provenance, generated-sidecar, copied-context,
   and variant/backup evidence semantics.
 - Code Asset Registry owns static code-reference evidence semantics.
 - Instrument Runtime owns setup evidence semantics without live verification.

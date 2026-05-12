@@ -64,7 +64,7 @@ existing bundle
   -> selected-context explanation
   -> code-shape provenance
   -> producer-fact gaps
-  -> public-safe/internal-safe evidence view
+  -> public-safe fixture evidence view
 ```
 
 This slice can be useful even when the producer did not record everything. The

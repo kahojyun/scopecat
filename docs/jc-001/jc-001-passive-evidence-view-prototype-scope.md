@@ -99,7 +99,7 @@ The structured output should use the first-wedge vocabulary from
   external-support-safe, redaction-sensitive, and unsafe-to-share variants are
   vocabulary pressure but not validated by this prototype.
 
-The Markdown report should include the nine evidence-view sections already
+The Markdown report should include the ten evidence-view sections currently
 accepted by the concepts document:
 
 1. Bundle summary.
@@ -107,10 +107,11 @@ accepted by the concepts document:
 3. Selected-context explanation.
 4. Generated and copied relation summary.
 5. Code-reference summary.
-6. Variant, backup, and unknown artifact summary.
-7. Conflict and missing-fact report.
-8. Sharing-boundary summary.
-9. Next checks.
+6. Static readiness hint summary.
+7. Variant, backup, and unknown artifact summary.
+8. Conflict and missing-fact report.
+9. Sharing-boundary summary.
+10. Next checks.
 
 ## Minimal Implementation Shape
 
@@ -157,7 +158,7 @@ Validated behavior:
   variant, backup, missing-fact, conflict, and redaction relations;
 - preserves root/selected context drift, setup-context drift, and partial
   snapshot ambiguity;
-- reports preferred anchor, selected settings authority, generated sidecar
+- reports preferred anchor, selected settings provenance, generated sidecar
   freshness, snapshot coverage, and code identity as missing producer facts;
 - explicitly reports that no static readiness hints are observed;
 - reads code artifacts as text only;
@@ -263,7 +264,7 @@ shipping sample data, or public documentation examples have been accepted.
 | Role inventory | The evidence view contains every manifest-listed artifact with a normalized role or explicit `unknown`. |
 | Relation coverage | The evidence view can represent anchor, selected-context, generated, copied, code-reference, variant, backup, missing-fact, conflict, and redaction relations. |
 | Conflict visibility | Root/selected context drift, same-shape value drift, setup-context drift, and partial snapshot ambiguity remain visible. |
-| Missing facts | Preferred anchor, selected settings authority, generated sidecar freshness, snapshot coverage, and code identity gaps remain explicit. |
+| Missing facts | Preferred anchor, selected settings provenance, generated sidecar freshness, snapshot coverage, and code identity gaps remain explicit. |
 | Sharing boundary | Public-safe output preserves artifact roles and relation existence without leaking sensitive details. |
 | No authority claim | The report never declares a selected context, registry, setup, or code reference authoritative unless producer facts explicitly say so. |
 | Portable run | The prototype can run from a clean checkout using only documented inputs, committed test fixture data, and local tooling. |

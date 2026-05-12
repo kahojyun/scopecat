@@ -134,6 +134,17 @@ def resolve_fixture_path(fixture_dir: Path, artifact_path: str) -> Path:
     return resolved
 
 
+def resolve_manifest_path(fixture_dir: Path) -> Path:
+    manifest_path = fixture_dir / "fixture-manifest.json"
+    if not manifest_path.is_file():
+        raise EvidenceViewError(f"missing JSON file: {manifest_path}")
+
+    resolved = manifest_path.resolve()
+    if not is_relative_to(resolved, fixture_dir):
+        raise EvidenceViewError("fixture manifest escapes fixture directory")
+    return resolved
+
+
 def ensure_output_outside_fixture(fixture_dir: Path, output_dir: Path) -> None:
     resolved_output = output_dir.resolve(strict=False)
     if is_relative_to(resolved_output, fixture_dir):
@@ -197,6 +208,7 @@ def validate_manifest(manifest: Any, fixture_dir: Path) -> dict[str, Any]:
         raise EvidenceViewError("artifacts must not be empty")
 
     seen_paths: set[str] = set()
+    seen_artifact_ids: dict[str, str] = {}
     required_fields = ("path", "role", "status", "evidence_handling", "sharing_boundary")
     for index, raw_artifact in enumerate(artifacts):
         artifact = require_mapping(raw_artifact, f"artifacts[{index}]")
@@ -207,6 +219,14 @@ def validate_manifest(manifest: Any, fixture_dir: Path) -> dict[str, Any]:
         if artifact_path in seen_paths:
             raise EvidenceViewError(f"duplicate manifest artifact path: {artifact_path}")
         seen_paths.add(artifact_path)
+        generated_id = artifact_id(artifact_path)
+        if generated_id in seen_artifact_ids:
+            first_path = seen_artifact_ids[generated_id]
+            raise EvidenceViewError(
+                "duplicate generated artifact ID: "
+                f"{generated_id} from {first_path} and {artifact_path}"
+            )
+        seen_artifact_ids[generated_id] = artifact_path
         resolve_fixture_path(fixture_dir, artifact_path)
 
     return manifest
@@ -334,7 +354,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
     if not fixture_dir.is_dir():
         raise EvidenceViewError(f"fixture directory does not exist: {fixture_dir}")
 
-    manifest = validate_manifest(load_json(fixture_dir / "fixture-manifest.json"), fixture_dir)
+    manifest = validate_manifest(load_json(resolve_manifest_path(fixture_dir)), fixture_dir)
     artifacts = build_artifacts(manifest)
     by_path = {artifact.path: artifact for artifact in artifacts}
     json_payloads = collect_json_artifacts(fixture_dir, artifacts)
@@ -500,9 +520,10 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         )
 
     root_params = json_payloads.get("parameters.json", {})
-    selected_params = json_payloads.get("setting/parameters.json", {})
+    selected_params_path = selected_context.path if selected_context else "setting/parameters.json"
+    selected_params = json_payloads.get(selected_params_path, {})
     root_params_present = "parameters.json" in json_payloads
-    selected_params_present = "setting/parameters.json" in json_payloads
+    selected_params_present = selected_context is not None and selected_params_path in json_payloads
     if (
         root_params_present
         and selected_params_present
@@ -511,7 +532,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         add_conflict(
             make_conflict(
                 "conflict-001",
-                [by_path["parameters.json"].artifact_id, by_path["setting/parameters.json"].artifact_id],
+                [by_path["parameters.json"].artifact_id, selected_context.artifact_id],
                 "shape-drift",
                 "active parameter source",
                 "Root parameters and selected settings differ in coverage and shape; the prototype must not choose a winner.",
@@ -526,7 +547,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         add_conflict(
             make_conflict(
                 "conflict-001",
-                [by_path["parameters.json"].artifact_id, by_path["setting/parameters.json"].artifact_id],
+                [by_path["parameters.json"].artifact_id, selected_context.artifact_id],
                 "value-drift",
                 "active parameter source",
                 "Root parameters and selected settings share a shape but differ in values; the prototype must not choose a winner.",
@@ -576,7 +597,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
             add_conflict(
                 make_conflict(
                     "conflict-003",
-                    [snapshot.artifact_id, by_path["setting/parameters.json"].artifact_id],
+                    [snapshot.artifact_id, selected_context.artifact_id],
                     "partial-snapshot",
                     "run-bound parameter snapshot coverage",
                     "Run snapshot preserves only part of selected context, so reopening cannot rely on it as full context.",
@@ -615,7 +636,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
 
     if selected_context is not None:
         add_missing_fact(
-            "selected settings authority",
+            "selected settings provenance",
             [selected_context.artifact_id],
             "Selected-looking context is visible but not authoritative.",
             "Record settings path, selection reason, and producer timestamp.",
@@ -829,6 +850,9 @@ def render_markdown(view: dict[str, Any]) -> str:
             "",
             "- Code references: " + display_ids(view["code_reference_summary"]["code_references"]),
             f"- Execution boundary: {view['code_reference_summary']['execution_boundary']}",
+            "",
+            "## Static Readiness Hint Summary",
+            "",
             "- Readiness hints: " + display_ids(view["readiness_hint_summary"]["readiness_hints"]),
             "",
             "## Variant, Backup, And Unknown Artifact Summary",

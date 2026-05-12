@@ -22,8 +22,8 @@ spikes.
 
 ## User-Visible Outcome
 
-A user opens an existing work bundle and sees a public-safe or internal-safe
-evidence view that explains:
+A user opens an existing work bundle and sees a public-safe evidence view that
+explains:
 
 - anchor artifacts;
 - selected-context candidates;
@@ -59,7 +59,7 @@ Included:
 - code-shape provenance without execution;
 - variant and backup ambiguity;
 - producer-side missing-fact report;
-- public-safe/internal-safe sharing boundary labels.
+- public-safe fixture sharing-boundary labels.
 
 Excluded:
 
@@ -129,7 +129,7 @@ unsafe to share.
 | Producer gaps | Missing selected-source, generated-relation, copied-relation, or code-reference facts remain visible. |
 | No execution | The wedge produces useful output without running code, notebooks, drivers, services, or hardware routines. |
 | No mutation | The wedge does not write back, repair, restore, normalize, or reorder source artifacts. |
-| Sharing boundary | Internal-safe and public-safe views can differ without losing the role of redacted evidence. |
+| Sharing boundary | Public-safe fixture output preserves the role of redacted evidence; internal-safe view differences remain follow-on validation. |
 | Low ceremony | The wedge works on ordinary files and lightweight manifests, not only on Scopecat-native projects. |
 | Future write pressure | The wedge identifies which facts future producers should record without requiring a managed runner or database now. |
 

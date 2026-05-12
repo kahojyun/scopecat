@@ -86,7 +86,7 @@ which mechanism is best.
 | Analyst | Recover which context and sidecars explain a run-like artifact or result. |
 | Method author | See which code-shape evidence selected or derived settings. |
 | Configuration reviewer | Identify conflicts, freshness gaps, and unsafe assumptions before mutation or reuse. |
-| Recipient | Receive a public-safe or internal-safe explanation without private lab details. |
+| Recipient | Receive a public-safe explanation without private lab details; internal-safe view differences remain follow-on validation. |
 
 ## Entry Conditions
 
@@ -130,7 +130,7 @@ The user can manually collect clues, but the result is fragile:
 | 3 | Method author | Summarizes non-executable code-shape evidence: path selection, settings read, optional sidecar generation, and run-bound snapshot pattern. | Decide whether the bundle has enough code provenance to explain settings flow. | No managed execution or notebook-state capture. |
 | 4 | Analyst | Groups generated sidecars and copied snapshots with the settings evidence they appear derived from or attached to, while marking stale or unchecked relations. | Decide whether the run-like artifact is explainable enough for analysis. | No automatic completeness proof. |
 | 5 | Configuration reviewer | Lists variant and backup evidence separately from selected context and explains why active state is unknown. | Decide which variant, if any, needs external confirmation. | No rollback, restore, or precedence inference. |
-| 6 | Recipient | Produces an internal-safe or public-safe explanation view with sensitive fields redacted or categorized. | Decide what can be shared for handoff or support. | No raw private context in public output. |
+| 6 | Recipient | Produces a public-safe explanation view with sensitive fields redacted or categorized. | Decide what can be shared for handoff or support. | No raw private context in public output; internal-safe view differences remain follow-on validation. |
 
 ## Future-State Output
 

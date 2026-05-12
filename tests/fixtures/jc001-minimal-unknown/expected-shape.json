@@ -17,7 +17,7 @@
   "conflict_types": [],
   "missing_fact_types": [
     "code identity",
-    "selected settings authority"
+    "selected settings provenance"
   ],
   "readiness_hint_status": "static readiness hints observed",
   "markdown_sections": [
@@ -26,6 +26,7 @@
     "## Selected-Context Explanation",
     "## Generated And Copied Relation Summary",
     "## Code-Reference Summary",
+    "## Static Readiness Hint Summary",
     "## Variant, Backup, And Unknown Artifact Summary",
     "## Conflict And Missing-Fact Report",
     "## Sharing-Boundary Summary",

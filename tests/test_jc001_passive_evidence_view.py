@@ -132,6 +132,15 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         self.assertEqual(chip_relation["evidence_handling"], "observed")
         self.assertIn("freshness-unchecked", chip_relation["flags"])
 
+        line_relation = relation_by_type_and_source(
+            view,
+            "generated-from",
+            "setting__temp__line_info_json",
+        )
+        self.assertEqual(line_relation["target_artifact"], "setting__parameters_json")
+        self.assertEqual(line_relation["evidence_handling"], "observed")
+        self.assertIn("freshness-unchecked", line_relation["flags"])
+
         snapshot_relation = relation_by_type_and_source(
             view,
             "copied-from",
@@ -150,7 +159,7 @@ class PassiveEvidenceViewTest(unittest.TestCase):
             missing_types,
             {
                 "preferred anchor",
-                "selected settings authority",
+                "selected settings provenance",
                 "generated sidecar freshness",
                 "snapshot coverage",
                 "code identity",
@@ -271,6 +280,72 @@ class PassiveEvidenceViewTest(unittest.TestCase):
             ):
                 prototype.build_evidence_view(fixture_path)
 
+    @unittest.skipUnless(hasattr(os, "symlink"), "symlink support is required")
+    def test_fixture_manifest_symlink_cannot_escape_fixture(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as fixture_dir, tempfile.TemporaryDirectory() as external_dir:
+            fixture_path = Path(fixture_dir)
+            external_manifest = Path(external_dir) / "fixture-manifest.json"
+            write_json(
+                external_manifest,
+                {
+                    "fixture_id": "manifest-symlink-fixture",
+                    "purpose": "manifest symlink regression",
+                    "redaction_policy": {
+                        "source": "public-test-fixture",
+                        "forbidden_content": [],
+                    },
+                    "artifacts": [],
+                },
+            )
+            (fixture_path / "fixture-manifest.json").symlink_to(external_manifest)
+
+            with self.assertRaisesRegex(
+                prototype.EvidenceViewError,
+                "fixture manifest escapes fixture directory",
+            ):
+                prototype.build_evidence_view(fixture_path)
+
+    def test_generated_artifact_id_collisions_are_rejected(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as fixture_dir:
+            fixture_path = Path(fixture_dir)
+            write_json(fixture_path / "a" / "b.json", {"value": "nested"})
+            write_json(fixture_path / "a__b.json", {"value": "flat"})
+            write_json(
+                fixture_path / "fixture-manifest.json",
+                {
+                    "fixture_id": "id-collision-fixture",
+                    "purpose": "artifact ID collision regression",
+                    "redaction_policy": {
+                        "source": "public-test-fixture",
+                        "forbidden_content": [],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "a/b.json",
+                            "role": "anchor",
+                            "status": "nested",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        },
+                        {
+                            "path": "a__b.json",
+                            "role": "selected context",
+                            "status": "flat",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        },
+                    ],
+                },
+            )
+
+            with self.assertRaisesRegex(
+                prototype.EvidenceViewError,
+                "duplicate generated artifact ID: a__b_json from a/b.json and a__b.json",
+            ):
+                prototype.build_evidence_view(fixture_path)
+
     def test_same_shape_value_drift_remains_visible(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as fixture_dir:
@@ -311,6 +386,67 @@ class PassiveEvidenceViewTest(unittest.TestCase):
             item["conflict_type"] for item in view["conflict_and_missing_fact_report"]["conflicts"]
         }
         self.assertIn("value-drift", conflict_types)
+
+    def test_non_default_selected_context_path_drives_conflicts(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as fixture_dir:
+            fixture_path = Path(fixture_dir)
+            write_json(fixture_path / "parameters.json", {"alpha": "root"})
+            write_json(fixture_path / "active" / "context.json", {"alpha": "selected", "beta": "extra"})
+            write_json(
+                fixture_path / "data" / "snapshot.json",
+                {"copied_from": "active/context.json", "alpha": "selected"},
+            )
+            write_json(
+                fixture_path / "fixture-manifest.json",
+                {
+                    "fixture_id": "non-default-selected-context-fixture",
+                    "purpose": "selected context path regression",
+                    "redaction_policy": {
+                        "source": "public-test-fixture",
+                        "forbidden_content": [],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "parameters.json",
+                            "role": "anchor",
+                            "status": "root candidate",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        },
+                        {
+                            "path": "active/context.json",
+                            "role": "selected context",
+                            "status": "selected candidate",
+                            "evidence_handling": "inferred",
+                            "sharing_boundary": "public-safe",
+                        },
+                        {
+                            "path": "data/snapshot.json",
+                            "role": "copied snapshot",
+                            "status": "partial snapshot",
+                            "evidence_handling": "copied",
+                            "sharing_boundary": "public-safe",
+                        },
+                    ],
+                },
+            )
+
+            view = prototype.build_evidence_view(fixture_path)
+
+        conflict_types = {
+            item["conflict_type"] for item in view["conflict_and_missing_fact_report"]["conflicts"]
+        }
+        self.assertIn("shape-drift", conflict_types)
+        self.assertIn("partial-snapshot", conflict_types)
+
+        snapshot_relation = relation_by_type_and_source(
+            view,
+            "copied-from",
+            "data__snapshot_json",
+        )
+        self.assertEqual(snapshot_relation["target_artifact"], "active__context_json")
+        self.assertEqual(snapshot_relation["evidence_handling"], "observed")
 
     def test_empty_json_drift_remains_visible(self):
         prototype = load_prototype()

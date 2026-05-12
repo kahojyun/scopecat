@@ -27,14 +27,15 @@ workflows Scopecat should preserve, encourage, or emulate.
 
 ## W2 Quick Start
 
-Use this document as the W1 evidence owner behind the first W2 journey. The
-short journey-selection note has been promoted to
+Use this document as the W1 evidence owner behind the first W2 journey. `JC-001`
+has been promoted into the first-wedge document set under
+[`jc-001/README.md`](jc-001/README.md), and the short journey-selection note is
 [`jc-001/jc-001-journey-selection-note.md`](jc-001/jc-001-journey-selection-note.md).
 
-- Default first candidate: `JC-001`, explaining an existing run or work bundle
+- Promoted first candidate: `JC-001`, explaining an existing run or work bundle
   with selected context, code provenance, dependency readiness, companion
   artifacts, and ambiguity.
-- Primary acceptance pressure for that candidate: `PN-002`, `PN-006`,
+- Primary acceptance pressure for that journey: `PN-002`, `PN-006`,
   `PN-005`, and `PN-001`.
 - Primary constraints: adoption-risk hypotheses and guardrails `PN-020`
   through `PN-025`, plus portability and low-ceremony constraints from `PN-007`
@@ -42,15 +43,12 @@ short journey-selection note has been promoted to
 - Diagnostic sharing is boundary-aware: internal lab diagnostics should preserve
   useful local context by default, while public docs, external exports, or
   explicit cross-boundary support packages need sanitization or redaction.
-- Blocking selection question: choose the exact source bundle for the first W2
-  fixture and write a small fixture source map before drafting the journey.
-  Prefer a workflow improvement case bundle with selected context files,
-  notebooks or copied scripts, generated or derived artifacts, and real
-  ambiguity. Use a smaller synthetic reproduction only if the internal bundle
-  is too noisy for the first journey.
-- If `JC-001` fails fixture fit or adoption-risk checks, first revise the
-  fixture or document the rejection. Switch to `JC-009` or `JC-010` only with a
-  diagnostic/comparison boundary, not rollback, environment management,
+- Historical selection work: the first source-map and journey-selection pass
+  has already been promoted. Future fixture or journey changes should update
+  the `jc-001/` document set instead of reopening this inventory as active
+  scope.
+- `JC-009` and `JC-010` remain sanity-check alternatives for later
+  diagnostic/comparison journeys, not rollback, environment management,
   scientific-equivalence scoring, or device-control scope.
 - Do not promote managed execution, live device control, write-back, automatic
   rollback, environment management, framework replacement, a full ELN, or a
@@ -714,13 +712,13 @@ scoping the future slice narrowly.
 
 ## Promotion Guidance
 
-The quick start above is the W2 reader entry point. Use these rules when
-promoting W1 material into the journey-selection note:
+The quick start above now points to the promoted `JC-001` document set. The
+rules below are preserved as historical promotion guidance for future journeys:
 
-- `JC-001` is the recommended drafting candidate, not accepted scope.
-  `JC-009` and `JC-010` are sanity-check alternatives for known-good comparison
-  and scientific comparability, not permission to accept rollback, environment
-  mutation, control-PC services, or equivalence scoring.
+- Treat any future candidate as drafting scope until it has its own promoted
+  journey note. `JC-009` and `JC-010` are sanity-check alternatives for
+  known-good comparison and scientific comparability, not permission to accept
+  rollback, environment mutation, control-PC services, or equivalence scoring.
 - Draft the fixture source map before journey prose. If the selected bundle
   cannot identify anchor objects, artifact roles, active versus obsolete
   status, notebook source cells, opaque binary handling, and sharing boundaries,

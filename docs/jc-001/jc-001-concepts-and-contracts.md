@@ -241,10 +241,11 @@ The wedge output should be a static evidence report with these sections:
 3. Selected-context explanation.
 4. Generated and copied relation summary.
 5. Code-reference summary.
-6. Variant, backup, and unknown artifact summary.
-7. Conflict and missing-fact report.
-8. Sharing-boundary summary.
-9. Next checks.
+6. Static readiness hint summary.
+7. Variant, backup, and unknown artifact summary.
+8. Conflict and missing-fact report.
+9. Sharing-boundary summary.
+10. Next checks.
 
 The report must not contain:
 

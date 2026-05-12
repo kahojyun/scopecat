@@ -30,7 +30,7 @@
     "code identity",
     "generated sidecar freshness",
     "preferred anchor",
-    "selected settings authority",
+    "selected settings provenance",
     "snapshot coverage"
   ],
   "readiness_hint_status": "no static readiness hints observed",
@@ -40,6 +40,7 @@
     "## Selected-Context Explanation",
     "## Generated And Copied Relation Summary",
     "## Code-Reference Summary",
+    "## Static Readiness Hint Summary",
     "## Variant, Backup, And Unknown Artifact Summary",
     "## Conflict And Missing-Fact Report",
     "## Sharing-Boundary Summary",
