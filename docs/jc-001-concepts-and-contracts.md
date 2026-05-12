@@ -2,7 +2,7 @@
 
 ## Status
 
-Ready for technical spike scoping.
+Ready; validated by the first static-analysis spike.
 
 ## Purpose
 
@@ -254,9 +254,9 @@ The report must not contain:
 - numeric trust scores;
 - public leakage of redaction-sensitive evidence.
 
-## Spike Readiness
+## Spike Result
 
-A technical spike is allowed only if it stays inside this question:
+The first technical spike stayed inside this question:
 
 ```text
 Can a static analyzer produce the JC-001 evidence view from the synthetic
@@ -264,9 +264,13 @@ fixture, preserving roles, relations, conflicts, missing facts, and sharing
 boundaries without execution or mutation?
 ```
 
-The spike should validate concepts and contracts by producing a report. It
-should not design the final storage model, product UI, plugin system, parser
-framework, runner, or hardware integration.
+[`jc-001-static-analysis-spike.md`](jc-001-static-analysis-spike.md) validates
+that a narrow static analyzer can produce the evidence view from the synthetic
+fixture while preserving roles, relations, conflicts, missing facts, sharing
+boundaries, and the no-execution/no-mutation boundary.
+
+The spike did not design the final storage model, product UI, plugin system,
+parser framework, runner, or hardware integration.
 
 ## Open Questions
 
@@ -284,5 +288,7 @@ framework, runner, or hardware integration.
 
 ## Next Step
 
-Run only the scoped static-analysis spike if the concept boundary is accepted.
-If the boundary is not accepted, revise this note before writing code.
+Promote the validated passive evidence-view boundary into an accepted decision
+or architecture note. Keep source-of-record authority, execution, mutation,
+hardware verification, parser generalization, and support-boundary export out
+of that decision unless a later spike validates them.
