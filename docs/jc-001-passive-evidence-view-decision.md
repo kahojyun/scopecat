@@ -117,9 +117,10 @@ Revisit this decision if one of these occurs:
 - the first prototype requires a general parser or storage model before the
   evidence view is useful.
 
-## Next Step
+## Prototype Scope
 
-Shape the first implementation-facing prototype scope for the accepted passive
-evidence view. Keep it read-only and fixture-sized unless the scope document
+[`jc-001-passive-evidence-view-prototype-scope.md`](jc-001-passive-evidence-view-prototype-scope.md)
+defines the first implementation-facing prototype scope for this decision. Keep
+the prototype read-only and fixture-sized unless a later scope document
 explicitly promotes a broader parser, storage, UI, or capability-ownership
 decision.
