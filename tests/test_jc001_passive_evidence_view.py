@@ -652,6 +652,57 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         self.assertEqual(code_relation["target_artifact"], "unrelated-setting-code-fixture")
         self.assertIn("no-exact-selected-context-path", code_relation["flags"])
 
+    def test_split_path_tokens_do_not_count_as_exact_selected_context_clue(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as fixture_dir:
+            fixture_path = Path(fixture_dir)
+            write_json(fixture_path / "active" / "context.json", {"alpha": "selected"})
+            code_path = fixture_path / "code" / "notes.py"
+            code_path.parent.mkdir(parents=True, exist_ok=True)
+            code_path.write_text(
+                "SETTING_PATH = 'setting'\nACTIVE_DIR = 'active'\nDEFAULT_FILE = 'context.json'\n",
+                encoding="utf-8",
+            )
+            write_json(
+                fixture_path / "fixture-manifest.json",
+                {
+                    "fixture_id": "split-path-token-fixture",
+                    "purpose": "split path token regression",
+                    "redaction_policy": {
+                        "source": "public-test-fixture",
+                        "forbidden_content": [],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "active/context.json",
+                            "role": "selected context",
+                            "status": "selected candidate",
+                            "evidence_handling": "inferred",
+                            "sharing_boundary": "public-safe",
+                        },
+                        {
+                            "path": "code/notes.py",
+                            "role": "code reference",
+                            "status": "text-only pseudocode",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        },
+                    ],
+                },
+            )
+
+            view = prototype.build_evidence_view(fixture_path)
+
+        selected_relation = relation_by_type_and_source(
+            view,
+            "appears-selected-for",
+            "active__context_json",
+        )
+        self.assertIn("manifest-role-only", selected_relation["flags"])
+        code_relation = relation_by_type_and_source(view, "references-code", "code__notes_py")
+        self.assertEqual(code_relation["target_artifact"], "split-path-token-fixture")
+        self.assertIn("no-exact-selected-context-path", code_relation["flags"])
+
     def test_multiple_selected_context_candidates_get_relations(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as fixture_dir:
@@ -734,6 +785,8 @@ class PassiveEvidenceViewTest(unittest.TestCase):
             markdown,
         )
         self.assertIn("Selected context candidate: none observed", markdown)
+        self.assertIn("`parameters_json`, `active__context-a_json`", markdown)
+        self.assertIn("`active__context-a_json`, `active__context-b_json`", markdown)
 
         conflict_artifacts = [
             item["artifacts"]
@@ -747,9 +800,62 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         self.assertEqual(code_relation["target_artifact"], "multi-selected-context-fixture")
         self.assertIn("multiple-selected-context-candidates", code_relation["flags"])
         self.assertIn(
-            "Record which selected-looking context applies, or preserve explicit alternatives.",
+            "Ask which selected-looking context applies, or preserve explicit alternatives.",
             view["next_checks"],
         )
+
+    def test_variant_without_backup_does_not_emit_backup_relation(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as fixture_dir:
+            fixture_path = Path(fixture_dir)
+            write_json(fixture_path / "bundle.json", {"id": "bundle"})
+            write_json(
+                fixture_path / "variants" / "manifest.json",
+                {
+                    "fixture": "variant-only-fixture",
+                    "entries": [
+                        {
+                            "name": "alternate-branch-placeholder",
+                            "role": "variant-ambiguity",
+                            "included_as_full_file": False,
+                        }
+                    ],
+                },
+            )
+            write_json(
+                fixture_path / "fixture-manifest.json",
+                {
+                    "fixture_id": "variant-without-backup-fixture",
+                    "purpose": "variant backup relation regression",
+                    "redaction_policy": {
+                        "source": "public-test-fixture",
+                        "forbidden_content": [],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "bundle.json",
+                            "role": "anchor",
+                            "status": "bundle seed",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        },
+                        {
+                            "path": "variants/manifest.json",
+                            "role": "variant",
+                            "status": "manifest-only ambiguity",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        },
+                    ],
+                },
+            )
+
+            view = prototype.build_evidence_view(fixture_path)
+
+        relation_types = {relation["relation_type"] for relation in view["relations"]}
+        self.assertIn("has-variant", relation_types)
+        self.assertNotIn("has-backup", relation_types)
+        self.assertFalse(view["variant_backup_unknown_summary"]["backup_ambiguity_visible"])
 
     def test_unlisted_declared_source_is_missing_not_observed(self):
         prototype = load_prototype()

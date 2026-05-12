@@ -48,12 +48,12 @@ lightweight manifests, or export metadata.
 The deferred boundary is owned by
 [`jc-001-passive-evidence-view-decision.md`](jc-001-passive-evidence-view-decision.md).
 
-| Capability | Smallest useful standalone adoption step | Producer-side minimum | Later composition path |
+| Capability | Smallest useful standalone adoption step | Recoverable producer facts | Later composition path |
 | --- | --- | --- | --- |
 | Measurement History | Open an existing work bundle and produce an artifact-role inventory anchored by a run-like or bundle identity. | A producer or importer can expose anchor identity, copied snapshots, generated sidecars, and artifact roles. | Later run records can link scan points, parameter snapshots, code references, execution records, and handoff packages. |
 | Parameter Memory | Show selected settings, copied snapshots, generated context, variants, conflicts, freshness, and unknown active state as evidence. | A producer can record or expose selected settings source, snapshot relation, generated relation, and variant classification. | Later calibration workflows can propose updates, review diffs, and link accepted snapshots to runs. |
 | Code Asset Registry | Register or infer code references that explain settings path selection and derivation flow without executing them. | A producer can expose entrypoint-like evidence, settings path references, data path references, and sidecar generator references. | Later managed execution can resolve exact code versions and execution records after safety boundaries exist. |
-| Instrument Runtime | Record setup/registry-like context as declared or observed evidence with role and sharing boundary. | A producer can attach setup context as evidence without proving live device state. | Later diagnostics and resource semantics can build on manifests after ADRs for device apply and leases. |
+| Instrument Runtime | Represent setup/registry-like context as declared or observed evidence with role and sharing boundary. | A producer can expose setup context as evidence without proving live device state. | Later diagnostics and resource semantics can build on manifests after ADRs for device apply and leases. |
 | Managed Code Runner | Show readiness gaps and dependency-shaped clues as static evidence. | A producer can expose dependency categories or environment hints without installing or running anything. | Later runner records can capture logs, artifacts, status, and environment after control-PC safety decisions. |
 | Comparability and known-good diff | Explain conflicts between artifacts inside one bundle with layer-by-layer evidence. | A producer can preserve enough source and relation metadata for later conflict display. | Later known-good comparison can compare bundle, setup, method, calibration, and analysis layers. |
 

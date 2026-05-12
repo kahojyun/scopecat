@@ -67,8 +67,8 @@ to preserve. It does not accept a write platform.
 
 | Read need | Future producer fact | Not accepted yet |
 | --- | --- | --- |
-| Explain which settings were selected. | Record or discover the selected settings source, its role, and whether selection is observed, inferred, copied, or user-declared. | Scopecat-owned configuration truth or automatic settings write-back. |
-| Explain generated sidecars. | Record or infer `produced-by` relations from selected settings to derived sidecars, with freshness and unchecked labels. | Automatic sidecar generation as a required runtime behavior. |
+| Explain which settings were selected. | Expose or discover the selected settings source, its role, and whether selection is observed, inferred, copied, or user-declared. | Scopecat-owned configuration truth or automatic settings write-back. |
+| Explain generated sidecars. | Represent or infer `produced-by` relations from selected settings to derived sidecars, with freshness and unchecked labels. | Automatic sidecar generation as a required runtime behavior. |
 | Explain copied run snapshots. | Preserve copied-from or snapshot-of relations, including when the copy may differ from current settings. | Durable transaction semantics, resumability, or old-history import. |
 | Explain code-shaped provenance. | Capture enough code reference to identify path selection, entrypoint-like evidence, and derivation flow. | Managed execution, notebook-state capture, package registry, or remote runner scope. |
 | Explain variants and backups. | Classify variants separately from selected context and expose unknown active state. | Automatic precedence rules, rollback, restore, or deployment management. |

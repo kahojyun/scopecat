@@ -351,7 +351,7 @@ ID instead.
   semantics.
 - Treat physical wiring, mounted sample state, chip topology, line attenuation,
   and alias maps as declared or externally evidenced state unless a later
-  validation path exists. Record source, freshness, validity period, and
+  validation path exists. Track source, freshness, validity period, and
   verification status instead of presenting them as software-proven truth.
 - Prefer local, versioned, evolvable schemas over a universal parameter or
   setup ontology in W1/W2. A schema can be useful when it stays stable inside a
@@ -841,9 +841,15 @@ Later validation backlog:
   sanitized exports for public docs, external support, or other boundary
   crossings, without turning into a ticketing or remote-support product?
 
-## Exit Criteria For W1
+## Fulfilled W1 Checklist
 
-W1 is Ready for W2 fixture source mapping and journey drafting when:
+`JC-001` has already been promoted from this checklist into the first-wedge
+document set under [`jc-001/README.md`](jc-001/README.md). Keep this checklist
+as a reusable W1 gate for future journey candidates, not as an active blocker
+for `JC-001`.
+
+A future W1 pass is ready for W2 fixture source mapping and journey drafting
+when:
 
 - major journey candidates link to evidence, source support, or explicit
   assumptions, with validation routes for direct, inferred, latent,

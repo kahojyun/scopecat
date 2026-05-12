@@ -26,7 +26,6 @@ ROLE_MAP = {
     "generated sidecar": "generated sidecar",
     "run-bound copied snapshot": "copied snapshot",
     "copied snapshot": "copied snapshot",
-    "variant and backup ambiguity": "variant",
     "variant": "variant",
     "code-shape evidence": "code reference",
     "code reference": "code reference",
@@ -112,15 +111,10 @@ def summarize_code_clues(code_text: dict[str, str]) -> dict[str, dict[str, bool]
 
 
 def code_mentions_artifact_path(code_text: dict[str, str], artifact_path: str) -> bool:
-    path = Path(artifact_path)
     path_text = artifact_path.lower()
-    parent_text = path.parent.as_posix().lower()
-    name_text = path.name.lower()
     for text in code_text.values():
         lowered = text.lower()
         if path_text in lowered:
-            return True
-        if parent_text not in (".", "") and parent_text in lowered and name_text in lowered:
             return True
     return False
 
@@ -334,6 +328,24 @@ def display_value(item: str | None) -> str:
     return f"`{item}`" if item else "none observed"
 
 
+def variant_has_backup_evidence(variant: Artifact, json_payloads: dict[str, Any]) -> bool:
+    payload = json_payloads.get(variant.path)
+    if not isinstance(payload, dict):
+        return False
+    entries = payload.get("entries", [])
+    if isinstance(entries, list):
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            role = str(entry.get("role", "")).lower()
+            name = str(entry.get("name", "")).lower()
+            if "backup" in role or "backup" in name:
+                return True
+    role = str(payload.get("role", "")).lower()
+    status = str(payload.get("status", "")).lower()
+    return "backup" in role or "backup" in status
+
+
 def declared_source_relation_target(
     *,
     source_path: Any,
@@ -536,6 +548,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
                 flags,
             )
 
+    backup_variants = [variant for variant in variants if variant_has_backup_evidence(variant, json_payloads)]
     for variant in variants:
         add_relation(
             "has-variant",
@@ -545,12 +558,13 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
             "Variant manifest preserves branch ambiguity without importing full branch data.",
             ["manifest-only"],
         )
+    for variant in backup_variants:
         add_relation(
             "has-backup",
             variant.artifact_id,
             bundle_id,
             "inferred",
-            "Fixture preserves variant and backup ambiguity at manifest level.",
+            "Variant manifest includes backup-specific ambiguity at manifest level.",
             ["manifest-only", "backup-ambiguous"],
         )
 
@@ -692,7 +706,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
             "preferred anchor",
             [anchor.artifact_id for anchor in anchors],
             "The evidence view can show anchor candidates but cannot decide the preferred entrypoint without producer intent.",
-            "Record the bundle entry artifact when the bundle is produced.",
+            "Ask which bundle entry artifact was intended when the bundle was produced.",
         )
 
     if selected_contexts:
@@ -700,7 +714,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
             "selected settings provenance",
             [selected.artifact_id for selected in selected_contexts],
             "Selected-looking context is visible but not authoritative.",
-            "Record settings path, selection reason, and producer timestamp.",
+            "Ask whether settings path, selection reason, and producer timestamp exist.",
         )
 
     if generated_sidecars:
@@ -708,7 +722,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
             "generated sidecar freshness",
             [sidecar.artifact_id for sidecar in generated_sidecars],
             "Derived files can be explained but not trusted as current without generation metadata.",
-            "Record generation source, generation time, and invalidation rule.",
+            "Ask whether generation source, generation time, and invalidation rule exist.",
         )
 
     if copied_snapshots:
@@ -716,7 +730,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
             "snapshot coverage",
             [snapshot.artifact_id for snapshot in copied_snapshots],
             "Copied snapshots need explicit coverage before they can stand in for selected context.",
-            "Record copied snapshot source and coverage.",
+            "Ask whether copied snapshot source and coverage are known.",
         )
 
     if code_refs:
@@ -724,7 +738,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
             "code identity",
             [code_ref.artifact_id for code_ref in code_refs],
             "Code-shaped evidence explains likely flow, but it is not an immutable code reference.",
-            "Record code origin or immutable reference when producer support is added.",
+            "Ask whether code origin or immutable reference exists before accepting code identity.",
         )
 
     for fact in missing_facts:
@@ -812,7 +826,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         },
         "variant_backup_unknown_summary": {
             "variant_artifacts": [variant.artifact_id for variant in variants],
-            "backup_ambiguity_visible": bool(variants),
+            "backup_ambiguity_visible": bool(backup_variants),
             "unknown_artifacts": [artifact.artifact_id for artifact in artifacts if artifact.role == "unknown"],
         },
         "relations": relations,
@@ -863,15 +877,15 @@ def build_next_checks(
 ) -> list[str]:
     next_checks: list[str] = []
     if len(anchors) != 1:
-        next_checks.append("Record the preferred bundle anchor when a producer writes bundles.")
+        next_checks.append("Ask which bundle anchor should be preferred, or preserve explicit alternatives.")
     if selected_context_count > 1:
-        next_checks.append("Record which selected-looking context applies, or preserve explicit alternatives.")
+        next_checks.append("Ask which selected-looking context applies, or preserve explicit alternatives.")
     if selected_context is not None:
-        next_checks.append("Record selected settings path, selection reason, and freshness marker.")
+        next_checks.append("Ask whether selected settings path, selection reason, and freshness marker exist.")
     if generated_sidecars:
-        next_checks.append("Record generated sidecar source and invalidation rule.")
+        next_checks.append("Ask whether generated sidecar source and invalidation rules exist.")
     if copied_snapshots:
-        next_checks.append("Record snapshot source and coverage.")
+        next_checks.append("Ask whether snapshot source and coverage are known.")
     if code_refs:
         next_checks.append("Keep code references static until code identity ownership is accepted.")
     if readiness_hints:
@@ -938,21 +952,29 @@ def render_markdown(view: dict[str, Any]) -> str:
             "",
             "## Conflict And Missing-Fact Report",
             "",
-            "| ID | Type | Implication | Next check |",
-            "| --- | --- | --- | --- |",
+            "| ID | Type | Artifacts | Implication | Next check |",
+            "| --- | --- | --- | --- | --- |",
         ]
     )
 
     for item in view["conflict_and_missing_fact_report"]["conflicts"]:
         lines.append(
             f"| `{item['conflict_id']}` | {item['conflict_type']} | "
+            f"{display_ids(item['artifacts'])} | "
             f"{item['user_visible_implication']} | {item['next_check']} |"
         )
 
-    lines.extend(["", "| ID | Type | Impact | Suggested next check |", "| --- | --- | --- | --- |"])
+    lines.extend(
+        [
+            "",
+            "| ID | Type | Affected artifacts | Impact | Suggested next check |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+    )
     for item in view["conflict_and_missing_fact_report"]["missing_facts"]:
         lines.append(
             f"| `{item['fact_id']}` | {item['fact_type']} | "
+            f"{display_ids(item['affected_artifacts'])} | "
             f"{item['user_impact']} | {item['suggested_next_check']} |"
         )
 

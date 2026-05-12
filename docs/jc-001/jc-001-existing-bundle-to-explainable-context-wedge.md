@@ -57,7 +57,7 @@ Included:
 - selected-context explanation;
 - generated-sidecar and copied-snapshot relations;
 - code-shape provenance without execution;
-- variant and backup ambiguity;
+- variant evidence and backup relation ambiguity;
 - producer-side missing-fact report;
 - public-safe fixture sharing-boundary labels.
 

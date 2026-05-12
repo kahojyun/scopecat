@@ -27,7 +27,7 @@ synthetic fixtures and produce an evidence view with:
 - selected-context explanation;
 - generated-sidecar and copied-snapshot relations;
 - static code-reference summary;
-- variant and backup ambiguity;
+- variant evidence and backup relation ambiguity;
 - conflict report;
 - missing producer-fact report;
 - sharing-boundary summary;
@@ -153,7 +153,7 @@ workspace.
 ## Implementation Spike Review
 
 Review outcome: the first implementation spike satisfies the accepted passive
-evidence-view boundary for the committed `JC-001` fixtures.
+evidence-view boundary for the first committed `JC-001` layered-config fixture.
 
 Validated behavior:
 
@@ -166,7 +166,8 @@ Validated behavior:
   snapshot ambiguity;
 - reports preferred anchor, selected settings provenance, generated sidecar
   freshness, snapshot coverage, and code identity as missing producer facts;
-- explicitly reports that no static readiness hints are observed;
+- explicitly reports that no static readiness hints are observed in the
+  layered-config fixture;
 - reads code artifacts as text only;
 - does not mutate the input fixture;
 - rejects output directories inside the input fixture;
@@ -206,7 +207,8 @@ Validated behavior:
 - absence is explicit: generated sidecars, copied snapshots, and variants are
   reported as `none observed`;
 - unknown artifacts are preserved instead of dropped or promoted to authority;
-- readiness hints can be present without accepting managed execution;
+- readiness hints can be present in a second fixture without accepting managed
+  execution;
 - single-anchor bundles do not emit a preferred-anchor missing fact;
 - missing producer facts are conditional on observed artifact families;
 - zero-conflict bundles still produce the accepted evidence-view sections.

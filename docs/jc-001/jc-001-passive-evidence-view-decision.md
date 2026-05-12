@@ -44,7 +44,7 @@ The first wedge can include:
 - generated-sidecar and copied-snapshot relations;
 - static code references read as text only;
 - setup evidence treated as declared or observed evidence, not physical truth;
-- variant and backup ambiguity;
+- variant evidence and backup relation ambiguity;
 - visible conflicts;
 - explicit producer fact gaps;
 - sharing-boundary labels. The current prototype validates public-safe fixture

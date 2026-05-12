@@ -2,11 +2,11 @@
 
 ## Status
 
-Drafting; scoped to the accepted passive evidence-view wedge.
+Provisional; scoped to the accepted passive evidence-view wedge.
 
 ## Purpose
 
-Assign provisional capability ownership for the facts and contracts used by the
+Identify provisional owner pressure for the facts and contracts used by the
 accepted `JC-001` passive evidence view.
 
 This note is scoped to
@@ -19,8 +19,8 @@ plan.
 
 ## Ownership Rule
 
-Assign ownership by durable fact family, not by implementation file or current
-prototype function.
+Assign provisional owner pressure by durable fact family, not by implementation
+file or current prototype function.
 
 ```text
 evidence-view fact
@@ -29,13 +29,14 @@ evidence-view fact
   -> explicit non-ownership
 ```
 
-The first owner is responsible for passive-view vocabulary, validation
-expectations, and missing-fact wording for that fact family. Future producer
-behavior still needs a separate evidence-backed decision.
+The provisional owner pressure identifies who would own passive-view
+vocabulary, validation expectations, and missing-fact wording for that fact
+family. Future producer behavior still needs a separate evidence-backed
+decision.
 
-## Provisional Owners
+## Provisional Owner Pressure
 
-| Fact or contract family | Provisional owner | First-wedge responsibility | Non-ownership |
+| Fact or contract family | Provisional owner pressure | First-wedge responsibility | Non-ownership |
 | --- | --- | --- | --- |
 | Work bundle boundary | Measurement History | Own bundle ID, source boundary, included artifact list, excluded categories when needed, and the unresolved or preferred anchor state. | Does not own old-history import, durable database schema, acquisition, resumability, or live run records yet. |
 | Artifact-role inventory | Measurement History | Own the requirement that every included artifact has a role or `unknown`, evidence handling, sharing boundary, and included reason. | Does not decide selected settings provenance, setup truth, code identity, or conflict winner. |
@@ -81,8 +82,8 @@ ownership.
 
 ## Provisional For This Wedge
 
-The first wedge may rely on these provisional ownership decisions while avoiding
-broader subsystem promotion:
+The first wedge may rely on these provisional owner-pressure assignments while
+avoiding broader subsystem promotion:
 
 - Measurement History owns the bundle and artifact inventory shape.
 - Parameter Memory owns selected-context provenance, generated-sidecar, copied-context,
