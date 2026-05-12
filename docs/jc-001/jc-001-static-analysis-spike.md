@@ -115,5 +115,5 @@ import system.
 
 Promoted by
 [`jc-001-passive-evidence-view-decision.md`](jc-001-passive-evidence-view-decision.md),
-which owns the accepted scope, deferred boundary, and future write-side
-obligations.
+which owns the accepted scope, deferred boundary, and future producer-fact
+decision prompts.

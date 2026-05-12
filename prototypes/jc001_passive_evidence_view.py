@@ -111,6 +111,27 @@ def summarize_code_clues(code_text: dict[str, str]) -> dict[str, dict[str, bool]
     }
 
 
+def code_mentions_artifact_path(code_text: dict[str, str], artifact_path: str) -> bool:
+    path = Path(artifact_path)
+    path_text = artifact_path.lower()
+    parent_text = path.parent.as_posix().lower()
+    name_text = path.name.lower()
+    for text in code_text.values():
+        lowered = text.lower()
+        if path_text in lowered:
+            return True
+        if parent_text not in (".", "") and parent_text in lowered and name_text in lowered:
+            return True
+    return False
+
+
+def bundle_sharing_boundary(artifacts: list[Artifact]) -> str:
+    boundaries = {artifact.sharing_boundary for artifact in artifacts}
+    if len(boundaries) == 1:
+        return boundaries.pop()
+    return "mixed"
+
+
 def is_relative_to(path: Path, base: Path) -> bool:
     try:
         path.relative_to(base)
@@ -360,15 +381,12 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
     json_payloads = collect_json_artifacts(fixture_dir, artifacts)
     code_text = collect_code_text(fixture_dir, artifacts)
     code_clues = summarize_code_clues(code_text)
-    has_selected_context_code_clue = any(
-        clues["mentions_setting"] for clues in code_clues.values()
-    )
-
     bundle_id = manifest["fixture_id"]
     relations: list[dict[str, Any]] = []
 
     anchors = [artifact for artifact in artifacts if artifact.role == "anchor"]
-    selected_context = find_first_by_role(artifacts, "selected context")
+    selected_contexts = [artifact for artifact in artifacts if artifact.role == "selected context"]
+    selected_context = selected_contexts[0] if selected_contexts else None
     setup_context = find_first_by_role(artifacts, "setup evidence")
     generated_sidecars = [artifact for artifact in artifacts if artifact.role == "generated sidecar"]
     copied_snapshots = [artifact for artifact in artifacts if artifact.role == "copied snapshot"]
@@ -411,17 +429,24 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
             flags,
         )
 
-    if selected_context is not None:
+    selected_context_code_clues = {
+        artifact.artifact_id: code_mentions_artifact_path(code_text, artifact.path)
+        for artifact in selected_contexts
+    }
+    has_selected_context_code_clue = any(selected_context_code_clues.values())
+
+    for selected in selected_contexts:
+        has_clue = selected_context_code_clues[selected.artifact_id]
         add_relation(
             "appears-selected-for",
-            selected_context.artifact_id,
+            selected.artifact_id,
             bundle_id,
             "inferred",
             "Manifest role and static code text point to this artifact as selected-looking context."
-            if has_selected_context_code_clue
+            if has_clue
             else "Manifest role marks this artifact as selected-looking context; no supporting code clue was observed.",
             ["non-authoritative"]
-            if has_selected_context_code_clue
+            if has_clue
             else ["non-authoritative", "manifest-role-only"],
         )
 
@@ -441,7 +466,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         target_id, evidence_handling, source_narrative, source_flags = declared_source_relation_target(
             source_path=source_path,
             by_path=by_path,
-            fallback=selected_context,
+            fallback=selected_context if len(selected_contexts) == 1 else None,
             bundle_id=bundle_id,
             relation_kind="Generated sidecar",
         )
@@ -460,7 +485,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         target_id, evidence_handling, source_narrative, source_flags = declared_source_relation_target(
             source_path=source_path,
             by_path=by_path,
-            fallback=selected_context,
+            fallback=selected_context if len(selected_contexts) == 1 else None,
             bundle_id=bundle_id,
             relation_kind="Copied snapshot",
         )
@@ -521,7 +546,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
 
     root_params = json_payloads.get("parameters.json", {})
     selected_params_path = selected_context.path if selected_context else "setting/parameters.json"
-    selected_params = json_payloads.get(selected_params_path, {})
+    selected_params = json_payloads.get(selected_params_path, {}) if selected_context else {}
     root_params_present = "parameters.json" in json_payloads
     selected_params_present = selected_context is not None and selected_params_path in json_payloads
     if (
@@ -556,9 +581,10 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         )
 
     root_registry = json_payloads.get("registry.json", {})
-    selected_registry = json_payloads.get("setting/registry.json", {})
+    selected_registry_path = setup_context.path if setup_context else "setting/registry.json"
+    selected_registry = json_payloads.get(selected_registry_path, {})
     root_registry_present = "registry.json" in json_payloads
-    selected_registry_present = "setting/registry.json" in json_payloads
+    selected_registry_present = setup_context is not None and selected_registry_path in json_payloads
     if (
         root_registry_present
         and selected_registry_present
@@ -567,7 +593,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         add_conflict(
             make_conflict(
                 "conflict-002",
-                [by_path["registry.json"].artifact_id, by_path["setting/registry.json"].artifact_id],
+                [by_path["registry.json"].artifact_id, setup_context.artifact_id],
                 "setup-context-drift",
                 "active setup registry",
                 "Root registry and selected registry differ; this is setup-shaped evidence, not physical truth.",
@@ -582,7 +608,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         add_conflict(
             make_conflict(
                 "conflict-002",
-                [by_path["registry.json"].artifact_id, by_path["setting/registry.json"].artifact_id],
+                [by_path["registry.json"].artifact_id, setup_context.artifact_id],
                 "setup-value-drift",
                 "active setup registry",
                 "Root registry and selected registry share a shape but differ in values; this is setup-shaped evidence, not physical truth.",
@@ -637,7 +663,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
     if selected_context is not None:
         add_missing_fact(
             "selected settings provenance",
-            [selected_context.artifact_id],
+            [selected.artifact_id for selected in selected_contexts],
             "Selected-looking context is visible but not authoritative.",
             "Record settings path, selection reason, and producer timestamp.",
         )
@@ -701,7 +727,8 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         "bundle_summary": {
             "bundle_id": bundle_id,
             "source_boundary": "caller-provided fixture directory",
-            "sharing_boundary": manifest["redaction_policy"]["source"],
+            "sharing_boundary": bundle_sharing_boundary(artifacts),
+            "redaction_policy_source": manifest["redaction_policy"]["source"],
             "purpose": manifest["purpose"],
             "execution_boundary": "read JSON and code text only; do not import or execute fixture code",
             "mutation_boundary": "input fixture files are not modified",
@@ -709,6 +736,9 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         "artifact_role_inventory": inventory,
         "selected_context_explanation": {
             "selected_context_candidate": selected_context.artifact_id if selected_context else None,
+            "selected_context_candidates": [
+                selected.artifact_id for selected in selected_contexts
+            ],
             "setup_context_candidate": setup_context.artifact_id if setup_context else None,
             "selection_evidence": [
                 "fixture manifest role",

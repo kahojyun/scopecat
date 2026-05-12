@@ -14,10 +14,9 @@ a passive evidence view. The current validated boundary is read-only,
 fixture-sized, no execution, no mutation, no hardware verification, no
 source-of-record authority, and no package/parser/storage/UI promotion.
 
-Use this folder as the pattern for later journey candidates: keep the journey,
-capability extraction, wedge, contracts, spike, decision, prototype scope, and
-ownership pass together, and let the accepted decision own the canonical
-boundary.
+Use this folder as the pattern for later journey candidates: co-locate journey,
+capability, wedge, contract, spike, decision, prototype, and ownership artifacts
+as they are earned or promoted. Do not create the whole shape upfront.
 
 ## Reading Order
 

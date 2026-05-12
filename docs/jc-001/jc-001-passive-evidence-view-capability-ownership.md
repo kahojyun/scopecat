@@ -29,9 +29,9 @@ evidence-view fact
   -> explicit non-ownership
 ```
 
-The first owner is responsible for vocabulary, validation expectations, and
-future producer obligations for that fact family. It does not automatically
-own storage, UI, services, execution, hardware, or write-back behavior.
+The first owner is responsible for passive-view vocabulary, validation
+expectations, and missing-fact wording for that fact family. Future producer
+behavior still needs a separate evidence-backed decision.
 
 ## Provisional Owners
 
@@ -40,7 +40,7 @@ own storage, UI, services, execution, hardware, or write-back behavior.
 | Work bundle boundary | Measurement History | Own bundle ID, source boundary, included artifact list, excluded categories when needed, and the unresolved or preferred anchor state. | Does not own old-history import, durable database schema, acquisition, resumability, or live run records yet. |
 | Artifact-role inventory | Measurement History | Own the requirement that every included artifact has a role or `unknown`, evidence handling, sharing boundary, and included reason. | Does not decide selected settings provenance, setup truth, code identity, or conflict winner. |
 | Selected context | Parameter Memory | Own selected-looking settings/context evidence, non-authoritative status, freshness labels, and selected-source missing facts. | Does not own write-back, rollback, calibration mutation, universal parameter schema, or source-of-record authority. |
-| Generated sidecar relation | Measurement History plus Parameter Memory | Measurement History owns bundle attachment and artifact-inventory presence; Parameter Memory owns generated-from relation semantics, freshness gaps, and invalidation-rule producer obligations when sidecars exist. | Does not prove sidecar freshness or execute generators. |
+| Generated sidecar relation | Measurement History plus Parameter Memory | Measurement History owns bundle attachment and artifact-inventory presence; Parameter Memory owns generated-from relation semantics, freshness gaps, and invalidation-rule missing facts when sidecars exist. | Does not prove sidecar freshness or execute generators. |
 | Copied snapshot relation | Measurement History plus Parameter Memory | Measurement History owns run/bundle attachment; Parameter Memory owns copied-from relation, coverage gaps, and context mismatch implications. | Does not provide transaction semantics, restore, rollback, or completeness guarantees. |
 | Variant and backup ambiguity | Parameter Memory | Own variant/backup visibility and non-precedence labels for settings/context branches. | Does not choose active variant, rollback target, or known-good reference. |
 | Static code reference | Code Asset Registry | Own text-only code references, observed static clues, unsafe-to-run boundary, and code identity missing facts. | Does not own execution, package management, notebook state, code registry service, or immutable code identity yet. |

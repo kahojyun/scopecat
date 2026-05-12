@@ -75,10 +75,10 @@ The first wedge does not include:
 These may become later scope after a separate evidence-backed decision. Use a
 journey, wedge, spike, ADR, prototype result, or ownership map as appropriate.
 
-## Producer Facts Accepted As Future Write Obligations
+## Producer Facts Identified For Future Write Decisions
 
-Read-side explanation showed that later write flows should preserve these facts
-when bundles are produced:
+Read-side explanation showed that later write decisions should decide how to
+preserve these facts when bundles are produced:
 
 - preferred bundle anchor;
 - selected settings path;
@@ -90,18 +90,20 @@ when bundles are produced:
 - code origin or immutable code reference;
 - sharing-boundary policy for sensitive source details.
 
-These are accepted as future write-side obligations, not as prerequisites for
-the first passive explanation wedge.
+The accepted passive wedge owns their missing-fact vocabulary and reporting.
+It does not accept write-side product scope or make these facts prerequisites
+for passive explanation.
 
 ## Consequences
 
-The next product or technical work can target a small read-only prototype for
-opening a bundle and producing the accepted evidence view.
+The first read-only prototype and second public-safe fixture validate this
+boundary at fixture scale. The next product or architecture choice is whether
+to seed a small capability map from the provisional ownership pass or select a
+second journey to test those owners under different pressure.
 
-The prototype should keep confidence narrative-based, not numeric. It should
-show conflict and missing-fact records as first-class output. It should keep
-code-reference handling static until a later Code Asset Registry or Managed
-Code Runner decision exists.
+Confidence remains narrative-based, not numeric. Code-reference handling stays
+static until a later Code Asset Registry or Managed Code Runner decision
+exists.
 
 Capability names touched by this wedge remain provisional pressure labels
 until a capability map promotes ownership boundaries.

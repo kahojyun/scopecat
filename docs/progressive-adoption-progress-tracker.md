@@ -10,9 +10,9 @@ two-fixture project-owned read-only implementation spike, and a provisional
 capability ownership pass for the first wedge. The next step is deciding
 whether to seed a small capability map from this provisional ownership pass or
 test a second journey before broadening ownership.
-This tracker is active, but its W3+ adoption ladders, migration wedges,
-capability names, and contract ideas remain hypotheses until the selected W2
-journey promotes them.
+This tracker is active. Unpromoted or non-`JC-001` W3+ adoption ladders,
+migration wedges, capability names, and contract ideas remain hypotheses until
+a selected W2 journey promotes them.
 
 This tracker is organized around progressive platform adoption:
 

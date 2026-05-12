@@ -60,12 +60,12 @@ This trace is descriptive, not accepted write scope. It explains which facts
 must be discoverable later, without requiring Scopecat to control execution,
 own settings, mutate calibration, or manage environments.
 
-## Write-Capability Implications
+## Producer-Fact Implications
 
-The read journey defines minimum write obligations, but not a complete write
-platform. W3 should preserve the distinction.
+The read journey identifies producer facts that future write decisions may need
+to preserve. It does not accept a write platform.
 
-| Read need | Minimum producer obligation | Not accepted yet |
+| Read need | Future producer fact | Not accepted yet |
 | --- | --- | --- |
 | Explain which settings were selected. | Record or discover the selected settings source, its role, and whether selection is observed, inferred, copied, or user-declared. | Scopecat-owned configuration truth or automatic settings write-back. |
 | Explain generated sidecars. | Record or infer `produced-by` relations from selected settings to derived sidecars, with freshness and unchecked labels. | Automatic sidecar generation as a required runtime behavior. |
@@ -74,7 +74,7 @@ platform. W3 should preserve the distinction.
 | Explain variants and backups. | Classify variants separately from selected context and expose unknown active state. | Automatic precedence rules, rollback, restore, or deployment management. |
 | Share the explanation safely. | Mark fields and artifacts by sharing boundary and redact public/exported views. | A general support-ticketing product or full collaboration workflow. |
 
-These obligations can be met by passive recording, explicit user selection,
+These facts can be supplied by passive recording, explicit user selection,
 static inspection, or lightweight export metadata. The journey does not decide
 which mechanism is best.
 
@@ -213,8 +213,8 @@ and later narrowed by
 - What is the minimum role vocabulary for artifacts: anchor, selected context,
   generated sidecar, copied snapshot, variant, backup-ambiguity, unknown, and
   fixture-authored may be enough for the first slice.
-- Which write obligations must be explicit in a first adoption API, and which
-  can be recovered by static inspection or user selection.
+- Which producer facts must be explicit in a future adoption API, and which can
+  be recovered by static inspection or user selection.
 - Which freshness labels are needed before implementation: observed timestamp,
   generated relation, copied relation, unchecked relation, or user-declared
   relation.

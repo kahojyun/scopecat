@@ -121,10 +121,12 @@ unsafe to share.
 | Low ceremony | The wedge works on ordinary files and lightweight manifests, not only on Scopecat-native projects. |
 | Future write pressure | The wedge identifies which facts future producers should record without requiring a managed runner or database now. |
 
-## Minimum Domain Concepts Before Spike
+## Concept And Spike Handoff
 
-These concepts are candidates for W6 contract extraction. They are not yet
-accepted architecture:
+This wedge was promoted into
+[`jc-001-concepts-and-contracts.md`](jc-001-concepts-and-contracts.md) and
+validated by [`jc-001-static-analysis-spike.md`](jc-001-static-analysis-spike.md).
+The concept set used for that handoff was:
 
 | Concept | Why it is needed |
 | --- | --- |
@@ -138,33 +140,14 @@ accepted architecture:
 | Code reference | Non-executed evidence about path selection or derivation flow. |
 | Sharing boundary | Whether evidence is internal-safe, public-safe, external-support-safe, or redaction-sensitive. |
 
-## Spike Candidate
-
-Do not run a technical spike until the concept boundary is reviewed. If a spike
-is approved later, the narrow question should be:
-
-```text
-Can a static analyzer produce the JC-001 evidence view from the synthetic
-fixture, preserving roles, relations, conflicts, missing facts, and sharing
-boundaries without execution or mutation?
-```
-
-Expected spike output would be a static evidence report, not a product UI,
-database schema, execution runner, or parser for arbitrary legacy files.
-
 ## Open Questions
 
-- Should `selected context`, `generated sidecar`, and `copied snapshot` share
-  one relation model, or stay separate for the first wedge?
-- Which artifact roles are user-facing terms, and which are internal analysis
-  labels?
-- What is the smallest freshness model that avoids implying live truth?
-- Can code references stay as plain evidence, or do they need code-asset
-  identity earlier than expected?
-- How should public-safe exports preserve the existence of redacted evidence
-  without leaking sensitive details?
-- Which static readiness hints are valuable enough to include in the first
-  spike?
+- Which second journey should test the first-wedge concept and ownership
+  pressure?
+- Which concept names should become durable user-facing terms rather than
+  internal evidence labels?
+- When does code reference handling need immutable identity rather than
+  text-only evidence?
 
 ## Promoted To
 

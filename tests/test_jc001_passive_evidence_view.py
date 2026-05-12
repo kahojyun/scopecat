@@ -88,6 +88,8 @@ class PassiveEvidenceViewTest(unittest.TestCase):
 
         self.assertEqual(before, fixture_hashes())
         self.assertEqual(view["bundle_summary"]["bundle_id"], "jc001-layered-config-bundle")
+        self.assertEqual(view["bundle_summary"]["sharing_boundary"], "public-safe")
+        self.assertEqual(view["bundle_summary"]["redaction_policy_source"], "public-test-fixture")
         self.assertEqual(view["static_shape_checks"]["artifact_count"], 10)
         self.assertEqual(len(view["artifact_role_inventory"]), 10)
 
@@ -448,6 +450,52 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         self.assertEqual(snapshot_relation["target_artifact"], "active__context_json")
         self.assertEqual(snapshot_relation["evidence_handling"], "observed")
 
+    def test_non_default_setup_context_path_drives_setup_drift(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as fixture_dir:
+            fixture_path = Path(fixture_dir)
+            write_json(fixture_path / "registry.json", {"instrument": {"slot": "root"}})
+            write_json(
+                fixture_path / "active" / "setup.json",
+                {"instrument": {"slot": "selected"}, "extra": True},
+            )
+            write_json(
+                fixture_path / "fixture-manifest.json",
+                {
+                    "fixture_id": "non-default-setup-context-fixture",
+                    "purpose": "setup context path regression",
+                    "redaction_policy": {
+                        "source": "public-test-fixture",
+                        "forbidden_content": [],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "registry.json",
+                            "role": "anchor",
+                            "status": "root setup candidate",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        },
+                        {
+                            "path": "active/setup.json",
+                            "role": "setup evidence",
+                            "status": "selected setup candidate",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        },
+                    ],
+                },
+            )
+
+            view = prototype.build_evidence_view(fixture_path)
+
+        conflict = next(
+            item
+            for item in view["conflict_and_missing_fact_report"]["conflicts"]
+            if item["conflict_type"] == "setup-context-drift"
+        )
+        self.assertEqual(conflict["artifacts"], ["registry_json", "active__setup_json"])
+
     def test_empty_json_drift_remains_visible(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as fixture_dir:
@@ -540,6 +588,101 @@ class PassiveEvidenceViewTest(unittest.TestCase):
 
         code_relation = relation_by_type_and_source(view, "references-code", "code__notes_py")
         self.assertIn("no-static-context-clue", code_relation["flags"])
+
+    def test_unrelated_setting_code_does_not_strengthen_non_default_selected_context(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as fixture_dir:
+            fixture_path = Path(fixture_dir)
+            write_json(fixture_path / "active" / "context.json", {"alpha": "selected"})
+            code_path = fixture_path / "code" / "notes.py"
+            code_path.parent.mkdir(parents=True, exist_ok=True)
+            code_path.write_text("SETTING_PATH = 'setting'\n", encoding="utf-8")
+            write_json(
+                fixture_path / "fixture-manifest.json",
+                {
+                    "fixture_id": "unrelated-setting-code-fixture",
+                    "purpose": "path-specific selected context clue regression",
+                    "redaction_policy": {
+                        "source": "public-test-fixture",
+                        "forbidden_content": [],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "active/context.json",
+                            "role": "selected context",
+                            "status": "selected candidate",
+                            "evidence_handling": "inferred",
+                            "sharing_boundary": "public-safe",
+                        },
+                        {
+                            "path": "code/notes.py",
+                            "role": "code reference",
+                            "status": "text-only pseudocode",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        },
+                    ],
+                },
+            )
+
+            view = prototype.build_evidence_view(fixture_path)
+
+        selected_relation = relation_by_type_and_source(
+            view,
+            "appears-selected-for",
+            "active__context_json",
+        )
+        self.assertIn("manifest-role-only", selected_relation["flags"])
+
+    def test_multiple_selected_context_candidates_get_relations(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as fixture_dir:
+            fixture_path = Path(fixture_dir)
+            write_json(fixture_path / "active" / "context-a.json", {"alpha": "a"})
+            write_json(fixture_path / "active" / "context-b.json", {"alpha": "b"})
+            write_json(
+                fixture_path / "fixture-manifest.json",
+                {
+                    "fixture_id": "multi-selected-context-fixture",
+                    "purpose": "multiple selected context regression",
+                    "redaction_policy": {
+                        "source": "public-test-fixture",
+                        "forbidden_content": [],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "active/context-a.json",
+                            "role": "selected context",
+                            "status": "selected candidate",
+                            "evidence_handling": "inferred",
+                            "sharing_boundary": "public-safe",
+                        },
+                        {
+                            "path": "active/context-b.json",
+                            "role": "selected context",
+                            "status": "selected candidate",
+                            "evidence_handling": "inferred",
+                            "sharing_boundary": "public-safe",
+                        },
+                    ],
+                },
+            )
+
+            view = prototype.build_evidence_view(fixture_path)
+
+        selected_relations = [
+            item
+            for item in view["relations"]
+            if item["relation_type"] == "appears-selected-for"
+        ]
+        self.assertEqual(
+            [item["source_artifact"] for item in selected_relations],
+            ["active__context-a_json", "active__context-b_json"],
+        )
+        self.assertEqual(
+            view["selected_context_explanation"]["selected_context_candidates"],
+            ["active__context-a_json", "active__context-b_json"],
+        )
 
     def test_unlisted_declared_source_is_missing_not_observed(self):
         prototype = load_prototype()
