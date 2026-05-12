@@ -65,6 +65,20 @@ def assert_expected_shape(test_case, prototype, fixture, expected_shape_path):
     return view, markdown
 
 
+def relation_by_type_and_source(view, relation_type, source_artifact):
+    matches = [
+        relation
+        for relation in view["relations"]
+        if relation["relation_type"] == relation_type
+        and relation["source_artifact"] == source_artifact
+    ]
+    if len(matches) != 1:
+        raise AssertionError(
+            f"expected one {relation_type} relation from {source_artifact}, got {len(matches)}"
+        )
+    return matches[0]
+
+
 class PassiveEvidenceViewTest(unittest.TestCase):
     def test_builds_expected_evidence_view_without_mutating_fixture(self):
         prototype = load_prototype()
@@ -109,6 +123,24 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         )
 
         self.assertGreaterEqual(len(view["conflict_and_missing_fact_report"]["conflicts"]), 3)
+        chip_relation = relation_by_type_and_source(
+            view,
+            "generated-from",
+            "setting__temp__chip_info_json",
+        )
+        self.assertEqual(chip_relation["target_artifact"], "setting__parameters_json")
+        self.assertEqual(chip_relation["evidence_handling"], "observed")
+        self.assertIn("freshness-unchecked", chip_relation["flags"])
+
+        snapshot_relation = relation_by_type_and_source(
+            view,
+            "copied-from",
+            "data__run-00042-parameters_json",
+        )
+        self.assertEqual(snapshot_relation["target_artifact"], "setting__parameters_json")
+        self.assertEqual(snapshot_relation["evidence_handling"], "observed")
+        self.assertIn("partial-snapshot", snapshot_relation["flags"])
+
         self.assertEqual(view["readiness_hint_summary"]["readiness_hints"], [])
         self.assertEqual(view["readiness_hint_summary"]["status"], "no static readiness hints observed")
         missing_types = {
@@ -279,6 +311,99 @@ class PassiveEvidenceViewTest(unittest.TestCase):
             item["conflict_type"] for item in view["conflict_and_missing_fact_report"]["conflicts"]
         }
         self.assertIn("value-drift", conflict_types)
+
+    def test_empty_json_drift_remains_visible(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as fixture_dir:
+            fixture_path = Path(fixture_dir)
+            write_json(fixture_path / "parameters.json", {})
+            write_json(fixture_path / "setting" / "parameters.json", {"alpha": "selected"})
+            write_json(
+                fixture_path / "fixture-manifest.json",
+                {
+                    "fixture_id": "empty-drift-fixture",
+                    "purpose": "empty JSON drift regression",
+                    "redaction_policy": {
+                        "source": "public-test-fixture",
+                        "forbidden_content": [],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "parameters.json",
+                            "role": "anchor",
+                            "status": "empty root candidate",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        },
+                        {
+                            "path": "setting/parameters.json",
+                            "role": "selected context",
+                            "status": "selected candidate",
+                            "evidence_handling": "inferred",
+                            "sharing_boundary": "public-safe",
+                        },
+                    ],
+                },
+            )
+
+            view = prototype.build_evidence_view(fixture_path)
+
+        conflict_types = {
+            item["conflict_type"] for item in view["conflict_and_missing_fact_report"]["conflicts"]
+        }
+        self.assertIn("shape-drift", conflict_types)
+
+    def test_clue_free_code_does_not_strengthen_selected_context_evidence(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as fixture_dir:
+            fixture_path = Path(fixture_dir)
+            write_json(fixture_path / "setting" / "parameters.json", {"alpha": "selected"})
+            code_path = fixture_path / "code" / "notes.py"
+            code_path.parent.mkdir(parents=True, exist_ok=True)
+            code_path.write_text("def helper():\n    return 'no context here'\n", encoding="utf-8")
+            write_json(
+                fixture_path / "fixture-manifest.json",
+                {
+                    "fixture_id": "clue-free-code-fixture",
+                    "purpose": "code clue regression",
+                    "redaction_policy": {
+                        "source": "public-test-fixture",
+                        "forbidden_content": [],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "setting/parameters.json",
+                            "role": "selected context",
+                            "status": "selected candidate",
+                            "evidence_handling": "inferred",
+                            "sharing_boundary": "public-safe",
+                        },
+                        {
+                            "path": "code/notes.py",
+                            "role": "code reference",
+                            "status": "text-only pseudocode",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        },
+                    ],
+                },
+            )
+
+            view = prototype.build_evidence_view(fixture_path)
+
+        self.assertIn(
+            "no selected-context code clue",
+            view["selected_context_explanation"]["selection_evidence"],
+        )
+        selected_relation = relation_by_type_and_source(
+            view,
+            "appears-selected-for",
+            "setting__parameters_json",
+        )
+        self.assertIn("manifest-role-only", selected_relation["flags"])
+
+        code_relation = relation_by_type_and_source(view, "references-code", "code__notes_py")
+        self.assertIn("no-static-context-clue", code_relation["flags"])
 
     def test_unlisted_declared_source_is_missing_not_observed(self):
         prototype = load_prototype()

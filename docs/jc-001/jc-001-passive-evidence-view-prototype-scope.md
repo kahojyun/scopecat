@@ -47,7 +47,7 @@ The output should help a user answer:
   backup-ambiguous, setup, or code-shaped evidence?
 - Which artifacts conflict?
 - Which producer facts are missing?
-- Which facts are public-safe versus internal-safe?
+- Which facts carry public-safe fixture sharing labels?
 - What should be checked next before analysis, handoff, or reuse?
 
 The output must preserve ambiguity. It should not choose an authoritative
@@ -58,14 +58,15 @@ configuration, silently hide conflicts, or imply hardware truth.
 Required input:
 
 - one `JC-001` synthetic fixture directory;
+- one caller-provided output directory;
 - fixture manifest;
 - JSON artifacts listed by the manifest;
 - static code text artifacts listed by the manifest.
 
-Optional input for this prototype:
+Fixed prototype outputs:
 
-- a caller-provided output path;
-- a caller-selected report format from the supported prototype outputs.
+- `evidence-view.json`;
+- `evidence-view.md`.
 
 Out of scope:
 
@@ -94,9 +95,9 @@ The structured output should use the first-wedge vocabulary from
   `missing-fact`, `conflicts-with`, and `redacts`;
 - evidence handling: observed, inferred, generated, copied, user-declared,
   unchecked, unsafe-to-inspect, and missing;
-- sharing boundaries: internal-safe, public-safe, external-support-safe,
-  redaction-sensitive, unsafe-to-share, or fixture-specific public synthetic
-  labels.
+- sharing boundaries: public-safe fixture labels. Internal-safe,
+  external-support-safe, redaction-sensitive, and unsafe-to-share variants are
+  vocabulary pressure but not validated by this prototype.
 
 The Markdown report should include the nine evidence-view sections already
 accepted by the concepts document:

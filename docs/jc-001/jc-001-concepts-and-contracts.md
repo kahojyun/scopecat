@@ -214,21 +214,22 @@ Rules:
 
 ### Sharing Boundary Contract
 
-Purpose: every evidence view can produce internal-safe and public-safe
-explanations without leaking sensitive details.
+Purpose: the first prototype preserves public-safe sharing labels and redaction
+behavior without leaking sensitive details. Internal-safe diagnostics and
+support-boundary export policy remain follow-on scope.
 
 Minimum fields:
 
 - artifact or field family;
 - sharing boundary;
 - redaction behavior;
-- public-safe replacement label;
-- internal diagnostic retention flag.
+- public-safe replacement label.
 
 Rules:
 
 - public-safe output can preserve the existence and role of redacted evidence;
 - redaction must not turn unknown or unsafe evidence into absent evidence;
+- internal diagnostic retention is not validated by this prototype;
 - support-boundary export is a separate policy decision, not assumed public.
 
 ## Evidence View Contract

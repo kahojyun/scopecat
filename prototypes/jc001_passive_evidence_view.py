@@ -100,6 +100,17 @@ def canonical_payload(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
+def summarize_code_clues(code_text: dict[str, str]) -> dict[str, dict[str, bool]]:
+    return {
+        path: {
+            "mentions_setting": "setting" in text.lower(),
+            "mentions_snapshot": "snapshot" in text.lower(),
+            "mentions_sidecar": "sidecar" in text.lower() or "temp/" in text.lower(),
+        }
+        for path, text in code_text.items()
+    }
+
+
 def is_relative_to(path: Path, base: Path) -> bool:
     try:
         path.relative_to(base)
@@ -328,6 +339,10 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
     by_path = {artifact.path: artifact for artifact in artifacts}
     json_payloads = collect_json_artifacts(fixture_dir, artifacts)
     code_text = collect_code_text(fixture_dir, artifacts)
+    code_clues = summarize_code_clues(code_text)
+    has_selected_context_code_clue = any(
+        clues["mentions_setting"] for clues in code_clues.values()
+    )
 
     bundle_id = manifest["fixture_id"]
     relations: list[dict[str, Any]] = []
@@ -382,8 +397,12 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
             selected_context.artifact_id,
             bundle_id,
             "inferred",
-            "Manifest role and static code text point to this artifact as selected-looking context.",
-            ["non-authoritative"],
+            "Manifest role and static code text point to this artifact as selected-looking context."
+            if has_selected_context_code_clue
+            else "Manifest role marks this artifact as selected-looking context; no supporting code clue was observed.",
+            ["non-authoritative"]
+            if has_selected_context_code_clue
+            else ["non-authoritative", "manifest-role-only"],
         )
 
     if setup_context is not None:
@@ -435,13 +454,17 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         )
 
     for code_ref in code_refs:
+        clues = code_clues.get(code_ref.path, {})
+        has_clue = any(clues.values())
         add_relation(
             "references-code",
             code_ref.artifact_id,
             selected_context.artifact_id if selected_context else bundle_id,
             "observed",
-            "Code artifact was read as text and contains static path or derivation clues.",
-            ["not-executed"],
+            "Code artifact was read as text and contains static path or derivation clues."
+            if has_clue
+            else "Code artifact was read as text; no selected-context clue was observed.",
+            ["not-executed"] if has_clue else ["not-executed", "no-static-context-clue"],
         )
 
     for variant in variants:
@@ -478,7 +501,13 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
 
     root_params = json_payloads.get("parameters.json", {})
     selected_params = json_payloads.get("setting/parameters.json", {})
-    if root_params and selected_params and flatten_keys(root_params) != flatten_keys(selected_params):
+    root_params_present = "parameters.json" in json_payloads
+    selected_params_present = "setting/parameters.json" in json_payloads
+    if (
+        root_params_present
+        and selected_params_present
+        and flatten_keys(root_params) != flatten_keys(selected_params)
+    ):
         add_conflict(
             make_conflict(
                 "conflict-001",
@@ -489,7 +518,11 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
                 "Ask the producer for selected settings path and selection reason.",
             )
         )
-    elif root_params and selected_params and canonical_payload(root_params) != canonical_payload(selected_params):
+    elif (
+        root_params_present
+        and selected_params_present
+        and canonical_payload(root_params) != canonical_payload(selected_params)
+    ):
         add_conflict(
             make_conflict(
                 "conflict-001",
@@ -503,7 +536,13 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
 
     root_registry = json_payloads.get("registry.json", {})
     selected_registry = json_payloads.get("setting/registry.json", {})
-    if root_registry and selected_registry and flatten_keys(root_registry) != flatten_keys(selected_registry):
+    root_registry_present = "registry.json" in json_payloads
+    selected_registry_present = "setting/registry.json" in json_payloads
+    if (
+        root_registry_present
+        and selected_registry_present
+        and flatten_keys(root_registry) != flatten_keys(selected_registry)
+    ):
         add_conflict(
             make_conflict(
                 "conflict-002",
@@ -514,7 +553,11 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
                 "Ask whether setup evidence is selected, copied, or session-injected.",
             )
         )
-    elif root_registry and selected_registry and canonical_payload(root_registry) != canonical_payload(selected_registry):
+    elif (
+        root_registry_present
+        and selected_registry_present
+        and canonical_payload(root_registry) != canonical_payload(selected_registry)
+    ):
         add_conflict(
             make_conflict(
                 "conflict-002",
@@ -648,7 +691,9 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
             "setup_context_candidate": setup_context.artifact_id if setup_context else None,
             "selection_evidence": [
                 "fixture manifest role",
-                "static code text clues" if code_text else "no code text clue",
+                "static code text clues"
+                if has_selected_context_code_clue
+                else "no selected-context code clue",
             ],
             "status": "selected-looking evidence only",
         },
@@ -658,14 +703,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         },
         "code_reference_summary": {
             "code_references": [code_ref.artifact_id for code_ref in code_refs],
-            "observed_static_clues": {
-                path: {
-                    "mentions_setting": "setting" in text.lower(),
-                    "mentions_snapshot": "snapshot" in text.lower(),
-                    "mentions_sidecar": "sidecar" in text.lower() or "temp/" in text.lower(),
-                }
-                for path, text in code_text.items()
-            },
+            "observed_static_clues": code_clues,
             "execution_boundary": "not executed, imported, installed, or rewritten",
         },
         "readiness_hint_summary": {

@@ -46,7 +46,7 @@ contract surface:
 | Required item | Result |
 | --- | --- |
 | Artifact roles | Preserved from the manifest and normalized to the first-wedge vocabulary. |
-| Relations | Preserved as `anchors`, `appears-selected-for`, `generated-from`, `copied-from`, `references-code`, `has-variant`, `has-backup`, and `redacts`. |
+| Relations | Preserved as `anchors`, `appears-selected-for`, `generated-from`, `copied-from`, `references-code`, `has-variant`, `has-backup`, `conflicts-with`, `missing-fact`, and `redacts`. |
 | Conflicts | Preserved as visible user-facing ambiguity instead of automatic winner selection. |
 | Missing facts | Preserved as producer-side gaps, not fabricated truth. |
 | Sharing boundaries | Preserved as public-safe synthetic labels plus explicit redaction behavior. |
@@ -62,7 +62,7 @@ The generated evidence view found:
 - one manifest-only variant/backup ambiguity artifact;
 - two code-reference artifacts;
 - three conflicts;
-- four missing producer facts.
+- five missing producer facts.
 
 ## Decision Impact
 

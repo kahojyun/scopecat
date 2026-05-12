@@ -143,7 +143,7 @@ to working control computers.
 | 13 | Harden the prototype within fixture-sized boundaries. | Completed with manifest validation, clearer error messages, and compact expected-shape snapshot without broad parser, package, storage, or UI promotion. | Step 12. |
 | 14 | Decide whether a second public-safe fixture shape is needed. | Completed by `tests/fixtures/jc001-minimal-unknown/`; the second fixture validates absence handling, unknown artifacts, readiness hints, single-anchor behavior, and zero-conflict output. | Step 13. |
 | 15 | Return to product/architecture work before further implementation. | Completed by `jc-001/jc-001-passive-evidence-view-capability-ownership.md`, a narrow ownership pass that does not promote package layout, parser architecture, or subsystem specs. | Step 14. |
-| 16 | Decide whether to seed a small capability map or test a second journey first. | Either a small accepted-owner capability map or a second journey-selection note that tests ownership pressure before broader capability mapping. | Step 15. |
+| 16 | Decide whether to seed a small capability map or test a second journey first. | Either a small provisional-owner capability map or a second journey-selection note that tests ownership pressure before broader capability mapping. | Step 15. |
 
 ## Review Cadence
 
