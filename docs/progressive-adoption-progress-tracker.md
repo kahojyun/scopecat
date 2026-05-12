@@ -5,8 +5,8 @@
 Track durable product and architecture progress for Scopecat without turning
 early work into a premature subsystem scaffold.
 
-Current state: `JC-001` has a shaped migration wedge; the next step is
-extracting the minimum domain concepts and cross-capability contracts.
+Current state: `JC-001` has minimum concepts and contracts for the first wedge;
+the next step is a tightly scoped static-analysis spike.
 This tracker is active, but its W3+ adoption ladders, migration wedges,
 capability names, and contract ideas remain hypotheses until the selected W2
 journey promotes them.
@@ -46,6 +46,7 @@ Journey-first discovery
 | JC-001 work bundle explanation journey | Ready | `jc-001-work-bundle-explanation-journey.md` is the first W2 journey and current input for W3 capability/adoption extraction. |
 | JC-001 capability adoption extraction | Ready | `jc-001-capability-adoption-extraction.md` extracts touched capabilities, first standalone adoption steps, producer-side minimum facts, and the first W4 wedge candidate. |
 | JC-001 migration wedge | Ready | `jc-001-existing-bundle-to-explainable-context-wedge.md` shapes the first thin vertical slice and current input for concept/contract extraction. |
+| JC-001 concepts and contracts | Ready | `jc-001-concepts-and-contracts.md` defines minimum domain concepts, cross-capability contracts, evidence-view contract, and spike boundary. |
 
 ## Workstreams
 
@@ -56,7 +57,7 @@ Journey-first discovery
 | W3 | Adoption ladders | Drafting | `jc-001-capability-adoption-extraction.md` | Each major capability has a smallest useful standalone adoption step and upgrade path. |
 | W4 | Migration wedges | Ready | `jc-001-existing-bundle-to-explainable-context-wedge.md` | Candidate vertical slices are ranked by user value, migration cost, and architectural learning. |
 | W5 | Capability map | Not Started | Architecture capability map | Capabilities, ownership, non-goals, and maturity targets are explicit. |
-| W6 | Cross-capability contracts | Not Started | Contract notes or ADRs | Shared concepts and references have one owner and clear dependency direction. |
+| W6 | Cross-capability contracts | Drafting | `jc-001-concepts-and-contracts.md` | Shared concepts and references have one owner and clear dependency direction. |
 | W7 | Technical spikes | Not Started | Spike notes | Each spike has a question, result, decision impact, and follow-up. |
 | W8 | Decision promotion | Not Started | ADRs or accepted architecture docs | Validated conclusions are promoted out of research notes. |
 
@@ -122,8 +123,8 @@ to working control computers.
 | 3 | Write the selected journey in current-state and future-state form. | Completed by `jc-001-work-bundle-explanation-journey.md`. | `jc-001-journey-selection-note.md`. |
 | 4 | Identify the capabilities touched by that journey and their standalone adoption steps. | Completed by `jc-001-capability-adoption-extraction.md`. | `jc-001-work-bundle-explanation-journey.md`. |
 | 5 | Shape one candidate migration wedge from the selected journey. | Completed by `jc-001-existing-bundle-to-explainable-context-wedge.md`. | `jc-001-capability-adoption-extraction.md`. |
-| 6 | Identify the minimum domain concepts and contracts needed for that wedge. | Concept notes or architecture section. | `jc-001-existing-bundle-to-explainable-context-wedge.md`. |
-| 7 | Run a technical spike only after the wedge scope is explicit. | Spike note and decision impact. | Step 6. |
+| 6 | Identify the minimum domain concepts and contracts needed for that wedge. | Completed by `jc-001-concepts-and-contracts.md`. | `jc-001-existing-bundle-to-explainable-context-wedge.md`. |
+| 7 | Run a technical spike only after the wedge scope is explicit. | Spike note and decision impact. | `jc-001-concepts-and-contracts.md`. |
 | 8 | Promote validated decisions into ADRs or architecture docs. | Accepted decision records. | Step 7. |
 
 ## Review Cadence
