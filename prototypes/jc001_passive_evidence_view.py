@@ -114,7 +114,7 @@ def summarize_code_clues(code_text: dict[str, str]) -> dict[str, dict[str, bool]
 def code_mentions_artifact_path(code_text: dict[str, str], artifact_path: str) -> bool:
     path_text = artifact_path.lower()
     pattern = re.compile(
-        rf"(?<![A-Za-z0-9_./\\-]){re.escape(path_text)}(?![A-Za-z0-9_./\\-])"
+        rf"(?<![A-Za-z0-9_./\\-])(?:\./)?{re.escape(path_text)}(?![A-Za-z0-9_./\\-])"
     )
     for text in code_text.values():
         lowered = text.lower()
@@ -336,6 +336,17 @@ def display_flags(flags: list[str]) -> str:
     return ", ".join(f"`{flag}`" for flag in flags) or "none"
 
 
+def public_artifact_label(artifact: Artifact, sequence: int) -> str:
+    if artifact.sharing_boundary == "public-safe":
+        return artifact.path
+    return f"redacted-{artifact.role.replace(' ', '-')}-{sequence:03d}"
+
+
+def positive_backup_label(value: Any) -> bool:
+    normalized = str(value).strip().lower().replace("_", "-").replace(" ", "-")
+    return normalized in {"backup", "backup-ambiguity", "backup-branch"}
+
+
 def variant_has_backup_evidence(variant: Artifact, json_payloads: dict[str, Any]) -> bool:
     payload = json_payloads.get(variant.path)
     if not isinstance(payload, dict):
@@ -347,51 +358,70 @@ def variant_has_backup_evidence(variant: Artifact, json_payloads: dict[str, Any]
                 continue
             role = str(entry.get("role", "")).lower()
             name = str(entry.get("name", "")).lower()
-            if "backup" in role or "backup" in name:
+            if positive_backup_label(role) or positive_backup_label(name):
                 return True
     role = str(payload.get("role", "")).lower()
     status = str(payload.get("status", "")).lower()
-    return "backup" in role or "backup" in status
+    return positive_backup_label(role) or positive_backup_label(status)
 
 
-def declared_source_relation_target(
+def declared_source_relation_targets(
     *,
     source_path: Any,
     by_path: dict[str, Artifact],
-    fallback: Artifact | None,
+    fallbacks: list[Artifact],
     bundle_id: str,
     relation_kind: str,
-) -> tuple[str, str, str, list[str]]:
+) -> list[tuple[str, str, str, list[str]]]:
     if isinstance(source_path, str) and source_path:
         target = by_path.get(source_path)
         if target is not None:
-            return (
-                target.artifact_id,
-                "observed",
-                f"{relation_kind} declares a manifest-listed source artifact.",
-                [],
+            return [
+                (
+                    target.artifact_id,
+                    "observed",
+                    f"{relation_kind} declares a manifest-listed source artifact.",
+                    [],
+                )
+            ]
+        return [
+            (
+                bundle_id,
+                "missing",
+                f"{relation_kind} declares a source path that is not listed in the fixture manifest.",
+                ["declared-source-unlisted"],
             )
-        return (
+        ]
+
+    if len(fallbacks) == 1:
+        return [
+            (
+                fallbacks[0].artifact_id,
+                "inferred",
+                f"{relation_kind} lacks a declared source; selected context is only an inferred fallback.",
+                ["source-inferred"],
+            )
+        ]
+
+    if len(fallbacks) > 1:
+        return [
+            (
+                fallback.artifact_id,
+                "inferred",
+                f"{relation_kind} lacks a declared source; multiple selected-looking contexts remain possible sources.",
+                ["source-inferred", "multiple-selected-context-candidates"],
+            )
+            for fallback in fallbacks
+        ]
+
+    return [
+        (
             bundle_id,
             "missing",
-            f"{relation_kind} declares a source path that is not listed in the fixture manifest.",
-            ["declared-source-unlisted"],
+            f"{relation_kind} has no declared source and no selected context fallback.",
+            ["source-missing"],
         )
-
-    if fallback is not None:
-        return (
-            fallback.artifact_id,
-            "inferred",
-            f"{relation_kind} lacks a declared source; selected context is only an inferred fallback.",
-            ["source-inferred"],
-        )
-
-    return (
-        bundle_id,
-        "missing",
-        f"{relation_kind} has no declared source and no selected context fallback.",
-        ["source-missing"],
-    )
+    ]
 
 
 def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
@@ -487,40 +517,42 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
     for sidecar in generated_sidecars:
         payload = json_payloads.get(sidecar.path, {})
         source_path = payload.get("generated_from")
-        target_id, evidence_handling, source_narrative, source_flags = declared_source_relation_target(
+        source_targets = declared_source_relation_targets(
             source_path=source_path,
             by_path=by_path,
-            fallback=selected_context if len(selected_contexts) == 1 else None,
+            fallbacks=selected_contexts,
             bundle_id=bundle_id,
             relation_kind="Generated sidecar",
         )
-        add_relation(
-            "generated-from",
-            sidecar.artifact_id,
-            target_id,
-            evidence_handling,
-            source_narrative,
-            ["freshness-unchecked", *source_flags],
-        )
+        for target_id, evidence_handling, source_narrative, source_flags in source_targets:
+            add_relation(
+                "generated-from",
+                sidecar.artifact_id,
+                target_id,
+                evidence_handling,
+                source_narrative,
+                ["freshness-unchecked", *source_flags],
+            )
 
     for snapshot in copied_snapshots:
         payload = json_payloads.get(snapshot.path, {})
         source_path = payload.get("copied_from")
-        target_id, evidence_handling, source_narrative, source_flags = declared_source_relation_target(
+        source_targets = declared_source_relation_targets(
             source_path=source_path,
             by_path=by_path,
-            fallback=selected_context if len(selected_contexts) == 1 else None,
+            fallbacks=selected_contexts,
             bundle_id=bundle_id,
             relation_kind="Copied snapshot",
         )
-        add_relation(
-            "copied-from",
-            snapshot.artifact_id,
-            target_id,
-            evidence_handling,
-            source_narrative,
-            ["partial-snapshot", *source_flags],
-        )
+        for target_id, evidence_handling, source_narrative, source_flags in source_targets:
+            add_relation(
+                "copied-from",
+                snapshot.artifact_id,
+                target_id,
+                evidence_handling,
+                source_narrative,
+                ["partial-snapshot", *source_flags],
+            )
 
     for code_ref in code_refs:
         clues = code_clues.get(code_ref.path, {})
@@ -773,13 +805,14 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         {
             "artifact_id": artifact.artifact_id,
             "label": artifact.path,
+            "public_label": public_artifact_label(artifact, index),
             "role": artifact.role,
             "status": artifact.status,
             "evidence_handling": artifact.evidence_handling,
             "sharing_boundary": artifact.sharing_boundary,
             "included_reason": "listed in fixture manifest",
         }
-        for artifact in artifacts
+        for index, artifact in enumerate(artifacts, start=1)
     ]
 
     return {
@@ -902,6 +935,21 @@ def build_next_checks(
 
 
 def render_markdown(view: dict[str, Any]) -> str:
+    public_labels = {
+        artifact["artifact_id"]: artifact["artifact_id"]
+        if artifact["sharing_boundary"] == "public-safe"
+        else artifact["public_label"]
+        for artifact in view["artifact_role_inventory"]
+    }
+
+    def public_id(artifact_id: str | None) -> str | None:
+        if artifact_id is None:
+            return None
+        return public_labels.get(artifact_id, artifact_id)
+
+    def public_ids(artifact_ids: list[str]) -> str:
+        return display_ids([public_id(artifact_id) or artifact_id for artifact_id in artifact_ids])
+
     lines = [
         "# JC-001 Passive Evidence View",
         "",
@@ -920,8 +968,13 @@ def render_markdown(view: dict[str, Any]) -> str:
     ]
 
     for artifact in view["artifact_role_inventory"]:
+        artifact_label = (
+            artifact["label"]
+            if artifact["sharing_boundary"] == "public-safe"
+            else artifact["public_label"]
+        )
         lines.append(
-            f"| `{artifact['label']}` | {artifact['role']} | "
+            f"| `{artifact_label}` | {artifact['role']} | "
             f"{artifact['evidence_handling']} | {artifact['sharing_boundary']} |"
         )
 
@@ -931,17 +984,17 @@ def render_markdown(view: dict[str, Any]) -> str:
             "## Selected-Context Explanation",
             "",
             "- Selected context candidate: "
-            + display_value(view["selected_context_explanation"]["selected_context_candidate"]),
+            + display_value(public_id(view["selected_context_explanation"]["selected_context_candidate"])),
             "- Selected context candidates: "
-            + display_ids(view["selected_context_explanation"]["selected_context_candidates"]),
+            + public_ids(view["selected_context_explanation"]["selected_context_candidates"]),
             "- Setup context candidate: "
-            + display_value(view["selected_context_explanation"]["setup_context_candidate"]),
+            + display_value(public_id(view["selected_context_explanation"]["setup_context_candidate"])),
             f"- Status: {view['selected_context_explanation']['status']}",
             "",
             "## Generated And Copied Relation Summary",
             "",
-            "- Generated sidecars: " + display_ids(view["generated_and_copied_relation_summary"]["generated_sidecars"]),
-            "- Copied snapshots: " + display_ids(view["generated_and_copied_relation_summary"]["copied_snapshots"]),
+            "- Generated sidecars: " + public_ids(view["generated_and_copied_relation_summary"]["generated_sidecars"]),
+            "- Copied snapshots: " + public_ids(view["generated_and_copied_relation_summary"]["copied_snapshots"]),
             "",
             "Relation inventory:",
             "",
@@ -952,8 +1005,8 @@ def render_markdown(view: dict[str, Any]) -> str:
 
     for relation in view["relations"]:
         lines.append(
-            f"| {relation['relation_type']} | `{relation['source_artifact']}` | "
-            f"`{relation['target_artifact']}` | {relation['evidence_handling']} | "
+            f"| {relation['relation_type']} | `{public_id(relation['source_artifact'])}` | "
+            f"`{public_id(relation['target_artifact'])}` | {relation['evidence_handling']} | "
             f"{display_flags(relation['flags'])} |"
         )
 
@@ -962,7 +1015,7 @@ def render_markdown(view: dict[str, Any]) -> str:
             "",
             "## Code-Reference Summary",
             "",
-            "- Code references: " + display_ids(view["code_reference_summary"]["code_references"]),
+            "- Code references: " + public_ids(view["code_reference_summary"]["code_references"]),
             f"- Execution boundary: {view['code_reference_summary']['execution_boundary']}",
             "",
             "## Static Readiness Hint Summary",
@@ -971,9 +1024,9 @@ def render_markdown(view: dict[str, Any]) -> str:
             "",
             "## Variant, Backup, And Unknown Artifact Summary",
             "",
-            "- Variant artifacts: " + display_ids(view["variant_backup_unknown_summary"]["variant_artifacts"]),
+            "- Variant artifacts: " + public_ids(view["variant_backup_unknown_summary"]["variant_artifacts"]),
             f"- Backup ambiguity visible: `{view['variant_backup_unknown_summary']['backup_ambiguity_visible']}`",
-            "- Unknown artifacts: " + display_ids(view["variant_backup_unknown_summary"]["unknown_artifacts"]),
+            "- Unknown artifacts: " + public_ids(view["variant_backup_unknown_summary"]["unknown_artifacts"]),
             "",
             "## Conflict And Missing-Fact Report",
             "",
@@ -985,7 +1038,7 @@ def render_markdown(view: dict[str, Any]) -> str:
     for item in view["conflict_and_missing_fact_report"]["conflicts"]:
         lines.append(
             f"| `{item['conflict_id']}` | {item['conflict_type']} | "
-            f"{display_ids(item['artifacts'])} | "
+            f"{public_ids(item['artifacts'])} | "
             f"{item['user_visible_implication']} | {item['next_check']} |"
         )
 
@@ -999,7 +1052,7 @@ def render_markdown(view: dict[str, Any]) -> str:
     for item in view["conflict_and_missing_fact_report"]["missing_facts"]:
         lines.append(
             f"| `{item['fact_id']}` | {item['fact_type']} | "
-            f"{display_ids(item['affected_artifacts'])} | "
+            f"{public_ids(item['affected_artifacts'])} | "
             f"{item['user_impact']} | {item['suggested_next_check']} |"
         )
 

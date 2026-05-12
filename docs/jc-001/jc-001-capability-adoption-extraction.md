@@ -2,8 +2,8 @@
 
 ## Status
 
-Promoted through migration wedge, contracts, decision, prototype, and
-ownership pass.
+Provisional first-wedge pressure only; later artifacts use it as input without
+promoting a broader adoption plan.
 
 ## Purpose
 
@@ -36,9 +36,9 @@ lightweight manifests, or export metadata.
 
 | Capability pressure | Why `JC-001` touches it | Status in this note |
 | --- | --- | --- |
-| Measurement History | The journey needs a stable work-bundle or run-like anchor, copied snapshots, generated sidecars, and artifact roles. | Promoted as first adoption pressure. |
-| Parameter Memory | Settings and parameter-like files need source, role, freshness, conflict, snapshot, and variant treatment without write-back. | Promoted as first adoption pressure. |
-| Code Asset Registry | Code-shaped evidence explains path selection, settings read, and sidecar derivation without managed execution. | Promoted as first adoption pressure. |
+| Measurement History | The journey needs a stable work-bundle or run-like anchor, copied snapshots, generated sidecars, and artifact roles. | Provisional first-wedge pressure only. |
+| Parameter Memory | Settings and parameter-like files need source, role, freshness, conflict, snapshot, and variant treatment without write-back. | Provisional first-wedge pressure only. |
+| Code Asset Registry | Code-shaped evidence explains path selection, settings read, and sidecar derivation without managed execution. | Provisional first-wedge pressure only. |
 | Instrument Runtime | Setup and registry-like evidence appears as declared or observed context before device control. | Context-only pressure; no live runtime adoption yet. |
 | Managed Code Runner | Dependency and readiness pressure appears, but execution remains out of scope. | Diagnostic pressure only; defer runner adoption. |
 | Comparability and known-good diff | Conflict display is needed inside one bundle, but known-good comparison remains follow-on. | Limited diff pressure only; no comparator adoption yet. |

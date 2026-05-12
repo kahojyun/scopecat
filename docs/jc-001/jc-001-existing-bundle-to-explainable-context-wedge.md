@@ -2,7 +2,8 @@
 
 ## Status
 
-Promoted through concepts, decision, prototype, and ownership pass.
+Ready as the JC-001 W4 wedge; validated by concepts, decision, prototype, and
+ownership pass.
 
 ## Purpose
 

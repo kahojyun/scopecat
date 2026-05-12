@@ -2,8 +2,8 @@
 
 ## Status
 
-Promoted through capability extraction and the accepted passive evidence-view
-decision.
+Ready as the JC-001 W2 journey; used by provisional capability extraction and
+the accepted passive evidence-view decision.
 
 ## Purpose
 
@@ -191,10 +191,10 @@ This journey does not accept:
   state, code execution, or arbitrary legacy-file truth;
 - scientific comparability scoring or known-good reference comparison.
 
-## Capability Pressure Promoted
+## Capability Pressure Carried Forward
 
 These were extraction prompts for W3, not accepted capability documents. They
-are promoted into
+are carried into the provisional
 [`jc-001-capability-adoption-extraction.md`](jc-001-capability-adoption-extraction.md)
 and later narrowed by
 [`jc-001-passive-evidence-view-capability-ownership.md`](jc-001-passive-evidence-view-capability-ownership.md).
