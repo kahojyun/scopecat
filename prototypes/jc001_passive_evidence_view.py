@@ -29,6 +29,7 @@ ROLE_MAP = {
     "variant": "variant",
     "code-shape evidence": "code reference",
     "code reference": "code reference",
+    "readiness hint": "readiness hint",
 }
 
 
@@ -189,6 +190,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
     copied_snapshots = [artifact for artifact in artifacts if artifact.role == "copied snapshot"]
     variants = [artifact for artifact in artifacts if artifact.role == "variant"]
     code_refs = [artifact for artifact in artifacts if artifact.role == "code reference"]
+    readiness_hints = [artifact for artifact in artifacts if artifact.role == "readiness hint"]
 
     next_relation = 1
 
@@ -460,6 +462,12 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
             },
             "execution_boundary": "not executed, imported, installed, or rewritten",
         },
+        "readiness_hint_summary": {
+            "readiness_hints": [hint.artifact_id for hint in readiness_hints],
+            "status": "no static readiness hints observed"
+            if not readiness_hints
+            else "static readiness hints observed",
+        },
         "variant_backup_unknown_summary": {
             "variant_artifacts": [variant.artifact_id for variant in variants],
             "backup_ambiguity_visible": bool(variants),
@@ -544,6 +552,11 @@ def render_markdown(view: dict[str, Any]) -> str:
             "- Code references: "
             + ", ".join(f"`{item}`" for item in view["code_reference_summary"]["code_references"]),
             f"- Execution boundary: {view['code_reference_summary']['execution_boundary']}",
+            "- Readiness hints: "
+            + (
+                ", ".join(f"`{item}`" for item in view["readiness_hint_summary"]["readiness_hints"])
+                or "none observed"
+            ),
             "",
             "## Variant, Backup, And Unknown Artifact Summary",
             "",

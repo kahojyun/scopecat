@@ -2,7 +2,7 @@
 
 ## Status
 
-Initial implementation spike in place.
+Reviewed; continue as prototype script.
 
 ## Purpose
 
@@ -142,6 +142,37 @@ The prototype writes `evidence-view.json` and `evidence-view.md` to the caller
 provided output directory. It does not require the non-public research
 workspace.
 
+## Implementation Spike Review
+
+Review outcome: the first implementation spike satisfies the accepted passive
+evidence-view boundary for the committed `JC-001` fixture.
+
+Validated behavior:
+
+- produces `evidence-view.json` and `evidence-view.md`;
+- preserves the nine accepted evidence-view report sections;
+- includes all manifest-listed artifacts in the role inventory;
+- represents anchor, selected-context, generated, copied, code-reference,
+  variant, backup, missing-fact, conflict, and redaction relations;
+- preserves root/selected context drift, setup-context drift, and partial
+  snapshot ambiguity;
+- reports preferred anchor, selected settings authority, generated sidecar
+  freshness, snapshot coverage, and code identity as missing producer facts;
+- explicitly reports that no static readiness hints are observed;
+- reads code artifacts as text only;
+- does not mutate the input fixture;
+- runs from a clean checkout with stdlib tooling.
+
+Decision: keep iterating as a prototype script. Do not promote a package
+layout, CLI contract, dependency manager, parser framework, storage model, UI,
+or subsystem boundary yet.
+
+Reason: one fixture-sized prototype is enough to validate the accepted passive
+evidence-view boundary, but not enough to justify project-wide code layout or
+tooling commitments. Promote those only after a second implementation pressure
+appears, such as another fixture shape, a user-facing command surface, or a
+need to reuse the evidence-view model outside this prototype.
+
 ## Fixture Strategy
 
 Decision: the first implementation spike should commit a tiny public-safe
@@ -216,6 +247,7 @@ Do not build these in the first prototype:
 
 ## Next Step
 
-Review the implementation spike output against the accepted evidence-view
-boundary. If it holds, decide whether to keep iterating as a prototype script or
-promote a minimal project code layout and tooling decision.
+Keep the prototype script narrow and improve only fixture-sized robustness:
+manifest validation, clearer error messages, and a compact expected-output
+snapshot. Revisit package layout or tooling only when another prototype or
+fixture creates real reuse pressure.

@@ -74,6 +74,8 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         )
 
         self.assertGreaterEqual(len(view["conflict_and_missing_fact_report"]["conflicts"]), 3)
+        self.assertEqual(view["readiness_hint_summary"]["readiness_hints"], [])
+        self.assertEqual(view["readiness_hint_summary"]["status"], "no static readiness hints observed")
         missing_types = {
             item["fact_type"] for item in view["conflict_and_missing_fact_report"]["missing_facts"]
         }
@@ -112,6 +114,7 @@ class PassiveEvidenceViewTest(unittest.TestCase):
             self.assertEqual(view["bundle_summary"]["bundle_id"], "jc001-braid-config")
             self.assertIn("## Conflict And Missing-Fact Report", markdown)
             self.assertIn("not executed", markdown)
+            self.assertIn("Readiness hints: none observed", markdown)
 
         self.assertEqual(before, fixture_hashes())
 
