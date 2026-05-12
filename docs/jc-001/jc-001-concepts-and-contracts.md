@@ -289,9 +289,10 @@ parser framework, runner, or hardware integration.
 - Which contract should own missing producer facts: bundle inventory, context
   evidence, or evidence view?
 
-## Next Step
+## Current Downstream
 
-Shape the first implementation-facing prototype scope for the accepted passive
-evidence view. Keep source-of-record authority, execution, mutation, hardware
-verification, parser generalization, and support-boundary export out of that
-scope unless a later spike validates them.
+These concepts are used by the accepted passive evidence-view decision,
+two-fixture prototype scope, and provisional ownership pass. Keep
+source-of-record authority, execution, mutation, hardware verification, parser
+generalization, and support-boundary export out of scope unless a later journey
+and spike validate them.

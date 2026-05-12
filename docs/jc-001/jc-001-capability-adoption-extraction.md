@@ -2,7 +2,8 @@
 
 ## Status
 
-Ready for migration-wedge shaping.
+Promoted through migration wedge, contracts, decision, prototype, and
+ownership pass.
 
 ## Purpose
 
@@ -139,8 +140,9 @@ Candidate non-goals for the wedge:
   support packages exist.
 - Which static readiness hints are useful enough to include in the first wedge.
 
-## Next Step
+## Promoted To
 
-Shape the W4 migration wedge from this extraction: define scope, user-visible
-outcome, non-goals, validation checks, and the minimum concepts needed before a
-technical spike.
+This extraction is promoted to
+[`jc-001-existing-bundle-to-explainable-context-wedge.md`](jc-001-existing-bundle-to-explainable-context-wedge.md)
+and later narrowed by
+[`jc-001-passive-evidence-view-capability-ownership.md`](jc-001-passive-evidence-view-capability-ownership.md).

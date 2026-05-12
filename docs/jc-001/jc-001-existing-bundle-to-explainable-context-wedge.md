@@ -2,7 +2,7 @@
 
 ## Status
 
-Ready for concept and contract extraction.
+Promoted through concepts, decision, prototype, and ownership pass.
 
 ## Purpose
 
@@ -178,7 +178,10 @@ database schema, execution runner, or parser for arbitrary legacy files.
 - Which static readiness hints are valuable enough to include in the first
   spike?
 
-## Next Step
+## Promoted To
 
-Extract the minimum domain concepts and cross-capability contracts needed for
-this wedge before any technical spike.
+This wedge is promoted to
+[`jc-001-concepts-and-contracts.md`](jc-001-concepts-and-contracts.md),
+validated by [`jc-001-static-analysis-spike.md`](jc-001-static-analysis-spike.md),
+and accepted by
+[`jc-001-passive-evidence-view-decision.md`](jc-001-passive-evidence-view-decision.md).

@@ -2,7 +2,8 @@
 
 ## Status
 
-Ready for capability and adoption-ladder extraction.
+Promoted through capability extraction and the accepted passive evidence-view
+decision.
 
 ## Purpose
 
@@ -189,9 +190,13 @@ This journey does not accept:
   state, code execution, or arbitrary legacy-file truth;
 - scientific comparability scoring or known-good reference comparison.
 
-## Capability Pressure For Next Step
+## Capability Pressure Promoted
 
-These are extraction prompts for W3, not accepted capability documents:
+These were extraction prompts for W3, not accepted capability documents. They
+are promoted into
+[`jc-001-capability-adoption-extraction.md`](jc-001-capability-adoption-extraction.md)
+and later narrowed by
+[`jc-001-passive-evidence-view-capability-ownership.md`](jc-001-passive-evidence-view-capability-ownership.md).
 
 | Capability pressure | Why the journey touches it |
 | --- | --- |
@@ -220,8 +225,9 @@ These are extraction prompts for W3, not accepted capability documents:
   extraction: existing-bundle explanation, producer-side lightweight recording,
   or a combined read/write slice.
 
-## Next Step
+## Promoted To
 
-Extract the capabilities touched by this journey and define their smallest
-standalone adoption steps. Keep the extraction tied to this offline bundle
-explanation journey; do not create subsystem specs or implementation plans yet.
+This journey is promoted to
+[`jc-001-capability-adoption-extraction.md`](jc-001-capability-adoption-extraction.md),
+the migration wedge, the accepted passive evidence-view decision, and the
+two-fixture prototype scope.

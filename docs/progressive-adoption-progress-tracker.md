@@ -44,29 +44,30 @@ Journey-first discovery
 | Automation architecture notes | Quarantined | Stored as research input; contains broad capability-pressure hypotheses that must be revalidated without accepting subsystem order or scaffolding. |
 | Research acceptance-readiness triage | Transitional | `research/extracted/research-acceptance-readiness-triage.md` separates accepted guardrails, evidence, inferences, adoption hypotheses, future pressure, ADR-gated items, and directions not to accept upfront. |
 | Legacy experiment code sample validation | Transitional | `research/extracted/legacy-experiment-code-sample-validation.md` validates the research triage and raises companion artifacts, analysis handoff, hardware bring-up, dependency/environment, notebook hygiene, and portability evidence. |
-| Evidence and pain-point inventory | Ready | `evidence-and-pain-point-inventory.md` is the W1 owner and current input for selecting the first W2 journey. It owns the detailed evidence hygiene, statement-kind separation, top-level pain narratives, adoption blockers, and baseline caveats. |
-| JC-001 journey selection note | Ready | `jc-001-journey-selection-note.md` selects the first W2 candidate and defines the public-safe synthetic fixture boundary for drafting the first current-state and future-state journey. |
-| JC-001 work bundle explanation journey | Ready | `jc-001-work-bundle-explanation-journey.md` is the first W2 journey and current input for W3 capability/adoption extraction. |
-| JC-001 capability adoption extraction | Ready | `jc-001-capability-adoption-extraction.md` extracts touched capabilities, first standalone adoption steps, producer-side minimum facts, and the first W4 wedge candidate. |
-| JC-001 migration wedge | Ready | `jc-001-existing-bundle-to-explainable-context-wedge.md` shapes the first thin vertical slice and current input for concept/contract extraction. |
-| JC-001 concepts and contracts | Ready | `jc-001-concepts-and-contracts.md` defines minimum domain concepts, cross-capability contracts, evidence-view contract, and spike boundary. |
-| JC-001 static-analysis spike | Ready | `jc-001-static-analysis-spike.md` records the spike question, method, result, decision impact, limits, and follow-up. |
-| JC-001 passive evidence-view decision | Accepted | `jc-001-passive-evidence-view-decision.md` promotes the validated passive explanation boundary and defers write, execution, hardware, parser, storage, UI, and export-policy scope. |
-| JC-001 passive evidence-view prototype scope | Ready | `jc-001-passive-evidence-view-prototype-scope.md` defines the implementation-facing prototype target and records the two-fixture project-owned prototype script, tests, validation command, expected-shape snapshots, and keep-as-prototype decision. |
-| JC-001 passive evidence-view capability ownership | Drafting | `jc-001-passive-evidence-view-capability-ownership.md` assigns provisional fact/contract ownership for the accepted passive evidence-view wedge without promoting subsystem specs or a full capability map. |
+| Evidence and pain-point inventory | Ready | `evidence-and-pain-point-inventory.md` is the W1 owner. `JC-001` has been promoted into the first-wedge document set under `jc-001/`. |
+| JC-001 document set | Ready | `jc-001/README.md` is the entry point for the selected journey, wedge, accepted passive evidence-view decision, prototype, and ownership pass. |
+| JC-001 journey selection note | Promoted | `jc-001/jc-001-journey-selection-note.md` selected the first W2 candidate and public-safe synthetic fixture boundary. |
+| JC-001 work bundle explanation journey | Promoted | `jc-001/jc-001-work-bundle-explanation-journey.md` is the first W2 journey and source for downstream extraction. |
+| JC-001 capability adoption extraction | Promoted | `jc-001/jc-001-capability-adoption-extraction.md` extracted touched capabilities, first standalone adoption steps, producer-side minimum facts, and the first W4 wedge candidate. |
+| JC-001 migration wedge | Promoted | `jc-001/jc-001-existing-bundle-to-explainable-context-wedge.md` shaped the first thin vertical slice. |
+| JC-001 concepts and contracts | Ready | `jc-001/jc-001-concepts-and-contracts.md` defines minimum domain concepts, cross-capability contracts, evidence-view contract, and spike boundary. |
+| JC-001 static-analysis spike | Ready | `jc-001/jc-001-static-analysis-spike.md` records the spike question, method, result, decision impact, limits, and follow-up. |
+| JC-001 passive evidence-view decision | Accepted | `jc-001/jc-001-passive-evidence-view-decision.md` promotes the validated passive explanation boundary and defers write, execution, hardware, parser, storage, UI, and export-policy scope. |
+| JC-001 passive evidence-view prototype scope | Ready | `jc-001/jc-001-passive-evidence-view-prototype-scope.md` defines the implementation-facing prototype target and records the two-fixture project-owned prototype script, tests, validation command, expected-shape snapshots, and keep-as-prototype decision. |
+| JC-001 passive evidence-view capability ownership | Drafting | `jc-001/jc-001-passive-evidence-view-capability-ownership.md` assigns provisional fact/contract ownership for the accepted passive evidence-view wedge without promoting subsystem specs or a full capability map. |
 
 ## Workstreams
 
 | ID | Workstream | Status | Durable Output | Exit Criteria |
 | --- | --- | --- | --- | --- |
 | W1 | Evidence and pain points | Ready | `evidence-and-pain-point-inventory.md` | Major claims link back to interview notes, codebase observations, source coverage, explicit assumptions, or clearly labeled blind-persona adoption pressure; behavioral/scaling priors are separated from evidence; pain, JTBD, capability-gap, guardrail, and baseline statements are distinguished; top-level pain narratives decompose into foundational pain points with visibility and validation route. |
-| W2 | End-to-end journeys | Ready | `jc-001-work-bundle-explanation-journey.md` | At least one current-state and future-state journey is written across capability boundaries. |
-| W3 | Adoption ladders | Drafting | `jc-001-capability-adoption-extraction.md` | Each major capability has a smallest useful standalone adoption step and upgrade path. |
-| W4 | Migration wedges | Ready | `jc-001-existing-bundle-to-explainable-context-wedge.md` | Candidate vertical slices are ranked by user value, migration cost, and architectural learning. |
-| W5 | Capability map | Drafting | `jc-001-passive-evidence-view-capability-ownership.md` | Capabilities, ownership, non-goals, and maturity targets are explicit. |
-| W6 | Cross-capability contracts | Ready | `jc-001-concepts-and-contracts.md` | Shared concepts and references have one owner and clear dependency direction. |
-| W7 | Technical spikes | Ready | `jc-001-static-analysis-spike.md` | Each spike has a question, result, decision impact, and follow-up. |
-| W8 | Decision promotion | Ready | `jc-001-passive-evidence-view-decision.md` | Validated conclusions are promoted out of research notes. |
+| W2 | End-to-end journeys | Ready | `jc-001/jc-001-work-bundle-explanation-journey.md` | At least one current-state and future-state journey is written across capability boundaries. |
+| W3 | Adoption ladders | Drafting | `jc-001/jc-001-capability-adoption-extraction.md` | Each major capability has a smallest useful standalone adoption step and upgrade path. |
+| W4 | Migration wedges | Ready | `jc-001/jc-001-existing-bundle-to-explainable-context-wedge.md` | Candidate vertical slices are ranked by user value, migration cost, and architectural learning. |
+| W5 | Capability map | Drafting | `jc-001/jc-001-passive-evidence-view-capability-ownership.md` | Capabilities, ownership, non-goals, and maturity targets are explicit. |
+| W6 | Cross-capability contracts | Ready | `jc-001/jc-001-concepts-and-contracts.md` | Shared concepts and references have one owner and clear dependency direction. |
+| W7 | Technical spikes | Ready | `jc-001/jc-001-static-analysis-spike.md` | Each spike has a question, result, decision impact, and follow-up. |
+| W8 | Decision promotion | Ready | `jc-001/jc-001-passive-evidence-view-decision.md` | Validated conclusions are promoted out of research notes. |
 
 ## Adoption Ladders To Define
 
@@ -126,20 +127,20 @@ to working control computers.
 | Step | Action | Expected Durable Output | Depends On |
 | --- | --- | --- | --- |
 | 1 | Use the W1 evidence inventory as the distilled research input. | No new document; `evidence-and-pain-point-inventory.md` is the current W1 owner. | W1 ready state. |
-| 2 | Create a fixture source map and journey-selection note. Default to `JC-001` unless the selected fixture rejects it; first map anchor objects, artifact roles, active/obsolete/cache status, notebook source-cell extraction, opaque binary handling, provenance relations, and sharing boundaries. Keep any full-fidelity map with exact local paths, tree names, system labels, sample labels, usernames, or instrument identifiers in a non-public W2 working artifact; public docs should use redacted or role-based labels. Then use top-level pain narratives as journey seeds and foundational pains as acceptance pressure, based on direction-bias corrected evidence, pain visibility, validation route, and statement kind rather than subsystem preference. Behavioral/scaling priors may generate prompts, but should not rank the journey without validation. | Completed by non-public fixture source map work plus `jc-001-journey-selection-note.md`. | `evidence-and-pain-point-inventory.md`. |
-| 3 | Write the selected journey in current-state and future-state form. | Completed by `jc-001-work-bundle-explanation-journey.md`. | `jc-001-journey-selection-note.md`. |
-| 4 | Identify the capabilities touched by that journey and their standalone adoption steps. | Completed by `jc-001-capability-adoption-extraction.md`. | `jc-001-work-bundle-explanation-journey.md`. |
-| 5 | Shape one candidate migration wedge from the selected journey. | Completed by `jc-001-existing-bundle-to-explainable-context-wedge.md`. | `jc-001-capability-adoption-extraction.md`. |
-| 6 | Identify the minimum domain concepts and contracts needed for that wedge. | Completed by `jc-001-concepts-and-contracts.md`. | `jc-001-existing-bundle-to-explainable-context-wedge.md`. |
-| 7 | Run a technical spike only after the wedge scope is explicit. | Completed by `jc-001-static-analysis-spike.md`. | `jc-001-concepts-and-contracts.md`. |
-| 8 | Promote validated decisions into ADRs or architecture docs. | Completed by `jc-001-passive-evidence-view-decision.md`. | Step 7. |
-| 9 | Shape the first implementation-facing prototype scope for the accepted passive evidence-view boundary. | Completed by `jc-001-passive-evidence-view-prototype-scope.md`. | Step 8. |
-| 10 | Choose the prototype fixture strategy. | Completed by the selected committed public-safe test-fixture strategy in `jc-001-passive-evidence-view-prototype-scope.md`. | Step 9. |
+| 2 | Create a fixture source map and journey-selection note. Default to `JC-001` unless the selected fixture rejects it; first map anchor objects, artifact roles, active/obsolete/cache status, notebook source-cell extraction, opaque binary handling, provenance relations, and sharing boundaries. Keep any full-fidelity map with exact local paths, tree names, system labels, sample labels, usernames, or instrument identifiers in a non-public W2 working artifact; public docs should use redacted or role-based labels. Then use top-level pain narratives as journey seeds and foundational pains as acceptance pressure, based on direction-bias corrected evidence, pain visibility, validation route, and statement kind rather than subsystem preference. Behavioral/scaling priors may generate prompts, but should not rank the journey without validation. | Completed by non-public fixture source map work plus `jc-001/jc-001-journey-selection-note.md`. | `evidence-and-pain-point-inventory.md`. |
+| 3 | Write the selected journey in current-state and future-state form. | Completed by `jc-001/jc-001-work-bundle-explanation-journey.md`. | `jc-001/jc-001-journey-selection-note.md`. |
+| 4 | Identify the capabilities touched by that journey and their standalone adoption steps. | Completed by `jc-001/jc-001-capability-adoption-extraction.md`. | `jc-001/jc-001-work-bundle-explanation-journey.md`. |
+| 5 | Shape one candidate migration wedge from the selected journey. | Completed by `jc-001/jc-001-existing-bundle-to-explainable-context-wedge.md`. | `jc-001/jc-001-capability-adoption-extraction.md`. |
+| 6 | Identify the minimum domain concepts and contracts needed for that wedge. | Completed by `jc-001/jc-001-concepts-and-contracts.md`. | `jc-001/jc-001-existing-bundle-to-explainable-context-wedge.md`. |
+| 7 | Run a technical spike only after the wedge scope is explicit. | Completed by `jc-001/jc-001-static-analysis-spike.md`. | `jc-001/jc-001-concepts-and-contracts.md`. |
+| 8 | Promote validated decisions into ADRs or architecture docs. | Completed by `jc-001/jc-001-passive-evidence-view-decision.md`. | Step 7. |
+| 9 | Shape the first implementation-facing prototype scope for the accepted passive evidence-view boundary. | Completed by `jc-001/jc-001-passive-evidence-view-prototype-scope.md`. | Step 8. |
+| 10 | Choose the prototype fixture strategy. | Completed by the selected committed public-safe test-fixture strategy in `jc-001/jc-001-passive-evidence-view-prototype-scope.md`. | Step 9. |
 | 11 | Start the implementation spike. | Completed by `prototypes/jc001_passive_evidence_view.py`, `tests/fixtures/jc001-braid-config/`, and `tests/test_jc001_passive_evidence_view.py`. | Step 10. |
-| 12 | Review the implementation spike output. | Completed by `jc-001-passive-evidence-view-prototype-scope.md`; keep iterating as a prototype script and do not promote package layout or tooling yet. | Step 11. |
+| 12 | Review the implementation spike output. | Completed by `jc-001/jc-001-passive-evidence-view-prototype-scope.md`; keep iterating as a prototype script and do not promote package layout or tooling yet. | Step 11. |
 | 13 | Harden the prototype within fixture-sized boundaries. | Completed with manifest validation, clearer error messages, and compact expected-shape snapshot without broad parser, package, storage, or UI promotion. | Step 12. |
 | 14 | Decide whether a second public-safe fixture shape is needed. | Completed by `tests/fixtures/jc001-minimal-unknown/`; the second fixture validates absence handling, unknown artifacts, readiness hints, single-anchor behavior, and zero-conflict output. | Step 13. |
-| 15 | Return to product/architecture work before further implementation. | Completed by `jc-001-passive-evidence-view-capability-ownership.md`, a narrow ownership pass that does not promote package layout, parser architecture, or subsystem specs. | Step 14. |
+| 15 | Return to product/architecture work before further implementation. | Completed by `jc-001/jc-001-passive-evidence-view-capability-ownership.md`, a narrow ownership pass that does not promote package layout, parser architecture, or subsystem specs. | Step 14. |
 | 16 | Decide whether to seed a small capability map or test a second journey first. | Either a small accepted-owner capability map or a second journey-selection note that tests ownership pressure before broader capability mapping. | Step 15. |
 
 ## Review Cadence

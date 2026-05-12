@@ -2,9 +2,9 @@
 
 ## Status
 
-Ready as W1 evidence input for W2 journey drafting. The first fixture boundary
-and journey-selection decision are now promoted to
-[`jc-001-journey-selection-note.md`](jc-001-journey-selection-note.md).
+Ready as W1 evidence owner. The first fixture boundary and journey-selection
+decision are now promoted to
+[`jc-001/jc-001-journey-selection-note.md`](jc-001/jc-001-journey-selection-note.md).
 
 ## Purpose
 
@@ -27,9 +27,9 @@ workflows Scopecat should preserve, encourage, or emulate.
 
 ## W2 Quick Start
 
-Use this document as the W1 evidence input for drafting the first W2 journey.
-The short journey-selection note has been promoted to
-[`jc-001-journey-selection-note.md`](jc-001-journey-selection-note.md).
+Use this document as the W1 evidence owner behind the first W2 journey. The
+short journey-selection note has been promoted to
+[`jc-001/jc-001-journey-selection-note.md`](jc-001/jc-001-journey-selection-note.md).
 
 - Default first candidate: `JC-001`, explaining an existing run or work bundle
   with selected context, code provenance, dependency readiness, companion

@@ -2,7 +2,7 @@
 
 ## Status
 
-Ready for first W2 journey drafting.
+Promoted to the `JC-001` journey and passive evidence-view path.
 
 ## Purpose
 
@@ -138,8 +138,9 @@ Analysis-lineage and handoff fixtures remain good follow-on candidates after
 the first bundle-explanation journey establishes artifact identity, selected
 context, provenance, ambiguity, and sharing boundaries.
 
-## Next Step
+## Promoted To
 
-Write the selected journey in current-state and future-state form using this
-fixture boundary. Keep the full workflow spine visible, but make the first
-future slice an offline explanation and ambiguity review of an existing bundle.
+This selection is promoted to
+[`jc-001-work-bundle-explanation-journey.md`](jc-001-work-bundle-explanation-journey.md)
+and later to the accepted passive evidence-view boundary in
+[`jc-001-passive-evidence-view-decision.md`](jc-001-passive-evidence-view-decision.md).
