@@ -6,9 +6,10 @@ Track durable product and architecture progress for Scopecat without turning
 early work into a premature subsystem scaffold.
 
 Current state: `JC-001` has an accepted passive evidence-view decision and a
-hardened project-owned read-only implementation spike for the first wedge; the
-next step is deciding whether another public-safe fixture shape is needed
-before any package layout, tooling, parser, storage, UI, or subsystem decision.
+two-fixture project-owned read-only implementation spike for the first wedge;
+the next step is returning to product/architecture work instead of promoting
+package layout, tooling, parser, storage, UI, or subsystem decisions from this
+prototype alone.
 This tracker is active, but its W3+ adoption ladders, migration wedges,
 capability names, and contract ideas remain hypotheses until the selected W2
 journey promotes them.
@@ -51,7 +52,7 @@ Journey-first discovery
 | JC-001 concepts and contracts | Ready | `jc-001-concepts-and-contracts.md` defines minimum domain concepts, cross-capability contracts, evidence-view contract, and spike boundary. |
 | JC-001 static-analysis spike | Ready | `jc-001-static-analysis-spike.md` records the spike question, method, result, decision impact, limits, and follow-up. |
 | JC-001 passive evidence-view decision | Accepted | `jc-001-passive-evidence-view-decision.md` promotes the validated passive explanation boundary and defers write, execution, hardware, parser, storage, UI, and export-policy scope. |
-| JC-001 passive evidence-view prototype scope | Validating | `jc-001-passive-evidence-view-prototype-scope.md` defines the first implementation-facing prototype target and records the hardened project-owned prototype script, fixture, tests, validation command, expected-shape snapshot, and keep-as-prototype decision. |
+| JC-001 passive evidence-view prototype scope | Ready | `jc-001-passive-evidence-view-prototype-scope.md` defines the implementation-facing prototype target and records the two-fixture project-owned prototype script, tests, validation command, expected-shape snapshots, and keep-as-prototype decision. |
 
 ## Workstreams
 
@@ -136,7 +137,8 @@ to working control computers.
 | 11 | Start the implementation spike. | Completed by `prototypes/jc001_passive_evidence_view.py`, `tests/fixtures/jc001-braid-config/`, and `tests/test_jc001_passive_evidence_view.py`. | Step 10. |
 | 12 | Review the implementation spike output. | Completed by `jc-001-passive-evidence-view-prototype-scope.md`; keep iterating as a prototype script and do not promote package layout or tooling yet. | Step 11. |
 | 13 | Harden the prototype within fixture-sized boundaries. | Completed with manifest validation, clearer error messages, and compact expected-shape snapshot without broad parser, package, storage, or UI promotion. | Step 12. |
-| 14 | Decide whether a second public-safe fixture shape is needed. | Decision to add another fixture for validation pressure or pause implementation and return to product/architecture work. | Step 13. |
+| 14 | Decide whether a second public-safe fixture shape is needed. | Completed by `tests/fixtures/jc001-minimal-unknown/`; the second fixture validates absence handling, unknown artifacts, readiness hints, single-anchor behavior, and zero-conflict output. | Step 13. |
+| 15 | Return to product/architecture work before further implementation. | Decide the next product/architecture artifact, likely capability ownership or next journey pressure, without promoting package layout or parser architecture from this prototype alone. | Step 14. |
 
 ## Review Cadence
 

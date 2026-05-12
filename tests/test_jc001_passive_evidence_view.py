@@ -11,6 +11,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests" / "fixtures" / "jc001-braid-config"
 EXPECTED_SHAPE = FIXTURE / "expected-shape.json"
+MINIMAL_FIXTURE = ROOT / "tests" / "fixtures" / "jc001-minimal-unknown"
+MINIMAL_EXPECTED_SHAPE = MINIMAL_FIXTURE / "expected-shape.json"
 PROTOTYPE = ROOT / "prototypes" / "jc001_passive_evidence_view.py"
 
 
@@ -23,12 +25,38 @@ def load_prototype():
     return module
 
 
-def fixture_hashes():
+def fixture_hashes(fixture=FIXTURE):
     hashes = {}
-    for path in sorted(FIXTURE.rglob("*")):
+    for path in sorted(fixture.rglob("*")):
         if path.is_file():
-            hashes[path.relative_to(FIXTURE).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+            hashes[path.relative_to(fixture).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
     return hashes
+
+
+def assert_expected_shape(test_case, prototype, fixture, expected_shape_path):
+    expected = json.loads(expected_shape_path.read_text(encoding="utf-8"))
+    view = prototype.build_evidence_view(fixture)
+    markdown = prototype.render_markdown(view)
+
+    conflict_types = sorted(
+        item["conflict_type"] for item in view["conflict_and_missing_fact_report"]["conflicts"]
+    )
+    missing_fact_types = sorted(
+        item["fact_type"] for item in view["conflict_and_missing_fact_report"]["missing_facts"]
+    )
+
+    test_case.assertEqual(view["static_shape_checks"]["artifact_count"], expected["artifact_count"])
+    test_case.assertEqual(view["static_shape_checks"]["role_counts"], expected["role_counts"])
+    test_case.assertEqual(view["static_shape_checks"]["relation_types"], expected["relation_types"])
+    test_case.assertEqual(conflict_types, expected["conflict_types"])
+    test_case.assertEqual(missing_fact_types, expected["missing_fact_types"])
+    test_case.assertEqual(
+        view["readiness_hint_summary"]["status"],
+        expected["readiness_hint_status"],
+    )
+    for section in expected["markdown_sections"]:
+        test_case.assertIn(section, markdown)
+    return view, markdown
 
 
 class PassiveEvidenceViewTest(unittest.TestCase):
@@ -94,29 +122,29 @@ class PassiveEvidenceViewTest(unittest.TestCase):
 
     def test_evidence_view_matches_expected_shape_snapshot(self):
         prototype = load_prototype()
-        expected = json.loads(EXPECTED_SHAPE.read_text(encoding="utf-8"))
+        assert_expected_shape(self, prototype, FIXTURE, EXPECTED_SHAPE)
 
-        view = prototype.build_evidence_view(FIXTURE)
-        markdown = prototype.render_markdown(view)
+    def test_minimal_unknown_fixture_preserves_absence_and_unknowns(self):
+        prototype = load_prototype()
+        before = fixture_hashes(MINIMAL_FIXTURE)
 
-        conflict_types = sorted(
-            item["conflict_type"] for item in view["conflict_and_missing_fact_report"]["conflicts"]
-        )
-        missing_fact_types = sorted(
-            item["fact_type"] for item in view["conflict_and_missing_fact_report"]["missing_facts"]
+        view, markdown = assert_expected_shape(
+            self,
+            prototype,
+            MINIMAL_FIXTURE,
+            MINIMAL_EXPECTED_SHAPE,
         )
 
-        self.assertEqual(view["static_shape_checks"]["artifact_count"], expected["artifact_count"])
-        self.assertEqual(view["static_shape_checks"]["role_counts"], expected["role_counts"])
-        self.assertEqual(view["static_shape_checks"]["relation_types"], expected["relation_types"])
-        self.assertEqual(conflict_types, expected["conflict_types"])
-        self.assertEqual(missing_fact_types, expected["missing_fact_types"])
-        self.assertEqual(
-            view["readiness_hint_summary"]["status"],
-            expected["readiness_hint_status"],
-        )
-        for section in expected["markdown_sections"]:
-            self.assertIn(section, markdown)
+        self.assertEqual(before, fixture_hashes(MINIMAL_FIXTURE))
+        self.assertEqual(view["bundle_summary"]["bundle_id"], "jc001-minimal-unknown")
+        self.assertEqual(view["generated_and_copied_relation_summary"]["generated_sidecars"], [])
+        self.assertEqual(view["generated_and_copied_relation_summary"]["copied_snapshots"], [])
+        self.assertEqual(view["variant_backup_unknown_summary"]["unknown_artifacts"], ["notes__context-note_txt"])
+        self.assertEqual(view["readiness_hint_summary"]["readiness_hints"], ["readiness__static-environment_json"])
+        self.assertIn("Generated sidecars: none observed", markdown)
+        self.assertIn("Copied snapshots: none observed", markdown)
+        self.assertIn("Unknown artifacts: `notes__context-note_txt`", markdown)
+        self.assertIn("Readiness hints: `readiness__static-environment_json`", markdown)
 
     def test_cli_writes_json_and_markdown_outputs(self):
         before = fixture_hashes()

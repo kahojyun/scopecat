@@ -1,0 +1,34 @@
+{
+  "artifact_count": 5,
+  "role_counts": {
+    "anchor": 1,
+    "code reference": 1,
+    "readiness hint": 1,
+    "selected context": 1,
+    "unknown": 1
+  },
+  "relation_types": [
+    "anchors",
+    "appears-selected-for",
+    "missing-fact",
+    "redacts",
+    "references-code"
+  ],
+  "conflict_types": [],
+  "missing_fact_types": [
+    "code identity",
+    "selected settings authority"
+  ],
+  "readiness_hint_status": "static readiness hints observed",
+  "markdown_sections": [
+    "## Bundle Summary",
+    "## Artifact-Role Inventory",
+    "## Selected-Context Explanation",
+    "## Generated And Copied Relation Summary",
+    "## Code-Reference Summary",
+    "## Variant, Backup, And Unknown Artifact Summary",
+    "## Conflict And Missing-Fact Report",
+    "## Sharing-Boundary Summary",
+    "## Next Checks"
+  ]
+}

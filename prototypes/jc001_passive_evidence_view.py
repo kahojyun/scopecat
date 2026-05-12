@@ -245,6 +245,10 @@ def make_missing_fact(
     }
 
 
+def display_ids(items: list[str]) -> str:
+    return ", ".join(f"`{item}`" for item in items) or "none observed"
+
+
 def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
     fixture_dir = fixture_dir.resolve()
     if not fixture_dir.is_dir():
@@ -434,43 +438,66 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
                 )
             )
 
-    missing_facts = [
-        make_missing_fact(
-            "missing-001",
+    missing_facts = []
+    next_missing_fact = 1
+
+    def add_missing_fact(
+        fact_type: str,
+        affected_artifacts: list[str],
+        user_impact: str,
+        suggested_next_check: str,
+    ) -> None:
+        nonlocal next_missing_fact
+        missing_facts.append(
+            make_missing_fact(
+                f"missing-{next_missing_fact:03d}",
+                fact_type,
+                affected_artifacts,
+                user_impact,
+                suggested_next_check,
+            )
+        )
+        next_missing_fact += 1
+
+    if len(anchors) != 1:
+        add_missing_fact(
             "preferred anchor",
             [anchor.artifact_id for anchor in anchors],
             "The evidence view can show anchor candidates but cannot decide the preferred entrypoint without producer intent.",
             "Record the bundle entry artifact when the bundle is produced.",
-        ),
-        make_missing_fact(
-            "missing-002",
+        )
+
+    if selected_context is not None:
+        add_missing_fact(
             "selected settings authority",
-            [selected_context.artifact_id] if selected_context else [],
+            [selected_context.artifact_id],
             "Selected-looking context is visible but not authoritative.",
             "Record settings path, selection reason, and producer timestamp.",
-        ),
-        make_missing_fact(
-            "missing-003",
+        )
+
+    if generated_sidecars:
+        add_missing_fact(
             "generated sidecar freshness",
             [sidecar.artifact_id for sidecar in generated_sidecars],
             "Derived files can be explained but not trusted as current without generation metadata.",
             "Record generation source, generation time, and invalidation rule.",
-        ),
-        make_missing_fact(
-            "missing-004",
+        )
+
+    if copied_snapshots:
+        add_missing_fact(
             "snapshot coverage",
             [snapshot.artifact_id for snapshot in copied_snapshots],
             "Copied snapshots need explicit coverage before they can stand in for selected context.",
             "Record copied snapshot source and coverage.",
-        ),
-        make_missing_fact(
-            "missing-005",
+        )
+
+    if code_refs:
+        add_missing_fact(
             "code identity",
             [code_ref.artifact_id for code_ref in code_refs],
             "Code-shaped evidence explains likely flow, but it is not an immutable code reference.",
             "Record code origin or immutable reference when producer support is added.",
-        ),
-    ]
+        )
 
     for fact in missing_facts:
         add_relation(
@@ -573,14 +600,40 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
             "conflict_count": len(conflicts),
             "missing_fact_count": len(missing_facts),
         },
-        "next_checks": [
-            "Record the preferred bundle anchor when a producer writes bundles.",
-            "Record selected settings path, selection reason, and freshness marker.",
-            "Record generated sidecar source and invalidation rule.",
-            "Record snapshot source and coverage.",
-            "Keep code references static until code identity ownership is accepted.",
-        ],
+        "next_checks": build_next_checks(
+            anchors=anchors,
+            selected_context=selected_context,
+            generated_sidecars=generated_sidecars,
+            copied_snapshots=copied_snapshots,
+            code_refs=code_refs,
+            readiness_hints=readiness_hints,
+        ),
     }
+
+
+def build_next_checks(
+    *,
+    anchors: list[Artifact],
+    selected_context: Artifact | None,
+    generated_sidecars: list[Artifact],
+    copied_snapshots: list[Artifact],
+    code_refs: list[Artifact],
+    readiness_hints: list[Artifact],
+) -> list[str]:
+    next_checks: list[str] = []
+    if len(anchors) != 1:
+        next_checks.append("Record the preferred bundle anchor when a producer writes bundles.")
+    if selected_context is not None:
+        next_checks.append("Record selected settings path, selection reason, and freshness marker.")
+    if generated_sidecars:
+        next_checks.append("Record generated sidecar source and invalidation rule.")
+    if copied_snapshots:
+        next_checks.append("Record snapshot source and coverage.")
+    if code_refs:
+        next_checks.append("Keep code references static until code identity ownership is accepted.")
+    if readiness_hints:
+        next_checks.append("Keep readiness hints static until managed execution boundaries are accepted.")
+    return next_checks
 
 
 def render_markdown(view: dict[str, Any]) -> str:
@@ -618,32 +671,20 @@ def render_markdown(view: dict[str, Any]) -> str:
             "",
             "## Generated And Copied Relation Summary",
             "",
-            "- Generated sidecars: "
-            + ", ".join(f"`{item}`" for item in view["generated_and_copied_relation_summary"]["generated_sidecars"]),
-            "- Copied snapshots: "
-            + ", ".join(f"`{item}`" for item in view["generated_and_copied_relation_summary"]["copied_snapshots"]),
+            "- Generated sidecars: " + display_ids(view["generated_and_copied_relation_summary"]["generated_sidecars"]),
+            "- Copied snapshots: " + display_ids(view["generated_and_copied_relation_summary"]["copied_snapshots"]),
             "",
             "## Code-Reference Summary",
             "",
-            "- Code references: "
-            + ", ".join(f"`{item}`" for item in view["code_reference_summary"]["code_references"]),
+            "- Code references: " + display_ids(view["code_reference_summary"]["code_references"]),
             f"- Execution boundary: {view['code_reference_summary']['execution_boundary']}",
-            "- Readiness hints: "
-            + (
-                ", ".join(f"`{item}`" for item in view["readiness_hint_summary"]["readiness_hints"])
-                or "none observed"
-            ),
+            "- Readiness hints: " + display_ids(view["readiness_hint_summary"]["readiness_hints"]),
             "",
             "## Variant, Backup, And Unknown Artifact Summary",
             "",
-            "- Variant artifacts: "
-            + ", ".join(f"`{item}`" for item in view["variant_backup_unknown_summary"]["variant_artifacts"]),
+            "- Variant artifacts: " + display_ids(view["variant_backup_unknown_summary"]["variant_artifacts"]),
             f"- Backup ambiguity visible: `{view['variant_backup_unknown_summary']['backup_ambiguity_visible']}`",
-            "- Unknown artifacts: "
-            + (
-                ", ".join(f"`{item}`" for item in view["variant_backup_unknown_summary"]["unknown_artifacts"])
-                or "none"
-            ),
+            "- Unknown artifacts: " + display_ids(view["variant_backup_unknown_summary"]["unknown_artifacts"]),
             "",
             "## Conflict And Missing-Fact Report",
             "",

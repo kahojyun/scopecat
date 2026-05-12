@@ -2,7 +2,7 @@
 
 ## Status
 
-Hardened; continue as prototype script.
+Second fixture validated; continue as prototype script.
 
 ## Purpose
 
@@ -191,6 +191,33 @@ The prototype now includes the first hardening pass:
 This hardening remains fixture-sized. It is not a general parser framework,
 schema system, CLI contract, package layout, or storage decision.
 
+## Second Fixture Validation
+
+A second public-safe fixture now validates that the prototype is not only
+shaped around the first Braid-like fixture:
+
+- second fixture: `tests/fixtures/jc001-minimal-unknown/`;
+- expected-shape snapshot:
+  `tests/fixtures/jc001-minimal-unknown/expected-shape.json`;
+- shape pressure: single anchor, selected context, no generated sidecars, no
+  copied snapshots, no variants, one unknown artifact, and one static readiness
+  hint.
+
+Validated behavior:
+
+- absence is explicit: generated sidecars, copied snapshots, and variants are
+  reported as `none observed`;
+- unknown artifacts are preserved instead of dropped or promoted to authority;
+- readiness hints can be present without accepting managed execution;
+- single-anchor bundles do not emit a preferred-anchor missing fact;
+- missing producer facts are conditional on observed artifact families;
+- zero-conflict bundles still produce the accepted evidence-view sections.
+
+Decision: this second fixture does not create enough pressure to promote a
+package layout, CLI contract, parser framework, storage model, UI, or subsystem
+boundary. The prototype should remain a narrow script until another journey,
+fixture family, or reuse need creates real design pressure.
+
 ## Fixture Strategy
 
 Decision: the first implementation spike should commit a tiny public-safe
@@ -265,6 +292,6 @@ Do not build these in the first prototype:
 
 ## Next Step
 
-Decide whether the next validation step needs a second public-safe fixture
-shape. If not, keep the prototype stable and return to product/architecture
-work before promoting package layout or tooling.
+Keep the prototype stable and return to product/architecture work. Reopen
+implementation only when a new journey, fixture family, or user-facing command
+surface creates pressure that this two-fixture prototype cannot answer.
