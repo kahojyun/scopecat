@@ -41,6 +41,42 @@ proving active state.
 
 Scopecat must explain this evidence without declaring a hidden source of truth.
 
+## Producer-Side Trace
+
+Although the first journey is read-first, the bundle did not appear from
+nowhere. The fixture implies a minimal producer-side path:
+
+```text
+ordinary script or notebook chooses settings path
+  -> settings are read for a run-like action
+  -> optional sidecars are derived from selected settings
+  -> a run-bound snapshot may be copied beside data
+  -> variants and backups accumulate as users adapt the workflow
+  -> later user reopens the bundle and tries to recover intent
+```
+
+This trace is descriptive, not accepted write scope. It explains which facts
+must be discoverable later, without requiring Scopecat to control execution,
+own settings, mutate calibration, or manage environments.
+
+## Write-Capability Implications
+
+The read journey defines minimum write obligations, but not a complete write
+platform. W3 should preserve the distinction.
+
+| Read need | Minimum producer obligation | Not accepted yet |
+| --- | --- | --- |
+| Explain which settings were selected. | Record or discover the selected settings source, its role, and whether selection is observed, inferred, copied, or user-declared. | Scopecat-owned configuration truth or automatic settings write-back. |
+| Explain generated sidecars. | Record or infer `produced-by` relations from selected settings to derived sidecars, with freshness and unchecked labels. | Automatic sidecar generation as a required runtime behavior. |
+| Explain copied run snapshots. | Preserve copied-from or snapshot-of relations, including when the copy may differ from current settings. | Durable transaction semantics, resumability, or old-history import. |
+| Explain code-shaped provenance. | Capture enough code reference to identify path selection, entrypoint-like evidence, and derivation flow. | Managed execution, notebook-state capture, package registry, or remote runner scope. |
+| Explain variants and backups. | Classify variants separately from selected context and expose unknown active state. | Automatic precedence rules, rollback, restore, or deployment management. |
+| Share the explanation safely. | Mark fields and artifacts by sharing boundary and redact public/exported views. | A general support-ticketing product or full collaboration workflow. |
+
+These obligations can be met by passive recording, explicit user selection,
+static inspection, or lightweight export metadata. The journey does not decide
+which mechanism is best.
+
 ## Actors
 
 | Role hat | Need in this journey |
@@ -128,6 +164,15 @@ scientific-equivalence judgment.
 | `PN-007` portability | Local and machine-specific coupling is represented as redaction-sensitive evidence, not public fixture content. |
 | `PN-016` low ceremony | A user can start from ordinary files and code-shaped evidence without adopting a managed framework. |
 
+## Producer Acceptance Checks
+
+| Check | Must be true |
+| --- | --- |
+| Read needs imply write facts | Capability extraction must identify which facts need to exist at bundle-production time or be recoverable later. |
+| Mechanism remains open | The journey must not assume those facts come from a managed runner, database, service, notebook capture, or control framework. |
+| Failure stays visible | If a producer did not record enough information, the future-state output must show missing or inferred evidence rather than fabricating certainty. |
+| Low ceremony survives | Existing ordinary scripts can produce or expose useful evidence without becoming full Scopecat applications. |
+
 ## Explicit Non-Goals
 
 This journey does not accept:
@@ -162,6 +207,8 @@ These are extraction prompts for W3, not accepted capability documents:
 - What is the minimum role vocabulary for artifacts: anchor, selected context,
   generated sidecar, copied snapshot, variant, backup, unknown, and
   fixture-authored may be enough for the first slice.
+- Which write obligations must be explicit in a first adoption API, and which
+  can be recovered by static inspection or user selection.
 - Which freshness labels are needed before implementation: observed timestamp,
   generated relation, copied relation, unchecked relation, or user-declared
   relation.
@@ -169,8 +216,9 @@ These are extraction prompts for W3, not accepted capability documents:
   enough diagnostic value for handoff.
 - Which code-shape evidence should become a durable concept: entrypoint,
   settings path, data path, sidecar generator, or run snapshot relation.
-- Whether the next W3 artifact should be a small adoption ladder note or a
-  capability-pressure note for only the capabilities touched here.
+- Which migration wedge scope should be shaped first from the capability
+  extraction: existing-bundle explanation, producer-side lightweight recording,
+  or a combined read/write slice.
 
 ## Next Step
 
