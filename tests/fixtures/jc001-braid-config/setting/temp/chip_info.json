@@ -1,0 +1,15 @@
+{
+  "generated_from": "setting/parameters.json",
+  "role": "derived-chip-info-placeholder",
+  "qubits": {
+    "Q_A": {
+      "drive_line": "drive-bus-a"
+    },
+    "Q_B": {
+      "drive_line": "drive-bus-a"
+    },
+    "Q_C": {
+      "drive_line": "drive-bus-b"
+    }
+  }
+}

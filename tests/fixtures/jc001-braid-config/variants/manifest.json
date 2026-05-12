@@ -1,0 +1,16 @@
+{
+  "fixture": "jc001-braid-config",
+  "variant_policy": "manifest-only",
+  "entries": [
+    {
+      "name": "larger-branch-placeholder",
+      "role": "variant-ambiguity",
+      "included_as_full_file": false
+    },
+    {
+      "name": "backup-branch-placeholder",
+      "role": "backup-ambiguity",
+      "included_as_full_file": false
+    }
+  ]
+}

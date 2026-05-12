@@ -1,0 +1,88 @@
+{
+  "fixture_id": "jc001-braid-config",
+  "purpose": "Tiny public-safe fixture for a passive evidence-view prototype.",
+  "redaction_policy": {
+    "source": "public-test-fixture",
+    "forbidden_content": [
+      "real absolute paths",
+      "usernames",
+      "machine labels",
+      "network addresses",
+      "hardware identifiers",
+      "calibration values",
+      "lab-specific labels"
+    ]
+  },
+  "artifacts": [
+    {
+      "path": "registry.json",
+      "role": "anchor",
+      "status": "root seed candidate",
+      "evidence_handling": "observed",
+      "sharing_boundary": "public-safe"
+    },
+    {
+      "path": "parameters.json",
+      "role": "anchor",
+      "status": "root seed candidate",
+      "evidence_handling": "observed",
+      "sharing_boundary": "public-safe"
+    },
+    {
+      "path": "setting/parameters.json",
+      "role": "selected context",
+      "status": "selected-looking candidate",
+      "evidence_handling": "inferred",
+      "sharing_boundary": "public-safe"
+    },
+    {
+      "path": "setting/registry.json",
+      "role": "setup evidence",
+      "status": "selected-looking setup context",
+      "evidence_handling": "observed",
+      "sharing_boundary": "public-safe"
+    },
+    {
+      "path": "setting/temp/chip_info.json",
+      "role": "generated sidecar",
+      "status": "generated candidate",
+      "evidence_handling": "generated",
+      "sharing_boundary": "public-safe"
+    },
+    {
+      "path": "setting/temp/line_info.json",
+      "role": "generated sidecar",
+      "status": "generated candidate",
+      "evidence_handling": "generated",
+      "sharing_boundary": "public-safe"
+    },
+    {
+      "path": "data/run-00042-parameters.json",
+      "role": "copied snapshot",
+      "status": "run-bound copied candidate",
+      "evidence_handling": "copied",
+      "sharing_boundary": "public-safe"
+    },
+    {
+      "path": "variants/manifest.json",
+      "role": "variant",
+      "status": "manifest-only ambiguity",
+      "evidence_handling": "observed",
+      "sharing_boundary": "public-safe"
+    },
+    {
+      "path": "code/config.py",
+      "role": "code reference",
+      "status": "text-only pseudocode",
+      "evidence_handling": "observed",
+      "sharing_boundary": "public-safe"
+    },
+    {
+      "path": "code/init_setting_flow.py",
+      "role": "code reference",
+      "status": "text-only pseudocode",
+      "evidence_handling": "observed",
+      "sharing_boundary": "public-safe"
+    }
+  ]
+}

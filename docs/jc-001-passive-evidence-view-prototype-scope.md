@@ -2,7 +2,7 @@
 
 ## Status
 
-Ready for implementation spike; fixture strategy selected.
+Initial implementation spike in place.
 
 ## Purpose
 
@@ -127,6 +127,21 @@ The implementation may reuse the non-public research spike as a behavioral
 reference, but the project-owned prototype should not depend on a local
 absolute path or on the research repository being present.
 
+## Implementation Spike Instance
+
+The first project-owned implementation spike is intentionally small:
+
+- prototype entry point: `prototypes/jc001_passive_evidence_view.py`;
+- committed public-safe fixture: `tests/fixtures/jc001-braid-config/`;
+- fixture-level checks: `tests/test_jc001_passive_evidence_view.py`;
+- validation command: `python3 -m unittest discover -s tests`;
+- smoke command:
+  `python3 prototypes/jc001_passive_evidence_view.py tests/fixtures/jc001-braid-config --out-dir <output-dir>`.
+
+The prototype writes `evidence-view.json` and `evidence-view.md` to the caller
+provided output directory. It does not require the non-public research
+workspace.
+
 ## Fixture Strategy
 
 Decision: the first implementation spike should commit a tiny public-safe
@@ -201,6 +216,6 @@ Do not build these in the first prototype:
 
 ## Next Step
 
-Start the implementation spike with a small committed public-safe test fixture,
-a read-only analyzer, and JSON/Markdown output. Validate it against the
-`JC-001` fixture-sized acceptance checks above.
+Review the implementation spike output against the accepted evidence-view
+boundary. If it holds, decide whether to keep iterating as a prototype script or
+promote a minimal project code layout and tooling decision.

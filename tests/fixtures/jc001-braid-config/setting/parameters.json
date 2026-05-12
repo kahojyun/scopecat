@@ -1,0 +1,35 @@
+{
+  "qubits": {
+    "Q_A": {
+      "drive_shape": "selected-placeholder",
+      "readout_shape": "selected-placeholder",
+      "classification_hint": "selected-only"
+    },
+    "Q_B": {
+      "drive_shape": "selected-placeholder",
+      "readout_shape": "selected-placeholder",
+      "classification_hint": "selected-only"
+    },
+    "Q_C": {
+      "drive_shape": "selected-placeholder",
+      "readout_shape": "selected-placeholder"
+    }
+  },
+  "couplers": {
+    "C_AB": {
+      "operation_shape": "selected-placeholder",
+      "gate_family": "selected-only"
+    },
+    "C_BC": {
+      "operation_shape": "selected-placeholder"
+    }
+  },
+  "lines": {
+    "drive-bus-a": {
+      "kind": "drive"
+    },
+    "readout-bus-a": {
+      "kind": "readout"
+    }
+  }
+}

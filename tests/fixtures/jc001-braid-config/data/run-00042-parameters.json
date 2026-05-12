@@ -1,0 +1,13 @@
+{
+  "copied_from": "setting/parameters.json",
+  "role": "run-bound-snapshot-placeholder",
+  "run_label": "run-00042",
+  "qubits": {
+    "Q_A": {
+      "drive_shape": "selected-placeholder"
+    },
+    "Q_B": {
+      "drive_shape": "selected-placeholder"
+    }
+  }
+}
