@@ -1,0 +1,48 @@
+{
+  "artifact_count": 10,
+  "role_counts": {
+    "anchor": 2,
+    "code reference": 2,
+    "copied snapshot": 1,
+    "generated sidecar": 2,
+    "selected context": 1,
+    "setup evidence": 1,
+    "variant": 1
+  },
+  "relation_types": [
+    "anchors",
+    "appears-selected-for",
+    "conflicts-with",
+    "copied-from",
+    "generated-from",
+    "has-backup",
+    "has-variant",
+    "missing-fact",
+    "redacts",
+    "references-code"
+  ],
+  "conflict_types": [
+    "partial-snapshot",
+    "setup-context-drift",
+    "shape-drift"
+  ],
+  "missing_fact_types": [
+    "code identity",
+    "generated sidecar freshness",
+    "preferred anchor",
+    "selected settings authority",
+    "snapshot coverage"
+  ],
+  "readiness_hint_status": "no static readiness hints observed",
+  "markdown_sections": [
+    "## Bundle Summary",
+    "## Artifact-Role Inventory",
+    "## Selected-Context Explanation",
+    "## Generated And Copied Relation Summary",
+    "## Code-Reference Summary",
+    "## Variant, Backup, And Unknown Artifact Summary",
+    "## Conflict And Missing-Fact Report",
+    "## Sharing-Boundary Summary",
+    "## Next Checks"
+  ]
+}

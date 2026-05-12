@@ -10,6 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests" / "fixtures" / "jc001-braid-config"
+EXPECTED_SHAPE = FIXTURE / "expected-shape.json"
 PROTOTYPE = ROOT / "prototypes" / "jc001_passive_evidence_view.py"
 
 
@@ -91,6 +92,32 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         )
         self.assertNotIn("source-of-record", json.dumps(view))
 
+    def test_evidence_view_matches_expected_shape_snapshot(self):
+        prototype = load_prototype()
+        expected = json.loads(EXPECTED_SHAPE.read_text(encoding="utf-8"))
+
+        view = prototype.build_evidence_view(FIXTURE)
+        markdown = prototype.render_markdown(view)
+
+        conflict_types = sorted(
+            item["conflict_type"] for item in view["conflict_and_missing_fact_report"]["conflicts"]
+        )
+        missing_fact_types = sorted(
+            item["fact_type"] for item in view["conflict_and_missing_fact_report"]["missing_facts"]
+        )
+
+        self.assertEqual(view["static_shape_checks"]["artifact_count"], expected["artifact_count"])
+        self.assertEqual(view["static_shape_checks"]["role_counts"], expected["role_counts"])
+        self.assertEqual(view["static_shape_checks"]["relation_types"], expected["relation_types"])
+        self.assertEqual(conflict_types, expected["conflict_types"])
+        self.assertEqual(missing_fact_types, expected["missing_fact_types"])
+        self.assertEqual(
+            view["readiness_hint_summary"]["status"],
+            expected["readiness_hint_status"],
+        )
+        for section in expected["markdown_sections"]:
+            self.assertIn(section, markdown)
+
     def test_cli_writes_json_and_markdown_outputs(self):
         before = fixture_hashes()
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -117,6 +144,41 @@ class PassiveEvidenceViewTest(unittest.TestCase):
             self.assertIn("Readiness hints: none observed", markdown)
 
         self.assertEqual(before, fixture_hashes())
+
+    def test_cli_returns_clear_error_for_invalid_manifest(self):
+        with tempfile.TemporaryDirectory() as fixture_dir, tempfile.TemporaryDirectory() as out_dir:
+            fixture_path = Path(fixture_dir)
+            manifest = {
+                "fixture_id": "bad-fixture",
+                "purpose": "invalid manifest fixture",
+                "redaction_policy": {
+                    "source": "public-test-fixture",
+                    "forbidden_content": [],
+                },
+                "artifacts": [
+                    {
+                        "path": "missing.json",
+                        "role": "anchor",
+                        "status": "missing",
+                        "evidence_handling": "observed",
+                        "sharing_boundary": "public-safe",
+                    }
+                ],
+            }
+            (fixture_path / "fixture-manifest.json").write_text(
+                json.dumps(manifest),
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(PROTOTYPE), str(fixture_path), "--out-dir", out_dir],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("manifest artifact does not exist: missing.json", result.stderr)
 
 
 if __name__ == "__main__":

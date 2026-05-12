@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,6 +44,10 @@ class Artifact:
     sharing_boundary: str
 
 
+class EvidenceViewError(RuntimeError):
+    """Prototype-scoped input or output error."""
+
+
 def artifact_id(path: str) -> str:
     return (
         path.replace(" - ", "-")
@@ -54,12 +59,24 @@ def artifact_id(path: str) -> str:
 
 
 def load_json(path: Path) -> Any:
-    with path.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except FileNotFoundError as exc:
+        raise EvidenceViewError(f"missing JSON file: {path}") from exc
+    except json.JSONDecodeError as exc:
+        raise EvidenceViewError(f"invalid JSON in {path}: {exc.msg}") from exc
+    except OSError as exc:
+        raise EvidenceViewError(f"cannot read JSON file {path}: {exc}") from exc
 
 
 def read_text(path: Path) -> str:
-    return path.read_text(encoding="utf-8")
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise EvidenceViewError(f"missing text artifact: {path}") from exc
+    except OSError as exc:
+        raise EvidenceViewError(f"cannot read text artifact {path}: {exc}") from exc
 
 
 def normalize_role(role: str) -> str:
@@ -97,6 +114,62 @@ def relation(
         "confidence_narrative": confidence_narrative,
         "flags": flags or [],
     }
+
+
+def require_mapping(value: Any, label: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise EvidenceViewError(f"{label} must be an object")
+    return value
+
+
+def require_string(value: Any, label: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise EvidenceViewError(f"{label} must be a non-empty string")
+    return value
+
+
+def require_list(value: Any, label: str) -> list[Any]:
+    if not isinstance(value, list):
+        raise EvidenceViewError(f"{label} must be a list")
+    return value
+
+
+def validate_manifest(manifest: Any, fixture_dir: Path) -> dict[str, Any]:
+    manifest = require_mapping(manifest, "fixture-manifest.json")
+    require_string(manifest.get("fixture_id"), "fixture_id")
+    require_string(manifest.get("purpose"), "purpose")
+
+    redaction_policy = require_mapping(manifest.get("redaction_policy"), "redaction_policy")
+    require_string(redaction_policy.get("source"), "redaction_policy.source")
+    forbidden_content = require_list(
+        redaction_policy.get("forbidden_content"),
+        "redaction_policy.forbidden_content",
+    )
+    for index, item in enumerate(forbidden_content):
+        require_string(item, f"redaction_policy.forbidden_content[{index}]")
+
+    artifacts = require_list(manifest.get("artifacts"), "artifacts")
+    if not artifacts:
+        raise EvidenceViewError("artifacts must not be empty")
+
+    seen_paths: set[str] = set()
+    required_fields = ("path", "role", "status", "evidence_handling", "sharing_boundary")
+    for index, raw_artifact in enumerate(artifacts):
+        artifact = require_mapping(raw_artifact, f"artifacts[{index}]")
+        for field in required_fields:
+            require_string(artifact.get(field), f"artifacts[{index}].{field}")
+
+        artifact_path = artifact["path"]
+        path = Path(artifact_path)
+        if path.is_absolute() or ".." in path.parts or "\\" in artifact_path:
+            raise EvidenceViewError(f"manifest artifact path is not fixture-local: {artifact_path}")
+        if artifact_path in seen_paths:
+            raise EvidenceViewError(f"duplicate manifest artifact path: {artifact_path}")
+        seen_paths.add(artifact_path)
+        if not (fixture_dir / artifact_path).is_file():
+            raise EvidenceViewError(f"manifest artifact does not exist: {artifact_path}")
+
+    return manifest
 
 
 def build_artifacts(manifest: dict[str, Any]) -> list[Artifact]:
@@ -174,7 +247,10 @@ def make_missing_fact(
 
 def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
     fixture_dir = fixture_dir.resolve()
-    manifest = load_json(fixture_dir / "fixture-manifest.json")
+    if not fixture_dir.is_dir():
+        raise EvidenceViewError(f"fixture directory does not exist: {fixture_dir}")
+
+    manifest = validate_manifest(load_json(fixture_dir / "fixture-manifest.json"), fixture_dir)
     artifacts = build_artifacts(manifest)
     by_path = {artifact.path: artifact for artifact in artifacts}
     json_payloads = collect_json_artifacts(fixture_dir, artifacts)
@@ -609,12 +685,15 @@ def render_markdown(view: dict[str, Any]) -> str:
 
 
 def write_outputs(view: dict[str, Any], output_dir: Path) -> tuple[Path, Path]:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    json_path = output_dir / "evidence-view.json"
-    markdown_path = output_dir / "evidence-view.md"
-    json_path.write_text(json.dumps(view, indent=2) + "\n", encoding="utf-8")
-    markdown_path.write_text(render_markdown(view), encoding="utf-8")
-    return json_path, markdown_path
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        json_path = output_dir / "evidence-view.json"
+        markdown_path = output_dir / "evidence-view.md"
+        json_path.write_text(json.dumps(view, indent=2) + "\n", encoding="utf-8")
+        markdown_path.write_text(render_markdown(view), encoding="utf-8")
+        return json_path, markdown_path
+    except OSError as exc:
+        raise EvidenceViewError(f"failed to write evidence view to {output_dir}: {exc}") from exc
 
 
 def main() -> None:
@@ -623,8 +702,13 @@ def main() -> None:
     parser.add_argument("--out-dir", required=True, type=Path)
     args = parser.parse_args()
 
-    view = build_evidence_view(args.fixture_dir)
-    json_path, markdown_path = write_outputs(view, args.out_dir)
+    try:
+        view = build_evidence_view(args.fixture_dir)
+        json_path, markdown_path = write_outputs(view, args.out_dir)
+    except EvidenceViewError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
+
     print(f"Wrote {json_path}")
     print(f"Wrote {markdown_path}")
 

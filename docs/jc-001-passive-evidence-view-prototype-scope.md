@@ -2,7 +2,7 @@
 
 ## Status
 
-Reviewed; continue as prototype script.
+Hardened; continue as prototype script.
 
 ## Purpose
 
@@ -173,6 +173,24 @@ tooling commitments. Promote those only after a second implementation pressure
 appears, such as another fixture shape, a user-facing command surface, or a
 need to reuse the evidence-view model outside this prototype.
 
+## Fixture-Sized Hardening
+
+The prototype now includes the first hardening pass:
+
+- manifest shape validation for required top-level fields;
+- artifact-entry validation for required fields;
+- fixture-local path validation;
+- duplicate artifact path detection;
+- missing artifact detection;
+- JSON parsing errors converted into prototype-scoped errors;
+- read/write `OSError` failures converted into prototype-scoped errors;
+- CLI failures reported as `error: ...` with exit code `2`;
+- compact expected-shape snapshot:
+  `tests/fixtures/jc001-braid-config/expected-shape.json`.
+
+This hardening remains fixture-sized. It is not a general parser framework,
+schema system, CLI contract, package layout, or storage decision.
+
 ## Fixture Strategy
 
 Decision: the first implementation spike should commit a tiny public-safe
@@ -247,7 +265,6 @@ Do not build these in the first prototype:
 
 ## Next Step
 
-Keep the prototype script narrow and improve only fixture-sized robustness:
-manifest validation, clearer error messages, and a compact expected-output
-snapshot. Revisit package layout or tooling only when another prototype or
-fixture creates real reuse pressure.
+Decide whether the next validation step needs a second public-safe fixture
+shape. If not, keep the prototype stable and return to product/architecture
+work before promoting package layout or tooling.
