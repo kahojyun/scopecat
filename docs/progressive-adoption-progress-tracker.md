@@ -5,9 +5,10 @@
 Track durable product and architecture progress for Scopecat without turning
 early work into a premature subsystem scaffold.
 
-Current state: `JC-001` has an accepted passive evidence-view decision and a
-ready implementation-facing prototype scope for the first wedge; the next step
-is choosing the fixture strategy and starting the implementation spike.
+Current state: `JC-001` has an accepted passive evidence-view decision, a ready
+implementation-facing prototype scope, and a selected committed public-safe
+test-fixture strategy for the first wedge; the next step is starting the
+implementation spike.
 This tracker is active, but its W3+ adoption ladders, migration wedges,
 capability names, and contract ideas remain hypotheses until the selected W2
 journey promotes them.
@@ -50,7 +51,7 @@ Journey-first discovery
 | JC-001 concepts and contracts | Ready | `jc-001-concepts-and-contracts.md` defines minimum domain concepts, cross-capability contracts, evidence-view contract, and spike boundary. |
 | JC-001 static-analysis spike | Ready | `jc-001-static-analysis-spike.md` records the spike question, method, result, decision impact, limits, and follow-up. |
 | JC-001 passive evidence-view decision | Accepted | `jc-001-passive-evidence-view-decision.md` promotes the validated passive explanation boundary and defers write, execution, hardware, parser, storage, UI, and export-policy scope. |
-| JC-001 passive evidence-view prototype scope | Ready | `jc-001-passive-evidence-view-prototype-scope.md` defines the first implementation-facing prototype target, outputs, acceptance checks, non-goals, and fixture-strategy choice. |
+| JC-001 passive evidence-view prototype scope | Ready | `jc-001-passive-evidence-view-prototype-scope.md` defines the first implementation-facing prototype target, outputs, acceptance checks, non-goals, and selected committed public-safe test-fixture strategy. |
 
 ## Workstreams
 
@@ -131,7 +132,8 @@ to working control computers.
 | 7 | Run a technical spike only after the wedge scope is explicit. | Completed by `jc-001-static-analysis-spike.md`. | `jc-001-concepts-and-contracts.md`. |
 | 8 | Promote validated decisions into ADRs or architecture docs. | Completed by `jc-001-passive-evidence-view-decision.md`. | Step 7. |
 | 9 | Shape the first implementation-facing prototype scope for the accepted passive evidence-view boundary. | Completed by `jc-001-passive-evidence-view-prototype-scope.md`. | Step 8. |
-| 10 | Choose the prototype fixture strategy and start the implementation spike. | Small read-only analyzer with JSON and Markdown output, validated by fixture-sized acceptance checks. | Step 9. |
+| 10 | Choose the prototype fixture strategy. | Completed by the selected committed public-safe test-fixture strategy in `jc-001-passive-evidence-view-prototype-scope.md`. | Step 9. |
+| 11 | Start the implementation spike. | Small read-only analyzer with committed fixture data, JSON and Markdown output, and fixture-sized acceptance checks. | Step 10. |
 
 ## Review Cadence
 

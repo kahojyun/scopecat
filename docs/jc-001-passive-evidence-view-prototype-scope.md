@@ -2,7 +2,7 @@
 
 ## Status
 
-Ready for implementation spike.
+Ready for implementation spike; fixture strategy selected.
 
 ## Purpose
 
@@ -127,18 +127,37 @@ The implementation may reuse the non-public research spike as a behavioral
 reference, but the project-owned prototype should not depend on a local
 absolute path or on the research repository being present.
 
-Before implementation starts, choose one of these fixture strategies:
+## Fixture Strategy
+
+Decision: the first implementation spike should commit a tiny public-safe
+fixture with the prototype tests.
+
+This choice optimizes for a portable clean-checkout run. The prototype should
+not depend on the non-public research workspace, local absolute paths, or a
+generated fixture that hides the artifact shapes the journey is meant to
+exercise.
+
+Rejected alternatives:
 
 | Strategy | Use when | Tradeoff |
 | --- | --- | --- |
-| Commit a tiny public-safe fixture with tests | The prototype should run in this repo without local research data. | Slightly duplicates the synthetic fixture, but makes tests portable. |
 | Require a caller-provided fixture path | The prototype should avoid committing any fixture data yet. | Keeps the repo smaller, but automated tests need a fixture path or generated fixture. |
 | Generate the fixture in tests | The prototype should keep fixture data close to test intent. | Reduces checked-in data, but fixture generation can hide readability problems. |
 
-Default recommendation: commit a tiny public-safe fixture only if implementation
-work begins in this repo. The fixture should be derived from the existing
-synthetic fixture and must not include real paths, usernames, hardware
-identifiers, network addresses, or calibration values.
+The committed fixture should be derived from the existing synthetic fixture and
+kept intentionally small. It must not include real paths, usernames, hardware
+identifiers, network addresses, calibration values, lab-specific labels, or
+large notebook content.
+
+Recommended implementation location:
+
+```text
+tests/fixtures/jc001-braid-config/
+```
+
+That location is intentionally test-owned until the project has a broader
+fixture or sample-data policy. It should not imply that fixture import,
+shipping sample data, or public documentation examples have been accepted.
 
 ## Acceptance Checks
 
@@ -152,7 +171,7 @@ identifiers, network addresses, or calibration values.
 | Missing facts | Preferred anchor, selected settings authority, generated sidecar freshness, snapshot coverage, and code identity gaps remain explicit. |
 | Sharing boundary | Public-safe output preserves artifact roles and relation existence without leaking sensitive details. |
 | No authority claim | The report never declares a selected context, registry, setup, or code reference authoritative unless producer facts explicitly say so. |
-| Portable run | The prototype can run from a clean checkout using only documented inputs and local tooling. |
+| Portable run | The prototype can run from a clean checkout using only documented inputs, committed test fixture data, and local tooling. |
 
 ## Non-Goals
 
@@ -182,7 +201,6 @@ Do not build these in the first prototype:
 
 ## Next Step
 
-Start the implementation spike only after choosing the fixture strategy. The
-recommended first implementation is a small read-only analyzer plus JSON and
-Markdown output, validated against the `JC-001` fixture-sized acceptance
-checks above.
+Start the implementation spike with a small committed public-safe test fixture,
+a read-only analyzer, and JSON/Markdown output. Validate it against the
+`JC-001` fixture-sized acceptance checks above.
