@@ -17,20 +17,20 @@ plan.
 
 ## Extraction Rule
 
-Start from the read journey, then preserve the producer-side facts needed to
-make that read journey possible later.
+Start from the read journey, then preserve the producer-fact pressure that
+would make that read journey easier to explain later.
 
 ```text
 read need
-  -> minimum producer obligation
+  -> recoverable producer facts
   -> standalone adoption step
   -> later composition path
 ```
 
-Do not infer that every producer obligation requires managed execution,
-services, databases, write-back, hardware control, or environment management.
-Some facts can come from passive recording, explicit user selection, static
-inspection, lightweight manifests, or export metadata.
+Do not infer that every producer fact requires managed execution, services,
+databases, write-back, hardware control, or environment management. Some facts
+can come from passive recording, explicit user selection, static inspection,
+lightweight manifests, or export metadata.
 
 ## Capability Touches
 
@@ -82,7 +82,7 @@ make recoverable:
 | Fact | Why it matters | First-slice handling |
 | --- | --- | --- |
 | Bundle or run-like anchor | Gives the explanation a stable entry point. | Represent, even if imported from existing files. |
-| Artifact role | Separates anchor, selected context, generated sidecar, copied snapshot, variant, backup ambiguity, and unknown evidence. | Represent for included artifacts. |
+| Artifact role | Separates anchor, selected context, generated sidecar, copied snapshot, variant, and unknown evidence. | Represent for included artifacts; represent backups through relation-level ambiguity. |
 | Evidence handling | Prevents observed, inferred, generated, copied, unchecked, and unsafe evidence from looking equivalent. | Represent for artifacts and relations. |
 | Selected settings source | Explains which settings appear selected without making them authoritative. | Represent as observed, inferred, or missing. |
 | Snapshot relation | Explains why a copied settings file may differ from current settings. | Represent when snapshots are present. |
@@ -94,7 +94,7 @@ make recoverable:
 
 ## Capability Ordering
 
-For `JC-001`, adopt in this order:
+For `JC-001`, layer the evidence view in this order:
 
 1. Artifact-role inventory anchored by a bundle or run-like object.
 2. Selected-context and snapshot explanation for settings-like files.
@@ -105,8 +105,8 @@ For `JC-001`, adopt in this order:
 7. Follow-on known-good or scientific comparability only after this slice is
    validated.
 
-This order keeps the first slice read-first while preserving the write facts
-needed for future producers.
+This order keeps the first slice read-first while preserving producer-fact
+pressure for future decisions.
 
 ## Migration-Wedge Candidate
 

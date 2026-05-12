@@ -138,7 +138,9 @@ absolute path or on the research repository being present.
 The first project-owned implementation spike is intentionally small:
 
 - prototype entry point: `prototypes/jc001_passive_evidence_view.py`;
-- committed public-safe fixture: `tests/fixtures/jc001-layered-config-bundle/`;
+- committed public-safe fixtures:
+  `tests/fixtures/jc001-layered-config-bundle/` and
+  `tests/fixtures/jc001-minimal-unknown/`;
 - fixture-level checks: `tests/test_jc001_passive_evidence_view.py`;
 - validation command: `python3 -m unittest discover -s tests`;
 - smoke command:

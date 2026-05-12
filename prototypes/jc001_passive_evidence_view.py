@@ -330,6 +330,10 @@ def display_ids(items: list[str]) -> str:
     return ", ".join(f"`{item}`" for item in items) or "none observed"
 
 
+def display_value(item: str | None) -> str:
+    return f"`{item}`" if item else "none observed"
+
+
 def declared_source_relation_target(
     *,
     source_path: Any,
@@ -506,13 +510,15 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
             for selected in selected_contexts
             if code_mentions_artifact_path({code_ref.path: code_text.get(code_ref.path, "")}, selected.path)
         ]
-        target_contexts = matched_contexts or ([selected_context] if selected_context is not None else [])
+        target_contexts = matched_contexts
         targets = target_contexts or [None]
         for target_context in targets:
             target = target_context.artifact_id if target_context is not None else bundle_id
             flags = ["not-executed"]
             if not has_clue:
                 flags.append("no-static-context-clue")
+            elif selected_contexts and not matched_contexts:
+                flags.append("no-exact-selected-context-path")
             if len(selected_contexts) > 1 and not matched_contexts:
                 flags.append("multiple-selected-context-candidates")
             add_relation(
@@ -520,9 +526,13 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
                 code_ref.artifact_id,
                 target,
                 "observed",
-                "Code artifact was read as text and contains static path or derivation clues."
-                if has_clue
-                else "Code artifact was read as text; no selected-context clue was observed.",
+                "Code artifact was read as text and contains an exact selected-context path clue."
+                if matched_contexts
+                else (
+                    "Code artifact was read as text and contains generic path or derivation clues, but no exact selected-context path."
+                    if has_clue
+                    else "Code artifact was read as text; no selected-context clue was observed."
+                ),
                 flags,
             )
 
@@ -718,14 +728,16 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         )
 
     for fact in missing_facts:
-        add_relation(
-            "missing-fact",
-            fact["affected_artifacts"][0] if fact["affected_artifacts"] else bundle_id,
-            bundle_id,
-            "missing",
-            fact["user_impact"],
-            [fact["fact_type"]],
-        )
+        affected_artifacts = fact["affected_artifacts"] or [bundle_id]
+        for affected_artifact in affected_artifacts:
+            add_relation(
+                "missing-fact",
+                affected_artifact,
+                bundle_id,
+                "missing",
+                fact["user_impact"],
+                [fact["fact_type"]],
+            )
 
     add_relation(
         "redacts",
@@ -896,10 +908,12 @@ def render_markdown(view: dict[str, Any]) -> str:
             "",
             "## Selected-Context Explanation",
             "",
-            f"- Selected context candidate: `{view['selected_context_explanation']['selected_context_candidate']}`",
+            "- Selected context candidate: "
+            + display_value(view["selected_context_explanation"]["selected_context_candidate"]),
             "- Selected context candidates: "
             + display_ids(view["selected_context_explanation"]["selected_context_candidates"]),
-            f"- Setup context candidate: `{view['selected_context_explanation']['setup_context_candidate']}`",
+            "- Setup context candidate: "
+            + display_value(view["selected_context_explanation"]["setup_context_candidate"]),
             f"- Status: {view['selected_context_explanation']['status']}",
             "",
             "## Generated And Copied Relation Summary",

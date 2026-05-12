@@ -167,6 +167,20 @@ class PassiveEvidenceViewTest(unittest.TestCase):
                 "code identity",
             },
         )
+        missing_relations_by_type = {}
+        for relation in view["relations"]:
+            if relation["relation_type"] == "missing-fact":
+                missing_relations_by_type.setdefault(relation["flags"][0], set()).add(
+                    relation["source_artifact"]
+                )
+        self.assertGreaterEqual(
+            missing_relations_by_type["generated sidecar freshness"],
+            {"setting__temp__chip_info_json", "setting__temp__line_info_json"},
+        )
+        self.assertGreaterEqual(
+            missing_relations_by_type["code identity"],
+            {"code__config_py", "code__init_setting_flow_py"},
+        )
         self.assertNotIn("source-of-record", json.dumps(view))
 
     def test_evidence_view_matches_expected_shape_snapshot(self):
@@ -587,6 +601,7 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         self.assertIn("manifest-role-only", selected_relation["flags"])
 
         code_relation = relation_by_type_and_source(view, "references-code", "code__notes_py")
+        self.assertEqual(code_relation["target_artifact"], "clue-free-code-fixture")
         self.assertIn("no-static-context-clue", code_relation["flags"])
 
     def test_unrelated_setting_code_does_not_strengthen_non_default_selected_context(self):
@@ -633,6 +648,9 @@ class PassiveEvidenceViewTest(unittest.TestCase):
             "active__context_json",
         )
         self.assertIn("manifest-role-only", selected_relation["flags"])
+        code_relation = relation_by_type_and_source(view, "references-code", "code__notes_py")
+        self.assertEqual(code_relation["target_artifact"], "unrelated-setting-code-fixture")
+        self.assertIn("no-exact-selected-context-path", code_relation["flags"])
 
     def test_multiple_selected_context_candidates_get_relations(self):
         prototype = load_prototype()
@@ -715,6 +733,7 @@ class PassiveEvidenceViewTest(unittest.TestCase):
             "Selected context candidates: `active__context-a_json`, `active__context-b_json`",
             markdown,
         )
+        self.assertIn("Selected context candidate: none observed", markdown)
 
         conflict_artifacts = [
             item["artifacts"]

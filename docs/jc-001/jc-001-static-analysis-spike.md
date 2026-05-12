@@ -59,7 +59,8 @@ The generated evidence view found:
 - one selected-context candidate and one setup-context candidate;
 - two generated sidecars;
 - one copied snapshot;
-- one manifest-only variant/backup ambiguity artifact;
+- one manifest-only variant artifact with backup ambiguity expressed through
+  relation-level evidence;
 - two code-reference artifacts;
 - three conflicts;
 - five missing producer facts.

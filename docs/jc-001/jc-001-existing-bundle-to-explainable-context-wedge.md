@@ -112,7 +112,7 @@ unsafe to share.
 
 | Check | Pass condition |
 | --- | --- |
-| Role inventory | The wedge identifies anchor, selected context, generated sidecar, copied snapshot, variant, backup ambiguity, unknown, and code-shape evidence where present. |
+| Role inventory | The wedge identifies anchor, selected context, generated sidecar, copied snapshot, variant, unknown, and code-shape evidence where present; backup ambiguity is represented through relations and non-precedence labels. |
 | Context ambiguity | Related config/settings artifacts can be shown as related but conflicting without declaring one authoritative truth. |
 | Producer gaps | Missing selected-source, generated-relation, copied-relation, or code-reference facts remain visible. |
 | No execution | The wedge produces useful output without running code, notebooks, drivers, services, or hardware routines. |

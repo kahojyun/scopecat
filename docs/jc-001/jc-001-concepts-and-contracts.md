@@ -81,7 +81,7 @@ The first wedge should support only these relation types:
 | `references-code` | Artifact or bundle has non-executed code-shaped evidence. | Does not accept execution or code identity ownership. |
 | `has-variant` | Bundle has a related branch or variant. | Does not infer active precedence. |
 | `has-backup` | Bundle has a related backup. | Does not infer rollback target. |
-| `missing-fact` | Required producer fact is absent or unknown. | Does not fabricate inferred truth. |
+| `missing-fact` | Producer-side information is absent or unknown and would improve later explanation. | Does not fabricate inferred truth or make passive explanation depend on producer support. |
 | `redacts` | Public/support view hides or categorizes sensitive evidence. | Does not erase internal diagnostic value. |
 
 ## Cross-Capability Contracts

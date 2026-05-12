@@ -170,7 +170,7 @@ scientific-equivalence judgment.
 
 | Check | Must be true |
 | --- | --- |
-| Read needs imply write facts | Capability extraction must identify which facts need to exist at bundle-production time or be recoverable later. |
+| Read needs imply producer-fact pressure | Capability extraction must identify which facts need to exist at bundle-production time or be recoverable later. |
 | Mechanism remains open | The journey must not assume those facts come from a managed runner, database, service, notebook capture, or control framework. |
 | Failure stays visible | If a producer did not record enough information, the future-state output must show missing or inferred evidence rather than fabricating certainty. |
 | Low ceremony survives | Existing ordinary scripts can produce or expose useful evidence without becoming full Scopecat applications. |
