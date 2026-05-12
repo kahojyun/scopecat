@@ -60,11 +60,12 @@ constrain the journey after validation checks, JTBD candidates need journey
 phrasing, capability gaps need fixtures, and framework baselines are substrate
 or validation detail rather than primary product pain.
 
-## W2 Fixture Source Map
+## Future Journey Source-Map Template
 
-Before drafting the first journey, create a small source map for the selected
-fixture. Its job is to keep `JC-001` from becoming a vague "reopen a run"
-story: the fixture should be an existing work bundle with explicit source roles,
+For `JC-001`, use the promoted document set under
+[`jc-001/README.md`](jc-001/README.md). For a future W2 journey, create a small
+source map before drafting the journey. Its job is to keep the journey from
+becoming a vague story: the fixture should have explicit source roles,
 ambiguity, and boundaries.
 
 If the map needs exact local paths, original tree names, system labels, sample
@@ -777,9 +778,11 @@ redaction risks.
 | Automatic rollback, restore, or environment management as the first answer to known-good pressure | Known-good references should first support comparison and diagnostics; mutation and restore semantics require later decisions. |
 | Generic workflow DAGs, schedulers, queues, shell-command runners, device apply, or AI mutation | These need later scope validation and ADR/review boundaries. |
 
-## Open Questions
+## Historical Selection Questions
 
-Questions that directly affect the first W2 journey selection:
+These questions shaped the first W2 selection and are now resolved for `JC-001`
+by the promoted document set under [`jc-001/README.md`](jc-001/README.md).
+Keep them here only as reusable prompts for future journey selection:
 
 - What exact source bundle should define the first W2 validation fixture:
   workflow improvement case configuration/code/artifact bundle,
@@ -803,9 +806,8 @@ Questions that directly affect the first W2 journey selection:
   Scopecat owns setup, parameters, notebook state, or code execution?
 - Which role lenses must be visible in W2 without splitting one natural
   notebook-like workflow into separate role-specific journeys?
-- Which top-level pain narrative should seed the first W2 journey, and which
-  foundational pain points should become that journey's actual acceptance
-  pressure?
+- Which top-level pain narrative should seed the journey, and which
+  foundational pain points should become its acceptance pressure?
 
 Later validation backlog:
 

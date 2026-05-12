@@ -214,9 +214,9 @@ Rules:
 
 ### Sharing Boundary Contract
 
-Purpose: the first prototype preserves public-safe sharing labels and redaction
-behavior without leaking sensitive details. Internal-safe diagnostics and
-support-boundary export policy remain follow-on scope.
+Purpose: the first prototype preserves public-safe fixture labels and the
+existence of redacted evidence. Redaction-sensitive rendering, internal-safe
+diagnostics, and support-boundary export policy remain follow-on scope.
 
 Minimum fields:
 
@@ -273,8 +273,8 @@ boundaries, and the no-execution/no-mutation boundary. The validated boundary
 is promoted by
 [`jc-001-passive-evidence-view-decision.md`](jc-001-passive-evidence-view-decision.md).
 
-The spike did not design the final storage model, product UI, plugin system,
-parser framework, runner, or hardware integration.
+The accepted decision owns the deferred boundary beyond the static evidence
+view.
 
 ## Open Questions
 
@@ -293,7 +293,5 @@ parser framework, runner, or hardware integration.
 ## Current Downstream
 
 These concepts are used by the accepted passive evidence-view decision,
-two-fixture prototype scope, and provisional ownership pass. Keep
-source-of-record authority, execution, mutation, hardware verification, parser
-generalization, and support-boundary export out of scope unless a later journey
-and spike validate them.
+two-fixture prototype scope, and provisional ownership pass. Broader scope
+requires a later evidence-backed decision.

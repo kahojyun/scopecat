@@ -72,8 +72,8 @@ The first wedge does not include:
 - general parser framework;
 - subsystem ownership decisions beyond this wedge.
 
-These may become later decisions only after a separate journey, wedge, and
-spike justify them.
+These may become later scope after a separate evidence-backed decision. Use a
+journey, wedge, spike, ADR, prototype result, or ownership map as appropriate.
 
 ## Producer Facts Accepted As Future Write Obligations
 

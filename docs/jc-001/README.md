@@ -14,6 +14,11 @@ a passive evidence view. The current validated boundary is read-only,
 fixture-sized, no execution, no mutation, no hardware verification, no
 source-of-record authority, and no package/parser/storage/UI promotion.
 
+Use this folder as the pattern for later journey candidates: keep the journey,
+capability extraction, wedge, contracts, spike, decision, prototype scope, and
+ownership pass together, and let the accepted decision own the canonical
+boundary.
+
 ## Reading Order
 
 | Order | Document | Use for |
@@ -35,9 +40,23 @@ The first wedge has been validated through:
 - an accepted passive evidence-view decision;
 - a two-fixture read-only prototype;
 - fixture-sized manifest validation and expected-shape checks;
-- an explicit phase-completion standard for stopping prototype expansion;
+- explicit validated-boundary and reopen criteria for the prototype;
 - provisional capability ownership pressure for the accepted evidence-view facts.
 
 The next product/architecture choice is whether to seed a small capability map
 from this provisional ownership pass or select a second journey to test the
 ownership under different pressure.
+
+## Reusable Pattern
+
+Future JC folders should answer these questions in order:
+
+1. Why this journey and fixture boundary?
+2. What current-state and future-state user journey is being tested?
+3. Which capabilities are touched, and what is the smallest useful adoption
+   step for each?
+4. What is the thin migration wedge?
+5. Which concepts and contracts are needed for that wedge?
+6. What spike or prototype result validates the decision?
+7. What is accepted, deferred, and reopened only with new evidence?
+8. Which provisional owners are created by the accepted wedge?

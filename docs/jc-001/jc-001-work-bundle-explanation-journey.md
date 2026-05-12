@@ -11,10 +11,10 @@ Define the first W2 current-state and future-state journey for `JC-001`:
 explain an existing run or work bundle with selected context, code, and
 artifacts.
 
-This journey is public-safe and fixture-based. It uses the boundary selected in
-[`jc-001-journey-selection-note.md`](jc-001-journey-selection-note.md) and does
-not promote implementation scope, architecture contracts, subsystem specs, or
-live experiment control.
+This journey uses the fixture and sharing boundary selected in
+[`jc-001-journey-selection-note.md`](jc-001-journey-selection-note.md). The
+accepted implementation boundary lives in
+[`jc-001-passive-evidence-view-decision.md`](jc-001-passive-evidence-view-decision.md).
 
 ## Job To Be Done
 
@@ -123,14 +123,14 @@ The user can manually collect clues, but the result is fragile:
 
 ## Future-State Journey
 
-| Step | Role hat | Scopecat behavior | User decision enabled | Boundary |
-| --- | --- | --- | --- | --- |
-| 1 | Operator or analyst | Opens the bundle in offline explanation mode and identifies anchor artifacts, selected-context candidates, generated sidecars, copied snapshots, variants, and unknowns. | Decide where to start reading without treating any file as authoritative truth. | No execution or mutation. |
-| 2 | Configuration reviewer | Shows root config and runtime-selected settings as related but conflicting evidence, with role, status, provenance, and evidence-handling labels. | Decide which conflicts need human review before reuse. | No hidden source-of-truth claim. |
-| 3 | Method author | Summarizes non-executable code-shape evidence: path selection, settings read, optional sidecar generation, and run-bound snapshot pattern. | Decide whether the bundle has enough code provenance to explain settings flow. | No managed execution or notebook-state capture. |
-| 4 | Analyst | Groups generated sidecars and copied snapshots with the settings evidence they appear derived from or attached to, while marking stale or unchecked relations. | Decide whether the run-like artifact is explainable enough for analysis. | No automatic completeness proof. |
-| 5 | Configuration reviewer | Lists variant and backup evidence separately from selected context and explains why active state is unknown. | Decide which variant, if any, needs external confirmation. | No rollback, restore, or precedence inference. |
-| 6 | Recipient | Produces a public-safe explanation view with sensitive fields redacted or categorized. | Decide what can be shared for handoff or support. | No raw private context in public output; internal-safe view differences remain follow-on validation. |
+| Step | Role hat | Scopecat behavior | User decision enabled |
+| --- | --- | --- | --- |
+| 1 | Operator or analyst | Opens the bundle in offline explanation mode and identifies anchor artifacts, selected-context candidates, generated sidecars, copied snapshots, variants, and unknowns. | Decide where to start reading without treating any file as authoritative truth. |
+| 2 | Configuration reviewer | Shows root config and runtime-selected settings as related but conflicting evidence, with role, status, provenance, and evidence-handling labels. | Decide which conflicts need human review before reuse. |
+| 3 | Method author | Summarizes non-executable code-shape evidence: path selection, settings read, optional sidecar generation, and run-bound snapshot pattern. | Decide whether the bundle has enough code provenance to explain settings flow. |
+| 4 | Analyst | Groups generated sidecars and copied snapshots with the settings evidence they appear derived from or attached to, while marking stale or unchecked relations. | Decide whether the run-like artifact is explainable enough for analysis. |
+| 5 | Configuration reviewer | Lists variant and backup evidence separately from selected context and explains why active state is unknown. | Decide which variant, if any, needs external confirmation. |
+| 6 | Recipient | Produces a sharing-safe explanation view with sensitive fields categorized or replaced by public labels. | Decide what can be shared for handoff or support. |
 
 ## Future-State Output
 
@@ -166,7 +166,7 @@ scientific-equivalence judgment.
 | `PN-007` portability | Local and machine-specific coupling is represented as redaction-sensitive evidence, not public fixture content. |
 | `PN-016` low ceremony | A user can start from ordinary files and code-shaped evidence without adopting a managed framework. |
 
-## Producer Acceptance Checks
+## W3 Handoff Notes
 
 | Check | Must be true |
 | --- | --- |

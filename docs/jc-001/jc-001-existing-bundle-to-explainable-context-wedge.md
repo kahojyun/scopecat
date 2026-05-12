@@ -61,19 +61,7 @@ Included:
 - producer-side missing-fact report;
 - public-safe fixture sharing-boundary labels.
 
-Excluded:
-
-- managed execution;
-- notebook execution or notebook-state capture;
-- hardware control, driver communication, setup mutation, or service startup;
-- settings write-back, calibration mutation, rollback, or restore;
-- package installation, environment solving, background agents, cloud login, or
-  mandatory network services;
-- old-history import, Data Vault emulation, or general file organization;
-- known-good comparison, scientific-equivalence scoring, or cross-system
-  transfer claims;
-- full ELN, report generator, support-ticketing product, or collaboration
-  workflow.
+The accepted decision owns the deferred boundary for this wedge.
 
 ## Capabilities Involved
 
@@ -93,15 +81,15 @@ generated, user-declared, unchecked, unsafe to inspect, or missing:
 
 | Producer fact | Wedge handling |
 | --- | --- |
-| Bundle or run-like anchor | Required as the entry point for the evidence view. |
-| Artifact role | Required for every included artifact. |
-| Selected settings source | Required when settings-like files are present. |
-| Snapshot relation | Required when copied settings or run-bound snapshots are present. |
-| Generated relation | Required when sidecars appear derived from selected context. |
-| Code reference | Required when code-shaped evidence explains selection or derivation. |
+| Bundle or run-like anchor | Represent as the entry point for the evidence view. |
+| Artifact role | Represent for every included artifact. |
+| Selected settings source | Represent as observed, inferred, or missing when settings-like files are present. |
+| Snapshot relation | Represent as observed, inferred, or missing when copied settings or run-bound snapshots are present. |
+| Generated relation | Represent as observed, inferred, or missing when sidecars appear derived from selected context. |
+| Code reference | Represent as lightweight evidence when code-shaped clues explain selection or derivation. |
 | Variant lineage | Optional, but at least one variant/backup ambiguity case should be representable. |
 | Dependency/readiness hint | Optional; include only when visible without execution. |
-| Sharing boundary | Required for each artifact or field family. |
+| Sharing boundary | Represent for each artifact or field family. |
 
 ## Evidence View Requirements
 

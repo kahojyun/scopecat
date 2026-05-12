@@ -45,14 +45,17 @@ inspection, lightweight manifests, or export metadata.
 
 ## Standalone Adoption Steps
 
-| Capability | Smallest useful standalone adoption step | Producer-side minimum | Later composition path | Non-goals |
-| --- | --- | --- | --- | --- |
-| Measurement History | Open an existing work bundle and produce an artifact-role inventory anchored by a run-like or bundle identity. | A producer or importer can expose anchor identity, copied snapshots, generated sidecars, and artifact roles. | Later run records can link scan points, parameter snapshots, code references, execution records, and handoff packages. | No new acquisition framework, old-history import, live dashboard, or resumability. |
-| Parameter Memory | Show selected settings, copied snapshots, generated context, variants, conflicts, freshness, and unknown active state as evidence. | A producer can record or expose selected settings source, snapshot relation, generated relation, and variant classification. | Later calibration workflows can propose updates, review diffs, and link accepted snapshots to runs. | No authoritative config ownership, silent write-back, automatic rollback, or universal parameter schema. |
-| Code Asset Registry | Register or infer code references that explain settings path selection and derivation flow without executing them. | A producer can expose entrypoint-like evidence, settings path references, data path references, and sidecar generator references. | Later managed execution can resolve exact code versions and execution records after safety boundaries exist. | No package registry, notebook-state capture, remote execution, or code runner requirement. |
-| Instrument Runtime | Record setup/registry-like context as declared or observed evidence with role and sharing boundary. | A producer can attach setup context as evidence without proving live device state. | Later diagnostics and resource semantics can build on manifests after ADRs for device apply and leases. | No live device control, leases, driver mutation, service startup, or software-proof of physical truth. |
-| Managed Code Runner | Show readiness gaps and dependency-shaped clues as static evidence. | A producer can expose dependency categories or environment hints without installing or running anything. | Later runner records can capture logs, artifacts, status, and environment after control-PC safety decisions. | No execution supervision, package installation, worker fleet, shell-command product surface, or environment solving. |
-| Comparability and known-good diff | Explain conflicts between artifacts inside one bundle with layer-by-layer evidence. | A producer can preserve enough source and relation metadata for later conflict display. | Later known-good comparison can compare bundle, setup, method, calibration, and analysis layers. | No known-good authority, scientific-equivalence score, normalization, rollback, or cross-system transfer claim. |
+The deferred boundary is owned by
+[`jc-001-passive-evidence-view-decision.md`](jc-001-passive-evidence-view-decision.md).
+
+| Capability | Smallest useful standalone adoption step | Producer-side minimum | Later composition path |
+| --- | --- | --- | --- |
+| Measurement History | Open an existing work bundle and produce an artifact-role inventory anchored by a run-like or bundle identity. | A producer or importer can expose anchor identity, copied snapshots, generated sidecars, and artifact roles. | Later run records can link scan points, parameter snapshots, code references, execution records, and handoff packages. |
+| Parameter Memory | Show selected settings, copied snapshots, generated context, variants, conflicts, freshness, and unknown active state as evidence. | A producer can record or expose selected settings source, snapshot relation, generated relation, and variant classification. | Later calibration workflows can propose updates, review diffs, and link accepted snapshots to runs. |
+| Code Asset Registry | Register or infer code references that explain settings path selection and derivation flow without executing them. | A producer can expose entrypoint-like evidence, settings path references, data path references, and sidecar generator references. | Later managed execution can resolve exact code versions and execution records after safety boundaries exist. |
+| Instrument Runtime | Record setup/registry-like context as declared or observed evidence with role and sharing boundary. | A producer can attach setup context as evidence without proving live device state. | Later diagnostics and resource semantics can build on manifests after ADRs for device apply and leases. |
+| Managed Code Runner | Show readiness gaps and dependency-shaped clues as static evidence. | A producer can expose dependency categories or environment hints without installing or running anything. | Later runner records can capture logs, artifacts, status, and environment after control-PC safety decisions. |
+| Comparability and known-good diff | Explain conflicts between artifacts inside one bundle with layer-by-layer evidence. | A producer can preserve enough source and relation metadata for later conflict display. | Later known-good comparison can compare bundle, setup, method, calibration, and analysis layers. |
 
 ## First Adoption Slice
 
@@ -76,18 +79,18 @@ or missing.
 These are the facts `JC-001` suggests producers should eventually record or
 make recoverable:
 
-| Fact | Why it matters | Required in first implementation? |
+| Fact | Why it matters | First-slice handling |
 | --- | --- | --- |
-| Bundle or run-like anchor | Gives the explanation a stable entry point. | Yes, even if imported from existing files. |
-| Artifact role | Separates anchor, selected context, generated sidecar, copied snapshot, variant, backup ambiguity, and unknown evidence. | Yes. |
-| Evidence handling | Prevents observed, inferred, generated, copied, unchecked, and unsafe evidence from looking equivalent. | Yes. |
-| Selected settings source | Explains which settings appear selected without making them authoritative. | Yes, as observed or inferred evidence. |
-| Snapshot relation | Explains why a copied settings file may differ from current settings. | Yes when snapshots are present. |
-| Generated relation | Explains sidecars without claiming every sidecar is current. | Yes when sidecars are present. |
-| Code reference | Explains path selection or derivation flow without execution. | Yes as lightweight evidence. |
-| Sharing boundary | Keeps internal diagnostics and public exports separate. | Yes. |
-| Dependency/readiness hint | Shows execution risk before running code. | Optional in first slice; useful when visible. |
-| Variant lineage | Preserves branch ambiguity. | Optional in first slice; include one representative example. |
+| Bundle or run-like anchor | Gives the explanation a stable entry point. | Represent, even if imported from existing files. |
+| Artifact role | Separates anchor, selected context, generated sidecar, copied snapshot, variant, backup ambiguity, and unknown evidence. | Represent for included artifacts. |
+| Evidence handling | Prevents observed, inferred, generated, copied, unchecked, and unsafe evidence from looking equivalent. | Represent for artifacts and relations. |
+| Selected settings source | Explains which settings appear selected without making them authoritative. | Represent as observed, inferred, or missing. |
+| Snapshot relation | Explains why a copied settings file may differ from current settings. | Represent when snapshots are present. |
+| Generated relation | Explains sidecars without claiming every sidecar is current. | Represent when sidecars are present. |
+| Code reference | Explains path selection or derivation flow without execution. | Represent as lightweight evidence. |
+| Sharing boundary | Keeps internal diagnostics and public exports separate. | Represent with fixture-safe labels. |
+| Dependency/readiness hint | Shows execution risk before running code. | Include when visible. |
+| Variant lineage | Preserves branch ambiguity. | Include one representative example. |
 
 ## Capability Ordering
 
@@ -118,16 +121,7 @@ The user-visible outcome is an offline evidence view that explains selected
 context, code-shaped provenance, generated and copied artifacts, variants,
 ambiguity, and sharing boundaries without mutation.
 
-Candidate non-goals for the wedge:
-
-- no managed execution;
-- no hardware control;
-- no settings write-back;
-- no environment mutation;
-- no rollback or restore;
-- no known-good comparison;
-- no scientific-equivalence scoring;
-- no full ELN, report generator, or file organizer.
+The accepted decision owns the non-goals for this slice.
 
 ## Open Questions For W4/W6
 

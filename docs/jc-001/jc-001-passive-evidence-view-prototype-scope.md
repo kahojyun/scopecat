@@ -15,6 +15,9 @@ target. It is not a subsystem spec, product UI design, storage schema, parser
 framework, support-export policy, execution runner, or hardware integration
 plan.
 
+The accepted decision owns the canonical deferred boundary. This note records
+what the prototype must prove and when to reopen it.
+
 ## Prototype Goal
 
 Build the smallest read-only prototype that can open the `JC-001` synthetic
@@ -168,16 +171,6 @@ Validated behavior:
   symlinks;
 - runs from a clean checkout with stdlib tooling.
 
-Decision: keep iterating as a prototype script. Do not promote a package
-layout, CLI contract, dependency manager, parser framework, storage model, UI,
-or subsystem boundary yet.
-
-Reason: one fixture-sized prototype is enough to validate the accepted passive
-evidence-view boundary, but not enough to justify project-wide code layout or
-tooling commitments. Promote those only after a second implementation pressure
-appears, such as another fixture shape, a user-facing command surface, or a
-need to reuse the evidence-view model outside this prototype.
-
 ## Fixture-Sized Hardening
 
 The prototype now includes the first hardening pass:
@@ -192,34 +185,6 @@ The prototype now includes the first hardening pass:
 - CLI failures reported as `error: ...` with exit code `2`;
 - compact expected-shape snapshot:
   `tests/fixtures/jc001-layered-config-bundle/expected-shape.json`.
-
-This hardening remains fixture-sized. It is not a general parser framework,
-schema system, CLI contract, package layout, or storage decision.
-
-## Phase Completion Standard
-
-The fixture and prototype are complete for the current product/architecture
-phase when they can defend the accepted passive evidence-view boundary without
-creating new platform commitments.
-
-Use this as the stop rule:
-
-- the two committed public-safe fixtures run from a clean checkout;
-- the prototype produces the accepted JSON and Markdown evidence view;
-- role inventory, selected-context explanation, generated/copied relations,
-  code-reference summary, readiness hints, variant/backup/unknown handling,
-  conflicts, missing facts, sharing labels, and next checks remain visible;
-- the implementation stays read-only and does not execute, import, install,
-  inspect hardware, mutate the fixture, or write inside the fixture;
-- expected-shape checks cover the accepted behavior without promoting a package
-  layout, parser framework, storage model, UI, export-redaction workflow,
-  runner, or source-of-record authority model.
-
-New pressure from adoption ladders, migration wedges, real-time visualization,
-existing measurement-framework baselines, or write-side producer capabilities
-should not expand this prototype by default. Treat it as input for a later
-journey or baseline-capability note unless it reveals that the accepted
-passive evidence-view boundary cannot be represented by the current fixtures.
 
 ## Second Fixture Validation
 
@@ -242,11 +207,6 @@ Validated behavior:
 - single-anchor bundles do not emit a preferred-anchor missing fact;
 - missing producer facts are conditional on observed artifact families;
 - zero-conflict bundles still produce the accepted evidence-view sections.
-
-Decision: this second fixture does not create enough pressure to promote a
-package layout, CLI contract, parser framework, storage model, UI, or subsystem
-boundary. The prototype should remain a narrow script until another journey,
-fixture family, or reuse need creates real design pressure.
 
 ## Fixture Strategy
 
@@ -280,7 +240,7 @@ That location is intentionally test-owned until the project has a broader
 fixture or sample-data policy. It should not imply that fixture import,
 shipping sample data, or public documentation examples have been accepted.
 
-## Acceptance Checks
+## Validated Boundary
 
 | Check | Pass condition |
 | --- | --- |
@@ -290,25 +250,22 @@ shipping sample data, or public documentation examples have been accepted.
 | Relation coverage | The evidence view can represent anchor, selected-context, generated, copied, code-reference, variant, backup, missing-fact, conflict, and redaction relations. |
 | Conflict visibility | Root/selected context drift, same-shape value drift, setup-context drift, and partial snapshot ambiguity remain visible. |
 | Missing facts | Preferred anchor, selected settings provenance, generated sidecar freshness, snapshot coverage, and code identity gaps remain explicit. |
-| Sharing boundary | Public-safe output preserves artifact roles and relation existence without leaking sensitive details. |
+| Sharing boundary | Committed public-safe fixture output preserves artifact roles and relation existence. |
 | No authority claim | The report never declares a selected context, registry, setup, or code reference authoritative unless producer facts explicitly say so. |
 | Portable run | The prototype can run from a clean checkout using only documented inputs, committed test fixture data, and local tooling. |
 
-## Non-Goals
+## Reopen When
 
-Do not build these in the first prototype:
+Reopen prototype implementation when:
 
-- package/plugin architecture;
-- database or durable storage;
-- product UI;
-- background service;
-- notebook parser or executor;
-- hardware, driver, or environment integration;
-- write-back, repair, normalization, rollback, or calibration mutation;
-- general legacy importer;
-- support-export redaction workflow;
-- source-of-record authority model;
-- numeric confidence score.
+- a validated boundary check fails;
+- a new fixture family reveals a role, relation, conflict, missing fact, or
+  sharing-boundary shape the prototype cannot represent;
+- another journey needs to reuse the same evidence-view behavior;
+- a user-facing command surface needs the prototype behavior.
+
+Otherwise, treat new pressure as input for a later journey, wedge, baseline
+capability note, or evidence-backed decision.
 
 ## Implementation Risks
 
@@ -322,7 +279,6 @@ Do not build these in the first prototype:
 
 ## Next Step
 
-Keep the prototype stable and return to product/architecture work. Reopen
-implementation only when a new journey, fixture family, or user-facing command
-surface creates pressure that this two-fixture prototype cannot answer, or when
-one of the phase-completion checks above fails.
+Return to product/architecture work: either seed a small capability map from
+the provisional ownership pass or select a second journey to test the same
+owners under different pressure.

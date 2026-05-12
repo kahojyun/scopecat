@@ -96,20 +96,10 @@ broader subsystem promotion:
 
 ## Deferred
 
-Do not promote these from this ownership pass:
-
-- package layout;
-- CLI contract;
-- parser framework;
-- database schema;
-- product UI;
-- public sample-data policy;
-- support-export workflow;
-- managed execution;
-- hardware integration;
-- source-of-record authority;
-- full capability map;
-- subsystem specs.
+Generic deferred scope is owned by
+[`jc-001-passive-evidence-view-decision.md`](jc-001-passive-evidence-view-decision.md).
+This ownership pass adds only provisional fact-family owners for the accepted
+evidence view.
 
 ## Open Questions
 

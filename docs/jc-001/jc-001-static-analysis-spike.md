@@ -114,13 +114,6 @@ import system.
 ## Follow-Up
 
 Promoted by
-[`jc-001-passive-evidence-view-decision.md`](jc-001-passive-evidence-view-decision.md).
-The accepted decision:
-
-- accept the first product wedge as static evidence-view generation from an
-  existing bundle;
-- keep execution, mutation, hardware verification, and source-of-record claims
-  out of the first wedge;
-- define the minimum producer facts as future write-side obligations;
-- defer parser generalization until a product prototype needs more than the
-  synthetic fixture.
+[`jc-001-passive-evidence-view-decision.md`](jc-001-passive-evidence-view-decision.md),
+which owns the accepted scope, deferred boundary, and future write-side
+obligations.
