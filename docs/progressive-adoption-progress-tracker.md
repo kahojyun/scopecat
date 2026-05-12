@@ -5,8 +5,8 @@
 Track durable product and architecture progress for Scopecat without turning
 early work into a premature subsystem scaffold.
 
-Current state: `JC-001` has a journey-scoped capability/adoption extraction;
-the next step is shaping the first migration wedge.
+Current state: `JC-001` has a shaped migration wedge; the next step is
+extracting the minimum domain concepts and cross-capability contracts.
 This tracker is active, but its W3+ adoption ladders, migration wedges,
 capability names, and contract ideas remain hypotheses until the selected W2
 journey promotes them.
@@ -45,6 +45,7 @@ Journey-first discovery
 | JC-001 journey selection note | Ready | `jc-001-journey-selection-note.md` selects the first W2 candidate and defines the public-safe synthetic fixture boundary for drafting the first current-state and future-state journey. |
 | JC-001 work bundle explanation journey | Ready | `jc-001-work-bundle-explanation-journey.md` is the first W2 journey and current input for W3 capability/adoption extraction. |
 | JC-001 capability adoption extraction | Ready | `jc-001-capability-adoption-extraction.md` extracts touched capabilities, first standalone adoption steps, producer-side minimum facts, and the first W4 wedge candidate. |
+| JC-001 migration wedge | Ready | `jc-001-existing-bundle-to-explainable-context-wedge.md` shapes the first thin vertical slice and current input for concept/contract extraction. |
 
 ## Workstreams
 
@@ -53,7 +54,7 @@ Journey-first discovery
 | W1 | Evidence and pain points | Ready | `evidence-and-pain-point-inventory.md` | Major claims link back to interview notes, codebase observations, source coverage, explicit assumptions, or clearly labeled blind-persona adoption pressure; behavioral/scaling priors are separated from evidence; pain, JTBD, capability-gap, guardrail, and baseline statements are distinguished; top-level pain narratives decompose into foundational pain points with visibility and validation route. |
 | W2 | End-to-end journeys | Ready | `jc-001-work-bundle-explanation-journey.md` | At least one current-state and future-state journey is written across capability boundaries. |
 | W3 | Adoption ladders | Drafting | `jc-001-capability-adoption-extraction.md` | Each major capability has a smallest useful standalone adoption step and upgrade path. |
-| W4 | Migration wedges | Not Started | Wedge backlog | Candidate vertical slices are ranked by user value, migration cost, and architectural learning. |
+| W4 | Migration wedges | Ready | `jc-001-existing-bundle-to-explainable-context-wedge.md` | Candidate vertical slices are ranked by user value, migration cost, and architectural learning. |
 | W5 | Capability map | Not Started | Architecture capability map | Capabilities, ownership, non-goals, and maturity targets are explicit. |
 | W6 | Cross-capability contracts | Not Started | Contract notes or ADRs | Shared concepts and references have one owner and clear dependency direction. |
 | W7 | Technical spikes | Not Started | Spike notes | Each spike has a question, result, decision impact, and follow-up. |
@@ -86,7 +87,7 @@ workflows. The W1 inventory owns W2 ranking.
 
 | Wedge | User-Visible Outcome | Capabilities Involved | Main Learning Goal | Status |
 | --- | --- | --- | --- | --- |
-| Existing run/work bundle to explainable context bundle | A user opens an existing measurement or analysis bundle and sees selected context candidates, code/notebook provenance, generated protocol artifacts, companion artifacts, and ambiguity without mutation. | Measurement History, Parameter Memory, Code Asset Registry, Scan Framework | Test whether passive explanation across context, code, and generated artifacts is the strongest workflow improvement case wedge before new writes, managed execution, or a Measurement History-only first goal; identify which latent plan-preview, dry-run, campaign, or personnel-handoff pains need follow-on validation. | Not Started |
+| Existing run/work bundle to explainable context bundle | A user opens an existing work bundle and sees anchor artifacts, selected context candidates, code-shaped provenance, generated sidecars, copied snapshots, variants, ambiguity, producer-fact gaps, and sharing boundaries without mutation. | Measurement History, Parameter Memory, Code Asset Registry, Instrument Runtime, Managed Code Runner, Comparability and known-good diff | Test whether passive explanation across context, code, generated/copied artifacts, variants, and producer gaps is the strongest first wedge before new writes, managed execution, known-good comparison, or a Measurement History-only first goal. | Ready |
 | Known-good reference to readiness and diagnostic comparison | A user compares a current bundle or machine against a selected known-good reference, sees confidence gaps, and can share a full-fidelity internal diagnostic package or a sanitized package when crossing public, external, or restricted support boundaries. | Measurement History, Parameter Memory, Code Asset Registry, Managed Code Runner, Instrument Runtime | Test blind-persona adoption blockers around truth drift, false confidence, control-PC fragility, rollback pressure, and support diagnostics without accepting config authority, environment management, or device control. | Not Started |
 | Two valid runs to scientific comparability review | A user compares two valid-looking runs, setup states, or method variants and sees which context, calibration, setup, generated-protocol, correction, and analysis differences matter for comparison. | Measurement History, Parameter Memory, Code Asset Registry, Scan Framework, Instrument Runtime, Comparability and known-good diff, Analysis and claim lineage | Test the external-framework capability gap: Scopecat should complement existing measurement systems by explaining whether results can be compared, migrated, or handed off, not by replacing acquisition/control/calibration frameworks. | Not Started |
 | Small declared setup schema to useful context output | A user maintains a minimal local schema for one setup, sample, or campaign because it immediately enables a qubit-to-instrument lookup, attenuation calculation, chip-layout parameter view, comparability check, or handoff. | Parameter Memory, Instrument Runtime, Declared physical context and local schemas, Comparability and known-good diff | Test whether manually maintained physical and schema context earns its cost before adding broad setup inventory, topology databases, or universal parameter models. | Not Started |
@@ -120,8 +121,8 @@ to working control computers.
 | 2 | Create a fixture source map and journey-selection note. Default to `JC-001` unless the selected fixture rejects it; first map anchor objects, artifact roles, active/obsolete/cache status, notebook source-cell extraction, opaque binary handling, provenance relations, and sharing boundaries. Keep any full-fidelity map with exact local paths, tree names, system labels, sample labels, usernames, or instrument identifiers in a non-public W2 working artifact; public docs should use redacted or role-based labels. Then use top-level pain narratives as journey seeds and foundational pains as acceptance pressure, based on direction-bias corrected evidence, pain visibility, validation route, and statement kind rather than subsystem preference. Behavioral/scaling priors may generate prompts, but should not rank the journey without validation. | Completed by non-public fixture source map work plus `jc-001-journey-selection-note.md`. | `evidence-and-pain-point-inventory.md`. |
 | 3 | Write the selected journey in current-state and future-state form. | Completed by `jc-001-work-bundle-explanation-journey.md`. | `jc-001-journey-selection-note.md`. |
 | 4 | Identify the capabilities touched by that journey and their standalone adoption steps. | Completed by `jc-001-capability-adoption-extraction.md`. | `jc-001-work-bundle-explanation-journey.md`. |
-| 5 | Shape one candidate migration wedge from the selected journey. | Wedge note with scope and non-goals. | `jc-001-capability-adoption-extraction.md`. |
-| 6 | Identify the minimum domain concepts and contracts needed for that wedge. | Concept notes or architecture section. | Step 5. |
+| 5 | Shape one candidate migration wedge from the selected journey. | Completed by `jc-001-existing-bundle-to-explainable-context-wedge.md`. | `jc-001-capability-adoption-extraction.md`. |
+| 6 | Identify the minimum domain concepts and contracts needed for that wedge. | Concept notes or architecture section. | `jc-001-existing-bundle-to-explainable-context-wedge.md`. |
 | 7 | Run a technical spike only after the wedge scope is explicit. | Spike note and decision impact. | Step 6. |
 | 8 | Promote validated decisions into ADRs or architecture docs. | Accepted decision records. | Step 7. |
 
