@@ -20,8 +20,8 @@ what the prototype must prove and when to reopen it.
 
 ## Prototype Goal
 
-Build the smallest read-only prototype that can open the `JC-001` synthetic
-fixture and produce an evidence view with:
+Build the smallest read-only prototype that can open the committed `JC-001`
+synthetic fixtures and produce an evidence view with:
 
 - artifact-role inventory;
 - selected-context explanation;
@@ -46,8 +46,9 @@ The output should help a user answer:
 
 - What files appear to matter?
 - Why does each artifact matter?
-- Which artifacts appear selected, generated, copied, variant,
-  backup-ambiguous, setup, or code-shaped evidence?
+- Which artifacts appear selected, generated, copied, variant, setup, or
+  code-shaped evidence?
+- Where does backup ambiguity appear as a relation or non-precedence signal?
 - Which artifacts conflict?
 - Which producer facts are missing?
 - Which facts carry public-safe fixture sharing labels?
@@ -60,7 +61,7 @@ configuration, silently hide conflicts, or imply hardware truth.
 
 Required input:
 
-- one `JC-001` synthetic fixture directory;
+- one committed `JC-001` synthetic fixture directory;
 - one caller-provided output directory;
 - fixture manifest;
 - JSON artifacts listed by the manifest;
@@ -150,7 +151,7 @@ workspace.
 ## Implementation Spike Review
 
 Review outcome: the first implementation spike satisfies the accepted passive
-evidence-view boundary for the committed `JC-001` fixture.
+evidence-view boundary for the committed `JC-001` fixtures.
 
 Validated behavior:
 
@@ -210,8 +211,8 @@ Validated behavior:
 
 ## Fixture Strategy
 
-Decision: the first implementation spike should commit a tiny public-safe
-fixture with the prototype tests.
+Decision: the first implementation spike commits tiny public-safe fixtures with
+the prototype tests.
 
 This choice optimizes for a portable clean-checkout run. The prototype should
 not depend on the non-public research workspace, local absolute paths, or a
@@ -225,10 +226,10 @@ Rejected alternatives:
 | Require a caller-provided fixture path | The prototype should avoid committing any fixture data yet. | Keeps the repo smaller, but automated tests need a fixture path or generated fixture. |
 | Generate the fixture in tests | The prototype should keep fixture data close to test intent. | Reduces checked-in data, but fixture generation can hide readability problems. |
 
-The committed fixture should be derived from the existing synthetic fixture and
-kept intentionally small. It must not include real paths, usernames, hardware
-identifiers, network addresses, calibration values, lab-specific labels, or
-large notebook content.
+The committed fixtures should be derived from the existing synthetic fixture
+shape and kept intentionally small. They must not include real paths,
+usernames, hardware identifiers, network addresses, calibration values,
+lab-specific labels, or large notebook content.
 
 Recommended implementation location:
 
@@ -279,6 +280,5 @@ capability note, or evidence-backed decision.
 
 ## Next Step
 
-Return to product/architecture work: either seed a small capability map from
-the provisional ownership pass or select a second journey to test the same
-owners under different pressure.
+Return to the current product/architecture choice tracked in
+[`../progressive-adoption-progress-tracker.md`](../progressive-adoption-progress-tracker.md).

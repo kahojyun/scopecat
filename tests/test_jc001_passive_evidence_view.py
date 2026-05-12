@@ -638,8 +638,13 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as fixture_dir:
             fixture_path = Path(fixture_dir)
+            write_json(fixture_path / "parameters.json", {"alpha": "root", "beta": "root"})
             write_json(fixture_path / "active" / "context-a.json", {"alpha": "a"})
-            write_json(fixture_path / "active" / "context-b.json", {"alpha": "b"})
+            write_json(fixture_path / "active" / "context-b.json", {"alpha": "b", "beta": "b"})
+            write_json(fixture_path / "data" / "snapshot.json", {"alpha": "copied"})
+            code_path = fixture_path / "code" / "notes.py"
+            code_path.parent.mkdir(parents=True, exist_ok=True)
+            code_path.write_text("SETTING_PATH = 'setting'\n", encoding="utf-8")
             write_json(
                 fixture_path / "fixture-manifest.json",
                 {
@@ -650,6 +655,13 @@ class PassiveEvidenceViewTest(unittest.TestCase):
                         "forbidden_content": [],
                     },
                     "artifacts": [
+                        {
+                            "path": "parameters.json",
+                            "role": "anchor",
+                            "status": "root candidate",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        },
                         {
                             "path": "active/context-a.json",
                             "role": "selected context",
@@ -664,11 +676,26 @@ class PassiveEvidenceViewTest(unittest.TestCase):
                             "evidence_handling": "inferred",
                             "sharing_boundary": "public-safe",
                         },
+                        {
+                            "path": "data/snapshot.json",
+                            "role": "copied snapshot",
+                            "status": "partial snapshot",
+                            "evidence_handling": "copied",
+                            "sharing_boundary": "public-safe",
+                        },
+                        {
+                            "path": "code/notes.py",
+                            "role": "code reference",
+                            "status": "text-only pseudocode",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        },
                     ],
                 },
             )
 
             view = prototype.build_evidence_view(fixture_path)
+            markdown = prototype.render_markdown(view)
 
         selected_relations = [
             item
@@ -682,6 +709,27 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         self.assertEqual(
             view["selected_context_explanation"]["selected_context_candidates"],
             ["active__context-a_json", "active__context-b_json"],
+        )
+        self.assertIsNone(view["selected_context_explanation"]["selected_context_candidate"])
+        self.assertIn(
+            "Selected context candidates: `active__context-a_json`, `active__context-b_json`",
+            markdown,
+        )
+
+        conflict_artifacts = [
+            item["artifacts"]
+            for item in view["conflict_and_missing_fact_report"]["conflicts"]
+        ]
+        self.assertIn(["parameters_json", "active__context-a_json"], conflict_artifacts)
+        self.assertIn(["parameters_json", "active__context-b_json"], conflict_artifacts)
+        self.assertIn(["data__snapshot_json", "active__context-b_json"], conflict_artifacts)
+
+        code_relation = relation_by_type_and_source(view, "references-code", "code__notes_py")
+        self.assertEqual(code_relation["target_artifact"], "multi-selected-context-fixture")
+        self.assertIn("multiple-selected-context-candidates", code_relation["flags"])
+        self.assertIn(
+            "Record which selected-looking context applies, or preserve explicit alternatives.",
+            view["next_checks"],
         )
 
     def test_unlisted_declared_source_is_missing_not_observed(self):

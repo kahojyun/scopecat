@@ -386,7 +386,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
 
     anchors = [artifact for artifact in artifacts if artifact.role == "anchor"]
     selected_contexts = [artifact for artifact in artifacts if artifact.role == "selected context"]
-    selected_context = selected_contexts[0] if selected_contexts else None
+    selected_context = selected_contexts[0] if len(selected_contexts) == 1 else None
     setup_context = find_first_by_role(artifacts, "setup evidence")
     generated_sidecars = [artifact for artifact in artifacts if artifact.role == "generated sidecar"]
     copied_snapshots = [artifact for artifact in artifacts if artifact.role == "copied snapshot"]
@@ -501,16 +501,30 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
     for code_ref in code_refs:
         clues = code_clues.get(code_ref.path, {})
         has_clue = any(clues.values())
-        add_relation(
-            "references-code",
-            code_ref.artifact_id,
-            selected_context.artifact_id if selected_context else bundle_id,
-            "observed",
-            "Code artifact was read as text and contains static path or derivation clues."
-            if has_clue
-            else "Code artifact was read as text; no selected-context clue was observed.",
-            ["not-executed"] if has_clue else ["not-executed", "no-static-context-clue"],
-        )
+        matched_contexts = [
+            selected
+            for selected in selected_contexts
+            if code_mentions_artifact_path({code_ref.path: code_text.get(code_ref.path, "")}, selected.path)
+        ]
+        target_contexts = matched_contexts or ([selected_context] if selected_context is not None else [])
+        targets = target_contexts or [None]
+        for target_context in targets:
+            target = target_context.artifact_id if target_context is not None else bundle_id
+            flags = ["not-executed"]
+            if not has_clue:
+                flags.append("no-static-context-clue")
+            if len(selected_contexts) > 1 and not matched_contexts:
+                flags.append("multiple-selected-context-candidates")
+            add_relation(
+                "references-code",
+                code_ref.artifact_id,
+                target,
+                "observed",
+                "Code artifact was read as text and contains static path or derivation clues."
+                if has_clue
+                else "Code artifact was read as text; no selected-context clue was observed.",
+                flags,
+            )
 
     for variant in variants:
         add_relation(
@@ -544,41 +558,42 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
             [conflict_item["conflict_type"]],
         )
 
-    root_params = json_payloads.get("parameters.json", {})
-    selected_params_path = selected_context.path if selected_context else "setting/parameters.json"
-    selected_params = json_payloads.get(selected_params_path, {}) if selected_context else {}
     root_params_present = "parameters.json" in json_payloads
-    selected_params_present = selected_context is not None and selected_params_path in json_payloads
-    if (
-        root_params_present
-        and selected_params_present
-        and flatten_keys(root_params) != flatten_keys(selected_params)
-    ):
-        add_conflict(
-            make_conflict(
-                "conflict-001",
-                [by_path["parameters.json"].artifact_id, selected_context.artifact_id],
-                "shape-drift",
-                "active parameter source",
-                "Root parameters and selected settings differ in coverage and shape; the prototype must not choose a winner.",
-                "Ask the producer for selected settings path and selection reason.",
+    root_params = json_payloads.get("parameters.json", {})
+    for index, context in enumerate(selected_contexts, start=1):
+        selected_params = json_payloads.get(context.path, {})
+        selected_params_present = context.path in json_payloads
+        conflict_id = "conflict-001" if index == 1 else f"conflict-001-{index}"
+        if (
+            root_params_present
+            and selected_params_present
+            and flatten_keys(root_params) != flatten_keys(selected_params)
+        ):
+            add_conflict(
+                make_conflict(
+                    conflict_id,
+                    [by_path["parameters.json"].artifact_id, context.artifact_id],
+                    "shape-drift",
+                    "active parameter source",
+                    "Root parameters and selected settings differ in coverage and shape; the prototype must not choose a winner.",
+                    "Ask the producer for selected settings path and selection reason.",
+                )
             )
-        )
-    elif (
-        root_params_present
-        and selected_params_present
-        and canonical_payload(root_params) != canonical_payload(selected_params)
-    ):
-        add_conflict(
-            make_conflict(
-                "conflict-001",
-                [by_path["parameters.json"].artifact_id, selected_context.artifact_id],
-                "value-drift",
-                "active parameter source",
-                "Root parameters and selected settings share a shape but differ in values; the prototype must not choose a winner.",
-                "Ask the producer for selected settings path, selection reason, and freshness marker.",
+        elif (
+            root_params_present
+            and selected_params_present
+            and canonical_payload(root_params) != canonical_payload(selected_params)
+        ):
+            add_conflict(
+                make_conflict(
+                    conflict_id,
+                    [by_path["parameters.json"].artifact_id, context.artifact_id],
+                    "value-drift",
+                    "active parameter source",
+                    "Root parameters and selected settings share a shape but differ in values; the prototype must not choose a winner.",
+                    "Ask the producer for selected settings path, selection reason, and freshness marker.",
+                )
             )
-        )
 
     root_registry = json_payloads.get("registry.json", {})
     selected_registry_path = setup_context.path if setup_context else "setting/registry.json"
@@ -616,20 +631,30 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
             )
         )
 
-    for snapshot in copied_snapshots:
+    for snapshot_index, snapshot in enumerate(copied_snapshots, start=1):
         snapshot_keys = flatten_keys(json_payloads.get(snapshot.path, {}))
-        selected_keys = flatten_keys(selected_params)
-        if selected_keys and not selected_keys <= snapshot_keys:
-            add_conflict(
-                make_conflict(
-                    "conflict-003",
-                    [snapshot.artifact_id, selected_context.artifact_id],
-                    "partial-snapshot",
-                    "run-bound parameter snapshot coverage",
-                    "Run snapshot preserves only part of selected context, so reopening cannot rely on it as full context.",
-                    "Check producer rules for run-bound snapshot coverage.",
+        payload = json_payloads.get(snapshot.path, {})
+        copied_from = payload.get("copied_from")
+        if isinstance(copied_from, str) and by_path.get(copied_from) in selected_contexts:
+            contexts_to_compare = [by_path[copied_from]]
+        else:
+            contexts_to_compare = selected_contexts
+        for context_index, context in enumerate(contexts_to_compare, start=1):
+            selected_keys = flatten_keys(json_payloads.get(context.path, {}))
+            if selected_keys and not selected_keys <= snapshot_keys:
+                conflict_id = "conflict-003"
+                if snapshot_index > 1 or context_index > 1:
+                    conflict_id = f"conflict-003-{snapshot_index}-{context_index}"
+                add_conflict(
+                    make_conflict(
+                        conflict_id,
+                        [snapshot.artifact_id, context.artifact_id],
+                        "partial-snapshot",
+                        "run-bound parameter snapshot coverage",
+                        "Run snapshot preserves only part of selected context, so reopening cannot rely on it as full context.",
+                        "Check producer rules for run-bound snapshot coverage.",
+                    )
                 )
-            )
 
     missing_facts = []
     next_missing_fact = 1
@@ -660,7 +685,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
             "Record the bundle entry artifact when the bundle is produced.",
         )
 
-    if selected_context is not None:
+    if selected_contexts:
         add_missing_fact(
             "selected settings provenance",
             [selected.artifact_id for selected in selected_contexts],
@@ -809,6 +834,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
             copied_snapshots=copied_snapshots,
             code_refs=code_refs,
             readiness_hints=readiness_hints,
+            selected_context_count=len(selected_contexts),
         ),
     }
 
@@ -821,10 +847,13 @@ def build_next_checks(
     copied_snapshots: list[Artifact],
     code_refs: list[Artifact],
     readiness_hints: list[Artifact],
+    selected_context_count: int,
 ) -> list[str]:
     next_checks: list[str] = []
     if len(anchors) != 1:
         next_checks.append("Record the preferred bundle anchor when a producer writes bundles.")
+    if selected_context_count > 1:
+        next_checks.append("Record which selected-looking context applies, or preserve explicit alternatives.")
     if selected_context is not None:
         next_checks.append("Record selected settings path, selection reason, and freshness marker.")
     if generated_sidecars:
@@ -868,6 +897,8 @@ def render_markdown(view: dict[str, Any]) -> str:
             "## Selected-Context Explanation",
             "",
             f"- Selected context candidate: `{view['selected_context_explanation']['selected_context_candidate']}`",
+            "- Selected context candidates: "
+            + display_ids(view["selected_context_explanation"]["selected_context_candidates"]),
             f"- Setup context candidate: `{view['selected_context_explanation']['setup_context_candidate']}`",
             f"- Status: {view['selected_context_explanation']['status']}",
             "",

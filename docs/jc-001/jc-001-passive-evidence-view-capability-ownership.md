@@ -115,8 +115,5 @@ evidence view.
 
 ## Next Step
 
-Use this ownership pass to choose the next product/architecture move:
-
-- draft a small capability map seeded only by accepted `JC-001` ownership; or
-- select a second journey to test whether these owners hold under different
-  evidence pressure before writing a broader capability map.
+Use this ownership pass as input to the current product/architecture choice in
+[`../progressive-adoption-progress-tracker.md`](../progressive-adoption-progress-tracker.md).

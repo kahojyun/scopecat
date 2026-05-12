@@ -113,7 +113,7 @@ The future-state journey should show Scopecat opening the same work bundle and
 presenting:
 
 - anchor artifacts and selected-context candidates;
-- generated, copied, variant, backup-ambiguity, and unknown evidence;
+- generated, copied, variant, unknown, and backup relation ambiguity;
 - evidence handling labels such as observed, inferred, generated, copied, and
   unchecked;
 - conflicts between compact root configuration and runtime-selected settings;
@@ -138,9 +138,6 @@ Analysis-lineage and handoff fixtures remain good follow-on candidates after
 the first bundle-explanation journey establishes artifact identity, selected
 context, provenance, ambiguity, and sharing boundaries.
 
-## Promoted To
+## Promotion Chain
 
-This selection is promoted to
-[`jc-001-work-bundle-explanation-journey.md`](jc-001-work-bundle-explanation-journey.md)
-and later to the accepted passive evidence-view boundary in
-[`jc-001-passive-evidence-view-decision.md`](jc-001-passive-evidence-view-decision.md).
+See [`README.md`](README.md) for the current reading order and promotion chain.

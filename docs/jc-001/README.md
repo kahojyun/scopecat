@@ -42,13 +42,15 @@ The first wedge has been validated through:
 - explicit validated-boundary and reopen criteria for the prototype;
 - provisional capability ownership pressure for the accepted evidence-view facts.
 
-The next product/architecture choice is whether to seed a small capability map
-from this provisional ownership pass or select a second journey to test the
-ownership under different pressure.
+The current next product/architecture choice is tracked in
+[`../progressive-adoption-progress-tracker.md`](../progressive-adoption-progress-tracker.md).
 
 ## Reusable Pattern
 
-Future JC folders should answer these questions in order:
+Future JC folders should add only the next earned artifact. Start with
+selection and journey notes; add capability, wedge, contract, spike, decision,
+prototype, and ownership notes only when later evidence promotes them. Use
+these questions as the sequence:
 
 1. Why this journey and fixture boundary?
 2. What current-state and future-state user journey is being tested?

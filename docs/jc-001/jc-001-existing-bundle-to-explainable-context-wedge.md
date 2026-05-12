@@ -149,10 +149,6 @@ The concept set used for that handoff was:
 - When does code reference handling need immutable identity rather than
   text-only evidence?
 
-## Promoted To
+## Promotion Chain
 
-This wedge is promoted to
-[`jc-001-concepts-and-contracts.md`](jc-001-concepts-and-contracts.md),
-validated by [`jc-001-static-analysis-spike.md`](jc-001-static-analysis-spike.md),
-and accepted by
-[`jc-001-passive-evidence-view-decision.md`](jc-001-passive-evidence-view-decision.md).
+See [`README.md`](README.md) for the current reading order and promotion chain.

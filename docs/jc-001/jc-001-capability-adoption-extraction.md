@@ -134,9 +134,6 @@ The accepted decision owns the non-goals for this slice.
   support packages exist.
 - Which static readiness hints are useful enough to include in the first wedge.
 
-## Promoted To
+## Promotion Chain
 
-This extraction is promoted to
-[`jc-001-existing-bundle-to-explainable-context-wedge.md`](jc-001-existing-bundle-to-explainable-context-wedge.md)
-and later narrowed by
-[`jc-001-passive-evidence-view-capability-ownership.md`](jc-001-passive-evidence-view-capability-ownership.md).
+See [`README.md`](README.md) for the current reading order and promotion chain.

@@ -138,8 +138,8 @@ The first useful output is an evidence view for one bundle:
 
 - anchor artifacts;
 - selected-context candidates;
-- generated, copied, variant, backup-ambiguity, unknown, and
-  fixture-authored evidence;
+- generated, copied, variant, unknown, fixture-authored evidence, and backup
+  relation ambiguity;
 - observed, inferred, generated, copied, unchecked, and unsafe-to-inspect
   handling labels;
 - conflict notes between compact root config and runtime-selected settings;
@@ -208,27 +208,19 @@ and later narrowed by
 | Managed Code Runner | Dependency and readiness pressure appears, but execution remains out of scope. |
 | Comparability and known-good diff | Conflict display is needed, but known-good comparison and equivalence judgment remain follow-on scope. |
 
-## Open Questions
+## Remaining Handoff Questions
 
-- What is the minimum role vocabulary for artifacts: anchor, selected context,
-  generated sidecar, copied snapshot, variant, backup-ambiguity, unknown, and
-  fixture-authored may be enough for the first slice.
-- Which producer facts must be explicit in a future adoption API, and which can
-  be recovered by static inspection or user selection.
-- Which freshness labels are needed before implementation: observed timestamp,
-  generated relation, copied relation, unchecked relation, or user-declared
-  relation.
+- Which role names should become durable user-facing terms rather than
+  internal evidence labels?
+- Which producer facts need explicit future API support, and which can remain
+  recoverable by static inspection or user selection?
+- Which freshness labels are useful beyond observed, generated, copied,
+  unchecked, and user-declared relation evidence?
 - How should a public-safe export describe redacted fields while preserving
-  enough diagnostic value for handoff.
-- Which code-shape evidence should become a durable concept: entrypoint,
-  settings path, data path, sidecar generator, or run snapshot relation.
-- Which migration wedge scope should be shaped first from the capability
-  extraction: existing-bundle explanation, producer-side lightweight recording,
-  or a combined read/write slice.
+  diagnostic value for handoff?
+- When does code-shape evidence need durable code identity rather than
+  text-only references?
 
-## Promoted To
+## Promotion Chain
 
-This journey is promoted to
-[`jc-001-capability-adoption-extraction.md`](jc-001-capability-adoption-extraction.md),
-the migration wedge, the accepted passive evidence-view decision, and the
-two-fixture prototype scope.
+See [`README.md`](README.md) for the current reading order and promotion chain.

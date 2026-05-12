@@ -10,8 +10,8 @@ decision are now promoted to
 
 Own W1 from
 [`progressive-adoption-progress-tracker.md`](progressive-adoption-progress-tracker.md):
-turn extracted research into a compact evidence and pain-point inventory before
-selecting the first end-to-end journey.
+preserve the evidence basis behind promoted journeys and future W2 journey
+selection.
 
 This document is not a product vision, persona definition, capability map, or
 architecture decision. It exists to make later journey and vision work less
