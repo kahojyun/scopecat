@@ -5,11 +5,11 @@
 Track durable product and architecture progress for Scopecat without turning
 early work into a premature subsystem scaffold.
 
-Current state: `JC-001` has an accepted passive evidence-view decision and a
-two-fixture project-owned read-only implementation spike for the first wedge;
-the next step is returning to product/architecture work instead of promoting
-package layout, tooling, parser, storage, UI, or subsystem decisions from this
-prototype alone.
+Current state: `JC-001` has an accepted passive evidence-view decision, a
+two-fixture project-owned read-only implementation spike, and a provisional
+capability ownership pass for the first wedge. The next step is deciding
+whether to seed a small capability map from this accepted ownership or test a
+second journey before broadening ownership.
 This tracker is active, but its W3+ adoption ladders, migration wedges,
 capability names, and contract ideas remain hypotheses until the selected W2
 journey promotes them.
@@ -53,6 +53,7 @@ Journey-first discovery
 | JC-001 static-analysis spike | Ready | `jc-001-static-analysis-spike.md` records the spike question, method, result, decision impact, limits, and follow-up. |
 | JC-001 passive evidence-view decision | Accepted | `jc-001-passive-evidence-view-decision.md` promotes the validated passive explanation boundary and defers write, execution, hardware, parser, storage, UI, and export-policy scope. |
 | JC-001 passive evidence-view prototype scope | Ready | `jc-001-passive-evidence-view-prototype-scope.md` defines the implementation-facing prototype target and records the two-fixture project-owned prototype script, tests, validation command, expected-shape snapshots, and keep-as-prototype decision. |
+| JC-001 passive evidence-view capability ownership | Drafting | `jc-001-passive-evidence-view-capability-ownership.md` assigns provisional fact/contract ownership for the accepted passive evidence-view wedge without promoting subsystem specs or a full capability map. |
 
 ## Workstreams
 
@@ -62,7 +63,7 @@ Journey-first discovery
 | W2 | End-to-end journeys | Ready | `jc-001-work-bundle-explanation-journey.md` | At least one current-state and future-state journey is written across capability boundaries. |
 | W3 | Adoption ladders | Drafting | `jc-001-capability-adoption-extraction.md` | Each major capability has a smallest useful standalone adoption step and upgrade path. |
 | W4 | Migration wedges | Ready | `jc-001-existing-bundle-to-explainable-context-wedge.md` | Candidate vertical slices are ranked by user value, migration cost, and architectural learning. |
-| W5 | Capability map | Not Started | Architecture capability map | Capabilities, ownership, non-goals, and maturity targets are explicit. |
+| W5 | Capability map | Drafting | `jc-001-passive-evidence-view-capability-ownership.md` | Capabilities, ownership, non-goals, and maturity targets are explicit. |
 | W6 | Cross-capability contracts | Ready | `jc-001-concepts-and-contracts.md` | Shared concepts and references have one owner and clear dependency direction. |
 | W7 | Technical spikes | Ready | `jc-001-static-analysis-spike.md` | Each spike has a question, result, decision impact, and follow-up. |
 | W8 | Decision promotion | Ready | `jc-001-passive-evidence-view-decision.md` | Validated conclusions are promoted out of research notes. |
@@ -138,7 +139,8 @@ to working control computers.
 | 12 | Review the implementation spike output. | Completed by `jc-001-passive-evidence-view-prototype-scope.md`; keep iterating as a prototype script and do not promote package layout or tooling yet. | Step 11. |
 | 13 | Harden the prototype within fixture-sized boundaries. | Completed with manifest validation, clearer error messages, and compact expected-shape snapshot without broad parser, package, storage, or UI promotion. | Step 12. |
 | 14 | Decide whether a second public-safe fixture shape is needed. | Completed by `tests/fixtures/jc001-minimal-unknown/`; the second fixture validates absence handling, unknown artifacts, readiness hints, single-anchor behavior, and zero-conflict output. | Step 13. |
-| 15 | Return to product/architecture work before further implementation. | Decide the next product/architecture artifact, likely capability ownership or next journey pressure, without promoting package layout or parser architecture from this prototype alone. | Step 14. |
+| 15 | Return to product/architecture work before further implementation. | Completed by `jc-001-passive-evidence-view-capability-ownership.md`, a narrow ownership pass that does not promote package layout, parser architecture, or subsystem specs. | Step 14. |
+| 16 | Decide whether to seed a small capability map or test a second journey first. | Either a small accepted-owner capability map or a second journey-selection note that tests ownership pressure before broader capability mapping. | Step 15. |
 
 ## Review Cadence
 
