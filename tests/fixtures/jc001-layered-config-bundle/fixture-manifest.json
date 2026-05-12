@@ -1,5 +1,5 @@
 {
-  "fixture_id": "jc001-braid-config",
+  "fixture_id": "jc001-layered-config-bundle",
   "purpose": "Tiny public-safe fixture for a passive evidence-view prototype.",
   "redaction_policy": {
     "source": "public-test-fixture",

@@ -1,6 +1,7 @@
 import hashlib
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -9,7 +10,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURE = ROOT / "tests" / "fixtures" / "jc001-braid-config"
+FIXTURE = ROOT / "tests" / "fixtures" / "jc001-layered-config-bundle"
 EXPECTED_SHAPE = FIXTURE / "expected-shape.json"
 MINIMAL_FIXTURE = ROOT / "tests" / "fixtures" / "jc001-minimal-unknown"
 MINIMAL_EXPECTED_SHAPE = MINIMAL_FIXTURE / "expected-shape.json"
@@ -31,6 +32,11 @@ def fixture_hashes(fixture=FIXTURE):
         if path.is_file():
             hashes[path.relative_to(fixture).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
     return hashes
+
+
+def write_json(path, payload):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
 
 
 def assert_expected_shape(test_case, prototype, fixture, expected_shape_path):
@@ -67,7 +73,7 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         view = prototype.build_evidence_view(FIXTURE)
 
         self.assertEqual(before, fixture_hashes())
-        self.assertEqual(view["bundle_summary"]["bundle_id"], "jc001-braid-config")
+        self.assertEqual(view["bundle_summary"]["bundle_id"], "jc001-layered-config-bundle")
         self.assertEqual(view["static_shape_checks"]["artifact_count"], 10)
         self.assertEqual(len(view["artifact_role_inventory"]), 10)
 
@@ -141,6 +147,18 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         self.assertEqual(view["generated_and_copied_relation_summary"]["copied_snapshots"], [])
         self.assertEqual(view["variant_backup_unknown_summary"]["unknown_artifacts"], ["notes__context-note_txt"])
         self.assertEqual(view["readiness_hint_summary"]["readiness_hints"], ["readiness__static-environment_json"])
+        self.assertEqual(
+            view["readiness_hint_summary"]["readiness_hint_details"],
+            [
+                {
+                    "readiness_hint_id": "readiness__static-environment_json",
+                    "source_artifact": "readiness__static-environment_json",
+                    "category": "dependency/environment",
+                    "evidence_handling": "observed",
+                    "suggested_next_check": "Review dependency or environment evidence without executing fixture code.",
+                }
+            ],
+        )
         self.assertIn("Generated sidecars: none observed", markdown)
         self.assertIn("Copied snapshots: none observed", markdown)
         self.assertIn("Unknown artifacts: `notes__context-note_txt`", markdown)
@@ -166,12 +184,148 @@ class PassiveEvidenceViewTest(unittest.TestCase):
 
             view = json.loads(json_path.read_text(encoding="utf-8"))
             markdown = markdown_path.read_text(encoding="utf-8")
-            self.assertEqual(view["bundle_summary"]["bundle_id"], "jc001-braid-config")
+            self.assertEqual(view["bundle_summary"]["bundle_id"], "jc001-layered-config-bundle")
             self.assertIn("## Conflict And Missing-Fact Report", markdown)
             self.assertIn("not executed", markdown)
             self.assertIn("Readiness hints: none observed", markdown)
 
         self.assertEqual(before, fixture_hashes())
+
+    def test_cli_rejects_output_directory_inside_fixture(self):
+        before = fixture_hashes()
+        result = subprocess.run(
+            [sys.executable, str(PROTOTYPE), str(FIXTURE), "--out-dir", str(FIXTURE / "out")],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("output directory must be outside the input fixture directory", result.stderr)
+        self.assertEqual(before, fixture_hashes())
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "symlink support is required")
+    def test_manifest_artifact_symlink_cannot_escape_fixture(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as fixture_dir, tempfile.TemporaryDirectory() as external_dir:
+            fixture_path = Path(fixture_dir)
+            external_path = Path(external_dir) / "outside.json"
+            write_json(external_path, {"outside": True})
+            (fixture_path / "leak.json").symlink_to(external_path)
+            write_json(
+                fixture_path / "fixture-manifest.json",
+                {
+                    "fixture_id": "symlink-fixture",
+                    "purpose": "symlink escape regression",
+                    "redaction_policy": {
+                        "source": "public-test-fixture",
+                        "forbidden_content": [],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "leak.json",
+                            "role": "anchor",
+                            "status": "symlink",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        }
+                    ],
+                },
+            )
+
+            with self.assertRaisesRegex(
+                prototype.EvidenceViewError,
+                "manifest artifact escapes fixture directory: leak.json",
+            ):
+                prototype.build_evidence_view(fixture_path)
+
+    def test_same_shape_value_drift_remains_visible(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as fixture_dir:
+            fixture_path = Path(fixture_dir)
+            write_json(fixture_path / "parameters.json", {"alpha": "root"})
+            write_json(fixture_path / "setting" / "parameters.json", {"alpha": "selected"})
+            write_json(
+                fixture_path / "fixture-manifest.json",
+                {
+                    "fixture_id": "value-drift-fixture",
+                    "purpose": "same-shape drift regression",
+                    "redaction_policy": {
+                        "source": "public-test-fixture",
+                        "forbidden_content": [],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "parameters.json",
+                            "role": "anchor",
+                            "status": "root candidate",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        },
+                        {
+                            "path": "setting/parameters.json",
+                            "role": "selected context",
+                            "status": "selected candidate",
+                            "evidence_handling": "inferred",
+                            "sharing_boundary": "public-safe",
+                        },
+                    ],
+                },
+            )
+
+            view = prototype.build_evidence_view(fixture_path)
+
+        conflict_types = {
+            item["conflict_type"] for item in view["conflict_and_missing_fact_report"]["conflicts"]
+        }
+        self.assertIn("value-drift", conflict_types)
+
+    def test_unlisted_declared_source_is_missing_not_observed(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as fixture_dir:
+            fixture_path = Path(fixture_dir)
+            write_json(fixture_path / "setting" / "parameters.json", {"alpha": "selected"})
+            write_json(
+                fixture_path / "setting" / "temp" / "derived.json",
+                {"generated_from": "setting/missing-source.json"},
+            )
+            write_json(
+                fixture_path / "fixture-manifest.json",
+                {
+                    "fixture_id": "unlisted-source-fixture",
+                    "purpose": "unlisted source regression",
+                    "redaction_policy": {
+                        "source": "public-test-fixture",
+                        "forbidden_content": [],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "setting/parameters.json",
+                            "role": "selected context",
+                            "status": "selected candidate",
+                            "evidence_handling": "inferred",
+                            "sharing_boundary": "public-safe",
+                        },
+                        {
+                            "path": "setting/temp/derived.json",
+                            "role": "generated sidecar",
+                            "status": "generated candidate",
+                            "evidence_handling": "generated",
+                            "sharing_boundary": "public-safe",
+                        },
+                    ],
+                },
+            )
+
+            view = prototype.build_evidence_view(fixture_path)
+
+        generated_relations = [
+            item for item in view["relations"] if item["relation_type"] == "generated-from"
+        ]
+        self.assertEqual(len(generated_relations), 1)
+        self.assertEqual(generated_relations[0]["evidence_handling"], "missing")
+        self.assertIn("declared-source-unlisted", generated_relations[0]["flags"])
+        self.assertEqual(generated_relations[0]["target_artifact"], "unlisted-source-fixture")
 
     def test_cli_returns_clear_error_for_invalid_manifest(self):
         with tempfile.TemporaryDirectory() as fixture_dir, tempfile.TemporaryDirectory() as out_dir:

@@ -79,7 +79,7 @@ make recoverable:
 | Fact | Why it matters | Required in first implementation? |
 | --- | --- | --- |
 | Bundle or run-like anchor | Gives the explanation a stable entry point. | Yes, even if imported from existing files. |
-| Artifact role | Separates anchor, selected context, generated sidecar, copied snapshot, variant, backup, and unknown. | Yes. |
+| Artifact role | Separates anchor, selected context, generated sidecar, copied snapshot, variant, backup ambiguity, and unknown evidence. | Yes. |
 | Evidence handling | Prevents observed, inferred, generated, copied, unchecked, and unsafe evidence from looking equivalent. | Yes. |
 | Selected settings source | Explains which settings appear selected without making them authoritative. | Yes, as observed or inferred evidence. |
 | Snapshot relation | Explains why a copied settings file may differ from current settings. | Yes when snapshots are present. |

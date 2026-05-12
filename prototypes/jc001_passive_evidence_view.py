@@ -96,6 +96,39 @@ def flatten_keys(value: Any, prefix: str = "") -> set[str]:
     return {prefix} if prefix else set()
 
 
+def canonical_payload(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def is_relative_to(path: Path, base: Path) -> bool:
+    try:
+        path.relative_to(base)
+        return True
+    except ValueError:
+        return False
+
+
+def resolve_fixture_path(fixture_dir: Path, artifact_path: str) -> Path:
+    path = Path(artifact_path)
+    if path.is_absolute() or ".." in path.parts or "\\" in artifact_path:
+        raise EvidenceViewError(f"manifest artifact path is not fixture-local: {artifact_path}")
+
+    candidate = fixture_dir / artifact_path
+    if not candidate.is_file():
+        raise EvidenceViewError(f"manifest artifact does not exist: {artifact_path}")
+
+    resolved = candidate.resolve()
+    if not is_relative_to(resolved, fixture_dir):
+        raise EvidenceViewError(f"manifest artifact escapes fixture directory: {artifact_path}")
+    return resolved
+
+
+def ensure_output_outside_fixture(fixture_dir: Path, output_dir: Path) -> None:
+    resolved_output = output_dir.resolve(strict=False)
+    if is_relative_to(resolved_output, fixture_dir):
+        raise EvidenceViewError("output directory must be outside the input fixture directory")
+
+
 def relation(
     relation_id: str,
     relation_type: str,
@@ -160,14 +193,10 @@ def validate_manifest(manifest: Any, fixture_dir: Path) -> dict[str, Any]:
             require_string(artifact.get(field), f"artifacts[{index}].{field}")
 
         artifact_path = artifact["path"]
-        path = Path(artifact_path)
-        if path.is_absolute() or ".." in path.parts or "\\" in artifact_path:
-            raise EvidenceViewError(f"manifest artifact path is not fixture-local: {artifact_path}")
         if artifact_path in seen_paths:
             raise EvidenceViewError(f"duplicate manifest artifact path: {artifact_path}")
         seen_paths.add(artifact_path)
-        if not (fixture_dir / artifact_path).is_file():
-            raise EvidenceViewError(f"manifest artifact does not exist: {artifact_path}")
+        resolve_fixture_path(fixture_dir, artifact_path)
 
     return manifest
 
@@ -192,7 +221,7 @@ def build_artifacts(manifest: dict[str, Any]) -> list[Artifact]:
 def collect_json_artifacts(fixture_dir: Path, artifacts: list[Artifact]) -> dict[str, Any]:
     payloads: dict[str, Any] = {}
     for artifact in artifacts:
-        path = fixture_dir / artifact.path
+        path = resolve_fixture_path(fixture_dir, artifact.path)
         if path.suffix == ".json":
             payloads[artifact.path] = load_json(path)
     return payloads
@@ -201,7 +230,7 @@ def collect_json_artifacts(fixture_dir: Path, artifacts: list[Artifact]) -> dict
 def collect_code_text(fixture_dir: Path, artifacts: list[Artifact]) -> dict[str, str]:
     code_text: dict[str, str] = {}
     for artifact in artifacts:
-        path = fixture_dir / artifact.path
+        path = resolve_fixture_path(fixture_dir, artifact.path)
         if artifact.role == "code reference":
             code_text[artifact.path] = read_text(path)
     return code_text
@@ -247,6 +276,46 @@ def make_missing_fact(
 
 def display_ids(items: list[str]) -> str:
     return ", ".join(f"`{item}`" for item in items) or "none observed"
+
+
+def declared_source_relation_target(
+    *,
+    source_path: Any,
+    by_path: dict[str, Artifact],
+    fallback: Artifact | None,
+    bundle_id: str,
+    relation_kind: str,
+) -> tuple[str, str, str, list[str]]:
+    if isinstance(source_path, str) and source_path:
+        target = by_path.get(source_path)
+        if target is not None:
+            return (
+                target.artifact_id,
+                "observed",
+                f"{relation_kind} declares a manifest-listed source artifact.",
+                [],
+            )
+        return (
+            bundle_id,
+            "missing",
+            f"{relation_kind} declares a source path that is not listed in the fixture manifest.",
+            ["declared-source-unlisted"],
+        )
+
+    if fallback is not None:
+        return (
+            fallback.artifact_id,
+            "inferred",
+            f"{relation_kind} lacks a declared source; selected context is only an inferred fallback.",
+            ["source-inferred"],
+        )
+
+    return (
+        bundle_id,
+        "missing",
+        f"{relation_kind} has no declared source and no selected context fallback.",
+        ["source-missing"],
+    )
 
 
 def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
@@ -330,27 +399,39 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
     for sidecar in generated_sidecars:
         payload = json_payloads.get(sidecar.path, {})
         source_path = payload.get("generated_from")
-        target = by_path.get(source_path, selected_context)
+        target_id, evidence_handling, source_narrative, source_flags = declared_source_relation_target(
+            source_path=source_path,
+            by_path=by_path,
+            fallback=selected_context,
+            bundle_id=bundle_id,
+            relation_kind="Generated sidecar",
+        )
         add_relation(
             "generated-from",
             sidecar.artifact_id,
-            target.artifact_id if target else bundle_id,
-            "observed" if source_path else "inferred",
-            "Generated sidecar declares or implies selected context as its source.",
-            ["freshness-unchecked"],
+            target_id,
+            evidence_handling,
+            source_narrative,
+            ["freshness-unchecked", *source_flags],
         )
 
     for snapshot in copied_snapshots:
         payload = json_payloads.get(snapshot.path, {})
         source_path = payload.get("copied_from")
-        target = by_path.get(source_path, selected_context)
+        target_id, evidence_handling, source_narrative, source_flags = declared_source_relation_target(
+            source_path=source_path,
+            by_path=by_path,
+            fallback=selected_context,
+            bundle_id=bundle_id,
+            relation_kind="Copied snapshot",
+        )
         add_relation(
             "copied-from",
             snapshot.artifact_id,
-            target.artifact_id if target else bundle_id,
-            "observed" if source_path else "inferred",
-            "Copied snapshot declares or implies selected context as its source.",
-            ["partial-snapshot"],
+            target_id,
+            evidence_handling,
+            source_narrative,
+            ["partial-snapshot", *source_flags],
         )
 
     for code_ref in code_refs:
@@ -408,6 +489,17 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
                 "Ask the producer for selected settings path and selection reason.",
             )
         )
+    elif root_params and selected_params and canonical_payload(root_params) != canonical_payload(selected_params):
+        add_conflict(
+            make_conflict(
+                "conflict-001",
+                [by_path["parameters.json"].artifact_id, by_path["setting/parameters.json"].artifact_id],
+                "value-drift",
+                "active parameter source",
+                "Root parameters and selected settings share a shape but differ in values; the prototype must not choose a winner.",
+                "Ask the producer for selected settings path, selection reason, and freshness marker.",
+            )
+        )
 
     root_registry = json_payloads.get("registry.json", {})
     selected_registry = json_payloads.get("setting/registry.json", {})
@@ -420,6 +512,17 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
                 "active setup registry",
                 "Root registry and selected registry differ; this is setup-shaped evidence, not physical truth.",
                 "Ask whether setup evidence is selected, copied, or session-injected.",
+            )
+        )
+    elif root_registry and selected_registry and canonical_payload(root_registry) != canonical_payload(selected_registry):
+        add_conflict(
+            make_conflict(
+                "conflict-002",
+                [by_path["registry.json"].artifact_id, by_path["setting/registry.json"].artifact_id],
+                "setup-value-drift",
+                "active setup registry",
+                "Root registry and selected registry share a shape but differ in values; this is setup-shaped evidence, not physical truth.",
+                "Ask whether setup evidence is selected, copied, session-injected, or stale.",
             )
         )
 
@@ -567,6 +670,16 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         },
         "readiness_hint_summary": {
             "readiness_hints": [hint.artifact_id for hint in readiness_hints],
+            "readiness_hint_details": [
+                {
+                    "readiness_hint_id": hint.artifact_id,
+                    "source_artifact": hint.artifact_id,
+                    "category": "dependency/environment",
+                    "evidence_handling": hint.evidence_handling,
+                    "suggested_next_check": "Review dependency or environment evidence without executing fixture code.",
+                }
+                for hint in readiness_hints
+            ],
             "status": "no static readiness hints observed"
             if not readiness_hints
             else "static readiness hints observed",
@@ -744,7 +857,9 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        view = build_evidence_view(args.fixture_dir)
+        fixture_dir = args.fixture_dir.resolve()
+        ensure_output_outside_fixture(fixture_dir, args.out_dir)
+        view = build_evidence_view(fixture_dir)
         json_path, markdown_path = write_outputs(view, args.out_dir)
     except EvidenceViewError as exc:
         print(f"error: {exc}", file=sys.stderr)

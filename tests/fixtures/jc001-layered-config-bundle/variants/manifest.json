@@ -1,5 +1,5 @@
 {
-  "fixture": "jc001-braid-config",
+  "fixture": "jc001-layered-config-bundle",
   "variant_policy": "manifest-only",
   "entries": [
     {

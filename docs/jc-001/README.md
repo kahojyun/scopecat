@@ -35,8 +35,8 @@ The first wedge has been validated through:
 - an accepted passive evidence-view decision;
 - a two-fixture read-only prototype;
 - fixture-sized manifest validation and expected-shape checks;
-- provisional capability ownership for the accepted evidence-view facts.
+- provisional capability ownership pressure for the accepted evidence-view facts.
 
 The next product/architecture choice is whether to seed a small capability map
-from this accepted ownership or select a second journey to test the ownership
-under different pressure.
+from this provisional ownership pass or select a second journey to test the
+ownership under different pressure.

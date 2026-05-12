@@ -43,8 +43,8 @@ The output should help a user answer:
 
 - What files appear to matter?
 - Why does each artifact matter?
-- Which artifacts appear selected, generated, copied, variant, backup, setup,
-  or code-shaped evidence?
+- Which artifacts appear selected, generated, copied, variant,
+  backup-ambiguous, setup, or code-shaped evidence?
 - Which artifacts conflict?
 - Which producer facts are missing?
 - Which facts are public-safe versus internal-safe?
@@ -87,7 +87,7 @@ The structured output should use the first-wedge vocabulary from
 [`jc-001-concepts-and-contracts.md`](jc-001-concepts-and-contracts.md):
 
 - artifact roles: `anchor`, `selected context`, `generated sidecar`,
-  `copied snapshot`, `variant`, `backup`, `code reference`, `setup evidence`,
+  `copied snapshot`, `variant`, `code reference`, `setup evidence`,
   `readiness hint`, `unknown`, and fixture/tooling-only labels when needed;
 - relation types: `anchors`, `appears-selected-for`, `generated-from`,
   `copied-from`, `references-code`, `has-variant`, `has-backup`,
@@ -132,11 +132,11 @@ absolute path or on the research repository being present.
 The first project-owned implementation spike is intentionally small:
 
 - prototype entry point: `prototypes/jc001_passive_evidence_view.py`;
-- committed public-safe fixture: `tests/fixtures/jc001-braid-config/`;
+- committed public-safe fixture: `tests/fixtures/jc001-layered-config-bundle/`;
 - fixture-level checks: `tests/test_jc001_passive_evidence_view.py`;
 - validation command: `python3 -m unittest discover -s tests`;
 - smoke command:
-  `python3 prototypes/jc001_passive_evidence_view.py tests/fixtures/jc001-braid-config --out-dir <output-dir>`.
+  `python3 prototypes/jc001_passive_evidence_view.py tests/fixtures/jc001-layered-config-bundle --out-dir <output-dir>`.
 
 The prototype writes `evidence-view.json` and `evidence-view.md` to the caller
 provided output directory. It does not require the non-public research
@@ -161,6 +161,9 @@ Validated behavior:
 - explicitly reports that no static readiness hints are observed;
 - reads code artifacts as text only;
 - does not mutate the input fixture;
+- rejects output directories inside the input fixture;
+- rejects manifest artifact paths that escape the fixture root through
+  symlinks;
 - runs from a clean checkout with stdlib tooling.
 
 Decision: keep iterating as a prototype script. Do not promote a package
@@ -186,7 +189,7 @@ The prototype now includes the first hardening pass:
 - read/write `OSError` failures converted into prototype-scoped errors;
 - CLI failures reported as `error: ...` with exit code `2`;
 - compact expected-shape snapshot:
-  `tests/fixtures/jc001-braid-config/expected-shape.json`.
+  `tests/fixtures/jc001-layered-config-bundle/expected-shape.json`.
 
 This hardening remains fixture-sized. It is not a general parser framework,
 schema system, CLI contract, package layout, or storage decision.
@@ -194,7 +197,7 @@ schema system, CLI contract, package layout, or storage decision.
 ## Second Fixture Validation
 
 A second public-safe fixture now validates that the prototype is not only
-shaped around the first Braid-like fixture:
+shaped around the first layered-config fixture:
 
 - second fixture: `tests/fixtures/jc001-minimal-unknown/`;
 - expected-shape snapshot:
@@ -243,7 +246,7 @@ large notebook content.
 Recommended implementation location:
 
 ```text
-tests/fixtures/jc001-braid-config/
+tests/fixtures/jc001-layered-config-bundle/
 ```
 
 That location is intentionally test-owned until the project has a broader
@@ -254,11 +257,11 @@ shipping sample data, or public documentation examples have been accepted.
 
 | Check | Pass condition |
 | --- | --- |
-| Read-only behavior | Running the prototype does not modify input fixture files. |
+| Read-only behavior | Running the prototype does not modify input fixture files and rejects output directories inside the input fixture. |
 | No execution | The prototype reads code artifacts as text and never imports, executes, installs, or shells out to fixture code. |
 | Role inventory | The evidence view contains every manifest-listed artifact with a normalized role or explicit `unknown`. |
 | Relation coverage | The evidence view can represent anchor, selected-context, generated, copied, code-reference, variant, backup, missing-fact, conflict, and redaction relations. |
-| Conflict visibility | Root/selected context drift, setup-context drift, and partial snapshot ambiguity remain visible. |
+| Conflict visibility | Root/selected context drift, same-shape value drift, setup-context drift, and partial snapshot ambiguity remain visible. |
 | Missing facts | Preferred anchor, selected settings authority, generated sidecar freshness, snapshot coverage, and code identity gaps remain explicit. |
 | Sharing boundary | Public-safe output preserves artifact roles and relation existence without leaking sensitive details. |
 | No authority claim | The report never declares a selected context, registry, setup, or code reference authoritative unless producer facts explicitly say so. |

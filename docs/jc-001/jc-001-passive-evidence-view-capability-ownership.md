@@ -72,16 +72,17 @@ The two public-safe fixtures provide ownership pressure:
 
 | Fixture | Ownership pressure validated |
 | --- | --- |
-| `tests/fixtures/jc001-braid-config/` | Multiple anchors, selected context, setup evidence, generated sidecars, copied snapshot, variant/backup ambiguity, code references, conflicts, missing producer facts, and public-safe sharing boundary. |
+| `tests/fixtures/jc001-layered-config-bundle/` | Multiple anchors, selected context, setup evidence, generated sidecars, copied snapshot, variant/backup ambiguity, code references, conflicts, missing producer facts, and public-safe sharing boundary. |
 | `tests/fixtures/jc001-minimal-unknown/` | Single anchor, selected context, unknown artifact preservation, explicit absence of generated/copied/variant artifacts, static readiness hint, zero-conflict output, and conditional missing facts. |
 
 The fixtures validate owner boundaries at the evidence-view level only. They do
 not validate storage ownership, UI ownership, parser generalization, or runtime
 ownership.
 
-## Accepted For This Wedge
+## Provisional For This Wedge
 
-The first wedge may rely on these ownership decisions:
+The first wedge may rely on these provisional ownership decisions while avoiding
+broader subsystem promotion:
 
 - Measurement History owns the bundle and artifact inventory shape.
 - Parameter Memory owns selected-context, generated-sidecar, copied-context,

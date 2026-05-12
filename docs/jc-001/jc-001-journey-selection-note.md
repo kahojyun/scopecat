@@ -113,7 +113,7 @@ The future-state journey should show Scopecat opening the same work bundle and
 presenting:
 
 - anchor artifacts and selected-context candidates;
-- generated, copied, backup, variant, and unknown artifact roles;
+- generated, copied, variant, backup-ambiguity, and unknown evidence;
 - evidence handling labels such as observed, inferred, generated, copied, and
   unchecked;
 - conflicts between compact root configuration and runtime-selected settings;

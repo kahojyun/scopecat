@@ -138,7 +138,8 @@ The first useful output is an evidence view for one bundle:
 
 - anchor artifacts;
 - selected-context candidates;
-- generated, copied, backup, variant, unknown, and fixture-authored roles;
+- generated, copied, variant, backup-ambiguity, unknown, and
+  fixture-authored evidence;
 - observed, inferred, generated, copied, unchecked, and unsafe-to-inspect
   handling labels;
 - conflict notes between compact root config and runtime-selected settings;
@@ -210,7 +211,7 @@ and later narrowed by
 ## Open Questions
 
 - What is the minimum role vocabulary for artifacts: anchor, selected context,
-  generated sidecar, copied snapshot, variant, backup, unknown, and
+  generated sidecar, copied snapshot, variant, backup-ambiguity, unknown, and
   fixture-authored may be enough for the first slice.
 - Which write obligations must be explicit in a first adoption API, and which
   can be recovered by static inspection or user selection.

@@ -8,8 +8,8 @@ early work into a premature subsystem scaffold.
 Current state: `JC-001` has an accepted passive evidence-view decision, a
 two-fixture project-owned read-only implementation spike, and a provisional
 capability ownership pass for the first wedge. The next step is deciding
-whether to seed a small capability map from this accepted ownership or test a
-second journey before broadening ownership.
+whether to seed a small capability map from this provisional ownership pass or
+test a second journey before broadening ownership.
 This tracker is active, but its W3+ adoption ladders, migration wedges,
 capability names, and contract ideas remain hypotheses until the selected W2
 journey promotes them.
@@ -71,9 +71,10 @@ Journey-first discovery
 
 ## Adoption Ladders To Define
 
-Rows are unordered W1 hypotheses for later W3 work. They do not choose the first
-adoption path, define a capability map, or promote implementation scope before
-a W2 journey validates the need.
+The `JC-001`-touched rows now include promoted first-wedge learning. Rows still
+marked `Not Started` remain W1 hypotheses for later W3 work; they do not define
+a capability map or promote implementation scope before a W2 journey validates
+the need.
 
 | Capability | Starting User Pain | First Standalone Adoption Step | Later Composition Path | Status |
 | --- | --- | --- | --- | --- |
@@ -89,10 +90,11 @@ a W2 journey validates the need.
 
 ## Candidate Migration Wedges
 
-Rows are unordered W1 hypotheses for later W4 work. Wedge priority should be
-decided from evidence, user value, migration cost, architectural learning, and
-whether a pain is directly visible or latent behind constrained legacy
-workflows. The W1 inventory owns W2 ranking.
+The `JC-001` wedge row is promoted as the accepted first passive evidence-view
+slice. The remaining rows are W1 hypotheses for later W4 work; future wedge
+priority should be decided from evidence, user value, migration cost,
+architectural learning, and whether a pain is directly visible or latent behind
+constrained legacy workflows.
 
 | Wedge | User-Visible Outcome | Capabilities Involved | Main Learning Goal | Status |
 | --- | --- | --- | --- | --- |
@@ -136,7 +138,7 @@ to working control computers.
 | 8 | Promote validated decisions into ADRs or architecture docs. | Completed by `jc-001/jc-001-passive-evidence-view-decision.md`. | Step 7. |
 | 9 | Shape the first implementation-facing prototype scope for the accepted passive evidence-view boundary. | Completed by `jc-001/jc-001-passive-evidence-view-prototype-scope.md`. | Step 8. |
 | 10 | Choose the prototype fixture strategy. | Completed by the selected committed public-safe test-fixture strategy in `jc-001/jc-001-passive-evidence-view-prototype-scope.md`. | Step 9. |
-| 11 | Start the implementation spike. | Completed by `prototypes/jc001_passive_evidence_view.py`, `tests/fixtures/jc001-braid-config/`, and `tests/test_jc001_passive_evidence_view.py`. | Step 10. |
+| 11 | Start the implementation spike. | Completed by `prototypes/jc001_passive_evidence_view.py`, `tests/fixtures/jc001-layered-config-bundle/`, and `tests/test_jc001_passive_evidence_view.py`. | Step 10. |
 | 12 | Review the implementation spike output. | Completed by `jc-001/jc-001-passive-evidence-view-prototype-scope.md`; keep iterating as a prototype script and do not promote package layout or tooling yet. | Step 11. |
 | 13 | Harden the prototype within fixture-sized boundaries. | Completed with manifest validation, clearer error messages, and compact expected-shape snapshot without broad parser, package, storage, or UI promotion. | Step 12. |
 | 14 | Decide whether a second public-safe fixture shape is needed. | Completed by `tests/fixtures/jc001-minimal-unknown/`; the second fixture validates absence handling, unknown artifacts, readiness hints, single-anchor behavior, and zero-conflict output. | Step 13. |

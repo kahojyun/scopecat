@@ -36,7 +36,7 @@ truth.
 | Work bundle | A bounded set of files and references being explained together. | Stable bundle ID, source boundary, sharing boundary, and included artifact list. |
 | Artifact | A file, reference, or synthetic fixture item that may carry evidence. | Artifact ID, display label, source location or redacted source category, role, evidence handling, and sharing boundary. |
 | Anchor artifact | The artifact used as the entry point for explanation. | Exactly one preferred anchor or an explicit unresolved-anchor state. |
-| Artifact role | The reason an artifact matters in the journey. | Controlled vocabulary for first wedge: anchor, selected context, generated sidecar, copied snapshot, variant, backup, code reference, setup evidence, readiness hint, unknown, fixture-authored. |
+| Artifact role | The reason an artifact matters in the journey. | Controlled vocabulary for first wedge: anchor, selected context, generated sidecar, copied snapshot, variant, code reference, setup evidence, readiness hint, unknown, fixture-authored. Backup is represented as relation-level ambiguity in this wedge. |
 | Evidence handling | How strongly and safely the system can treat an artifact or relation. | Observed, inferred, generated, copied, user-declared, unchecked, unsafe-to-inspect, missing. |
 | Evidence relation | A typed relationship between artifacts or facts. | Relation type, source artifact, target artifact, evidence handling, confidence narrative, and missing/unchecked flags. |
 | Selected context | A context artifact that appears selected for the bundle. | Relation to anchor, selection evidence, conflicts, and explicit non-authoritative status. |
@@ -58,7 +58,6 @@ The first wedge should use a small role vocabulary:
 | Generated sidecar | Derived artifact associated with selected context or code-shaped flow. | Measurement History plus Parameter Memory. |
 | Copied snapshot | Copied state attached to a run-like artifact or bundle. | Measurement History plus Parameter Memory. |
 | Variant | Related branch that may represent a different setup, method, or time period. | Parameter Memory; later comparability pressure. |
-| Backup | Related copy preserved as fallback or history. | Measurement History; Parameter Memory. |
 | Code reference | Static code-shaped evidence, not executed code. | Code Asset Registry. |
 | Setup evidence | Registry-like or physical/setup context treated as declared or observed evidence. | Instrument Runtime. |
 | Readiness hint | Static dependency or environment clue. | Managed Code Runner. |
