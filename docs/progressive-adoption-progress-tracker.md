@@ -10,9 +10,6 @@ two-fixture project-owned read-only implementation spike, and a provisional
 capability ownership pass for the first wedge. The next step is deciding
 whether to seed a small capability map from this provisional ownership pass or
 test a second journey before broadening ownership.
-The `JC-001` fixture and prototype are complete for the current phase when
-they can defend that passive boundary; they are not the place to absorb every
-remaining journey, adoption ladder, migration wedge, or baseline capability.
 This tracker is active, but its W3+ adoption ladders, migration wedges,
 capability names, and contract ideas remain hypotheses until the selected W2
 journey promotes them.
@@ -95,7 +92,7 @@ directly falsifies the accepted artifact.
 | JC-001 concepts and contracts | Ready | `jc-001/jc-001-concepts-and-contracts.md` defines minimum domain concepts, cross-capability contracts, evidence-view contract, and spike boundary. |
 | JC-001 static-analysis spike | Ready | `jc-001/jc-001-static-analysis-spike.md` records the spike question, method, result, decision impact, limits, and follow-up. |
 | JC-001 passive evidence-view decision | Accepted | `jc-001/jc-001-passive-evidence-view-decision.md` promotes the validated passive explanation boundary and defers write, execution, hardware, parser, storage, UI, and export-policy scope. |
-| JC-001 passive evidence-view prototype scope | Ready | `jc-001/jc-001-passive-evidence-view-prototype-scope.md` defines the implementation-facing prototype target and records the two-fixture project-owned prototype script, tests, validation command, expected-shape snapshots, and keep-as-prototype decision. |
+| JC-001 passive evidence-view prototype scope | Ready | `jc-001/jc-001-passive-evidence-view-prototype-scope.md` defines the implementation-facing prototype target, two-fixture validation, phase-completion standard, and keep-as-prototype decision. |
 | JC-001 passive evidence-view capability ownership | Drafting | `jc-001/jc-001-passive-evidence-view-capability-ownership.md` assigns provisional fact/contract ownership for the accepted passive evidence-view wedge without promoting subsystem specs or a full capability map. |
 
 ## Workstreams
@@ -110,31 +107,6 @@ directly falsifies the accepted artifact.
 | W6 | Cross-capability contracts | Ready | `jc-001/jc-001-concepts-and-contracts.md` | Shared concepts and references have one owner and clear dependency direction. |
 | W7 | Technical spikes | Ready | `jc-001/jc-001-static-analysis-spike.md` | Each spike has a question, result, decision impact, and follow-up. |
 | W8 | Decision promotion | Ready | `jc-001/jc-001-passive-evidence-view-decision.md` | Validated conclusions are promoted out of research notes. |
-
-## JC-001 Completion Boundary
-
-Treat `JC-001` as complete for this phase when the fixture and prototype prove
-the accepted passive evidence-view boundary, not when the broader platform
-questions are exhausted.
-
-Phase-complete means:
-
-- two small public-safe fixtures can be run from a clean checkout;
-- the prototype is read-only, fixture-sized, and uses only committed fixture
-  inputs;
-- the evidence view preserves artifact roles, relations, conflicts, missing
-  facts, unknowns, static readiness hints, and sharing-boundary labels;
-- expected-shape checks make regression visible without promoting a package,
-  parser framework, storage model, UI, execution runner, hardware integration,
-  or export-redaction workflow;
-- producer-side write capabilities remain represented as missing facts or
-  follow-on obligations, not required inputs for the passive view.
-
-Reopen `JC-001` implementation only if one of these checks fails, a public-safe
-redaction or read-only boundary bug appears, a second journey needs to reuse the
-same evidence-view code, or a user-facing command surface needs the prototype
-behavior. Otherwise, route new pressure into a new journey, adoption ladder,
-migration wedge, or baseline-capability note.
 
 ## Adoption Ladders To Define
 
