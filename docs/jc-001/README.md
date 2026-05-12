@@ -35,6 +35,7 @@ The first wedge has been validated through:
 - an accepted passive evidence-view decision;
 - a two-fixture read-only prototype;
 - fixture-sized manifest validation and expected-shape checks;
+- an explicit phase-completion standard for stopping prototype expansion;
 - provisional capability ownership pressure for the accepted evidence-view facts.
 
 The next product/architecture choice is whether to seed a small capability map

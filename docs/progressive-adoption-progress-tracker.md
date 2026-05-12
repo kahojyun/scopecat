@@ -10,6 +10,9 @@ two-fixture project-owned read-only implementation spike, and a provisional
 capability ownership pass for the first wedge. The next step is deciding
 whether to seed a small capability map from this provisional ownership pass or
 test a second journey before broadening ownership.
+The `JC-001` fixture and prototype are complete for the current phase when
+they can defend that passive boundary; they are not the place to absorb every
+remaining journey, adoption ladder, migration wedge, or baseline capability.
 This tracker is active, but its W3+ adoption ladders, migration wedges,
 capability names, and contract ideas remain hypotheses until the selected W2
 journey promotes them.
@@ -32,9 +35,48 @@ Journey-first discovery
 | Drafting | Early durable artifact exists, but confidence is low. |
 | Validating | Being checked against evidence, interviews, or spikes. |
 | Ready | Good enough to guide near-term implementation or downstream docs. |
+| Promoted | Moved from a narrower working note into the durable product/architecture record. |
+| Accepted | Decision-grade; downstream work may depend on it until a reopening trigger fires. |
 | Transitional | Extracted research kept temporarily until useful claims move into narrower owner docs. |
 | Quarantined | Research input preserved for evidence, pressure, or vocabulary, not accepted as product plan or scope. |
 | Deferred | Intentionally postponed. |
+
+## Phase Acceptance Standards
+
+Use decision quality as the acceptance bar. A phase is complete when it creates
+the smallest durable artifact that can support the next product or architecture
+decision, with evidence, scope limits, non-goals, unresolved risks, and
+reopening triggers. It is not complete because every adjacent platform question
+has been answered.
+
+General gate for every phase:
+
+- states the decision it supports;
+- names the evidence basis and separates direct evidence, inference, baseline
+  comparison, latent pressure, and future pressure;
+- identifies the next consumer document or implementation decision;
+- records explicit non-goals and deferred scope;
+- keeps public docs redacted and role-based;
+- defines what would reopen or invalidate the conclusion;
+- avoids promoting subsystem ownership, storage, UI, execution, or deployment
+  scope before a journey, wedge, contract, or spike requires it.
+
+| Phase | Acceptance Check |
+| --- | --- |
+| W1 Evidence and pain points | Claims are classified by evidence kind, source coverage, visibility, validation route, and redaction boundary. Pains, JTBDs, capability gaps, guardrails, baseline comparisons, and future pressure are not collapsed into one backlog. |
+| W2 End-to-end journeys | A concrete current-state and future-state journey crosses capability boundaries, is grounded in a fixture, source map, interview path, or explicit baseline gap, and says which neighboring journeys it excludes. |
+| W3 Adoption ladders | Each touched capability has a smallest useful standalone step, a later composition path, a no-adoption-yet boundary, and a reason it is not merely preserving a legacy subsystem shape. |
+| W4 Migration wedges | Each wedge has a user-visible outcome, involved capabilities, primary learning goal, migration cost/risk, and reason it is thinner than adjacent wedges. |
+| W5 Capability map | Capability names, owners, inputs, outputs, maturity targets, non-goals, and dependency directions are explicit; shared ownership is provisional or intentionally justified. |
+| W6 Cross-capability contracts | Concepts have a source of truth, required and optional facts are separated, ambiguity and missing facts are representable, and at least one journey or wedge validates the contract pressure. |
+| W7 Technical spikes and prototypes | Each spike has a falsifiable question, fixture/input boundary, pass/fail checks, stop rule, and decision impact. A prototype answers a decision; it does not become a growing product surface by default. |
+| W8 Decision promotion | Accepted scope, rejected alternatives, evidence basis, deferred scope, authoritative downstream docs, and reopening triggers are recorded. |
+| Implementation readiness | User-facing command/API shape, durability needs, test strategy, package/layout choice, ownership, and migration path are clear enough to avoid accidental architecture. |
+| Baseline capability notes | Existing framework or measurement-system comparisons identify what is already solved, what Scopecat should not duplicate, what visible gap remains, and which journey, wedge, or spike will validate that gap. |
+
+Promotion rule: do not expand an earlier-phase artifact just because later-phase
+pressure exists. Convert that pressure into a new validation route unless it
+directly falsifies the accepted artifact.
 
 ## Current Durable Inputs
 
@@ -69,6 +111,31 @@ Journey-first discovery
 | W7 | Technical spikes | Ready | `jc-001/jc-001-static-analysis-spike.md` | Each spike has a question, result, decision impact, and follow-up. |
 | W8 | Decision promotion | Ready | `jc-001/jc-001-passive-evidence-view-decision.md` | Validated conclusions are promoted out of research notes. |
 
+## JC-001 Completion Boundary
+
+Treat `JC-001` as complete for this phase when the fixture and prototype prove
+the accepted passive evidence-view boundary, not when the broader platform
+questions are exhausted.
+
+Phase-complete means:
+
+- two small public-safe fixtures can be run from a clean checkout;
+- the prototype is read-only, fixture-sized, and uses only committed fixture
+  inputs;
+- the evidence view preserves artifact roles, relations, conflicts, missing
+  facts, unknowns, static readiness hints, and sharing-boundary labels;
+- expected-shape checks make regression visible without promoting a package,
+  parser framework, storage model, UI, execution runner, hardware integration,
+  or export-redaction workflow;
+- producer-side write capabilities remain represented as missing facts or
+  follow-on obligations, not required inputs for the passive view.
+
+Reopen `JC-001` implementation only if one of these checks fails, a public-safe
+redaction or read-only boundary bug appears, a second journey needs to reuse the
+same evidence-view code, or a user-facing command surface needs the prototype
+behavior. Otherwise, route new pressure into a new journey, adoption ladder,
+migration wedge, or baseline-capability note.
+
 ## Adoption Ladders To Define
 
 The `JC-001`-touched rows now include promoted first-wedge learning. Rows still
@@ -95,6 +162,10 @@ slice. The remaining rows are W1 hypotheses for later W4 work; future wedge
 priority should be decided from evidence, user value, migration cost,
 architectural learning, and whether a pain is directly visible or latent behind
 constrained legacy workflows.
+Experiment real-time visualization, durable measurement records, and existing
+measurement-framework baselines should be handled as later baseline-capability
+or journey pressure unless they directly falsify the passive evidence-view
+boundary above.
 
 | Wedge | User-Visible Outcome | Capabilities Involved | Main Learning Goal | Status |
 | --- | --- | --- | --- | --- |

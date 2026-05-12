@@ -152,7 +152,7 @@ evidence-view boundary for the committed `JC-001` fixture.
 Validated behavior:
 
 - produces `evidence-view.json` and `evidence-view.md`;
-- preserves the nine accepted evidence-view report sections;
+- preserves the ten accepted evidence-view report sections;
 - includes all manifest-listed artifacts in the role inventory;
 - represents anchor, selected-context, generated, copied, code-reference,
   variant, backup, missing-fact, conflict, and redaction relations;
@@ -195,6 +195,31 @@ The prototype now includes the first hardening pass:
 
 This hardening remains fixture-sized. It is not a general parser framework,
 schema system, CLI contract, package layout, or storage decision.
+
+## Phase Completion Standard
+
+The fixture and prototype are complete for the current product/architecture
+phase when they can defend the accepted passive evidence-view boundary without
+creating new platform commitments.
+
+Use this as the stop rule:
+
+- the two committed public-safe fixtures run from a clean checkout;
+- the prototype produces the accepted JSON and Markdown evidence view;
+- role inventory, selected-context explanation, generated/copied relations,
+  code-reference summary, readiness hints, variant/backup/unknown handling,
+  conflicts, missing facts, sharing labels, and next checks remain visible;
+- the implementation stays read-only and does not execute, import, install,
+  inspect hardware, mutate the fixture, or write inside the fixture;
+- expected-shape checks cover the accepted behavior without promoting a package
+  layout, parser framework, storage model, UI, export-redaction workflow,
+  runner, or source-of-record authority model.
+
+New pressure from adoption ladders, migration wedges, real-time visualization,
+existing measurement-framework baselines, or write-side producer capabilities
+should not expand this prototype by default. Treat it as input for a later
+journey or baseline-capability note unless it reveals that the accepted
+passive evidence-view boundary cannot be represented by the current fixtures.
 
 ## Second Fixture Validation
 
@@ -299,4 +324,5 @@ Do not build these in the first prototype:
 
 Keep the prototype stable and return to product/architecture work. Reopen
 implementation only when a new journey, fixture family, or user-facing command
-surface creates pressure that this two-fixture prototype cannot answer.
+surface creates pressure that this two-fixture prototype cannot answer, or when
+one of the phase-completion checks above fails.
