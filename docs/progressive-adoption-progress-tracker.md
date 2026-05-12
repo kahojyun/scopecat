@@ -30,6 +30,7 @@ Journey-first discovery
 | --- | --- |
 | Not Started | No durable artifact exists yet. |
 | Drafting | Early durable artifact exists, but confidence is low. |
+| Provisional | Evidence pressure is explicit, but the project has not promoted it into the next durable map or adoption plan. |
 | Validating | Being checked against evidence, interviews, or spikes. |
 | Ready | Good enough to guide near-term implementation or downstream docs. |
 | Promoted | Moved from a narrower working note into the durable product/architecture record. |
@@ -72,7 +73,7 @@ falsifies the accepted artifact.
 | --- | --- | --- | --- | --- |
 | W1 | Evidence and pain points | Ready | `evidence-and-pain-point-inventory.md` | Major claims link back to interview notes, codebase observations, source coverage, explicit assumptions, or clearly labeled blind-persona adoption pressure; behavioral/scaling priors are separated from evidence; pain, JTBD, capability-gap, guardrail, and baseline statements are distinguished; top-level pain narratives decompose into foundational pain points with visibility and validation route. |
 | W2 | End-to-end journeys | Ready | `jc-001/jc-001-work-bundle-explanation-journey.md` | At least one current-state and future-state journey is written across capability boundaries. |
-| W3 | Adoption ladders | Drafting | `jc-001/jc-001-capability-adoption-extraction.md` | Each major capability has a smallest useful standalone adoption step and upgrade path. |
+| W3 | Adoption ladders | Provisional | `jc-001/jc-001-capability-adoption-extraction.md` | JC-001 adoption pressure is explicit without promoting a broader adoption plan; promote to drafting after the next product/architecture choice. |
 | W4 | Migration wedges | Ready | `jc-001/jc-001-existing-bundle-to-explainable-context-wedge.md` | Candidate vertical slices are ranked by user value, migration cost, and architectural learning. |
 | W5 | Capability map | Provisional | `jc-001/jc-001-passive-evidence-view-capability-ownership.md` | JC-001 ownership pressure is explicit without promoting a broader capability map; promote to drafting after either a small map is selected or a second journey tests the owners. |
 | W6 | Cross-capability contracts | Ready | `jc-001/jc-001-concepts-and-contracts.md` | Shared concepts and references have one owner and clear dependency direction. |
@@ -81,30 +82,31 @@ falsifies the accepted artifact.
 
 ## Adoption Ladders To Define
 
-The `JC-001`-touched rows now include promoted first-wedge learning. Rows still
-marked `Not Started` remain W1 hypotheses for later W3 work; they do not define
-a capability map or promote implementation scope before a W2 journey validates
+The `JC-001`-touched rows now include provisional first-wedge pressure only.
+Rows marked `Provisional` are not seeded capability-map work yet. Rows marked
+`Not Started` remain W1 hypotheses for later W3 work; they do not define a
+capability map or promote implementation scope before a W2 journey validates
 the need.
 
-| Capability | Starting User Pain | First Standalone Adoption Step | Later Composition Path | Status |
+| Capability | Starting User Pain | Provisional First-Step Pressure | Possible Later Composition | Status |
 | --- | --- | --- | --- | --- |
-| Measurement History | Data and run records are scattered or fragile. | Open an existing work bundle and produce an artifact-role inventory anchored by a run-like or bundle identity. | Later run records can link scan points, parameter snapshots, code versions, execution records, and remote runs into history. | Drafting |
+| Measurement History | Data and run records are scattered or fragile. | Open an existing work bundle and produce an artifact-role inventory anchored by a run-like or bundle identity. | Later run records can link scan points, parameter snapshots, code versions, execution records, and remote runs into history. | Provisional |
 | Scan Framework | Scan loops are ad hoc and hard to preview. | A standalone scan plan expands points and previews desired state without hardware. | Plans write scan-point records, bind parameter snapshots, and become frozen remote execution packages. | Not Started |
-| Parameter Memory | Configs, calibrations, and notes drift across files. | Show selected settings, copied snapshots, generated context, variants, conflicts, freshness, and unknown active state as evidence. | Calibration workflows propose updates, review diffs, and link accepted snapshots to runs. | Drafting |
-| Code Asset Registry | Scripts and drivers are copied across experiments and machines. | Register or infer code references that explain settings path selection and derivation flow without executing them. | Managed execution and instrument runtime resolve exact code versions after safety boundaries exist. | Drafting |
-| Instrument Runtime | Setup and shared-resource context is easy to lose or misuse. | Record setup or registry-like context as declared or observed evidence before device control. | Leases and apply semantics require explicit safety ADRs before becoming adoption steps. | Drafting |
-| Managed Code Runner | Script execution is hard to trust across local control computers, but control PCs must not become more fragile. | Show readiness gaps and dependency-shaped clues as static evidence. | Workflow and remote execution use runner records as provenance after control-PC service, rollback, and mutation boundaries are decided. | Drafting |
-| Comparability and known-good diff | Valid-looking runs and setup states are hard to compare across non-identical systems, method variants, calibration state, and analysis choices. | Explain conflicts between artifacts inside one bundle with layer-by-layer evidence. | Plan preview, calibration review, setup manifests, campaign navigation, and handoff records use the same comparison evidence once their boundaries are validated. | Drafting |
+| Parameter Memory | Configs, calibrations, and notes drift across files. | Show selected settings, copied snapshots, generated context, variants, conflicts, freshness, and unknown active state as evidence. | Calibration workflows propose updates, review diffs, and link accepted snapshots to runs. | Provisional |
+| Code Asset Registry | Scripts and drivers are copied across experiments and machines. | Surface code-shaped evidence that explains settings path selection and derivation flow without executing it. | Managed execution and instrument runtime resolve exact code versions after safety boundaries exist. | Provisional |
+| Instrument Runtime | Setup and shared-resource context is easy to lose or misuse. | Represent setup or registry-like context as declared or observed evidence before device control. | Leases and apply semantics require explicit safety ADRs before becoming adoption steps. | Provisional |
+| Managed Code Runner | Script execution is hard to trust across local control computers, but control PCs must not become more fragile. | Show readiness gaps and dependency-shaped clues as static evidence. | Workflow and remote execution use runner records as provenance after control-PC service, rollback, and mutation boundaries are decided. | Provisional |
+| Comparability and known-good diff | Valid-looking runs and setup states are hard to compare across non-identical systems, method variants, calibration state, and analysis choices. | Explain conflicts between artifacts inside one bundle with layer-by-layer evidence. | Plan preview, calibration review, setup manifests, campaign navigation, and handoff records use the same comparison evidence once their boundaries are validated. | Provisional |
 | Declared physical context and local schemas | Physical wiring, chip topology, aliases, attenuation, and experiment parameters are hard to verify from software and hard to fit into one universal schema. | One bounded setup, sample, or campaign records a small declared schema with source, freshness, validity, and verification status, then uses it for lookup, calculation, visualization, comparison, or handoff. | Setup maps, comparability review, calibration impact, layout views, and diagnostics build on versioned local schemas once useful fields are proven. | Not Started |
 | Analysis and claim lineage | Figures, fits, reports, and conclusions lose links back to raw data, processing choices, calibration context, and rerun history. | A report, figure, or derived artifact links back to source runs, code, context, corrections, fits, exclusions, and unresolved ambiguity. | Publication review, calibration-impact checks, campaign summaries, and handoff packages build on the same lineage model after W2 validates the first fixture. | Not Started |
 
 ## Candidate Migration Wedges
 
-The `JC-001` wedge row is promoted as the accepted first passive evidence-view
-slice. The remaining rows are W1 hypotheses for later W4 work; future wedge
-priority should be decided from evidence, user value, migration cost,
-architectural learning, and whether a pain is directly visible or latent behind
-constrained legacy workflows.
+The `JC-001` wedge row is ready because it is backed by the accepted passive
+evidence-view decision. The remaining rows are W1 hypotheses for later W4 work;
+future wedge priority should be decided from evidence, user value, migration
+cost, architectural learning, and whether a pain is directly visible or latent
+behind constrained legacy workflows.
 Experiment real-time visualization, durable measurement records, and existing
 measurement-framework baselines should be handled as later baseline-capability
 or journey pressure unless they directly falsify the passive evidence-view

@@ -54,6 +54,34 @@ def assert_expected_shape(test_case, prototype, fixture, expected_shape_path):
     test_case.assertEqual(view["static_shape_checks"]["artifact_count"], expected["artifact_count"])
     test_case.assertEqual(view["static_shape_checks"]["role_counts"], expected["role_counts"])
     test_case.assertEqual(view["static_shape_checks"]["relation_types"], expected["relation_types"])
+    if "relation_counts" in expected:
+        relation_counts = {}
+        for relation in view["relations"]:
+            relation_counts[relation["relation_type"]] = (
+                relation_counts.get(relation["relation_type"], 0) + 1
+            )
+        test_case.assertEqual(relation_counts, expected["relation_counts"])
+    for expected_relation in expected.get("required_relations", []):
+        matches = [
+            relation
+            for relation in view["relations"]
+            if relation["relation_type"] == expected_relation["relation_type"]
+            and relation["source_artifact"] == expected_relation["source_artifact"]
+            and relation["target_artifact"] == expected_relation["target_artifact"]
+        ]
+        test_case.assertEqual(
+            len(matches),
+            1,
+            f"missing expected relation {expected_relation}",
+        )
+        relation = matches[0]
+        if "evidence_handling" in expected_relation:
+            test_case.assertEqual(
+                relation["evidence_handling"],
+                expected_relation["evidence_handling"],
+            )
+        for flag in expected_relation.get("flags", []):
+            test_case.assertIn(flag, relation["flags"])
     test_case.assertEqual(conflict_types, expected["conflict_types"])
     test_case.assertEqual(missing_fact_types, expected["missing_fact_types"])
     test_case.assertEqual(
@@ -62,6 +90,8 @@ def assert_expected_shape(test_case, prototype, fixture, expected_shape_path):
     )
     for section in expected["markdown_sections"]:
         test_case.assertIn(section, markdown)
+    for snippet in expected.get("markdown_contains", []):
+        test_case.assertIn(snippet, markdown)
     return view, markdown
 
 
@@ -701,6 +731,57 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         self.assertIn("manifest-role-only", selected_relation["flags"])
         code_relation = relation_by_type_and_source(view, "references-code", "code__notes_py")
         self.assertEqual(code_relation["target_artifact"], "split-path-token-fixture")
+        self.assertIn("no-exact-selected-context-path", code_relation["flags"])
+
+    def test_embedded_backup_path_does_not_count_as_exact_selected_context_clue(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as fixture_dir:
+            fixture_path = Path(fixture_dir)
+            write_json(fixture_path / "setting" / "parameters.json", {"alpha": "selected"})
+            code_path = fixture_path / "code" / "notes.py"
+            code_path.parent.mkdir(parents=True, exist_ok=True)
+            code_path.write_text(
+                "SETTING_PATH = 'archive/setting/parameters.json.bak'\n",
+                encoding="utf-8",
+            )
+            write_json(
+                fixture_path / "fixture-manifest.json",
+                {
+                    "fixture_id": "embedded-backup-path-fixture",
+                    "purpose": "embedded path token regression",
+                    "redaction_policy": {
+                        "source": "public-test-fixture",
+                        "forbidden_content": [],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "setting/parameters.json",
+                            "role": "selected context",
+                            "status": "selected candidate",
+                            "evidence_handling": "inferred",
+                            "sharing_boundary": "public-safe",
+                        },
+                        {
+                            "path": "code/notes.py",
+                            "role": "code reference",
+                            "status": "text-only pseudocode",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        },
+                    ],
+                },
+            )
+
+            view = prototype.build_evidence_view(fixture_path)
+
+        selected_relation = relation_by_type_and_source(
+            view,
+            "appears-selected-for",
+            "setting__parameters_json",
+        )
+        self.assertIn("manifest-role-only", selected_relation["flags"])
+        code_relation = relation_by_type_and_source(view, "references-code", "code__notes_py")
+        self.assertEqual(code_relation["target_artifact"], "embedded-backup-path-fixture")
         self.assertIn("no-exact-selected-context-path", code_relation["flags"])
 
     def test_multiple_selected_context_candidates_get_relations(self):

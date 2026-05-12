@@ -82,7 +82,7 @@ write flows, managed execution, hardware integration, known-good comparison,
 or full Parameter Memory ownership.
 
 The spike also confirms that read-side explanation creates concrete
-producer-side requirements later:
+producer-fact questions for later decisions:
 
 - preferred bundle anchor;
 - selected settings path and selection reason;

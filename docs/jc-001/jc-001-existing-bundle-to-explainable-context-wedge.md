@@ -22,7 +22,7 @@ spikes.
 
 ## User-Visible Outcome
 
-A user opens an existing work bundle and sees a public-safe evidence view that
+A user opens an existing work bundle and sees a boundary-aware evidence view that
 explains:
 
 - anchor artifacts;
@@ -69,7 +69,7 @@ The accepted decision owns the deferred boundary for this wedge.
 | --- | --- |
 | Measurement History | Provides the bundle or run-like anchor and artifact-role inventory. |
 | Parameter Memory | Explains selected settings, snapshots, generated context, variants, conflicts, freshness, and unknown active state as evidence. |
-| Code Asset Registry | Records or infers non-executed code references that explain settings selection and derivation. |
+| Code Asset Registry | Surfaces non-executed code-shaped evidence that explains settings selection and derivation. |
 | Instrument Runtime | Treats setup or registry-like files as declared or observed evidence only. |
 | Managed Code Runner | Contributes static readiness and dependency clues only. |
 | Comparability and known-good diff | Provides within-bundle conflict display, not known-good comparison. |

@@ -21,6 +21,55 @@
     "redacts",
     "references-code"
   ],
+  "relation_counts": {
+    "anchors": 2,
+    "appears-selected-for": 2,
+    "conflicts-with": 3,
+    "copied-from": 1,
+    "generated-from": 2,
+    "has-backup": 1,
+    "has-variant": 1,
+    "missing-fact": 8,
+    "redacts": 1,
+    "references-code": 2
+  },
+  "required_relations": [
+    {
+      "relation_type": "generated-from",
+      "source_artifact": "setting__temp__chip_info_json",
+      "target_artifact": "setting__parameters_json",
+      "evidence_handling": "observed",
+      "flags": ["freshness-unchecked"]
+    },
+    {
+      "relation_type": "copied-from",
+      "source_artifact": "data__run-00042-parameters_json",
+      "target_artifact": "setting__parameters_json",
+      "evidence_handling": "observed",
+      "flags": ["partial-snapshot"]
+    },
+    {
+      "relation_type": "references-code",
+      "source_artifact": "code__config_py",
+      "target_artifact": "jc001-layered-config-bundle",
+      "evidence_handling": "observed",
+      "flags": ["not-executed", "no-exact-selected-context-path"]
+    },
+    {
+      "relation_type": "has-backup",
+      "source_artifact": "variants__manifest_json",
+      "target_artifact": "jc001-layered-config-bundle",
+      "evidence_handling": "inferred",
+      "flags": ["manifest-only", "backup-ambiguous"]
+    },
+    {
+      "relation_type": "missing-fact",
+      "source_artifact": "code__init_setting_flow_py",
+      "target_artifact": "jc001-layered-config-bundle",
+      "evidence_handling": "missing",
+      "flags": ["code identity"]
+    }
+  ],
   "conflict_types": [
     "partial-snapshot",
     "setup-context-drift",
@@ -45,5 +94,10 @@
     "## Conflict And Missing-Fact Report",
     "## Sharing-Boundary Summary",
     "## Next Checks"
+  ],
+  "markdown_contains": [
+    "| generated-from | `setting__temp__chip_info_json` | `setting__parameters_json` | observed | `freshness-unchecked` |",
+    "| references-code | `code__config_py` | `jc001-layered-config-bundle` | observed | `not-executed`, `no-exact-selected-context-path` |",
+    "| has-backup | `variants__manifest_json` | `jc001-layered-config-bundle` | inferred | `manifest-only`, `backup-ambiguous` |"
   ]
 }

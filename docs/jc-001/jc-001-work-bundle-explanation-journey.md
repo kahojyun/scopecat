@@ -56,9 +56,9 @@ ordinary script or notebook chooses settings path
   -> later user reopens the bundle and tries to recover intent
 ```
 
-This trace is descriptive, not accepted write scope. It explains which facts
-must be discoverable later, without requiring Scopecat to control execution,
-own settings, mutate calibration, or manage environments.
+This trace is descriptive, not accepted write scope. It identifies
+producer-fact pressure for later decisions without requiring Scopecat to
+control execution, own settings, mutate calibration, or manage environments.
 
 ## Producer-Fact Implications
 
@@ -170,7 +170,7 @@ scientific-equivalence judgment.
 
 | Check | Must be true |
 | --- | --- |
-| Read needs imply producer-fact pressure | Capability extraction must identify which facts need to exist at bundle-production time or be recoverable later. |
+| Read needs imply producer-fact pressure | Capability extraction must identify which missing-fact questions affect passive explanation and future producer decisions. |
 | Mechanism remains open | The journey must not assume those facts come from a managed runner, database, service, notebook capture, or control framework. |
 | Failure stays visible | If a producer did not record enough information, the future-state output must show missing or inferred evidence rather than fabricating certainty. |
 | Low ceremony survives | Existing ordinary scripts can produce or expose useful evidence without becoming full Scopecat applications. |

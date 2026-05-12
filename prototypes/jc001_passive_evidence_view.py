@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections import Counter
 from dataclasses import dataclass
@@ -112,9 +113,12 @@ def summarize_code_clues(code_text: dict[str, str]) -> dict[str, dict[str, bool]
 
 def code_mentions_artifact_path(code_text: dict[str, str], artifact_path: str) -> bool:
     path_text = artifact_path.lower()
+    pattern = re.compile(
+        rf"(?<![A-Za-z0-9_./\\-]){re.escape(path_text)}(?![A-Za-z0-9_./\\-])"
+    )
     for text in code_text.values():
         lowered = text.lower()
-        if path_text in lowered:
+        if pattern.search(lowered):
             return True
     return False
 
@@ -326,6 +330,10 @@ def display_ids(items: list[str]) -> str:
 
 def display_value(item: str | None) -> str:
     return f"`{item}`" if item else "none observed"
+
+
+def display_flags(flags: list[str]) -> str:
+    return ", ".join(f"`{flag}`" for flag in flags) or "none"
 
 
 def variant_has_backup_evidence(variant: Artifact, json_payloads: dict[str, Any]) -> bool:
@@ -934,6 +942,23 @@ def render_markdown(view: dict[str, Any]) -> str:
             "",
             "- Generated sidecars: " + display_ids(view["generated_and_copied_relation_summary"]["generated_sidecars"]),
             "- Copied snapshots: " + display_ids(view["generated_and_copied_relation_summary"]["copied_snapshots"]),
+            "",
+            "Relation inventory:",
+            "",
+            "| Type | Source | Target | Evidence | Flags |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+    )
+
+    for relation in view["relations"]:
+        lines.append(
+            f"| {relation['relation_type']} | `{relation['source_artifact']}` | "
+            f"`{relation['target_artifact']}` | {relation['evidence_handling']} | "
+            f"{display_flags(relation['flags'])} |"
+        )
+
+    lines.extend(
+        [
             "",
             "## Code-Reference Summary",
             "",
