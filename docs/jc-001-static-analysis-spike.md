@@ -2,7 +2,7 @@
 
 ## Status
 
-Ready for decision promotion.
+Ready; promoted by accepted decision.
 
 ## Question
 
@@ -113,8 +113,9 @@ import system.
 
 ## Follow-Up
 
-Promote only the validated passive-explanation boundary into an accepted
-decision or architecture note:
+Promoted by
+[`jc-001-passive-evidence-view-decision.md`](jc-001-passive-evidence-view-decision.md).
+The accepted decision:
 
 - accept the first product wedge as static evidence-view generation from an
   existing bundle;

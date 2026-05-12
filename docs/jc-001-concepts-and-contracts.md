@@ -2,7 +2,8 @@
 
 ## Status
 
-Ready; validated by the first static-analysis spike.
+Ready; validated by the first static-analysis spike and promoted by accepted
+decision.
 
 ## Purpose
 
@@ -267,7 +268,9 @@ boundaries without execution or mutation?
 [`jc-001-static-analysis-spike.md`](jc-001-static-analysis-spike.md) validates
 that a narrow static analyzer can produce the evidence view from the synthetic
 fixture while preserving roles, relations, conflicts, missing facts, sharing
-boundaries, and the no-execution/no-mutation boundary.
+boundaries, and the no-execution/no-mutation boundary. The validated boundary
+is promoted by
+[`jc-001-passive-evidence-view-decision.md`](jc-001-passive-evidence-view-decision.md).
 
 The spike did not design the final storage model, product UI, plugin system,
 parser framework, runner, or hardware integration.
@@ -288,7 +291,7 @@ parser framework, runner, or hardware integration.
 
 ## Next Step
 
-Promote the validated passive evidence-view boundary into an accepted decision
-or architecture note. Keep source-of-record authority, execution, mutation,
-hardware verification, parser generalization, and support-boundary export out
-of that decision unless a later spike validates them.
+Shape the first implementation-facing prototype scope for the accepted passive
+evidence view. Keep source-of-record authority, execution, mutation, hardware
+verification, parser generalization, and support-boundary export out of that
+scope unless a later spike validates them.

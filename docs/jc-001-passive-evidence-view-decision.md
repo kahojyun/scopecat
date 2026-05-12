@@ -1,0 +1,125 @@
+# JC-001 Passive Evidence View Decision
+
+## Status
+
+Accepted on 2026-05-12.
+
+## Decision
+
+Scopecat accepts the first `JC-001` product wedge as a passive evidence-view
+boundary:
+
+```text
+existing work bundle
+  -> static artifact-role inventory
+  -> evidence relations
+  -> conflict and missing-fact report
+  -> sharing-safe evidence view
+```
+
+The first wedge may explain an existing bundle by reading files and static code
+text, but it must not execute code, mutate bundle files, control hardware,
+install dependencies, assert source-of-record authority, or repair the bundle.
+
+## Basis
+
+This decision is promoted from:
+
+- [`jc-001-work-bundle-explanation-journey.md`](jc-001-work-bundle-explanation-journey.md);
+- [`jc-001-existing-bundle-to-explainable-context-wedge.md`](jc-001-existing-bundle-to-explainable-context-wedge.md);
+- [`jc-001-concepts-and-contracts.md`](jc-001-concepts-and-contracts.md);
+- [`jc-001-static-analysis-spike.md`](jc-001-static-analysis-spike.md).
+
+The static-analysis spike validated that the synthetic fixture can produce an
+evidence view preserving roles, relations, conflicts, missing facts, sharing
+boundaries, and the no-execution/no-mutation boundary.
+
+## Accepted Boundary
+
+The first wedge can include:
+
+- a bounded work-bundle inventory;
+- artifact roles from the first-wedge vocabulary;
+- selected-context candidates without authority claims;
+- generated-sidecar and copied-snapshot relations;
+- static code references read as text only;
+- setup evidence treated as declared or observed evidence, not physical truth;
+- variant and backup ambiguity;
+- visible conflicts;
+- explicit producer fact gaps;
+- internal-safe and public-safe sharing-boundary labels.
+
+The evidence view should preserve ambiguity. It may say that an artifact
+appears selected, copied, generated, conflicting, redacted, or missing a
+producer fact. It must not silently choose a winner or convert inferred
+evidence into truth.
+
+## Deferred Boundary
+
+The first wedge does not include:
+
+- managed execution;
+- hardware or driver integration;
+- environment solving or dependency installation;
+- write-back, repair, rollback, or calibration mutation;
+- automatic notebook execution;
+- opaque binary inspection beyond safe categorization;
+- known-good comparison;
+- scientific equivalence scoring;
+- support-boundary export policy;
+- durable storage schema;
+- general parser framework;
+- subsystem ownership decisions beyond this wedge.
+
+These may become later decisions only after a separate journey, wedge, and
+spike justify them.
+
+## Producer Facts Accepted As Future Write Obligations
+
+Read-side explanation showed that later write flows should preserve these facts
+when bundles are produced:
+
+- preferred bundle anchor;
+- selected settings path;
+- selection reason;
+- producer timestamp or freshness marker;
+- generated sidecar source;
+- generated sidecar invalidation rule;
+- copied snapshot source and coverage;
+- code origin or immutable code reference;
+- sharing-boundary policy for sensitive source details.
+
+These are accepted as future write-side obligations, not as prerequisites for
+the first passive explanation wedge.
+
+## Consequences
+
+The next product or technical work can target a small read-only prototype for
+opening a bundle and producing the accepted evidence view.
+
+The prototype should keep confidence narrative-based, not numeric. It should
+show conflict and missing-fact records as first-class output. It should keep
+code-reference handling static until a later Code Asset Registry or Managed
+Code Runner decision exists.
+
+Capability names touched by this wedge remain provisional pressure labels
+until a capability map promotes ownership boundaries.
+
+## Reversal Criteria
+
+Revisit this decision if one of these occurs:
+
+- users cannot get value from passive explanation without immediate write-back
+  or execution;
+- real fixture analysis cannot preserve ambiguity without excessive manual
+  curation;
+- public-safe reporting loses too much diagnostic value to support the journey;
+- the first prototype requires a general parser or storage model before the
+  evidence view is useful.
+
+## Next Step
+
+Shape the first implementation-facing prototype scope for the accepted passive
+evidence view. Keep it read-only and fixture-sized unless the scope document
+explicitly promotes a broader parser, storage, UI, or capability-ownership
+decision.
