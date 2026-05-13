@@ -210,6 +210,10 @@ and later narrowed by
 
 ## Remaining Handoff Questions
 
+These questions refine follow-on handoff pressure. They do not reopen the
+accepted `JC-001` passive evidence-view boundary or accept reader API, export
+format, UI, storage, or fit-result schema details.
+
 - Which role names should become durable user-facing terms rather than
   internal evidence labels?
 - Which producer facts need explicit future API support, and which can remain
@@ -227,6 +231,9 @@ and later narrowed by
   previews, star promising data, multi-select runs like files, and generate an
   immutable self-contained handoff package with source IDs, read API guidance,
   context evidence, and missing-context warnings?
+- Which predecessor Fricon data-shape cases must challenge analysis handoff:
+  regular sweeps, trace-valued records, multiple traces per record, complex
+  values, IQ data, single-shot arrays, and irregular or ragged step records?
 - Which fit results, figure references, notes, and star/favorite marks should
   user-run analysis scripts be allowed to write back without making Scopecat
   manage or execute those scripts?
