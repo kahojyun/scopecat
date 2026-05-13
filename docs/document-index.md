@@ -7,17 +7,18 @@ is allowed to change as the documentation set changes; stable documentation
 policy belongs in `README.md`.
 
 If this index and a document's own status disagree, trust the document's own
-status.
+status. Index descriptors are navigation labels, not validation statuses.
 
 ## Index
 
-| Document | Status | Use For | Caveat |
+| Document | Descriptor | Use For | Caveat |
 | --- | --- | --- | --- |
 | `README.md` | Stable policy | Documentation purpose, entry points, and editing rules. | Should stay compact and avoid current file inventory. |
 | `AGENTS.md` | Stable policy | Always-applied AI instructions for work inside `docs/`. | Keep operational; do not move long background here. |
-| `progressive-adoption-progress-tracker.md` | Active tracker | Tracking journey-first discovery, adoption ladders, migration wedges, contracts, and decision promotion. | Keep compact: detailed ladders, wedges, baselines, and contracts should move to narrower owner docs once they have multiple active consumers. |
-| `evidence-and-pain-point-inventory.md` | Ready as W1 evidence owner | W1 owner for evidence, lab/user context, top-level pain narratives, pain/pressure rows, adoption blockers, external-framework baselines, statement-kind separation, and future journey source-map templates. | `JC-001` has been promoted out of this inventory; use `jc-001/README.md` for the first-wedge document set. |
-| `jc-001/README.md` | Active first-wedge record | Entry point, audience read paths, and reusable promotion pattern for the first accepted `JC-001` wedge. | Earned exemplar, not a nine-file template for future journey candidates. |
+| `jc-analysis-operating-standard.md` | Doc ready operating standard | Repeatable `JC-###` status language, source-map gates, promotion flow, acceptance gates, conflict handling, and reopening rules. | Process owner only; use evidence owner docs for `EV-###`, `PN-###`, `TP-###`, and `JC-###` source material. |
+| `progressive-adoption-progress-tracker.md` | Active tracker | Tracking journey-first discovery, adoption ladders, migration wedges, contracts, and decision promotion. | Keep compact and move detailed ladders, wedges, baselines, and contracts to narrower owner docs once they have multiple active consumers. |
+| `evidence-and-pain-point-inventory.md` | W1 evidence owner | W1 owner for evidence, lab/user context, top-level pain narratives, pain/pressure rows, adoption blockers, external-framework baselines, statement-kind separation, anti-patterns, and saturation assessment. | `JC-001` has been promoted out of this inventory; future `JC` process guidance belongs in `jc-analysis-operating-standard.md`. |
+| `jc-001/README.md` | First-wedge record | Entry point, audience read paths, accepted boundary, fixture-validated prototype, manifest/public-output contract, and first-wedge history for `JC-001`. | Earned exemplar, not a process owner or folder template for future journey candidates. |
 | `research/README.md` | Stable policy | Research directory purpose and promotion rule. | Does not define product direction. |
 | `research/AGENTS.md` | Stable policy | Always-applied AI instructions for work inside `docs/research/`. | Keeps raw research from being treated as product truth. |
 | `research/research-index.md` | Working index | Current research inputs, extraction state, and caveats. | Research entries are evidence inputs unless separately promoted. |

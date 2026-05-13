@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted on 2026-05-12.
+Accepted boundary on 2026-05-12.
+
+This decision is fixture validated and boundary accepted. It is not user
+validated, product accepted, or a durable subsystem-ownership decision.
 
 ## Decision
 
@@ -50,7 +53,9 @@ The first wedge can include:
 - sharing-boundary labels. The current prototype validates public-safe fixture
   output and redaction-sensitive public rendering for non-public labels and
   metadata; internal-safe, external-support-safe, and unsafe-to-share view
-  policies remain follow-on validation.
+  policies remain follow-on validation. The current manifest and public-output
+  identity rules are documented in
+  [`jc-001-manifest-and-public-output-contract.md`](jc-001-manifest-and-public-output-contract.md).
 
 The evidence view should preserve ambiguity. It may say that an artifact
 appears selected, copied, generated, conflicting, redacted, or missing a
@@ -99,9 +104,12 @@ for passive explanation.
 ## Consequences
 
 The first read-only prototype and second public-safe fixture validate this
-boundary at fixture scale. The next product or architecture choice is whether
-to seed a small capability map from the provisional ownership pass or select a
-second journey to test those owners under different pressure.
+boundary at fixture scale. They do not yet show that representative users can
+complete the task better, interpret every confidence signal correctly, or treat
+the passive evidence view as accepted product direction. The next product or
+architecture choice is whether to seed a small capability map from the
+provisional ownership pass or select a second journey to test those owners
+under different pressure.
 
 Confidence remains narrative-based, not numeric. Code-reference handling stays
 static until a later Code Asset Registry or Managed Code Runner decision

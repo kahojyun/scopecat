@@ -2,7 +2,7 @@
 
 ## Status
 
-Second fixture validated; continue as prototype script.
+Fixture validated; continue as prototype script.
 
 ## Purpose
 
@@ -65,7 +65,12 @@ Required input:
 - one caller-provided output directory;
 - fixture manifest;
 - JSON artifacts listed by the manifest;
-- static code text artifacts listed by the manifest.
+- static code text artifacts listed by the manifest;
+- opaque non-JSON artifacts listed by the manifest for inventory-only
+  preservation.
+
+The current manifest and public-output identity rules are documented in
+[`jc-001-manifest-and-public-output-contract.md`](jc-001-manifest-and-public-output-contract.md).
 
 Fixed prototype outputs:
 
@@ -108,6 +113,10 @@ The structured output should use the first-wedge vocabulary from
   source labels, or manifest-order labels. Full internal-safe,
   external-support-safe, and
   unsafe-to-share export policy remains follow-on scope.
+
+The detailed manifest, `public_id`, `public_bundle_id`, redaction-handle,
+fixture-local path, and public JSON/Markdown rules are owned by
+[`jc-001-manifest-and-public-output-contract.md`](jc-001-manifest-and-public-output-contract.md).
 
 The Markdown report should include the ten evidence-view sections currently
 accepted by the concepts document:

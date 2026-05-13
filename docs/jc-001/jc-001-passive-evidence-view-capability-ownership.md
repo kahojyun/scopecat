@@ -29,8 +29,8 @@ evidence-view fact
   -> explicit non-ownership
 ```
 
-The provisional owner pressure identifies which capability is accountable for
-passive-view vocabulary, validation expectations, and missing-fact wording for
+The provisional owner pressure identifies which capability label carries
+first-wedge vocabulary, validation expectations, and missing-fact wording for
 that fact family. Future producer behavior still needs a separate
 evidence-backed decision.
 
@@ -48,7 +48,7 @@ evidence-backed decision.
 | Setup evidence | Instrument Runtime | Defines setup/registry-like evidence as declared or observed context with sharing boundary and unsafe-to-verify labels. | Does not own live device truth, leases, driver mutation, service startup, or hardware control. |
 | Static readiness hint | Managed Code Runner | Defines static readiness clues and readiness-gap wording when visible without execution. | Does not own execution supervision, package installation, environment solving, shell-command UX, workers, or logs. |
 | Conflict display | Comparability and conflict review | Defines within-bundle conflict records, affected producer fact, user-visible implication, and next-check wording. | Does not own known-good authority, scientific equivalence scoring, normalization, or cross-system transfer claims. |
-| Sharing boundary | Evidence view boundary, with input from each provisional pressure owner and fixture/tooling authors | Preserves roles and relations in report output; validates fixture-authored public handles and fixture-authored redaction handles; redacts non-public artifact labels, bundle metadata, redaction-policy metadata, and source-derived status text. Each provisional pressure owner identifies boundary labels for its artifacts or fields. | Does not define internal-safe view differences, external support export workflow, legal policy, or public documentation examples. |
+| Sharing boundary | Evidence view boundary, with input from each provisional pressure owner and fixture/tooling authors; current manifest/public-output rules documented in [`jc-001-manifest-and-public-output-contract.md`](jc-001-manifest-and-public-output-contract.md) | Preserves roles and relations in report output; validates fixture-authored public handles and fixture-authored redaction handles; redacts non-public artifact labels, bundle metadata, redaction-policy metadata, and source-derived status text. Each provisional pressure owner identifies boundary labels for its artifacts or fields. | Does not define internal-safe view differences, external support export workflow, legal policy, or public documentation examples. |
 | Missing producer facts | Evidence view boundary, with one provisional pressure owner per gap | Displays missing facts as first-class output. Owner routing is a follow-on contract once producer-side facts are promoted. | Does not fabricate inferred truth, implement owner routing, or require write-side implementation before passive explanation. |
 
 ## Dependency Direction
@@ -82,23 +82,9 @@ ownership.
 
 ## Provisional For This Wedge
 
-The first wedge may rely on these provisional responsibility assignments while
-avoiding broader subsystem promotion:
-
-- Measurement History is accountable for first-wedge bundle and artifact
-  inventory wording.
-- Parameter Memory is accountable for first-wedge selected-context provenance,
-  generated-sidecar, copied-context, and variant/backup evidence semantics.
-- Code Asset Registry is accountable for first-wedge static code-reference
-  evidence semantics.
-- Instrument Runtime is accountable for first-wedge setup evidence semantics
-  without live verification.
-- Managed Code Runner is accountable for first-wedge static readiness hint
-  semantics without execution.
-- Comparability and conflict review is accountable for first-wedge within-bundle
-  conflict display only.
-- The evidence view is accountable for first-wedge composition, missing-fact
-  display, and sharing-boundary preservation across report views.
+The table above is the complete provisional assignment for this wedge. A later
+capability map may keep, rename, split, or replace these labels after another
+journey or implementation decision tests them.
 
 ## Deferred
 

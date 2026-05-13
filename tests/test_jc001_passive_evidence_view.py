@@ -2617,6 +2617,74 @@ class PassiveEvidenceViewTest(unittest.TestCase):
             ):
                 prototype.build_evidence_view(fixture_path)
 
+    def test_public_artifact_public_id_cannot_reuse_reserved_output_id(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as fixture_dir:
+            fixture_path = Path(fixture_dir)
+            write_json(fixture_path / "bundle.json", {"id": "bundle"})
+            write_json(
+                fixture_path / "fixture-manifest.json",
+                {
+                    "fixture_id": "rid-fixture",
+                    "public_bundle_id": "wb",
+                    "purpose": "reserved target regression",
+                    "redaction_policy": {
+                        "source": "fixture",
+                        "forbidden_content": [],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "bundle.json",
+                            "public_id": "public-evidence-view",
+                            "role": "anchor",
+                            "status": "bundle seed",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        }
+                    ],
+                },
+            )
+
+            with self.assertRaisesRegex(
+                prototype.EvidenceViewError,
+                "artifact ID collides with reserved public output ID",
+            ):
+                prototype.build_evidence_view(fixture_path)
+
+    def test_public_bundle_id_cannot_reuse_reserved_output_id(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as fixture_dir:
+            fixture_path = Path(fixture_dir)
+            write_json(fixture_path / "bundle.json", {"id": "bundle"})
+            write_json(
+                fixture_path / "fixture-manifest.json",
+                {
+                    "fixture_id": "reserved-bundle-target-fixture",
+                    "public_bundle_id": "public-evidence-view",
+                    "purpose": "reserved bundle target regression",
+                    "redaction_policy": {
+                        "source": "fixture",
+                        "forbidden_content": [],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "bundle.json",
+                            "public_id": "qa",
+                            "role": "anchor",
+                            "status": "bundle seed",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        }
+                    ],
+                },
+            )
+
+            with self.assertRaisesRegex(
+                prototype.EvidenceViewError,
+                "public bundle ID collides with reserved ID",
+            ):
+                prototype.build_evidence_view(fixture_path)
+
     def test_mixed_artifact_boundaries_promote_to_restrictive_bundle_boundary(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as fixture_dir:
@@ -2912,6 +2980,98 @@ class PassiveEvidenceViewTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 2)
         self.assertIn("manifest artifact does not exist: missing.json", result.stderr)
+
+    def test_relation_bearing_json_artifact_requires_object_payload(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as fixture_dir:
+            fixture_path = Path(fixture_dir)
+            write_json(fixture_path / "setting" / "parameters.json", {"alpha": "selected"})
+            write_json(fixture_path / "sidecar.json", ["not", "an", "object"])
+            write_json(
+                fixture_path / "fixture-manifest.json",
+                {
+                    "fixture_id": "relation-payload-shape-fixture",
+                    "public_bundle_id": "wb",
+                    "purpose": "relation payload shape regression",
+                    "redaction_policy": {
+                        "source": "public-test-fixture",
+                        "forbidden_content": [],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "setting/parameters.json",
+                            "public_id": "qa",
+                            "role": "selected context",
+                            "status": "selected candidate",
+                            "evidence_handling": "inferred",
+                            "sharing_boundary": "public-safe",
+                        },
+                        {
+                            "path": "sidecar.json",
+                            "public_id": "vx",
+                            "role": "generated sidecar",
+                            "status": "generated candidate",
+                            "evidence_handling": "generated",
+                            "sharing_boundary": "public-safe",
+                        },
+                    ],
+                },
+            )
+
+            with self.assertRaisesRegex(
+                prototype.EvidenceViewError,
+                "generated sidecar artifact sidecar.json must be a JSON object",
+            ):
+                prototype.build_evidence_view(fixture_path)
+
+    def test_relation_bearing_json_artifact_rejects_null_payload(self):
+        prototype = load_prototype()
+        cases = [
+            ("generated sidecar", "generated candidate", "generated"),
+            ("copied snapshot", "partial snapshot", "copied"),
+        ]
+        for role, status, evidence_handling in cases:
+            with self.subTest(role=role):
+                with tempfile.TemporaryDirectory() as fixture_dir:
+                    fixture_path = Path(fixture_dir)
+                    write_json(fixture_path / "setting" / "parameters.json", {"alpha": "selected"})
+                    write_json(fixture_path / "relation.json", None)
+                    write_json(
+                        fixture_path / "fixture-manifest.json",
+                        {
+                            "fixture_id": "relation-null-payload-fixture",
+                            "public_bundle_id": "wb",
+                            "purpose": "relation null payload regression",
+                            "redaction_policy": {
+                                "source": "public-test-fixture",
+                                "forbidden_content": [],
+                            },
+                            "artifacts": [
+                                {
+                                    "path": "setting/parameters.json",
+                                    "public_id": "qa",
+                                    "role": "selected context",
+                                    "status": "selected candidate",
+                                    "evidence_handling": "inferred",
+                                    "sharing_boundary": "public-safe",
+                                },
+                                {
+                                    "path": "relation.json",
+                                    "public_id": "vx",
+                                    "role": role,
+                                    "status": status,
+                                    "evidence_handling": evidence_handling,
+                                    "sharing_boundary": "public-safe",
+                                },
+                            ],
+                        },
+                    )
+
+                    with self.assertRaisesRegex(
+                        prototype.EvidenceViewError,
+                        f"{role} artifact relation.json must be a JSON object",
+                    ):
+                        prototype.build_evidence_view(fixture_path)
 
 
 if __name__ == "__main__":
