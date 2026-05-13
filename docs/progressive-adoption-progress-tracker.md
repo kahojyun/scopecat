@@ -14,6 +14,13 @@ This tracker is active. Unpromoted or non-`JC-001` W3+ adoption ladders,
 migration wedges, capability names, and contract ideas remain hypotheses until
 a selected W2 journey promotes them.
 
+Keep this tracker compact. It may hold the current phase table, the current
+decision point, and small hypothesis inventories while there is only one active
+accepted wedge. When multiple journeys, adoption ladders, migration wedges,
+baseline-capability analyses, or shared contracts become active, move the
+durable detail into a narrower owner document and leave only status and links
+here.
+
 This tracker is organized around progressive platform adoption:
 
 ```text
@@ -88,6 +95,10 @@ Rows marked `Provisional` are not seeded capability-map work yet. Rows marked
 capability map or promote implementation scope before a W2 journey validates
 the need.
 
+This table is a staging inventory, not the durable capability map. Promote a
+capability row into a dedicated owner document only after a second journey or an
+implementation decision shows that the same fact family needs durable ownership.
+
 | Capability | Starting User Pain | Provisional First-Step Pressure | Possible Later Composition | Status |
 | --- | --- | --- | --- | --- |
 | Measurement History | Data and run records are scattered or fragile. | Open an existing work bundle and produce an artifact-role inventory anchored by a run-like or bundle identity. | Later run records can link scan points, parameter snapshots, code versions, execution records, and remote runs into history. | Provisional |
@@ -111,6 +122,10 @@ Experiment real-time visualization, durable measurement records, and existing
 measurement-framework baselines should be handled as later baseline-capability
 or journey pressure unless they directly falsify the passive evidence-view
 boundary accepted in `jc-001/`.
+
+This table should stay short. If more than one non-`JC-001` wedge becomes active
+at the same time, create a narrower migration-wedge owner note and keep only
+links and statuses in this tracker.
 
 | Wedge | User-Visible Outcome | Capabilities Involved | Main Learning Goal | Status |
 | --- | --- | --- | --- | --- |
@@ -166,6 +181,8 @@ During review:
 - update statuses;
 - add links to durable outputs;
 - retire wedges that no longer match the product direction;
+- move growing ladder, wedge, baseline, or contract detail into narrower owner
+  docs once it has more than one active consumer;
 - avoid adding new workstreams unless they change how the project is managed.
 
 ## Guardrails

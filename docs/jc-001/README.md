@@ -14,9 +14,11 @@ a passive evidence view. The current validated boundary is read-only,
 fixture-sized, no execution, no mutation, no hardware verification, no
 source-of-record authority, and no package/parser/storage/UI promotion.
 
-Use this folder as the pattern for later journey candidates: co-locate journey,
-capability, wedge, contract, spike, decision, prototype, and ownership artifacts
-as they are earned or promoted. Do not create the whole shape upfront.
+Use this folder as an earned exemplar for later journey candidates, not as a
+packet to copy wholesale. Future folders should start with the smallest useful
+selection, journey, and fixture/source-map notes; add capability, wedge,
+contract, spike, decision, prototype, and ownership artifacts only when later
+evidence promotes them.
 
 ## Reading Order
 
@@ -31,6 +33,19 @@ as they are earned or promoted. Do not create the whole shape upfront.
 | 7 | [`jc-001-passive-evidence-view-decision.md`](jc-001-passive-evidence-view-decision.md) | Accepted passive evidence-view boundary. |
 | 8 | [`jc-001-passive-evidence-view-prototype-scope.md`](jc-001-passive-evidence-view-prototype-scope.md) | Two-fixture prototype scope and validation result. |
 | 9 | [`jc-001-passive-evidence-view-capability-ownership.md`](jc-001-passive-evidence-view-capability-ownership.md) | Provisional ownership for accepted fact and contract families. |
+
+## Audience Read Paths
+
+Use the process order above when reconstructing how `JC-001` was promoted. For
+review and implementation work, use the shortest path that answers the current
+question:
+
+| Audience | Read path |
+| --- | --- |
+| Product or history reader | Selection note -> journey -> adoption extraction -> wedge -> decision. |
+| Implementation reviewer | Decision -> prototype scope -> static-analysis spike -> concepts and contracts. |
+| Architecture reviewer | Concepts and contracts -> capability ownership -> decision -> tracker status. |
+| Future JC author | Selection note -> journey -> reusable pattern below; add later artifacts only as earned. |
 
 ## Current State
 

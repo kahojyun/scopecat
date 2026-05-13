@@ -15,9 +15,9 @@ status.
 | --- | --- | --- | --- |
 | `README.md` | Stable policy | Documentation purpose, entry points, and editing rules. | Should stay compact and avoid current file inventory. |
 | `AGENTS.md` | Stable policy | Always-applied AI instructions for work inside `docs/`. | Keep operational; do not move long background here. |
-| `progressive-adoption-progress-tracker.md` | Active tracker | Tracking journey-first discovery, adoption ladders, migration wedges, contracts, and decision promotion. | `JC-001` now has an accepted passive evidence-view decision; broader subsystem ideas remain hypotheses until promoted by later decisions. |
+| `progressive-adoption-progress-tracker.md` | Active tracker | Tracking journey-first discovery, adoption ladders, migration wedges, contracts, and decision promotion. | Keep compact: detailed ladders, wedges, baselines, and contracts should move to narrower owner docs once they have multiple active consumers. |
 | `evidence-and-pain-point-inventory.md` | Ready as W1 evidence owner | W1 owner for evidence, lab/user context, top-level pain narratives, pain/pressure rows, adoption blockers, external-framework baselines, statement-kind separation, and future journey source-map templates. | `JC-001` has been promoted out of this inventory; use `jc-001/README.md` for the first-wedge document set. |
-| `jc-001/README.md` | Active first-wedge record | Entry point, reading order, and reusable document pattern for the first accepted `JC-001` wedge. | Use the local README before opening individual `JC-001` notes. |
+| `jc-001/README.md` | Active first-wedge record | Entry point, audience read paths, and reusable promotion pattern for the first accepted `JC-001` wedge. | Earned exemplar, not a nine-file template for future journey candidates. |
 | `research/README.md` | Stable policy | Research directory purpose and promotion rule. | Does not define product direction. |
 | `research/AGENTS.md` | Stable policy | Always-applied AI instructions for work inside `docs/research/`. | Keeps raw research from being treated as product truth. |
 | `research/research-index.md` | Working index | Current research inputs, extraction state, and caveats. | Research entries are evidence inputs unless separately promoted. |
