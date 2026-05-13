@@ -17,3 +17,13 @@
   duplicating.
 - Mark hypotheses, accepted decisions, and open questions explicitly when the
   distinction matters.
+- Keep trackers compact. Trackers may own status, current decision points, and
+  links; move durable ladder, wedge, baseline, or contract detail into the
+  narrowest owner document once it has multiple active consumers.
+- Treat mature journey folders as earned exemplars, not templates to copy
+  wholesale. Future journey folders should start with the smallest useful
+  selection, journey, and fixture/source-map notes, then add later artifacts
+  only when promoted.
+- Prefer decision-first read paths for implementation and review work. Process
+  history is useful, but accepted decisions, validation scope, and contracts
+  should be easy to find directly.
