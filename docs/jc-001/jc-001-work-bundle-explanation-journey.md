@@ -234,6 +234,10 @@ format, UI, storage, or fit-result schema details.
 - Which predecessor Fricon data-shape cases must challenge analysis handoff:
   regular sweeps, trace-valued records, multiple traces per record, complex
   values, IQ data, single-shot arrays, and irregular or ragged step records?
+- Which live-preview facts remain outside analysis handoff because they are
+  runtime monitor concerns: active output, active axes, selected channel or
+  trace, preferred line/heatmap/trace/IQ view, and stale, lagging,
+  disconnected, or incomplete-view state?
 - Which fit results, figure references, notes, and star/favorite marks should
   user-run analysis scripts be allowed to write back without making Scopecat
   manage or execute those scripts?
