@@ -24,7 +24,7 @@ The current prototype accepts one fixture directory containing:
 - `fixture-manifest.json`;
 - JSON artifacts listed by the manifest;
 - static code text artifacts listed by the manifest;
-- opaque non-JSON artifacts listed by the manifest for inventory-only
+- opaque non-JSON artifacts listed by the manifest for role-only
   preservation.
 
 The prototype emits:
@@ -32,7 +32,7 @@ The prototype emits:
 - `evidence-view.json`;
 - `evidence-view.md`.
 
-The manifest and output contract exists to keep fixture-scale passive
+This contract exists to keep fixture-scale passive
 explanation public-safe while preserving artifact roles, relation existence,
 conflicts, missing facts, and redaction evidence. It does not claim to import
 arbitrary legacy folders or define how future producers should write durable
@@ -128,8 +128,9 @@ The prototype infers artifact read behavior from path and normalized role:
 - paths ending in `.json` are parsed as JSON artifacts;
 - normalized `code reference` artifacts are read as static UTF-8 text;
 - code text is never imported or executed;
-- opaque non-JSON artifacts are preserved in inventory and summaries by
-  manifest role, evidence handling, and sharing boundary only.
+- opaque non-JSON artifacts are preserved by manifest role, evidence handling,
+  and sharing boundary only. Relation and conflict summaries may still use
+  those roles, but the payload is not inspected.
 
 Future fixtures that need semantic inspection of notebooks, binary artifacts,
 non-JSON text artifacts, or unusual suffixes must reopen this contract or
@@ -148,8 +149,8 @@ Public identity invariants:
 - all public IDs match `^[a-z0-9][a-z0-9_-]*$`;
 - public artifact IDs do not collide with the emitted bundle ID or with other
   emitted artifact IDs;
-- public artifact IDs do not collide with the reserved public output target
-  `public-evidence-view`;
+- artifact IDs and bundle IDs do not collide with the reserved public output
+  target `public-evidence-view`;
 - IDs avoid source-derived text from fixture ID, purpose, redaction-policy
   source, forbidden-content categories, artifact paths, artifact status, JSON
   payloads, and code text.
@@ -167,12 +168,12 @@ Fixture-authored redaction handles use the stricter handle pattern:
 ^[a-z][a-z0-9]{0,7}$
 ```
 
-The source-token check applies to all public IDs. The prototype rejects IDs
-that match source raw IDs, include source tokens of four or more characters, or
-partially overlap with longer source tokens. Common file extension tokens such
-as `json`, `txt`, `py`, and `md` are ignored for this source-token check.
-Redaction handles also must not look hash-derived with six to eight
-hexadecimal characters.
+Required redaction prefixes are exempt from source-token checks. The
+fixture-authored part of a redaction-sensitive ID, and the full public-safe ID,
+reject exact source-token matches at any length plus substring or partial
+overlap with longer source tokens. Common file extension tokens such as
+`json`, `txt`, `py`, and `md` are ignored. Redaction handles also must not look
+hash-derived with six to eight hexadecimal characters.
 
 ## Relation Generation Rules
 
@@ -183,10 +184,12 @@ The current fixture-scale relation rules are part of this contract:
   found;
 - setup evidence gets `appears-selected-for` relations to the bundle and stays
   non-authoritative physical context evidence;
-- generated sidecars use a JSON object `generated_from` field when present,
+- relation-bearing `.json` generated sidecar and copied snapshot artifacts
+  must contain a JSON object;
+- generated sidecars use `generated_from` when that object field is present,
   falling back to selected-context artifacts or the bundle as redacted evidence;
-- copied snapshots use a JSON object `copied_from` field when present, falling
-  back to selected-context artifacts or the bundle as redacted evidence;
+- copied snapshots use `copied_from` when that object field is present,
+  falling back to selected-context artifacts or the bundle as redacted evidence;
 - code references are text-only `references-code` evidence and target exact
   selected-context path matches when present;
 - root `parameters.json` is compared with selected-context JSON artifacts for
@@ -206,8 +209,8 @@ For `public-safe` output:
 - public artifact IDs and bundle IDs are emitted as fixture-authored public
   handles;
 - artifact roles and relation existence are preserved;
-- manifest purpose and redaction-policy source are replaced with public-safe
-  retained-in-fixture text;
+- manifest purpose and redaction-policy source are replaced with placeholders
+  stating that source text is retained only in the fixture;
 - forbidden-content categories are summarized as public-safe fixture category
   text.
 
@@ -217,8 +220,9 @@ For `redaction-sensitive` output:
   redaction-policy metadata, bundle metadata, and payload/code-derived text are
   redacted from JSON and Markdown output;
 - public output preserves the existence and role of redacted evidence;
-- relation targets use fixture-authored redaction handles rather than source
-  labels, source-derived hashes, or manifest-order labels;
+- relation endpoints use public IDs; redaction-sensitive artifact endpoints use
+  redaction handles rather than source labels, source-derived hashes, or
+  manifest-order labels;
 - unknown or unsafe evidence remains visible as redacted evidence instead of
   disappearing.
 

@@ -2651,6 +2651,40 @@ class PassiveEvidenceViewTest(unittest.TestCase):
             ):
                 prototype.build_evidence_view(fixture_path)
 
+    def test_public_bundle_id_cannot_reuse_reserved_output_id(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as fixture_dir:
+            fixture_path = Path(fixture_dir)
+            write_json(fixture_path / "bundle.json", {"id": "bundle"})
+            write_json(
+                fixture_path / "fixture-manifest.json",
+                {
+                    "fixture_id": "reserved-bundle-target-fixture",
+                    "public_bundle_id": "public-evidence-view",
+                    "purpose": "reserved bundle target regression",
+                    "redaction_policy": {
+                        "source": "fixture",
+                        "forbidden_content": [],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "bundle.json",
+                            "public_id": "qa",
+                            "role": "anchor",
+                            "status": "bundle seed",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        }
+                    ],
+                },
+            )
+
+            with self.assertRaisesRegex(
+                prototype.EvidenceViewError,
+                "public bundle ID collides with reserved ID",
+            ):
+                prototype.build_evidence_view(fixture_path)
+
     def test_mixed_artifact_boundaries_promote_to_restrictive_bundle_boundary(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as fixture_dir:

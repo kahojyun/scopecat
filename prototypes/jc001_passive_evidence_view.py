@@ -258,6 +258,8 @@ def public_forbidden_content_categories(categories: list[str], sharing_boundary:
 
 
 def validate_public_identity_space(artifacts: list[Artifact], bundle_id: str) -> None:
+    if bundle_id == PUBLIC_EVIDENCE_VIEW_ID:
+        raise EvidenceViewError(f"public bundle ID collides with reserved ID: {bundle_id}")
     for artifact in artifacts:
         if artifact.artifact_id == bundle_id:
             raise EvidenceViewError(
