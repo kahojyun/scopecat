@@ -706,7 +706,8 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
     anchors = [artifact for artifact in artifacts if artifact.role == "anchor"]
     selected_contexts = [artifact for artifact in artifacts if artifact.role == "selected context"]
     selected_context = selected_contexts[0] if len(selected_contexts) == 1 else None
-    setup_context = find_first_by_role(artifacts, "setup evidence")
+    setup_contexts = [artifact for artifact in artifacts if artifact.role == "setup evidence"]
+    setup_context = setup_contexts[0] if len(setup_contexts) == 1 else None
     generated_sidecars = [artifact for artifact in artifacts if artifact.role == "generated sidecar"]
     copied_snapshots = [artifact for artifact in artifacts if artifact.role == "copied snapshot"]
     variants = [artifact for artifact in artifacts if artifact.role == "variant"]
@@ -769,10 +770,10 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
             else ["non-authoritative", "manifest-role-only"],
         )
 
-    if setup_context is not None:
+    for setup_context_item in setup_contexts:
         add_relation(
             "appears-selected-for",
-            setup_context.artifact_id,
+            setup_context_item.artifact_id,
             bundle_id,
             "inferred",
             "Setup evidence sits beside selected context but is not proven physical truth.",
@@ -931,45 +932,46 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         "setup evidence",
     }:
         fallback_registry_artifact = None
-    selected_registry_artifact = setup_context or fallback_registry_artifact
-    selected_registry_path = (
-        selected_registry_artifact.path if selected_registry_artifact else "setting/registry.json"
-    )
-    selected_registry = json_payloads.get(selected_registry_path, {})
     root_registry_present = "registry.json" in json_payloads
-    selected_registry_present = (
-        selected_registry_artifact is not None and selected_registry_path in json_payloads
+    selected_registry_artifacts = (
+        setup_contexts
+        if setup_contexts
+        else ([fallback_registry_artifact] if fallback_registry_artifact else [])
     )
-    if (
-        root_registry_present
-        and selected_registry_present
-        and flatten_keys(root_registry) != flatten_keys(selected_registry)
-    ):
-        add_conflict(
-            make_conflict(
-                "conflict-002",
-                [by_path["registry.json"].artifact_id, selected_registry_artifact.artifact_id],
-                "setup-context-drift",
-                "active setup registry",
-                "Root registry and selected registry differ; this is setup-shaped evidence, not physical truth.",
-                "Ask whether setup evidence is selected, copied, or session-injected.",
+    for index, selected_registry_artifact in enumerate(selected_registry_artifacts, start=1):
+        selected_registry = json_payloads.get(selected_registry_artifact.path, {})
+        selected_registry_present = selected_registry_artifact.path in json_payloads
+        conflict_id = "conflict-002" if index == 1 else f"conflict-002-{index}"
+        if (
+            root_registry_present
+            and selected_registry_present
+            and flatten_keys(root_registry) != flatten_keys(selected_registry)
+        ):
+            add_conflict(
+                make_conflict(
+                    conflict_id,
+                    [by_path["registry.json"].artifact_id, selected_registry_artifact.artifact_id],
+                    "setup-context-drift",
+                    "active setup registry",
+                    "Root registry and selected registry differ; this is setup-shaped evidence, not physical truth.",
+                    "Ask whether setup evidence is selected, copied, or session-injected.",
+                )
             )
-        )
-    elif (
-        root_registry_present
-        and selected_registry_present
-        and canonical_payload(root_registry) != canonical_payload(selected_registry)
-    ):
-        add_conflict(
-            make_conflict(
-                "conflict-002",
-                [by_path["registry.json"].artifact_id, selected_registry_artifact.artifact_id],
-                "setup-value-drift",
-                "active setup registry",
-                "Root registry and selected registry share a shape but differ in values; this is setup-shaped evidence, not physical truth.",
-                "Ask whether setup evidence is selected, copied, session-injected, or stale.",
+        elif (
+            root_registry_present
+            and selected_registry_present
+            and canonical_payload(root_registry) != canonical_payload(selected_registry)
+        ):
+            add_conflict(
+                make_conflict(
+                    conflict_id,
+                    [by_path["registry.json"].artifact_id, selected_registry_artifact.artifact_id],
+                    "setup-value-drift",
+                    "active setup registry",
+                    "Root registry and selected registry share a shape but differ in values; this is setup-shaped evidence, not physical truth.",
+                    "Ask whether setup evidence is selected, copied, session-injected, or stale.",
+                )
             )
-        )
 
     for snapshot_index, snapshot in enumerate(copied_snapshots, start=1):
         snapshot_keys = flatten_keys(json_payloads.get(snapshot.path, {}))
@@ -1119,6 +1121,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
                 selected.artifact_id for selected in selected_contexts
             ],
             "setup_context_candidate": setup_context.artifact_id if setup_context else None,
+            "setup_context_candidates": [setup.artifact_id for setup in setup_contexts],
             "selection_evidence": [
                 "fixture manifest role",
                 "static code text clues"
@@ -1275,6 +1278,8 @@ def render_markdown(view: dict[str, Any]) -> str:
             + public_ids(view["selected_context_explanation"]["selected_context_candidates"]),
             "- Setup context candidate: "
             + display_value(public_id(view["selected_context_explanation"]["setup_context_candidate"])),
+            "- Setup context candidates: "
+            + public_ids(view["selected_context_explanation"]["setup_context_candidates"]),
             f"- Status: {view['selected_context_explanation']['status']}",
             "",
             "## Generated And Copied Relation Summary",

@@ -618,6 +618,76 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         )
         self.assertEqual(conflict["artifacts"], ["qa", "vx"])
 
+    def test_multiple_setup_contexts_all_drive_setup_drift(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as fixture_dir:
+            fixture_path = Path(fixture_dir)
+            write_json(fixture_path / "registry.json", {"instrument": {"slot": "root"}})
+            write_json(fixture_path / "active" / "setup-a.json", {"instrument": {"slot": "root"}})
+            write_json(
+                fixture_path / "active" / "setup-b.json",
+                {"instrument": {"slot": "selected"}, "extra": True},
+            )
+            write_json(
+                fixture_path / "fixture-manifest.json",
+                {
+                    "fixture_id": "multiple-setup-context-fixture",
+                    "public_bundle_id": "wb",
+                    "purpose": "multiple setup context drift regression",
+                    "redaction_policy": {
+                        "source": "public-test-fixture",
+                        "forbidden_content": [],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "registry.json",
+                            "public_id": "qa",
+                            "role": "anchor",
+                            "status": "root setup candidate",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        },
+                        {
+                            "path": "active/setup-a.json",
+                            "public_id": "vx",
+                            "role": "setup evidence",
+                            "status": "selected setup candidate",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        },
+                        {
+                            "path": "active/setup-b.json",
+                            "public_id": "nr",
+                            "role": "setup evidence",
+                            "status": "alternate setup candidate",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        },
+                    ],
+                },
+            )
+
+            view = prototype.build_evidence_view(fixture_path)
+
+        setup_relations = [
+            item
+            for item in view["relations"]
+            if item["relation_type"] == "appears-selected-for"
+            and "setup-evidence" in item["flags"]
+        ]
+        self.assertEqual([item["source_artifact"] for item in setup_relations], ["vx", "nr"])
+        self.assertIsNone(view["selected_context_explanation"]["setup_context_candidate"])
+        self.assertEqual(
+            view["selected_context_explanation"]["setup_context_candidates"],
+            ["vx", "nr"],
+        )
+        conflict = next(
+            item
+            for item in view["conflict_and_missing_fact_report"]["conflicts"]
+            if item["conflict_type"] == "setup-context-drift"
+        )
+        self.assertEqual(conflict["artifacts"], ["qa", "nr"])
+
     def test_normalized_root_registry_path_drives_setup_drift(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as fixture_dir:
