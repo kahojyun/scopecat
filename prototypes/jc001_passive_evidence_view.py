@@ -545,10 +545,11 @@ def collect_code_text(fixture_dir: Path, artifacts: list[Artifact]) -> dict[str,
 
 def relation_payload_object(
     payload: Any,
+    payload_present: bool,
     artifact: Artifact,
     relation_field: str,
 ) -> dict[str, Any]:
-    if payload is None:
+    if not payload_present:
         return {}
     if not isinstance(payload, dict):
         raise EvidenceViewError(
@@ -805,6 +806,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
     for sidecar in generated_sidecars:
         payload = relation_payload_object(
             json_payloads.get(sidecar.path),
+            sidecar.path in json_payloads,
             sidecar,
             "generated_from",
         )
@@ -829,6 +831,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
     for snapshot in copied_snapshots:
         payload = relation_payload_object(
             json_payloads.get(snapshot.path),
+            snapshot.path in json_payloads,
             snapshot,
             "copied_from",
         )
@@ -1010,6 +1013,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
     for snapshot_index, snapshot in enumerate(copied_snapshots, start=1):
         payload = relation_payload_object(
             json_payloads.get(snapshot.path),
+            snapshot.path in json_payloads,
             snapshot,
             "copied_from",
         )

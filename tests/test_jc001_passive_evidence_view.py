@@ -3024,6 +3024,55 @@ class PassiveEvidenceViewTest(unittest.TestCase):
             ):
                 prototype.build_evidence_view(fixture_path)
 
+    def test_relation_bearing_json_artifact_rejects_null_payload(self):
+        prototype = load_prototype()
+        cases = [
+            ("generated sidecar", "generated candidate", "generated"),
+            ("copied snapshot", "partial snapshot", "copied"),
+        ]
+        for role, status, evidence_handling in cases:
+            with self.subTest(role=role):
+                with tempfile.TemporaryDirectory() as fixture_dir:
+                    fixture_path = Path(fixture_dir)
+                    write_json(fixture_path / "setting" / "parameters.json", {"alpha": "selected"})
+                    write_json(fixture_path / "relation.json", None)
+                    write_json(
+                        fixture_path / "fixture-manifest.json",
+                        {
+                            "fixture_id": "relation-null-payload-fixture",
+                            "public_bundle_id": "wb",
+                            "purpose": "relation null payload regression",
+                            "redaction_policy": {
+                                "source": "public-test-fixture",
+                                "forbidden_content": [],
+                            },
+                            "artifacts": [
+                                {
+                                    "path": "setting/parameters.json",
+                                    "public_id": "qa",
+                                    "role": "selected context",
+                                    "status": "selected candidate",
+                                    "evidence_handling": "inferred",
+                                    "sharing_boundary": "public-safe",
+                                },
+                                {
+                                    "path": "relation.json",
+                                    "public_id": "vx",
+                                    "role": role,
+                                    "status": status,
+                                    "evidence_handling": evidence_handling,
+                                    "sharing_boundary": "public-safe",
+                                },
+                            ],
+                        },
+                    )
+
+                    with self.assertRaisesRegex(
+                        prototype.EvidenceViewError,
+                        f"{role} artifact relation.json must be a JSON object",
+                    ):
+                        prototype.build_evidence_view(fixture_path)
+
 
 if __name__ == "__main__":
     unittest.main()
