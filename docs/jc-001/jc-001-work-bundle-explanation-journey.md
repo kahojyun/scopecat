@@ -72,7 +72,7 @@ to preserve. It does not accept a write platform.
 | Explain copied run snapshots. | Preserve copied-from or snapshot-of relations, including when the copy may differ from current settings. | Durable transaction semantics, resumability, or old-history import. |
 | Explain code-shaped provenance. | Capture enough code reference to identify path selection, entrypoint-like evidence, and derivation flow. | Managed execution, notebook-state capture, package registry, or remote runner scope. |
 | Explain variants and backups. | Classify variants separately from selected context and expose unknown active state. | Automatic precedence rules, rollback, restore, or deployment management. |
-| Share or move the explanation safely. | Distinguish internal full-fidelity analysis handoff, internal diagnostics, code or method reuse as template evidence, external-support-safe packages, and public/reference dataset provenance. Apply redaction only when the recipient boundary requires it. | A general support-ticketing product, permission system, full bundle export/import workflow, or automatic import into active config/setup truth. |
+| Share the explanation safely. | Preserve artifact roles, relations, conflicts, missing facts, and recipient-aware sharing boundaries. | A general support-ticketing product, permission system, full bundle export/import workflow, or automatic import into active config/setup truth. |
 
 These facts can be supplied by passive recording, explicit user selection,
 static inspection, or lightweight export metadata. The journey does not decide
@@ -86,7 +86,7 @@ which mechanism is best.
 | Analyst | Recover which context and sidecars explain a run-like artifact or result. |
 | Method author | See which code-shape evidence selected or derived settings. |
 | Configuration reviewer | Identify conflicts, freshness gaps, and unsafe assumptions before mutation or reuse. |
-| Recipient | Receive the boundary-appropriate view: full-fidelity internal context for analysis or debugging, template/reference evidence for code reuse, or public-safe provenance when sharing outside the lab. |
+| Recipient | Receive a boundary-appropriate explanation without confusing redacted, inferred, or recipient-specific evidence for authoritative truth. |
 
 ## Entry Conditions
 
@@ -208,11 +208,16 @@ and later narrowed by
 | Managed Code Runner | Dependency and readiness pressure appears, but execution remains out of scope. |
 | Comparability and conflict review | Conflict display is needed, but known-good comparison and equivalence judgment remain follow-on scope. |
 
-## Remaining Handoff Questions
+## Remaining Follow-On Questions
 
-These questions refine follow-on handoff pressure. They do not reopen the
-accepted `JC-001` passive evidence-view boundary or accept reader API, export
-format, UI, storage, or fit-result schema details.
+These questions preserve follow-on pressure from the read journey. They do not
+reopen the accepted `JC-001` passive evidence-view boundary.
+
+The detailed analysis-handoff candidate has moved to
+[`../analysis-handoff-candidate-note.md`](../analysis-handoff-candidate-note.md)
+so this `JC-001` journey does not become the owner for starred-run browsing,
+handoff packages, reader APIs, live-preview monitor semantics, export formats,
+UI, storage, or fit-result schema details.
 
 - Which role names should become durable user-facing terms rather than
   internal evidence labels?
@@ -220,27 +225,6 @@ format, UI, storage, or fit-result schema details.
   recoverable by static inspection or user selection?
 - Which freshness labels are useful beyond observed, generated, copied,
   unchecked, and user-declared relation evidence?
-- Which sharing or movement boundary is being served: internal analysis
-  handoff, internal diagnostic support, cross-control-computer code or method
-  reuse, external support, or public/reference dataset provenance?
-- For each boundary, should Scopecat output a full-fidelity evidence view,
-  diagnostic package, template/reference package, or curated analysis dataset
-  provenance summary?
-- For internal analysis handoff, should the follow-on journey start from a
-  post-run browser where users search free-form run names, inspect quick
-  previews, star promising data, multi-select runs like files, and generate an
-  immutable self-contained handoff package with source IDs, read API guidance,
-  context evidence, and missing-context warnings?
-- Which predecessor Fricon data-shape cases must challenge analysis handoff:
-  regular sweeps, trace-valued records, multiple traces per record, complex
-  values, IQ data, single-shot arrays, and irregular or ragged step records?
-- Which live-preview facts remain outside analysis handoff because they are
-  runtime monitor concerns: active output, active axes, selected channel or
-  trace, preferred line/heatmap/trace/IQ view, and stale, lagging,
-  disconnected, or incomplete-view state?
-- Which fit results, figure references, notes, and star/favorite marks should
-  user-run analysis scripts be allowed to write back without making Scopecat
-  manage or execute those scripts?
 - When a bundle or method is moved to another control computer, which facts may
   serve as reusable templates or seed values, and which must remain
   non-authoritative setup, parameter, or environment evidence?
