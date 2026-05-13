@@ -459,6 +459,51 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         }
         self.assertIn("value-drift", conflict_types)
 
+    def test_normalized_root_parameter_path_drives_conflicts(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as fixture_dir:
+            fixture_path = Path(fixture_dir)
+            write_json(fixture_path / "parameters.json", {"alpha": "root"})
+            write_json(fixture_path / "setting" / "parameters.json", {"alpha": "selected"})
+            write_json(
+                fixture_path / "fixture-manifest.json",
+                {
+                    "fixture_id": "normalized-root-parameter-path-fixture",
+                    "public_bundle_id": "wb",
+                    "purpose": "normalized root parameter path regression",
+                    "redaction_policy": {
+                        "source": "public-test-fixture",
+                        "forbidden_content": [],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "./parameters.json",
+                            "public_id": "qa",
+                            "role": "anchor",
+                            "status": "root candidate",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        },
+                        {
+                            "path": "./setting/parameters.json",
+                            "public_id": "vx",
+                            "role": "selected context",
+                            "status": "selected candidate",
+                            "evidence_handling": "inferred",
+                            "sharing_boundary": "public-safe",
+                        },
+                    ],
+                },
+            )
+
+            view = prototype.build_evidence_view(fixture_path)
+
+        conflict_types = {
+            item["conflict_type"] for item in view["conflict_and_missing_fact_report"]["conflicts"]
+        }
+        self.assertIn("value-drift", conflict_types)
+        self.assertEqual(view["artifact_role_inventory"][0]["artifact_id"], "qa")
+
     def test_non_default_selected_context_path_drives_conflicts(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as fixture_dir:
@@ -554,6 +599,55 @@ class PassiveEvidenceViewTest(unittest.TestCase):
                         },
                         {
                             "path": "active/setup.json",
+                            "public_id": "vx",
+                            "role": "setup evidence",
+                            "status": "selected setup candidate",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        },
+                    ],
+                },
+            )
+
+            view = prototype.build_evidence_view(fixture_path)
+
+        conflict = next(
+            item
+            for item in view["conflict_and_missing_fact_report"]["conflicts"]
+            if item["conflict_type"] == "setup-context-drift"
+        )
+        self.assertEqual(conflict["artifacts"], ["qa", "vx"])
+
+    def test_normalized_root_registry_path_drives_setup_drift(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as fixture_dir:
+            fixture_path = Path(fixture_dir)
+            write_json(fixture_path / "registry.json", {"instrument": {"slot": "root"}})
+            write_json(
+                fixture_path / "setting" / "registry.json",
+                {"instrument": {"slot": "selected"}, "extra": True},
+            )
+            write_json(
+                fixture_path / "fixture-manifest.json",
+                {
+                    "fixture_id": "normalized-root-registry-path-fixture",
+                    "public_bundle_id": "wb",
+                    "purpose": "normalized root registry path regression",
+                    "redaction_policy": {
+                        "source": "public-test-fixture",
+                        "forbidden_content": [],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "./registry.json",
+                            "public_id": "qa",
+                            "role": "anchor",
+                            "status": "root setup candidate",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        },
+                        {
+                            "path": "./setting/registry.json",
                             "public_id": "vx",
                             "role": "setup evidence",
                             "status": "selected setup candidate",

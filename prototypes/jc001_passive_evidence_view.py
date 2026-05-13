@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import posixpath
 import re
 import sys
 from collections import Counter
@@ -331,12 +332,17 @@ def is_relative_to(path: Path, base: Path) -> bool:
         return False
 
 
-def resolve_fixture_path(fixture_dir: Path, artifact_path: str) -> Path:
+def normalize_fixture_artifact_path(artifact_path: str) -> str:
     path = Path(artifact_path)
     if path.is_absolute() or ".." in path.parts or "\\" in artifact_path:
         raise EvidenceViewError(f"manifest artifact path is not fixture-local: {artifact_path}")
+    return posixpath.normpath(artifact_path)
 
-    candidate = fixture_dir / artifact_path
+
+def resolve_fixture_path(fixture_dir: Path, artifact_path: str) -> Path:
+    normalized_path = normalize_fixture_artifact_path(artifact_path)
+
+    candidate = fixture_dir / normalized_path
     if not candidate.is_file():
         raise EvidenceViewError(f"manifest artifact does not exist: {artifact_path}")
 
@@ -427,7 +433,8 @@ def validate_manifest(manifest: Any, fixture_dir: Path) -> dict[str, Any]:
         for field in required_fields:
             require_string(artifact.get(field), f"artifacts[{index}].{field}")
 
-        artifact_path = artifact["path"]
+        artifact_path = normalize_fixture_artifact_path(artifact["path"])
+        artifact["path"] = artifact_path
         evidence_handling = artifact["evidence_handling"]
         sharing_boundary = artifact["sharing_boundary"]
         if evidence_handling not in ALLOWED_EVIDENCE_HANDLING:
