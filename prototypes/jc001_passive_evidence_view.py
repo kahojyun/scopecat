@@ -80,13 +80,25 @@ PUBLIC_ID_HANDLE_PATTERN = re.compile(r"^[a-z][a-z0-9]{0,7}$")
 HASH_LIKE_HANDLE_PATTERN = re.compile(r"[a-f0-9]{6,8}$")
 
 
-def source_tokens(value: str) -> set[str]:
+def source_token_sequence(value: str) -> list[str]:
     raw_id = raw_artifact_id(value)
-    return {
+    return [
         token
         for token in re.split(r"[^a-z0-9]+", raw_id)
         if token and token not in {"json", "txt", "py", "md"}
-    }
+    ]
+
+
+def source_tokens(value: str) -> set[str]:
+    return set(source_token_sequence(value))
+
+
+def compact_public_text(value: str) -> str:
+    return "".join(token for token in re.split(r"[^a-z0-9]+", value) if token)
+
+
+def compact_source_texts(source_values: list[str]) -> list[str]:
+    return ["".join(source_token_sequence(source_value)) for source_value in source_values]
 
 
 def validate_fixture_authored_handle(handle: str, source_values: list[str], label: str) -> None:
@@ -101,8 +113,8 @@ def validate_fixture_authored_handle(handle: str, source_values: list[str], labe
         tokens.update(source_tokens(source_value))
     if not tokens and not raw_ids:
         return
-    compact_source = "".join(tokens)
-    compact_handle = "".join(re.split(r"[^a-z0-9]+", handle))
+    compact_sources = compact_source_texts(source_values)
+    compact_handle = compact_public_text(handle)
     if (
         handle in raw_ids
         or handle in tokens
@@ -112,20 +124,20 @@ def validate_fixture_authored_handle(handle: str, source_values: list[str], labe
             for token in tokens
             if len(token) >= 4
         )
-        or compact_source in compact_handle
+        or any(compact_source in compact_handle for compact_source in compact_sources if compact_source)
     ):
         raise EvidenceViewError(f"{label} must not include source-derived text")
 
 
 def contains_source_derived_text(candidate: str, source_values: list[str]) -> bool:
     candidate_tokens = {token for token in re.split(r"[^a-z0-9]+", candidate) if token}
-    compact_candidate = "".join(candidate_tokens)
+    compact_candidate = compact_public_text(candidate)
     tokens: set[str] = set()
     raw_ids: set[str] = set()
     for source_value in source_values:
         raw_ids.add(raw_artifact_id(source_value))
         tokens.update(source_tokens(source_value))
-    compact_source = "".join(tokens)
+    compact_sources = compact_source_texts(source_values)
     return (
         candidate in raw_ids
         or bool(candidate_tokens & tokens)
@@ -135,7 +147,7 @@ def contains_source_derived_text(candidate: str, source_values: list[str]) -> bo
             for token in tokens
             if len(token) >= 4
         )
-        or (bool(compact_source) and compact_source in compact_candidate)
+        or any(compact_source in compact_candidate for compact_source in compact_sources if compact_source)
     )
 
 

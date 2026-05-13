@@ -1638,6 +1638,39 @@ class PassiveEvidenceViewTest(unittest.TestCase):
             ):
                 prototype.build_evidence_view(fixture_path)
 
+    def test_source_text_redaction_checks_are_hash_seed_stable(self):
+        script = "\n".join(
+            [
+                "import importlib.util",
+                "import sys",
+                f"prototype_path = {str(PROTOTYPE)!r}",
+                "spec = importlib.util.spec_from_file_location("
+                "'jc001_passive_evidence_view', prototype_path)",
+                "module = importlib.util.module_from_spec(spec)",
+                "sys.modules[spec.name] = module",
+                "spec.loader.exec_module(module)",
+                "print(module.contains_source_derived_text('abcdef', ['abc def']))",
+            ]
+        )
+
+        for seed in ("1", "5"):
+            env = os.environ.copy()
+            env["PYTHONHASHSEED"] = seed
+            env["PYTHONDONTWRITEBYTECODE"] = "1"
+            result = subprocess.check_output(
+                [sys.executable, "-c", script],
+                env=env,
+                text=True,
+            ).strip()
+            self.assertEqual(result, "True")
+
+        prototype = load_prototype()
+        with self.assertRaisesRegex(
+            prototype.EvidenceViewError,
+            "public_id must not include source-derived text",
+        ):
+            prototype.validate_fixture_authored_handle("abxycd", ["ab xy cd"], "public_id")
+
     def test_non_public_artifact_rejects_hash_like_public_id(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as fixture_dir:
