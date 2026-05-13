@@ -301,7 +301,12 @@ def flatten_keys(value: Any, prefix: str = "") -> set[str]:
             keys.update(flatten_keys(child, child_prefix))
         return keys
     if isinstance(value, list):
-        return {prefix} if prefix else set()
+        if not prefix:
+            return set()
+        keys = {f"{prefix}[]"}
+        for item in value:
+            keys.update(flatten_keys(item, f"{prefix}[]"))
+        return keys
     return {prefix} if prefix else set()
 
 
