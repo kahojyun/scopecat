@@ -222,6 +222,14 @@ and later narrowed by
 - For each boundary, should Scopecat output a full-fidelity evidence view,
   diagnostic package, template/reference package, or curated analysis dataset
   provenance summary?
+- For internal analysis handoff, should the follow-on journey start from a
+  post-run browser where users search free-form run names, inspect quick
+  previews, star promising data, multi-select runs like files, and generate an
+  immutable self-contained handoff package with source IDs, read API guidance,
+  context evidence, and missing-context warnings?
+- Which fit results, figure references, notes, and star/favorite marks should
+  user-run analysis scripts be allowed to write back without making Scopecat
+  manage or execute those scripts?
 - When a bundle or method is moved to another control computer, which facts may
   serve as reusable templates or seed values, and which must remain
   non-authoritative setup, parameter, or environment evidence?
