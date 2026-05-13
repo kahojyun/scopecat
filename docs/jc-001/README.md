@@ -14,8 +14,6 @@ in one place.
 a passive evidence view. The current validated boundary is read-only,
 fixture-sized, no execution, no mutation, no hardware verification, no
 source-of-record authority, and no package/parser/storage/UI promotion.
-It is fixture validated and boundary accepted, but not user validated or
-product accepted.
 
 Use this folder as an earned exemplar for later journey candidates, not as a
 packet to copy wholesale.
@@ -46,7 +44,6 @@ question:
 | Product or history reader | Selection note -> journey -> adoption extraction -> wedge -> decision. |
 | Implementation reviewer | Decision -> prototype scope -> manifest/public-output contract -> static-analysis spike -> concepts and contracts. |
 | Architecture reviewer | Concepts and contracts -> capability ownership -> decision -> tracker status. |
-| Future JC author | Selection note -> journey -> decision; use this folder only to inspect how one accepted wedge accumulated later artifacts. |
 
 ## Current State
 
@@ -62,7 +59,7 @@ The first wedge has been validated through:
 The current next product/architecture choice is tracked in
 [`../progressive-adoption-progress-tracker.md`](../progressive-adoption-progress-tracker.md).
 
-## Reusable Pattern
+## Exemplar Boundary
 
 This folder is an example of how later artifacts can accumulate after evidence
 earns them. It should not be copied wholesale for a new journey candidate.

@@ -29,10 +29,10 @@ evidence-view fact
   -> explicit non-ownership
 ```
 
-The provisional owner pressure identifies which capability currently carries
-passive-view vocabulary pressure, validation expectations, and missing-fact
-wording pressure for that fact family. This is not durable subsystem ownership.
-Future producer behavior still needs a separate evidence-backed decision.
+The provisional owner pressure identifies which capability label carries
+first-wedge vocabulary, validation expectations, and missing-fact wording for
+that fact family. Future producer behavior still needs a separate
+evidence-backed decision.
 
 ## Provisional Owner Pressure
 
@@ -82,23 +82,9 @@ ownership.
 
 ## Provisional For This Wedge
 
-The first wedge may rely on these provisional responsibility assignments while
-avoiding broader subsystem promotion:
-
-- Measurement History carries first-wedge pressure for bundle and artifact
-  inventory wording.
-- Parameter Memory carries first-wedge pressure for selected-context provenance,
-  generated-sidecar, copied-context, and variant/backup evidence semantics.
-- Code Asset Registry carries first-wedge pressure for static code-reference
-  evidence semantics.
-- Instrument Runtime carries first-wedge pressure for setup evidence semantics
-  without live verification.
-- Managed Code Runner carries first-wedge pressure for static readiness hint
-  semantics without execution.
-- Comparability and conflict review carries first-wedge pressure for
-  within-bundle conflict display only.
-- The evidence view carries first-wedge pressure for composition, missing-fact
-  display, and sharing-boundary preservation across report views.
+The table above is the complete provisional assignment for this wedge. A later
+capability map may keep, rename, split, or replace these labels after another
+journey or implementation decision tests them.
 
 ## Deferred
 

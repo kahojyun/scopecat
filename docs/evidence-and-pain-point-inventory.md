@@ -43,10 +43,10 @@ has been promoted into the first-wedge document set under
 - Diagnostic sharing is boundary-aware: internal lab diagnostics should preserve
   useful local context by default, while public docs, external exports, or
   explicit cross-boundary support packages need sanitization or redaction.
-- Historical selection work: the first source-map and journey-selection pass
-  has already been promoted. Future fixture or journey changes should update
-  the `jc-001/` document set instead of reopening this inventory as active
-  scope.
+- Historical selection work: the first fixture-boundary and journey-selection
+  pass has already been promoted. Future fixture or journey changes should
+  update the `jc-001/` document set instead of reopening this inventory as
+  active scope.
 - `JC-009` and `JC-010` remain sanity-check alternatives for later
   diagnostic/comparison journeys, not rollback, environment management,
   scientific-equivalence scoring, or device-control scope.

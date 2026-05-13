@@ -14,9 +14,8 @@ and validated by
 
 This contract is scoped to the accepted
 [`JC-001` passive evidence-view boundary](jc-001-passive-evidence-view-decision.md)
-and the committed public-safe fixtures. It is not a general fixture format,
-sample-data policy, support-export policy, internal diagnostics policy, parser
-framework, durable storage schema, or public user-documentation contract.
+and the committed public-safe fixtures. Deferred scope is listed below rather
+than implied by this fixture contract.
 
 ## Contract Boundary
 
@@ -24,7 +23,9 @@ The current prototype accepts one fixture directory containing:
 
 - `fixture-manifest.json`;
 - JSON artifacts listed by the manifest;
-- static code text artifacts listed by the manifest.
+- static code text artifacts listed by the manifest;
+- opaque non-JSON artifacts listed by the manifest for inventory-only
+  preservation.
 
 The prototype emits:
 
@@ -127,11 +128,12 @@ The prototype infers artifact read behavior from path and normalized role:
 - paths ending in `.json` are parsed as JSON artifacts;
 - normalized `code reference` artifacts are read as static UTF-8 text;
 - code text is never imported or executed;
-- opaque non-JSON artifacts are not semantically inspected by this contract.
+- opaque non-JSON artifacts are preserved in inventory and summaries by
+  manifest role, evidence handling, and sharing boundary only.
 
-Future fixtures that need notebooks, binary artifacts, non-JSON text artifacts,
-or unusual suffixes must reopen this contract or create a separate fixture
-contract.
+Future fixtures that need semantic inspection of notebooks, binary artifacts,
+non-JSON text artifacts, or unusual suffixes must reopen this contract or
+create a separate fixture contract.
 
 ## Public Identity Rules
 
@@ -139,50 +141,25 @@ The prototype emits `public_bundle_id` and artifact `public_id` values as the
 public JSON/Markdown identities. It does not emit source-derived path labels as
 public labels.
 
-All public IDs must match the public-safe slug pattern:
+Public identity invariants:
 
-```text
-^[a-z0-9][a-z0-9_-]*$
-```
+- every artifact provides an explicit `public_id`;
+- the fixture provides an explicit `public_bundle_id`;
+- all public IDs match `^[a-z0-9][a-z0-9_-]*$`;
+- public artifact IDs do not collide with the emitted bundle ID or with other
+  emitted artifact IDs;
+- public artifact IDs do not collide with the reserved public output target
+  `public-evidence-view`;
+- IDs avoid source-derived text from fixture ID, purpose, redaction-policy
+  source, forbidden-content categories, artifact paths, artifact status, JSON
+  payloads, and code text.
 
-Public-safe artifacts:
+Boundary-specific forms:
 
-- must provide an explicit `public_id`;
-- must not use a `redacted-` prefix;
-- must not include source-derived text from fixture ID, purpose, redaction
-  policy source, forbidden-content categories, artifact paths, artifact status,
-  JSON payloads, or code text.
-
-Public-safe bundle IDs:
-
-- must provide an explicit `public_bundle_id`;
-- must not use a `redacted-` prefix;
-- must not include source-derived text from fixture ID, purpose, redaction
-  policy source, forbidden-content categories, artifact paths, artifact status,
-  JSON payloads, or code text.
-
-Redaction-sensitive artifacts:
-
-- must provide an explicit `public_id`;
-- must use the role-prefixed form:
-
-```text
-redacted-<normalized-role-with-dashes>-<fixture-authored-handle>
-```
-
-- must use a short fixture-authored handle;
-- must not use source-derived text;
-- must not look hash-derived.
-
-Redaction-sensitive bundle IDs:
-
-- must use the prefix `redacted-work-bundle-`;
-- must use a short fixture-authored handle;
-- must not use source-derived text;
-- must not look hash-derived.
-
-Public artifact IDs must not collide with the emitted bundle ID or with other
-emitted artifact IDs.
+| Boundary | Artifact ID form | Bundle ID form |
+| --- | --- | --- |
+| `public-safe` | Explicit fixture-authored slug without `redacted-` prefix. | Explicit fixture-authored slug without `redacted-` prefix. |
+| `redaction-sensitive` | `redacted-<normalized-role-with-dashes>-<fixture-authored-handle>` | `redacted-work-bundle-<fixture-authored-handle>` |
 
 Fixture-authored redaction handles use the stricter handle pattern:
 
@@ -190,11 +167,12 @@ Fixture-authored redaction handles use the stricter handle pattern:
 ^[a-z][a-z0-9]{0,7}$
 ```
 
-The prototype rejects handles that look hash-derived with six to eight
-hexadecimal characters, match source raw IDs, include source tokens of four or
-more characters, or partially overlap with longer source tokens. Common file
-extension tokens such as `json`, `txt`, `py`, and `md` are ignored for this
-source-token check.
+The source-token check applies to all public IDs. The prototype rejects IDs
+that match source raw IDs, include source tokens of four or more characters, or
+partially overlap with longer source tokens. Common file extension tokens such
+as `json`, `txt`, `py`, and `md` are ignored for this source-token check.
+Redaction handles also must not look hash-derived with six to eight
+hexadecimal characters.
 
 ## Relation Generation Rules
 
@@ -205,10 +183,10 @@ The current fixture-scale relation rules are part of this contract:
   found;
 - setup evidence gets `appears-selected-for` relations to the bundle and stays
   non-authoritative physical context evidence;
-- generated sidecars use a JSON `generated_from` field when present, falling
+- generated sidecars use a JSON object `generated_from` field when present,
+  falling back to selected-context artifacts or the bundle as redacted evidence;
+- copied snapshots use a JSON object `copied_from` field when present, falling
   back to selected-context artifacts or the bundle as redacted evidence;
-- copied snapshots use a JSON `copied_from` field when present, falling back to
-  selected-context artifacts or the bundle as redacted evidence;
 - code references are text-only `references-code` evidence and target exact
   selected-context path matches when present;
 - root `parameters.json` is compared with selected-context JSON artifacts for
@@ -219,8 +197,7 @@ The current fixture-scale relation rules are part of this contract:
 - variant artifacts preserve branch and backup ambiguity without choosing a
   winner.
 
-These rules are accepted for `JC-001` fixture validation only. They are not a
-general parser framework or durable relation engine.
+These rules are accepted for `JC-001` fixture validation only.
 
 ## Public Output Redaction Rules
 
@@ -248,9 +225,8 @@ For `redaction-sensitive` output:
 ## Diagnostic Fields
 
 The prototype may include fixture/test-oriented fields such as
-`static_shape_checks` in `evidence-view.json`. These fields are diagnostic for
-prototype validation. They are not accepted as a public product API or durable
-storage schema.
+`static_shape_checks` in `evidence-view.json`. These fields are diagnostics for
+prototype validation.
 
 ## Deferred Scope
 

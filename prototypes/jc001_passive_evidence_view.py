@@ -55,6 +55,8 @@ SETUP_REGISTRY_FALLBACK_ROLES = {
     "setup evidence",
 }
 
+PUBLIC_EVIDENCE_VIEW_ID = "public-evidence-view"
+
 
 @dataclass(frozen=True)
 class Artifact:
@@ -260,6 +262,10 @@ def validate_public_identity_space(artifacts: list[Artifact], bundle_id: str) ->
         if artifact.artifact_id == bundle_id:
             raise EvidenceViewError(
                 f"artifact ID collides with public bundle ID: {artifact.artifact_id}"
+            )
+        if artifact.artifact_id == PUBLIC_EVIDENCE_VIEW_ID:
+            raise EvidenceViewError(
+                f"artifact ID collides with reserved public output ID: {artifact.artifact_id}"
             )
 
 
@@ -535,6 +541,21 @@ def collect_code_text(fixture_dir: Path, artifacts: list[Artifact]) -> dict[str,
     return code_text
 
 
+def relation_payload_object(
+    payload: Any,
+    artifact: Artifact,
+    relation_field: str,
+) -> dict[str, Any]:
+    if payload is None:
+        return {}
+    if not isinstance(payload, dict):
+        raise EvidenceViewError(
+            f"{artifact.role} artifact {artifact.path} must be a JSON object "
+            f"to declare {relation_field}"
+        )
+    return payload
+
+
 def make_conflict(
     conflict_id: str,
     artifacts: list[str],
@@ -780,7 +801,11 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         )
 
     for sidecar in generated_sidecars:
-        payload = json_payloads.get(sidecar.path, {})
+        payload = relation_payload_object(
+            json_payloads.get(sidecar.path),
+            sidecar,
+            "generated_from",
+        )
         source_path = payload.get("generated_from")
         source_targets = declared_source_relation_targets(
             source_path=source_path,
@@ -800,7 +825,11 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
             )
 
     for snapshot in copied_snapshots:
-        payload = json_payloads.get(snapshot.path, {})
+        payload = relation_payload_object(
+            json_payloads.get(snapshot.path),
+            snapshot,
+            "copied_from",
+        )
         source_path = payload.get("copied_from")
         source_targets = declared_source_relation_targets(
             source_path=source_path,
@@ -977,8 +1006,12 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
             )
 
     for snapshot_index, snapshot in enumerate(copied_snapshots, start=1):
-        snapshot_keys = flatten_keys(json_payloads.get(snapshot.path, {}))
-        payload = json_payloads.get(snapshot.path, {})
+        payload = relation_payload_object(
+            json_payloads.get(snapshot.path),
+            snapshot,
+            "copied_from",
+        )
+        snapshot_keys = flatten_keys(payload)
         copied_from = payload.get("copied_from")
         normalized_copied_from = (
             normalize_declared_source_path(copied_from) if isinstance(copied_from, str) else None
@@ -1080,7 +1113,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
     add_relation(
         "redacts",
         bundle_id,
-        "public-evidence-view",
+        PUBLIC_EVIDENCE_VIEW_ID,
         "generated",
         "Public-safe output preserves artifact roles and relation existence while avoiding sensitive source details.",
     )

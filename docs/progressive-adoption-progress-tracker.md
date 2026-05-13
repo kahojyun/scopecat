@@ -19,7 +19,7 @@ Keep this tracker compact. It may hold the current phase table, the current
 decision point, and small hypothesis inventories while there is only one active
 accepted wedge. When multiple journeys, adoption ladders, migration wedges,
 baseline-capability analyses, or shared contracts become active, move the
-durable detail into a narrower owner document and leave only status and links
+durable detail into a narrower owner document and leave only phase and links
 here.
 
 This tracker is organized around progressive platform adoption:
@@ -32,15 +32,11 @@ Journey-first discovery
   -> subsystem specs only when needed
 ```
 
-## Status Legend
+## Phase Legend
 
-These are tracker phase statuses. They are not the same as the validation
-statuses in
-[`jc-analysis-operating-standard.md`](jc-analysis-operating-standard.md).
-For example, a tracker row marked `Ready` may point to a document whose own
-status is `Accepted boundary`, `Fixture validated`, or `Provisional`.
+The tracker uses phase labels for workstreams and inventories.
 
-| Status | Meaning |
+| Phase | Meaning |
 | --- | --- |
 | Not Started | No durable artifact exists yet. |
 | Drafting | Early durable artifact exists, but confidence is low. |
@@ -72,18 +68,18 @@ falsifies the accepted artifact.
 
 ## Current Durable Inputs
 
-| Input | Status | Notes |
+| Input | Phase | Notes |
 | --- | --- | --- |
 | Documentation policy | Ready | Captured in `README.md` and `AGENTS.md`. |
 | Automation architecture notes | Quarantined | Stored as research input; contains broad capability-pressure hypotheses that must be revalidated without accepting subsystem order or scaffolding. |
 | Research acceptance-readiness triage | Transitional | `research/extracted/research-acceptance-readiness-triage.md` separates accepted guardrails, evidence, inferences, adoption hypotheses, future pressure, ADR-gated items, and directions not to accept upfront. |
 | Legacy experiment code sample validation | Transitional | `research/extracted/legacy-experiment-code-sample-validation.md` validates the research triage and raises companion artifacts, analysis handoff, hardware bring-up, dependency/environment, notebook hygiene, and portability evidence. |
 | Evidence and pain-point inventory | Ready | `evidence-and-pain-point-inventory.md` is the W1 owner. `JC-001` has been promoted into the first-wedge document set. |
-| JC-001 first-wedge document set | Ready | `jc-001/README.md` owns the detailed reading order. Contained artifact statuses differ: decision is accepted boundary, prototype and manifest/public-output contract are fixture validated, and ownership remains provisional. |
+| JC-001 first-wedge document set | Ready | `jc-001/README.md` owns the detailed reading order for the first accepted wedge. |
 
 ## Workstreams
 
-| ID | Workstream | Status | Durable Output | Exit Criteria |
+| ID | Workstream | Phase | Durable Output | Exit Criteria |
 | --- | --- | --- | --- | --- |
 | W1 | Evidence and pain points | Ready | `evidence-and-pain-point-inventory.md` | Major claims link back to interview notes, codebase observations, source coverage, explicit assumptions, or clearly labeled blind-persona adoption pressure; behavioral/scaling priors are separated from evidence; pain, JTBD, capability-gap, guardrail, and baseline statements are distinguished; top-level pain narratives decompose into foundational pain points with visibility and validation route. |
 | W2 | End-to-end journeys | Ready | `jc-001/jc-001-work-bundle-explanation-journey.md` | At least one current-state and future-state journey is written across capability boundaries. |
@@ -92,7 +88,7 @@ falsifies the accepted artifact.
 | W5 | Capability map | Provisional | `jc-001/jc-001-passive-evidence-view-capability-ownership.md` | JC-001 ownership pressure is explicit without promoting a broader capability map; promote to drafting after either a small map is selected or a second journey tests the owners. |
 | W6 | Cross-capability contracts | Ready | `jc-001/jc-001-concepts-and-contracts.md` | Shared concepts, provisional owner pressure, and dependency direction are explicit for the accepted wedge. |
 | W7 | Technical spikes and prototypes | Ready | `jc-001/jc-001-static-analysis-spike.md`; `jc-001/jc-001-passive-evidence-view-prototype-scope.md` | The static-analysis spike has a question, result, decision impact, and follow-up; the read-only prototype scope records two-fixture validation. |
-| W8 | Decision promotion | Accepted | `jc-001/jc-001-passive-evidence-view-decision.md` | The passive evidence-view boundary is accepted at fixture scale; it is not user validated or product accepted. |
+| W8 | Decision promotion | Accepted | `jc-001/jc-001-passive-evidence-view-decision.md` | The passive evidence-view boundary is accepted at fixture scale. |
 
 ## Adoption Ladders To Define
 
@@ -106,7 +102,7 @@ This table is a staging inventory, not the durable capability map. Promote a
 capability row into a dedicated owner document only after a second journey or an
 implementation decision shows that the same fact family needs durable ownership.
 
-| Capability | Starting User Pain | Provisional First-Step Pressure | Possible Later Composition | Status |
+| Capability | Starting User Pain | Provisional First-Step Pressure | Possible Later Composition | Phase |
 | --- | --- | --- | --- | --- |
 | Measurement History | Data and run records are scattered or fragile. | Open an existing work bundle and produce an artifact-role inventory anchored by a run-like or bundle identity. | Later run records can link scan points, parameter snapshots, code versions, execution records, and remote runs into history. | Provisional |
 | Scan Framework | Scan loops are ad hoc and hard to preview. | A standalone scan plan expands points and previews desired state without hardware. | Plans write scan-point records, bind parameter snapshots, and become frozen remote execution packages. | Not Started |
@@ -134,7 +130,7 @@ This table should stay short. If more than one non-`JC-001` wedge becomes active
 at the same time, create a narrower migration-wedge owner note and keep only
 links and statuses in this tracker.
 
-| Wedge | User-Visible Outcome | Capabilities Involved | Main Learning Goal | Status |
+| Wedge | User-Visible Outcome | Capabilities Involved | Main Learning Goal | Phase |
 | --- | --- | --- | --- | --- |
 | Existing run/work bundle to explainable context bundle | A user opens an existing work bundle and sees anchor artifacts, selected context candidates, code-shaped provenance, generated sidecars, copied snapshots, variants, ambiguity, producer-fact gaps, and sharing boundaries without mutation. | Measurement History, Parameter Memory, Code Asset Registry, Instrument Runtime, Managed Code Runner, Comparability and conflict review | Test whether passive explanation across context, code, generated/copied artifacts, variants, and producer gaps is the strongest first wedge before new writes, managed execution, known-good comparison, or a Measurement History-only first goal. | Ready |
 | Known-good reference to readiness and diagnostic comparison | A user compares a current bundle or machine against a selected known-good reference, sees confidence gaps, and can share a full-fidelity internal diagnostic package or a sanitized package when crossing public, external, or restricted support boundaries. | Measurement History, Parameter Memory, Code Asset Registry, Managed Code Runner, Instrument Runtime | Test blind-persona adoption blockers around truth drift, false confidence, control-PC fragility, rollback pressure, and support diagnostics without accepting config authority, environment management, or device control. | Not Started |
@@ -185,7 +181,7 @@ created, removed, or promoted out of research.
 
 During review:
 
-- update statuses;
+- update phases;
 - add links to durable outputs;
 - retire wedges that no longer match the product direction;
 - move growing ladder, wedge, baseline, or contract detail into narrower owner

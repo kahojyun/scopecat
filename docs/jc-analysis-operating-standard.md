@@ -46,14 +46,13 @@ product accepted.
 ### Status Crosswalk
 
 The statuses above are validation statuses for documents, claims, decisions,
-fixtures, and contracts. Older tracker/index labels remain phase or navigation
-labels unless an owning document says otherwise.
+fixtures, and contracts. Tracker and index labels are navigation metadata.
 
 | Label family | Examples | Meaning | Preferred use |
 | --- | --- | --- | --- |
 | Validation status | `Doc ready`, `Fixture validated`, `Accepted boundary`, `Product accepted` | How far a specific artifact, claim, fixture, or decision has been validated. | Use in `JC-###` documents and accepted decisions. |
-| Tracker phase status | `Ready`, `Promoted`, `Accepted`, `Transitional`, `Quarantined` | Where a workstream or inventory item sits in the progressive adoption tracker. | Use in `progressive-adoption-progress-tracker.md`; do not treat bare `Ready` as fixture, user, or product validation. |
-| Index descriptor | `Active tracker`, `Active first-wedge record`, `Ready as W1 evidence owner` | How a reader should navigate the document set. | Use in `document-index.md` and README entry points; do not use as the validation status of every contained artifact. |
+| Tracker phase | `Ready`, `Promoted`, `Accepted`, `Transitional`, `Quarantined` | Where a workstream or inventory item sits in the progressive adoption tracker. | Use in `progressive-adoption-progress-tracker.md`. |
+| Index descriptor | `Active tracker`, `First-wedge record`, `W1 evidence owner` | How a reader should navigate the document set. | Use in `document-index.md` and README entry points. |
 
 ## Change Classes
 
@@ -118,31 +117,22 @@ instrument identifiers are needed for validation, keep a separate non-public
 full-fidelity working map and summarize only role-stable, redacted facts in the
 public source map.
 
-Minimum fields:
+Minimum source-map shape:
 
-- fixture ID and anchor object: run, dataset, report, notebook, known-good
-  reference, inherited folder, or work bundle;
-- artifact path or source family, with role: anchor, selected-context
-  candidate, code candidate, generated protocol, derived artifact, report or
-  handoff item, setup evidence, environment evidence, backup, cache,
-  checkpoint, or unknown;
-- status label: active, obsolete, backup, generated, cache, checkpoint,
-  missing, stale, conflicting, or unknown;
-- provenance relation: produced-by, consumed-by, derived-from, copied-from,
-  manually selected, imported, or unknown;
-- evidence handling: observed, declared, inferred, unchecked, externally
-  verified, or unsafe to inspect;
-- inclusion boundary: why this artifact is in the fixture, which `PN` or
-  guardrail it supports, and which tempting interpretation it must not support;
-- local dependency and sharing boundary: internal full-fidelity diagnostic,
-  sanitized internal handoff, external/support-boundary export, or public-safe
-  example.
+| Field | Capture |
+| --- | --- |
+| Fixture and anchor | Fixture ID plus the anchor object type, such as run, dataset, report, notebook, known-good reference, inherited folder, or work bundle. |
+| Source family or path | Redacted or role-based artifact label, with enough location detail to validate the fixture. |
+| Role | Artifact role, such as anchor, selected-context candidate, code candidate, generated protocol, derived artifact, report or handoff item, setup evidence, environment evidence, backup, cache, checkpoint, or unknown. |
+| Status | Active, obsolete, backup, generated, cache, checkpoint, missing, stale, conflicting, or unknown. |
+| Relation | Produced-by, consumed-by, derived-from, copied-from, manually selected, imported, or unknown. |
+| Evidence handling | Observed, declared, inferred, unchecked, externally verified, or unsafe to inspect. |
+| Inclusion reason | The `PN-###` or guardrail supported, plus the tempting interpretation this artifact must not support. |
+| Sharing boundary | Internal full-fidelity diagnostic, sanitized internal handoff, external/support-boundary export, or public-safe example. |
 
-Minimum table shape:
-
-| Source family or path | Role | Status | Relation | Evidence handling | Inclusion reason | Sharing boundary |
-| --- | --- | --- | --- | --- | --- | --- |
-| Redacted or role-based label | Anchor, selected-context candidate, code candidate, generated protocol, derived artifact, report/handoff item, setup evidence, environment evidence, backup, cache, checkpoint, or unknown | Active, obsolete, backup, generated, cache, checkpoint, missing, stale, conflicting, or unknown | Produced-by, consumed-by, derived-from, copied-from, manually selected, imported, or unknown | Observed, declared, inferred, unchecked, externally verified, or unsafe to inspect | `PN-###` or guardrail supported; tempting interpretation explicitly excluded | Internal full-fidelity, sanitized internal, external/support-boundary, or public-safe |
+This is source-map vocabulary, not fixture-manifest controlled vocabulary.
+When a prototype defines a narrower manifest contract, use that contract for
+fixture validation.
 
 Artifact-specific handling:
 
@@ -157,11 +147,6 @@ Artifact-specific handling:
 - Caches, checkpoints, generated bytecode, copied folders, and embedded VCS
   metadata are strong provenance and portability evidence, but should not
   become source-of-record design patterns.
-
-If the map needs exact local paths, original tree names, system labels, sample
-labels, usernames, or instrument identifiers, keep that full-fidelity map in a
-non-public W2 working artifact. Public PR docs should use redacted or
-role-based labels while preserving source role and validation purpose.
 
 ## Workflow Spine And Role Lenses
 

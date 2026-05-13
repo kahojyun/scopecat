@@ -65,7 +65,9 @@ Required input:
 - one caller-provided output directory;
 - fixture manifest;
 - JSON artifacts listed by the manifest;
-- static code text artifacts listed by the manifest.
+- static code text artifacts listed by the manifest;
+- opaque non-JSON artifacts listed by the manifest for inventory-only
+  preservation.
 
 The current manifest and public-output identity rules are documented in
 [`jc-001-manifest-and-public-output-contract.md`](jc-001-manifest-and-public-output-contract.md).
