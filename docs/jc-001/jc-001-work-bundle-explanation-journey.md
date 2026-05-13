@@ -72,7 +72,7 @@ to preserve. It does not accept a write platform.
 | Explain copied run snapshots. | Preserve copied-from or snapshot-of relations, including when the copy may differ from current settings. | Durable transaction semantics, resumability, or old-history import. |
 | Explain code-shaped provenance. | Capture enough code reference to identify path selection, entrypoint-like evidence, and derivation flow. | Managed execution, notebook-state capture, package registry, or remote runner scope. |
 | Explain variants and backups. | Classify variants separately from selected context and expose unknown active state. | Automatic precedence rules, rollback, restore, or deployment management. |
-| Share the explanation safely. | Mark fields and artifacts by sharing boundary and redact public/exported views. | A general support-ticketing product or full collaboration workflow. |
+| Share the explanation safely. | Preserve artifact roles, relations, conflicts, missing facts, and recipient-aware sharing boundaries. | A general support-ticketing product, permission system, full bundle export/import workflow, or automatic import into active config/setup truth. |
 
 These facts can be supplied by passive recording, explicit user selection,
 static inspection, or lightweight export metadata. The journey does not decide
@@ -86,7 +86,7 @@ which mechanism is best.
 | Analyst | Recover which context and sidecars explain a run-like artifact or result. |
 | Method author | See which code-shape evidence selected or derived settings. |
 | Configuration reviewer | Identify conflicts, freshness gaps, and unsafe assumptions before mutation or reuse. |
-| Recipient | Receive a public-safe explanation without private lab details; internal-safe view differences remain follow-on validation. |
+| Recipient | Receive a boundary-appropriate explanation without confusing redacted, inferred, or recipient-specific evidence for authoritative truth. |
 
 ## Entry Conditions
 
@@ -208,7 +208,16 @@ and later narrowed by
 | Managed Code Runner | Dependency and readiness pressure appears, but execution remains out of scope. |
 | Comparability and conflict review | Conflict display is needed, but known-good comparison and equivalence judgment remain follow-on scope. |
 
-## Remaining Handoff Questions
+## Remaining Follow-On Questions
+
+These questions preserve follow-on pressure from the read journey. They do not
+reopen the accepted `JC-001` passive evidence-view boundary.
+
+The detailed analysis-handoff candidate has moved to
+[`../analysis-handoff-candidate-note.md`](../analysis-handoff-candidate-note.md)
+so this `JC-001` journey does not become the owner for starred-run browsing,
+handoff packages, reader APIs, live-preview monitor semantics, export formats,
+UI, storage, or fit-result schema details.
 
 - Which role names should become durable user-facing terms rather than
   internal evidence labels?
@@ -216,8 +225,11 @@ and later narrowed by
   recoverable by static inspection or user selection?
 - Which freshness labels are useful beyond observed, generated, copied,
   unchecked, and user-declared relation evidence?
-- How should a public-safe export describe redacted fields while preserving
-  diagnostic value for handoff?
+- When a bundle or method is moved to another control computer, which facts may
+  serve as reusable templates or seed values, and which must remain
+  non-authoritative setup, parameter, or environment evidence?
+- How should public or external-support output preserve roles, relations,
+  conflicts, missing facts, and freshness while hiding private values?
 - When does code-shape evidence need durable code identity rather than
   text-only references?
 

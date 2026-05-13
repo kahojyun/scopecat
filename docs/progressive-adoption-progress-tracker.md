@@ -117,14 +117,19 @@ implementation decision shows that the same fact family needs durable ownership.
 ## Candidate Migration Wedges
 
 The `JC-001` wedge row is ready because it is backed by the accepted passive
-evidence-view decision. The remaining rows are W1 hypotheses for later W4 work;
-future wedge priority should be decided from evidence, user value, migration
-cost, architectural learning, and whether a pain is directly visible or latent
-behind constrained legacy workflows.
-Experiment real-time visualization, durable measurement records, and existing
-measurement-framework baselines should be handled as later baseline-capability
-or journey pressure unless they directly falsify the passive evidence-view
-boundary accepted in `jc-001/`.
+evidence-view decision. The `Starred runs to analysis handoff package` row is
+drafting because a candidate owner note now exists, but it is not an accepted
+journey or implementation scope. The remaining rows are W1 hypotheses for later
+W4 work; future wedge priority should be decided from evidence, user value,
+migration cost, architectural learning, and whether a pain is directly visible
+or latent behind constrained legacy workflows.
+Recent user-context refinement raises internal analysis handoff above
+cross-machine scientific comparison as a nearer adoption pressure: users need
+to find high-value runs on an experiment-control computer and move selected
+data plus context to an analysis computer without losing source identity. The
+current candidate detail, validation coverage, and live-preview boundary are
+owned by
+[`analysis-handoff-candidate-note.md`](analysis-handoff-candidate-note.md).
 
 This table should stay short. If more than one non-`JC-001` wedge becomes active
 at the same time, create a narrower migration-wedge owner note and keep only
@@ -133,6 +138,7 @@ links and statuses in this tracker.
 | Wedge | User-Visible Outcome | Capabilities Involved | Main Learning Goal | Phase |
 | --- | --- | --- | --- | --- |
 | Existing run/work bundle to explainable context bundle | A user opens an existing work bundle and sees anchor artifacts, selected context candidates, code-shaped provenance, generated sidecars, copied snapshots, variants, ambiguity, producer-fact gaps, and sharing boundaries without mutation. | Measurement History, Parameter Memory, Code Asset Registry, Instrument Runtime, Managed Code Runner, Comparability and conflict review | Test whether passive explanation across context, code, generated/copied artifacts, variants, and producer gaps is the strongest first wedge before new writes, managed execution, known-good comparison, or a Measurement History-only first goal. | Ready |
+| [Starred runs to analysis handoff package](analysis-handoff-candidate-note.md) | A user finds high-value runs, multi-selects them like files, and creates an immutable self-contained data-plus-context handoff snapshot for personal analysis work. | Measurement History, Analysis and claim lineage, Parameter Memory, Code Asset Registry | Test the adoption-critical path from experiment-control computer to personal analysis computer without requiring generic export formats first, full work-bundle export/import, managed script execution, a permission system, publication workflow scope, live-monitor semantics, or premature reader/API/storage/UI specification. | Drafting |
 | Known-good reference to readiness and diagnostic comparison | A user compares a current bundle or machine against a selected known-good reference, sees confidence gaps, and can share a full-fidelity internal diagnostic package or a sanitized package when crossing public, external, or restricted support boundaries. | Measurement History, Parameter Memory, Code Asset Registry, Managed Code Runner, Instrument Runtime | Test blind-persona adoption blockers around truth drift, false confidence, control-PC fragility, rollback pressure, and support diagnostics without accepting config authority, environment management, or device control. | Not Started |
 | Two valid runs to scientific comparability review | A user compares two valid-looking runs, setup states, or method variants and sees which context, calibration, setup, generated-protocol, correction, and analysis differences matter for comparison. | Measurement History, Parameter Memory, Code Asset Registry, Scan Framework, Instrument Runtime, Comparability and conflict review, Analysis and claim lineage | Test the external-framework capability gap: Scopecat should complement existing measurement systems by explaining whether results can be compared, migrated, or handed off, not by replacing acquisition/control/calibration frameworks. | Not Started |
 | Small declared setup schema to useful context output | A user maintains a minimal local schema for one setup, sample, or campaign because it immediately enables a qubit-to-instrument lookup, attenuation calculation, chip-layout parameter view, comparability check, or handoff. | Parameter Memory, Instrument Runtime, Declared physical context and local schemas, Comparability and conflict review | Test whether manually maintained physical and schema context earns its cost before adding broad setup inventory, topology databases, or universal parameter models. | Not Started |
