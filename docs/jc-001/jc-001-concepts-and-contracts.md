@@ -217,8 +217,11 @@ Rules:
 Purpose: the first prototype preserves public-safe fixture labels and the
 existence of redacted evidence. Markdown and JSON redaction for non-public
 artifact labels, bundle metadata, redaction-policy metadata, and source-derived
-status text has regression coverage; internal-safe diagnostics and
-support-boundary export policy remain follow-on scope.
+status text has regression coverage. The detailed fixture manifest and
+public-output identity rules are documented in
+[`jc-001-manifest-and-public-output-contract.md`](jc-001-manifest-and-public-output-contract.md);
+internal-safe diagnostics and support-boundary export policy remain follow-on
+scope.
 
 Minimum fields:
 

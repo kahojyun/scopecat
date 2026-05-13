@@ -72,7 +72,7 @@ falsifies the accepted artifact.
 | Research acceptance-readiness triage | Transitional | `research/extracted/research-acceptance-readiness-triage.md` separates accepted guardrails, evidence, inferences, adoption hypotheses, future pressure, ADR-gated items, and directions not to accept upfront. |
 | Legacy experiment code sample validation | Transitional | `research/extracted/legacy-experiment-code-sample-validation.md` validates the research triage and raises companion artifacts, analysis handoff, hardware bring-up, dependency/environment, notebook hygiene, and portability evidence. |
 | Evidence and pain-point inventory | Ready | `evidence-and-pain-point-inventory.md` is the W1 owner. `JC-001` has been promoted into the first-wedge document set. |
-| JC-001 first-wedge document set | Ready | `jc-001/README.md` owns the detailed reading order, accepted passive evidence-view decision, two-fixture prototype result, validated-boundary checks, and provisional ownership pass. |
+| JC-001 first-wedge document set | Ready | `jc-001/README.md` owns the detailed reading order, accepted passive evidence-view boundary, fixture-validated prototype result, manifest/public-output contract, validated-boundary checks, and provisional ownership pass. |
 
 ## Workstreams
 

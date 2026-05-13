@@ -32,7 +32,8 @@ evidence promotes them.
 | 6 | [`jc-001-static-analysis-spike.md`](jc-001-static-analysis-spike.md) | Static-analysis spike result. |
 | 7 | [`jc-001-passive-evidence-view-decision.md`](jc-001-passive-evidence-view-decision.md) | Accepted passive evidence-view boundary. |
 | 8 | [`jc-001-passive-evidence-view-prototype-scope.md`](jc-001-passive-evidence-view-prototype-scope.md) | Two-fixture prototype scope and validation result. |
-| 9 | [`jc-001-passive-evidence-view-capability-ownership.md`](jc-001-passive-evidence-view-capability-ownership.md) | Provisional ownership for accepted fact and contract families. |
+| 9 | [`jc-001-manifest-and-public-output-contract.md`](jc-001-manifest-and-public-output-contract.md) | Fixture-validated manifest, public identity, and public-output redaction contract. |
+| 10 | [`jc-001-passive-evidence-view-capability-ownership.md`](jc-001-passive-evidence-view-capability-ownership.md) | Provisional ownership for accepted fact and contract families. |
 
 ## Audience Read Paths
 
@@ -43,7 +44,7 @@ question:
 | Audience | Read path |
 | --- | --- |
 | Product or history reader | Selection note -> journey -> adoption extraction -> wedge -> decision. |
-| Implementation reviewer | Decision -> prototype scope -> static-analysis spike -> concepts and contracts. |
+| Implementation reviewer | Decision -> prototype scope -> manifest/public-output contract -> static-analysis spike -> concepts and contracts. |
 | Architecture reviewer | Concepts and contracts -> capability ownership -> decision -> tracker status. |
 | Future JC author | Selection note -> journey -> reusable pattern below; add later artifacts only as earned. |
 
@@ -54,6 +55,7 @@ The first wedge has been validated through:
 - an accepted passive evidence-view decision;
 - a two-fixture read-only prototype;
 - fixture-sized manifest validation and expected-shape checks;
+- a fixture-validated manifest and public-output identity contract;
 - explicit validated-boundary and reopen criteria for the prototype;
 - provisional capability ownership pressure for the accepted evidence-view facts.
 

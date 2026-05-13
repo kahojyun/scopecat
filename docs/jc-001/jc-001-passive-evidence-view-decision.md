@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted on 2026-05-12.
+Accepted boundary on 2026-05-12.
 
 ## Decision
 
@@ -50,7 +50,9 @@ The first wedge can include:
 - sharing-boundary labels. The current prototype validates public-safe fixture
   output and redaction-sensitive public rendering for non-public labels and
   metadata; internal-safe, external-support-safe, and unsafe-to-share view
-  policies remain follow-on validation.
+  policies remain follow-on validation. The current manifest and public-output
+  identity rules are documented in
+  [`jc-001-manifest-and-public-output-contract.md`](jc-001-manifest-and-public-output-contract.md).
 
 The evidence view should preserve ambiguity. It may say that an artifact
 appears selected, copied, generated, conflicting, redacted, or missing a
