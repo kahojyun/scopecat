@@ -600,9 +600,10 @@ def variant_has_backup_evidence(variant: Artifact, json_payloads: dict[str, Any]
 
 def normalize_declared_source_path(source_path: str) -> str:
     normalized = source_path.strip()
-    while normalized.startswith("./"):
-        normalized = normalized[2:]
-    return normalized
+    try:
+        return normalize_fixture_artifact_path(normalized)
+    except EvidenceViewError:
+        return normalized
 
 
 def declared_source_relation_targets(
@@ -913,10 +914,15 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
             )
 
     root_registry = json_payloads.get("registry.json", {})
-    selected_registry_path = setup_context.path if setup_context else "setting/registry.json"
+    selected_registry_artifact = setup_context or by_path.get("setting/registry.json")
+    selected_registry_path = (
+        selected_registry_artifact.path if selected_registry_artifact else "setting/registry.json"
+    )
     selected_registry = json_payloads.get(selected_registry_path, {})
     root_registry_present = "registry.json" in json_payloads
-    selected_registry_present = setup_context is not None and selected_registry_path in json_payloads
+    selected_registry_present = (
+        selected_registry_artifact is not None and selected_registry_path in json_payloads
+    )
     if (
         root_registry_present
         and selected_registry_present
@@ -925,7 +931,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         add_conflict(
             make_conflict(
                 "conflict-002",
-                [by_path["registry.json"].artifact_id, setup_context.artifact_id],
+                [by_path["registry.json"].artifact_id, selected_registry_artifact.artifact_id],
                 "setup-context-drift",
                 "active setup registry",
                 "Root registry and selected registry differ; this is setup-shaped evidence, not physical truth.",
@@ -940,7 +946,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         add_conflict(
             make_conflict(
                 "conflict-002",
-                [by_path["registry.json"].artifact_id, setup_context.artifact_id],
+                [by_path["registry.json"].artifact_id, selected_registry_artifact.artifact_id],
                 "setup-value-drift",
                 "active setup registry",
                 "Root registry and selected registry share a shape but differ in values; this is setup-shaped evidence, not physical truth.",

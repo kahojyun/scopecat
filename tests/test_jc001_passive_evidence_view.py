@@ -667,6 +667,55 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         )
         self.assertEqual(conflict["artifacts"], ["qa", "vx"])
 
+    def test_default_setting_registry_fallback_drives_setup_drift(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as fixture_dir:
+            fixture_path = Path(fixture_dir)
+            write_json(fixture_path / "registry.json", {"instrument": {"slot": "root"}})
+            write_json(
+                fixture_path / "setting" / "registry.json",
+                {"instrument": {"slot": "selected"}, "extra": True},
+            )
+            write_json(
+                fixture_path / "fixture-manifest.json",
+                {
+                    "fixture_id": "default-setting-registry-fallback-fixture",
+                    "public_bundle_id": "wb",
+                    "purpose": "default setting registry fallback regression",
+                    "redaction_policy": {
+                        "source": "public-test-fixture",
+                        "forbidden_content": [],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "registry.json",
+                            "public_id": "qa",
+                            "role": "anchor",
+                            "status": "root setup candidate",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        },
+                        {
+                            "path": "setting/registry.json",
+                            "public_id": "vx",
+                            "role": "selected context",
+                            "status": "selected registry candidate",
+                            "evidence_handling": "inferred",
+                            "sharing_boundary": "public-safe",
+                        },
+                    ],
+                },
+            )
+
+            view = prototype.build_evidence_view(fixture_path)
+
+        conflict = next(
+            item
+            for item in view["conflict_and_missing_fact_report"]["conflicts"]
+            if item["conflict_type"] == "setup-context-drift"
+        )
+        self.assertEqual(conflict["artifacts"], ["qa", "vx"])
+
     def test_empty_json_drift_remains_visible(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as fixture_dir:
@@ -1113,6 +1162,74 @@ class PassiveEvidenceViewTest(unittest.TestCase):
                     "fixture_id": "dot-prefixed-copied-source-fixture",
                     "public_bundle_id": "wb",
                     "purpose": "dot-prefixed copied source conflict routing regression",
+                    "redaction_policy": {
+                        "source": "public-test-fixture",
+                        "forbidden_content": [],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "parameters.json",
+                            "public_id": "qa",
+                            "role": "anchor",
+                            "status": "root candidate",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        },
+                        {
+                            "path": "active/context-a.json",
+                            "public_id": "vx",
+                            "role": "selected context",
+                            "status": "selected candidate",
+                            "evidence_handling": "inferred",
+                            "sharing_boundary": "public-safe",
+                        },
+                        {
+                            "path": "active/context-b.json",
+                            "public_id": "nr",
+                            "role": "selected context",
+                            "status": "selected candidate",
+                            "evidence_handling": "inferred",
+                            "sharing_boundary": "public-safe",
+                        },
+                        {
+                            "path": "data/snapshot.json",
+                            "public_id": "hm",
+                            "role": "copied snapshot",
+                            "status": "partial snapshot",
+                            "evidence_handling": "copied",
+                            "sharing_boundary": "public-safe",
+                        },
+                    ],
+                },
+            )
+
+            view = prototype.build_evidence_view(fixture_path)
+
+        relation = relation_by_type_and_source(view, "copied-from", "hm")
+        self.assertEqual(relation["target_artifact"], "vx")
+        conflict_artifacts = [
+            item["artifacts"]
+            for item in view["conflict_and_missing_fact_report"]["conflicts"]
+        ]
+        self.assertNotIn(["hm", "nr"], conflict_artifacts)
+
+    def test_canonical_copied_from_routes_partial_snapshot_conflict(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as fixture_dir:
+            fixture_path = Path(fixture_dir)
+            write_json(fixture_path / "parameters.json", {"alpha": "root", "beta": "root"})
+            write_json(fixture_path / "active" / "context-a.json", {"alpha": "a"})
+            write_json(fixture_path / "active" / "context-b.json", {"alpha": "b", "beta": "b"})
+            write_json(
+                fixture_path / "data" / "snapshot.json",
+                {"copied_from": "active/./context-a.json", "alpha": "a"},
+            )
+            write_json(
+                fixture_path / "fixture-manifest.json",
+                {
+                    "fixture_id": "canonical-copied-source-fixture",
+                    "public_bundle_id": "wb",
+                    "purpose": "canonical copied source conflict routing regression",
                     "redaction_policy": {
                         "source": "public-test-fixture",
                         "forbidden_content": [],
@@ -2312,6 +2429,57 @@ class PassiveEvidenceViewTest(unittest.TestCase):
                     "fixture_id": "dot-prefixed-source-fixture",
                     "public_bundle_id": "wb",
                     "purpose": "declared dot-prefixed source regression",
+                    "redaction_policy": {
+                        "source": "public-test-fixture",
+                        "forbidden_content": [],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "setting/parameters.json",
+                            "public_id": "qa",
+                            "role": "selected context",
+                            "status": "selected candidate",
+                            "evidence_handling": "inferred",
+                            "sharing_boundary": "public-safe",
+                        },
+                        {
+                            "path": "setting/temp/derived.json",
+                            "public_id": "vx",
+                            "role": "generated sidecar",
+                            "status": "generated candidate",
+                            "evidence_handling": "generated",
+                            "sharing_boundary": "public-safe",
+                        },
+                    ],
+                },
+            )
+
+            view = prototype.build_evidence_view(fixture_path)
+
+        relation = relation_by_type_and_source(
+            view,
+            "generated-from",
+            "vx",
+        )
+        self.assertEqual(relation["target_artifact"], "qa")
+        self.assertEqual(relation["evidence_handling"], "observed")
+        self.assertNotIn("declared-source-unlisted", relation["flags"])
+
+    def test_declared_canonical_source_is_observed(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as fixture_dir:
+            fixture_path = Path(fixture_dir)
+            write_json(fixture_path / "setting" / "parameters.json", {"alpha": "selected"})
+            write_json(
+                fixture_path / "setting" / "temp" / "derived.json",
+                {"generated_from": "setting/./parameters.json", "alpha": "derived"},
+            )
+            write_json(
+                fixture_path / "fixture-manifest.json",
+                {
+                    "fixture_id": "canonical-source-fixture",
+                    "public_bundle_id": "wb",
+                    "purpose": "declared canonical source regression",
                     "redaction_policy": {
                         "source": "public-test-fixture",
                         "forbidden_content": [],
