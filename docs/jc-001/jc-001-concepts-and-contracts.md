@@ -36,7 +36,7 @@ truth.
 | Work bundle | A bounded set of files and references being explained together. | Stable bundle ID, source boundary, sharing boundary, and included artifact list. |
 | Artifact | A file, reference, or synthetic fixture item that may carry evidence. | Artifact ID, display label, source location or redacted source category, role, evidence handling, and sharing boundary. |
 | Anchor artifact | The artifact used as the entry point for explanation. | Exactly one preferred anchor or an explicit unresolved-anchor state. |
-| Artifact role | The reason an artifact matters in the journey. | Controlled vocabulary for first wedge: anchor, selected context, generated sidecar, copied snapshot, variant, code reference, setup evidence, readiness hint, unknown, fixture-authored. Backup is represented as relation-level ambiguity in this wedge. |
+| Artifact role | The reason an artifact matters in the journey. | Controlled vocabulary for first wedge: anchor, selected context, generated sidecar, copied snapshot, variant, code reference, setup evidence, readiness hint, unknown, fixture-authored. `Generated sidecar` is fixture evidence wording for legacy colocated artifacts; later product docs should prefer companion artifact unless a source convention specifically uses sidecar. Backup is represented as relation-level ambiguity in this wedge. |
 | Evidence handling | How strongly and safely the system can treat an artifact or relation. | Observed, inferred, generated, copied, user-declared, unchecked, unsafe-to-inspect, missing. |
 | Evidence relation | A typed relationship between artifacts or facts. | Relation type, source artifact, target artifact, evidence handling, confidence narrative, and missing/unchecked flags. |
 | Selected context | A context artifact that appears selected for the bundle. | Relation to anchor, selection evidence, conflicts, and explicit non-authoritative status. |
@@ -44,7 +44,7 @@ truth.
 | Copied snapshot | A copied view of context attached to a run-like artifact or bundle. | Copied-from or snapshot-of relation, source if known, and mismatch note when current context differs. |
 | Code reference | Non-executed evidence about path selection, entrypoint-like behavior, or derivation flow. | Reference target, observed/inferred role, execution boundary, and unsafe-to-run flag when relevant. |
 | Producer fact gap | A missing or insufficient producer-side fact needed for later explanation. | Missing fact type, affected artifacts, user impact, and suggested next check. |
-| Sharing boundary | The allowed disclosure level for an artifact, field, or report section. | Internal-safe, public-safe, external-support-safe, redaction-sensitive, or unsafe-to-share. |
+| Sharing boundary | The allowed disclosure level for an artifact, field, or report section. | First prototype: public-safe and redaction-sensitive public rendering. Follow-on policy: internal-safe, external-support-safe, and unsafe-to-share. |
 | Evidence view | The user-facing report produced by the wedge. | Role inventory, relations, conflicts, missing facts, sharing summary, and next checks. |
 
 ## Artifact Role Vocabulary
@@ -215,21 +215,27 @@ Rules:
 ### Sharing Boundary Contract
 
 Purpose: the first prototype preserves public-safe fixture labels and the
-existence of redacted evidence. Redaction-sensitive rendering, internal-safe
-diagnostics, and support-boundary export policy remain follow-on scope.
+existence of redacted evidence. Markdown and JSON redaction for non-public
+artifact labels, bundle metadata, redaction-policy metadata, and source-derived
+status text has regression coverage; internal-safe diagnostics and
+support-boundary export policy remain follow-on scope.
 
 Minimum fields:
 
 - artifact or field family;
 - sharing boundary;
 - redaction behavior;
-- public-safe replacement label.
+- fixture-authored public handle or fixture-authored redaction handle.
 
 Rules:
 
 - public-safe output can preserve the existence and role of redacted evidence;
 - redaction must not turn unknown or unsafe evidence into absent evidence;
-- internal diagnostic retention is not validated by this prototype;
+- bundle and artifact IDs used in public output must be public-safe fixture
+  slugs, fixture-authored public handles, or fixture-authored redaction
+  handles, not source-derived hashes, unsafe source labels, or manifest-order
+  labels;
+- internal diagnostic retention remains follow-on prototype scope;
 - support-boundary export is a separate policy decision, not assumed public.
 
 ## Evidence View Contract

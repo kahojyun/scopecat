@@ -206,7 +206,7 @@ and later narrowed by
 | Code Asset Registry | Code-shaped evidence explains path selection and derivation without managed execution. |
 | Instrument Runtime | Setup and registry-like evidence appears, but only as declared or observed context before device control. |
 | Managed Code Runner | Dependency and readiness pressure appears, but execution remains out of scope. |
-| Comparability and known-good diff | Conflict display is needed, but known-good comparison and equivalence judgment remain follow-on scope. |
+| Comparability and conflict review | Conflict display is needed, but known-good comparison and equivalence judgment remain follow-on scope. |
 
 ## Remaining Handoff Questions
 

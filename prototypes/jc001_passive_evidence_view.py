@@ -23,6 +23,7 @@ ROLE_MAP = {
     "anchor": "anchor",
     "selected-context candidate": "selected context",
     "selected context": "selected context",
+    "fixture-authored": "fixture-authored",
     "setup evidence": "setup evidence",
     "generated sidecar": "generated sidecar",
     "run-bound copied snapshot": "copied snapshot",
@@ -31,6 +32,22 @@ ROLE_MAP = {
     "code-shape evidence": "code reference",
     "code reference": "code reference",
     "readiness hint": "readiness hint",
+}
+
+ALLOWED_EVIDENCE_HANDLING = {
+    "observed",
+    "inferred",
+    "generated",
+    "copied",
+    "user-declared",
+    "unchecked",
+    "unsafe-to-inspect",
+    "missing",
+}
+
+ALLOWED_SHARING_BOUNDARIES = {
+    "public-safe",
+    "redaction-sensitive",
 }
 
 
@@ -48,7 +65,7 @@ class EvidenceViewError(RuntimeError):
     """Prototype-scoped input or output error."""
 
 
-def artifact_id(path: str) -> str:
+def raw_artifact_id(path: str) -> str:
     return (
         path.replace(" - ", "-")
         .replace("/", "__")
@@ -56,6 +73,169 @@ def artifact_id(path: str) -> str:
         .replace(" ", "_")
         .lower()
     )
+
+
+PUBLIC_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+PUBLIC_ID_HANDLE_PATTERN = re.compile(r"^[a-z][a-z0-9]{0,7}$")
+HASH_LIKE_HANDLE_PATTERN = re.compile(r"[a-f0-9]{6,8}$")
+
+
+def source_tokens(value: str) -> set[str]:
+    raw_id = raw_artifact_id(value)
+    return {
+        token
+        for token in re.split(r"[^a-z0-9]+", raw_id)
+        if token and token not in {"json", "txt", "py", "md"}
+    }
+
+
+def validate_fixture_authored_handle(handle: str, source_values: list[str], label: str) -> None:
+    if not PUBLIC_ID_HANDLE_PATTERN.fullmatch(handle):
+        raise EvidenceViewError(f"{label} must use a short fixture-authored handle")
+    if HASH_LIKE_HANDLE_PATTERN.fullmatch(handle):
+        raise EvidenceViewError(f"{label} must not look hash-derived")
+    tokens: set[str] = set()
+    raw_ids: set[str] = set()
+    for source_value in source_values:
+        raw_ids.add(raw_artifact_id(source_value))
+        tokens.update(source_tokens(source_value))
+    if not tokens and not raw_ids:
+        return
+    compact_source = "".join(tokens)
+    compact_handle = "".join(re.split(r"[^a-z0-9]+", handle))
+    if (
+        handle in raw_ids
+        or handle in tokens
+        or any(token in compact_handle for token in tokens if len(token) >= 4)
+        or any(
+            len(handle) >= 3 and (token.startswith(handle) or handle in token)
+            for token in tokens
+            if len(token) >= 4
+        )
+        or compact_source in compact_handle
+    ):
+        raise EvidenceViewError(f"{label} must not include source-derived text")
+
+
+def contains_source_derived_text(candidate: str, source_values: list[str]) -> bool:
+    candidate_tokens = {token for token in re.split(r"[^a-z0-9]+", candidate) if token}
+    compact_candidate = "".join(candidate_tokens)
+    tokens: set[str] = set()
+    raw_ids: set[str] = set()
+    for source_value in source_values:
+        raw_ids.add(raw_artifact_id(source_value))
+        tokens.update(source_tokens(source_value))
+    compact_source = "".join(tokens)
+    return (
+        candidate in raw_ids
+        or bool(candidate_tokens & tokens)
+        or any(token in compact_candidate for token in tokens if len(token) >= 4)
+        or any(
+            len(candidate) >= 3 and (token.startswith(candidate) or candidate in token)
+            for token in tokens
+            if len(token) >= 4
+        )
+        or (bool(compact_source) and compact_source in compact_candidate)
+    )
+
+
+def manifest_source_texts(manifest: dict[str, Any]) -> list[str]:
+    texts = [
+        manifest["fixture_id"],
+        manifest["purpose"],
+        manifest["redaction_policy"]["source"],
+    ]
+    texts.extend(manifest["redaction_policy"]["forbidden_content"])
+    for artifact in manifest["artifacts"]:
+        texts.extend([artifact["path"], artifact["status"]])
+    return texts
+
+
+def public_artifact_id(
+    path: str,
+    role: str,
+    sharing_boundary: str,
+    source_values: list[str],
+    public_id: Any = None,
+) -> str:
+    if not isinstance(public_id, str) or not public_id.strip():
+        raise EvidenceViewError("artifact requires public_id")
+    replacement_id = public_id.strip()
+    if not PUBLIC_ID_PATTERN.fullmatch(replacement_id):
+        raise EvidenceViewError("public_id must be a public-safe slug")
+    if sharing_boundary == "public-safe":
+        if replacement_id.startswith("redacted-"):
+            raise EvidenceViewError("public-safe artifact public_id must not be redacted")
+        if contains_source_derived_text(replacement_id, source_values):
+            raise EvidenceViewError("public_id must not include source-derived text")
+        return replacement_id
+    role_prefix = f"redacted-{role.replace(' ', '-')}-"
+    if not replacement_id.startswith(role_prefix):
+        raise EvidenceViewError("public_id must use the redacted role prefix")
+    public_handle = replacement_id.removeprefix(role_prefix)
+    validate_fixture_authored_handle(public_handle, source_values, "public_id")
+    return replacement_id
+
+
+def public_artifact_status(status: str, role: str, sharing_boundary: str) -> str:
+    if sharing_boundary == "public-safe":
+        return "public-safe"
+    return "redacted"
+
+
+def public_bundle_purpose(purpose: str, sharing_boundary: str) -> str:
+    if sharing_boundary == "public-safe":
+        return "public-safe manifest purpose retained in fixture"
+    return "redacted non-public bundle purpose"
+
+
+def public_bundle_id(
+    fixture_id: str,
+    sharing_boundary: str,
+    source_values: list[str],
+    public_id: Any = None,
+) -> str:
+    if not isinstance(public_id, str) or not public_id.strip():
+        raise EvidenceViewError("fixture requires public_bundle_id")
+    replacement_id = public_id.strip()
+    if not PUBLIC_ID_PATTERN.fullmatch(replacement_id):
+        raise EvidenceViewError("public_bundle_id must be a public-safe slug")
+    if sharing_boundary == "public-safe":
+        if replacement_id.startswith("redacted-"):
+            raise EvidenceViewError("public-safe public_bundle_id must not be redacted")
+        if contains_source_derived_text(replacement_id, source_values):
+            raise EvidenceViewError("public_bundle_id must not include source-derived text")
+        return replacement_id
+    bundle_prefix = "redacted-work-bundle-"
+    if not replacement_id.startswith(bundle_prefix):
+        raise EvidenceViewError("public_bundle_id must use the redacted work-bundle prefix")
+    public_handle = replacement_id.removeprefix(bundle_prefix)
+    validate_fixture_authored_handle(public_handle, source_values, "public_bundle_id")
+    return replacement_id
+
+
+def public_redaction_policy_source(source: str, sharing_boundary: str) -> str:
+    if sharing_boundary == "public-safe":
+        return "public-safe redaction policy source retained in fixture"
+    return "redacted non-public redaction policy source"
+
+
+def public_forbidden_content_categories(categories: list[str], sharing_boundary: str) -> list[str]:
+    if sharing_boundary == "public-safe":
+        if not categories:
+            return []
+        return ["public-safe forbidden content categories retained in fixture"]
+    if not categories:
+        return []
+    return ["redacted non-public forbidden content categories"]
+
+
+def validate_public_identity_space(artifacts: list[Artifact], bundle_id: str) -> None:
+    for artifact in artifacts:
+        if artifact.artifact_id == bundle_id:
+            raise EvidenceViewError(
+                f"artifact ID collides with public bundle ID: {artifact.artifact_id}"
+            )
 
 
 def load_json(path: Path) -> Any:
@@ -124,10 +304,11 @@ def code_mentions_artifact_path(code_text: dict[str, str], artifact_path: str) -
 
 
 def bundle_sharing_boundary(artifacts: list[Artifact]) -> str:
-    boundaries = {artifact.sharing_boundary for artifact in artifacts}
-    if len(boundaries) == 1:
-        return boundaries.pop()
-    return "mixed"
+    rank = {
+        "public-safe": 0,
+        "redaction-sensitive": 1,
+    }
+    return max((artifact.sharing_boundary for artifact in artifacts), key=rank.__getitem__)
 
 
 def is_relative_to(path: Path, base: Path) -> bool:
@@ -235,10 +416,28 @@ def validate_manifest(manifest: Any, fixture_dir: Path) -> dict[str, Any]:
             require_string(artifact.get(field), f"artifacts[{index}].{field}")
 
         artifact_path = artifact["path"]
+        evidence_handling = artifact["evidence_handling"]
+        sharing_boundary = artifact["sharing_boundary"]
+        if evidence_handling not in ALLOWED_EVIDENCE_HANDLING:
+            raise EvidenceViewError(
+                f"artifacts[{index}].evidence_handling must be controlled vocabulary"
+            )
+        if sharing_boundary not in ALLOWED_SHARING_BOUNDARIES:
+            raise EvidenceViewError(
+                f"artifacts[{index}].sharing_boundary must be controlled vocabulary"
+            )
+        public_id = require_string(
+            artifact.get("public_id"),
+            f"artifacts[{index}].public_id",
+        ).strip()
+        if not PUBLIC_ID_PATTERN.fullmatch(public_id):
+            raise EvidenceViewError(
+                f"artifacts[{index}].public_id must be a public-safe slug"
+            )
         if artifact_path in seen_paths:
             raise EvidenceViewError(f"duplicate manifest artifact path: {artifact_path}")
         seen_paths.add(artifact_path)
-        generated_id = artifact_id(artifact_path)
+        generated_id = raw_artifact_id(artifact_path)
         if generated_id in seen_artifact_ids:
             first_path = seen_artifact_ids[generated_id]
             raise EvidenceViewError(
@@ -251,18 +450,35 @@ def validate_manifest(manifest: Any, fixture_dir: Path) -> dict[str, Any]:
     return manifest
 
 
-def build_artifacts(manifest: dict[str, Any]) -> list[Artifact]:
+def build_artifacts(manifest: dict[str, Any], source_values: list[str]) -> list[Artifact]:
     artifacts = []
+    seen_public_ids: dict[str, str] = {}
     for item in manifest["artifacts"]:
         path = item["path"]
+        role = normalize_role(item["role"])
+        sharing_boundary = item["sharing_boundary"]
+        emitted_id = public_artifact_id(
+            path,
+            role,
+            sharing_boundary,
+            source_values,
+            item.get("public_id"),
+        )
+        if emitted_id in seen_public_ids:
+            first_path = seen_public_ids[emitted_id]
+            raise EvidenceViewError(
+                "duplicate emitted artifact ID: "
+                f"{emitted_id} from {first_path} and {path}"
+            )
+        seen_public_ids[emitted_id] = path
         artifacts.append(
             Artifact(
-                artifact_id=artifact_id(path),
+                artifact_id=emitted_id,
                 path=path,
-                role=normalize_role(item["role"]),
+                role=role,
                 status=item["status"],
                 evidence_handling=item["evidence_handling"],
-                sharing_boundary=item["sharing_boundary"],
+                sharing_boundary=sharing_boundary,
             )
         )
     return artifacts
@@ -336,15 +552,13 @@ def display_flags(flags: list[str]) -> str:
     return ", ".join(f"`{flag}`" for flag in flags) or "none"
 
 
-def public_artifact_label(artifact: Artifact, sequence: int) -> str:
-    if artifact.sharing_boundary == "public-safe":
-        return artifact.path
-    return f"redacted-{artifact.role.replace(' ', '-')}-{sequence:03d}"
-
-
 def positive_backup_label(value: Any) -> bool:
     normalized = str(value).strip().lower().replace("_", "-").replace(" ", "-")
-    return normalized in {"backup", "backup-ambiguity", "backup-branch"}
+    if normalized.startswith("no-backup") or normalized.startswith("non-backup"):
+        return False
+    return normalized in {"backup", "backup-ambiguity", "backup-branch"} or normalized.startswith(
+        "backup-"
+    )
 
 
 def variant_has_backup_evidence(variant: Artifact, json_payloads: dict[str, Any]) -> bool:
@@ -365,6 +579,13 @@ def variant_has_backup_evidence(variant: Artifact, json_payloads: dict[str, Any]
     return positive_backup_label(role) or positive_backup_label(status)
 
 
+def normalize_declared_source_path(source_path: str) -> str:
+    normalized = source_path.strip()
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    return normalized
+
+
 def declared_source_relation_targets(
     *,
     source_path: Any,
@@ -374,7 +595,8 @@ def declared_source_relation_targets(
     relation_kind: str,
 ) -> list[tuple[str, str, str, list[str]]]:
     if isinstance(source_path, str) and source_path:
-        target = by_path.get(source_path)
+        normalized_source_path = normalize_declared_source_path(source_path)
+        target = by_path.get(normalized_source_path)
         if target is not None:
             return [
                 (
@@ -430,12 +652,24 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         raise EvidenceViewError(f"fixture directory does not exist: {fixture_dir}")
 
     manifest = validate_manifest(load_json(resolve_manifest_path(fixture_dir)), fixture_dir)
-    artifacts = build_artifacts(manifest)
+    source_values = manifest_source_texts(manifest)
+    artifacts = build_artifacts(manifest, source_values)
+    bundle_boundary = bundle_sharing_boundary(artifacts)
     by_path = {artifact.path: artifact for artifact in artifacts}
     json_payloads = collect_json_artifacts(fixture_dir, artifacts)
     code_text = collect_code_text(fixture_dir, artifacts)
+    source_values.extend(json.dumps(payload, sort_keys=True) for payload in json_payloads.values())
+    source_values.extend(code_text.values())
+    artifacts = build_artifacts(manifest, source_values)
+    by_path = {artifact.path: artifact for artifact in artifacts}
     code_clues = summarize_code_clues(code_text)
-    bundle_id = manifest["fixture_id"]
+    bundle_id = public_bundle_id(
+        manifest["fixture_id"],
+        bundle_boundary,
+        source_values,
+        manifest.get("public_bundle_id"),
+    )
+    validate_public_identity_space(artifacts, bundle_id)
     relations: list[dict[str, Any]] = []
 
     anchors = [artifact for artifact in artifacts if artifact.role == "anchor"]
@@ -699,8 +933,13 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         snapshot_keys = flatten_keys(json_payloads.get(snapshot.path, {}))
         payload = json_payloads.get(snapshot.path, {})
         copied_from = payload.get("copied_from")
-        if isinstance(copied_from, str) and by_path.get(copied_from) in selected_contexts:
-            contexts_to_compare = [by_path[copied_from]]
+        normalized_copied_from = (
+            normalize_declared_source_path(copied_from)
+            if isinstance(copied_from, str)
+            else None
+        )
+        if normalized_copied_from and by_path.get(normalized_copied_from) in selected_contexts:
+            contexts_to_compare = [by_path[normalized_copied_from]]
         else:
             contexts_to_compare = selected_contexts
         for context_index, context in enumerate(contexts_to_compare, start=1):
@@ -796,7 +1035,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
     add_relation(
         "redacts",
         bundle_id,
-        "public evidence view",
+        "public-evidence-view",
         "generated",
         "Public-safe output preserves artifact roles and relation existence while avoiding sensitive source details.",
     )
@@ -804,24 +1043,30 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
     inventory = [
         {
             "artifact_id": artifact.artifact_id,
-            "label": artifact.path,
-            "public_label": public_artifact_label(artifact, index),
+            "label": artifact.artifact_id,
+            "public_label": artifact.artifact_id,
             "role": artifact.role,
-            "status": artifact.status,
+            "status": public_artifact_status(
+                artifact.status,
+                artifact.role,
+                artifact.sharing_boundary,
+            ),
             "evidence_handling": artifact.evidence_handling,
             "sharing_boundary": artifact.sharing_boundary,
             "included_reason": "listed in fixture manifest",
         }
-        for index, artifact in enumerate(artifacts, start=1)
+        for artifact in artifacts
     ]
-
     return {
         "bundle_summary": {
             "bundle_id": bundle_id,
             "source_boundary": "caller-provided fixture directory",
-            "sharing_boundary": bundle_sharing_boundary(artifacts),
-            "redaction_policy_source": manifest["redaction_policy"]["source"],
-            "purpose": manifest["purpose"],
+            "sharing_boundary": bundle_boundary,
+            "redaction_policy_source": public_redaction_policy_source(
+                manifest["redaction_policy"]["source"],
+                bundle_boundary,
+            ),
+            "purpose": public_bundle_purpose(manifest["purpose"], bundle_boundary),
             "execution_boundary": "read JSON and code text only; do not import or execute fixture code",
             "mutation_boundary": "input fixture files are not modified",
         },
@@ -846,7 +1091,9 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         },
         "code_reference_summary": {
             "code_references": [code_ref.artifact_id for code_ref in code_refs],
-            "observed_static_clues": code_clues,
+            "observed_static_clues": {
+                code_ref.artifact_id: code_clues[code_ref.path] for code_ref in code_refs
+            },
             "execution_boundary": "not executed, imported, installed, or rewritten",
         },
         "readiness_hint_summary": {
@@ -881,11 +1128,14 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
                     "artifact_id": artifact.artifact_id,
                     "sharing_boundary": artifact.sharing_boundary,
                     "redaction_behavior": "preserve role and relation existence; avoid sensitive source details",
-                    "public_safe_replacement_label": artifact.role,
+                    "public_safe_replacement_label": artifact.artifact_id,
                 }
                 for artifact in artifacts
             ],
-            "forbidden_content_categories": manifest["redaction_policy"]["forbidden_content"],
+            "forbidden_content_categories": public_forbidden_content_categories(
+                manifest["redaction_policy"]["forbidden_content"],
+                bundle_boundary,
+            ),
         },
         "static_shape_checks": {
             "role_counts": dict(sorted(Counter(artifact.role for artifact in artifacts).items())),
@@ -937,8 +1187,6 @@ def build_next_checks(
 def render_markdown(view: dict[str, Any]) -> str:
     public_labels = {
         artifact["artifact_id"]: artifact["artifact_id"]
-        if artifact["sharing_boundary"] == "public-safe"
-        else artifact["public_label"]
         for artifact in view["artifact_role_inventory"]
     }
 
@@ -968,11 +1216,7 @@ def render_markdown(view: dict[str, Any]) -> str:
     ]
 
     for artifact in view["artifact_role_inventory"]:
-        artifact_label = (
-            artifact["label"]
-            if artifact["sharing_boundary"] == "public-safe"
-            else artifact["public_label"]
-        )
+        artifact_label = artifact["public_label"]
         lines.append(
             f"| `{artifact_label}` | {artifact['role']} | "
             f"{artifact['evidence_handling']} | {artifact['sharing_boundary']} |"
@@ -998,8 +1242,8 @@ def render_markdown(view: dict[str, Any]) -> str:
             "",
             "Relation inventory:",
             "",
-            "| Type | Source | Target | Evidence | Flags |",
-            "| --- | --- | --- | --- | --- |",
+            "| Type | Source | Target | Evidence | Reason | Flags |",
+            "| --- | --- | --- | --- | --- | --- |",
         ]
     )
 
@@ -1007,6 +1251,7 @@ def render_markdown(view: dict[str, Any]) -> str:
         lines.append(
             f"| {relation['relation_type']} | `{public_id(relation['source_artifact'])}` | "
             f"`{public_id(relation['target_artifact'])}` | {relation['evidence_handling']} | "
+            f"{relation['confidence_narrative']} | "
             f"{display_flags(relation['flags'])} |"
         )
 
@@ -1020,7 +1265,7 @@ def render_markdown(view: dict[str, Any]) -> str:
             "",
             "## Static Readiness Hint Summary",
             "",
-            "- Readiness hints: " + display_ids(view["readiness_hint_summary"]["readiness_hints"]),
+            "- Readiness hints: " + public_ids(view["readiness_hint_summary"]["readiness_hints"]),
             "",
             "## Variant, Backup, And Unknown Artifact Summary",
             "",

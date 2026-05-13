@@ -73,7 +73,7 @@ The accepted decision owns the deferred boundary for this wedge.
 | Code Asset Registry | Surfaces non-executed code-shaped evidence that explains settings selection and derivation. |
 | Instrument Runtime | Treats setup or registry-like files as declared or observed evidence only. |
 | Managed Code Runner | Contributes static readiness and dependency clues only. |
-| Comparability and known-good diff | Provides within-bundle conflict display, not known-good comparison. |
+| Comparability and conflict review | Provides within-bundle conflict display, not known-good comparison. |
 
 ## Producer Facts Preserved
 

@@ -36,36 +36,36 @@
   "required_relations": [
     {
       "relation_type": "generated-from",
-      "source_artifact": "setting__temp__chip_info_json",
-      "target_artifact": "setting__parameters_json",
+      "source_artifact": "zp",
+      "target_artifact": "nr",
       "evidence_handling": "observed",
       "flags": ["freshness-unchecked"]
     },
     {
       "relation_type": "copied-from",
-      "source_artifact": "data__run-00042-parameters_json",
-      "target_artifact": "setting__parameters_json",
+      "source_artifact": "ky",
+      "target_artifact": "nr",
       "evidence_handling": "observed",
       "flags": ["partial-snapshot"]
     },
     {
       "relation_type": "references-code",
-      "source_artifact": "code__config_py",
-      "target_artifact": "jc001-layered-config-bundle",
+      "source_artifact": "yx",
+      "target_artifact": "wbq",
       "evidence_handling": "observed",
       "flags": ["not-executed", "no-exact-selected-context-path"]
     },
     {
       "relation_type": "has-backup",
-      "source_artifact": "variants__manifest_json",
-      "target_artifact": "jc001-layered-config-bundle",
+      "source_artifact": "dw",
+      "target_artifact": "wbq",
       "evidence_handling": "inferred",
       "flags": ["manifest-only", "backup-ambiguous"]
     },
     {
       "relation_type": "missing-fact",
-      "source_artifact": "code__init_setting_flow_py",
-      "target_artifact": "jc001-layered-config-bundle",
+      "source_artifact": "uj",
+      "target_artifact": "wbq",
       "evidence_handling": "missing",
       "flags": ["code identity"]
     }
@@ -96,8 +96,9 @@
     "## Next Checks"
   ],
   "markdown_contains": [
-    "| generated-from | `setting__temp__chip_info_json` | `setting__parameters_json` | observed | `freshness-unchecked` |",
-    "| references-code | `code__config_py` | `jc001-layered-config-bundle` | observed | `not-executed`, `no-exact-selected-context-path` |",
-    "| has-backup | `variants__manifest_json` | `jc001-layered-config-bundle` | inferred | `manifest-only`, `backup-ambiguous` |"
+    "| Type | Source | Target | Evidence | Reason | Flags |",
+    "| generated-from | `zp` | `nr` | observed |",
+    "| references-code | `yx` | `wbq` | observed |",
+    "| has-backup | `dw` | `wbq` | inferred |"
   ]
 }

@@ -48,7 +48,9 @@ The first wedge can include:
 - visible conflicts;
 - explicit producer fact gaps;
 - sharing-boundary labels. The current prototype validates public-safe fixture
-  labels; internal-safe view differences remain follow-on validation.
+  output and redaction-sensitive public rendering for non-public labels and
+  metadata; internal-safe, external-support-safe, and unsafe-to-share view
+  policies remain follow-on validation.
 
 The evidence view should preserve ambiguity. It may say that an artifact
 appears selected, copied, generated, conflicting, redacted, or missing a

@@ -41,7 +41,7 @@ lightweight manifests, or export metadata.
 | Code Asset Registry | Code-shaped evidence explains path selection, settings read, and sidecar derivation without managed execution. | Provisional first-wedge pressure only. |
 | Instrument Runtime | Setup and registry-like evidence appears as declared or observed context before device control. | Context-only pressure; no live runtime adoption yet. |
 | Managed Code Runner | Dependency and readiness pressure appears, but execution remains out of scope. | Diagnostic pressure only; defer runner adoption. |
-| Comparability and known-good diff | Conflict display is needed inside one bundle, but known-good comparison remains follow-on. | Limited diff pressure only; no comparator adoption yet. |
+| Comparability and conflict review | Conflict display is needed inside one bundle, but known-good comparison remains follow-on. | Limited diff pressure only; no comparator adoption yet. |
 
 ## Standalone Adoption Steps
 
@@ -55,7 +55,7 @@ The deferred boundary is owned by
 | Code Asset Registry | Surface code-shaped evidence that explains settings path selection and derivation flow without executing it. | A producer can expose entrypoint-like evidence, settings path references, data path references, and sidecar generator references. | Later managed execution can resolve exact code versions and execution records after safety boundaries exist. |
 | Instrument Runtime | Represent setup/registry-like context as declared or observed evidence with role and sharing boundary. | A producer can expose setup context as evidence without proving live device state. | Later diagnostics and resource semantics can build on manifests after ADRs for device apply and leases. |
 | Managed Code Runner | Show readiness gaps and dependency-shaped clues as static evidence. | A producer can expose dependency categories or environment hints without installing or running anything. | Later runner records can capture logs, artifacts, status, and environment after control-PC safety decisions. |
-| Comparability and known-good diff | Explain conflicts between artifacts inside one bundle with layer-by-layer evidence. | A producer can preserve enough source and relation metadata for later conflict display. | Later known-good comparison can compare bundle, setup, method, calibration, and analysis layers. |
+| Comparability and conflict review | Explain conflicts between artifacts inside one bundle with layer-by-layer evidence. | A producer can preserve enough source and relation metadata for later conflict display. | Later known-good comparison can compare bundle, setup, method, calibration, and analysis layers. |
 
 ## First Adoption Slice
 

@@ -708,8 +708,8 @@ Role lenses may switch inside one journey:
 | Decide whether results affect configuration | Configuration reviewer, analyst |
 | Hand off or report | Analyst, recipient, method author |
 
-The first W2 document should keep the full current-state spine visible while
-scoping the future slice narrowly.
+Promoted W2 journey documents should keep the full current-state spine visible
+while scoping the future slice narrowly.
 
 ## Promotion Guidance
 
@@ -888,14 +888,14 @@ drafting:
 - shape and lifecycle validation cases;
 - anti-patterns that should not be preserved.
 
-W2 should not need another broad pass over those categories before drafting the
-first journey. This saturation claim applies to artifact-derived categories,
-not to adoption-risk hypotheses, cross-lab demand, role behavior, or market
-differentiation. Remaining research should target exact examples, citations,
-fixtures, or latent workflow validation: JTBD conversion, plan preview, dry-run
-packaging, campaign-level comparison, scientific comparability, full-stack
-known-good diffs, setup-reality maps, useful declared physical context, local
-schema evolution, calibration impact, analysis/publication lineage,
+Future W2 work should not need another broad pass over those categories before
+drafting a journey. This saturation claim applies to artifact-derived
+categories, not to adoption-risk hypotheses, cross-lab demand, role behavior,
+or market differentiation. Remaining research should target exact examples,
+citations, fixtures, or latent workflow validation: JTBD conversion, plan
+preview, dry-run packaging, campaign-level comparison, scientific comparability,
+full-stack known-good diffs, setup-reality maps, useful declared physical
+context, local schema evolution, calibration impact, analysis/publication lineage,
 manual-intervention memory, behavioral-prior prompt artifacts,
 existing-framework baseline separation, control-PC read-only companion
 constraints, known-good references, boundary-aware diagnostic packages, resource

@@ -39,8 +39,8 @@ scope.
 
 ## User-Facing Behavior
 
-Given a bundle path, the prototype produces a structured evidence view and a
-human-readable report.
+Given a committed `JC-001` synthetic fixture directory, the prototype produces
+a structured evidence view and a human-readable report.
 
 The output should help a user answer:
 
@@ -99,9 +99,15 @@ The structured output should use the first-wedge vocabulary from
   `missing-fact`, `conflicts-with`, and `redacts`;
 - evidence handling: observed, inferred, generated, copied, user-declared,
   unchecked, unsafe-to-inspect, and missing;
-- sharing boundaries: public-safe fixture labels. Internal-safe,
-  external-support-safe, redaction-sensitive, and unsafe-to-share variants are
-  vocabulary pressure but not validated by this prototype.
+- sharing boundaries: committed fixtures use public-safe labels. Markdown and
+  JSON redaction for non-public artifact labels, bundle metadata,
+  redaction-policy metadata, and source-derived status text has regression
+  coverage. Bundle and artifact identifiers emitted in public output must be
+  public-safe fixture slugs, fixture-authored public handles, or
+  fixture-authored redaction handles rather than source-derived hashes, unsafe
+  source labels, or manifest-order labels. Full internal-safe,
+  external-support-safe, and
+  unsafe-to-share export policy remains follow-on scope.
 
 The Markdown report should include the ten evidence-view sections currently
 accepted by the concepts document:
@@ -153,7 +159,7 @@ workspace.
 ## Implementation Spike Review
 
 Review outcome: the first implementation spike satisfies the accepted passive
-evidence-view boundary for the first committed `JC-001` layered-config fixture.
+evidence-view boundary for the committed `JC-001` fixtures.
 
 Validated behavior:
 
@@ -255,7 +261,7 @@ shipping sample data, or public documentation examples have been accepted.
 | Relation coverage | The evidence view can represent anchor, selected-context, generated, copied, code-reference, variant, backup, missing-fact, conflict, and redaction relations. |
 | Conflict visibility | Root/selected context drift, same-shape value drift, setup-context drift, and partial snapshot ambiguity remain visible. |
 | Missing facts | Preferred anchor, selected settings provenance, generated sidecar freshness, snapshot coverage, and code identity gaps remain explicit. |
-| Sharing boundary | Committed public-safe fixture output preserves artifact roles and relation existence. |
+| Sharing boundary | Committed public-safe fixture output preserves artifact roles and relation existence; regression coverage verifies that non-public artifact labels, bundle metadata, redaction-policy metadata, and source-derived status text are redacted in Markdown and JSON output with fixture-authored public handles or fixture-authored redaction handles. |
 | No authority claim | The report never declares a selected context, registry, setup, or code reference authoritative unless producer facts explicitly say so. |
 | Portable run | The prototype can run from a clean checkout using only documented inputs, committed test fixture data, and local tooling. |
 
@@ -281,8 +287,3 @@ capability note, or evidence-backed decision.
 | Public-safe view loses diagnostic value. | Preserve role and relation existence even when details are redacted. |
 | Producer facts get treated as required inputs. | Treat them as missing-fact output until a later write-side decision exists. |
 | Test fixture drifts from the accepted journey. | Keep acceptance checks tied to `JC-001` and update this scope if the journey changes. |
-
-## Next Step
-
-Return to the current product/architecture choice tracked in
-[`../progressive-adoption-progress-tracker.md`](../progressive-adoption-progress-tracker.md).

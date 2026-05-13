@@ -24,15 +24,15 @@
   "required_relations": [
     {
       "relation_type": "references-code",
-      "source_artifact": "code__reopen_flow_py",
-      "target_artifact": "setting__parameters_json",
+      "source_artifact": "zp",
+      "target_artifact": "vx",
       "evidence_handling": "observed",
       "flags": ["not-executed"]
     },
     {
       "relation_type": "missing-fact",
-      "source_artifact": "code__reopen_flow_py",
-      "target_artifact": "jc001-minimal-unknown",
+      "source_artifact": "zp",
+      "target_artifact": "wbx",
       "evidence_handling": "missing",
       "flags": ["code identity"]
     }
@@ -56,6 +56,7 @@
     "## Next Checks"
   ],
   "markdown_contains": [
-    "| references-code | `code__reopen_flow_py` | `setting__parameters_json` | observed | `not-executed` |"
+    "| Type | Source | Target | Evidence | Reason | Flags |",
+    "| references-code | `zp` | `vx` | observed |"
   ]
 }

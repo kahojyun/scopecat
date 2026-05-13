@@ -29,27 +29,27 @@ evidence-view fact
   -> explicit non-ownership
 ```
 
-The provisional owner pressure identifies who would own passive-view
-vocabulary, validation expectations, and missing-fact wording for that fact
-family. Future producer behavior still needs a separate evidence-backed
-decision.
+The provisional owner pressure identifies which capability is accountable for
+passive-view vocabulary, validation expectations, and missing-fact wording for
+that fact family. Future producer behavior still needs a separate
+evidence-backed decision.
 
 ## Provisional Owner Pressure
 
-| Fact or contract family | Provisional owner pressure | First-wedge responsibility | Non-ownership |
+| Fact or contract family | Provisional owner pressure | Accepted first-wedge responsibility | Non-ownership |
 | --- | --- | --- | --- |
-| Work bundle boundary | Measurement History | Own bundle ID, source boundary, included artifact list, excluded categories when needed, and the unresolved or preferred anchor state. | Does not own old-history import, durable database schema, acquisition, resumability, or live run records yet. |
-| Artifact-role inventory | Measurement History | Own the requirement that every included artifact has a role or `unknown`, evidence handling, sharing boundary, and included reason. | Does not decide selected settings provenance, setup truth, code identity, or conflict winner. |
-| Selected context | Parameter Memory | Own selected-looking settings/context evidence, non-authoritative status, freshness labels, and selected-source missing facts. | Does not own write-back, rollback, calibration mutation, universal parameter schema, or source-of-record authority. |
-| Generated sidecar relation | Measurement History plus Parameter Memory | Measurement History owns bundle attachment and artifact-inventory presence; Parameter Memory owns generated-from relation semantics, freshness gaps, and invalidation-rule missing facts when sidecars exist. | Does not prove sidecar freshness or execute generators. |
-| Copied snapshot relation | Measurement History plus Parameter Memory | Measurement History owns run/bundle attachment; Parameter Memory owns copied-from relation, coverage gaps, and context mismatch implications. | Does not provide transaction semantics, restore, rollback, or completeness guarantees. |
-| Variant and backup ambiguity | Parameter Memory | Own variant/backup visibility and non-precedence labels for settings/context branches. | Does not choose active variant, rollback target, or known-good reference. |
-| Static code reference | Code Asset Registry | Own text-only code references, observed static clues, unsafe-to-run boundary, and code identity missing facts. | Does not own execution, package management, notebook state, code registry service, or immutable code identity yet. |
-| Setup evidence | Instrument Runtime | Own setup/registry-like evidence as declared or observed context with sharing boundary and unsafe-to-verify labels. | Does not own live device truth, leases, driver mutation, service startup, or hardware control. |
-| Static readiness hint | Managed Code Runner | Own static readiness clues and readiness-gap wording when visible without execution. | Does not own execution supervision, package installation, environment solving, shell-command UX, workers, or logs. |
-| Conflict display | Comparability and known-good diff | Own within-bundle conflict records, affected producer fact, user-visible implication, and next-check wording. | Does not own known-good authority, scientific equivalence scoring, normalization, or cross-system transfer claims. |
-| Sharing boundary | Evidence view boundary, with input from each owner | Own report-level preservation of roles and relations for public-safe fixture labels. Each fact owner provides the boundary label for its artifacts or fields. | Does not define internal-safe view differences, external support export workflow, legal policy, or public documentation examples. |
-| Missing producer facts | Evidence view boundary, with one fact owner per gap | Own first-class display of missing facts. Owner routing is a follow-on contract once producer-side facts are promoted. | Does not fabricate inferred truth, implement owner routing, or require write-side implementation before passive explanation. |
+| Work bundle boundary | Measurement History | Defines bundle ID, source boundary, included artifact list, excluded categories when needed, and unresolved or preferred anchor state. | Does not own old-history import, durable database schema, acquisition, resumability, or live run records yet. |
+| Artifact-role inventory | Measurement History | Requires every included artifact to have a role or `unknown`, evidence handling, sharing boundary, and included reason. | Does not decide selected settings provenance, setup truth, code identity, or conflict winner. |
+| Selected context | Parameter Memory | Defines selected-looking settings/context evidence, non-authoritative status, freshness labels, and selected-source missing facts. | Does not own write-back, rollback, calibration mutation, universal parameter schema, or source-of-record authority. |
+| Generated sidecar relation | Measurement History plus Parameter Memory | Measurement History defines bundle attachment and artifact-inventory presence; Parameter Memory defines generated-from relation semantics, freshness gaps, and invalidation-rule missing facts when sidecars exist. | Does not prove sidecar freshness or execute generators. |
+| Copied snapshot relation | Measurement History plus Parameter Memory | Measurement History defines run/bundle attachment; Parameter Memory defines copied-from relation, coverage gaps, and context mismatch implications. | Does not provide transaction semantics, restore, rollback, or completeness guarantees. |
+| Variant and backup ambiguity | Parameter Memory | Defines variant/backup visibility and non-precedence labels for settings/context branches. | Does not choose active variant, rollback target, or known-good reference. |
+| Static code reference | Code Asset Registry | Defines text-only code references, observed static clues, unsafe-to-run boundary, and code identity missing facts. | Does not own execution, package management, notebook state, code registry service, or immutable code identity yet. |
+| Setup evidence | Instrument Runtime | Defines setup/registry-like evidence as declared or observed context with sharing boundary and unsafe-to-verify labels. | Does not own live device truth, leases, driver mutation, service startup, or hardware control. |
+| Static readiness hint | Managed Code Runner | Defines static readiness clues and readiness-gap wording when visible without execution. | Does not own execution supervision, package installation, environment solving, shell-command UX, workers, or logs. |
+| Conflict display | Comparability and conflict review | Defines within-bundle conflict records, affected producer fact, user-visible implication, and next-check wording. | Does not own known-good authority, scientific equivalence scoring, normalization, or cross-system transfer claims. |
+| Sharing boundary | Evidence view boundary, with input from each provisional pressure owner and fixture/tooling authors | Preserves roles and relations in report output; validates fixture-authored public handles and fixture-authored redaction handles; redacts non-public artifact labels, bundle metadata, redaction-policy metadata, and source-derived status text. Each provisional pressure owner identifies boundary labels for its artifacts or fields. | Does not define internal-safe view differences, external support export workflow, legal policy, or public documentation examples. |
+| Missing producer facts | Evidence view boundary, with one provisional pressure owner per gap | Displays missing facts as first-class output. Owner routing is a follow-on contract once producer-side facts are promoted. | Does not fabricate inferred truth, implement owner routing, or require write-side implementation before passive explanation. |
 
 ## Dependency Direction
 
@@ -58,7 +58,7 @@ The passive evidence view depends on capability facts in this order:
 1. Measurement History bounds the work bundle and inventory.
 2. Parameter Memory, Code Asset Registry, Instrument Runtime, and Managed Code
    Runner contribute typed evidence families.
-3. Comparability and known-good diff contributes conflict display for
+3. Comparability and conflict review contributes conflict display for
    within-bundle disagreements.
 4. The evidence view composes these facts into a report without claiming
    source-of-record truth.
@@ -82,18 +82,23 @@ ownership.
 
 ## Provisional For This Wedge
 
-The first wedge may rely on these provisional owner-pressure assignments while
+The first wedge may rely on these provisional responsibility assignments while
 avoiding broader subsystem promotion:
 
-- Measurement History owns the bundle and artifact inventory shape.
-- Parameter Memory owns selected-context provenance, generated-sidecar, copied-context,
-  and variant/backup evidence semantics.
-- Code Asset Registry owns static code-reference evidence semantics.
-- Instrument Runtime owns setup evidence semantics without live verification.
-- Managed Code Runner owns static readiness hint semantics without execution.
-- Comparability and known-good diff owns within-bundle conflict display only.
-- The evidence view owns composition, missing-fact display, and sharing-boundary
-  preservation across report views.
+- Measurement History is accountable for first-wedge bundle and artifact
+  inventory wording.
+- Parameter Memory is accountable for first-wedge selected-context provenance,
+  generated-sidecar, copied-context, and variant/backup evidence semantics.
+- Code Asset Registry is accountable for first-wedge static code-reference
+  evidence semantics.
+- Instrument Runtime is accountable for first-wedge setup evidence semantics
+  without live verification.
+- Managed Code Runner is accountable for first-wedge static readiness hint
+  semantics without execution.
+- Comparability and conflict review is accountable for first-wedge within-bundle
+  conflict display only.
+- The evidence view is accountable for first-wedge composition, missing-fact
+  display, and sharing-boundary preservation across report views.
 
 ## Deferred
 
@@ -113,8 +118,3 @@ evidence view.
   text-only code references?
 - Which second journey should test whether these provisional owners hold beyond
   passive bundle explanation?
-
-## Next Step
-
-Use this ownership pass as input to the current product/architecture choice in
-[`../progressive-adoption-progress-tracker.md`](../progressive-adoption-progress-tracker.md).
