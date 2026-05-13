@@ -72,7 +72,7 @@ to preserve. It does not accept a write platform.
 | Explain copied run snapshots. | Preserve copied-from or snapshot-of relations, including when the copy may differ from current settings. | Durable transaction semantics, resumability, or old-history import. |
 | Explain code-shaped provenance. | Capture enough code reference to identify path selection, entrypoint-like evidence, and derivation flow. | Managed execution, notebook-state capture, package registry, or remote runner scope. |
 | Explain variants and backups. | Classify variants separately from selected context and expose unknown active state. | Automatic precedence rules, rollback, restore, or deployment management. |
-| Share the explanation safely. | Mark fields and artifacts by sharing boundary and redact public/exported views. | A general support-ticketing product or full collaboration workflow. |
+| Share or move the explanation safely. | Distinguish internal full-fidelity analysis handoff, internal diagnostics, code or method reuse as template evidence, external-support-safe packages, and public/reference dataset provenance. Apply redaction only when the recipient boundary requires it. | A general support-ticketing product, permission system, full bundle export/import workflow, or automatic import into active config/setup truth. |
 
 These facts can be supplied by passive recording, explicit user selection,
 static inspection, or lightweight export metadata. The journey does not decide
@@ -86,7 +86,7 @@ which mechanism is best.
 | Analyst | Recover which context and sidecars explain a run-like artifact or result. |
 | Method author | See which code-shape evidence selected or derived settings. |
 | Configuration reviewer | Identify conflicts, freshness gaps, and unsafe assumptions before mutation or reuse. |
-| Recipient | Receive a public-safe explanation without private lab details; internal-safe view differences remain follow-on validation. |
+| Recipient | Receive the boundary-appropriate view: full-fidelity internal context for analysis or debugging, template/reference evidence for code reuse, or public-safe provenance when sharing outside the lab. |
 
 ## Entry Conditions
 
@@ -216,8 +216,17 @@ and later narrowed by
   recoverable by static inspection or user selection?
 - Which freshness labels are useful beyond observed, generated, copied,
   unchecked, and user-declared relation evidence?
-- How should a public-safe export describe redacted fields while preserving
-  diagnostic value for handoff?
+- Which sharing or movement boundary is being served: internal analysis
+  handoff, internal diagnostic support, cross-control-computer code or method
+  reuse, external support, or public/reference dataset provenance?
+- For each boundary, should Scopecat output a full-fidelity evidence view,
+  diagnostic package, template/reference package, or curated analysis dataset
+  provenance summary?
+- When a bundle or method is moved to another control computer, which facts may
+  serve as reusable templates or seed values, and which must remain
+  non-authoritative setup, parameter, or environment evidence?
+- How should public or external-support output preserve roles, relations,
+  conflicts, missing facts, and freshness while hiding private values?
 - When does code-shape evidence need durable code identity rather than
   text-only references?
 

@@ -236,9 +236,14 @@ prototype validation.
 
 This contract does not define:
 
+- internal full-fidelity analysis handoff from an experiment-control computer
+  to a user's analysis computer;
 - internal-safe diagnostic output;
+- cross-control-computer code or method reuse packages, readiness comparison,
+  or import-as-template behavior;
 - external-support-safe export;
 - unsafe-to-share export behavior;
+- public/reference analysis dataset packaging or provenance summaries;
 - legal or institutional redaction policy;
 - public documentation examples;
 - arbitrary legacy-folder import;
@@ -248,6 +253,13 @@ This contract does not define:
 
 Any future journey that needs those behaviors must either reopen this contract
 or create a separate evidence-backed sharing/export decision.
+
+Complete work-bundle export/import is not implied by this contract. Future
+movement across computers should distinguish analysis handoff, diagnostic
+support, code or method reuse, and public/reference data sharing. Imported
+material should be treated as evidence, reference, or template seed unless a
+separate reviewed decision accepts active configuration, setup, parameter, or
+execution-state mutation.
 
 ## Acceptance Checks
 
