@@ -1,0 +1,59 @@
+{
+  "fixture_id": "jc001-minimal-unknown",
+  "public_bundle_id": "wbx",
+  "purpose": "Tiny public-safe fixture for a single-anchor bundle with absent sidecars, one unknown artifact, and a static readiness hint.",
+  "redaction_policy": {
+    "source": "public-test-fixture",
+    "forbidden_content": [
+      "real absolute paths",
+      "usernames",
+      "machine labels",
+      "network addresses",
+      "hardware identifiers",
+      "calibration values",
+      "lab-specific labels"
+    ]
+  },
+  "artifacts": [
+    {
+      "path": "bundle.json",
+      "public_id": "qa",
+      "role": "anchor",
+      "status": "single bundle anchor",
+      "evidence_handling": "observed",
+      "sharing_boundary": "public-safe"
+    },
+    {
+      "path": "setting/parameters.json",
+      "public_id": "vx",
+      "role": "selected context",
+      "status": "selected-looking candidate",
+      "evidence_handling": "inferred",
+      "sharing_boundary": "public-safe"
+    },
+    {
+      "path": "notes/context-note.txt",
+      "public_id": "nr",
+      "role": "operator note",
+      "status": "included but unclear role",
+      "evidence_handling": "unchecked",
+      "sharing_boundary": "public-safe"
+    },
+    {
+      "path": "readiness/static-environment.json",
+      "public_id": "hm",
+      "role": "readiness hint",
+      "status": "static readiness clue",
+      "evidence_handling": "observed",
+      "sharing_boundary": "public-safe"
+    },
+    {
+      "path": "code/reopen_flow.py",
+      "public_id": "zp",
+      "role": "code reference",
+      "status": "text-only pseudocode",
+      "evidence_handling": "observed",
+      "sharing_boundary": "public-safe"
+    }
+  ]
+}

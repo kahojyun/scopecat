@@ -1,0 +1,30 @@
+{
+  "devices": {
+    "Q_A": {
+      "drive": "selected-drive-a",
+      "readout": "selected-readout-a"
+    },
+    "Q_B": {
+      "drive": "selected-drive-a",
+      "readout": "selected-readout-a"
+    },
+    "Q_C": {
+      "drive": "selected-drive-b",
+      "readout": "selected-readout-b"
+    }
+  },
+  "instrument_groups": {
+    "selected-drive-a": {
+      "kind": "drive"
+    },
+    "selected-drive-b": {
+      "kind": "drive"
+    },
+    "selected-readout-a": {
+      "kind": "readout"
+    },
+    "selected-readout-b": {
+      "kind": "readout"
+    }
+  }
+}

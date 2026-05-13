@@ -1,0 +1,99 @@
+{
+  "fixture_id": "jc001-layered-config-bundle",
+  "public_bundle_id": "wbq",
+  "purpose": "Tiny public-safe fixture for a passive evidence-view prototype.",
+  "redaction_policy": {
+    "source": "public-test-fixture",
+    "forbidden_content": [
+      "real absolute paths",
+      "usernames",
+      "machine labels",
+      "network addresses",
+      "hardware identifiers",
+      "calibration values",
+      "lab-specific labels"
+    ]
+  },
+  "artifacts": [
+    {
+      "path": "registry.json",
+      "public_id": "qa",
+      "role": "anchor",
+      "status": "root seed candidate",
+      "evidence_handling": "observed",
+      "sharing_boundary": "public-safe"
+    },
+    {
+      "path": "parameters.json",
+      "public_id": "vx",
+      "role": "anchor",
+      "status": "root seed candidate",
+      "evidence_handling": "observed",
+      "sharing_boundary": "public-safe"
+    },
+    {
+      "path": "setting/parameters.json",
+      "public_id": "nr",
+      "role": "selected context",
+      "status": "selected-looking candidate",
+      "evidence_handling": "inferred",
+      "sharing_boundary": "public-safe"
+    },
+    {
+      "path": "setting/registry.json",
+      "public_id": "hm",
+      "role": "setup evidence",
+      "status": "selected-looking setup context",
+      "evidence_handling": "observed",
+      "sharing_boundary": "public-safe"
+    },
+    {
+      "path": "setting/temp/chip_info.json",
+      "public_id": "zp",
+      "role": "generated sidecar",
+      "status": "generated candidate",
+      "evidence_handling": "generated",
+      "sharing_boundary": "public-safe"
+    },
+    {
+      "path": "setting/temp/line_info.json",
+      "public_id": "lt",
+      "role": "generated sidecar",
+      "status": "generated candidate",
+      "evidence_handling": "generated",
+      "sharing_boundary": "public-safe"
+    },
+    {
+      "path": "data/run-00042-parameters.json",
+      "public_id": "ky",
+      "role": "copied snapshot",
+      "status": "run-bound copied candidate",
+      "evidence_handling": "copied",
+      "sharing_boundary": "public-safe"
+    },
+    {
+      "path": "variants/manifest.json",
+      "public_id": "dw",
+      "role": "variant",
+      "status": "manifest-only ambiguity",
+      "evidence_handling": "observed",
+      "sharing_boundary": "public-safe"
+    },
+    {
+      "path": "code/config.py",
+      "public_id": "yx",
+      "role": "code reference",
+      "status": "text-only pseudocode",
+      "evidence_handling": "observed",
+      "sharing_boundary": "public-safe"
+    },
+    {
+      "path": "code/init_setting_flow.py",
+      "public_id": "uj",
+      "role": "code reference",
+      "status": "text-only pseudocode",
+      "evidence_handling": "observed",
+      "sharing_boundary": "public-safe"
+    }
+  ]
+}

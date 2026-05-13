@@ -1,0 +1,10 @@
+{
+  "sample_context": {
+    "Q_A": {
+      "role": "placeholder-qubit"
+    }
+  },
+  "notes": {
+    "authority": "not-declared"
+  }
+}

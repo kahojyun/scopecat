@@ -1,0 +1,62 @@
+{
+  "artifact_count": 5,
+  "role_counts": {
+    "anchor": 1,
+    "code reference": 1,
+    "readiness hint": 1,
+    "selected context": 1,
+    "unknown": 1
+  },
+  "relation_types": [
+    "anchors",
+    "appears-selected-for",
+    "missing-fact",
+    "redacts",
+    "references-code"
+  ],
+  "relation_counts": {
+    "anchors": 1,
+    "appears-selected-for": 1,
+    "missing-fact": 2,
+    "redacts": 1,
+    "references-code": 1
+  },
+  "required_relations": [
+    {
+      "relation_type": "references-code",
+      "source_artifact": "zp",
+      "target_artifact": "vx",
+      "evidence_handling": "observed",
+      "flags": ["not-executed"]
+    },
+    {
+      "relation_type": "missing-fact",
+      "source_artifact": "zp",
+      "target_artifact": "wbx",
+      "evidence_handling": "missing",
+      "flags": ["code identity"]
+    }
+  ],
+  "conflict_types": [],
+  "missing_fact_types": [
+    "code identity",
+    "selected settings provenance"
+  ],
+  "readiness_hint_status": "static readiness hints observed",
+  "markdown_sections": [
+    "## Bundle Summary",
+    "## Artifact-Role Inventory",
+    "## Selected-Context Explanation",
+    "## Generated And Copied Relation Summary",
+    "## Code-Reference Summary",
+    "## Static Readiness Hint Summary",
+    "## Variant, Backup, And Unknown Artifact Summary",
+    "## Conflict And Missing-Fact Report",
+    "## Sharing-Boundary Summary",
+    "## Next Checks"
+  ],
+  "markdown_contains": [
+    "| Type | Source | Target | Evidence | Reason | Flags |",
+    "| references-code | `zp` | `vx` | observed |"
+  ]
+}

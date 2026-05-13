@@ -1,0 +1,104 @@
+{
+  "artifact_count": 10,
+  "role_counts": {
+    "anchor": 2,
+    "code reference": 2,
+    "copied snapshot": 1,
+    "generated sidecar": 2,
+    "selected context": 1,
+    "setup evidence": 1,
+    "variant": 1
+  },
+  "relation_types": [
+    "anchors",
+    "appears-selected-for",
+    "conflicts-with",
+    "copied-from",
+    "generated-from",
+    "has-backup",
+    "has-variant",
+    "missing-fact",
+    "redacts",
+    "references-code"
+  ],
+  "relation_counts": {
+    "anchors": 2,
+    "appears-selected-for": 2,
+    "conflicts-with": 3,
+    "copied-from": 1,
+    "generated-from": 2,
+    "has-backup": 1,
+    "has-variant": 1,
+    "missing-fact": 8,
+    "redacts": 1,
+    "references-code": 2
+  },
+  "required_relations": [
+    {
+      "relation_type": "generated-from",
+      "source_artifact": "zp",
+      "target_artifact": "nr",
+      "evidence_handling": "observed",
+      "flags": ["freshness-unchecked"]
+    },
+    {
+      "relation_type": "copied-from",
+      "source_artifact": "ky",
+      "target_artifact": "nr",
+      "evidence_handling": "observed",
+      "flags": ["partial-snapshot"]
+    },
+    {
+      "relation_type": "references-code",
+      "source_artifact": "yx",
+      "target_artifact": "wbq",
+      "evidence_handling": "observed",
+      "flags": ["not-executed", "no-exact-selected-context-path"]
+    },
+    {
+      "relation_type": "has-backup",
+      "source_artifact": "dw",
+      "target_artifact": "wbq",
+      "evidence_handling": "inferred",
+      "flags": ["manifest-only", "backup-ambiguous"]
+    },
+    {
+      "relation_type": "missing-fact",
+      "source_artifact": "uj",
+      "target_artifact": "wbq",
+      "evidence_handling": "missing",
+      "flags": ["code identity"]
+    }
+  ],
+  "conflict_types": [
+    "partial-snapshot",
+    "setup-context-drift",
+    "shape-drift"
+  ],
+  "missing_fact_types": [
+    "code identity",
+    "generated sidecar freshness",
+    "preferred anchor",
+    "selected settings provenance",
+    "snapshot coverage"
+  ],
+  "readiness_hint_status": "no static readiness hints observed",
+  "markdown_sections": [
+    "## Bundle Summary",
+    "## Artifact-Role Inventory",
+    "## Selected-Context Explanation",
+    "## Generated And Copied Relation Summary",
+    "## Code-Reference Summary",
+    "## Static Readiness Hint Summary",
+    "## Variant, Backup, And Unknown Artifact Summary",
+    "## Conflict And Missing-Fact Report",
+    "## Sharing-Boundary Summary",
+    "## Next Checks"
+  ],
+  "markdown_contains": [
+    "| Type | Source | Target | Evidence | Reason | Flags |",
+    "| generated-from | `zp` | `nr` | observed |",
+    "| references-code | `yx` | `wbq` | observed |",
+    "| has-backup | `dw` | `wbq` | inferred |"
+  ]
+}

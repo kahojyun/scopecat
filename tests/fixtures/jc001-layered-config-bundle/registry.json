@@ -1,0 +1,20 @@
+{
+  "devices": {
+    "Q_A": {
+      "drive": "root-drive-a",
+      "readout": "root-readout-a"
+    },
+    "Q_B": {
+      "drive": "root-drive-a",
+      "readout": "root-readout-a"
+    }
+  },
+  "instrument_groups": {
+    "root-drive-a": {
+      "kind": "drive"
+    },
+    "root-readout-a": {
+      "kind": "readout"
+    }
+  }
+}

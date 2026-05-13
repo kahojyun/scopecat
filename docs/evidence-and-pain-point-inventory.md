@@ -2,14 +2,16 @@
 
 ## Status
 
-Ready for W2 fixture source mapping and journey drafting.
+Ready as W1 evidence owner. The first fixture boundary and journey-selection
+decision are now promoted to
+[`jc-001/jc-001-journey-selection-note.md`](jc-001/jc-001-journey-selection-note.md).
 
 ## Purpose
 
 Own W1 from
 [`progressive-adoption-progress-tracker.md`](progressive-adoption-progress-tracker.md):
-turn extracted research into a compact evidence and pain-point inventory before
-selecting the first end-to-end journey.
+preserve the evidence basis behind promoted journeys and future W2 journey
+selection.
 
 This document is not a product vision, persona definition, capability map, or
 architecture decision. It exists to make later journey and vision work less
@@ -25,13 +27,15 @@ workflows Scopecat should preserve, encourage, or emulate.
 
 ## W2 Quick Start
 
-Use this document to write a short journey-selection note before drafting the
-first W2 journey.
+Use this document as the W1 evidence owner behind the first W2 journey. `JC-001`
+has been promoted into the first-wedge document set under
+[`jc-001/README.md`](jc-001/README.md), and the short journey-selection note is
+[`jc-001/jc-001-journey-selection-note.md`](jc-001/jc-001-journey-selection-note.md).
 
-- Default first candidate: `JC-001`, explaining an existing run or work bundle
+- Promoted first candidate: `JC-001`, explaining an existing run or work bundle
   with selected context, code provenance, dependency readiness, companion
   artifacts, and ambiguity.
-- Primary acceptance pressure for that candidate: `PN-002`, `PN-006`,
+- Primary acceptance pressure for that journey: `PN-002`, `PN-006`,
   `PN-005`, and `PN-001`.
 - Primary constraints: adoption-risk hypotheses and guardrails `PN-020`
   through `PN-025`, plus portability and low-ceremony constraints from `PN-007`
@@ -39,15 +43,12 @@ first W2 journey.
 - Diagnostic sharing is boundary-aware: internal lab diagnostics should preserve
   useful local context by default, while public docs, external exports, or
   explicit cross-boundary support packages need sanitization or redaction.
-- Blocking selection question: choose the exact source bundle for the first W2
-  fixture and write a small fixture source map before drafting the journey.
-  Prefer a workflow improvement case bundle with selected context files,
-  notebooks or copied scripts, generated or derived artifacts, and real
-  ambiguity. Use a smaller synthetic reproduction only if the internal bundle
-  is too noisy for the first journey.
-- If `JC-001` fails fixture fit or adoption-risk checks, first revise the
-  fixture or document the rejection. Switch to `JC-009` or `JC-010` only with a
-  diagnostic/comparison boundary, not rollback, environment management,
+- Historical selection work: the first source-map and journey-selection pass
+  has already been promoted. Future fixture or journey changes should update
+  the `jc-001/` document set instead of reopening this inventory as active
+  scope.
+- `JC-009` and `JC-010` remain sanity-check alternatives for later
+  diagnostic/comparison journeys, not rollback, environment management,
   scientific-equivalence scoring, or device-control scope.
 - Do not promote managed execution, live device control, write-back, automatic
   rollback, environment management, framework replacement, a full ELN, or a
@@ -59,11 +60,12 @@ constrain the journey after validation checks, JTBD candidates need journey
 phrasing, capability gaps need fixtures, and framework baselines are substrate
 or validation detail rather than primary product pain.
 
-## W2 Fixture Source Map
+## Future Journey Source-Map Template
 
-Before drafting the first journey, create a small source map for the selected
-fixture. Its job is to keep `JC-001` from becoming a vague "reopen a run"
-story: the fixture should be an existing work bundle with explicit source roles,
+For `JC-001`, use the promoted document set under
+[`jc-001/README.md`](jc-001/README.md). For a future W2 journey, create a small
+source map before drafting the journey. Its job is to keep the journey from
+becoming a vague story: the fixture should have explicit source roles,
 ambiguity, and boundaries.
 
 If the map needs exact local paths, original tree names, system labels, sample
@@ -349,7 +351,7 @@ ID instead.
   semantics.
 - Treat physical wiring, mounted sample state, chip topology, line attenuation,
   and alias maps as declared or externally evidenced state unless a later
-  validation path exists. Record source, freshness, validity period, and
+  validation path exists. Track source, freshness, validity period, and
   verification status instead of presenting them as software-proven truth.
 - Prefer local, versioned, evolvable schemas over a universal parameter or
   setup ontology in W1/W2. A schema can be useful when it stays stable inside a
@@ -706,18 +708,18 @@ Role lenses may switch inside one journey:
 | Decide whether results affect configuration | Configuration reviewer, analyst |
 | Hand off or report | Analyst, recipient, method author |
 
-The first W2 document should keep the full current-state spine visible while
-scoping the future slice narrowly.
+Promoted W2 journey documents should keep the full current-state spine visible
+while scoping the future slice narrowly.
 
 ## Promotion Guidance
 
-The quick start above is the W2 reader entry point. Use these rules when
-promoting W1 material into the journey-selection note:
+The quick start above now points to the promoted `JC-001` document set. The
+rules below are preserved as historical promotion guidance for future journeys:
 
-- `JC-001` is the recommended drafting candidate, not accepted scope.
-  `JC-009` and `JC-010` are sanity-check alternatives for known-good comparison
-  and scientific comparability, not permission to accept rollback, environment
-  mutation, control-PC services, or equivalence scoring.
+- Treat any future candidate as drafting scope until it has its own promoted
+  journey note. `JC-009` and `JC-010` are sanity-check alternatives for
+  known-good comparison and scientific comparability, not permission to accept
+  rollback, environment mutation, control-PC services, or equivalence scoring.
 - Draft the fixture source map before journey prose. If the selected bundle
   cannot identify anchor objects, artifact roles, active versus obsolete
   status, notebook source cells, opaque binary handling, and sharing boundaries,
@@ -776,9 +778,11 @@ redaction risks.
 | Automatic rollback, restore, or environment management as the first answer to known-good pressure | Known-good references should first support comparison and diagnostics; mutation and restore semantics require later decisions. |
 | Generic workflow DAGs, schedulers, queues, shell-command runners, device apply, or AI mutation | These need later scope validation and ADR/review boundaries. |
 
-## Open Questions
+## Historical Selection Questions
 
-Questions that directly affect the first W2 journey selection:
+These questions shaped the first W2 selection and are now resolved for `JC-001`
+by the promoted document set under [`jc-001/README.md`](jc-001/README.md).
+Keep them here only as reusable prompts for future journey selection:
 
 - What exact source bundle should define the first W2 validation fixture:
   workflow improvement case configuration/code/artifact bundle,
@@ -802,9 +806,8 @@ Questions that directly affect the first W2 journey selection:
   Scopecat owns setup, parameters, notebook state, or code execution?
 - Which role lenses must be visible in W2 without splitting one natural
   notebook-like workflow into separate role-specific journeys?
-- Which top-level pain narrative should seed the first W2 journey, and which
-  foundational pain points should become that journey's actual acceptance
-  pressure?
+- Which top-level pain narrative should seed the journey, and which
+  foundational pain points should become its acceptance pressure?
 
 Later validation backlog:
 
@@ -838,9 +841,15 @@ Later validation backlog:
   sanitized exports for public docs, external support, or other boundary
   crossings, without turning into a ticketing or remote-support product?
 
-## Exit Criteria For W1
+## Fulfilled W1 Checklist
 
-W1 is Ready for W2 fixture source mapping and journey drafting when:
+`JC-001` has already been promoted from this checklist into the first-wedge
+document set under [`jc-001/README.md`](jc-001/README.md). Keep this checklist
+as a reusable W1 gate for future journey candidates, not as an active blocker
+for `JC-001`.
+
+A future W1 pass is ready for W2 fixture source mapping and journey drafting
+when:
 
 - major journey candidates link to evidence, source support, or explicit
   assumptions, with validation routes for direct, inferred, latent,
@@ -879,14 +888,14 @@ drafting:
 - shape and lifecycle validation cases;
 - anti-patterns that should not be preserved.
 
-W2 should not need another broad pass over those categories before drafting the
-first journey. This saturation claim applies to artifact-derived categories,
-not to adoption-risk hypotheses, cross-lab demand, role behavior, or market
-differentiation. Remaining research should target exact examples, citations,
-fixtures, or latent workflow validation: JTBD conversion, plan preview, dry-run
-packaging, campaign-level comparison, scientific comparability, full-stack
-known-good diffs, setup-reality maps, useful declared physical context, local
-schema evolution, calibration impact, analysis/publication lineage,
+Future W2 work should not need another broad pass over those categories before
+drafting a journey. This saturation claim applies to artifact-derived
+categories, not to adoption-risk hypotheses, cross-lab demand, role behavior,
+or market differentiation. Remaining research should target exact examples,
+citations, fixtures, or latent workflow validation: JTBD conversion, plan
+preview, dry-run packaging, campaign-level comparison, scientific comparability,
+full-stack known-good diffs, setup-reality maps, useful declared physical
+context, local schema evolution, calibration impact, analysis/publication lineage,
 manual-intervention memory, behavioral-prior prompt artifacts,
 existing-framework baseline separation, control-PC read-only companion
 constraints, known-good references, boundary-aware diagnostic packages, resource
