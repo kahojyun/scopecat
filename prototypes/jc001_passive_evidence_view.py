@@ -19,7 +19,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 ROLE_MAP = {
     "anchor": "anchor",
     "selected-context candidate": "selected context",
@@ -72,13 +71,7 @@ class EvidenceViewError(RuntimeError):
 
 
 def raw_artifact_id(path: str) -> str:
-    return (
-        path.replace(" - ", "-")
-        .replace("/", "__")
-        .replace(".", "_")
-        .replace(" ", "_")
-        .lower()
-    )
+    return path.replace(" - ", "-").replace("/", "__").replace(".", "_").replace(" ", "_").lower()
 
 
 PUBLIC_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -138,7 +131,10 @@ def validate_fixture_authored_handle(handle: str, source_values: list[str], labe
             for token in tokens
             if len(token) >= 4
         )
-        or any(compact_source_match(compact_source, compact_handle) for compact_source in compact_sources)
+        or any(
+            compact_source_match(compact_source, compact_handle)
+            for compact_source in compact_sources
+        )
     ):
         raise EvidenceViewError(f"{label} must not include source-derived text")
 
@@ -471,9 +467,7 @@ def validate_manifest(manifest: Any, fixture_dir: Path) -> dict[str, Any]:
             f"artifacts[{index}].public_id",
         ).strip()
         if not PUBLIC_ID_PATTERN.fullmatch(public_id):
-            raise EvidenceViewError(
-                f"artifacts[{index}].public_id must be a public-safe slug"
-            )
+            raise EvidenceViewError(f"artifacts[{index}].public_id must be a public-safe slug")
         if artifact_path in seen_paths:
             raise EvidenceViewError(f"duplicate manifest artifact path: {artifact_path}")
         seen_paths.add(artifact_path)
@@ -507,8 +501,7 @@ def build_artifacts(manifest: dict[str, Any], source_values: list[str]) -> list[
         if emitted_id in seen_public_ids:
             first_path = seen_public_ids[emitted_id]
             raise EvidenceViewError(
-                "duplicate emitted artifact ID: "
-                f"{emitted_id} from {first_path} and {path}"
+                f"duplicate emitted artifact ID: {emitted_id} from {first_path} and {path}"
             )
         seen_public_ids[emitted_id] = path
         artifacts.append(
@@ -714,7 +707,9 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
     selected_context = selected_contexts[0] if len(selected_contexts) == 1 else None
     setup_contexts = [artifact for artifact in artifacts if artifact.role == "setup evidence"]
     setup_context = setup_contexts[0] if len(setup_contexts) == 1 else None
-    generated_sidecars = [artifact for artifact in artifacts if artifact.role == "generated sidecar"]
+    generated_sidecars = [
+        artifact for artifact in artifacts if artifact.role == "generated sidecar"
+    ]
     copied_snapshots = [artifact for artifact in artifacts if artifact.role == "copied snapshot"]
     variants = [artifact for artifact in artifacts if artifact.role == "variant"]
     code_refs = [artifact for artifact in artifacts if artifact.role == "code reference"]
@@ -771,9 +766,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
             "Manifest role and static code text point to this artifact as selected-looking context."
             if has_clue
             else "Manifest role marks this artifact as selected-looking context; no supporting code clue was observed.",
-            ["non-authoritative"]
-            if has_clue
-            else ["non-authoritative", "manifest-role-only"],
+            ["non-authoritative"] if has_clue else ["non-authoritative", "manifest-role-only"],
         )
 
     for setup_context_item in setup_contexts:
@@ -832,7 +825,9 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         matched_contexts = [
             selected
             for selected in selected_contexts
-            if code_mentions_artifact_path({code_ref.path: code_text.get(code_ref.path, "")}, selected.path)
+            if code_mentions_artifact_path(
+                {code_ref.path: code_text.get(code_ref.path, "")}, selected.path
+            )
         ]
         target_contexts = matched_contexts
         targets = target_contexts or [None]
@@ -860,7 +855,9 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
                 flags,
             )
 
-    backup_variants = [variant for variant in variants if variant_has_backup_evidence(variant, json_payloads)]
+    backup_variants = [
+        variant for variant in variants if variant_has_backup_evidence(variant, json_payloads)
+    ]
     for variant in variants:
         add_relation(
             "has-variant",
@@ -984,9 +981,7 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         payload = json_payloads.get(snapshot.path, {})
         copied_from = payload.get("copied_from")
         normalized_copied_from = (
-            normalize_declared_source_path(copied_from)
-            if isinstance(copied_from, str)
-            else None
+            normalize_declared_source_path(copied_from) if isinstance(copied_from, str) else None
         )
         if normalized_copied_from and by_path.get(normalized_copied_from) in selected_contexts:
             contexts_to_compare = [by_path[normalized_copied_from]]
@@ -1122,10 +1117,10 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         },
         "artifact_role_inventory": inventory,
         "selected_context_explanation": {
-            "selected_context_candidate": selected_context.artifact_id if selected_context else None,
-            "selected_context_candidates": [
-                selected.artifact_id for selected in selected_contexts
-            ],
+            "selected_context_candidate": selected_context.artifact_id
+            if selected_context
+            else None,
+            "selected_context_candidates": [selected.artifact_id for selected in selected_contexts],
             "setup_context_candidate": setup_context.artifact_id if setup_context else None,
             "setup_context_candidates": [setup.artifact_id for setup in setup_contexts],
             "selection_evidence": [
@@ -1166,7 +1161,9 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
         "variant_backup_unknown_summary": {
             "variant_artifacts": [variant.artifact_id for variant in variants],
             "backup_ambiguity_visible": bool(backup_variants),
-            "unknown_artifacts": [artifact.artifact_id for artifact in artifacts if artifact.role == "unknown"],
+            "unknown_artifacts": [
+                artifact.artifact_id for artifact in artifacts if artifact.role == "unknown"
+            ],
         },
         "relations": relations,
         "conflict_and_missing_fact_report": {
@@ -1219,11 +1216,17 @@ def build_next_checks(
 ) -> list[str]:
     next_checks: list[str] = []
     if len(anchors) != 1:
-        next_checks.append("Ask which bundle anchor should be preferred, or preserve explicit alternatives.")
+        next_checks.append(
+            "Ask which bundle anchor should be preferred, or preserve explicit alternatives."
+        )
     if selected_context_count > 1:
-        next_checks.append("Ask which selected-looking context applies, or preserve explicit alternatives.")
+        next_checks.append(
+            "Ask which selected-looking context applies, or preserve explicit alternatives."
+        )
     if selected_context is not None:
-        next_checks.append("Ask whether selected settings path, selection reason, and freshness marker exist.")
+        next_checks.append(
+            "Ask whether selected settings path, selection reason, and freshness marker exist."
+        )
     if generated_sidecars:
         next_checks.append("Ask whether generated sidecar source and invalidation rules exist.")
     if copied_snapshots:
@@ -1231,7 +1234,9 @@ def build_next_checks(
     if code_refs:
         next_checks.append("Keep code references static until code identity ownership is accepted.")
     if readiness_hints:
-        next_checks.append("Keep readiness hints static until managed execution boundaries are accepted.")
+        next_checks.append(
+            "Keep readiness hints static until managed execution boundaries are accepted."
+        )
     return next_checks
 
 
@@ -1279,19 +1284,25 @@ def render_markdown(view: dict[str, Any]) -> str:
             "## Selected-Context Explanation",
             "",
             "- Selected context candidate: "
-            + display_value(public_id(view["selected_context_explanation"]["selected_context_candidate"])),
+            + display_value(
+                public_id(view["selected_context_explanation"]["selected_context_candidate"])
+            ),
             "- Selected context candidates: "
             + public_ids(view["selected_context_explanation"]["selected_context_candidates"]),
             "- Setup context candidate: "
-            + display_value(public_id(view["selected_context_explanation"]["setup_context_candidate"])),
+            + display_value(
+                public_id(view["selected_context_explanation"]["setup_context_candidate"])
+            ),
             "- Setup context candidates: "
             + public_ids(view["selected_context_explanation"]["setup_context_candidates"]),
             f"- Status: {view['selected_context_explanation']['status']}",
             "",
             "## Generated And Copied Relation Summary",
             "",
-            "- Generated sidecars: " + public_ids(view["generated_and_copied_relation_summary"]["generated_sidecars"]),
-            "- Copied snapshots: " + public_ids(view["generated_and_copied_relation_summary"]["copied_snapshots"]),
+            "- Generated sidecars: "
+            + public_ids(view["generated_and_copied_relation_summary"]["generated_sidecars"]),
+            "- Copied snapshots: "
+            + public_ids(view["generated_and_copied_relation_summary"]["copied_snapshots"]),
             "",
             "Relation inventory:",
             "",
@@ -1322,9 +1333,11 @@ def render_markdown(view: dict[str, Any]) -> str:
             "",
             "## Variant, Backup, And Unknown Artifact Summary",
             "",
-            "- Variant artifacts: " + public_ids(view["variant_backup_unknown_summary"]["variant_artifacts"]),
+            "- Variant artifacts: "
+            + public_ids(view["variant_backup_unknown_summary"]["variant_artifacts"]),
             f"- Backup ambiguity visible: `{view['variant_backup_unknown_summary']['backup_ambiguity_visible']}`",
-            "- Unknown artifacts: " + public_ids(view["variant_backup_unknown_summary"]["unknown_artifacts"]),
+            "- Unknown artifacts: "
+            + public_ids(view["variant_backup_unknown_summary"]["unknown_artifacts"]),
             "",
             "## Conflict And Missing-Fact Report",
             "",

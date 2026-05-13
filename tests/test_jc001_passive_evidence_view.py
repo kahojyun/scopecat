@@ -9,7 +9,6 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests" / "fixtures" / "jc001-layered-config-bundle"
 EXPECTED_SHAPE = FIXTURE / "expected-shape.json"
@@ -31,7 +30,9 @@ def fixture_hashes(fixture=FIXTURE):
     hashes = {}
     for path in sorted(fixture.rglob("*")):
         if path.is_file():
-            hashes[path.relative_to(fixture).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+            hashes[path.relative_to(fixture).as_posix()] = hashlib.sha256(
+                path.read_bytes()
+            ).hexdigest()
     return hashes
 
 
@@ -200,7 +201,9 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         self.assertIn("partial-snapshot", snapshot_relation["flags"])
 
         self.assertEqual(view["readiness_hint_summary"]["readiness_hints"], [])
-        self.assertEqual(view["readiness_hint_summary"]["status"], "no static readiness hints observed")
+        self.assertEqual(
+            view["readiness_hint_summary"]["status"], "no static readiness hints observed"
+        )
         missing_types = {
             item["fact_type"] for item in view["conflict_and_missing_fact_report"]["missing_facts"]
         }
@@ -311,7 +314,10 @@ class PassiveEvidenceViewTest(unittest.TestCase):
     @unittest.skipUnless(hasattr(os, "symlink"), "symlink support is required")
     def test_manifest_artifact_symlink_cannot_escape_fixture(self):
         prototype = load_prototype()
-        with tempfile.TemporaryDirectory() as fixture_dir, tempfile.TemporaryDirectory() as external_dir:
+        with (
+            tempfile.TemporaryDirectory() as fixture_dir,
+            tempfile.TemporaryDirectory() as external_dir,
+        ):
             fixture_path = Path(fixture_dir)
             external_path = Path(external_dir) / "outside.json"
             write_json(external_path, {"outside": True})
@@ -348,7 +354,10 @@ class PassiveEvidenceViewTest(unittest.TestCase):
     @unittest.skipUnless(hasattr(os, "symlink"), "symlink support is required")
     def test_fixture_manifest_symlink_cannot_escape_fixture(self):
         prototype = load_prototype()
-        with tempfile.TemporaryDirectory() as fixture_dir, tempfile.TemporaryDirectory() as external_dir:
+        with (
+            tempfile.TemporaryDirectory() as fixture_dir,
+            tempfile.TemporaryDirectory() as external_dir,
+        ):
             fixture_path = Path(fixture_dir)
             external_manifest = Path(external_dir) / "fixture-manifest.json"
             write_json(
@@ -554,7 +563,9 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as fixture_dir:
             fixture_path = Path(fixture_dir)
             write_json(fixture_path / "parameters.json", {"alpha": "root"})
-            write_json(fixture_path / "active" / "context.json", {"alpha": "selected", "beta": "extra"})
+            write_json(
+                fixture_path / "active" / "context.json", {"alpha": "selected", "beta": "extra"}
+            )
             write_json(
                 fixture_path / "data" / "snapshot.json",
                 {"copied_from": "active/context.json", "alpha": "selected"},
@@ -717,8 +728,7 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         setup_relations = [
             item
             for item in view["relations"]
-            if item["relation_type"] == "appears-selected-for"
-            and "setup-evidence" in item["flags"]
+            if item["relation_type"] == "appears-selected-for" and "setup-evidence" in item["flags"]
         ]
         self.assertEqual([item["source_artifact"] for item in setup_relations], ["vx", "nr"])
         self.assertIsNone(view["selected_context_explanation"]["setup_context_candidate"])
@@ -738,7 +748,9 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as fixture_dir:
             fixture_path = Path(fixture_dir)
             write_json(fixture_path / "registry.json", {"entries": [{"slot": "root"}]})
-            write_json(fixture_path / "active" / "setup.json", {"entries": [{"channel": "selected"}]})
+            write_json(
+                fixture_path / "active" / "setup.json", {"entries": [{"channel": "selected"}]}
+            )
             write_json(
                 fixture_path / "fixture-manifest.json",
                 {
@@ -1304,9 +1316,7 @@ class PassiveEvidenceViewTest(unittest.TestCase):
             markdown = prototype.render_markdown(view)
 
         selected_relations = [
-            item
-            for item in view["relations"]
-            if item["relation_type"] == "appears-selected-for"
+            item for item in view["relations"] if item["relation_type"] == "appears-selected-for"
         ]
         self.assertEqual(
             [item["source_artifact"] for item in selected_relations],
@@ -1326,17 +1336,14 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         self.assertIn("`vx`, `nr`", markdown)
 
         conflict_artifacts = [
-            item["artifacts"]
-            for item in view["conflict_and_missing_fact_report"]["conflicts"]
+            item["artifacts"] for item in view["conflict_and_missing_fact_report"]["conflicts"]
         ]
         self.assertIn(["qa", "vx"], conflict_artifacts)
         self.assertIn(["qa", "nr"], conflict_artifacts)
         self.assertIn(["hm", "nr"], conflict_artifacts)
 
         copied_relations = [
-            relation
-            for relation in view["relations"]
-            if relation["relation_type"] == "copied-from"
+            relation for relation in view["relations"] if relation["relation_type"] == "copied-from"
         ]
         self.assertEqual(
             [relation["target_artifact"] for relation in copied_relations],
@@ -1416,8 +1423,7 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         relation = relation_by_type_and_source(view, "copied-from", "hm")
         self.assertEqual(relation["target_artifact"], "vx")
         conflict_artifacts = [
-            item["artifacts"]
-            for item in view["conflict_and_missing_fact_report"]["conflicts"]
+            item["artifacts"] for item in view["conflict_and_missing_fact_report"]["conflicts"]
         ]
         self.assertNotIn(["hm", "nr"], conflict_artifacts)
 
@@ -1426,7 +1432,9 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as fixture_dir:
             fixture_path = Path(fixture_dir)
             write_json(fixture_path / "parameters.json", {"entries": [{"alpha": "root"}]})
-            write_json(fixture_path / "active" / "context.json", {"entries": [{"alpha": "selected"}]})
+            write_json(
+                fixture_path / "active" / "context.json", {"entries": [{"alpha": "selected"}]}
+            )
             write_json(
                 fixture_path / "data" / "snapshot.json",
                 {"copied_from": "active/context.json", "entries": [{}]},
@@ -1542,8 +1550,7 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         relation = relation_by_type_and_source(view, "copied-from", "hm")
         self.assertEqual(relation["target_artifact"], "vx")
         conflict_artifacts = [
-            item["artifacts"]
-            for item in view["conflict_and_missing_fact_report"]["conflicts"]
+            item["artifacts"] for item in view["conflict_and_missing_fact_report"]["conflicts"]
         ]
         self.assertNotIn(["hm", "nr"], conflict_artifacts)
 
@@ -1690,7 +1697,7 @@ class PassiveEvidenceViewTest(unittest.TestCase):
                             "status": "readiness from private/env.json",
                             "evidence_handling": "observed",
                             "sharing_boundary": "redaction-sensitive",
-                        }
+                        },
                     ],
                 },
             )
@@ -1788,7 +1795,9 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         first_inventory = first_view["artifact_role_inventory"]
         second_inventory = second_view["artifact_role_inventory"]
 
-        self.assertEqual([item["artifact_id"] for item in first_inventory], list(public_ids.values()))
+        self.assertEqual(
+            [item["artifact_id"] for item in first_inventory], list(public_ids.values())
+        )
         self.assertEqual(
             [item["artifact_id"] for item in second_inventory],
             [

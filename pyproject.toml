@@ -1,0 +1,16 @@
+[tool.ruff]
+force-exclude = true
+line-length = 100
+target-version = "py311"
+exclude = [
+  "tests/fixtures",
+]
+
+[tool.ruff.lint]
+select = [
+  "E4",
+  "E7",
+  "E9",
+  "F",
+  "I",
+]
