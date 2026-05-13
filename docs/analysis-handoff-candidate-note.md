@@ -38,7 +38,6 @@ post-run browser
   -> multi-select runs like files
   -> create an immutable self-contained handoff snapshot
   -> preserve source IDs, read guidance, context evidence, and missing warnings
-  -> optionally write back fit results, figure references, notes, or stars
 ```
 
 The handoff package should include data plus enough context to explain results:
@@ -46,6 +45,11 @@ source run or dataset identity, selected context evidence, calibration or
 correction references where available, generated or companion artifacts,
 code references or key script snapshots, evidence-handling labels, and explicit
 missing-context warnings.
+
+Analysis-result write-back is separate from the immutable handoff snapshot. If
+it becomes part of a later slice, it should be user-approved append-only derived
+evidence, such as fit results, figure references, notes, or stars. It must not
+mutate source data, configuration, setup, parameter, or execution-state truth.
 
 ## Adoption Baseline
 
