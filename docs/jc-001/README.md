@@ -2,7 +2,8 @@
 
 ## Status
 
-Active first-wedge record.
+Active first-wedge record. This is an index and history status, not a shared
+validation status for every artifact in this folder.
 
 ## Purpose
 
@@ -13,6 +14,8 @@ in one place.
 a passive evidence view. The current validated boundary is read-only,
 fixture-sized, no execution, no mutation, no hardware verification, no
 source-of-record authority, and no package/parser/storage/UI promotion.
+It is fixture validated and boundary accepted, but not user validated or
+product accepted.
 
 Use this folder as an earned exemplar for later journey candidates, not as a
 packet to copy wholesale. Future folders should start with the smallest useful
@@ -46,7 +49,7 @@ question:
 | Product or history reader | Selection note -> journey -> adoption extraction -> wedge -> decision. |
 | Implementation reviewer | Decision -> prototype scope -> manifest/public-output contract -> static-analysis spike -> concepts and contracts. |
 | Architecture reviewer | Concepts and contracts -> capability ownership -> decision -> tracker status. |
-| Future JC author | Selection note -> journey -> reusable pattern below; add later artifacts only as earned. |
+| Future JC author | Operating standard -> evidence inventory candidate row -> source map -> selection note -> journey; use this folder only as an earned exemplar. |
 
 ## Current State
 
@@ -65,16 +68,18 @@ The current next product/architecture choice is tracked in
 ## Reusable Pattern
 
 Future JC folders should add only the next earned artifact. Start with
-selection and journey notes; add capability, wedge, contract, spike, decision,
-prototype, and ownership notes only when later evidence promotes them. Use
-these questions as the sequence:
+source-map, selection, and journey notes; add capability, wedge, contract,
+spike, decision, prototype, and ownership notes only when later evidence
+promotes them. Use these questions as the sequence:
 
-1. Why this journey and fixture boundary?
-2. What current-state and future-state user journey is being tested?
-3. Which capabilities are touched, and what is the smallest useful adoption
+1. What concrete source bundle, source family, or fixture boundary is being
+   mapped?
+2. Why this journey and fixture boundary?
+3. What current-state and future-state user journey is being tested?
+4. Which capabilities are touched, and what is the smallest useful adoption
    step for each?
-4. What is the thin migration wedge?
-5. Which concepts and contracts are needed for that wedge?
-6. What spike or prototype result validates the decision?
-7. What is accepted, deferred, and reopened only with new evidence?
-8. Which provisional owners are created by the accepted wedge?
+5. What is the thin migration wedge?
+6. Which concepts and contracts are needed for that wedge?
+7. What spike or prototype result validates the decision?
+8. What is accepted, deferred, and reopened only with new evidence?
+9. Which provisional owners are created by the accepted wedge?

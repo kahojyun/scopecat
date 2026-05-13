@@ -4,6 +4,9 @@
 
 Accepted boundary on 2026-05-12.
 
+This decision is fixture validated and boundary accepted. It is not user
+validated, product accepted, or a durable subsystem-ownership decision.
+
 ## Decision
 
 Scopecat accepts the first `JC-001` product wedge as a passive evidence-view
@@ -101,9 +104,12 @@ for passive explanation.
 ## Consequences
 
 The first read-only prototype and second public-safe fixture validate this
-boundary at fixture scale. The next product or architecture choice is whether
-to seed a small capability map from the provisional ownership pass or select a
-second journey to test those owners under different pressure.
+boundary at fixture scale. They do not yet show that representative users can
+complete the task better, interpret every confidence signal correctly, or treat
+the passive evidence view as accepted product direction. The next product or
+architecture choice is whether to seed a small capability map from the
+provisional ownership pass or select a second journey to test those owners
+under different pressure.
 
 Confidence remains narrative-based, not numeric. Code-reference handling stays
 static until a later Code Asset Registry or Managed Code Runner decision

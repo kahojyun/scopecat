@@ -25,7 +25,7 @@ volatile by separating:
 Legacy workflows are current-state evidence. They are not automatically
 workflows Scopecat should preserve, encourage, or emulate.
 
-## W2 Quick Start
+## Historical W2 Quick Start
 
 Use this document as the W1 evidence owner behind the first W2 journey. `JC-001`
 has been promoted into the first-wedge document set under
@@ -66,6 +66,10 @@ Use this document as the W1 evidence owner behind future `JC-###` selection.
 Use [`jc-analysis-operating-standard.md`](jc-analysis-operating-standard.md)
 for source-map fields, status language, promotion gates, reopening rules, and
 future-journey operating workflow.
+
+Start future `JC` work from the candidate rows below, then create a dedicated
+source map before drafting journey prose. Do not reopen the historical
+`JC-001` quick-start text unless new evidence changes the first-wedge record.
 
 ## Sources
 

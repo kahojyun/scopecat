@@ -57,7 +57,7 @@ Each artifact entry must include:
 | `path` | Yes | Fixture-local path to an artifact. |
 | `public_id` | Yes | Fixture-authored public artifact identifier emitted in JSON and Markdown output. |
 | `role` | Yes | Role normalized to the first-wedge role vocabulary or `unknown`. |
-| `status` | Yes | Source status text; redacted from public output for redaction-sensitive artifacts. |
+| `status` | Yes | Source status text used for fixture validation; public output emits a retained-in-fixture or redacted status rather than the source status text. |
 | `evidence_handling` | Yes | First-wedge evidence handling value. |
 | `sharing_boundary` | Yes | Public-output boundary for the artifact. |
 
@@ -83,6 +83,31 @@ The prototype does not currently accept `internal-safe`,
 `external-support-safe`, or `unsafe-to-share` artifacts. Those are follow-on
 sharing-policy decisions.
 
+### Role Normalization
+
+Manifest roles are normalized before they are used in public IDs, relation
+generation, and report sections.
+
+| Manifest role | Normalized role |
+| --- | --- |
+| `anchor` | `anchor` |
+| `selected-context candidate` | `selected context` |
+| `selected context` | `selected context` |
+| `fixture-authored` | `fixture-authored` |
+| `setup evidence` | `setup evidence` |
+| `generated sidecar` | `generated sidecar` |
+| `run-bound copied snapshot` | `copied snapshot` |
+| `copied snapshot` | `copied snapshot` |
+| `variant` | `variant` |
+| `code-shape evidence` | `code reference` |
+| `code reference` | `code reference` |
+| `readiness hint` | `readiness hint` |
+| any other role | `unknown` |
+
+`generated sidecar` is fixture vocabulary for this prototype. Broader product
+docs should prefer `companion artifact` unless they are describing this
+specific fixture role.
+
 ## Fixture-Local Path Rules
 
 Manifest paths must:
@@ -94,6 +119,19 @@ Manifest paths must:
 - not produce duplicate generated raw artifact IDs.
 
 The fixture manifest itself must also resolve inside the fixture directory.
+
+## Artifact Read Behavior
+
+The prototype infers artifact read behavior from path and normalized role:
+
+- paths ending in `.json` are parsed as JSON artifacts;
+- normalized `code reference` artifacts are read as static UTF-8 text;
+- code text is never imported or executed;
+- opaque non-JSON artifacts are not semantically inspected by this contract.
+
+Future fixtures that need notebooks, binary artifacts, non-JSON text artifacts,
+or unusual suffixes must reopen this contract or create a separate fixture
+contract.
 
 ## Public Identity Rules
 
@@ -110,6 +148,14 @@ All public IDs must match the public-safe slug pattern:
 Public-safe artifacts:
 
 - must provide an explicit `public_id`;
+- must not use a `redacted-` prefix;
+- must not include source-derived text from fixture ID, purpose, redaction
+  policy source, forbidden-content categories, artifact paths, artifact status,
+  JSON payloads, or code text.
+
+Public-safe bundle IDs:
+
+- must provide an explicit `public_bundle_id`;
 - must not use a `redacted-` prefix;
 - must not include source-derived text from fixture ID, purpose, redaction
   policy source, forbidden-content categories, artifact paths, artifact status,
@@ -137,6 +183,44 @@ Redaction-sensitive bundle IDs:
 
 Public artifact IDs must not collide with the emitted bundle ID or with other
 emitted artifact IDs.
+
+Fixture-authored redaction handles use the stricter handle pattern:
+
+```text
+^[a-z][a-z0-9]{0,7}$
+```
+
+The prototype rejects handles that look hash-derived with six to eight
+hexadecimal characters, match source raw IDs, include source tokens of four or
+more characters, or partially overlap with longer source tokens. Common file
+extension tokens such as `json`, `txt`, `py`, and `md` are ignored for this
+source-token check.
+
+## Relation Generation Rules
+
+The current fixture-scale relation rules are part of this contract:
+
+- selected-context artifacts get `appears-selected-for` relations to the
+  bundle, with static-code support when an exact selected-context path clue is
+  found;
+- setup evidence gets `appears-selected-for` relations to the bundle and stays
+  non-authoritative physical context evidence;
+- generated sidecars use a JSON `generated_from` field when present, falling
+  back to selected-context artifacts or the bundle as redacted evidence;
+- copied snapshots use a JSON `copied_from` field when present, falling back to
+  selected-context artifacts or the bundle as redacted evidence;
+- code references are text-only `references-code` evidence and target exact
+  selected-context path matches when present;
+- root `parameters.json` is compared with selected-context JSON artifacts for
+  shape drift and value drift conflicts;
+- root `registry.json` is compared with setup-context artifacts, or with
+  `setting/registry.json` when that artifact normalizes to selected context or
+  setup evidence;
+- variant artifacts preserve branch and backup ambiguity without choosing a
+  winner.
+
+These rules are accepted for `JC-001` fixture validation only. They are not a
+general parser framework or durable relation engine.
 
 ## Public Output Redaction Rules
 

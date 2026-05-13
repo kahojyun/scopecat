@@ -6,10 +6,11 @@ Track durable product and architecture progress for Scopecat without turning
 early work into a premature subsystem scaffold.
 
 Current state: `JC-001` has an accepted passive evidence-view decision, a
-two-fixture project-owned read-only implementation spike, and a provisional
-capability ownership pass for the first wedge. The current decision point is
-whether to seed a small capability map from this provisional ownership pass or
-test a second journey before broadening ownership.
+static-analysis spike, a two-fixture read-only prototype scope, a
+fixture-validated manifest/public-output contract, and a provisional capability
+ownership pass for the first wedge. The current decision point is whether to
+seed a small capability map from this provisional ownership pass or test a
+second journey before broadening ownership.
 This tracker is active. Unpromoted or non-`JC-001` W3+ adoption ladders,
 migration wedges, capability names, and contract ideas remain hypotheses until
 a selected W2 journey promotes them.
@@ -32,6 +33,12 @@ Journey-first discovery
 ```
 
 ## Status Legend
+
+These are tracker phase statuses. They are not the same as the validation
+statuses in
+[`jc-analysis-operating-standard.md`](jc-analysis-operating-standard.md).
+For example, a tracker row marked `Ready` may point to a document whose own
+status is `Accepted boundary`, `Fixture validated`, or `Provisional`.
 
 | Status | Meaning |
 | --- | --- |
@@ -72,7 +79,7 @@ falsifies the accepted artifact.
 | Research acceptance-readiness triage | Transitional | `research/extracted/research-acceptance-readiness-triage.md` separates accepted guardrails, evidence, inferences, adoption hypotheses, future pressure, ADR-gated items, and directions not to accept upfront. |
 | Legacy experiment code sample validation | Transitional | `research/extracted/legacy-experiment-code-sample-validation.md` validates the research triage and raises companion artifacts, analysis handoff, hardware bring-up, dependency/environment, notebook hygiene, and portability evidence. |
 | Evidence and pain-point inventory | Ready | `evidence-and-pain-point-inventory.md` is the W1 owner. `JC-001` has been promoted into the first-wedge document set. |
-| JC-001 first-wedge document set | Ready | `jc-001/README.md` owns the detailed reading order, accepted passive evidence-view boundary, fixture-validated prototype result, manifest/public-output contract, validated-boundary checks, and provisional ownership pass. |
+| JC-001 first-wedge document set | Ready | `jc-001/README.md` owns the detailed reading order. Contained artifact statuses differ: decision is accepted boundary, prototype and manifest/public-output contract are fixture validated, and ownership remains provisional. |
 
 ## Workstreams
 
@@ -84,8 +91,8 @@ falsifies the accepted artifact.
 | W4 | Migration wedges | Ready | `jc-001/jc-001-existing-bundle-to-explainable-context-wedge.md` | The accepted `JC-001` passive evidence-view wedge is ready; broader wedge ranking remains future W4 work. |
 | W5 | Capability map | Provisional | `jc-001/jc-001-passive-evidence-view-capability-ownership.md` | JC-001 ownership pressure is explicit without promoting a broader capability map; promote to drafting after either a small map is selected or a second journey tests the owners. |
 | W6 | Cross-capability contracts | Ready | `jc-001/jc-001-concepts-and-contracts.md` | Shared concepts, provisional owner pressure, and dependency direction are explicit for the accepted wedge. |
-| W7 | Technical spikes | Ready | `jc-001/jc-001-static-analysis-spike.md` | Each spike has a question, result, decision impact, and follow-up. |
-| W8 | Decision promotion | Ready | `jc-001/jc-001-passive-evidence-view-decision.md` | Validated conclusions are promoted out of research notes. |
+| W7 | Technical spikes and prototypes | Ready | `jc-001/jc-001-static-analysis-spike.md`; `jc-001/jc-001-passive-evidence-view-prototype-scope.md` | The static-analysis spike has a question, result, decision impact, and follow-up; the read-only prototype scope records two-fixture validation. |
+| W8 | Decision promotion | Accepted | `jc-001/jc-001-passive-evidence-view-decision.md` | The passive evidence-view boundary is accepted at fixture scale; it is not user validated or product accepted. |
 
 ## Adoption Ladders To Define
 

@@ -43,6 +43,18 @@ For `JC-001` today, the passive evidence-view decision is an accepted boundary,
 the prototype scope is fixture validated, and the product direction is not yet
 product accepted.
 
+### Status Crosswalk
+
+The statuses above are validation statuses for documents, claims, decisions,
+fixtures, and contracts. Older tracker/index labels remain phase or navigation
+labels unless an owning document says otherwise.
+
+| Label family | Examples | Meaning | Preferred use |
+| --- | --- | --- | --- |
+| Validation status | `Doc ready`, `Fixture validated`, `Accepted boundary`, `Product accepted` | How far a specific artifact, claim, fixture, or decision has been validated. | Use in `JC-###` documents and accepted decisions. |
+| Tracker phase status | `Ready`, `Promoted`, `Accepted`, `Transitional`, `Quarantined` | Where a workstream or inventory item sits in the progressive adoption tracker. | Use in `progressive-adoption-progress-tracker.md`; do not treat bare `Ready` as fixture, user, or product validation. |
+| Index descriptor | `Active tracker`, `Active first-wedge record`, `Ready as W1 evidence owner` | How a reader should navigate the document set. | Use in `document-index.md` and README entry points; do not use as the validation status of every contained artifact. |
+
 ## Change Classes
 
 Classify every durable `JC` change before editing:
@@ -77,10 +89,34 @@ Start a future `JC-###` with selection, source-map, and journey notes only. Add
 capability, wedge, contract, spike, decision, prototype, and ownership artifacts
 only when later evidence earns them.
 
+### Starting The Next JC
+
+For the next `JC-###`, start here:
+
+1. Select one candidate row from
+   [`evidence-and-pain-point-inventory.md`](evidence-and-pain-point-inventory.md),
+   usually a `JC-###` candidate backed by concrete `PN-###` rows.
+2. Create `docs/jc-###/jc-###-source-map.md` before writing journey prose.
+3. Create `docs/jc-###/jc-###-journey-selection-note.md` only after the
+   source map shows a concrete fixture boundary.
+4. Create `docs/jc-###/jc-###-<short-name>-journey.md` with the current-state
+   spine, future-state slice, non-goals, and validation route.
+5. Stop there unless the evidence earns an adoption extraction, wedge,
+   concepts/contracts note, spike, prototype, decision, or ownership pass.
+
+The `JC-001` folder shows how a candidate can accumulate later artifacts. It
+is not the minimum starting packet for new journey work.
+
 ## Source-Map Gate
 
 Draft the source map before journey prose. Its job is to keep the journey from
 becoming a vague story.
+
+Use `docs/jc-###/jc-###-source-map.md` as the default public-safe source-map
+artifact. If exact source paths, local labels, system names, usernames, or
+instrument identifiers are needed for validation, keep a separate non-public
+full-fidelity working map and summarize only role-stable, redacted facts in the
+public source map.
 
 Minimum fields:
 
@@ -101,6 +137,12 @@ Minimum fields:
 - local dependency and sharing boundary: internal full-fidelity diagnostic,
   sanitized internal handoff, external/support-boundary export, or public-safe
   example.
+
+Minimum table shape:
+
+| Source family or path | Role | Status | Relation | Evidence handling | Inclusion reason | Sharing boundary |
+| --- | --- | --- | --- | --- | --- | --- |
+| Redacted or role-based label | Anchor, selected-context candidate, code candidate, generated protocol, derived artifact, report/handoff item, setup evidence, environment evidence, backup, cache, checkpoint, or unknown | Active, obsolete, backup, generated, cache, checkpoint, missing, stale, conflicting, or unknown | Produced-by, consumed-by, derived-from, copied-from, manually selected, imported, or unknown | Observed, declared, inferred, unchecked, externally verified, or unsafe to inspect | `PN-###` or guardrail supported; tempting interpretation explicitly excluded | Internal full-fidelity, sanitized internal, external/support-boundary, or public-safe |
 
 Artifact-specific handling:
 
