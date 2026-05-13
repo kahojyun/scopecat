@@ -60,17 +60,6 @@ constrain the journey after validation checks, JTBD candidates need journey
 phrasing, capability gaps need fixtures, and framework baselines are substrate
 or validation detail rather than primary product pain.
 
-## Future Journey Candidate Work
-
-Use this document as the W1 evidence owner behind future `JC-###` selection.
-Use [`jc-analysis-operating-standard.md`](jc-analysis-operating-standard.md)
-for source-map fields, status language, promotion gates, reopening rules, and
-future-journey operating workflow.
-
-Start future `JC` work from the candidate rows below, then create a dedicated
-source map before drafting journey prose. Do not reopen the historical
-`JC-001` quick-start text unless new evidence changes the first-wedge record.
-
 ## Sources
 
 - [`research/extracted/research-acceptance-readiness-triage.md`](research/extracted/research-acceptance-readiness-triage.md)
@@ -643,14 +632,6 @@ foundational pains, fixtures, and boundaries.
 | JC-005 | 8 | Validate hardware bring-up | Real workflow and useful future pressure from wiring, registry, and driver initialization evidence. | Device communication, apply, and mutation are ADR-gated. |
 | JC-007 | 9 | Preview, diff, and freeze an experiment plan | Tests PN-017 and scan semantics pressure that current artifacts cannot fully expose because the old workflow lacks a durable plan object. | Plan preview only; no device apply, live scheduling, remote execution, or authoritative parameter ownership. |
 | JC-008 | 10 | Validate a dry-run execution package | Tests PN-018 by packaging code, context, generated artifacts, environment, and expected outputs before execution. | Validation record only; no queue, worker fleet, shell-command product surface, remote execution, or device control. |
-
-## Journey Candidate Operating Link
-
-Reusable workflow-spine, source-map, promotion, status, reopening, and
-acceptance-gate guidance now lives in
-[`jc-analysis-operating-standard.md`](jc-analysis-operating-standard.md).
-Keep this inventory focused on evidence, pain rows, source caveats, ranking
-rationale, and evidence-derived guardrails.
 
 ## Anti-Patterns Not To Preserve
 

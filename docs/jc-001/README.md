@@ -18,10 +18,7 @@ It is fixture validated and boundary accepted, but not user validated or
 product accepted.
 
 Use this folder as an earned exemplar for later journey candidates, not as a
-packet to copy wholesale. Future folders should start with the smallest useful
-selection, journey, and fixture/source-map notes; add capability, wedge,
-contract, spike, decision, prototype, and ownership artifacts only when later
-evidence promotes them.
+packet to copy wholesale.
 
 ## Reading Order
 
@@ -49,7 +46,7 @@ question:
 | Product or history reader | Selection note -> journey -> adoption extraction -> wedge -> decision. |
 | Implementation reviewer | Decision -> prototype scope -> manifest/public-output contract -> static-analysis spike -> concepts and contracts. |
 | Architecture reviewer | Concepts and contracts -> capability ownership -> decision -> tracker status. |
-| Future JC author | Operating standard -> evidence inventory candidate row -> source map -> selection note -> journey; use this folder only as an earned exemplar. |
+| Future JC author | Selection note -> journey -> decision; use this folder only to inspect how one accepted wedge accumulated later artifacts. |
 
 ## Current State
 
@@ -67,19 +64,5 @@ The current next product/architecture choice is tracked in
 
 ## Reusable Pattern
 
-Future JC folders should add only the next earned artifact. Start with
-source-map, selection, and journey notes; add capability, wedge, contract,
-spike, decision, prototype, and ownership notes only when later evidence
-promotes them. Use these questions as the sequence:
-
-1. What concrete source bundle, source family, or fixture boundary is being
-   mapped?
-2. Why this journey and fixture boundary?
-3. What current-state and future-state user journey is being tested?
-4. Which capabilities are touched, and what is the smallest useful adoption
-   step for each?
-5. What is the thin migration wedge?
-6. Which concepts and contracts are needed for that wedge?
-7. What spike or prototype result validates the decision?
-8. What is accepted, deferred, and reopened only with new evidence?
-9. Which provisional owners are created by the accepted wedge?
+This folder is an example of how later artifacts can accumulate after evidence
+earns them. It should not be copied wholesale for a new journey candidate.
