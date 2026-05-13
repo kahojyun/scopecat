@@ -79,6 +79,7 @@ def raw_artifact_id(path: str) -> str:
 PUBLIC_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 PUBLIC_ID_HANDLE_PATTERN = re.compile(r"^[a-z][a-z0-9]{0,7}$")
 HASH_LIKE_HANDLE_PATTERN = re.compile(r"[a-f0-9]{6,8}$")
+MIN_SOURCE_DERIVED_TEXT_LENGTH = 4
 
 
 def source_token_sequence(value: str) -> list[str]:
@@ -100,6 +101,13 @@ def compact_public_text(value: str) -> str:
 
 def compact_source_texts(source_values: list[str]) -> list[str]:
     return ["".join(source_token_sequence(source_value)) for source_value in source_values]
+
+
+def compact_source_match(compact_source: str, compact_candidate: str) -> bool:
+    return (
+        len(compact_source) >= MIN_SOURCE_DERIVED_TEXT_LENGTH
+        and compact_source in compact_candidate
+    )
 
 
 def validate_fixture_authored_handle(handle: str, source_values: list[str], label: str) -> None:
@@ -125,7 +133,7 @@ def validate_fixture_authored_handle(handle: str, source_values: list[str], labe
             for token in tokens
             if len(token) >= 4
         )
-        or any(compact_source in compact_handle for compact_source in compact_sources if compact_source)
+        or any(compact_source_match(compact_source, compact_handle) for compact_source in compact_sources)
     ):
         raise EvidenceViewError(f"{label} must not include source-derived text")
 
@@ -148,7 +156,10 @@ def contains_source_derived_text(candidate: str, source_values: list[str]) -> bo
             for token in tokens
             if len(token) >= 4
         )
-        or any(compact_source in compact_candidate for compact_source in compact_sources if compact_source)
+        or any(
+            compact_source_match(compact_source, compact_candidate)
+            for compact_source in compact_sources
+        )
     )
 
 
@@ -914,7 +925,13 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
             )
 
     root_registry = json_payloads.get("registry.json", {})
-    selected_registry_artifact = setup_context or by_path.get("setting/registry.json")
+    fallback_registry_artifact = by_path.get("setting/registry.json")
+    if fallback_registry_artifact is not None and fallback_registry_artifact.role not in {
+        "selected context",
+        "setup evidence",
+    }:
+        fallback_registry_artifact = None
+    selected_registry_artifact = setup_context or fallback_registry_artifact
     selected_registry_path = (
         selected_registry_artifact.path if selected_registry_artifact else "setting/registry.json"
     )

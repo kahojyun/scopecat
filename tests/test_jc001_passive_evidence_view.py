@@ -716,6 +716,54 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         )
         self.assertEqual(conflict["artifacts"], ["qa", "vx"])
 
+    def test_setting_registry_fallback_ignores_non_context_artifact(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as fixture_dir:
+            fixture_path = Path(fixture_dir)
+            write_json(fixture_path / "registry.json", {"instrument": {"slot": "root"}})
+            write_json(
+                fixture_path / "setting" / "registry.json",
+                {"instrument": {"slot": "generated"}, "extra": True},
+            )
+            write_json(
+                fixture_path / "fixture-manifest.json",
+                {
+                    "fixture_id": "non-context-setting-registry-fixture",
+                    "public_bundle_id": "wb",
+                    "purpose": "non-context setting registry fallback regression",
+                    "redaction_policy": {
+                        "source": "public-test-fixture",
+                        "forbidden_content": [],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "registry.json",
+                            "public_id": "qa",
+                            "role": "anchor",
+                            "status": "root setup candidate",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        },
+                        {
+                            "path": "setting/registry.json",
+                            "public_id": "vx",
+                            "role": "generated sidecar",
+                            "status": "generated registry sidecar",
+                            "evidence_handling": "generated",
+                            "sharing_boundary": "public-safe",
+                        },
+                    ],
+                },
+            )
+
+            view = prototype.build_evidence_view(fixture_path)
+
+        conflict_types = {
+            item["conflict_type"] for item in view["conflict_and_missing_fact_report"]["conflicts"]
+        }
+        self.assertNotIn("setup-context-drift", conflict_types)
+        self.assertNotIn("setup-value-drift", conflict_types)
+
     def test_empty_json_drift_remains_visible(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as fixture_dir:
@@ -1813,6 +1861,41 @@ class PassiveEvidenceViewTest(unittest.TestCase):
         self.assertNotIn("private__secret-settings_json", json.dumps(view))
         self.assertNotIn("private/secret-settings.json", markdown)
         self.assertNotIn("private__secret-settings_json", markdown)
+
+    def test_tiny_source_metadata_does_not_invalidate_public_id(self):
+        prototype = load_prototype()
+        self.assertFalse(prototype.contains_source_derived_text("qa", ["a"]))
+        prototype.validate_fixture_authored_handle("qa", ["a"], "public_id")
+
+        with tempfile.TemporaryDirectory() as fixture_dir:
+            fixture_path = Path(fixture_dir)
+            write_json(fixture_path / "bundle.json", {"id": "bundle"})
+            write_json(
+                fixture_path / "fixture-manifest.json",
+                {
+                    "fixture_id": "a",
+                    "public_bundle_id": "wb",
+                    "purpose": "tiny metadata regression",
+                    "redaction_policy": {
+                        "source": "public-test-fixture",
+                        "forbidden_content": [],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "bundle.json",
+                            "public_id": "qa",
+                            "role": "anchor",
+                            "status": "bundle seed",
+                            "evidence_handling": "observed",
+                            "sharing_boundary": "public-safe",
+                        }
+                    ],
+                },
+            )
+
+            view = prototype.build_evidence_view(fixture_path)
+
+        self.assertEqual(view["artifact_role_inventory"][0]["artifact_id"], "qa")
 
     def test_public_safe_artifact_rejects_path_derived_public_id(self):
         prototype = load_prototype()
