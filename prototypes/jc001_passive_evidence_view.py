@@ -51,6 +51,11 @@ ALLOWED_SHARING_BOUNDARIES = {
     "redaction-sensitive",
 }
 
+SETUP_REGISTRY_FALLBACK_ROLES = {
+    "selected context",
+    "setup evidence",
+}
+
 
 @dataclass(frozen=True)
 class Artifact:
@@ -532,10 +537,6 @@ def collect_code_text(fixture_dir: Path, artifacts: list[Artifact]) -> dict[str,
     return code_text
 
 
-def find_first_by_role(artifacts: list[Artifact], role: str) -> Artifact | None:
-    return next((artifact for artifact in artifacts if artifact.role == role), None)
-
-
 def make_conflict(
     conflict_id: str,
     artifacts: list[str],
@@ -927,10 +928,10 @@ def build_evidence_view(fixture_dir: Path) -> dict[str, Any]:
 
     root_registry = json_payloads.get("registry.json", {})
     fallback_registry_artifact = by_path.get("setting/registry.json")
-    if fallback_registry_artifact is not None and fallback_registry_artifact.role not in {
-        "selected context",
-        "setup evidence",
-    }:
+    if (
+        fallback_registry_artifact is not None
+        and fallback_registry_artifact.role not in SETUP_REGISTRY_FALLBACK_ROLES
+    ):
         fallback_registry_artifact = None
     root_registry_present = "registry.json" in json_payloads
     selected_registry_artifacts = (
