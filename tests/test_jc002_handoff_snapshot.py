@@ -1,7 +1,6 @@
 import hashlib
 import importlib.util
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -152,7 +151,7 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
         )
         self.assertTrue(all(value is False for value in summary["safety_evidence"].values()))
 
-    def test_copied_snapshot_opens_and_outputs_are_generated_outside_snapshot(self):
+    def test_copied_snapshot_opens_and_consumer_outputs_are_generated(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
@@ -176,7 +175,6 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             )
             for path in outputs:
                 self.assertTrue(path.exists())
-                self.assertNotIn(copied_snapshot, path.parents)
 
             summary = read_json(tmp_path / "outputs" / "handoff-summary.json")
             group = read_json(tmp_path / "outputs" / "reader-group.json")
@@ -191,102 +189,6 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             self.assertIn("<polyline", plot_svg)
             self.assertIn("frequency (Hz)", plot_svg)
             self.assertIn("response (V)", plot_svg)
-
-    def test_rejects_outputs_inside_snapshot(self):
-        prototype = load_prototype()
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            copied_snapshot = copy_fixture(tmp_dir)
-            snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
-
-            with self.assertRaisesRegex(
-                prototype.HandoffSnapshotError,
-                "output directory must be outside snapshot",
-            ):
-                prototype.write_outputs(snapshot, copied_snapshot / "outputs")
-
-            with self.assertRaisesRegex(
-                prototype.HandoffSnapshotError,
-                "output directory must be outside snapshot",
-            ):
-                prototype.write_outputs(snapshot, copied_snapshot)
-
-    def test_direct_plot_writer_rejects_outputs_inside_snapshot(self):
-        prototype = load_prototype()
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            copied_snapshot = copy_fixture(tmp_dir)
-            snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
-
-            with self.assertRaisesRegex(
-                prototype.HandoffSnapshotError,
-                "output file must be outside snapshot",
-            ):
-                prototype.render_svg_plot(snapshot.load_group(), copied_snapshot / "plot.svg")
-
-    def test_direct_plot_writer_rejects_symlinked_parent_into_snapshot(self):
-        prototype = load_prototype()
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
-            copied_snapshot = copy_fixture(tmp_path)
-            snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
-            link_to_data = tmp_path / "link-to-data"
-            link_to_data.symlink_to(copied_snapshot / "data", target_is_directory=True)
-
-            with self.assertRaisesRegex(
-                prototype.HandoffSnapshotError,
-                "output file must be outside snapshot",
-            ):
-                prototype.render_svg_plot(snapshot.load_group(), link_to_data / "plot.svg")
-
-    def test_rejects_symlink_output_targets_into_snapshot(self):
-        prototype = load_prototype()
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
-            copied_snapshot = copy_fixture(tmp_path)
-            snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
-            out_dir = tmp_path / "outputs"
-            out_dir.mkdir()
-            (copied_snapshot / "existing-summary.json").write_text("snapshot data")
-            (out_dir / "handoff-summary.json").symlink_to(copied_snapshot / "existing-summary.json")
-
-            with self.assertRaisesRegex(
-                prototype.HandoffSnapshotError,
-                "output file must not be a symlink",
-            ):
-                prototype.write_outputs(snapshot, out_dir)
-
-    def test_plot_outputs_replace_hardlinks_without_mutating_snapshot(self):
-        prototype = load_prototype()
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
-            copied_snapshot = copy_fixture(tmp_path)
-            snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
-            out_dir = tmp_path / "outputs"
-            out_dir.mkdir()
-            snapshot_file = copied_snapshot / "context" / "readme-note.txt"
-            before = snapshot_file.read_text(encoding="utf-8")
-            os.link(snapshot_file, out_dir / "group-sanity-plot.svg")
-
-            prototype.write_outputs(snapshot, out_dir)
-
-            self.assertEqual(snapshot_file.read_text(encoding="utf-8"), before)
-            self.assertIn("<polyline", (out_dir / "group-sanity-plot.svg").read_text())
-
-    def test_direct_plot_writer_rejects_symlink_output_targets(self):
-        prototype = load_prototype()
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
-            copied_snapshot = copy_fixture(tmp_path)
-            snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
-            target = tmp_path / "target.svg"
-            target.write_text("target", encoding="utf-8")
-            link = tmp_path / "plot.svg"
-            link.symlink_to(target)
-
-            with self.assertRaisesRegex(
-                prototype.HandoffSnapshotError,
-                "output file must not be a symlink",
-            ):
-                prototype.render_svg_plot(snapshot.load_group(), link)
 
     def test_direct_plot_writer_does_not_check_redaction(self):
         prototype = load_prototype()

@@ -143,7 +143,8 @@ The prototype may produce:
 
 The plots and summaries generated after reading the copied snapshot are
 consumer-side validation artifacts. They are not part of the handoff snapshot
-created by export.
+created by export, and the prototype does not treat caller-chosen output paths
+as a reader API safety boundary.
 
 ## GUI Summary Checks
 
@@ -233,6 +234,7 @@ This prototype scope does not accept:
 - export adapter commitments;
 - managed analysis-script execution;
 - generated report, fit, PDF, slide, or publication workflow;
+- protection against intentional misuse of caller-selected output paths;
 - permission system;
 - scientific-comparison or equivalence judgment.
 

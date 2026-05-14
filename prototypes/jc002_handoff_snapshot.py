@@ -2,10 +2,10 @@
 """Fixture-sized JC-002 handoff snapshot reader prototype.
 
 This prototype validates an already-created JC-002 handoff snapshot. It verifies
-included artifacts, exposes notebook-ready run and group objects, and renders
-local summary or plot outputs outside the snapshot directory. It does not export
-from a control computer, decide redaction policy, execute user code, inspect
-hardware, access a network, or generate artifacts inside the snapshot.
+included artifacts and exposes notebook-ready run and group objects. The CLI can
+write fixture smoke-test summaries and plots to a caller-provided directory. It
+does not export from a control computer, decide redaction policy, execute user
+code, inspect hardware, or access a network.
 """
 
 from __future__ import annotations
@@ -18,7 +18,6 @@ import json
 import math
 import re
 import sys
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -217,15 +216,6 @@ class HandoffSnapshot:
         except ValueError as exc:
             raise HandoffSnapshotError(f"{label} must stay inside snapshot") from exc
         return candidate
-
-    def contains_path(self, path: Path) -> bool:
-        root = self.root.resolve()
-        candidate = path.resolve(strict=False)
-        try:
-            candidate.relative_to(root)
-        except ValueError:
-            return False
-        return True
 
     def validate(self) -> None:
         required_top_level = {
@@ -971,52 +961,16 @@ def render_svg_plot_text(group: dict[str, Any], run_id: str | None = None) -> st
     return "\n".join(lines) + "\n"
 
 
-def looks_inside_snapshot(path: Path) -> bool:
-    resolved_path = path.resolve(strict=False)
-    for parent in [resolved_path, *resolved_path.parents]:
-        if (parent / MANIFEST_NAME).is_file():
-            return True
-    return False
-
-
 def write_generated_text(path: Path, text: str) -> None:
-    if path.is_symlink():
-        raise HandoffSnapshotError("output file must not be a symlink")
-    if looks_inside_snapshot(path):
-        raise HandoffSnapshotError("output file must be outside snapshot")
     path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        "w",
-        encoding="utf-8",
-        dir=path.parent,
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-        delete=False,
-    ) as handle:
-        temp_path = Path(handle.name)
-        handle.write(text)
-    temp_path.replace(path)
+    path.write_text(text, encoding="utf-8")
 
 
 def render_svg_plot(group: dict[str, Any], output_path: Path, run_id: str | None = None) -> None:
     write_generated_text(output_path, render_svg_plot_text(group, run_id=run_id))
 
 
-def validate_output_file(snapshot: HandoffSnapshot, path: Path) -> None:
-    if path.is_symlink():
-        raise HandoffSnapshotError("output file must not be a symlink")
-    if snapshot.contains_path(path):
-        raise HandoffSnapshotError("output file must be outside snapshot")
-
-
-def safe_write_text(snapshot: HandoffSnapshot, path: Path, text: str) -> None:
-    validate_output_file(snapshot, path)
-    write_generated_text(path, text)
-
-
 def write_outputs(snapshot: HandoffSnapshot, out_dir: Path) -> list[Path]:
-    if snapshot.contains_path(out_dir):
-        raise HandoffSnapshotError("output directory must be outside snapshot")
     out_dir.mkdir(parents=True, exist_ok=True)
     summary = snapshot.summary()
     group = snapshot.load_group()
@@ -1027,15 +981,14 @@ def write_outputs(snapshot: HandoffSnapshot, out_dir: Path) -> list[Path]:
     single_plot = out_dir / "single-run-plot.svg"
     group_plot = out_dir / "group-sanity-plot.svg"
 
-    safe_write_text(snapshot, summary_json, json.dumps(summary, indent=2, sort_keys=True))
-    safe_write_text(snapshot, summary_md, render_markdown(summary))
-    safe_write_text(snapshot, group_json, json.dumps(group, indent=2, sort_keys=True))
-    safe_write_text(
-        snapshot,
+    write_generated_text(summary_json, json.dumps(summary, indent=2, sort_keys=True))
+    write_generated_text(summary_md, render_markdown(summary))
+    write_generated_text(group_json, json.dumps(group, indent=2, sort_keys=True))
+    write_generated_text(
         single_plot,
         render_svg_plot_text(group, run_id=group["run_order"][0]),
     )
-    safe_write_text(snapshot, group_plot, render_svg_plot_text(group))
+    write_generated_text(group_plot, render_svg_plot_text(group))
     return [summary_json, summary_md, group_json, single_plot, group_plot]
 
 
