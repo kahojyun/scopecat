@@ -9,8 +9,9 @@
 - Prefer one owning document per durable fact. Cross-link instead of
   duplicating, and make accepted decisions, validation scope, contracts,
   hypotheses, and open questions easy to distinguish.
-- Keep trackers compact: status, current decision points, and links. Move
-  durable detail into narrower owner docs once it has multiple active
-  consumers.
+- Keep trackers compact: status, current decision points, links, and short
+  cross-document coordination notes. Do not use trackers as journey-local task
+  queues. Move durable detail into narrower owner docs once it has multiple
+  active consumers.
 - Do not copy an existing journey folder structure unless the new journey has
   earned the same artifact types.
