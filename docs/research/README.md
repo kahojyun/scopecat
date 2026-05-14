@@ -147,8 +147,8 @@ Research item
 Source type
 Status
 Main value
-Extracted to
-Remaining extraction work
+Current use
+Retention rule
 Last reviewed
 ```
 
@@ -170,7 +170,7 @@ After a research note reaches `Extracted` or `Superseded`, choose one outcome:
 
 Delete by default when:
 
-- `Extracted To` covers the useful content;
+- `Current Use` points to the active owner or shows no active consumer remains;
 - `Remaining Value` is empty, low, or limited to historical curiosity;
 - keeping the note would confuse future AI sessions;
 - Git history is enough if someone needs to recover the old text.
