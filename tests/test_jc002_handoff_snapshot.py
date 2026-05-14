@@ -304,6 +304,21 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             ):
                 prototype.HandoffSnapshot.open(copied_snapshot)
 
+    def test_rejects_missing_condition_label_at_load_time(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            del manifest["runs"][0]["condition_label"]
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "requires condition_label",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
     def test_redaction_audit_scans_included_context_artifacts(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -325,6 +340,26 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             self.assertIn(
                 {"source": "context/readme-note.txt", "kind": "instrument address"},
                 summary["redaction"]["findings"],
+            )
+
+    def test_redaction_audit_skips_non_utf8_included_artifacts(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            context_path = copied_snapshot / "context" / "readme-note.txt"
+            context_path.write_bytes(b"\xff\xfe\x00\x00")
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            refresh_artifact_integrity(copied_snapshot, manifest, "handoff-context-note")
+            write_json(manifest_path, manifest)
+
+            snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
+            summary = snapshot.summary()
+
+            self.assertEqual(summary["redaction"]["status"], "pass")
+            self.assertIn(
+                "context/readme-note.txt",
+                summary["redaction"]["skipped_binary_sources"],
             )
 
     def test_redaction_audit_flags_declared_sensitive_categories(self):

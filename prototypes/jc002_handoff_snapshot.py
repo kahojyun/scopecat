@@ -243,6 +243,8 @@ class HandoffSnapshot:
             raise HandoffSnapshotError(f"run {run_id} source_id requires namespace")
         if not isinstance(source_id.get("local_id"), str) or not source_id["local_id"]:
             raise HandoffSnapshotError(f"run {run_id} source_id requires local_id")
+        if not isinstance(run.get("condition_label"), str) or not run["condition_label"]:
+            raise HandoffSnapshotError(f"run {run_id} requires condition_label")
         for key in (
             "acquisition_time",
             "measurement_label",
@@ -546,12 +548,16 @@ class HandoffSnapshot:
         scanned: dict[str, str] = {
             MANIFEST_NAME: json.dumps(manifest_for_scan, sort_keys=True),
         }
+        skipped_binary_sources: list[str] = []
         for artifact in self.artifacts:
             if artifact.get("handling") == "included" and isinstance(artifact.get("path"), str):
                 path = self.snapshot_path(
                     artifact["path"], f"artifact {artifact['artifact_id']} path"
                 )
-                scanned[artifact["path"]] = path.read_text(encoding="utf-8")
+                try:
+                    scanned[artifact["path"]] = path.read_text(encoding="utf-8")
+                except UnicodeDecodeError:
+                    skipped_binary_sources.append(artifact["path"])
 
         findings: list[dict[str, str]] = []
         for source, text in scanned.items():
@@ -562,6 +568,7 @@ class HandoffSnapshot:
             "status": "pass" if not findings else "fail",
             "findings": findings,
             "scanned_sources": sorted(scanned),
+            "skipped_binary_sources": sorted(skipped_binary_sources),
         }
 
     def summary(self) -> dict[str, Any]:
