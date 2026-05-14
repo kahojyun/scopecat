@@ -224,7 +224,7 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             manifest = read_json(manifest_path)
             manifest["runs"][0]["original_path_evidence"] = {
                 "status": "provided",
-                "value": "/Users/kahoj/private-lab/run-0001",
+                "value": "/Users/fixtureuser/private-lab/run-0001",
             }
             write_json(manifest_path, manifest)
 

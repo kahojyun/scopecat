@@ -49,7 +49,7 @@ REDACTION_PATTERNS = {
         r"\b(10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)\b"
     ),
     "instrument address": re.compile(r"\b(GPIB|TCPIP|USB\d*::|ASRL\d*::)", re.IGNORECASE),
-    "likely username path": re.compile(r"\b(kahoj|alice|bob|charlie)\b", re.IGNORECASE),
+    "likely username path": re.compile(r"\b(fixtureuser|localuser)\b", re.IGNORECASE),
 }
 
 
