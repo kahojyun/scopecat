@@ -538,6 +538,18 @@ multiple wedges need durable ranking or scheduling coordination, move that
 detail into a narrower owner note and leave only links, phases, and compact
 coordination points in the tracker.
 
+### Cross-Reference KISS
+
+Add cross-references only when they help a future reader make or review a
+decision. Useful links usually point to an entry point, owning document,
+required dependency, evidence source, validation artifact, or superseding
+decision.
+
+Avoid repeated historical back-links, promotion-chain boilerplate, and
+bidirectional links when a `JC` README, document index, or owner document
+already provides the navigation. If a link does not clarify ownership,
+dependency, evidence, or status, omit it.
+
 ## Selection Prompts
 
 Use these prompts before selecting the next `JC`:

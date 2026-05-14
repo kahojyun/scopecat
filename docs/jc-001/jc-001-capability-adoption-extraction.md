@@ -133,7 +133,3 @@ The accepted decision owns the non-goals for this slice.
 - Which sharing-boundary labels are needed before public docs or external
   support packages exist.
 - Which static readiness hints are useful enough to include in the first wedge.
-
-## Promotion Chain
-
-See [`README.md`](README.md) for the current reading order and promotion chain.

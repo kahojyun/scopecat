@@ -232,7 +232,3 @@ schema details.
   conflicts, missing facts, and freshness while hiding private values?
 - When does code-shape evidence need durable code identity rather than
   text-only references?
-
-## Promotion Chain
-
-See [`README.md`](README.md) for the current reading order and promotion chain.

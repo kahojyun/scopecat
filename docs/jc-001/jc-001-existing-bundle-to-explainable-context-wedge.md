@@ -149,7 +149,3 @@ The concept set used for that handoff was:
   internal evidence labels?
 - When does code reference handling need immutable identity rather than
   text-only evidence?
-
-## Promotion Chain
-
-See [`README.md`](README.md) for the current reading order and promotion chain.
