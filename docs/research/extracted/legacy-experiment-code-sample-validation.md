@@ -49,18 +49,14 @@ priority of generated-sidecar reconciliation, analysis handoff, hardware
 bring-up validation, dependency/environment manifest pain, readout/SPAM
 provenance, notebook/repository hygiene, and portability/reuse hygiene.
 
-## Extracted To
+## Current Use
 
-- [`../research-index.md`](../research-index.md) records this extracted
-  validation note.
-- [`../../document-index.md`](../../document-index.md) lists this as a research
-  entry point.
-- [`research-acceptance-readiness-triage.md`](research-acceptance-readiness-triage.md)
-  remains the broader acceptance-readiness triage; this note validates and
-  refines it with direct code-sample evidence.
-- [`../../evidence-and-pain-point-inventory.md`](../../evidence-and-pain-point-inventory.md)
-  summarizes the public-safe W1 evidence and W2 fixture-source-map requirements
-  derived from this validation.
+[`research-acceptance-readiness-triage.md`](research-acceptance-readiness-triage.md)
+remains the broader acceptance-readiness triage; this note validates and
+refines it with direct code-sample evidence.
+[`../../evidence-and-pain-point-inventory.md`](../../evidence-and-pain-point-inventory.md)
+summarizes the public-safe W1 evidence and W2 fixture-source-map requirements
+derived from this validation.
 
 ## Remaining Value
 

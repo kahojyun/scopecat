@@ -39,16 +39,11 @@ It does not accept product scope or architecture by itself. It separates:
   scope;
 - ADR-gated or explicitly rejected directions.
 
-## Extracted To
+## Current Use
 
-- [`../research-index.md`](../research-index.md) records this extracted note.
-- [`../../document-index.md`](../../document-index.md) lists this note as the
-  preferred entry point for raw research triage.
-- [`../../progressive-adoption-progress-tracker.md`](../../progressive-adoption-progress-tracker.md)
-  may use this note as the output of the first research-distillation step.
-- [`../../evidence-and-pain-point-inventory.md`](../../evidence-and-pain-point-inventory.md)
-  summarizes the W1 evidence, pain, guardrail, baseline, and source-hygiene
-  claims for W2 source-map and journey work.
+[`../../evidence-and-pain-point-inventory.md`](../../evidence-and-pain-point-inventory.md)
+summarizes the W1 evidence, pain, guardrail, baseline, and source-hygiene
+claims from this triage for W2 source-map and journey work.
 
 ## Remaining Value
 

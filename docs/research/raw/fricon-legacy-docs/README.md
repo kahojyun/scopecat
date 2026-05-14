@@ -51,12 +51,10 @@ capability system where measurement history, scan structure, parameter memory,
 code assets, instrument runtime, managed runner, orchestration, and remote
 execution can be analyzed on more equal terms.
 
-## Extracted To
+## Current Use
 
 - [`../../extracted/research-acceptance-readiness-triage.md`](../../extracted/research-acceptance-readiness-triage.md)
   classifies Fricon predecessor content by acceptance readiness for Scopecat.
-- `../../research-index.md` records this import as raw predecessor evidence.
-- `../../../document-index.md` lists this import as a research entry point.
 - No product, journey, capability, domain, architecture, or decision document
   has accepted Fricon claims yet.
 

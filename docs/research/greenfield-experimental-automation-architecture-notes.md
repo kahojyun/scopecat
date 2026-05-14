@@ -21,17 +21,12 @@ manual-discipline recordkeeping with reliable automatic versioned records, then
 using those records to improve configuration, code provenance, scan semantics,
 execution readiness, lineage, handoff, and later automation.
 
-## Extracted To
+## Current Use
 
 - [`extracted/research-acceptance-readiness-triage.md`](extracted/research-acceptance-readiness-triage.md)
   classifies this note's guardrails, evidence-backed inferences, adoption
   hypotheses, future pressure, ADR-gated directions, and rejected upfront
   directions.
-- `../document-index.md` records this note as raw research input with
-  first-direction and scaffold caveats.
-- `../progressive-adoption-progress-tracker.md` uses the progressive adoption
-  framing while requiring journey-first revalidation before selecting a first
-  product direction.
 - `../evidence-and-pain-point-inventory.md` preserves the capability pressures
   behind this note while keeping subsystem order, implementation scope, and
   scaffold shape unaccepted.

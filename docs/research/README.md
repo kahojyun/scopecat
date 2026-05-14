@@ -94,7 +94,7 @@ Each research note should include:
 
 ## Summary
 
-## Extracted To
+## Current Use
 
 ## Remaining Value
 ```
