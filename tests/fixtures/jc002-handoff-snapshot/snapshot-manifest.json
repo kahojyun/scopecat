@@ -28,6 +28,11 @@
       "lab-only notes"
     ]
   },
+  "redaction_status": {
+    "status": "export_declared_redacted_fixture",
+    "scope": "synthetic fixture manifest and included fixture artifacts",
+    "produced_by": "scopecat-jc002-fixture-export"
+  },
   "selection": {
     "selected_by": {
       "status": "redacted",

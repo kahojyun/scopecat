@@ -120,7 +120,7 @@ implementation decision shows that the same fact family needs durable ownership.
 
 The `JC-001` wedge row is ready because it is backed by the accepted passive
 evidence-view decision. The `Starred runs to analysis handoff package` row is
-validating because a lightweight `JC-002` document set, public-safe fixture,
+validating because a lightweight `JC-002` document set, synthetic fixture,
 and read-only prototype now exist, but it is not an accepted journey,
 manifest/API/storage/UI contract, or implementation scope. The remaining rows
 are W1 hypotheses for later

@@ -47,14 +47,18 @@ The current prototype validation lives in
 and
 [`../../tests/fixtures/jc002-handoff-snapshot/`](../../tests/fixtures/jc002-handoff-snapshot/).
 It validates local offline summary, reader-like group loading, consumer-side
-plots, redaction audit, artifact-role handling, and copy independence at
-synthetic fixture scale only.
+plots, artifact-role handling, export-provided redaction status display,
+explicit non-assessment of shareability, and copy independence at synthetic
+fixture scale only.
 
 The first hardening pass tightened path confinement, status/value semantics,
 source-run relations, CSV axis/shape validation, sidecar consistency, derived
-input reader exposure, metadata-driven plotting, and included-artifact
-redaction scanning. It deliberately did not add richer data-shape fixtures or
-an export-side workflow proof.
+input reader exposure, and metadata-driven plotting. The review/fix loop also
+recorded redaction lessons for later export and publish flows, but the reader
+prototype does not scan for redaction, claim arbitrary-file redaction, or
+certify public safety.
+It deliberately did not add richer data-shape fixtures or an export-side
+workflow proof.
 
 This document set must not define:
 

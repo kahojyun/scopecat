@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """Fixture-sized JC-002 handoff snapshot reader prototype.
 
-This prototype validates a public-safe synthetic handoff snapshot. It reads an
-already-created snapshot, verifies included artifacts, exposes notebook-ready
-run and group objects, and renders local summary or plot outputs outside the
-snapshot directory. It does not export from a control computer, execute user
-code, inspect hardware, access a network, or generate artifacts inside the
-snapshot.
+This prototype validates an already-created JC-002 handoff snapshot. It verifies
+included artifacts, exposes notebook-ready run and group objects, and renders
+local summary or plot outputs outside the snapshot directory. It does not export
+from a control computer, decide redaction policy, execute user code, inspect
+hardware, access a network, or generate artifacts inside the snapshot.
 """
 
 from __future__ import annotations
@@ -16,8 +15,10 @@ import csv
 import hashlib
 import html
 import json
+import math
 import re
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -42,26 +43,13 @@ ALLOWED_HANDLINGS = {"included", "referenced", "excluded"}
 MISSING_STATUSES = {"not_provided", "unknown", "not_applicable", "redacted"}
 VALUE_STATUSES = {"provided", "not_provided", "unknown", "not_applicable", "redacted"}
 STATUSES_WITHOUT_VALUE = {"not_provided", "unknown", "not_applicable"}
-
-REDACTION_PATTERNS = {
-    "private absolute path": re.compile(r"(/Users/|/home/|[A-Za-z]:\\)"),
-    "internal network address": re.compile(
-        r"\b(10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)\b"
-    ),
-    "instrument address": re.compile(r"\b(GPIB|TCPIP|USB\d*::|ASRL\d*::)", re.IGNORECASE),
-    "likely username path": re.compile(r"\b(fixtureuser|localuser)\b", re.IGNORECASE),
-    "machine name": re.compile(
-        r"\b(?:control-pc|lab-pc|measurement-pc|acquisition-pc)[-_][a-z0-9-]+\b",
-        re.IGNORECASE,
-    ),
-    "sample identifier": re.compile(
-        r"\b(?:sample|chip|device)[-_ ]?id[:=][a-z0-9][a-z0-9_-]{2,}\b",
-        re.IGNORECASE,
-    ),
-    "lab-only note": re.compile(
-        r"\b(?:lab-only|internal-only|do not share|not for external sharing)\b",
-        re.IGNORECASE,
-    ),
+REQUIRED_SAFETY_EVIDENCE_KEYS = {
+    "source_mutation",
+    "code_execution_during_export",
+    "notebook_execution_during_export",
+    "generated_artifacts_during_export",
+    "network_or_cloud_dependency",
+    "instrument_or_setup_access",
 }
 
 
@@ -78,11 +66,18 @@ class ArtifactRecord:
     reference: str | None
 
 
-def read_json(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as handle:
-        payload = json.load(handle)
+def reject_json_constant(value: str) -> None:
+    raise ValueError(f"unsupported JSON constant {value}")
+
+
+def read_json(path: Path, label: str) -> dict[str, Any]:
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle, parse_constant=reject_json_constant)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise HandoffSnapshotError(f"{label} could not be read as JSON") from exc
     if not isinstance(payload, dict):
-        raise HandoffSnapshotError(f"{path} must contain a JSON object")
+        raise HandoffSnapshotError(f"{label} must contain a JSON object")
     return payload
 
 
@@ -116,6 +111,30 @@ def status_value(value: Any) -> Any:
     if isinstance(value, dict):
         return value.get("value")
     return value
+
+
+def markdown_text(value: Any) -> str:
+    text = "" if value is None else str(value)
+    replacements = {
+        "\\": r"\\",
+        "`": r"\`",
+        "*": r"\*",
+        "_": r"\_",
+        "{": r"\{",
+        "}": r"\}",
+        "[": r"\[",
+        "]": r"\]",
+        "(": r"\(",
+        ")": r"\)",
+        "#": r"\#",
+        "+": r"\+",
+        "-": r"\-",
+        ".": r"\.",
+        "!": r"\!",
+        "<": "&lt;",
+        ">": "&gt;",
+    }
+    return "".join(replacements.get(character, character) for character in text)
 
 
 def validate_status_object(value: Any, label: str) -> None:
@@ -177,11 +196,15 @@ class HandoffSnapshot:
         manifest_path = snapshot_root / MANIFEST_NAME
         if not manifest_path.exists():
             raise HandoffSnapshotError(f"missing {MANIFEST_NAME}")
-        return cls(snapshot_root, read_json(manifest_path))
+        if manifest_path.is_symlink():
+            raise HandoffSnapshotError(f"{MANIFEST_NAME} must not be a symlink")
+        return cls(snapshot_root, read_json(manifest_path, MANIFEST_NAME))
 
     def snapshot_path(self, raw_path: str, label: str) -> Path:
         if "\\" in raw_path:
             raise HandoffSnapshotError(f"{label} must use portable relative path")
+        if re.match(r"^[A-Za-z]:", raw_path):
+            raise HandoffSnapshotError(f"{label} must not use Windows drive path")
         if re.match(r"^[A-Za-z]:[/\\]", raw_path):
             raise HandoffSnapshotError(f"{label} must not be an absolute path")
         relative_path = Path(raw_path)
@@ -211,6 +234,7 @@ class HandoffSnapshot:
             "producer",
             "source_system",
             "redaction_policy",
+            "redaction_status",
             "selection",
             "runs",
             "artifacts",
@@ -230,20 +254,42 @@ class HandoffSnapshot:
         selection = require_dict(self.manifest["selection"], "selection")
         validate_status_object(selection.get("selected_by"), "selection.selected_by")
         validate_status_object(selection.get("selected_reason"), "selection.selected_reason")
+        if not isinstance(selection.get("group_title"), str) or not selection["group_title"]:
+            raise HandoffSnapshotError("selection requires group_title")
         group_order = require_list(selection.get("group_order"), "selection.group_order")
-        if group_order != list(self.runs_by_id.keys()):
-            raise HandoffSnapshotError("selection.group_order must match run order")
+        if any(not isinstance(run_id, str) or not run_id for run_id in group_order):
+            raise HandoffSnapshotError("selection.group_order must use run IDs")
+        if len(set(group_order)) != len(group_order):
+            raise HandoffSnapshotError("selection.group_order must not contain duplicates")
+        if set(group_order) != set(self.runs_by_id):
+            raise HandoffSnapshotError("selection.group_order must match selected runs")
+        per_run_notes = require_dict(selection.get("per_run_notes"), "selection.per_run_notes")
+        if set(per_run_notes) != set(group_order):
+            raise HandoffSnapshotError("selection.per_run_notes must match group order")
+        for run_id, note in per_run_notes.items():
+            validate_status_object(note, f"selection.per_run_notes.{run_id}")
 
         source_system = require_dict(self.manifest["source_system"], "source_system")
+        if not isinstance(source_system.get("type"), str) or not source_system["type"]:
+            raise HandoffSnapshotError("source_system requires type")
         validate_status_object(source_system.get("station_id"), "source_system.station_id")
         validate_status_object(
             source_system.get("control_computer"), "source_system.control_computer"
         )
+        redaction_policy = require_dict(self.manifest["redaction_policy"], "redaction_policy")
+        if not isinstance(redaction_policy.get("profile"), str) or not redaction_policy["profile"]:
+            raise HandoffSnapshotError("redaction_policy requires profile")
+        redaction_status = require_dict(self.manifest["redaction_status"], "redaction_status")
+        for key in ("status", "scope", "produced_by"):
+            if not isinstance(redaction_status.get(key), str) or not redaction_status[key]:
+                raise HandoffSnapshotError(f"redaction_status requires {key}")
 
         for run in self.runs:
-            self._validate_run(run)
+            self._validate_run_artifact_ids(run)
         for artifact in self.artifacts:
             self._validate_artifact(artifact)
+        for run in self.runs:
+            self._validate_run(run)
         self._validate_safety()
 
     def _validate_run(self, run: dict[str, Any]) -> None:
@@ -268,11 +314,13 @@ class HandoffSnapshot:
         for parameter in require_list(
             run.get("important_parameters"), f"run {run_id} important_parameters"
         ):
-            parameter_name = parameter.get("name")
+            parameter_dict = require_dict(parameter, f"run {run_id} parameter")
+            parameter_name = parameter_dict.get("name")
             if not isinstance(parameter_name, str) or not parameter_name:
                 raise HandoffSnapshotError(f"run {run_id} parameter requires name")
-            validate_status_object(parameter, f"run {run_id} parameter {parameter_name}")
-        primary = self.artifacts_by_id.get(run.get("primary_artifact_id"))
+            validate_status_object(parameter_dict, f"run {run_id} parameter {parameter_name}")
+        primary_artifact_id = run["primary_artifact_id"]
+        primary = self.artifacts_by_id.get(primary_artifact_id)
         if primary is None:
             raise HandoffSnapshotError(f"run {run_id} primary artifact is missing")
         if primary.get("role") != "primary_data":
@@ -281,6 +329,13 @@ class HandoffSnapshot:
             raise HandoffSnapshotError(f"run {run_id} primary artifact must be included")
         if run_id not in primary.get("source_run_relation", []):
             raise HandoffSnapshotError(f"run {run_id} primary artifact relation is missing")
+        expected_primary_runs = sorted(
+            candidate["public_run_id"]
+            for candidate in self.runs
+            if candidate.get("primary_artifact_id") == primary["artifact_id"]
+        )
+        if sorted(primary.get("source_run_relation", [])) != expected_primary_runs:
+            raise HandoffSnapshotError(f"run {run_id} primary artifact relation mismatch")
         for sidecar_id in require_list(
             run.get("required_sidecar_artifact_ids"), f"run {run_id} required sidecars"
         ):
@@ -291,7 +346,20 @@ class HandoffSnapshot:
                 raise HandoffSnapshotError(f"run {run_id} sidecar {sidecar_id} must be included")
             if artifact.get("applies_to_artifact_id") != primary["artifact_id"]:
                 raise HandoffSnapshotError(f"run {run_id} sidecar {sidecar_id} relation mismatch")
+            if run_id not in artifact.get("source_run_relation", []):
+                raise HandoffSnapshotError(f"run {run_id} sidecar {sidecar_id} relation mismatch")
             self._validate_sidecar_content(artifact, primary)
+
+    def _validate_run_artifact_ids(self, run: dict[str, Any]) -> None:
+        run_id = run.get("public_run_id")
+        primary_artifact_id = run.get("primary_artifact_id")
+        if not isinstance(primary_artifact_id, str) or not primary_artifact_id:
+            raise HandoffSnapshotError(f"run {run_id} requires primary_artifact_id")
+        for sidecar_id in require_list(
+            run.get("required_sidecar_artifact_ids"), f"run {run_id} required sidecars"
+        ):
+            if not isinstance(sidecar_id, str) or not sidecar_id:
+                raise HandoffSnapshotError(f"run {run_id} required sidecars must use IDs")
 
     def _validate_artifact(self, artifact: dict[str, Any]) -> None:
         record = artifact_record(artifact)
@@ -320,9 +388,12 @@ class HandoffSnapshot:
                     f"included artifact {record.artifact_id} checksum mismatch"
                 )
             self._validate_source_run_relation(artifact)
+            if record.role == "required_read_sidecar":
+                self._validate_required_sidecar_artifact(artifact)
             if record.role == "primary_data":
                 self._validate_primary_data_artifact(artifact)
             if record.role == "user_attached_derived_input":
+                self._validate_derived_input_artifact(artifact)
                 if not artifact.get("processed_status"):
                     raise HandoffSnapshotError(
                         f"derived input {record.artifact_id} requires processed_status"
@@ -361,14 +432,48 @@ class HandoffSnapshot:
             raise HandoffSnapshotError(
                 f"artifact {artifact.get('artifact_id')} source_run_relation is empty"
             )
+        for run_id in relations:
+            if not isinstance(run_id, str) or not run_id:
+                raise HandoffSnapshotError(
+                    f"artifact {artifact.get('artifact_id')} source_run_relation must use run IDs"
+                )
         unknown_runs = sorted(run_id for run_id in relations if run_id not in self.runs_by_id)
         if unknown_runs:
             raise HandoffSnapshotError(
                 f"artifact {artifact.get('artifact_id')} relation references unknown run"
             )
 
+    def _validate_required_sidecar_artifact(self, artifact: dict[str, Any]) -> None:
+        artifact_id = artifact["artifact_id"]
+        primary_id = artifact.get("applies_to_artifact_id")
+        primary = self.artifacts_by_id.get(primary_id)
+        if primary is None or primary.get("role") != "primary_data":
+            raise HandoffSnapshotError(f"sidecar {artifact_id} relation mismatch")
+        primary_runs = set(primary.get("source_run_relation", []))
+        sidecar_runs = set(artifact.get("source_run_relation", []))
+        if sidecar_runs != primary_runs:
+            raise HandoffSnapshotError(f"sidecar {artifact_id} relation mismatch")
+        for run_id in sorted(primary_runs):
+            run = self.runs_by_id[run_id]
+            if artifact_id not in run.get("required_sidecar_artifact_ids", []):
+                raise HandoffSnapshotError(f"sidecar {artifact_id} is not required by {run_id}")
+
+    def _validate_derived_input_artifact(self, artifact: dict[str, Any]) -> None:
+        payload = self._load_included_json_artifact(artifact)
+        artifact_id = artifact["artifact_id"]
+        if payload.get("derived_input_id") != artifact_id:
+            raise HandoffSnapshotError(f"derived input {artifact_id} ID mismatch")
+        if payload.get("source_run_relation") != artifact.get("source_run_relation"):
+            raise HandoffSnapshotError(f"derived input {artifact_id} relation mismatch")
+        if payload.get("processed_status") != artifact.get("processed_status"):
+            raise HandoffSnapshotError(f"derived input {artifact_id} status mismatch")
+        if payload.get("human_production_note") != artifact.get("human_production_note"):
+            raise HandoffSnapshotError(f"derived input {artifact_id} note mismatch")
+
     def _validate_primary_data_artifact(self, artifact: dict[str, Any]) -> None:
         rows, fieldnames = self._read_csv_rows(artifact)
+        if not rows:
+            raise HandoffSnapshotError(f"artifact {artifact['artifact_id']} requires data rows")
         axes = require_list(artifact.get("axes"), f"artifact {artifact['artifact_id']} axes")
         values = require_list(artifact.get("values"), f"artifact {artifact['artifact_id']} values")
         shape = require_list(artifact.get("shape"), f"artifact {artifact['artifact_id']} shape")
@@ -394,31 +499,82 @@ class HandoffSnapshot:
                 declared_columns.add(column)
         if not declared_columns.issubset(set(fieldnames)):
             raise HandoffSnapshotError(f"artifact {artifact['artifact_id']} column mismatch")
+        if set(fieldnames) != declared_columns:
+            raise HandoffSnapshotError(f"artifact {artifact['artifact_id']} has undeclared columns")
 
     def _validate_sidecar_content(
         self, sidecar_artifact: dict[str, Any], primary_artifact: dict[str, Any]
     ) -> None:
         sidecar = self._load_sidecar(sidecar_artifact["artifact_id"])
+        if sidecar.get("sidecar_id") != sidecar_artifact["artifact_id"]:
+            raise HandoffSnapshotError(f"sidecar {sidecar_artifact['artifact_id']} ID mismatch")
         if sidecar.get("applies_to_artifact_id") != primary_artifact["artifact_id"]:
             raise HandoffSnapshotError(
                 f"sidecar {sidecar_artifact['artifact_id']} content relation mismatch"
             )
-        sidecar_columns = {
-            require_dict(column, "sidecar column").get("name")
+        sidecar_column_entries = [
+            require_dict(column, "sidecar column")
             for column in require_list(sidecar.get("columns"), "sidecar columns")
-        }
-        required_columns = {
-            entry["column"]
-            for entry in primary_artifact.get("axes", []) + primary_artifact.get("values", [])
-        }
-        if not required_columns.issubset(sidecar_columns):
+        ]
+        sidecar_column_names = [column.get("name") for column in sidecar_column_entries]
+        if any(not isinstance(name, str) or not name for name in sidecar_column_names):
+            raise HandoffSnapshotError(
+                f"sidecar {sidecar_artifact['artifact_id']} requires columns"
+            )
+        if len(set(sidecar_column_names)) != len(sidecar_column_names):
+            raise HandoffSnapshotError(
+                f"sidecar {sidecar_artifact['artifact_id']} has duplicate columns"
+            )
+        sidecar_columns = {column["name"]: column for column in sidecar_column_entries}
+        for label, entries in (
+            ("axis", primary_artifact.get("axes", [])),
+            ("value", primary_artifact.get("values", [])),
+        ):
+            expected_axis = "x" if label == "axis" else "y"
+            for entry in entries:
+                self._validate_sidecar_column(
+                    sidecar_artifact,
+                    primary_artifact,
+                    require_dict(entry, f"artifact {primary_artifact['artifact_id']} metadata"),
+                    sidecar_columns,
+                    expected_axis,
+                )
+
+    def _validate_sidecar_column(
+        self,
+        sidecar_artifact: dict[str, Any],
+        primary_artifact: dict[str, Any],
+        entry_dict: dict[str, Any],
+        sidecar_columns: dict[str, dict[str, Any]],
+        expected_axis: str,
+    ) -> None:
+        column = entry_dict.get("column")
+        if not isinstance(column, str) or not column:
+            raise HandoffSnapshotError(
+                f"artifact {primary_artifact['artifact_id']} metadata column mismatch"
+            )
+        if column not in sidecar_columns:
             raise HandoffSnapshotError(
                 f"sidecar {sidecar_artifact['artifact_id']} does not cover primary columns"
+            )
+        sidecar_column = sidecar_columns[column]
+        if sidecar_column.get("unit") != entry_dict.get("unit"):
+            raise HandoffSnapshotError(
+                f"sidecar {sidecar_artifact['artifact_id']} column unit mismatch"
+            )
+        if sidecar_column.get("axis") != expected_axis:
+            raise HandoffSnapshotError(
+                f"sidecar {sidecar_artifact['artifact_id']} column axis mismatch"
             )
 
     def _validate_safety(self) -> None:
         safety = require_dict(self.manifest["safety_evidence"], "safety_evidence")
+        missing = sorted(REQUIRED_SAFETY_EVIDENCE_KEYS - safety.keys())
+        if missing:
+            raise HandoffSnapshotError(f"missing safety evidence: {', '.join(missing)}")
         for key, value in safety.items():
+            if key not in REQUIRED_SAFETY_EVIDENCE_KEYS:
+                raise HandoffSnapshotError(f"unknown safety evidence {key}")
             if value is not False:
                 raise HandoffSnapshotError(f"safety evidence {key} must be false in this fixture")
 
@@ -437,6 +593,7 @@ class HandoffSnapshot:
             "source_id": run["source_id"],
             "condition_label": run["condition_label"],
             "measurement_label": status_value(run["measurement_label"]),
+            "per_run_note": self.per_run_note(run_id),
             "data": rows,
             "axes": primary["axes"],
             "values": primary["values"],
@@ -450,15 +607,22 @@ class HandoffSnapshot:
         selection = require_dict(self.manifest["selection"], "selection")
         run_ids = require_list(selection["group_order"], "selection.group_order")
         loaded_runs = [self.load_run(run_id) for run_id in run_ids]
+        per_run_notes = require_dict(selection["per_run_notes"], "selection.per_run_notes")
         return {
             "snapshot_id": self.manifest["snapshot_id"],
             "group_title": selection["group_title"],
             "selected_reason": status_value(selection["selected_reason"]),
             "run_order": run_ids,
+            "per_run_notes": per_run_notes,
             "runs": loaded_runs,
             "derived_inputs": self.derived_inputs_for_run_group(run_ids),
             "shared_context": self.shared_context(),
         }
+
+    def per_run_note(self, run_id: str) -> dict[str, Any]:
+        selection = require_dict(self.manifest["selection"], "selection")
+        notes = require_dict(selection["per_run_notes"], "selection.per_run_notes")
+        return require_dict(notes[run_id], f"selection.per_run_notes.{run_id}")
 
     def derived_inputs_for_run(self, run_id: str) -> list[dict[str, Any]]:
         return [
@@ -512,23 +676,47 @@ class HandoffSnapshot:
         artifact_path = self.snapshot_path(
             artifact["path"], f"artifact {artifact['artifact_id']} path"
         )
-        with artifact_path.open("r", encoding="utf-8", newline="") as handle:
-            reader = csv.DictReader(handle)
-            rows = list(reader)
-            fieldnames = reader.fieldnames or []
+        try:
+            with artifact_path.open("r", encoding="utf-8", newline="") as handle:
+                reader = csv.DictReader(handle)
+                rows = list(reader)
+                fieldnames = reader.fieldnames or []
+        except (OSError, UnicodeDecodeError, csv.Error) as exc:
+            raise HandoffSnapshotError(
+                f"artifact {artifact['artifact_id']} could not be read as CSV"
+            ) from exc
+        if len(set(fieldnames)) != len(fieldnames):
+            raise HandoffSnapshotError(f"artifact {artifact['artifact_id']} has duplicate columns")
+        if any(not fieldname for fieldname in fieldnames):
+            raise HandoffSnapshotError(f"artifact {artifact['artifact_id']} requires column names")
         parsed_rows: list[dict[str, float]] = []
-        for row in rows:
-            parsed_rows.append({key: float(value) for key, value in row.items()})
+        for row_index, row in enumerate(rows, start=1):
+            parsed_row: dict[str, float] = {}
+            for key, value in row.items():
+                try:
+                    parsed_value = float(value)
+                except (TypeError, ValueError) as exc:
+                    raise HandoffSnapshotError(
+                        f"artifact {artifact['artifact_id']} row {row_index} column {key} "
+                        "must be numeric"
+                    ) from exc
+                if not math.isfinite(parsed_value):
+                    raise HandoffSnapshotError(
+                        f"artifact {artifact['artifact_id']} row {row_index} column {key} "
+                        "must be finite"
+                    )
+                parsed_row[key] = parsed_value
+            parsed_rows.append(parsed_row)
         return parsed_rows, fieldnames
 
     def _load_sidecar(self, sidecar_id: str) -> dict[str, Any]:
         artifact = self.artifacts_by_id[sidecar_id]
         path = self.snapshot_path(artifact["path"], f"artifact {sidecar_id} path")
-        return read_json(path)
+        return read_json(path, f"artifact {sidecar_id}")
 
     def _load_included_json_artifact(self, artifact: dict[str, Any]) -> dict[str, Any]:
         path = self.snapshot_path(artifact["path"], f"artifact {artifact['artifact_id']} path")
-        return read_json(path)
+        return read_json(path, f"artifact {artifact['artifact_id']}")
 
     def missing_and_redacted_fields(self) -> list[dict[str, str]]:
         fields: list[dict[str, str]] = []
@@ -552,40 +740,19 @@ class HandoffSnapshot:
             status = status_label(value)
             if status in MISSING_STATUSES:
                 fields.append({"path": f"selection.{key}", "status": status})
+        per_run_notes = require_dict(selection["per_run_notes"], "selection.per_run_notes")
+        for run_id, note in per_run_notes.items():
+            status = status_label(note)
+            if status in MISSING_STATUSES:
+                fields.append({"path": f"selection.per_run_notes.{run_id}", "status": status})
         return sorted(fields, key=lambda item: item["path"])
 
-    def redaction_audit(self) -> dict[str, Any]:
-        manifest_for_scan = json.loads(json.dumps(self.manifest))
-        manifest_for_scan.get("redaction_policy", {}).pop("forbidden_content", None)
-        scanned: dict[str, str] = {
-            MANIFEST_NAME: json.dumps(manifest_for_scan, sort_keys=True),
-        }
-        skipped_binary_sources: list[str] = []
-        for artifact in self.artifacts:
-            if artifact.get("handling") == "included" and isinstance(artifact.get("path"), str):
-                path = self.snapshot_path(
-                    artifact["path"], f"artifact {artifact['artifact_id']} path"
-                )
-                try:
-                    scanned[artifact["path"]] = path.read_text(encoding="utf-8")
-                except UnicodeDecodeError:
-                    skipped_binary_sources.append(artifact["path"])
-
-        findings: list[dict[str, str]] = []
-        for source, text in scanned.items():
-            for label, pattern in REDACTION_PATTERNS.items():
-                if pattern.search(text):
-                    findings.append({"source": source, "kind": label})
-        return {
-            "status": "pass" if not findings else "fail",
-            "findings": findings,
-            "scanned_sources": sorted(scanned),
-            "skipped_binary_sources": sorted(skipped_binary_sources),
-        }
+    def redaction_status(self) -> dict[str, Any]:
+        return dict(self.manifest["redaction_status"])
 
     def summary(self) -> dict[str, Any]:
         missing_fields = self.missing_and_redacted_fields()
-        redaction_audit = self.redaction_audit()
+        redaction_status = self.redaction_status()
         included = [
             artifact_record(artifact)
             for artifact in self.artifacts
@@ -640,27 +807,30 @@ class HandoffSnapshot:
                 ],
             },
             "missing_fields": missing_fields,
-            "redaction": redaction_audit,
+            "redaction": redaction_status,
             "safety_evidence": self.manifest["safety_evidence"],
             "shareability": {
-                "status": "public-safe" if redaction_audit["status"] == "pass" else "blocked",
-                "reason": "redaction audit passed"
-                if redaction_audit["status"] == "pass"
-                else "redaction audit found sensitive text",
+                "status": "not_assessed_by_reader",
+                "reason": "export or publish workflow owns redaction and sharing policy",
             },
         }
 
 
+def ensure_public_safe_summary(summary: dict[str, Any]) -> None:
+    _ = summary
+
+
 def render_markdown(summary: dict[str, Any]) -> str:
+    ensure_public_safe_summary(summary)
     identity = summary["identity"]
     lines = [
         "# JC-002 Handoff Snapshot Summary",
         "",
         "## Identity",
         "",
-        f"- Snapshot: `{identity['snapshot_id']}`",
-        f"- Created: `{identity['created_at']}`",
-        f"- Source type: `{identity['source_system']['type']}`",
+        f"- Snapshot: `{markdown_text(identity['snapshot_id'])}`",
+        f"- Created: `{markdown_text(identity['created_at'])}`",
+        f"- Source type: `{markdown_text(identity['source_system']['type'])}`",
         "",
         "## Can Open",
         "",
@@ -670,9 +840,9 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "",
         "## Selection",
         "",
-        f"- Group: {summary['selection']['group_title']}",
-        f"- Reason: {status_value(summary['selection']['selected_reason'])}",
-        f"- Order: {', '.join(summary['selection']['group_order'])}",
+        f"- Group: {markdown_text(summary['selection']['group_title'])}",
+        f"- Reason: {markdown_text(status_value(summary['selection']['selected_reason']))}",
+        f"- Order: {markdown_text(', '.join(summary['selection']['group_order']))}",
         "",
         "## Runs",
         "",
@@ -680,8 +850,8 @@ def render_markdown(summary: dict[str, Any]) -> str:
     for run in summary["runs"]:
         warning_text = ", ".join(run["warnings"]) if run["warnings"] else "none"
         lines.append(
-            f"- `{run['run_id']}`: {run['condition_label']}, "
-            f"{run['measurement_label']}; warnings: {warning_text}"
+            f"- `{markdown_text(run['run_id'])}`: {markdown_text(run['condition_label'])}, "
+            f"{markdown_text(run['measurement_label'])}; warnings: {markdown_text(warning_text)}"
         )
 
     lines.extend(["", "## Artifacts", ""])
@@ -691,41 +861,45 @@ def render_markdown(summary: dict[str, Any]) -> str:
     lines.extend(["", "## Missing And Redacted", ""])
     if summary["missing_fields"]:
         for field in summary["missing_fields"]:
-            lines.append(f"- `{field['path']}`: {field['status']}")
+            lines.append(f"- `{markdown_text(field['path'])}`: {markdown_text(field['status'])}")
     else:
         lines.append("- none")
 
     lines.extend(["", "## Exclusions", ""])
     for artifact in summary["artifacts"]["excluded"]:
-        lines.append(f"- `{artifact['artifact_id']}` ({artifact['role']}): {artifact['reason']}")
+        lines.append(
+            f"- `{markdown_text(artifact['artifact_id'])}` "
+            f"({markdown_text(artifact['role'])}): {markdown_text(artifact['reason'])}"
+        )
 
     lines.extend(
         [
             "",
             "## Redaction",
             "",
-            f"- Status: {summary['redaction']['status']}",
-            f"- Scanned sources: {', '.join(summary['redaction']['scanned_sources'])}",
+            f"- Status: {markdown_text(summary['redaction']['status'])}",
+            f"- Scope: {markdown_text(summary['redaction']['scope'])}",
+            f"- Produced by: {markdown_text(summary['redaction']['produced_by'])}",
             "",
             "## Safety",
             "",
         ]
     )
     for key, value in summary["safety_evidence"].items():
-        lines.append(f"- {key}: {value}")
+        lines.append(f"- {markdown_text(key)}: {markdown_text(value)}")
     lines.extend(
         [
             "",
             "## Shareability",
             "",
-            f"- Status: {summary['shareability']['status']}",
-            f"- Reason: {summary['shareability']['reason']}",
+            f"- Status: {markdown_text(summary['shareability']['status'])}",
+            f"- Reason: {markdown_text(summary['shareability']['reason'])}",
         ]
     )
     return "\n".join(lines) + "\n"
 
 
-def render_svg_plot(group: dict[str, Any], output_path: Path, run_id: str | None = None) -> None:
+def render_svg_plot_text(group: dict[str, Any], run_id: str | None = None) -> str:
     selected_runs = group["runs"]
     if run_id is not None:
         selected_runs = [run for run in selected_runs if run["run_id"] == run_id]
@@ -738,25 +912,49 @@ def render_svg_plot(group: dict[str, Any], output_path: Path, run_id: str | None
     first_run = selected_runs[0]
     x_meta = first_run["axes"][0]
     y_meta = first_run["values"][0]
-    x_column = x_meta["column"]
-    y_column = y_meta["column"]
+    for run in selected_runs[1:]:
+        if (
+            run["axes"][0]["name"] != x_meta["name"]
+            or run["axes"][0]["unit"] != x_meta["unit"]
+            or run["values"][0]["name"] != y_meta["name"]
+            or run["values"][0]["unit"] != y_meta["unit"]
+        ):
+            raise HandoffSnapshotError("group plot requires matching axis and value metadata")
     x_label = f"{x_meta['name']} ({x_meta['unit']})"
     y_label = f"{y_meta['name']} ({y_meta['unit']})"
-    all_x = [row[x_column] for run in selected_runs for row in run["data"]]
-    all_y = [row[y_column] for run in selected_runs for row in run["data"]]
+    all_x = [row[run["axes"][0]["column"]] for run in selected_runs for row in run["data"]]
+    all_y = [row[run["values"][0]["column"]] for run in selected_runs for row in run["data"]]
     min_x, max_x = min(all_x), max(all_x)
     min_y, max_y = min(all_y), max(all_y)
     if min_x == max_x:
         x_pad = max(abs(min_x) * 0.1, 1.0)
         min_x -= x_pad
         max_x += x_pad
-    y_pad = max((max_y - min_y) * 0.1, 0.01)
+    if min_y == max_y:
+        y_pad = max(abs(min_y) * 0.1, 1.0)
+    else:
+        y_pad = max((max_y - min_y) * 0.1, 0.01)
     min_y -= y_pad
     max_y += y_pad
+    x_range = max_x - min_x
+    y_range = max_y - min_y
+    if (
+        min_x == max_x
+        or min_y == max_y
+        or not math.isfinite(x_range)
+        or not math.isfinite(y_range)
+        or x_range <= 0
+        or y_range <= 0
+    ):
+        raise HandoffSnapshotError("plot ranges must be finite and nonzero")
 
-    def point(row: dict[str, float]) -> tuple[float, float]:
-        x = margin + (row[x_column] - min_x) / (max_x - min_x) * (width - 2 * margin)
-        y = height - margin - (row[y_column] - min_y) / (max_y - min_y) * (height - 2 * margin)
+    def point(row: dict[str, float], run: dict[str, Any]) -> tuple[float, float]:
+        run_x_column = run["axes"][0]["column"]
+        run_y_column = run["values"][0]["column"]
+        x = margin + (row[run_x_column] - min_x) / x_range * (width - 2 * margin)
+        y = height - margin - (row[run_y_column] - min_y) / y_range * (height - 2 * margin)
+        if not math.isfinite(x) or not math.isfinite(y):
+            raise HandoffSnapshotError("plot coordinates must be finite")
         return x, y
 
     colors = ["#1f77b4", "#d62728", "#2ca02c"]
@@ -779,7 +977,7 @@ def render_svg_plot(group: dict[str, Any], output_path: Path, run_id: str | None
         ),
     ]
     for index, run in enumerate(selected_runs):
-        points = " ".join(f"{x:.1f},{y:.1f}" for x, y in (point(row) for row in run["data"]))
+        points = " ".join(f"{x:.1f},{y:.1f}" for x, y in (point(row, run) for row in run["data"]))
         color = colors[index % len(colors)]
         label_y = 56 + index * 18
         lines.append(f'<polyline points="{points}" fill="none" stroke="{color}" stroke-width="2"/>')
@@ -788,7 +986,50 @@ def render_svg_plot(group: dict[str, Any], output_path: Path, run_id: str | None
             f'fill="{color}">{html.escape(run["condition_label"])}</text>'
         )
     lines.append("</svg>")
-    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return "\n".join(lines) + "\n"
+
+
+def looks_inside_snapshot(path: Path) -> bool:
+    resolved_path = path.resolve(strict=False)
+    for parent in [resolved_path, *resolved_path.parents]:
+        if (parent / MANIFEST_NAME).is_file():
+            return True
+    return False
+
+
+def write_generated_text(path: Path, text: str) -> None:
+    if path.is_symlink():
+        raise HandoffSnapshotError("output file must not be a symlink")
+    if looks_inside_snapshot(path):
+        raise HandoffSnapshotError("output file must be outside snapshot")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        delete=False,
+    ) as handle:
+        temp_path = Path(handle.name)
+        handle.write(text)
+    temp_path.replace(path)
+
+
+def render_svg_plot(group: dict[str, Any], output_path: Path, run_id: str | None = None) -> None:
+    write_generated_text(output_path, render_svg_plot_text(group, run_id=run_id))
+
+
+def validate_output_file(snapshot: HandoffSnapshot, path: Path) -> None:
+    if path.is_symlink():
+        raise HandoffSnapshotError("output file must not be a symlink")
+    if snapshot.contains_path(path):
+        raise HandoffSnapshotError("output file must be outside snapshot")
+
+
+def safe_write_text(snapshot: HandoffSnapshot, path: Path, text: str) -> None:
+    validate_output_file(snapshot, path)
+    write_generated_text(path, text)
 
 
 def write_outputs(snapshot: HandoffSnapshot, out_dir: Path) -> list[Path]:
@@ -804,11 +1045,15 @@ def write_outputs(snapshot: HandoffSnapshot, out_dir: Path) -> list[Path]:
     single_plot = out_dir / "single-run-plot.svg"
     group_plot = out_dir / "group-sanity-plot.svg"
 
-    summary_json.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
-    summary_md.write_text(render_markdown(summary), encoding="utf-8")
-    group_json.write_text(json.dumps(group, indent=2, sort_keys=True), encoding="utf-8")
-    render_svg_plot(group, single_plot, run_id=group["run_order"][0])
-    render_svg_plot(group, group_plot)
+    safe_write_text(snapshot, summary_json, json.dumps(summary, indent=2, sort_keys=True))
+    safe_write_text(snapshot, summary_md, render_markdown(summary))
+    safe_write_text(snapshot, group_json, json.dumps(group, indent=2, sort_keys=True))
+    safe_write_text(
+        snapshot,
+        single_plot,
+        render_svg_plot_text(group, run_id=group["run_order"][0]),
+    )
+    safe_write_text(snapshot, group_plot, render_svg_plot_text(group))
     return [summary_json, summary_md, group_json, single_plot, group_plot]
 
 
@@ -822,9 +1067,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.out_dir:
         outputs = write_outputs(snapshot, args.out_dir)
         for path in outputs:
-            print(path)
+            print(path.relative_to(args.out_dir))
     else:
-        print(render_markdown(snapshot.summary()))
+        summary = snapshot.summary()
+        print(render_markdown(summary))
     return 0
 
 

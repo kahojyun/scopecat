@@ -76,7 +76,7 @@ Snapshot inclusion is role-based, not file-extension-based.
 | user_attached_derived_input | Show as an explicit export decision; include when the user has attached it for handoff or selected it during review. |
 | analysis_output | Exclude by default; it belongs to derived analysis records. |
 | report_artifact | Exclude by default; it belongs to derived analysis or report lineage. |
-| internal_verification_reference | Include as a reference only by default; copy with an advanced internal-verification option. |
+| internal_verification_reference | Exclude by default; advanced internal-verification exports may retain an internal-only reference. |
 | unknown | Do not silently include. Either exclude with a warning or require explicit user selection. |
 
 For example, an `.npy` file can be primary data, a required read sidecar, a
@@ -178,6 +178,34 @@ risk is non-obvious. Notebooks and scripts may be copied only as inert files in
 this slice; snapshot export must never run them. Unknown-role files are
 excluded unless the user explicitly selects and classifies them.
 
+## Export Redaction Responsibility
+
+Redaction belongs to export or publish flows, not to the ordinary reader. The
+reader consumes an already-created snapshot; it cannot prevent users from
+opening files directly with their own tools.
+
+For public or external sharing, export should prefer structural protection over
+best-effort guessing:
+
+- create opaque IDs for snapshots, runs, artifacts, and source relations before
+  they are used as portable references;
+- avoid copying raw local source paths, hostnames, usernames, instrument
+  addresses, or sample identifiers into public-mode manifest fields;
+- allow users or labs to provide a keyword table for Scopecat-managed text
+  fields that Scopecat writes, such as labels, notes, manifest strings, and
+  generated summaries;
+- make the user responsible for the keyword table because sample names,
+  abbreviations, languages, and punctuation conventions are lab-specific;
+- do not claim arbitrary-file redaction for raw CSV, binary arrays, notebooks,
+  PDFs, scripts, or attachments unless a later dedicated workflow explicitly
+  implements it;
+- treat public-safe publishing as a separate explicit mode, not as a property
+  guaranteed by reading an existing snapshot.
+
+The reader should not show redaction findings for an existing snapshot.
+Redaction and publishability belong to export or publish workflows, because
+users can bypass the reader and open snapshot files directly.
+
 ## Control-PC Safety Invariants
 
 Snapshot export must be safe for conservative experiment-control computers:
@@ -255,19 +283,14 @@ concepts.
 ## Sharing Boundary
 
 Ordinary internal handoff can preserve more full-fidelity context than public
-or external support sharing. Public-safe or external packages may need
-redaction of local paths, machine names, instrument addresses, user names,
-sample identifiers, and lab-specific details.
+or external support sharing. Public-safe or external packages may need a
+separate export or publish workflow that redacts local paths, machine names,
+instrument addresses, user names, sample identifiers, and lab-specific details.
 
-Redaction is a later sharing-boundary concern. The first `JC-002` slice should
-record whether a field is provided, not provided, unknown, not applicable, or
-redacted, without defining a full permission or redaction system.
-
-Minimum redaction invariants still apply. Public or external snapshots should
-redact private absolute paths, local usernames, machine names, instrument
-addresses, internal network locations, sample identifiers, and lab-only notes
-by default unless an explicit policy allows sharing them. Redaction must not
-erase the fact that a value existed.
+The first `JC-002` reader slice should record whether a field is provided, not
+provided, unknown, not applicable, or redacted, without defining a full
+permission or redaction system. Redaction must not erase the fact that a value
+existed.
 
 ## Support And Debug View
 
@@ -279,7 +302,8 @@ support/debug view:
 - whether it can open: primary data and required sidecar presence checks;
 - what is missing: Tier 1 and Tier 2 warning list;
 - what was excluded: unknown-role or advanced artifacts not copied;
-- whether it can be shared: redaction and sensitive-field summary.
+- what redaction status export recorded;
+- what public sharing assessment, if any, export recorded.
 
 This view can be a generated summary, test output, or prototype screen. It is
 not a full support workflow or permission system.

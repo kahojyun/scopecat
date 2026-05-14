@@ -2,8 +2,8 @@
 
 ## Status
 
-Fixture-backed draft prototype scope. The first synthetic public-safe fixture
-and read-only prototype validate this scope at fixture scale. This is not an
+Fixture-backed draft prototype scope. The first synthetic fixture and read-only
+prototype validate this scope at fixture scale. This is not an
 accepted boundary, manifest schema, reader API contract, storage format, or
 final GUI spec.
 
@@ -19,7 +19,8 @@ The adoption test is intentionally concrete: after export, a lab member should
 be able to copy the snapshot to a different path, open it offline, understand
 what was selected and why, load the selected group in Python, reproduce a
 sanity plot in minutes, and see which context is missing, excluded, redacted,
-or only referenced.
+or only referenced. The reader explicitly does not scan for redaction or
+certify that an already-created snapshot is safe to publish.
 
 This scope depends on:
 
@@ -50,7 +51,8 @@ The prototype now checks:
 - included derived inputs are exposed through the reader-like run and group
   objects;
 - consumer-side plots use manifest-declared axis and value metadata;
-- redaction audit scans included text artifacts as well as the manifest.
+- redaction lessons are preserved as export and publish guidance, not reader
+  checks or gates.
 
 This hardening pass does not prove:
 
@@ -78,8 +80,8 @@ or managed script execution:
 
 ## Fixture Boundary
 
-Use a public-safe synthetic fixture derived from the observed role pattern, not
-from exact private data.
+Use a synthetic fixture derived from the observed role pattern, not from exact
+private data.
 
 The fixture should contain:
 
@@ -137,7 +139,8 @@ The prototype may produce:
 - a basic single-run plot and a group-level sanity plot generated after
   reading the snapshot on the analysis side;
 - a support/debug summary with stable sections for identity, openability,
-  missing fields, exclusions, redaction status, and shareability.
+  missing fields, exclusions, and sharing assessments not performed by the
+  reader.
 
 The plots and summaries generated after reading the copied snapshot are
 consumer-side validation artifacts. They are not part of the handoff snapshot
@@ -157,7 +160,7 @@ questions without requiring the user to inspect raw manifest files:
 - Which artifacts were excluded and why?
 - Which included artifacts need special caution, such as user-attached derived
   inputs or advanced internal references?
-- Is this snapshot suitable for internal handoff, public sharing, or neither?
+- What sharing claims, if any, were made by the export or publish workflow?
 
 This is a validation shape, not a final GUI specification.
 
@@ -170,7 +173,8 @@ The prototype passes this draft scope when:
 - no test depends on original local source paths as portable read paths;
 - the local GUI-like summary can list selected runs, selection reason, group
   order, condition labels, artifact roles, source identity, missing fields,
-  redaction status, and excluded artifacts;
+  export-provided redaction status, shareability non-assessment, and excluded
+  artifacts;
 - each run ID is scoped by source system or station, or explicitly marked
   ambiguous or unknown;
 - the Python-reader-like smoke test can load one run's primary data, axes,
@@ -188,15 +192,36 @@ The prototype passes this draft scope when:
 - the unknown-role artifact is excluded or requires explicit classification;
 - advanced or internal-only artifacts are excluded by default, and any copied
   advanced artifact has role, provenance, and warning text;
-- public-safe validation output passes a redaction leak audit for private
-  absolute paths, usernames, machine names, instrument addresses, internal
-  network locations, sample identifiers, and lab-only notes;
+- reader validation does not perform redaction audits; redaction and
+  publishability are owned by export or publish flows because users can bypass
+  the reader and inspect snapshot files directly;
 - control-PC safety invariants are preserved: no source mutation, no code
   execution, no notebook execution, no generated artifacts during export, no
   network or cloud dependency, and no instrument or setup access;
 - the support/debug summary has stable sections for: what is this snapshot,
-  can it open, what is missing, what was excluded, what was redacted, and can
-  it be shared.
+  can it open, what is missing, what was excluded, and what sharing assessment
+  the reader did not perform.
+
+## Redaction Lessons For Export
+
+The hardening loop showed that reader-side redaction is the wrong place to
+guarantee public safety. Once a snapshot exists on disk, a user can bypass the
+reader and inspect CSV, JSON, sidecars, arrays, or attached files directly.
+
+Export and publish flows should carry these lessons forward:
+
+- use opaque snapshot, run, artifact, and relation IDs as early as possible;
+- keep private source paths as provenance evidence only when the selected
+  export mode permits them, otherwise store redacted or opaque references;
+- apply user- or lab-provided keyword replacement only to Scopecat-managed
+  fields such as manifest text, labels, notes, and generated summaries;
+- do not ask Scopecat to infer every lab's sample naming scheme, shorthand,
+  language, or punctuation convention;
+- do not make the reader scan or redact existing snapshots; do not promise
+  arbitrary-file redaction for CSV, binary arrays, notebooks, PDFs, or user
+  attachments in this reader prototype;
+- make public/external sharing an explicit export or publish mode with clear
+  user responsibility for the keyword table and residual risk.
 
 ## Non-Goals
 
