@@ -212,20 +212,12 @@ The hardening loop showed that reader-side redaction is the wrong place to
 guarantee public safety. Once a snapshot exists on disk, a user can bypass the
 reader and inspect CSV, JSON, sidecars, arrays, or attached files directly.
 
-Export and publish flows should carry these lessons forward:
-
-- use opaque snapshot, run, artifact, and relation IDs as early as possible;
-- keep private source paths as provenance evidence only when the selected
-  export mode permits them, otherwise store redacted or opaque references;
-- apply user- or lab-provided keyword replacement only to Scopecat-managed
-  fields such as manifest text, labels, notes, and generated summaries;
-- do not ask Scopecat to infer every lab's sample naming scheme, shorthand,
-  language, or punctuation convention;
-- do not make the reader scan or redact existing snapshots; do not promise
-  arbitrary-file redaction for CSV, binary arrays, notebooks, PDFs, or user
-  attachments in this reader prototype;
-- make public/external sharing an explicit export or publish mode with clear
-  user responsibility for the keyword table and residual risk.
+Use the project-level structured redaction boundary in
+[`../jc-analysis-operating-standard.md`](../jc-analysis-operating-standard.md)
+for path handling, keyword tables, arbitrary payloads, and publish/export
+ownership. `JC-002` adds only this fixture-specific lesson: the snapshot reader
+should pass through export-produced redaction status and must not scan or
+redact already-created snapshots.
 
 ## Non-Goals
 

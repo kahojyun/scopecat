@@ -188,23 +188,14 @@ Redaction belongs to export or publish flows, not to the ordinary reader. The
 reader consumes an already-created snapshot; it cannot prevent users from
 opening files directly with their own tools.
 
-For public or external sharing, export should prefer structural protection over
-best-effort guessing:
-
-- create opaque IDs for snapshots, runs, artifacts, and source relations before
-  they are used as portable references;
-- avoid copying raw local source paths, hostnames, usernames, instrument
-  addresses, or sample identifiers into public-mode manifest fields;
-- allow users or labs to provide a keyword table for Scopecat-managed text
-  fields that Scopecat writes, such as labels, notes, manifest strings, and
-  generated summaries;
-- make the user responsible for the keyword table because sample names,
-  abbreviations, languages, and punctuation conventions are lab-specific;
-- do not claim arbitrary-file redaction for raw CSV, binary arrays, notebooks,
-  PDFs, scripts, or attachments unless a later dedicated workflow explicitly
-  implements it;
-- treat public-safe publishing as a separate explicit mode, not as a property
-  guaranteed by reading an existing snapshot.
+For public or external sharing, export should follow the structured redaction
+boundary in
+[`../jc-analysis-operating-standard.md`](../jc-analysis-operating-standard.md):
+prefer opaque IDs and whole-field path redaction, use user- or lab-provided
+keyword profiles only in explicit publish/export workflows, and do not claim
+arbitrary-file redaction unless a later dedicated workflow implements it.
+Public-safe publishing is a separate explicit mode, not a property guaranteed
+by reading an existing snapshot.
 
 The reader should not show redaction findings for an existing snapshot.
 Redaction and publishability belong to export or publish workflows, because

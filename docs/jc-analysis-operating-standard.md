@@ -273,6 +273,43 @@ handle. Do not publish exact private paths, usernames, system names, source
 labels, lab labels, instrument identifiers, machine identifiers, or other
 source-derived location details.
 
+### Structured Redaction Boundary
+
+Treat redaction as an owned workflow, not as a universal string-scanning
+feature. A `JC` prototype, fixture, or public document should state which
+workflow owns redaction before adding redaction checks.
+
+Project-wide redaction defaults:
+
+- export or publish workflows own redaction decisions; readers, analysis APIs,
+  and consumer mocks do not scan payloads or certify public safety unless they
+  are explicitly the redaction owner;
+- Scopecat may redact fields it structurally knows are sensitive, such as local
+  paths, usernames, machine IDs, hostnames, instrument addresses, operator
+  fields, source IDs, and explicitly marked sensitive metadata;
+- Scopecat should not scan arbitrary free text or arbitrary file payloads by
+  default;
+- Scopecat should not ship a fixed built-in lab keyword list for samples,
+  projects, devices, acronyms, or local shorthand;
+- labs or users may provide custom keyword tables, replacement rules, or
+  publish profiles for workflows that explicitly opt into free-text or payload
+  redaction;
+- public fixtures and docs should use fixture-authored public handles, not real
+  private identifiers.
+
+For local path fields that cross a sharing or export boundary, prefer replacing
+the whole path with an explicit status or opaque reference. Do not preserve
+path suffixes by default; filenames, folder names, drive or share names,
+usernames, project codes, and sample labels can all carry private context. If a
+portable reference is needed, use an artifact ID, source-system ID, or opaque
+asset URI instead of the original path. Keep original local paths only in
+internal full-fidelity records or local indexes whose boundary allows them.
+
+If a workflow claims automatic redaction, it must name the scope, such as
+`structured path fields only`, `manifest metadata only`, or `user-provided
+keyword profile`. Avoid broad claims such as `public-safe` or `redacted` unless
+the owning workflow has validation for the stated boundary.
+
 ### Review Checklist
 
 These fields are reviewer questions, not a required table schema. They may be
