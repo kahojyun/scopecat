@@ -51,11 +51,11 @@ plots, artifact-role handling, export-provided redaction status display,
 and copy independence at synthetic fixture scale only.
 
 The first hardening pass tightened path confinement, status/value semantics,
-source-run relations, CSV axis/shape validation, sidecar consistency, derived
-input reader exposure, and metadata-driven plotting. The review/fix loop also
-recorded redaction lessons for later export and publish flows, but the reader
-prototype does not scan for redaction, claim arbitrary-file redaction, or
-certify public safety.
+source-run relations, Scopecat-managed data axis/shape checks, sidecar
+consistency, derived input reader exposure, and metadata-driven plotting. The
+review/fix loop also recorded redaction lessons for later export and publish
+flows, but the reader prototype does not scan for redaction, claim
+arbitrary-file redaction, or certify public safety.
 It deliberately did not add richer data-shape fixtures or an export-side
 workflow proof.
 

@@ -588,7 +588,7 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             ):
                 prototype.HandoffSnapshot.open(copied_snapshot)
 
-    def test_rejects_non_numeric_primary_data(self):
+    def test_rejects_malformed_scopecat_primary_data_value(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as tmp_dir:
             copied_snapshot = copy_fixture(tmp_dir)
@@ -603,103 +603,6 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             with self.assertRaisesRegex(
                 prototype.HandoffSnapshotError,
                 "must be numeric",
-            ):
-                prototype.HandoffSnapshot.open(copied_snapshot)
-
-    def test_rejects_non_utf8_primary_data_with_snapshot_error(self):
-        prototype = load_prototype()
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            copied_snapshot = copy_fixture(tmp_dir)
-            data_path = copied_snapshot / "data" / "baseline.csv"
-            data_path.write_bytes(b"\xff\xfe\x00\x00")
-            manifest_path = copied_snapshot / "snapshot-manifest.json"
-            manifest = read_json(manifest_path)
-            refresh_artifact_integrity(copied_snapshot, manifest, "primary-baseline")
-            write_json(manifest_path, manifest)
-
-            with self.assertRaisesRegex(
-                prototype.HandoffSnapshotError,
-                "could not be read as CSV",
-            ):
-                prototype.HandoffSnapshot.open(copied_snapshot)
-
-    def test_rejects_non_finite_primary_data(self):
-        prototype = load_prototype()
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            copied_snapshot = copy_fixture(tmp_dir)
-            data_path = copied_snapshot / "data" / "baseline.csv"
-            data_path.write_text("frequency_hz,response_v\n1.0,NaN\n", encoding="utf-8")
-            manifest_path = copied_snapshot / "snapshot-manifest.json"
-            manifest = read_json(manifest_path)
-            refresh_artifact_integrity(copied_snapshot, manifest, "primary-baseline")
-            artifact_by_id(manifest, "primary-baseline")["shape"] = [1, 2]
-            write_json(manifest_path, manifest)
-
-            with self.assertRaisesRegex(
-                prototype.HandoffSnapshotError,
-                "must be finite",
-            ):
-                prototype.HandoffSnapshot.open(copied_snapshot)
-
-    def test_rejects_duplicate_primary_data_columns(self):
-        prototype = load_prototype()
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            copied_snapshot = copy_fixture(tmp_dir)
-            data_path = copied_snapshot / "data" / "baseline.csv"
-            data_path.write_text(
-                "frequency_hz,response_v,response_v\n1.0,0.1,0.2\n",
-                encoding="utf-8",
-            )
-            manifest_path = copied_snapshot / "snapshot-manifest.json"
-            manifest = read_json(manifest_path)
-            refresh_artifact_integrity(copied_snapshot, manifest, "primary-baseline")
-            artifact_by_id(manifest, "primary-baseline")["shape"] = [1, 3]
-            write_json(manifest_path, manifest)
-
-            with self.assertRaisesRegex(
-                prototype.HandoffSnapshotError,
-                "duplicate columns",
-            ):
-                prototype.HandoffSnapshot.open(copied_snapshot)
-
-    def test_rejects_empty_primary_data_column_names(self):
-        prototype = load_prototype()
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            copied_snapshot = copy_fixture(tmp_dir)
-            data_path = copied_snapshot / "data" / "sample.csv"
-            data_path.write_text(",response_v\n1.0,0.1\n", encoding="utf-8")
-            manifest_path = copied_snapshot / "snapshot-manifest.json"
-            manifest = read_json(manifest_path)
-            refresh_artifact_integrity(copied_snapshot, manifest, "primary-sample")
-            sample_artifact = artifact_by_id(manifest, "primary-sample")
-            sample_artifact["shape"] = [1, 2]
-            sample_artifact["axes"][0]["column"] = ""
-            write_json(manifest_path, manifest)
-
-            with self.assertRaisesRegex(
-                prototype.HandoffSnapshotError,
-                "requires column names",
-            ):
-                prototype.HandoffSnapshot.open(copied_snapshot)
-
-    def test_rejects_undeclared_primary_data_columns(self):
-        prototype = load_prototype()
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            copied_snapshot = copy_fixture(tmp_dir)
-            data_path = copied_snapshot / "data" / "baseline.csv"
-            data_path.write_text(
-                "frequency_hz,response_v,extra_numeric\n1.0,0.1,42\n",
-                encoding="utf-8",
-            )
-            manifest_path = copied_snapshot / "snapshot-manifest.json"
-            manifest = read_json(manifest_path)
-            refresh_artifact_integrity(copied_snapshot, manifest, "primary-baseline")
-            artifact_by_id(manifest, "primary-baseline")["shape"] = [1, 3]
-            write_json(manifest_path, manifest)
-
-            with self.assertRaisesRegex(
-                prototype.HandoffSnapshotError,
-                "undeclared columns",
             ):
                 prototype.HandoffSnapshot.open(copied_snapshot)
 

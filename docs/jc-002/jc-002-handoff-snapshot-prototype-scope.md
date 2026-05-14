@@ -46,7 +46,8 @@ The prototype now checks:
   difference between concrete values, explicit absence, unknowns, and
   redaction;
 - artifact `source_run_relation` values refer to selected runs;
-- primary CSV columns, declared axes and values, units, and shape agree;
+- Scopecat-managed primary data columns, declared axes and values, units, and
+  shape agree;
 - required sidecar metadata applies to the declared primary data columns;
 - included derived inputs are exposed through the reader-like run and group
   objects;
@@ -110,7 +111,10 @@ The fixture should contain:
 - one report artifact that is deliberately excluded from the snapshot.
 
 The fixture may use simple JSON and CSV files to make validation cheap. That is
-a prototype convenience, not a product export-format decision.
+a prototype convenience, not a product export-format decision. The reader
+prototype does not attempt to be a general CSV parser or handle arbitrary CSV
+edge cases supplied by users; it only demonstrates checks for the small
+Scopecat-managed fixture format.
 
 ## Source-Map Summary
 
@@ -235,6 +239,7 @@ This prototype scope does not accept:
 - managed analysis-script execution;
 - generated report, fit, PDF, slide, or publication workflow;
 - protection against intentional misuse of caller-selected output paths;
+- parsing edge cases for arbitrary user-provided CSV or sidecar file formats;
 - permission system;
 - scientific-comparison or equivalence judgment.
 

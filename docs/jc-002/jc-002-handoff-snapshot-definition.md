@@ -101,6 +101,10 @@ The snapshot may include:
 - original source path evidence and stable IDs;
 - context warnings for missing, unknown, ambiguous, or redacted fields.
 
+Reader-side validation of data shape applies only to formats Scopecat owns or
+explicitly declares, not to arbitrary user-attached files that happen to use
+CSV, JSON, array, notebook, or report formats.
+
 ## Source Identity Minimum
 
 Each snapshot should preserve a concept-level identity bundle. This is not a
