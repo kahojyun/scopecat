@@ -716,7 +716,7 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             manifest = read_json(manifest_path)
             manifest["runs"][0]["measurement_label"] = {
                 "status": "redacted",
-                "value": "private measurement label",
+                "value": "withheld measurement label",
             }
             write_json(manifest_path, manifest)
 
@@ -733,7 +733,7 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             manifest["runs"][0]["important_parameters"][0] = {
                 "name": "drive_power",
                 "status": "redacted",
-                "value": "private-drive-power",
+                "value": "withheld-drive-power",
             }
             write_json(manifest_path, manifest)
 
@@ -778,7 +778,7 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
     def test_status_value_hides_redacted_payloads(self):
         prototype = load_prototype()
 
-        self.assertIsNone(prototype.status_value({"status": "redacted", "value": "private"}))
+        self.assertIsNone(prototype.status_value({"status": "redacted", "value": "withheld"}))
 
     def test_rejects_non_text_status_values_for_context_fields(self):
         prototype = load_prototype()
@@ -914,7 +914,7 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             copied_snapshot = copy_fixture(tmp_dir)
             manifest_path = copied_snapshot / "snapshot-manifest.json"
             manifest = read_json(manifest_path)
-            manifest["source_system"]["private_host"] = "host-a"
+            manifest["source_system"]["unexpected_host"] = "host-a"
             write_json(manifest_path, manifest)
 
             with self.assertRaisesRegex(
@@ -927,7 +927,7 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             copied_snapshot = copy_fixture(tmp_dir)
             manifest_path = copied_snapshot / "snapshot-manifest.json"
             manifest = read_json(manifest_path)
-            manifest["selection"]["operator_email"] = "person@example.test"
+            manifest["selection"]["unexpected_field"] = "unexpected"
             write_json(manifest_path, manifest)
 
             with self.assertRaisesRegex(
@@ -940,7 +940,7 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             copied_snapshot = copy_fixture(tmp_dir)
             manifest_path = copied_snapshot / "snapshot-manifest.json"
             manifest = read_json(manifest_path)
-            manifest["runs"][0]["source_id"]["local_path"] = "private"
+            manifest["runs"][0]["source_id"]["unexpected_path"] = "unexpected"
             write_json(manifest_path, manifest)
 
             with self.assertRaisesRegex(
@@ -953,7 +953,7 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             copied_snapshot = copy_fixture(tmp_dir)
             manifest_path = copied_snapshot / "snapshot-manifest.json"
             manifest = read_json(manifest_path)
-            manifest["runs"][0]["operator_email"] = "person@example.test"
+            manifest["runs"][0]["unexpected_field"] = "unexpected"
             write_json(manifest_path, manifest)
 
             with self.assertRaisesRegex(
@@ -966,7 +966,7 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             copied_snapshot = copy_fixture(tmp_dir)
             manifest_path = copied_snapshot / "snapshot-manifest.json"
             manifest = read_json(manifest_path)
-            manifest["private_manifest_field"] = "private"
+            manifest["unexpected_manifest_field"] = "unexpected"
             write_json(manifest_path, manifest)
 
             with self.assertRaisesRegex(
@@ -1345,8 +1345,8 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             copied_snapshot = copy_fixture(tmp_dir)
             manifest_path = copied_snapshot / "snapshot-manifest.json"
             manifest = read_json(manifest_path)
-            artifact_by_id(manifest, "primary-baseline")["axes"][0]["operator_email"] = (
-                "person@example.test"
+            artifact_by_id(manifest, "primary-baseline")["axes"][0]["unexpected_field"] = (
+                "unexpected"
             )
             write_json(manifest_path, manifest)
 
@@ -1622,9 +1622,9 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
     def test_rejects_role_incompatible_artifact_fields(self):
         prototype = load_prototype()
         for artifact_id, key, value in (
-            ("primary-baseline", "reference", "private-source-path://baseline"),
-            ("primary-baseline", "applies_to_artifact_id", "private-artifact-id"),
-            ("derived-window-a", "reference", "private-source-path://derived"),
+            ("primary-baseline", "reference", "role-incompatible-reference://baseline"),
+            ("primary-baseline", "applies_to_artifact_id", "unexpected-artifact-id"),
+            ("derived-window-a", "reference", "role-incompatible-reference://derived"),
         ):
             with tempfile.TemporaryDirectory() as tmp_dir:
                 copied_snapshot = copy_fixture(tmp_dir)
