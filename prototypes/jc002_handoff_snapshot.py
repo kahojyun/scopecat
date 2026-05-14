@@ -152,6 +152,16 @@ class HandoffSnapshot:
         self.manifest = manifest
         self.runs = require_list(manifest.get("runs"), "runs")
         self.artifacts = require_list(manifest.get("artifacts"), "artifacts")
+        for artifact in self.artifacts:
+            artifact_dict = require_dict(artifact, "artifact")
+            artifact_id = artifact_dict.get("artifact_id")
+            if not isinstance(artifact_id, str) or not artifact_id:
+                raise HandoffSnapshotError("artifact requires artifact_id")
+        for run in self.runs:
+            run_dict = require_dict(run, "run")
+            run_id = run_dict.get("public_run_id")
+            if not isinstance(run_id, str) or not run_id:
+                raise HandoffSnapshotError("run requires public_run_id")
         self.artifacts_by_id = {
             require_dict(artifact, "artifact")["artifact_id"]: require_dict(artifact, "artifact")
             for artifact in self.artifacts
@@ -214,6 +224,8 @@ class HandoffSnapshot:
             raise HandoffSnapshotError("artifact IDs must be unique")
         if len(self.runs_by_id) != len(self.runs):
             raise HandoffSnapshotError("public run IDs must be unique")
+        if not self.runs:
+            raise HandoffSnapshotError("snapshot requires at least one run")
 
         selection = require_dict(self.manifest["selection"], "selection")
         validate_status_object(selection.get("selected_by"), "selection.selected_by")

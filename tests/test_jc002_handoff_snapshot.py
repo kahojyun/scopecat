@@ -253,6 +253,37 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             ):
                 prototype.HandoffSnapshot.open(copied_snapshot)
 
+    def test_rejects_missing_artifact_id_with_snapshot_error(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            del manifest["artifacts"][0]["artifact_id"]
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "artifact requires artifact_id",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+    def test_rejects_empty_run_group_at_load_time(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["runs"] = []
+            manifest["selection"]["group_order"] = []
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "snapshot requires at least one run",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
     def test_rejects_invalid_status_value_semantics(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as tmp_dir:
