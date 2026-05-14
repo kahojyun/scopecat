@@ -85,6 +85,22 @@ concepts and contracts, spike or prototype scope, accepted decision, and
 ownership pass. These are not a checklist to complete. Create one only when it
 has a durable reader, removes ambiguity that blocks the next decision, or
 prevents a later implementation or review from depending on hidden reasoning.
+An optional surface stops being optional when implementation, architecture
+boundary changes, public output, fixture behavior, generated artifacts, or
+accepted scope depends on it.
+
+Every promoted `JC` needs a public-safe committed floor, even when full-fidelity
+validation remains non-public. The committed record must identify:
+
+- candidate ID, status, and canonical location;
+- source or fixture boundary;
+- public-safe source summary;
+- evidence class and source coverage;
+- validation boundary;
+- non-goals or deferred scope;
+- next decision or next consumer;
+- if a non-public source-map record is used, the public-safe owner or channel,
+  storage class, redaction reason, and validation facts summarized publicly.
 
 ### Starting The Next JC
 
@@ -128,21 +144,26 @@ the repository.
 Do not create a separate public source-map document only to satisfy process.
 If redaction would remove the validation-relevant detail or duplicate a
 private working map, commit the smallest public-safe summary that supports the
-journey decision and link or describe the non-public source-map location when
-appropriate.
+journey decision. Public docs may reference a non-public source-map record only
+through an abstract owner, channel, storage class, or fixture-authored redaction
+handle. Do not publish exact private paths, usernames, system names, source
+labels, lab labels, instrument identifiers, machine identifiers, or other
+source-derived location details.
 
 Minimum source-map review checklist:
 
 These fields are reviewer questions, not a required table schema. They may be
 answered in one table, short bullets, a fixture manifest, a selection note, or
-a non-public working map. Use `N/A` or omit a field when the fixture genuinely
-does not exercise it, but avoid promoting a journey when the omission hides
-the validation boundary.
+a non-public working map. Use `N/A` or omit non-core fields when the fixture
+genuinely does not exercise them, but avoid promoting a journey when the
+omission hides the validation boundary. For promoted records, the fixture or
+anchor, source family or public handle, evidence handling, inclusion reason,
+and sharing boundary are core fields; if one is absent, record why.
 
 | Field | Capture |
 | --- | --- |
 | Fixture and anchor | Fixture ID plus the anchor object type, such as run, dataset, report, notebook, known-good reference, inherited folder, or work bundle. |
-| Source family or path | Redacted or role-based artifact label, with enough location detail to validate the fixture. |
+| Source family or public handle | Redacted source family, role-based artifact label, or fixture-authored public handle. Private validation paths belong only in non-public records. |
 | Role | Artifact role, such as anchor, selected-context candidate, code candidate, generated protocol, derived artifact, report or handoff item, setup evidence, environment evidence, backup, cache, checkpoint, or unknown. |
 | Status | Active, obsolete, backup, generated, cache, checkpoint, missing, stale, conflicting, or unknown. |
 | Relation | Produced-by, consumed-by, derived-from, copied-from, manually selected, imported, or unknown. |
@@ -152,7 +173,9 @@ the validation boundary.
 
 This is source-map vocabulary, not fixture-manifest controlled vocabulary. When
 a prototype defines a narrower manifest contract, use that contract for fixture
-validation and keep the broader source-map record as traceability.
+validation and keep the broader source-map record as traceability. If both are
+active, add a short crosswalk from source-map value to manifest or output value
+and mark behavior as accepted, rejected, or deferred.
 
 Artifact-specific handling:
 
