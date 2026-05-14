@@ -139,8 +139,7 @@ The prototype may produce:
 - a basic single-run plot and a group-level sanity plot generated after
   reading the snapshot on the analysis side;
 - a support/debug summary with stable sections for identity, openability,
-  missing fields, exclusions, and sharing assessments not performed by the
-  reader.
+  missing fields, exclusions, and export-provided redaction status.
 
 The plots and summaries generated after reading the copied snapshot are
 consumer-side validation artifacts. They are not part of the handoff snapshot
@@ -160,7 +159,7 @@ questions without requiring the user to inspect raw manifest files:
 - Which artifacts were excluded and why?
 - Which included artifacts need special caution, such as user-attached derived
   inputs or advanced internal references?
-- What sharing claims, if any, were made by the export or publish workflow?
+- What redaction status was recorded by export?
 
 This is a validation shape, not a final GUI specification.
 
@@ -173,8 +172,7 @@ The prototype passes this draft scope when:
 - no test depends on original local source paths as portable read paths;
 - the local GUI-like summary can list selected runs, selection reason, group
   order, condition labels, artifact roles, source identity, missing fields,
-  export-provided redaction status, shareability non-assessment, and excluded
-  artifacts;
+  export-provided redaction status, and excluded artifacts;
 - each run ID is scoped by source system or station, or explicitly marked
   ambiguous or unknown;
 - the Python-reader-like smoke test can load one run's primary data, axes,
@@ -199,8 +197,8 @@ The prototype passes this draft scope when:
   execution, no notebook execution, no generated artifacts during export, no
   network or cloud dependency, and no instrument or setup access;
 - the support/debug summary has stable sections for: what is this snapshot,
-  can it open, what is missing, what was excluded, and what sharing assessment
-  the reader did not perform.
+  can it open, what is missing, what was excluded, and what redaction status
+  export recorded.
 
 ## Redaction Lessons For Export
 

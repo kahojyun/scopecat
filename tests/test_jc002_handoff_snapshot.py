@@ -61,6 +61,9 @@ def copy_fixture(tmp_dir):
 
 
 class HandoffSnapshotPrototypeTest(unittest.TestCase):
+    def assert_redaction_status_matches_manifest(self, summary, manifest):
+        self.assertEqual(summary["redaction_status"], manifest["redaction_status"])
+
     def test_summary_and_reader_cover_handoff_acceptance_without_mutating_fixture(self):
         prototype = load_prototype()
         before = fixture_hashes()
@@ -143,8 +146,10 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             "unknown",
         )
         self.assertEqual(missing_paths["runs.run-baseline.original_path_evidence"], "redacted")
-        self.assertEqual(summary["redaction"]["status"], "export_declared_redacted_fixture")
-        self.assertEqual(summary["shareability"]["status"], "not_assessed_by_reader")
+        self.assert_redaction_status_matches_manifest(
+            summary,
+            read_json(FIXTURE / "snapshot-manifest.json"),
+        )
         self.assertTrue(all(value is False for value in summary["safety_evidence"].values()))
 
     def test_copied_snapshot_opens_and_outputs_are_generated_outside_snapshot(self):
@@ -176,10 +181,12 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             summary = read_json(tmp_path / "outputs" / "handoff-summary.json")
             group = read_json(tmp_path / "outputs" / "reader-group.json")
             markdown = (tmp_path / "outputs" / "handoff-summary.md").read_text(encoding="utf-8")
-            self.assertEqual(summary["redaction"]["status"], "export_declared_redacted_fixture")
+            self.assert_redaction_status_matches_manifest(
+                summary,
+                read_json(copied_snapshot / "snapshot-manifest.json"),
+            )
             self.assertEqual(group["run_order"], ["run-baseline", "run-sample"])
             self.assertIn("## Missing And Redacted", markdown)
-            self.assertIn("## Shareability", markdown)
             plot_svg = (tmp_path / "outputs" / "group-sanity-plot.svg").read_text()
             self.assertIn("<polyline", plot_svg)
             self.assertIn("frequency (Hz)", plot_svg)
@@ -393,9 +400,7 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
             summary = snapshot.summary()
 
-            self.assertEqual(summary["redaction"]["status"], "export_declared_redacted_fixture")
-            self.assertEqual(summary["shareability"]["status"], "not_assessed_by_reader")
-            self.assertNotIn("findings", summary["redaction"])
+            self.assert_redaction_status_matches_manifest(summary, manifest)
 
     def test_reader_ignores_user_defined_redaction_terms(self):
         prototype = load_prototype()
@@ -410,10 +415,27 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             write_json(manifest_path, manifest)
 
             snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
-            self.assertEqual(
-                snapshot.summary()["redaction"]["status"],
-                "export_declared_redacted_fixture",
-            )
+            self.assert_redaction_status_matches_manifest(snapshot.summary(), manifest)
+
+    def test_summary_uses_export_redaction_status_input(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["redaction_status"] = {
+                "status": "export_declared_internal_only",
+                "scope": "manifest metadata only",
+                "produced_by": "fixture-export-test",
+            }
+            write_json(manifest_path, manifest)
+
+            snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
+            summary = snapshot.summary()
+            markdown = prototype.render_markdown(summary)
+
+            self.assert_redaction_status_matches_manifest(summary, manifest)
+            self.assertIn("## Redaction Status", markdown)
 
     def test_markdown_summary_escapes_active_markdown_fields(self):
         prototype = load_prototype()
@@ -1160,8 +1182,7 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
             summary = snapshot.summary()
 
-            self.assertEqual(summary["redaction"]["status"], "export_declared_redacted_fixture")
-            self.assertNotIn("findings", summary["redaction"])
+            self.assert_redaction_status_matches_manifest(summary, manifest)
 
     def test_reader_does_not_decode_binary_payloads_for_redaction(self):
         prototype = load_prototype()
@@ -1177,8 +1198,7 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
             summary = snapshot.summary()
 
-            self.assertEqual(summary["redaction"]["status"], "export_declared_redacted_fixture")
-            self.assertNotIn("findings", summary["redaction"])
+            self.assert_redaction_status_matches_manifest(summary, manifest)
 
     def test_reader_does_not_classify_sensitive_categories(self):
         prototype = load_prototype()
@@ -1199,8 +1219,7 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
             summary = snapshot.summary()
 
-            self.assertEqual(summary["redaction"]["status"], "export_declared_redacted_fixture")
-            self.assertNotIn("findings", summary["redaction"])
+            self.assert_redaction_status_matches_manifest(summary, manifest)
 
     def test_plot_uses_manifest_declared_axis_and_value_metadata(self):
         prototype = load_prototype()

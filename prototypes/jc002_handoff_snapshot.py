@@ -752,7 +752,6 @@ class HandoffSnapshot:
 
     def summary(self) -> dict[str, Any]:
         missing_fields = self.missing_and_redacted_fields()
-        redaction_status = self.redaction_status()
         included = [
             artifact_record(artifact)
             for artifact in self.artifacts
@@ -807,22 +806,14 @@ class HandoffSnapshot:
                 ],
             },
             "missing_fields": missing_fields,
-            "redaction": redaction_status,
+            "redaction_status": self.redaction_status(),
             "safety_evidence": self.manifest["safety_evidence"],
-            "shareability": {
-                "status": "not_assessed_by_reader",
-                "reason": "export or publish workflow owns redaction and sharing policy",
-            },
         }
 
 
-def ensure_public_safe_summary(summary: dict[str, Any]) -> None:
-    _ = summary
-
-
 def render_markdown(summary: dict[str, Any]) -> str:
-    ensure_public_safe_summary(summary)
     identity = summary["identity"]
+    redaction_status = summary["redaction_status"]
     lines = [
         "# JC-002 Handoff Snapshot Summary",
         "",
@@ -875,11 +866,11 @@ def render_markdown(summary: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
-            "## Redaction",
+            "## Redaction Status",
             "",
-            f"- Status: {markdown_text(summary['redaction']['status'])}",
-            f"- Scope: {markdown_text(summary['redaction']['scope'])}",
-            f"- Produced by: {markdown_text(summary['redaction']['produced_by'])}",
+            f"- Status: {markdown_text(redaction_status['status'])}",
+            f"- Scope: {markdown_text(redaction_status['scope'])}",
+            f"- Produced by: {markdown_text(redaction_status['produced_by'])}",
             "",
             "## Safety",
             "",
@@ -887,15 +878,6 @@ def render_markdown(summary: dict[str, Any]) -> str:
     )
     for key, value in summary["safety_evidence"].items():
         lines.append(f"- {markdown_text(key)}: {markdown_text(value)}")
-    lines.extend(
-        [
-            "",
-            "## Shareability",
-            "",
-            f"- Status: {markdown_text(summary['shareability']['status'])}",
-            f"- Reason: {markdown_text(summary['shareability']['reason'])}",
-        ]
-    )
     return "\n".join(lines) + "\n"
 
 

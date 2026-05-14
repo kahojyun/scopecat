@@ -302,8 +302,7 @@ support/debug view:
 - whether it can open: primary data and required sidecar presence checks;
 - what is missing: Tier 1 and Tier 2 warning list;
 - what was excluded: unknown-role or advanced artifacts not copied;
-- what redaction status export recorded;
-- what public sharing assessment, if any, export recorded.
+- what redaction status export recorded.
 
 This view can be a generated summary, test output, or prototype screen. It is
 not a full support workflow or permission system.

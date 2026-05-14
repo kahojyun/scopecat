@@ -48,8 +48,7 @@ and
 [`../../tests/fixtures/jc002-handoff-snapshot/`](../../tests/fixtures/jc002-handoff-snapshot/).
 It validates local offline summary, reader-like group loading, consumer-side
 plots, artifact-role handling, export-provided redaction status display,
-explicit non-assessment of shareability, and copy independence at synthetic
-fixture scale only.
+and copy independence at synthetic fixture scale only.
 
 The first hardening pass tightened path confinement, status/value semantics,
 source-run relations, CSV axis/shape validation, sidecar consistency, derived
