@@ -89,8 +89,14 @@ An optional surface stops being optional when implementation, architecture
 boundary changes, public output, fixture behavior, generated artifacts, or
 accepted scope depends on it.
 
+### Minimum Record Checklist
+
 Every promoted `JC` needs a public-safe committed floor, even when full-fidelity
-validation remains non-public. The committed record must identify:
+validation remains non-public. Here, promoted means the `JC` record is used to
+guide downstream journey, fixture, prototype, tracker, architecture, or
+decision work.
+
+The committed record must identify:
 
 - candidate ID, status, and canonical location;
 - source or fixture boundary;
@@ -109,17 +115,16 @@ For the next `JC-###`, start here:
 1. Select one candidate row from
    [`evidence-and-pain-point-inventory.md`](evidence-and-pain-point-inventory.md),
    usually a `JC-###` candidate backed by concrete `PN-###` rows.
+   Use the selection prompts below before committing the minimum record.
 2. Create or identify the minimum source-map record before writing journey
    prose. This may be a public-safe committed document, a non-public
    full-fidelity working map, or a compact source-map section in the selection
    note when the fixture boundary is small.
 3. Leave a minimum durable journey decision record after the source-map record
-   shows a concrete fixture boundary. That record may be one document, a
-   section in an existing owner document, or a short `JC` folder entry when the
-   candidate is likely to accumulate follow-on artifacts.
-4. Make the record answer: why this candidate, which source or fixture boundary,
-   what current-state spine, what future-state slice, what non-goals, what
-   validation route, and what next decision.
+   shows a concrete fixture boundary. Use the minimum record checklist above
+   instead of creating fixed files by default.
+4. Make the record answer: why this candidate, what current-state spine, what
+   future-state slice, and what validation route.
 5. Split the record into separate selection, journey, contract, decision, or
    prototype documents only after length, reuse, review risk, or implementation
    dependency makes the split useful.
@@ -132,6 +137,8 @@ is not the minimum starting packet for new journey work.
 Draft or identify the source-map record before journey prose. Its job is to
 keep the journey from becoming a vague story.
 
+### Record Form
+
 The required output is traceability, not a mandatory standalone public
 document. Use `docs/jc-###/jc-###-source-map.md` when the redacted source map is
 durable, public-safe, and likely to have more than one future reader or
@@ -140,6 +147,8 @@ local labels, system names, usernames, instrument identifiers, or other
 private details are needed for validation. Use a compact section in the journey
 selection note when only the role-stable fixture boundary needs to survive in
 the repository.
+
+### Public And Private Boundary
 
 Do not create a separate public source-map document only to satisfy process.
 If redaction would remove the validation-relevant detail or duplicate a
@@ -150,7 +159,7 @@ handle. Do not publish exact private paths, usernames, system names, source
 labels, lab labels, instrument identifiers, machine identifiers, or other
 source-derived location details.
 
-Minimum source-map review checklist:
+### Review Checklist
 
 These fields are reviewer questions, not a required table schema. They may be
 answered in one table, short bullets, a fixture manifest, a selection note, or
@@ -177,7 +186,7 @@ validation and keep the broader source-map record as traceability. If both are
 active, add a short crosswalk from source-map value to manifest or output value
 and mark behavior as accepted, rejected, or deferred.
 
-Artifact-specific handling:
+### Artifact Handling
 
 - When notebook fixtures are used as evidence, prefer scripted source-cell
   extraction. Use outputs, plots, tables, paths, errors, or displayed artifacts
