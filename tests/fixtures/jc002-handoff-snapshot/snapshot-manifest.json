@@ -8,12 +8,10 @@
   "source_system": {
     "type": "labrad-like-data-vault",
     "station_id": {
-      "status": "redacted",
-      "value": "redacted-station-a"
+      "status": "redacted"
     },
     "control_computer": {
-      "status": "redacted",
-      "value": "redacted-control-computer-a"
+      "status": "redacted"
     }
   },
   "redaction_status": {
@@ -23,8 +21,7 @@
   },
   "selection": {
     "selected_by": {
-      "status": "redacted",
-      "value": "redacted-operator-a"
+      "status": "redacted"
     },
     "selected_reason": {
       "status": "provided",
@@ -47,7 +44,7 @@
     {
       "public_run_id": "run-baseline",
       "source_id": {
-        "namespace": "redacted-station-a",
+        "namespace": "labrad-like-data-vault",
         "local_id": "dataset-0001"
       },
       "acquisition_time": {
@@ -60,8 +57,7 @@
       },
       "condition_label": "baseline",
       "original_path_evidence": {
-        "status": "redacted",
-        "value": "redacted-source-path://vault/public-fixture/baseline"
+        "status": "redacted"
       },
       "sample_label": {
         "status": "not_provided"
@@ -88,7 +84,7 @@
     {
       "public_run_id": "run-sample",
       "source_id": {
-        "namespace": "redacted-station-a",
+        "namespace": "labrad-like-data-vault",
         "local_id": "dataset-0002"
       },
       "acquisition_time": {
@@ -101,8 +97,7 @@
       },
       "condition_label": "sample",
       "original_path_evidence": {
-        "status": "redacted",
-        "value": "redacted-source-path://vault/public-fixture/sample"
+        "status": "redacted"
       },
       "sample_label": {
         "status": "not_provided"
@@ -183,8 +178,8 @@
       "path": "sidecars/baseline-columns.json",
       "source_run_relation": ["run-baseline"],
       "applies_to_artifact_id": "primary-baseline",
-      "size_bytes": 348,
-      "sha256": "028ca6ede1ea3095d056c50b7eb946d7459248a015486803ef6dcd48718366c5"
+      "size_bytes": 334,
+      "sha256": "fb02d209c27cdf837168b79916551cad129ebaa1f498b26d679e51717423acce"
     },
     {
       "artifact_id": "handoff-context-note",

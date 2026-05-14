@@ -110,6 +110,78 @@ match the responsibility it claims. Do not grow a reader into a redaction
 system, a generic parser, a plotting engine, a permission system, or an output
 sandbox just because review found cases those systems would need to handle.
 
+### Review Priority DoD
+
+Prototype and fixture review is not a mandate to fix every plausible edge case.
+Use finding priority to protect the current decision, not to turn one fixture
+into a product framework.
+
+| Priority | Default handling at prototype stage | Examples |
+| --- | --- | --- |
+| P1 | Must fix before relying on the prototype or fixture result. | Public or fixture redaction leak; canonical happy path fails; fixture acceptance gives a false pass; declared owner boundary is contradicted; current-scope destructive or security issue. |
+| P2 | Fix only when it protects the current boundary or removes a repeated root cause. Otherwise record as follow-on schema, product, adapter, or fixture-diversity work. | Reader-owned manifest field leaks into output; relation consistency is ambiguous; status semantics are internally contradictory; multiple reviewers find the same owned-contract gap. |
+| P3 | Usually do not fix during hardening. Record only if it clarifies a future schema or fixture. | Extra defensive validation, nicer error messages, mock robustness, uncommon malformed input outside the fixture claim. |
+| P4 | Do not fix unless already editing the same line for a higher-priority issue. | Style, naming, small refactors, optional cleanup. |
+
+Treat a P2 as in scope only when all of these are true:
+
+- the finding is inside the prototype's written owner boundary;
+- the clean fix does not add a new owner responsibility;
+- the finding can affect the current fixture conclusion, reader output, or
+  stated acceptance claim;
+- the rule is unlikely to be overturned by the next obvious fixture variant, or
+  it is clearly marked as fixture-local.
+
+Treat a P2 as backlog when any of these are true:
+
+- the fix depends on a product decision that the current fixture cannot answer;
+- the finding comes from generalizing one fixture into a universal contract;
+- the fix belongs to export, GUI, plotting, redaction, arbitrary artifact
+  parsing, support policy, permissions, or caller behavior;
+- the fix would mostly reimplement a schema/model library without increasing
+  confidence in the current journey decision.
+
+### Hardening Stop Rule
+
+Before a review-fix loop begins, state the maximum review budget. A typical
+prototype hardening pass should stop after:
+
+- all P1 findings are fixed or explicitly block the work;
+- one repeated P2 root cause is fixed across docs, fixture, implementation, and
+  tests;
+- at most two or three additional P2 root causes are fixed when the fixes are
+  small and clearly inside the written boundary.
+
+Stop the loop and create follow-on work when reviewers keep finding new schema
+edge cases rather than the same root cause. The follow-on work should usually
+be one of:
+
+- add a different fixture shape;
+- write or revise the prototype scope boundary;
+- create a JSON Schema, Pydantic model, or other explicit model spike;
+- record a product or architecture decision question;
+- defer the issue until user validation or a later journey exercises it.
+
+Do not keep hardening a single fixture until no reviewer can imagine another
+P2. That optimizes for local completeness, not product learning.
+
+### Contract Promotion DoD
+
+A rule found during prototype review is not automatically a reusable product
+contract. Promote it only when it has enough evidence for its intended level.
+
+| Level | Promotion requirement |
+| --- | --- |
+| Fixture-local rule | The rule protects this fixture's acceptance claim, and the scope doc names it as local to this prototype. |
+| Prototype contract | The rule is needed by the prototype owner boundary and has positive and negative tests. |
+| Reusable domain contract | The rule survives at least two materially different fixture shapes or one fixture plus direct user/product validation. |
+| Architecture or product contract | The rule changes ownership, dependency direction, export/read behavior, UI behavior, or user workflow; create or update an accepted decision before broad implementation. |
+
+When a future fixture may overturn a rule, prefer wording such as
+`fixture-local`, `current prototype assumes`, or `deferred product decision`
+instead of encoding it as a broad contract. Fixture diversity usually has
+higher value than adding more edge-case checks to one prototype.
+
 ## Decision Record And Optional Artifacts
 
 Use the smallest durable record that lets a reviewer understand the choice,

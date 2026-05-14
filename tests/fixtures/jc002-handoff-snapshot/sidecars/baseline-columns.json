@@ -4,13 +4,13 @@
   "columns": [
     {
       "name": "frequency_hz",
-      "quantity": "drive_frequency",
+      "quantity": "frequency",
       "unit": "Hz",
       "axis": "x"
     },
     {
       "name": "response_v",
-      "quantity": "response_voltage",
+      "quantity": "response",
       "unit": "V",
       "axis": "y"
     }

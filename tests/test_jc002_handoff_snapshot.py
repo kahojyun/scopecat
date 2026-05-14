@@ -1,6 +1,7 @@
 import hashlib
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -86,7 +87,7 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
         run_ids = [run["run_id"] for run in summary["runs"]]
         self.assertEqual(run_ids, ["run-baseline", "run-sample"])
         for run in summary["runs"]:
-            self.assertEqual(run["source_namespace"], "redacted-station-a")
+            self.assertEqual(run["source_namespace"], "labrad-like-data-vault")
             self.assertIn("sample_label:not_provided", run["warnings"])
             self.assertIn("important_parameters.temperature:unknown", run["warnings"])
 
@@ -117,6 +118,28 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
                 "user_attached_derived_input",
             },
         )
+        included_by_id = {
+            artifact["artifact_id"]: artifact for artifact in summary["artifacts"]["included"]
+        }
+        self.assertEqual(
+            included_by_id["primary-baseline"]["source_run_relation"],
+            ["run-baseline"],
+        )
+        self.assertEqual(
+            included_by_id["primary-baseline"]["sha256"],
+            artifact_by_id(read_json(FIXTURE / "snapshot-manifest.json"), "primary-baseline")[
+                "sha256"
+            ],
+        )
+        self.assertGreater(included_by_id["primary-baseline"]["size_bytes"], 0)
+        self.assertEqual(
+            included_by_id["derived-window-a"]["processed_status"],
+            "processed-lossless-subset",
+        )
+        self.assertEqual(
+            included_by_id["derived-window-a"]["human_production_note"],
+            "Public fixture note: selected frequency window was attached before export.",
+        )
         excluded = {
             artifact["artifact_id"]: artifact for artifact in summary["artifacts"]["excluded"]
         }
@@ -125,6 +148,17 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
         self.assertEqual(
             excluded["internal-verification-ref-a"]["role"],
             "internal_verification_reference",
+        )
+        referenced = {
+            artifact["artifact_id"]: artifact for artifact in summary["artifacts"]["referenced"]
+        }
+        self.assertEqual(
+            referenced["calibration-ref-a"]["reference"],
+            "redacted-calibration-reference://calibration-a",
+        )
+        self.assertEqual(
+            referenced["calibration-ref-a"]["warning"],
+            "Reference retained; calibration artifact not copied by default.",
         )
 
         derived = [
@@ -139,6 +173,8 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
         self.assertGreater(derived["size_bytes"], 0)
 
         missing_paths = {field["path"]: field["status"] for field in summary["missing_fields"]}
+        self.assertEqual(missing_paths["source_system.station_id"], "redacted")
+        self.assertEqual(missing_paths["source_system.control_computer"], "redacted")
         self.assertEqual(missing_paths["runs.run-baseline.sample_label"], "not_provided")
         self.assertEqual(
             missing_paths["runs.run-baseline.important_parameters.temperature"],
@@ -185,6 +221,9 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             )
             self.assertEqual(group["run_order"], ["run-baseline", "run-sample"])
             self.assertIn("## Missing And Redacted", markdown)
+            self.assertIn(r"derived\-window\-a", markdown)
+            self.assertIn(r"processed\-lossless\-subset", markdown)
+            self.assertIn("Reference retained", markdown)
             plot_svg = (tmp_path / "outputs" / "group-sanity-plot.svg").read_text()
             self.assertIn("<polyline", plot_svg)
             self.assertIn("frequency (Hz)", plot_svg)
@@ -268,6 +307,127 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             ):
                 prototype.HandoffSnapshot.open(copied_snapshot)
 
+    def test_rejects_invalid_identity_fields(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["snapshot_id"] = ""
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "snapshot_id must be a non-empty string",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["created_at"] = None
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "created_at requires timestamp",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["producer"] = "bad"
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "producer must be an object",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            del manifest["producer"]["version"]
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "producer requires version",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["producer"]["extra"] = "unexpected"
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "producer has invalid fields",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+    def test_rejects_invalid_timestamps(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["created_at"] = "not-a-timestamp"
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "created_at requires timestamp",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["created_at"] = "2026-05-14"
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "created_at requires timestamp",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["runs"][0]["acquisition_time"]["value"] = "2026-05-13T10:00:00"
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "acquisition_time requires timestamp",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["runs"][0]["acquisition_time"]["value"] = "not-a-timestamp"
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "acquisition_time requires timestamp",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
     def test_summary_uses_export_redaction_status_input(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -276,8 +436,10 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             manifest = read_json(manifest_path)
             manifest["redaction_status"] = {
                 "status": "export_declared_internal_only",
-                "scope": "manifest metadata only",
-                "produced_by": "fixture-export-test",
+                "keyword_table": {
+                    "status": "export-owned",
+                    "entry_count": 2,
+                },
             }
             write_json(manifest_path, manifest)
 
@@ -287,6 +449,7 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
 
             self.assert_redaction_status_matches_manifest(summary, manifest)
             self.assertIn("## Redaction Status", markdown)
+            self.assertIn("keyword\\_table", markdown)
 
     def test_markdown_summary_escapes_active_markdown_fields(self):
         prototype = load_prototype()
@@ -396,6 +559,98 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             ):
                 prototype.HandoffSnapshot.open(copied_snapshot)
 
+    def test_reader_outputs_do_not_alias_validated_manifest(self):
+        prototype = load_prototype()
+        snapshot = prototype.HandoffSnapshot.open(FIXTURE)
+
+        run = snapshot.load_run("run-baseline")
+        group = snapshot.load_group()
+        summary = snapshot.summary()
+
+        run["axes"][0]["unit"] = "mutated"
+        run["source_id"]["namespace"] = "mutated"
+        run["per_run_note"]["value"] = "mutated"
+        group["run_order"].append("mutated")
+        group["per_run_notes"]["run-baseline"]["value"] = "mutated"
+        summary["selection"]["group_order"].append("mutated")
+        summary["identity"]["source_system"]["station_id"]["status"] = "mutated"
+
+        fresh_run = snapshot.load_run("run-baseline")
+        fresh_group = snapshot.load_group()
+        fresh_summary = snapshot.summary()
+
+        self.assertEqual(fresh_run["axes"][0]["unit"], "Hz")
+        self.assertEqual(fresh_run["source_id"]["namespace"], "labrad-like-data-vault")
+        self.assertEqual(fresh_run["per_run_note"]["value"], "baseline condition")
+        self.assertEqual(fresh_group["run_order"], ["run-baseline", "run-sample"])
+        self.assertEqual(
+            fresh_group["per_run_notes"]["run-baseline"]["value"],
+            "baseline condition",
+        )
+        self.assertEqual(
+            fresh_summary["selection"]["group_order"],
+            ["run-baseline", "run-sample"],
+        )
+        self.assertEqual(
+            fresh_summary["identity"]["source_system"]["station_id"]["status"],
+            "redacted",
+        )
+
+    def test_relative_snapshot_root_is_anchored_after_open(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            copy_fixture(tmp_path)
+            original_cwd = Path.cwd()
+            try:
+                os.chdir(tmp_path)
+                snapshot = prototype.HandoffSnapshot.open("snapshot")
+                os.chdir("/")
+
+                baseline = snapshot.load_run("run-baseline")
+            finally:
+                os.chdir(original_cwd)
+
+            self.assertEqual(baseline["shape"], [4, 2])
+
+    def test_reader_rechecks_artifact_integrity_after_open(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
+            data_path = copied_snapshot / "data" / "baseline.csv"
+            data_path.write_text("frequency_hz,response_v\n1.0,0.1\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "checksum mismatch|size mismatch",
+            ):
+                snapshot.load_run("run-baseline")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
+            data_path = copied_snapshot / "data" / "baseline.csv"
+            data_path.write_text("frequency_hz,response_v\n1.0,0.1\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "checksum mismatch|size mismatch",
+            ):
+                snapshot.summary()
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
+            derived_path = copied_snapshot / "derived" / "selected-window.json"
+            derived_path.write_text("changed derived input\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "checksum mismatch|size mismatch",
+            ):
+                snapshot.load_run("run-baseline")
+
     def test_group_order_can_differ_from_manifest_run_order(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -407,12 +662,19 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
 
             snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
             group = snapshot.load_group()
+            summary = snapshot.summary()
+            markdown = prototype.render_markdown(summary)
 
             self.assertEqual(group["run_order"], ["run-sample", "run-baseline"])
             self.assertEqual(
                 [run["run_id"] for run in group["runs"]],
                 ["run-sample", "run-baseline"],
             )
+            self.assertEqual(
+                [run["run_id"] for run in summary["runs"]],
+                ["run-sample", "run-baseline"],
+            )
+            self.assertLess(markdown.index("run\\-sample"), markdown.index("run\\-baseline"))
 
     def test_rejects_duplicate_group_order_entries(self):
         prototype = load_prototype()
@@ -448,6 +710,271 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             ):
                 prototype.HandoffSnapshot.open(copied_snapshot)
 
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["runs"][0]["measurement_label"] = {
+                "status": "redacted",
+                "value": "private measurement label",
+            }
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "status redacted must not carry value",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["runs"][0]["important_parameters"][0] = {
+                "name": "drive_power",
+                "status": "redacted",
+                "value": "private-drive-power",
+            }
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "status redacted must not carry value",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["runs"][0]["sample_label"] = {
+                "status": "not_provided",
+                "value": None,
+            }
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "status not_provided must not carry value",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["runs"][0]["device_label"] = {
+                "status": "provided",
+                "value": None,
+            }
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "status provided requires value",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+    def test_status_value_hides_redacted_payloads(self):
+        prototype = load_prototype()
+
+        self.assertIsNone(prototype.status_value({"status": "redacted", "value": "private"}))
+
+    def test_rejects_non_text_status_values_for_context_fields(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["runs"][0]["measurement_label"] = {
+                "status": "provided",
+                "value": {"label": "bad"},
+            }
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "measurement_label requires text value",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["selection"]["selected_reason"] = {
+                "status": "provided",
+                "value": ["bad"],
+            }
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "selection.selected_reason requires text value",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["source_system"]["station_id"] = {
+                "status": "redacted",
+                "value": {"station": "bad"},
+            }
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "source_system.station_id status redacted must not carry value",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+    def test_rejects_source_namespace_mismatch_when_station_is_known(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["runs"][0]["source_id"]["namespace"] = "unscoped-foreign-system"
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "source_id namespace mismatch",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["runs"][0]["source_id"]["namespace"] = {
+                "status": "provided",
+                "value": "unscoped-foreign-system",
+            }
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "source_id namespace mismatch",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+    def test_source_namespace_can_use_source_system_type(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["runs"][0]["source_id"]["namespace"] = "labrad-like-data-vault"
+            write_json(manifest_path, manifest)
+
+            snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
+
+            self.assertEqual(
+                snapshot.summary()["runs"][0]["source_namespace"],
+                "labrad-like-data-vault",
+            )
+
+    def test_source_id_can_use_explicit_missing_statuses(self):
+        prototype = load_prototype()
+        for key, status in (("namespace", "not_provided"), ("local_id", "not_applicable")):
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                copied_snapshot = copy_fixture(tmp_dir)
+                manifest_path = copied_snapshot / "snapshot-manifest.json"
+                manifest = read_json(manifest_path)
+                manifest["runs"][0]["source_id"][key] = {"status": status}
+                write_json(manifest_path, manifest)
+
+                snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
+                summary = snapshot.summary()
+                missing_paths = {
+                    field["path"]: field["status"] for field in summary["missing_fields"]
+                }
+
+                self.assertEqual(missing_paths[f"runs.run-baseline.source_id.{key}"], status)
+
+    def test_rejects_status_objects_with_unknown_fields(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["runs"][0]["measurement_label"]["extra"] = "unexpected"
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "measurement_label has unknown fields",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["source_system"]["private_host"] = "host-a"
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "source_system has invalid fields",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["selection"]["operator_email"] = "person@example.test"
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "selection has invalid fields",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["runs"][0]["source_id"]["local_path"] = "private"
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "source_id has invalid fields",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["runs"][0]["operator_email"] = "person@example.test"
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "run run-baseline has invalid fields",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["private_manifest_field"] = "private"
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "manifest has invalid fields",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
     def test_rejects_non_object_important_parameter(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -463,6 +990,47 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             ):
                 prototype.HandoffSnapshot.open(copied_snapshot)
 
+    def test_rejects_malformed_important_parameter_metadata(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["runs"][0]["important_parameters"][0]["unit"] = ["dBm"]
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "unit mismatch",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["runs"][0]["important_parameters"][0]["value"] = {"bad": "value"}
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "requires scalar value",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["runs"][0]["important_parameters"][1]["name"] = "drive_power"
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "parameter names must be unique",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
     def test_rejects_primary_data_shape_mismatch(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -470,6 +1038,47 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             manifest_path = copied_snapshot / "snapshot-manifest.json"
             manifest = read_json(manifest_path)
             artifact_by_id(manifest, "primary-baseline")["shape"] = [99, 2]
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "shape mismatch",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+    def test_rejects_malformed_integrity_and_shape_types(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            artifact_by_id(manifest, "primary-baseline")["size_bytes"] = 60.0
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "size mismatch",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            artifact_by_id(manifest, "primary-baseline")["sha256"] = "not-a-sha"
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "requires sha256",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            artifact_by_id(manifest, "primary-baseline")["shape"] = [4.0, 2.0]
             write_json(manifest_path, manifest)
 
             with self.assertRaisesRegex(
@@ -581,6 +1190,23 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             ):
                 prototype.HandoffSnapshot.open(copied_snapshot)
 
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            sidecar_path = copied_snapshot / "sidecars" / "baseline-columns.json"
+            sidecar = read_json(sidecar_path)
+            sidecar["columns"][0]["quantity"] = "detuning"
+            write_json(sidecar_path, sidecar)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            refresh_artifact_integrity(copied_snapshot, manifest, "sidecar-baseline-columns")
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "column quantity mismatch",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
     def test_rejects_duplicate_sidecar_columns(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -608,6 +1234,85 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             ):
                 prototype.HandoffSnapshot.open(copied_snapshot)
 
+    def test_rejects_extra_sidecar_columns(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            sidecar_path = copied_snapshot / "sidecars" / "baseline-columns.json"
+            sidecar = read_json(sidecar_path)
+            sidecar["columns"].append(
+                {
+                    "name": "not_in_primary",
+                    "quantity": "extra",
+                    "unit": "arb",
+                    "axis": "y",
+                }
+            )
+            write_json(sidecar_path, sidecar)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            refresh_artifact_integrity(copied_snapshot, manifest, "sidecar-baseline-columns")
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "sidecar sidecar-baseline-columns column mismatch",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+    def test_rejects_extra_sidecar_schema_fields(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            sidecar_path = copied_snapshot / "sidecars" / "baseline-columns.json"
+            sidecar = read_json(sidecar_path)
+            sidecar["extra"] = "unexpected"
+            write_json(sidecar_path, sidecar)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            refresh_artifact_integrity(copied_snapshot, manifest, "sidecar-baseline-columns")
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "sidecar sidecar-baseline-columns schema mismatch",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            sidecar_path = copied_snapshot / "sidecars" / "baseline-columns.json"
+            sidecar = read_json(sidecar_path)
+            sidecar["columns"][0]["extra"] = "unexpected"
+            write_json(sidecar_path, sidecar)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            refresh_artifact_integrity(copied_snapshot, manifest, "sidecar-baseline-columns")
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "sidecar sidecar-baseline-columns column schema mismatch",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            sidecar_path = copied_snapshot / "sidecars" / "baseline-columns.json"
+            sidecar = read_json(sidecar_path)
+            sidecar["columns"][0]["quantity"] = ""
+            write_json(sidecar_path, sidecar)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            refresh_artifact_integrity(copied_snapshot, manifest, "sidecar-baseline-columns")
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "sidecar sidecar-baseline-columns column quantity mismatch",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
     def test_malformed_primary_metadata_raises_snapshot_error(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -620,6 +1325,62 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             with self.assertRaisesRegex(
                 prototype.HandoffSnapshotError,
                 "axis column mismatch",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            artifact_by_id(manifest, "primary-sample")["values"][0]["unit"] = {"unit": "V"}
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "value requires unit",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            artifact_by_id(manifest, "primary-baseline")["axes"][0]["operator_email"] = (
+                "person@example.test"
+            )
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "axis has invalid fields",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            artifact = artifact_by_id(manifest, "primary-sample")
+            artifact["values"][0]["column"] = artifact["axes"][0]["column"]
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "column mismatch",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            artifact = artifact_by_id(manifest, "primary-sample")
+            artifact["values"].append(dict(artifact["values"][0]))
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "requires one axis and one value",
             ):
                 prototype.HandoffSnapshot.open(copied_snapshot)
 
@@ -659,6 +1420,43 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             ):
                 prototype.HandoffSnapshot.open(copied_snapshot)
 
+    def test_rejects_selected_runs_sharing_primary_artifact(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["runs"][1]["primary_artifact_id"] = "primary-baseline"
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "selected runs must use distinct primary artifacts",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+    def test_rejects_unselected_included_primary_data(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            orphan_path = copied_snapshot / "data" / "orphan.csv"
+            shutil.copyfile(copied_snapshot / "data" / "baseline.csv", orphan_path)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            artifact = json.loads(json.dumps(artifact_by_id(manifest, "primary-baseline")))
+            artifact["artifact_id"] = "primary-orphan"
+            artifact["path"] = "data/orphan.csv"
+            artifact["source_run_relation"] = ["run-baseline"]
+            manifest["artifacts"].append(artifact)
+            refresh_artifact_integrity(copied_snapshot, manifest, "primary-orphan")
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "primary artifact primary-orphan is not selected by any run",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
     def test_derived_input_payload_is_not_parsed_by_reader(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -678,6 +1476,41 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
                 baseline["derived_inputs"][0]["processed_status"],
                 "processed-lossless-subset",
             )
+            self.assertEqual(
+                baseline["derived_inputs"][0]["source_run_relation"],
+                ["run-baseline", "run-sample"],
+            )
+            self.assertEqual(baseline["derived_inputs"][0]["path"], "derived/selected-window.json")
+
+    def test_rejects_malformed_derived_input_metadata(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            artifact_by_id(manifest, "derived-window-a")["processed_status"] = {
+                "status": "processed"
+            }
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "requires processed_status",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            artifact_by_id(manifest, "derived-window-a")["human_production_note"] = ["manual"]
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "requires human_production_note",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
 
     def test_rejects_non_string_source_run_relation(self):
         prototype = load_prototype()
@@ -691,6 +1524,40 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             with self.assertRaisesRegex(
                 prototype.HandoffSnapshotError,
                 "source_run_relation must use run IDs",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+    def test_rejects_duplicate_relation_ids(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            artifact_by_id(manifest, "derived-window-a")["source_run_relation"] = [
+                "run-baseline",
+                "run-baseline",
+            ]
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "source_run_relation has duplicates",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["runs"][0]["required_sidecar_artifact_ids"] = [
+                "sidecar-baseline-columns",
+                "sidecar-baseline-columns",
+            ]
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "required sidecars has duplicates",
             ):
                 prototype.HandoffSnapshot.open(copied_snapshot)
 
@@ -708,6 +1575,173 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             with self.assertRaisesRegex(
                 prototype.HandoffSnapshotError,
                 "sidecar sidecar-baseline-columns relation mismatch",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+    def test_rejects_malformed_artifact_text_fields(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            artifact_by_id(manifest, "sidecar-baseline-columns")["applies_to_artifact_id"] = {}
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "applies_to_artifact_id must be text",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            artifact_by_id(manifest, "unknown-array-a")["exclusion_reason"] = ["not text"]
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "reason must be text",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            artifact_by_id(manifest, "calibration-ref-a")["reference"] = {"not": "text"}
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "reference must be text",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+    def test_rejects_role_incompatible_artifact_fields(self):
+        prototype = load_prototype()
+        for artifact_id, key, value in (
+            ("primary-baseline", "reference", "private-source-path://baseline"),
+            ("primary-baseline", "applies_to_artifact_id", "private-artifact-id"),
+            ("derived-window-a", "reference", "private-source-path://derived"),
+        ):
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                copied_snapshot = copy_fixture(tmp_dir)
+                manifest_path = copied_snapshot / "snapshot-manifest.json"
+                manifest = read_json(manifest_path)
+                artifact_by_id(manifest, artifact_id)[key] = value
+                write_json(manifest_path, manifest)
+
+                with self.assertRaisesRegex(
+                    prototype.HandoffSnapshotError,
+                    f"artifact {artifact_id} has invalid fields",
+                ):
+                    prototype.HandoffSnapshot.open(copied_snapshot)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            calibration_path = copied_snapshot / "calibration-reference.txt"
+            calibration_path.write_text("synthetic calibration payload\n", encoding="utf-8")
+            calibration = artifact_by_id(manifest, "calibration-ref-a")
+            calibration["handling"] = "included"
+            calibration["path"] = "calibration-reference.txt"
+            refresh_artifact_integrity(copied_snapshot, manifest, "calibration-ref-a")
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "artifact calibration-ref-a has invalid fields",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+    def test_rejects_payload_fields_on_non_included_artifacts(self):
+        prototype = load_prototype()
+        for artifact_id, key, value in (
+            ("calibration-ref-a", "path", "calibration/local-only.json"),
+            ("unknown-array-a", "size_bytes", 123),
+            ("report-artifact-a", "sha256", "0" * 64),
+        ):
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                copied_snapshot = copy_fixture(tmp_dir)
+                manifest_path = copied_snapshot / "snapshot-manifest.json"
+                manifest = read_json(manifest_path)
+                artifact_by_id(manifest, artifact_id)[key] = value
+                write_json(manifest_path, manifest)
+
+                with self.assertRaisesRegex(
+                    prototype.HandoffSnapshotError,
+                    f"artifact {artifact_id} {key} requires inclusion",
+                ):
+                    prototype.HandoffSnapshot.open(copied_snapshot)
+
+    def test_allows_explicitly_included_advanced_artifact_with_warning(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            calibration_path = copied_snapshot / "calibration-reference.txt"
+            calibration_path.write_text("synthetic calibration payload\n", encoding="utf-8")
+            calibration = artifact_by_id(manifest, "calibration-ref-a")
+            calibration["handling"] = "included"
+            calibration["path"] = "calibration-reference.txt"
+            calibration.pop("reference")
+            refresh_artifact_integrity(copied_snapshot, manifest, "calibration-ref-a")
+            write_json(manifest_path, manifest)
+
+            snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
+            included = {
+                artifact["artifact_id"]: artifact
+                for artifact in snapshot.summary()["artifacts"]["included"]
+            }
+
+            self.assertIn("calibration-ref-a", included)
+            self.assertEqual(
+                included["calibration-ref-a"]["warning"],
+                "Reference retained; calibration artifact not copied by default.",
+            )
+
+    def test_rejects_included_advanced_artifact_without_warning(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            calibration_path = copied_snapshot / "calibration-reference.txt"
+            calibration_path.write_text("synthetic calibration payload\n", encoding="utf-8")
+            calibration = artifact_by_id(manifest, "calibration-ref-a")
+            calibration["handling"] = "included"
+            calibration["path"] = "calibration-reference.txt"
+            calibration.pop("reference")
+            calibration.pop("warning")
+            refresh_artifact_integrity(copied_snapshot, manifest, "calibration-ref-a")
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "artifact calibration-ref-a requires warning",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+    def test_rejects_malformed_primary_relation_before_artifact_order_matters(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            primary = artifact_by_id(manifest, "primary-baseline")
+            sidecar = artifact_by_id(manifest, "sidecar-baseline-columns")
+            primary["source_run_relation"] = [{}]
+            manifest["artifacts"].remove(sidecar)
+            manifest["artifacts"].insert(0, sidecar)
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "artifact primary-baseline source_run_relation must use run IDs",
             ):
                 prototype.HandoffSnapshot.open(copied_snapshot)
 
@@ -745,12 +1779,12 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             copied_snapshot = copy_fixture(tmp_dir)
             manifest_path = copied_snapshot / "snapshot-manifest.json"
             manifest = read_json(manifest_path)
-            del manifest["redaction_status"]["produced_by"]
+            manifest["redaction_status"] = ["bad"]
             write_json(manifest_path, manifest)
 
             with self.assertRaisesRegex(
                 prototype.HandoffSnapshotError,
-                "redaction_status requires produced_by",
+                "redaction_status must be an object",
             ):
                 prototype.HandoffSnapshot.open(copied_snapshot)
 
@@ -802,6 +1836,37 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
                 "not_provided",
             )
 
+    def test_source_id_can_be_explicitly_unknown(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["runs"][1]["source_id"]["local_id"] = {"status": "unknown"}
+            write_json(manifest_path, manifest)
+
+            snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
+            summary = snapshot.summary()
+            missing_paths = {field["path"]: field["status"] for field in summary["missing_fields"]}
+
+            self.assertIsNone(summary["runs"][1]["source_local_id"])
+            self.assertEqual(missing_paths["runs.run-sample.source_id.local_id"], "unknown")
+
+    def test_rejects_duplicate_concrete_source_ids(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["runs"][1]["source_id"]["local_id"] = "dataset-0001"
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "selected runs must use distinct source IDs",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
     def test_rejects_missing_condition_label_at_load_time(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -846,7 +1911,9 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
                 artifact["values"][0]["unit"] = "arb"
             sidecar_path = copied_snapshot / "sidecars" / "baseline-columns.json"
             sidecar = read_json(sidecar_path)
+            sidecar["columns"][0]["quantity"] = "declared detuning"
             sidecar["columns"][0]["unit"] = "MHz"
+            sidecar["columns"][1]["quantity"] = "declared signal"
             sidecar["columns"][1]["unit"] = "arb"
             write_json(sidecar_path, sidecar)
             refresh_artifact_integrity(copied_snapshot, manifest, "sidecar-baseline-columns")
@@ -920,6 +1987,21 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
         self.assertIn("<polyline", svg)
         self.assertIn("frequency (Hz)", svg)
         self.assertIn("response (V)", svg)
+
+    def test_mock_plotter_rejects_mismatched_x_y_pairs(self):
+        prototype = load_prototype()
+        plot_spec = {
+            "title": "mock plot",
+            "x_label": "frequency (Hz)",
+            "y_label": "response (V)",
+            "series": [{"label": "baseline", "x": [1.0, 2.0], "y": [0.1]}],
+        }
+
+        with self.assertRaisesRegex(
+            prototype.HandoffSnapshotError,
+            "x and y lengths must match",
+        ):
+            prototype.mock_plotter_svg(plot_spec)
 
 
 if __name__ == "__main__":
