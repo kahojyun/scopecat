@@ -214,10 +214,10 @@ These questions preserve follow-on pressure from the read journey. They do not
 reopen the accepted `JC-001` passive evidence-view boundary.
 
 The detailed analysis-handoff candidate has moved to
-[`../analysis-handoff-candidate-note.md`](../analysis-handoff-candidate-note.md)
-so this `JC-001` journey does not become the owner for starred-run browsing,
-handoff packages, reader APIs, live-preview monitor semantics, export formats,
-UI, storage, or fit-result schema details.
+[`../jc-002/README.md`](../jc-002/README.md), so this `JC-001` journey does not
+become the owner for starred-run browsing, handoff packages, reader APIs,
+live-preview monitor semantics, export formats, UI, storage, or fit-result
+schema details.
 
 - Which role names should become durable user-facing terms rather than
   internal evidence labels?
