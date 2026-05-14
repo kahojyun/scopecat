@@ -20,13 +20,48 @@ analysis code in this slice.
 ```text
 experiment-control computer
   -> user selects runs or datasets
-  -> Scopecat creates immutable handoff snapshot
+  -> Scopecat packages already-known artifacts and context
   -> analysis computer
   -> user reads and analyzes snapshot
   -> derived figures, PDFs, slides, and fit results are produced separately
 ```
 
-## Include
+## Export Is Not Derivation
+
+Creating a handoff snapshot is a packaging and manifesting operation. It does
+not create new derived artifacts from source data.
+
+At export time, Scopecat may package only artifacts and context that are
+already known to the system or already attached by the user to the selected
+runs. If a useful CSV, NPY, PNG, PDF, fit table, or report does not already
+exist as a recorded artifact with an explicit role, handoff export should not
+generate it.
+
+New derived artifacts belong to a separate analysis or derived-record
+workflow. Those later outputs may link back to the snapshot, but they do not
+change what the original snapshot meant.
+
+## Artifact Inclusion
+
+Snapshot inclusion is role-based, not file-extension-based.
+
+| Role | Default handling |
+| --- | --- |
+| primary_data | Include by default. |
+| required_read_sidecar | Include by default when needed to open or interpret primary data. |
+| handoff_context | Include by default when attached to the selected runs or snapshot. |
+| calibration_or_correction_reference | Include as a reference by default; copy only when already attached or explicitly selected. |
+| user_attached_derived_input | Include only when the user has attached it for handoff or selected an advanced option. |
+| analysis_output | Exclude by default; it belongs to derived analysis records. |
+| report_artifact | Exclude by default; it belongs to derived analysis or report lineage. |
+| internal_verification_reference | Include as a reference only by default; copy with an advanced internal-verification option. |
+| unknown | Do not silently include. Either exclude with a warning or require explicit user selection. |
+
+For example, an `.npy` file can be primary data, a required read sidecar, a
+user-attached derived input, or an analysis output. Its role decides whether it
+belongs in the snapshot.
+
+## Default Include
 
 The snapshot may include:
 
@@ -42,7 +77,7 @@ The snapshot may include:
 - original source path evidence and stable IDs;
 - context warnings for missing, unknown, ambiguous, or redacted fields.
 
-## Exclude
+## Default Exclude
 
 The first snapshot definition excludes:
 
@@ -58,6 +93,22 @@ The first snapshot definition excludes:
 Those outputs can become later append-only derived analysis records linked back
 to the snapshot. They must not mutate source data, configuration, setup,
 parameter, or execution-state truth.
+
+## Advanced Options
+
+Advanced export options may broaden what is copied, but they should not change
+the default handoff boundary or generate new artifacts. Candidate options
+include:
+
+- copy user-attached derived inputs;
+- copy selected calibration or correction artifacts that are already recorded;
+- copy selected notebooks or scripts attached by the user as handoff context;
+- copy internal verification references instead of keeping references only;
+- include full-fidelity local source path evidence for internal use;
+- apply an external or public-safe redaction profile.
+
+These are selection and packaging choices over known artifacts, not analysis
+steps.
 
 ## Context Tiers
 

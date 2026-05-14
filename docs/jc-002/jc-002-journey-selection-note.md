@@ -116,6 +116,7 @@ paths, memory, or the original machine being available.
 - prioritize internal full-fidelity analysis handoff before public or external
   export;
 - keep user ceremony low by allowing explicit missing-value statuses;
+- treat export as packaging over already-known artifacts, not as derivation;
 - separate pre-analysis handoff snapshots from derived analysis outputs;
 - preserve source identity and original path evidence without treating local
   paths as portable truth;
@@ -125,6 +126,8 @@ paths, memory, or the original machine being available.
 
 - include generated PDFs, decks, reports, fit outputs, or publication arrays in
   the first snapshot definition;
+- generate new CSV, NPY, plot, fit, PDF, deck, or report artifacts during
+  export;
 - require users to provide all context before export;
 - commit to CSV, NPZ, HDF5, pandas, NumPy, xarray, or any other adapter as the
   first design center;
