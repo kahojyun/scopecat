@@ -33,6 +33,33 @@ Current validation artifacts:
 - [`../../prototypes/jc002_handoff_snapshot.py`](../../prototypes/jc002_handoff_snapshot.py)
 - [`../../tests/test_jc002_handoff_snapshot.py`](../../tests/test_jc002_handoff_snapshot.py)
 
+## Hardening Pass Result
+
+The first bounded hardening pass tightened the fixture-scale prototype without
+expanding `JC-002` into a richer lab-data fixture or export workflow.
+
+The prototype now checks:
+
+- included artifact paths are portable relative paths confined to the snapshot;
+- required status objects use the allowed status vocabulary and preserve the
+  difference between concrete values, explicit absence, unknowns, and
+  redaction;
+- artifact `source_run_relation` values refer to selected runs;
+- primary CSV columns, declared axes and values, units, and shape agree;
+- required sidecar metadata applies to the declared primary data columns;
+- included derived inputs are exposed through the reader-like run and group
+  objects;
+- consumer-side plots use manifest-declared axis and value metadata;
+- redaction audit scans included text artifacts as well as the manifest.
+
+This hardening pass does not prove:
+
+- safe export creation on an experiment-control computer;
+- a stable manifest schema, package format, reader API, or GUI;
+- realistic multi-run analysis with repeats, excluded runs, ragged data, IQ or
+  complex data, 2D sweeps, trace-valued records, or large-file pressure;
+- meeting-ready figure or slide workflows.
+
 ## Prototype Question
 
 Can a user take a small selected-run snapshot to an analysis computer and,

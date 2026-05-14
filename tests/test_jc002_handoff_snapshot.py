@@ -40,6 +40,25 @@ def write_json(path, payload):
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
 
+def artifact_by_id(manifest, artifact_id):
+    return next(
+        artifact for artifact in manifest["artifacts"] if artifact["artifact_id"] == artifact_id
+    )
+
+
+def refresh_artifact_integrity(snapshot_root, manifest, artifact_id):
+    artifact = artifact_by_id(manifest, artifact_id)
+    artifact_path = snapshot_root / artifact["path"]
+    artifact["size_bytes"] = artifact_path.stat().st_size
+    artifact["sha256"] = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+
+
+def copy_fixture(tmp_dir):
+    copied_snapshot = Path(tmp_dir) / "snapshot"
+    shutil.copytree(FIXTURE, copied_snapshot)
+    return copied_snapshot
+
+
 class HandoffSnapshotPrototypeTest(unittest.TestCase):
     def test_summary_and_reader_cover_handoff_acceptance_without_mutating_fixture(self):
         prototype = load_prototype()
@@ -74,11 +93,14 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
         self.assertEqual(baseline["values"][0]["unit"], "V")
         self.assertEqual(len(baseline["sidecars"]), 1)
         self.assertEqual(baseline["sidecars"][0]["sidecar_id"], "sidecar-baseline-columns")
+        self.assertEqual(len(baseline["derived_inputs"]), 1)
+        self.assertEqual(baseline["derived_inputs"][0]["artifact_id"], "derived-window-a")
 
         self.assertEqual(group["group_title"], "public handoff fixture group")
         self.assertEqual(group["run_order"], ["run-baseline", "run-sample"])
         self.assertEqual([run["condition_label"] for run in group["runs"]], ["baseline", "sample"])
         self.assertEqual(len(group["runs"][1]["sidecars"]), 0)
+        self.assertEqual(len(group["derived_inputs"]), 1)
 
         included_roles = {artifact["role"] for artifact in summary["artifacts"]["included"]}
         self.assertGreaterEqual(
@@ -155,7 +177,10 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             self.assertEqual(group["run_order"], ["run-baseline", "run-sample"])
             self.assertIn("## Missing And Redacted", markdown)
             self.assertIn("## Shareability", markdown)
-            self.assertIn("<polyline", (tmp_path / "outputs" / "group-sanity-plot.svg").read_text())
+            plot_svg = (tmp_path / "outputs" / "group-sanity-plot.svg").read_text()
+            self.assertIn("<polyline", plot_svg)
+            self.assertIn("frequency (Hz)", plot_svg)
+            self.assertIn("response (V)", plot_svg)
 
     def test_cli_writes_summary_reader_and_consumer_side_plots(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -176,8 +201,7 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
     def test_redaction_audit_flags_private_path_leaks_in_copied_snapshot(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as tmp_dir:
-            copied_snapshot = Path(tmp_dir) / "snapshot"
-            shutil.copytree(FIXTURE, copied_snapshot)
+            copied_snapshot = copy_fixture(tmp_dir)
             manifest_path = copied_snapshot / "snapshot-manifest.json"
             manifest = read_json(manifest_path)
             manifest["runs"][0]["original_path_evidence"] = {
@@ -195,6 +219,117 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
                 {"source": "snapshot-manifest.json", "kind": "private absolute path"},
                 summary["redaction"]["findings"],
             )
+
+    def test_rejects_artifact_path_traversal(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            artifact_by_id(manifest, "primary-baseline")["path"] = "../outside.csv"
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "must stay inside snapshot",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+    def test_rejects_invalid_status_value_semantics(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["runs"][0]["sample_label"] = {
+                "status": "unknown",
+                "value": "sample-should-not-travel",
+            }
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "status unknown must not carry value",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+    def test_rejects_primary_data_shape_mismatch(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            artifact_by_id(manifest, "primary-baseline")["shape"] = [99, 2]
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "shape mismatch",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+    def test_rejects_unknown_source_run_relation(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            artifact_by_id(manifest, "derived-window-a")["source_run_relation"] = [
+                "run-baseline",
+                "run-missing",
+            ]
+            write_json(manifest_path, manifest)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "relation references unknown run",
+            ):
+                prototype.HandoffSnapshot.open(copied_snapshot)
+
+    def test_redaction_audit_scans_included_context_artifacts(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            context_path = copied_snapshot / "context" / "readme-note.txt"
+            context_path.write_text(
+                "Public note accidentally mentions TCPIP::10.2.3.4::INSTR\n",
+                encoding="utf-8",
+            )
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            refresh_artifact_integrity(copied_snapshot, manifest, "handoff-context-note")
+            write_json(manifest_path, manifest)
+
+            snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
+            summary = snapshot.summary()
+
+            self.assertEqual(summary["redaction"]["status"], "fail")
+            self.assertIn(
+                {"source": "context/readme-note.txt", "kind": "instrument address"},
+                summary["redaction"]["findings"],
+            )
+
+    def test_plot_uses_manifest_declared_axis_and_value_metadata(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            for artifact_id in ("primary-baseline", "primary-sample"):
+                artifact = artifact_by_id(manifest, artifact_id)
+                artifact["axes"][0]["name"] = "declared detuning"
+                artifact["axes"][0]["unit"] = "MHz"
+                artifact["values"][0]["name"] = "declared signal"
+                artifact["values"][0]["unit"] = "arb"
+            write_json(manifest_path, manifest)
+
+            snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
+            output_path = Path(tmp_dir) / "plot.svg"
+            prototype.render_svg_plot(snapshot.load_group(), output_path)
+            svg = output_path.read_text(encoding="utf-8")
+
+            self.assertIn("declared detuning (MHz)", svg)
+            self.assertIn("declared signal (arb)", svg)
 
 
 if __name__ == "__main__":

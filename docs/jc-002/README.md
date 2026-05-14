@@ -50,6 +50,12 @@ It validates local offline summary, reader-like group loading, consumer-side
 plots, redaction audit, artifact-role handling, and copy independence at
 synthetic fixture scale only.
 
+The first hardening pass tightened path confinement, status/value semantics,
+source-run relations, CSV axis/shape validation, sidecar consistency, derived
+input reader exposure, metadata-driven plotting, and included-artifact
+redaction scanning. It deliberately did not add richer data-shape fixtures or
+an export-side workflow proof.
+
 This document set must not define:
 
 - package manifest schema details;
