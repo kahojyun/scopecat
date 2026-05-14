@@ -12,9 +12,9 @@ ownership pass for the first wedge. `JC-002` now has a drafting document set
 and a fixture-backed read-only handoff snapshot prototype. The current decision
 point is whether the `JC-002` fixture is strong enough to promote an accepted
 prototype boundary or whether another lab scenario should challenge it first.
-This tracker is active. Unpromoted or non-`JC-001` W3+ adoption ladders,
-migration wedges, capability names, and contract ideas remain hypotheses until
-a selected W2 journey promotes them.
+This tracker is active. Unpromoted W3+ adoption ladders, migration wedges,
+capability names, and contract ideas remain hypotheses until a selected W2
+journey promotes them.
 
 Keep this tracker compact. It may hold the current phase table, the current
 decision point, and small hypothesis inventories while there is only one active
@@ -135,9 +135,9 @@ current candidate detail, validation coverage, and live-preview boundary are
 owned by
 [`jc-002/README.md`](jc-002/README.md).
 
-This table should stay short. If more than one non-`JC-001` wedge becomes active
-at the same time, create a narrower migration-wedge owner note and keep only
-links and statuses in this tracker.
+This table should stay short. If multiple wedges need active coordination at
+the same time, create a narrower migration-wedge owner note and keep only links
+and statuses in this tracker.
 
 | Wedge | User-Visible Outcome | Capabilities Involved | Main Learning Goal | Phase |
 | --- | --- | --- | --- | --- |
@@ -168,7 +168,7 @@ diagnostic value. Early wedges should avoid adding mandatory network services,
 cloud login, heavy background agents, or automatic driver/environment mutation
 to working control computers.
 
-## Near-Term Execution Plan
+## Near-Term Coordination
 
 Completed path:
 
@@ -180,9 +180,30 @@ W1 evidence inventory
   -> provisional ownership pass
 ```
 
-Active next choice: decide whether the `JC-002` handoff snapshot prototype
-earns an accepted fixture-scale boundary, needs another scenario, or should feed
-back into a small capability map with the `JC-001` ownership pass.
+This section is a coordination surface, not the owner of every active journey's
+next step. Keep per-`JC` next decisions in that `JC`'s README, scope document,
+or decision record, then link from the tracker only when a status, phase, or
+cross-journey dependency changes.
+
+Active coordination points:
+
+- `JC-002`: decide whether the handoff snapshot prototype earns an accepted
+  fixture-scale boundary, needs another scenario, or should feed back into a
+  small capability map with the `JC-001` ownership pass.
+
+Parallel-work rule:
+
+- A journey-local PR may update this tracker only to add or revise a link,
+  phase, or short coordination point required by the changed journey.
+- A journey-local PR should not reorder global priorities, replace another
+  journey's active decision, or turn this section into a queue of next tasks.
+- If two or more active `JC` PRs need to change priority, shared contract
+  ownership, migration-wedge ranking, or accepted sequence, use a small
+  coordination PR that updates this tracker after the affected journey owner
+  docs are clear.
+- If this section starts carrying detailed coordination for multiple wedges,
+  create a narrower owner note for that shared coordination and keep only links
+  and statuses here.
 
 ## Review Cadence
 

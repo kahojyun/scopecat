@@ -70,6 +70,17 @@ This document set must not define:
 - permission or redaction systems;
 - full publication, report-generation, or ELN workflows.
 
+## Next Decision
+
+This README owns the `JC-002` next decision: decide whether the current handoff
+snapshot prototype earns an accepted fixture-scale boundary, needs another lab
+scenario, or should feed back into a small capability map with the `JC-001`
+ownership pass.
+
+Keep the reasoning, validation boundary, and follow-up detail in this document
+set. The project tracker should carry only the phase, links, and compact
+cross-journey coordination point.
+
 ## Promotion Note
 
 The previous root-level candidate note has been removed. This folder now owns

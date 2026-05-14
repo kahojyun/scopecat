@@ -56,8 +56,12 @@ The first wedge has been validated through:
 - explicit validated-boundary and reopen criteria for the prototype;
 - provisional capability ownership pressure for the accepted evidence-view facts.
 
-The current next product/architecture choice is tracked in
-[`../progressive-adoption-progress-tracker.md`](../progressive-adoption-progress-tracker.md).
+This README owns the `JC-001` history and accepted boundary summary.
+Cross-journey coordination that depends on `JC-001` is summarized in
+[`../progressive-adoption-progress-tracker.md`](../progressive-adoption-progress-tracker.md),
+but `JC-001` reopen or extension detail should be recorded in the owning
+decision, scope, contract, or ownership document before tracker coordination is
+updated.
 
 ## Exemplar Boundary
 
