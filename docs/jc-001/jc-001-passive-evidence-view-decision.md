@@ -106,10 +106,13 @@ for passive explanation.
 The first read-only prototype and second public-safe fixture validate this
 boundary at fixture scale. They do not yet show that representative users can
 complete the task better, interpret every confidence signal correctly, or treat
-the passive evidence view as accepted product direction. The next product or
-architecture choice is whether to seed a small capability map from the
-provisional ownership pass or select a second journey to test those owners
-under different pressure.
+the passive evidence view as accepted product direction.
+
+Follow-on status: the second-journey path is now represented by `JC-002`, which
+tests selected-run analysis handoff pressure against the provisional `JC-001`
+capability owners. Any future `JC-001` reopen or extension should update this
+decision or its owning scope, contract, or ownership document before changing
+cross-journey tracker coordination.
 
 Confidence remains narrative-based, not numeric. Code-reference handling stays
 static until a later Code Asset Registry or Managed Code Runner decision

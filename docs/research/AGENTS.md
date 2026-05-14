@@ -9,7 +9,7 @@
   exist.
 - Do not infer current product direction directly from raw research.
 - When adding a research note, include `Status`, `Source`, `Summary`,
-  `Extracted To`, and `Remaining Value`.
+  `Current Use`, and `Remaining Value`.
 - For user interview summaries, include participant context, journey evidence,
   pain evidence, adoption signals, and portability/public-redaction notes where
   relevant.

@@ -520,6 +520,36 @@ Then update the owning existing doc or create a superseding decision. Prefer
 narrowing or splitting over broad replacement when the earlier validated slice
 still holds.
 
+### Shared Tracker Coordination
+
+Treat the near-term section of
+[`progressive-adoption-progress-tracker.md`](progressive-adoption-progress-tracker.md)
+as a shared coordination surface, not as a journey-local task list.
+
+A `JC` PR may update the tracker when it changes a phase, adds or removes a
+durable output link, records a short cross-journey coordination point, or
+retires a wedge that no longer matches product direction. Keep the detailed
+next decision in the `JC` owner document.
+
+Use a separate coordination PR when the change reorders global priority,
+changes the accepted sequence, promotes shared contract ownership, ranks
+multiple migration wedges, or updates another active `JC`'s next decision. If
+multiple wedges need durable ranking or scheduling coordination, move that
+detail into a narrower owner note and leave only links, phases, and compact
+coordination points in the tracker.
+
+### Cross-Reference KISS
+
+Add cross-references only when they help a future reader make or review a
+decision. Useful links usually point to an entry point, owning document,
+required dependency, evidence source, validation artifact, or superseding
+decision.
+
+Avoid repeated historical back-links, promotion-chain boilerplate, and
+bidirectional links when a `JC` README, document index, or owner document
+already provides the navigation. If a link does not clarify ownership,
+dependency, evidence, or status, omit it.
+
 ## Selection Prompts
 
 Use these prompts before selecting the next `JC`:

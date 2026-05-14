@@ -11,10 +11,10 @@ design, UI spec, or prototype scope.
 Record why `JC-002` is now a distinct drafting journey candidate and preserve
 its boundary before writing detailed fixtures or technical contracts.
 
-This note supports the current product/architecture choice in
-[`../progressive-adoption-progress-tracker.md`](../progressive-adoption-progress-tracker.md):
-whether to select a second journey to test the provisional `JC-001` capability
-owners before broadening ownership.
+This note records the selection that lets `JC-002` test the provisional
+`JC-001` capability owners before broadening ownership. The current `JC-002`
+next decision is owned by [`README.md`](README.md); the project tracker carries
+only the phase, links, and compact cross-journey coordination point.
 
 ## Selected Candidate
 

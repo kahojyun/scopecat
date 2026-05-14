@@ -137,7 +137,3 @@ screening systems.
 Analysis-lineage and handoff fixtures remain good follow-on candidates after
 the first bundle-explanation journey establishes artifact identity, selected
 context, provenance, ambiguity, and sharing boundaries.
-
-## Promotion Chain
-
-See [`README.md`](README.md) for the current reading order and promotion chain.
