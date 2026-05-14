@@ -173,6 +173,15 @@ class HandoffSnapshot:
             raise HandoffSnapshotError(f"{label} must stay inside snapshot") from exc
         return candidate
 
+    def contains_path(self, path: Path) -> bool:
+        root = self.root.resolve()
+        candidate = path.resolve(strict=False)
+        try:
+            candidate.relative_to(root)
+        except ValueError:
+            return False
+        return True
+
     def validate(self) -> None:
         required_top_level = {
             "snapshot_id",
@@ -746,6 +755,8 @@ def render_svg_plot(group: dict[str, Any], output_path: Path, run_id: str | None
 
 
 def write_outputs(snapshot: HandoffSnapshot, out_dir: Path) -> list[Path]:
+    if snapshot.contains_path(out_dir):
+        raise HandoffSnapshotError("output directory must be outside snapshot")
     out_dir.mkdir(parents=True, exist_ok=True)
     summary = snapshot.summary()
     group = snapshot.load_group()

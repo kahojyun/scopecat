@@ -182,6 +182,24 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             self.assertIn("frequency (Hz)", plot_svg)
             self.assertIn("response (V)", plot_svg)
 
+    def test_rejects_outputs_inside_snapshot(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "output directory must be outside snapshot",
+            ):
+                prototype.write_outputs(snapshot, copied_snapshot / "outputs")
+
+            with self.assertRaisesRegex(
+                prototype.HandoffSnapshotError,
+                "output directory must be outside snapshot",
+            ):
+                prototype.write_outputs(snapshot, copied_snapshot)
+
     def test_cli_writes_summary_reader_and_consumer_side_plots(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             result = subprocess.run(
