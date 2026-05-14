@@ -52,7 +52,7 @@ and copy independence at synthetic fixture scale only.
 
 The first hardening pass tightened path confinement, status/value semantics,
 source-run relations, Scopecat-managed data axis/shape checks, sidecar
-consistency, derived input reader exposure, and plot-spec handoff to a mock
+consistency, derived input manifest exposure, and plot-spec handoff to a mock
 plotter. The review/fix loop also recorded redaction lessons for later export
 and publish flows, but the reader prototype does not scan for redaction, claim
 arbitrary-file redaction, or certify public safety.

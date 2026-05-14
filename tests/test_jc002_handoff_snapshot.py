@@ -659,58 +659,25 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             ):
                 prototype.HandoffSnapshot.open(copied_snapshot)
 
-    def test_rejects_malformed_derived_input_payload_at_load_time(self):
+    def test_derived_input_payload_is_not_parsed_by_reader(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as tmp_dir:
             copied_snapshot = copy_fixture(tmp_dir)
             derived_path = copied_snapshot / "derived" / "selected-window.json"
-            derived_path.write_text("{bad-json", encoding="utf-8")
+            derived_path.write_text("not-json-but-user-attached\n", encoding="utf-8")
             manifest_path = copied_snapshot / "snapshot-manifest.json"
             manifest = read_json(manifest_path)
             refresh_artifact_integrity(copied_snapshot, manifest, "derived-window-a")
             write_json(manifest_path, manifest)
 
-            with self.assertRaisesRegex(
-                prototype.HandoffSnapshotError,
-                "could not be read as JSON",
-            ):
-                prototype.HandoffSnapshot.open(copied_snapshot)
+            snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
+            baseline = snapshot.load_run("run-baseline")
 
-    def test_rejects_derived_input_payload_identity_mismatch(self):
-        prototype = load_prototype()
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            copied_snapshot = copy_fixture(tmp_dir)
-            derived_path = copied_snapshot / "derived" / "selected-window.json"
-            derived = read_json(derived_path)
-            derived["derived_input_id"] = "wrong-id"
-            write_json(derived_path, derived)
-            manifest_path = copied_snapshot / "snapshot-manifest.json"
-            manifest = read_json(manifest_path)
-            refresh_artifact_integrity(copied_snapshot, manifest, "derived-window-a")
-            write_json(manifest_path, manifest)
-
-            with self.assertRaisesRegex(
-                prototype.HandoffSnapshotError,
-                "derived input derived-window-a ID mismatch",
-            ):
-                prototype.HandoffSnapshot.open(copied_snapshot)
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            copied_snapshot = copy_fixture(tmp_dir)
-            derived_path = copied_snapshot / "derived" / "selected-window.json"
-            derived = read_json(derived_path)
-            derived["source_run_relation"] = ["run-missing"]
-            write_json(derived_path, derived)
-            manifest_path = copied_snapshot / "snapshot-manifest.json"
-            manifest = read_json(manifest_path)
-            refresh_artifact_integrity(copied_snapshot, manifest, "derived-window-a")
-            write_json(manifest_path, manifest)
-
-            with self.assertRaisesRegex(
-                prototype.HandoffSnapshotError,
-                "derived input derived-window-a relation mismatch",
-            ):
-                prototype.HandoffSnapshot.open(copied_snapshot)
+            self.assertEqual(baseline["derived_inputs"][0]["artifact_id"], "derived-window-a")
+            self.assertEqual(
+                baseline["derived_inputs"][0]["processed_status"],
+                "processed-lossless-subset",
+            )
 
     def test_rejects_non_string_source_run_relation(self):
         prototype = load_prototype()

@@ -49,8 +49,8 @@ The prototype now checks:
 - Scopecat-managed primary data columns, declared axes and values, units, and
   shape agree;
 - required sidecar metadata applies to the declared primary data columns;
-- included derived inputs are exposed through the reader-like run and group
-  objects;
+- included derived input manifest records are exposed through the reader-like
+  run and group objects without parsing their attached payloads;
 - reader output includes plot-ready specs with manifest-declared title, axis
   labels, series labels, and series data for an external plotter;
 - redaction lessons are preserved as export and publish guidance, not reader
@@ -190,7 +190,7 @@ The prototype passes this draft scope when:
   group, and a mock plotter can consume those specs;
 - the user-attached derived input is visible as an included optional artifact
   with role, provenance, source-run relation, size or checksum evidence, and
-  known processed-or-lossy status;
+  known processed-or-lossy status, without reader-side payload parsing;
 - the report artifact remains excluded, but its existence, role, and exclusion
   reason are reported;
 - the unknown-role artifact is excluded or requires explicit classification;

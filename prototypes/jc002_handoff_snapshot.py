@@ -146,10 +146,6 @@ def validate_status_object(value: Any, label: str) -> None:
         raise HandoffSnapshotError(f"{label} status provided requires value")
     if status in STATUSES_WITHOUT_VALUE and has_value:
         raise HandoffSnapshotError(f"{label} status {status} must not carry value")
-    if status == "redacted" and has_value:
-        redacted_value = payload["value"]
-        if not isinstance(redacted_value, str) or not redacted_value.startswith("redacted"):
-            raise HandoffSnapshotError(f"{label} redacted value must use redacted marker")
 
 
 def artifact_record(artifact: dict[str, Any]) -> ArtifactRecord:
@@ -379,7 +375,6 @@ class HandoffSnapshot:
             if record.role == "primary_data":
                 self._validate_primary_data_artifact(artifact)
             if record.role == "user_attached_derived_input":
-                self._validate_derived_input_artifact(artifact)
                 if not artifact.get("processed_status"):
                     raise HandoffSnapshotError(
                         f"derived input {record.artifact_id} requires processed_status"
@@ -443,18 +438,6 @@ class HandoffSnapshot:
             run = self.runs_by_id[run_id]
             if artifact_id not in run.get("required_sidecar_artifact_ids", []):
                 raise HandoffSnapshotError(f"sidecar {artifact_id} is not required by {run_id}")
-
-    def _validate_derived_input_artifact(self, artifact: dict[str, Any]) -> None:
-        payload = self._load_included_json_artifact(artifact)
-        artifact_id = artifact["artifact_id"]
-        if payload.get("derived_input_id") != artifact_id:
-            raise HandoffSnapshotError(f"derived input {artifact_id} ID mismatch")
-        if payload.get("source_run_relation") != artifact.get("source_run_relation"):
-            raise HandoffSnapshotError(f"derived input {artifact_id} relation mismatch")
-        if payload.get("processed_status") != artifact.get("processed_status"):
-            raise HandoffSnapshotError(f"derived input {artifact_id} status mismatch")
-        if payload.get("human_production_note") != artifact.get("human_production_note"):
-            raise HandoffSnapshotError(f"derived input {artifact_id} note mismatch")
 
     def _validate_primary_data_artifact(self, artifact: dict[str, Any]) -> None:
         rows, fieldnames = self._read_csv_rows(artifact)
@@ -612,10 +595,13 @@ class HandoffSnapshot:
 
     def derived_inputs_for_run(self, run_id: str) -> list[dict[str, Any]]:
         return [
-            self._load_included_json_artifact(artifact)
-            | {
+            {
                 "artifact_id": artifact["artifact_id"],
                 "role": artifact["role"],
+                "handling": artifact["handling"],
+                "path": artifact["path"],
+                "size_bytes": artifact["size_bytes"],
+                "sha256": artifact["sha256"],
                 "source_run_relation": artifact["source_run_relation"],
                 "processed_status": artifact["processed_status"],
                 "human_production_note": artifact["human_production_note"],
@@ -698,10 +684,6 @@ class HandoffSnapshot:
         artifact = self.artifacts_by_id[sidecar_id]
         path = self.snapshot_path(artifact["path"], f"artifact {sidecar_id} path")
         return read_json(path, f"artifact {sidecar_id}")
-
-    def _load_included_json_artifact(self, artifact: dict[str, Any]) -> dict[str, Any]:
-        path = self.snapshot_path(artifact["path"], f"artifact {artifact['artifact_id']} path")
-        return read_json(path, f"artifact {artifact['artifact_id']}")
 
     def missing_and_redacted_fields(self) -> list[dict[str, str]]:
         fields: list[dict[str, str]] = []
