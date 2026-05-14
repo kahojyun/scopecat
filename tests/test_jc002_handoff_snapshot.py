@@ -190,22 +190,7 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             self.assertIn("frequency (Hz)", plot_svg)
             self.assertIn("response (V)", plot_svg)
 
-    def test_direct_plot_writer_does_not_check_redaction(self):
-        prototype = load_prototype()
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
-            copied_snapshot = copy_fixture(tmp_path)
-            manifest_path = copied_snapshot / "snapshot-manifest.json"
-            manifest = read_json(manifest_path)
-            manifest["selection"]["group_title"] = "Checked on control-pc-alpha"
-            write_json(manifest_path, manifest)
-
-            snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
-            prototype.render_svg_plot(snapshot.load_group(), tmp_path / "plot.svg")
-
-            self.assertTrue((tmp_path / "plot.svg").exists())
-
-    def test_cli_writes_summary_reader_and_consumer_side_plots(self):
+    def test_cli_writes_summary_reader_and_mock_plotter_outputs(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             result = subprocess.run(
                 [sys.executable, str(PROTOTYPE), str(FIXTURE), "--out-dir", tmp_dir],
@@ -283,42 +268,6 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             ):
                 prototype.HandoffSnapshot.open(copied_snapshot)
 
-    def test_reader_does_not_scan_manifest_for_redaction(self):
-        prototype = load_prototype()
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            copied_snapshot = copy_fixture(tmp_dir)
-            manifest_path = copied_snapshot / "snapshot-manifest.json"
-            manifest = read_json(manifest_path)
-            manifest["runs"][0]["original_path_evidence"] = {
-                "status": "provided",
-                "value": "/Users/fixtureuser/private-lab/run-0001",
-            }
-            manifest["selection"]["selected_reason"] = {
-                "status": "provided",
-                "value": "Checked on control-pc-alpha. Do not share.",
-            }
-            write_json(manifest_path, manifest)
-
-            snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
-            summary = snapshot.summary()
-
-            self.assert_redaction_status_matches_manifest(summary, manifest)
-
-    def test_reader_ignores_user_defined_redaction_terms(self):
-        prototype = load_prototype()
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            copied_snapshot = copy_fixture(tmp_dir)
-            manifest_path = copied_snapshot / "snapshot-manifest.json"
-            manifest = read_json(manifest_path)
-            manifest["redaction_policy"]["forbidden_content"].append("project-token-alpha")
-            manifest["redaction_policy"]["forbidden_content"].append(
-                {"kind": "literal", "value": "/Users/alice/private-run"}
-            )
-            write_json(manifest_path, manifest)
-
-            snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
-            self.assert_redaction_status_matches_manifest(snapshot.summary(), manifest)
-
     def test_summary_uses_export_redaction_status_input(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -353,47 +302,6 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
 
             self.assertIn(r"\!\[x\]\(https://example\.test/pixel\)", markdown)
             self.assertNotIn("![x](https://example.test/pixel)", markdown)
-
-    def test_write_outputs_does_not_check_redaction(self):
-        prototype = load_prototype()
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
-            copied_snapshot = copy_fixture(tmp_path)
-            manifest_path = copied_snapshot / "snapshot-manifest.json"
-            manifest = read_json(manifest_path)
-            manifest["selection"]["selected_reason"] = {
-                "status": "provided",
-                "value": "Checked on control-pc-alpha. Do not share.",
-            }
-            write_json(manifest_path, manifest)
-
-            snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
-            outputs = prototype.write_outputs(snapshot, tmp_path / "outputs")
-
-            self.assertTrue((tmp_path / "outputs" / "handoff-summary.json").exists())
-            self.assertTrue(outputs)
-
-    def test_cli_renders_summary_without_redaction_checks(self):
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            copied_snapshot = copy_fixture(tmp_dir)
-            manifest_path = copied_snapshot / "snapshot-manifest.json"
-            manifest = read_json(manifest_path)
-            manifest["selection"]["selected_reason"] = {
-                "status": "provided",
-                "value": "Checked on control-pc-alpha. Do not share.",
-            }
-            write_json(manifest_path, manifest)
-
-            result = subprocess.run(
-                [sys.executable, str(PROTOTYPE), str(copied_snapshot)],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-
-            self.assertEqual(result.returncode, 0)
-            self.assertIn(r"control\-pc\-alpha", result.stdout)
-            self.assertEqual(result.stderr, "")
 
     def test_rejects_artifact_path_traversal(self):
         prototype = load_prototype()
@@ -870,19 +778,6 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             copied_snapshot = copy_fixture(tmp_dir)
             manifest_path = copied_snapshot / "snapshot-manifest.json"
             manifest = read_json(manifest_path)
-            del manifest["redaction_policy"]["profile"]
-            write_json(manifest_path, manifest)
-
-            with self.assertRaisesRegex(
-                prototype.HandoffSnapshotError,
-                "redaction_policy requires profile",
-            ):
-                prototype.HandoffSnapshot.open(copied_snapshot)
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            copied_snapshot = copy_fixture(tmp_dir)
-            manifest_path = copied_snapshot / "snapshot-manifest.json"
-            manifest = read_json(manifest_path)
             del manifest["redaction_status"]["produced_by"]
             write_json(manifest_path, manifest)
 
@@ -969,62 +864,6 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
                 "selection requires group_title",
             ):
                 prototype.HandoffSnapshot.open(copied_snapshot)
-
-    def test_reader_does_not_scan_included_payloads_for_redaction(self):
-        prototype = load_prototype()
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            copied_snapshot = copy_fixture(tmp_dir)
-            context_path = copied_snapshot / "context" / "readme-note.txt"
-            context_path.write_text(
-                "Public note accidentally mentions TCPIP::10.2.3.4::INSTR\n",
-                encoding="utf-8",
-            )
-            manifest_path = copied_snapshot / "snapshot-manifest.json"
-            manifest = read_json(manifest_path)
-            refresh_artifact_integrity(copied_snapshot, manifest, "handoff-context-note")
-            write_json(manifest_path, manifest)
-
-            snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
-            summary = snapshot.summary()
-
-            self.assert_redaction_status_matches_manifest(summary, manifest)
-
-    def test_reader_does_not_decode_binary_payloads_for_redaction(self):
-        prototype = load_prototype()
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            copied_snapshot = copy_fixture(tmp_dir)
-            context_path = copied_snapshot / "context" / "readme-note.txt"
-            context_path.write_bytes(b"\xff\xfe\x00\x00")
-            manifest_path = copied_snapshot / "snapshot-manifest.json"
-            manifest = read_json(manifest_path)
-            refresh_artifact_integrity(copied_snapshot, manifest, "handoff-context-note")
-            write_json(manifest_path, manifest)
-
-            snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
-            summary = snapshot.summary()
-
-            self.assert_redaction_status_matches_manifest(summary, manifest)
-
-    def test_reader_does_not_classify_sensitive_categories(self):
-        prototype = load_prototype()
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            copied_snapshot = copy_fixture(tmp_dir)
-            manifest_path = copied_snapshot / "snapshot-manifest.json"
-            manifest = read_json(manifest_path)
-            manifest["runs"][0]["device_label"] = {
-                "status": "provided",
-                "value": "sample ID = alpha-private-001",
-            }
-            manifest["selection"]["selected_reason"] = {
-                "status": "provided",
-                "value": "Checked on control-pc-alpha. Do not share.",
-            }
-            write_json(manifest_path, manifest)
-
-            snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
-            summary = snapshot.summary()
-
-            self.assert_redaction_status_matches_manifest(summary, manifest)
 
     def test_plot_spec_uses_manifest_declared_axis_and_value_metadata(self):
         prototype = load_prototype()

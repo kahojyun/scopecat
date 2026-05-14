@@ -223,7 +223,6 @@ class HandoffSnapshot:
             "created_at",
             "producer",
             "source_system",
-            "redaction_policy",
             "redaction_status",
             "selection",
             "runs",
@@ -266,9 +265,6 @@ class HandoffSnapshot:
         validate_status_object(
             source_system.get("control_computer"), "source_system.control_computer"
         )
-        redaction_policy = require_dict(self.manifest["redaction_policy"], "redaction_policy")
-        if not isinstance(redaction_policy.get("profile"), str) or not redaction_policy["profile"]:
-            raise HandoffSnapshotError("redaction_policy requires profile")
         redaction_status = require_dict(self.manifest["redaction_status"], "redaction_status")
         for key in ("status", "scope", "produced_by"):
             if not isinstance(redaction_status.get(key), str) or not redaction_status[key]:
@@ -655,7 +651,6 @@ class HandoffSnapshot:
     def shared_context(self) -> dict[str, Any]:
         return {
             "source_system": self.manifest["source_system"],
-            "redaction_profile": self.manifest["redaction_policy"]["profile"],
         }
 
     def _read_primary_csv(self, artifact: dict[str, Any]) -> list[dict[str, float]]:
@@ -942,17 +937,13 @@ def mock_plotter_svg(plot_spec: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def render_svg_plot_text(group: dict[str, Any], run_id: str | None = None) -> str:
+def render_mock_plot_svg(group: dict[str, Any], run_id: str | None = None) -> str:
     return mock_plotter_svg(build_plot_spec(group, run_id=run_id))
 
 
 def write_generated_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
-
-
-def render_svg_plot(group: dict[str, Any], output_path: Path, run_id: str | None = None) -> None:
-    write_generated_text(output_path, render_svg_plot_text(group, run_id=run_id))
 
 
 def write_outputs(snapshot: HandoffSnapshot, out_dir: Path) -> list[Path]:
@@ -971,9 +962,9 @@ def write_outputs(snapshot: HandoffSnapshot, out_dir: Path) -> list[Path]:
     write_generated_text(group_json, json.dumps(group, indent=2, sort_keys=True))
     write_generated_text(
         single_plot,
-        render_svg_plot_text(group, run_id=group["run_order"][0]),
+        render_mock_plot_svg(group, run_id=group["run_order"][0]),
     )
-    write_generated_text(group_plot, render_svg_plot_text(group))
+    write_generated_text(group_plot, render_mock_plot_svg(group))
     return [summary_json, summary_md, group_json, single_plot, group_plot]
 
 

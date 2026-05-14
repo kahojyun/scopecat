@@ -16,18 +16,6 @@
       "value": "redacted-control-computer-a"
     }
   },
-  "redaction_policy": {
-    "profile": "public-safe-fixture",
-    "forbidden_content": [
-      "private absolute paths",
-      "local usernames",
-      "machine names",
-      "instrument addresses",
-      "internal network locations",
-      "sample identifiers",
-      "lab-only notes"
-    ]
-  },
   "redaction_status": {
     "status": "export_declared_redacted_fixture",
     "scope": "synthetic fixture manifest and included fixture artifacts",
