@@ -56,7 +56,7 @@ fixtures, and contracts. Tracker and index labels are navigation metadata.
 
 ## Change Classes
 
-Classify every durable `JC` change before editing:
+Classify durable `JC` changes before deciding follow-through:
 
 | Class | Examples | Required follow-through |
 | --- | --- | --- |
@@ -64,29 +64,27 @@ Classify every durable `JC` change before editing:
 | Product | Changes user job, target role, journey priority, or accepted outcome. | Update journey, evidence links, non-goals, validation route, and tracker status. |
 | Domain | Changes concept, vocabulary, relation, evidence handling, or missing-fact semantics. | Update concepts/contracts, fixtures, expected outputs, and tests if behavior changes. |
 | Architecture | Changes owner, dependency direction, redaction policy, manifest contract, parser/storage/UI/execution boundary, or support/export boundary. | Update or create an accepted decision before broadening implementation scope. |
-| Fixture | Changes validation data, source map, redaction labels, or expected output shape. | Update fixture source map, fixture files, expected outputs, and tests together. |
+| Fixture | Changes validation data, source-map record, redaction labels, or expected output shape. | Update the source-map record, fixture files, expected outputs, and tests together. |
 | Implementation | Changes prototype behavior or generated artifacts. | Update implementation, docs, fixtures, tests, and expected outputs together. |
 | Status/index | Changes status, ownership, entry-point role, or retention decision. | Update document status, `document-index.md`, and any relevant tracker or research index. |
 
-## Standard Flow
+## Decision Record And Optional Artifacts
 
-Use the smallest durable artifact that can support the next decision.
+Use the smallest durable record that lets a reviewer understand the choice,
+evidence basis, validation boundary, and next step.
 
 ```text
 Evidence owner
-  -> source map
-  -> journey note
-  -> adoption extraction when needed
-  -> migration wedge when needed
-  -> concepts and contracts when needed
-  -> spike or prototype when needed
-  -> accepted decision when validated
-  -> ownership pass only when a boundary creates durable owner pressure
+  -> source-map gate
+  -> minimum journey decision record
+  -> optional promotion surfaces when earned
 ```
 
-Start a future `JC-###` with selection, source-map, and journey notes only. Add
-capability, wedge, contract, spike, decision, prototype, and ownership artifacts
-only when later evidence earns them.
+Optional promotion surfaces include adoption extraction, migration wedge,
+concepts and contracts, spike or prototype scope, accepted decision, and
+ownership pass. These are not a checklist to complete. Create one only when it
+has a durable reader, removes ambiguity that blocks the next decision, or
+prevents a later implementation or review from depending on hidden reasoning.
 
 ### Starting The Next JC
 
@@ -95,29 +93,51 @@ For the next `JC-###`, start here:
 1. Select one candidate row from
    [`evidence-and-pain-point-inventory.md`](evidence-and-pain-point-inventory.md),
    usually a `JC-###` candidate backed by concrete `PN-###` rows.
-2. Create `docs/jc-###/jc-###-source-map.md` before writing journey prose.
-3. Create `docs/jc-###/jc-###-journey-selection-note.md` only after the
-   source map shows a concrete fixture boundary.
-4. Create `docs/jc-###/jc-###-<short-name>-journey.md` with the current-state
-   spine, future-state slice, non-goals, and validation route.
-5. Stop there unless the evidence earns an adoption extraction, wedge,
-   concepts/contracts note, spike, prototype, decision, or ownership pass.
+2. Create or identify the minimum source-map record before writing journey
+   prose. This may be a public-safe committed document, a non-public
+   full-fidelity working map, or a compact source-map section in the selection
+   note when the fixture boundary is small.
+3. Leave a minimum durable journey decision record after the source-map record
+   shows a concrete fixture boundary. That record may be one document, a
+   section in an existing owner document, or a short `JC` folder entry when the
+   candidate is likely to accumulate follow-on artifacts.
+4. Make the record answer: why this candidate, which source or fixture boundary,
+   what current-state spine, what future-state slice, what non-goals, what
+   validation route, and what next decision.
+5. Split the record into separate selection, journey, contract, decision, or
+   prototype documents only after length, reuse, review risk, or implementation
+   dependency makes the split useful.
 
 The `JC-001` folder shows how a candidate can accumulate later artifacts. It
 is not the minimum starting packet for new journey work.
 
 ## Source-Map Gate
 
-Draft the source map before journey prose. Its job is to keep the journey from
-becoming a vague story.
+Draft or identify the source-map record before journey prose. Its job is to
+keep the journey from becoming a vague story.
 
-Use `docs/jc-###/jc-###-source-map.md` as the default public-safe source-map
-artifact. If exact source paths, local labels, system names, usernames, or
-instrument identifiers are needed for validation, keep a separate non-public
-full-fidelity working map and summarize only role-stable, redacted facts in the
-public source map.
+The required output is traceability, not a mandatory standalone public
+document. Use `docs/jc-###/jc-###-source-map.md` when the redacted source map is
+durable, public-safe, and likely to have more than one future reader or
+consumer. Use a non-public full-fidelity working map when exact source paths,
+local labels, system names, usernames, instrument identifiers, or other
+private details are needed for validation. Use a compact section in the journey
+selection note when only the role-stable fixture boundary needs to survive in
+the repository.
 
-Minimum source-map shape:
+Do not create a separate public source-map document only to satisfy process.
+If redaction would remove the validation-relevant detail or duplicate a
+private working map, commit the smallest public-safe summary that supports the
+journey decision and link or describe the non-public source-map location when
+appropriate.
+
+Minimum source-map review checklist:
+
+These fields are reviewer questions, not a required table schema. They may be
+answered in one table, short bullets, a fixture manifest, a selection note, or
+a non-public working map. Use `N/A` or omit a field when the fixture genuinely
+does not exercise it, but avoid promoting a journey when the omission hides
+the validation boundary.
 
 | Field | Capture |
 | --- | --- |
@@ -130,16 +150,17 @@ Minimum source-map shape:
 | Inclusion reason | The `PN-###` or guardrail supported, plus the tempting interpretation this artifact must not support. |
 | Sharing boundary | Internal full-fidelity diagnostic, sanitized internal handoff, external/support-boundary export, or public-safe example. |
 
-This is source-map vocabulary, not fixture-manifest controlled vocabulary.
-When a prototype defines a narrower manifest contract, use that contract for
-fixture validation.
+This is source-map vocabulary, not fixture-manifest controlled vocabulary. When
+a prototype defines a narrower manifest contract, use that contract for fixture
+validation and keep the broader source-map record as traceability.
 
 Artifact-specific handling:
 
-- Notebook fixtures require scripted source-cell extraction. Ignore outputs by
-  default unless a specific plot, table, path, error, or displayed artifact is
-  intentionally selected as evidence. Treat execution counts, kernels, embedded
-  paths, and local imports as workflow evidence, not reliable notebook state.
+- When notebook fixtures are used as evidence, prefer scripted source-cell
+  extraction. Use outputs, plots, tables, paths, errors, or displayed artifacts
+  only when they are intentionally selected evidence. Treat execution counts,
+  kernels, embedded paths, and local imports as workflow evidence, not reliable
+  notebook state.
 - Opaque binary artifacts such as `.pkl`, `.npy`, `.npz`, and archives should be
   cataloged by metadata, hashes, producer/consumer links, and nearby code
   before semantic claims. Do not unpickle or execute opaque artifacts just to
@@ -182,12 +203,12 @@ while scoping the future slice narrowly.
 
 ## Promotion Guidance
 
-- Treat any future candidate as draft until it has its own promoted journey
-  note.
-- Draft the fixture source map before journey prose. If the selected bundle
-  cannot identify anchor objects, artifact roles, active versus obsolete
-  status, notebook source cells, opaque binary handling, and sharing boundaries,
-  revise the fixture before promoting any journey.
+- Treat any future candidate as draft until it has a minimum durable journey
+  decision record with evidence, boundary, non-goals, and validation route.
+- Draft or identify the fixture source-map record before journey prose. If the
+  selected bundle cannot identify anchor objects, artifact roles, active versus
+  obsolete status, notebook source cells, opaque binary handling, and sharing
+  boundaries, revise the fixture before promoting any journey.
 - Use `TP-###` rows as journey seeds, then write acceptance against smaller
   `PN-###` rows with evidence, visibility, validation route, and boundaries.
 - Let foundational pains drive acceptance. Let adoption-risk hypotheses and
@@ -219,7 +240,7 @@ A future W1 pass is ready for W2 source mapping and journey drafting when:
 - top-level pain narratives decompose into smaller `PN` rows, and pain, JTBD,
   capability-gap, adoption-guardrail, and baseline statements are separated
   before journey ranking;
-- the first W2 source-map requirement is explicit enough to prevent a vague
+- the first W2 source-map traceability is explicit enough to prevent a vague
   single-run reopen story;
 - the leading W2 candidate is identified with clear boundaries, while
   hypotheses, future pressure, ADR-gated items, and anti-patterns remain outside
@@ -233,7 +254,7 @@ A future W1 pass is ready for W2 source mapping and journey drafting when:
 
 ### Product Decision Readiness
 
-A product decision is ready only when it states:
+A product decision is ready when a reviewer can answer:
 
 - the decision being made: build, validate, defer, reject, or reopen;
 - target user or role and situation;
@@ -247,7 +268,7 @@ A product decision is ready only when it states:
 
 ### Domain Contract Readiness
 
-A domain contract is ready only when it states:
+A domain contract is ready when a reviewer can answer:
 
 - owner document;
 - allowed source and target roles;
@@ -261,7 +282,7 @@ A domain contract is ready only when it states:
 
 ### Architecture Boundary Readiness
 
-An architecture boundary is ready only when it states:
+An architecture boundary is ready when a reviewer can answer:
 
 - accepted boundary;
 - deferred boundary;
@@ -288,7 +309,7 @@ decision shows that an existing `JC` coverage claim is wrong or incomplete.
 | Split scope | One `JC` is carrying two jobs. | Keep the original `JC` for the validated slice; create or reference a separate `JC` for the new job. |
 | Replace scope | Later evidence shows the original framing is misleading or invalid. | Mark the old artifact superseded or reopened; create a replacement decision with explicit rationale. |
 
-Every reopening note should state:
+Any reopening change should make clear:
 
 - what was previously accepted;
 - what new evidence contradicted or exceeded it;
@@ -321,7 +342,7 @@ still holds.
 Use these prompts before selecting the next `JC`:
 
 - What exact source bundle should define the validation fixture?
-- What is the minimum fixture source map for that bundle?
+- What is the minimum fixture source-map record for that bundle?
 - Does this journey need live inspection or new writes, or can it start as
   offline explanation plus ambiguity checks?
 - Which direction-bias correction must the journey preserve?
@@ -356,9 +377,10 @@ Use these prompts for later validation backlog:
 - Can Scopecat produce recipient-appropriate diagnostics without turning into
   a ticketing or remote-support product?
 
-## Documentation Change Acceptance
+## Documentation Review Checklist
 
-A `JC` documentation change is acceptable when:
+Use this checklist during review. Not every item applies to every change, but a
+reviewer should be able to see why skipped items are not relevant.
 
 - status values are valid and synchronized across the document,
   [`document-index.md`](document-index.md), relevant README, research index, and
