@@ -35,6 +35,8 @@ This document set may define:
 - user-visible handoff pressure;
 - current-state evidence patterns;
 - the pre-analysis handoff snapshot concept;
+- expected local offline consumer surfaces, such as a GUI and Python reader API,
+  at validation-goal level;
 - required manifest slots with explicit missing-value statuses;
 - likely fixture shape and validation questions;
 - non-goals and deferred scope.
@@ -42,7 +44,7 @@ This document set may define:
 This document set must not define:
 
 - package manifest schema details;
-- reader API signatures;
+- reader API signatures or final GUI behavior;
 - internal storage model;
 - export adapter commitments;
 - live-preview monitor semantics;

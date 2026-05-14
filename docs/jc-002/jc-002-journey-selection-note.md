@@ -51,9 +51,11 @@ Use a small redacted fixture modeled on a selected-run handoff package:
 selected run or small run group
   -> primary readable data
   -> source IDs and original path evidence
+  -> snapshot identity and selected-run group order
   -> axis names, units, shape, timestamp, and measurement label
   -> sample or device label when available
   -> important parameter summary or explicit missing warning
+  -> visible user-attached derived input decision when present
   -> companion read sidecars required to open the data
 ```
 
@@ -116,6 +118,8 @@ paths, memory, or the original machine being available.
 - prioritize internal full-fidelity analysis handoff before public or external
   export;
 - keep user ceremony low by allowing explicit missing-value statuses;
+- validate local offline GUI and Python-reader consumption without defining
+  final UI or API details;
 - treat export as packaging over already-known artifacts, not as derivation;
 - separate pre-analysis handoff snapshots from derived analysis outputs;
 - preserve source identity and original path evidence without treating local
@@ -133,8 +137,8 @@ paths, memory, or the original machine being available.
   first design center;
 - accept full work-bundle export/import;
 - manage or execute user analysis scripts;
-- define live-monitor semantics, permission systems, reader APIs, storage, UI,
-  or package manifest details.
+- define live-monitor semantics, permission systems, reader API signatures,
+  storage, final UI behavior, or package manifest details.
 
 ## Open Questions
 

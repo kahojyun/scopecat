@@ -43,7 +43,7 @@ future-state interaction pressure.
 | 2 | User selects one or more runs like files. | The selection set becomes explicit before export. |
 | 3 | Scopecat shows a low-ceremony handoff prompt with auto-filled context and visible missing fields. | Users can add purpose, sample/device label, selected reason, or important parameters without blocking export. |
 | 4 | Scopecat creates an immutable handoff snapshot by packaging already-known artifacts and context. | Data, source identity, read guidance, required sidecars, context slots, and missing warnings travel together without generating new analysis outputs. |
-| 5 | User moves the snapshot to an analysis computer and opens it with personal analysis code or tools. | Data can be read and plotted without the original control machine's local paths. |
+| 5 | User moves the snapshot to an analysis computer and opens it with a local offline GUI or Python reader. | Data can be inspected, read, and plotted without the original control machine's local paths, network access, cloud login, or control-PC availability. |
 | 6 | User produces figures, fit results, PDFs, slides, or notes outside the snapshot. | Derived outputs can later be linked back as append-only analysis records, but do not redefine the original handoff. |
 
 ## Snapshot Prompt Shape
@@ -57,8 +57,8 @@ Sample/device: suggested when available, editable, may be not_provided
 Purpose or note: optional
 Important parameters: suggested, user can pin or edit
 Include required read sidecars: default yes
-Include internal verification references: optional
-Include user-attached derived inputs: advanced optional
+Include user-attached derived inputs: visible optional review item
+Include internal verification references: advanced optional
 ```
 
 This prompt shape is not a UI spec. It records the expected information
@@ -71,14 +71,21 @@ A drafted `JC-002` fixture should show:
 - selected data has stable source identity;
 - primary data and required sidecars can be found in the snapshot;
 - axes, units, shape, and labels are present or explicitly missing;
+- a local offline consumer path can list runs, warnings, and artifact roles;
+- a Python reader-like smoke test can load one run's data, axes, units, and
+  required sidecars without the original control path;
 - sample/device, purpose, and important parameters are present or explicitly
   `not_provided` or `unknown`;
+- selected-run group order, labels, and per-run overrides are preserved when a
+  group is exported;
 - original control-computer path evidence is preserved as provenance, not as a
   required portable read path;
 - snapshot export does not create new CSV, NPY, PNG, PDF, fit, deck, or report
   artifacts;
 - included non-primary artifacts are justified by recorded roles such as
   required read sidecar, handoff context, or user-attached derived input;
+- missing fields can be grouped into diagnostic completeness views when
+  requested, without making fixed levels a default user-facing concept;
 - generated PDFs, decks, reports, fit outputs, and publication arrays remain
   outside the initial snapshot boundary.
 
@@ -93,7 +100,7 @@ This journey does not accept:
 - live-monitor semantics;
 - managed analysis-script execution;
 - permission systems;
-- reader API, storage, package manifest, or UI details;
+- reader API signatures, storage, package manifest schema, or final UI details;
 - automatic scientific comparison or equivalence judgment.
 
 ## Reopening Triggers
