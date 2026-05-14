@@ -68,6 +68,48 @@ Classify durable `JC` changes before deciding follow-through:
 | Implementation | Changes prototype behavior or generated artifacts. | Update implementation, docs, fixtures, tests, and expected outputs together. |
 | Status/index | Changes status, ownership, entry-point role, or retention decision. | Update document status, `document-index.md`, and any relevant tracker or research index. |
 
+## Prototype Boundary Control
+
+Prototype hardening should make the prototype's accepted responsibility clearer,
+not turn every review finding into a new responsibility.
+
+Before starting a review-fix loop on a prototype, write down the prototype's
+owner boundary:
+
+- what data, format, or behavior the prototype owns;
+- what is fixture input produced by another workflow;
+- what is only a consumer mock, such as a plotter, GUI, notebook, or export
+  adapter stand-in;
+- what outputs are validation artifacts rather than product artifacts;
+- what user-controlled or arbitrary files the prototype explicitly does not
+  parse, sanitize, secure, execute, or normalize.
+
+When review finds a defect, classify it before fixing:
+
+| Finding class | Fix in prototype? | Example handling |
+| --- | --- | --- |
+| Owned contract | Yes. | Reader-owned manifest fields, relation consistency, or Scopecat-managed data format checks fail unclearly. |
+| Fixture input | Usually no. | Export-produced redaction status is missing; decide whether the fixture or export-flow contract should supply it. |
+| Consumer mock | Only enough for smoke testing. | Plotting needs title, axis labels, and series data; reader should emit a plot spec, while the mock plotter consumes it. |
+| Caller behavior | Usually no. | Caller chooses an output path, runs analysis code, or writes files after reading the snapshot. |
+| Arbitrary user artifact | Usually no. | User-attached CSV, binary arrays, PDFs, notebooks, scripts, or sidecars need domain-specific adapters before Scopecat owns parsing. |
+| Security or sharing policy | No unless the prototype is explicitly that policy owner. | Redaction, publishability, permission, and malicious local-user defenses belong to their owning workflow or decision. |
+
+If a finding falls outside the owner boundary, prefer one of these responses
+over adding defensive code:
+
+- record it as an export, adapter, GUI, plotter, or policy responsibility;
+- add a small note to the prototype scope's non-goals or lessons learned;
+- replace broad defensive tests with one narrow smoke test for the owned
+  contract;
+- delete tests that only prove behavior of a mock, a caller-selected output
+  path, or arbitrary user-provided file parsing.
+
+A prototype may still add checks for malformed input, but those checks should
+match the responsibility it claims. Do not grow a reader into a redaction
+system, a generic parser, a plotting engine, a permission system, or an output
+sandbox just because review found cases those systems would need to handle.
+
 ## Decision Record And Optional Artifacts
 
 Use the smallest durable record that lets a reviewer understand the choice,
