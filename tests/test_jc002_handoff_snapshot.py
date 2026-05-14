@@ -327,6 +327,39 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
                 summary["redaction"]["findings"],
             )
 
+    def test_redaction_audit_flags_declared_sensitive_categories(self):
+        prototype = load_prototype()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            copied_snapshot = copy_fixture(tmp_dir)
+            manifest_path = copied_snapshot / "snapshot-manifest.json"
+            manifest = read_json(manifest_path)
+            manifest["runs"][0]["device_label"] = {
+                "status": "provided",
+                "value": "device_id:alpha-private-001",
+            }
+            manifest["selection"]["selected_reason"] = {
+                "status": "provided",
+                "value": "Checked on control-pc-alpha. Do not share.",
+            }
+            write_json(manifest_path, manifest)
+
+            snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
+            summary = snapshot.summary()
+
+            self.assertEqual(summary["redaction"]["status"], "fail")
+            self.assertIn(
+                {"source": "snapshot-manifest.json", "kind": "machine name"},
+                summary["redaction"]["findings"],
+            )
+            self.assertIn(
+                {"source": "snapshot-manifest.json", "kind": "sample identifier"},
+                summary["redaction"]["findings"],
+            )
+            self.assertIn(
+                {"source": "snapshot-manifest.json", "kind": "lab-only note"},
+                summary["redaction"]["findings"],
+            )
+
     def test_plot_uses_manifest_declared_axis_and_value_metadata(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -348,6 +381,29 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
 
             self.assertIn("declared detuning (MHz)", svg)
             self.assertIn("declared signal (arb)", svg)
+
+    def test_plot_handles_constant_x_values(self):
+        prototype = load_prototype()
+        group = {
+            "group_title": "constant x fixture",
+            "runs": [
+                {
+                    "run_id": "run-constant-x",
+                    "condition_label": "single-point",
+                    "axes": [{"name": "frequency", "column": "frequency_hz", "unit": "Hz"}],
+                    "values": [{"name": "response", "column": "response_v", "unit": "V"}],
+                    "data": [{"frequency_hz": 1.0, "response_v": 0.2}],
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_path = Path(tmp_dir) / "plot.svg"
+
+            prototype.render_svg_plot(group, output_path)
+
+            svg = output_path.read_text(encoding="utf-8")
+            self.assertIn("<polyline", svg)
+            self.assertIn("frequency (Hz)", svg)
 
 
 if __name__ == "__main__":

@@ -50,6 +50,18 @@ REDACTION_PATTERNS = {
     ),
     "instrument address": re.compile(r"\b(GPIB|TCPIP|USB\d*::|ASRL\d*::)", re.IGNORECASE),
     "likely username path": re.compile(r"\b(fixtureuser|localuser)\b", re.IGNORECASE),
+    "machine name": re.compile(
+        r"\b(?:control-pc|lab-pc|measurement-pc|acquisition-pc)[-_][a-z0-9-]+\b",
+        re.IGNORECASE,
+    ),
+    "sample identifier": re.compile(
+        r"\b(?:sample|chip|device)[-_ ]?id[:=][a-z0-9][a-z0-9_-]{2,}\b",
+        re.IGNORECASE,
+    ),
+    "lab-only note": re.compile(
+        r"\b(?:lab-only|internal-only|do not share|not for external sharing)\b",
+        re.IGNORECASE,
+    ),
 }
 
 
@@ -529,8 +541,10 @@ class HandoffSnapshot:
         return sorted(fields, key=lambda item: item["path"])
 
     def redaction_audit(self) -> dict[str, Any]:
+        manifest_for_scan = json.loads(json.dumps(self.manifest))
+        manifest_for_scan.get("redaction_policy", {}).pop("forbidden_content", None)
         scanned: dict[str, str] = {
-            MANIFEST_NAME: json.dumps(self.manifest, sort_keys=True),
+            MANIFEST_NAME: json.dumps(manifest_for_scan, sort_keys=True),
         }
         for artifact in self.artifacts:
             if artifact.get("handling") == "included" and isinstance(artifact.get("path"), str):
@@ -713,6 +727,10 @@ def render_svg_plot(group: dict[str, Any], output_path: Path, run_id: str | None
     all_y = [row[y_column] for run in selected_runs for row in run["data"]]
     min_x, max_x = min(all_x), max(all_x)
     min_y, max_y = min(all_y), max(all_y)
+    if min_x == max_x:
+        x_pad = max(abs(min_x) * 0.1, 1.0)
+        min_x -= x_pad
+        max_x += x_pad
     y_pad = max((max_y - min_y) * 0.1, 0.01)
     min_y -= y_pad
     max_y += y_pad
