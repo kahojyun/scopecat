@@ -14,6 +14,12 @@ be copied away from the experiment-control computer, opened locally, inspected
 for missing context, read through a Python-reader-like path, and plotted
 without depending on original local paths.
 
+The adoption test is intentionally concrete: after export, a lab member should
+be able to copy the snapshot to a different path, open it offline, understand
+what was selected and why, load the selected group in Python, reproduce a
+sanity plot in minutes, and see which context is missing, excluded, redacted,
+or only referenced.
+
 This scope depends on:
 
 - [`jc-002-journey-selection-note.md`](jc-002-journey-selection-note.md)
@@ -27,9 +33,12 @@ without network access, cloud login, control-PC access, local Data Vault paths,
 or managed script execution:
 
 - identify what runs are included;
+- understand the user selection intent, group order, and condition labels;
 - see source identity, roles, warnings, and missing context;
-- load one run's data, axes, units, and required sidecars;
-- make a basic plot from the loaded data;
+- load one run and the whole selected group with data, axes, units, labels,
+  and required sidecars;
+- make a basic single-run plot and a group-level sanity plot from the loaded
+  data;
 - understand which optional derived inputs, verification references, or report
   artifacts were included or excluded?
 
@@ -41,18 +50,26 @@ from exact private data.
 The fixture should contain:
 
 - one selected-run group with two or three runs;
-- per-run source IDs, acquisition timestamps, measurement labels, and original
-  path evidence using redacted values;
+- an explicit selection record: who or what selected the runs, selected reason,
+  group title, group order, and optional per-run notes;
+- per-run source IDs namespaced by source system or station, acquisition
+  timestamps, measurement labels, and original path evidence using redacted
+  values;
 - group-level order and condition labels, such as baseline and sample;
 - one primary data artifact per run with simple coordinates and values;
 - one required read sidecar for at least one run;
 - axis names, units, shape, and value labels;
-- sample or device label, selected reason, and a small important-parameter
+- one intentionally messy but common context case, such as a missing sample
+  label, redacted source path, required sidecar, unknown-role artifact, or
+  ambiguous source field;
+- sample or device label when available and a small important-parameter
   summary;
 - at least two explicit missing statuses, such as `not_provided` and
   `unknown`;
 - one calibration or correction reference kept as a reference by default;
-- one user-attached derived input that is visible as an export decision;
+- one user-attached derived input that is visible as an export decision and has
+  source-run relation, size or checksum evidence, lossy-or-processed status
+  when known, and human production note when known;
 - one unknown-role artifact that is excluded with a warning;
 - one report artifact that is deliberately excluded from the snapshot.
 
@@ -80,13 +97,35 @@ The prototype may produce:
 - a fixture-local manifest or index used only for validation;
 - a local GUI-like summary or static report listing runs, roles, warnings, and
   missing context;
-- a Python-reader-like smoke test that loads one run and prints or returns
-  data, axes, units, sidecar status, and warnings;
-- a basic plot generated after reading the snapshot on the analysis side;
-- a support/debug summary.
+- a Python-reader-like smoke test that returns notebook-ready objects for one
+  run and for the selected group, including data, axes, units, condition
+  labels, sidecar status, and warnings;
+- a basic single-run plot and a group-level sanity plot generated after
+  reading the snapshot on the analysis side;
+- a support/debug summary with stable sections for identity, openability,
+  missing fields, exclusions, redaction status, and shareability.
 
-The basic plot is a consumer-side validation artifact. It is not part of the
-handoff snapshot.
+The plots and summaries generated after reading the copied snapshot are
+consumer-side validation artifacts. They are not part of the handoff snapshot
+created by export.
+
+## GUI Summary Checks
+
+The local GUI-like summary or static report should answer ordinary lab-user
+questions without requiring the user to inspect raw manifest files:
+
+- What snapshot is this?
+- Which runs are included?
+- Why were these runs selected?
+- What order and condition labels should I use for first-pass plotting?
+- What data or sidecar should I load first?
+- Which fields are missing, unknown, not provided, or redacted?
+- Which artifacts were excluded and why?
+- Which included artifacts need special caution, such as user-attached derived
+  inputs or advanced internal references?
+- Is this snapshot suitable for internal handoff, public sharing, or neither?
+
+This is a validation shape, not a final GUI specification.
 
 ## Acceptance Checks
 
@@ -95,20 +134,35 @@ The prototype passes this draft scope when:
 - the snapshot can be copied to a path unrelated to the source fixture and
   still opened;
 - no test depends on original local source paths as portable read paths;
-- the local GUI-like summary can list selected runs, group order, artifact
-  roles, source identity, missing fields, and excluded artifacts;
+- the local GUI-like summary can list selected runs, selection reason, group
+  order, condition labels, artifact roles, source identity, missing fields,
+  redaction status, and excluded artifacts;
+- each run ID is scoped by source system or station, or explicitly marked
+  ambiguous or unknown;
 - the Python-reader-like smoke test can load one run's primary data, axes,
-  units, shape, labels, and required sidecar status;
-- the consumer-side basic plot can be produced from loaded snapshot data;
+  units, shape, labels, and required sidecar status as a notebook-ready object;
+- the Python-reader-like smoke test can enumerate and load the whole selected
+  group with per-run labels, condition labels, shared context, and per-run
+  overrides;
+- the consumer-side single-run and group-level sanity plots can be produced
+  from loaded snapshot data;
 - the user-attached derived input is visible as an included optional artifact
-  with role and provenance;
-- the report artifact remains excluded and is reported as excluded;
+  with role, provenance, source-run relation, size or checksum evidence, and
+  known processed-or-lossy status;
+- the report artifact remains excluded, but its existence, role, and exclusion
+  reason are reported;
 - the unknown-role artifact is excluded or requires explicit classification;
+- advanced or internal-only artifacts are excluded by default, and any copied
+  advanced artifact has role, provenance, and warning text;
+- public-safe validation output passes a redaction leak audit for private
+  absolute paths, usernames, machine names, instrument addresses, internal
+  network locations, sample identifiers, and lab-only notes;
 - control-PC safety invariants are preserved: no source mutation, no code
-  execution, no generated artifacts during export, and no instrument or setup
-  access;
-- the support/debug summary answers: what is this snapshot, can it open, what
-  is missing, what was excluded, and can it be shared.
+  execution, no notebook execution, no generated artifacts during export, no
+  network or cloud dependency, and no instrument or setup access;
+- the support/debug summary has stable sections for: what is this snapshot,
+  can it open, what is missing, what was excluded, what was redacted, and can
+  it be shared.
 
 ## Non-Goals
 

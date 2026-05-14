@@ -25,6 +25,11 @@ or memory from the measurement session. The existing sample evidence does not
 show a native star/favorite UI; star or selected-run behavior remains a
 future-state interaction pressure.
 
+The first success moment should stay small: the user copies the snapshot to an
+unrelated path, opens it offline, sees what was selected and why, loads the
+selected group in Python, makes a sanity plot, and can tell which context is
+missing, excluded, redacted, or only referenced.
+
 ## Current-State Journey
 
 | Step | Current behavior | Pain |
@@ -74,6 +79,10 @@ A drafted `JC-002` fixture should show:
 - a local offline consumer path can list runs, warnings, and artifact roles;
 - a Python reader-like smoke test can load one run's data, axes, units, and
   required sidecars without the original control path;
+- a Python reader-like smoke test can enumerate the selected group and load
+  each run with condition labels, shared context, and per-run overrides;
+- a consumer-side sanity plot can be produced for both one run and the selected
+  group;
 - sample/device, purpose, and important parameters are present or explicitly
   `not_provided` or `unknown`;
 - selected-run group order, labels, and per-run overrides are preserved when a

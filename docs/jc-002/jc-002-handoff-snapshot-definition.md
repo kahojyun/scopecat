@@ -43,8 +43,9 @@ The first useful consumer smoke test is:
 copy snapshot to a path unrelated to the control computer
   -> open locally without network, cloud login, or control-PC access
   -> list selected runs and warnings
-  -> load one run's data, axes, units, and required sidecars
-  -> make a basic plot from the loaded data
+  -> load one run with data, axes, units, labels, and required sidecars
+  -> load the selected group with condition labels and per-run context
+  -> make a basic single-run plot and group-level sanity plot
 ```
 
 ## Export Is Not Derivation
