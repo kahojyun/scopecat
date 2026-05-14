@@ -2,8 +2,9 @@
 
 ## Status
 
-Draft prototype scope. Not fixture validated, not an accepted boundary, not a
-manifest schema, not a reader API contract, not a storage format, and not a
+Fixture-backed draft prototype scope. The first synthetic public-safe fixture
+and read-only prototype validate this scope at fixture scale. This is not an
+accepted boundary, manifest schema, reader API contract, storage format, or
 final GUI spec.
 
 ## Purpose
@@ -25,6 +26,12 @@ This scope depends on:
 - [`jc-002-journey-selection-note.md`](jc-002-journey-selection-note.md)
 - [`jc-002-handoff-snapshot-definition.md`](jc-002-handoff-snapshot-definition.md)
 - [`jc-002-analysis-handoff-journey.md`](jc-002-analysis-handoff-journey.md)
+
+Current validation artifacts:
+
+- [`../../tests/fixtures/jc002-handoff-snapshot/`](../../tests/fixtures/jc002-handoff-snapshot/)
+- [`../../prototypes/jc002_handoff_snapshot.py`](../../prototypes/jc002_handoff_snapshot.py)
+- [`../../tests/test_jc002_handoff_snapshot.py`](../../tests/test_jc002_handoff_snapshot.py)
 
 ## Prototype Question
 

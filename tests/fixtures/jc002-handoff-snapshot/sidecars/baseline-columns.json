@@ -1,0 +1,18 @@
+{
+  "sidecar_id": "sidecar-baseline-columns",
+  "applies_to_artifact_id": "primary-baseline",
+  "columns": [
+    {
+      "name": "frequency_hz",
+      "quantity": "drive_frequency",
+      "unit": "Hz",
+      "axis": "x"
+    },
+    {
+      "name": "response_v",
+      "quantity": "response_voltage",
+      "unit": "V",
+      "axis": "y"
+    }
+  ]
+}

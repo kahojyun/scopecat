@@ -2,9 +2,9 @@
 
 ## Status
 
-Drafting second-journey record. This is a lightweight promoted owner for
-`JC-002`, not an accepted decision, implementation plan, API contract, export
-format, storage design, UI spec, or fixture-validated prototype.
+Drafting second-journey record with a fixture-backed prototype slice. This is a
+lightweight promoted owner for `JC-002`, not an accepted decision,
+implementation plan, API contract, export format, storage design, or UI spec.
 
 ## Purpose
 
@@ -41,6 +41,14 @@ This document set may define:
 - required manifest slots with explicit missing-value statuses;
 - likely fixture shape and validation questions;
 - non-goals and deferred scope.
+
+The current prototype validation lives in
+[`../../prototypes/jc002_handoff_snapshot.py`](../../prototypes/jc002_handoff_snapshot.py)
+and
+[`../../tests/fixtures/jc002-handoff-snapshot/`](../../tests/fixtures/jc002-handoff-snapshot/).
+It validates local offline summary, reader-like group loading, consumer-side
+plots, redaction audit, artifact-role handling, and copy independence at
+synthetic fixture scale only.
 
 This document set must not define:
 

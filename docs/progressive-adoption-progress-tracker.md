@@ -8,9 +8,10 @@ early work into a premature subsystem scaffold.
 Current state: `JC-001` has an accepted passive evidence-view decision, a
 static-analysis spike, a two-fixture read-only prototype scope, a
 fixture-validated manifest/public-output contract, and a provisional capability
-ownership pass for the first wedge. The current decision point is whether to
-seed a small capability map from this provisional ownership pass or test a
-second journey before broadening ownership.
+ownership pass for the first wedge. `JC-002` now has a drafting document set
+and a fixture-backed read-only handoff snapshot prototype. The current decision
+point is whether the `JC-002` fixture is strong enough to promote an accepted
+prototype boundary or whether another lab scenario should challenge it first.
 This tracker is active. Unpromoted or non-`JC-001` W3+ adoption ladders,
 migration wedges, capability names, and contract ideas remain hypotheses until
 a selected W2 journey promotes them.
@@ -76,6 +77,7 @@ falsifies the accepted artifact.
 | Legacy experiment code sample validation | Transitional | `research/extracted/legacy-experiment-code-sample-validation.md` validates the research triage and raises companion artifacts, analysis handoff, hardware bring-up, dependency/environment, notebook hygiene, and portability evidence. |
 | Evidence and pain-point inventory | Ready | `evidence-and-pain-point-inventory.md` is the W1 owner. `JC-001` has been promoted into the first-wedge document set. |
 | JC-001 first-wedge document set | Ready | `jc-001/README.md` owns the detailed reading order for the first accepted wedge. |
+| JC-002 analysis handoff document set | Validating | `jc-002/README.md` owns the selected-run handoff journey and links to the first fixture-backed prototype. |
 
 ## Workstreams
 
@@ -118,9 +120,10 @@ implementation decision shows that the same fact family needs durable ownership.
 
 The `JC-001` wedge row is ready because it is backed by the accepted passive
 evidence-view decision. The `Starred runs to analysis handoff package` row is
-drafting because a lightweight `JC-002` document set and draft prototype scope
-now exist, but it is not an accepted journey, fixture-validated prototype, or
-implementation scope. The remaining rows are W1 hypotheses for later
+validating because a lightweight `JC-002` document set, public-safe fixture,
+and read-only prototype now exist, but it is not an accepted journey,
+manifest/API/storage/UI contract, or implementation scope. The remaining rows
+are W1 hypotheses for later
 W4 work; future wedge priority should be decided from evidence, user value,
 migration cost, architectural learning, and whether a pain is directly visible
 or latent behind constrained legacy workflows.
@@ -139,7 +142,7 @@ links and statuses in this tracker.
 | Wedge | User-Visible Outcome | Capabilities Involved | Main Learning Goal | Phase |
 | --- | --- | --- | --- | --- |
 | Existing run/work bundle to explainable context bundle | A user opens an existing work bundle and sees anchor artifacts, selected context candidates, code-shaped provenance, generated sidecars, copied snapshots, variants, ambiguity, producer-fact gaps, and sharing boundaries without mutation. | Measurement History, Parameter Memory, Code Asset Registry, Instrument Runtime, Managed Code Runner, Comparability and conflict review | Test whether passive explanation across context, code, generated/copied artifacts, variants, and producer gaps is the strongest first wedge before new writes, managed execution, known-good comparison, or a Measurement History-only first goal. | Ready |
-| [Starred runs to analysis handoff package](jc-002/README.md) | A user finds high-value runs, multi-selects them like files, and creates an immutable pre-analysis data-plus-context handoff snapshot for personal analysis work. | Measurement History, Analysis and claim lineage, Parameter Memory, Code Asset Registry | Test the adoption-critical path from experiment-control computer to personal analysis computer with local offline GUI/Python-reader consumption, without requiring generic export formats first, full work-bundle export/import, managed script execution, a permission system, publication workflow scope, generated-report scope, live-monitor semantics, or premature reader/API/storage/UI contracts. | Drafting |
+| [Starred runs to analysis handoff package](jc-002/README.md) | A user finds high-value runs, multi-selects them like files, and creates an immutable pre-analysis data-plus-context handoff snapshot for personal analysis work. | Measurement History, Analysis and claim lineage, Parameter Memory, Code Asset Registry | Test the adoption-critical path from experiment-control computer to personal analysis computer with local offline GUI/Python-reader consumption, without requiring generic export formats first, full work-bundle export/import, managed script execution, a permission system, publication workflow scope, generated-report scope, live-monitor semantics, or premature reader/API/storage/UI contracts. | Validating |
 | Known-good reference to readiness and diagnostic comparison | A user compares a current bundle or machine against a selected known-good reference, sees confidence gaps, and can share a full-fidelity internal diagnostic package or a sanitized package when crossing public, external, or restricted support boundaries. | Measurement History, Parameter Memory, Code Asset Registry, Managed Code Runner, Instrument Runtime | Test blind-persona adoption blockers around truth drift, false confidence, control-PC fragility, rollback pressure, and support diagnostics without accepting config authority, environment management, or device control. | Not Started |
 | Two valid runs to scientific comparability review | A user compares two valid-looking runs, setup states, or method variants and sees which context, calibration, setup, generated-protocol, correction, and analysis differences matter for comparison. | Measurement History, Parameter Memory, Code Asset Registry, Scan Framework, Instrument Runtime, Comparability and conflict review, Analysis and claim lineage | Test the external-framework capability gap: Scopecat should complement existing measurement systems by explaining whether results can be compared, migrated, or handed off, not by replacing acquisition/control/calibration frameworks. | Not Started |
 | Small declared setup schema to useful context output | A user maintains a minimal local schema for one setup, sample, or campaign because it immediately enables a qubit-to-instrument lookup, attenuation calculation, chip-layout parameter view, comparability check, or handoff. | Parameter Memory, Instrument Runtime, Declared physical context and local schemas, Comparability and conflict review | Test whether manually maintained physical and schema context earns its cost before adding broad setup inventory, topology databases, or universal parameter models. | Not Started |
@@ -177,9 +180,9 @@ W1 evidence inventory
   -> provisional ownership pass
 ```
 
-Active next choice: decide whether to seed a small capability map from the
-provisional `JC-001` ownership pass or select a second journey to test the same
-owners under different pressure.
+Active next choice: decide whether the `JC-002` handoff snapshot prototype
+earns an accepted fixture-scale boundary, needs another scenario, or should feed
+back into a small capability map with the `JC-001` ownership pass.
 
 ## Review Cadence
 

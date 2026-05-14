@@ -1,0 +1,7 @@
+{
+  "derived_input_id": "derived-window-a",
+  "source_run_relation": ["run-baseline", "run-sample"],
+  "processed_status": "processed-lossless-subset",
+  "human_production_note": "Public fixture note: selected frequency window was attached before export.",
+  "window_hz": [2.0, 3.0]
+}
