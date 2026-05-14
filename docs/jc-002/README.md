@@ -27,6 +27,7 @@ records or later lineage work.
 | 1 | [`jc-002-journey-selection-note.md`](jc-002-journey-selection-note.md) | Why `JC-002` has been promoted from candidate note to drafting journey record. |
 | 2 | [`jc-002-handoff-snapshot-definition.md`](jc-002-handoff-snapshot-definition.md) | Current definition of a handoff snapshot, context tiers, status semantics, and exclusions. |
 | 3 | [`jc-002-analysis-handoff-journey.md`](jc-002-analysis-handoff-journey.md) | Current-state and future-state journey seed for selected-run analysis handoff. |
+| 4 | [`jc-002-handoff-snapshot-prototype-scope.md`](jc-002-handoff-snapshot-prototype-scope.md) | Draft fixture and prototype checks for local offline GUI/Python-reader consumption. |
 
 ## Current Boundary
 
