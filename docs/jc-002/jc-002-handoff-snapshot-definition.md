@@ -45,7 +45,7 @@ copy snapshot to a path unrelated to the control computer
   -> list selected runs and warnings
   -> load one run with data, axes, units, labels, and required sidecars
   -> load the selected group with condition labels and per-run context
-  -> make a basic single-run plot and group-level sanity plot
+  -> hand plot-ready data and labels to a plotting component
 ```
 
 ## Export Is Not Derivation

@@ -1026,7 +1026,7 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
 
             self.assert_redaction_status_matches_manifest(summary, manifest)
 
-    def test_plot_uses_manifest_declared_axis_and_value_metadata(self):
+    def test_plot_spec_uses_manifest_declared_axis_and_value_metadata(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as tmp_dir:
             copied_snapshot = copy_fixture(tmp_dir)
@@ -1047,14 +1047,17 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             write_json(manifest_path, manifest)
 
             snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
-            output_path = Path(tmp_dir) / "plot.svg"
-            prototype.render_svg_plot(snapshot.load_group(), output_path)
-            svg = output_path.read_text(encoding="utf-8")
+            plot_spec = prototype.build_plot_spec(snapshot.load_group())
 
-            self.assertIn("declared detuning (MHz)", svg)
-            self.assertIn("declared signal (arb)", svg)
+            self.assertEqual(plot_spec["title"], "public handoff fixture group")
+            self.assertEqual(plot_spec["x_label"], "declared detuning (MHz)")
+            self.assertEqual(plot_spec["y_label"], "declared signal (arb)")
+            self.assertEqual(
+                [series["label"] for series in plot_spec["series"]],
+                ["baseline", "sample"],
+            )
 
-    def test_group_plot_handles_different_run_column_names(self):
+    def test_plot_spec_handles_different_run_column_names(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as tmp_dir:
             copied_snapshot = copy_fixture(tmp_dir)
@@ -1073,12 +1076,13 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
             write_json(manifest_path, manifest)
 
             snapshot = prototype.HandoffSnapshot.open(copied_snapshot)
-            output_path = Path(tmp_dir) / "plot.svg"
-            prototype.render_svg_plot(snapshot.load_group(), output_path)
+            plot_spec = prototype.build_plot_spec(snapshot.load_group())
 
-            self.assertIn("<polyline", output_path.read_text(encoding="utf-8"))
+            sample_series = plot_spec["series"][1]
+            self.assertEqual(sample_series["x"], [1.0, 2.0])
+            self.assertEqual(sample_series["y"], [0.13, 0.29])
 
-    def test_group_plot_rejects_mixed_units_under_one_label(self):
+    def test_plot_spec_rejects_mixed_units_under_one_label(self):
         prototype = load_prototype()
         with tempfile.TemporaryDirectory() as tmp_dir:
             copied_snapshot = copy_fixture(tmp_dir)
@@ -1094,79 +1098,22 @@ class HandoffSnapshotPrototypeTest(unittest.TestCase):
                 prototype.HandoffSnapshotError,
                 "matching axis and value metadata",
             ):
-                prototype.render_svg_plot(snapshot.load_group(), Path(tmp_dir) / "plot.svg")
+                prototype.build_plot_spec(snapshot.load_group())
 
-    def test_plot_handles_constant_x_values(self):
+    def test_mock_plotter_consumes_reader_plot_spec(self):
         prototype = load_prototype()
-        group = {
-            "group_title": "constant x fixture",
-            "runs": [
-                {
-                    "run_id": "run-constant-x",
-                    "condition_label": "single-point",
-                    "axes": [{"name": "frequency", "column": "frequency_hz", "unit": "Hz"}],
-                    "values": [{"name": "response", "column": "response_v", "unit": "V"}],
-                    "data": [{"frequency_hz": 1.0, "response_v": 0.2}],
-                }
-            ],
+        plot_spec = {
+            "title": "mock plot",
+            "x_label": "frequency (Hz)",
+            "y_label": "response (V)",
+            "series": [{"label": "baseline", "x": [1.0, 2.0], "y": [0.1, 0.2]}],
         }
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            output_path = Path(tmp_dir) / "plot.svg"
 
-            prototype.render_svg_plot(group, output_path)
+        svg = prototype.mock_plotter_svg(plot_spec)
 
-            svg = output_path.read_text(encoding="utf-8")
-            self.assertIn("<polyline", svg)
-            self.assertIn("frequency (Hz)", svg)
-
-    def test_plot_handles_large_constant_y_values(self):
-        prototype = load_prototype()
-        group = {
-            "group_title": "large constant y fixture",
-            "runs": [
-                {
-                    "run_id": "run-large-y",
-                    "condition_label": "large-y",
-                    "axes": [{"name": "frequency", "column": "frequency_hz", "unit": "Hz"}],
-                    "values": [{"name": "response", "column": "response_v", "unit": "V"}],
-                    "data": [
-                        {"frequency_hz": 1.0, "response_v": 1e20},
-                        {"frequency_hz": 2.0, "response_v": 1e20},
-                    ],
-                }
-            ],
-        }
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            output_path = Path(tmp_dir) / "plot.svg"
-
-            prototype.render_svg_plot(group, output_path)
-
-            svg = output_path.read_text(encoding="utf-8")
-            self.assertIn("<polyline", svg)
-
-    def test_plot_rejects_extreme_ranges_that_overflow(self):
-        prototype = load_prototype()
-        group = {
-            "group_title": "overflow y fixture",
-            "runs": [
-                {
-                    "run_id": "run-overflow-y",
-                    "condition_label": "overflow-y",
-                    "axes": [{"name": "frequency", "column": "frequency_hz", "unit": "Hz"}],
-                    "values": [{"name": "response", "column": "response_v", "unit": "V"}],
-                    "data": [
-                        {"frequency_hz": 1.0, "response_v": -1e308},
-                        {"frequency_hz": 2.0, "response_v": 1e308},
-                    ],
-                }
-            ],
-        }
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            with self.assertRaisesRegex(
-                prototype.HandoffSnapshotError,
-                "plot ranges must be finite",
-            ):
-                prototype.render_svg_plot(group, Path(tmp_dir) / "plot.svg")
+        self.assertIn("<polyline", svg)
+        self.assertIn("frequency (Hz)", svg)
+        self.assertIn("response (V)", svg)
 
 
 if __name__ == "__main__":

@@ -871,16 +871,13 @@ def render_markdown(summary: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def render_svg_plot_text(group: dict[str, Any], run_id: str | None = None) -> str:
+def build_plot_spec(group: dict[str, Any], run_id: str | None = None) -> dict[str, Any]:
     selected_runs = group["runs"]
     if run_id is not None:
         selected_runs = [run for run in selected_runs if run["run_id"] == run_id]
         if not selected_runs:
             raise HandoffSnapshotError(f"unknown run for plot: {run_id}")
 
-    width = 640
-    height = 360
-    margin = 48
     first_run = selected_runs[0]
     x_meta = first_run["axes"][0]
     y_meta = first_run["values"][0]
@@ -894,71 +891,59 @@ def render_svg_plot_text(group: dict[str, Any], run_id: str | None = None) -> st
             raise HandoffSnapshotError("group plot requires matching axis and value metadata")
     x_label = f"{x_meta['name']} ({x_meta['unit']})"
     y_label = f"{y_meta['name']} ({y_meta['unit']})"
-    all_x = [row[run["axes"][0]["column"]] for run in selected_runs for row in run["data"]]
-    all_y = [row[run["values"][0]["column"]] for run in selected_runs for row in run["data"]]
-    min_x, max_x = min(all_x), max(all_x)
-    min_y, max_y = min(all_y), max(all_y)
-    if min_x == max_x:
-        x_pad = max(abs(min_x) * 0.1, 1.0)
-        min_x -= x_pad
-        max_x += x_pad
-    if min_y == max_y:
-        y_pad = max(abs(min_y) * 0.1, 1.0)
-    else:
-        y_pad = max((max_y - min_y) * 0.1, 0.01)
-    min_y -= y_pad
-    max_y += y_pad
-    x_range = max_x - min_x
-    y_range = max_y - min_y
-    if (
-        min_x == max_x
-        or min_y == max_y
-        or not math.isfinite(x_range)
-        or not math.isfinite(y_range)
-        or x_range <= 0
-        or y_range <= 0
-    ):
-        raise HandoffSnapshotError("plot ranges must be finite and nonzero")
+    return {
+        "title": group["group_title"],
+        "x_label": x_label,
+        "y_label": y_label,
+        "series": [
+            {
+                "label": run["condition_label"],
+                "x": [row[run["axes"][0]["column"]] for row in run["data"]],
+                "y": [row[run["values"][0]["column"]] for row in run["data"]],
+            }
+            for run in selected_runs
+        ],
+    }
 
-    def point(row: dict[str, float], run: dict[str, Any]) -> tuple[float, float]:
-        run_x_column = run["axes"][0]["column"]
-        run_y_column = run["values"][0]["column"]
-        x = margin + (row[run_x_column] - min_x) / x_range * (width - 2 * margin)
-        y = height - margin - (row[run_y_column] - min_y) / y_range * (height - 2 * margin)
-        if not math.isfinite(x) or not math.isfinite(y):
-            raise HandoffSnapshotError("plot coordinates must be finite")
-        return x, y
 
+def mock_plotter_svg(plot_spec: dict[str, Any]) -> str:
     colors = ["#1f77b4", "#d62728", "#2ca02c"]
     lines = [
         '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">',
         '<rect width="640" height="360" fill="white"/>',
         (
             '<text x="48" y="28" font-family="sans-serif" font-size="16">'
-            f"{html.escape(group['group_title'])}</text>"
+            f"{html.escape(plot_spec['title'])}</text>"
         ),
         '<line x1="48" y1="312" x2="592" y2="312" stroke="#222"/>',
         '<line x1="48" y1="48" x2="48" y2="312" stroke="#222"/>',
         (
             '<text x="300" y="346" font-family="sans-serif" font-size="12">'
-            f"{html.escape(x_label)}</text>"
+            f"{html.escape(plot_spec['x_label'])}</text>"
         ),
         (
             '<text x="8" y="190" font-family="sans-serif" font-size="12" '
-            f'transform="rotate(-90 8 190)">{html.escape(y_label)}</text>'
+            f'transform="rotate(-90 8 190)">{html.escape(plot_spec["y_label"])}</text>'
         ),
     ]
-    for index, run in enumerate(selected_runs):
-        points = " ".join(f"{x:.1f},{y:.1f}" for x, y in (point(row, run) for row in run["data"]))
+    for index, series in enumerate(plot_spec["series"]):
+        points = " ".join(
+            f"{48 + point_index * 24},{312 - index * 24}"
+            for point_index, _ in enumerate(series["x"])
+        )
         color = colors[index % len(colors)]
         label_y = 56 + index * 18
         lines.append(f'<polyline points="{points}" fill="none" stroke="{color}" stroke-width="2"/>')
         lines.append(
             f'<text x="500" y="{label_y}" font-family="sans-serif" font-size="12" '
-            f'fill="{color}">{html.escape(run["condition_label"])}</text>'
+            f'fill="{color}">{html.escape(series["label"])}</text>'
         )
     lines.append("</svg>")
     return "\n".join(lines) + "\n"
+
+
+def render_svg_plot_text(group: dict[str, Any], run_id: str | None = None) -> str:
+    return mock_plotter_svg(build_plot_spec(group, run_id=run_id))
 
 
 def write_generated_text(path: Path, text: str) -> None:

@@ -51,7 +51,8 @@ The prototype now checks:
 - required sidecar metadata applies to the declared primary data columns;
 - included derived inputs are exposed through the reader-like run and group
   objects;
-- consumer-side plots use manifest-declared axis and value metadata;
+- reader output includes plot-ready specs with manifest-declared title, axis
+  labels, series labels, and series data for an external plotter;
 - redaction lessons are preserved as export and publish guidance, not reader
   checks or gates.
 
@@ -74,8 +75,8 @@ or managed script execution:
 - see source identity, roles, warnings, and missing context;
 - load one run and the whole selected group with data, axes, units, labels,
   and required sidecars;
-- make a basic single-run plot and a group-level sanity plot from the loaded
-  data;
+- hand the loaded data to a plotter-like consumer with title, axis labels, and
+  series labels;
 - understand which optional derived inputs, verification references, or report
   artifacts were included or excluded?
 
@@ -140,8 +141,8 @@ The prototype may produce:
 - a Python-reader-like smoke test that returns notebook-ready objects for one
   run and for the selected group, including data, axes, units, condition
   labels, sidecar status, and warnings;
-- a basic single-run plot and a group-level sanity plot generated after
-  reading the snapshot on the analysis side;
+- a mock plotter smoke test that consumes plot-ready data after reading the
+  snapshot on the analysis side;
 - a support/debug summary with stable sections for identity, openability,
   missing fields, exclusions, and export-provided redaction status.
 
@@ -185,8 +186,8 @@ The prototype passes this draft scope when:
 - the Python-reader-like smoke test can enumerate and load the whole selected
   group with per-run labels, condition labels, shared context, and per-run
   overrides;
-- the consumer-side single-run and group-level sanity plots can be produced
-  from loaded snapshot data;
+- the reader can provide plot-ready specs for one run and for the selected
+  group, and a mock plotter can consume those specs;
 - the user-attached derived input is visible as an included optional artifact
   with role, provenance, source-run relation, size or checksum evidence, and
   known processed-or-lossy status;
