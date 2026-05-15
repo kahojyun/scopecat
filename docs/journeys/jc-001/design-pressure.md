@@ -1,141 +1,48 @@
-# JC-001 Design Pressure Adoption Extraction
+# JC-001 Design Pressure
 
 ## Status
 
-Provisional first slice pressure only; later artifacts use it as input without
-promoting a broader adoption plan or capability map.
+Design memory only. This note preserves pressure discovered through `JC-001`
+without accepting a capability map, subsystem owner, write-side API, or future
+product route.
 
 ## Purpose
 
-Extract the design pressures touched by
-[`journey.md`](journey.md)
-and define the smallest product-value adoption step they suggest.
+Keep the design intent that remains useful after the accepted passive
+evidence-view slice, especially the missing facts that later journeys may need
+to record, validate, or intentionally leave as user-owned risk.
 
-This note is scoped to `JC-001`. It does not define the full capability map,
-ownership model, architecture contracts, subsystem specs, or implementation
-plan.
+## Pressure Preserved
 
-## Extraction Rule
-
-Start from the read journey, then preserve the missing-fact pressure that
-explains why the read view is incomplete without turning those gaps into
-write-side requirements.
-
-```text
-read need
-  -> visible missing facts
-  -> product-value adoption step
-  -> later composition path
-```
-
-Do not infer that every missing fact requires managed execution, services,
-databases, write-back, hardware control, or environment management. Some facts
-can come from passive recording, explicit user selection, static inspection,
-lightweight manifests, or export metadata.
-
-## Design Pressure Touches
-
-These labels preserve useful capability intent from earlier research without
-accepting those labels as product surfaces, subsystem owners, or migration
-routes.
-
-| Design pressure | Why `JC-001` touches it | Status in this note |
+| Pressure | What `JC-001` proved | Later design implication |
 | --- | --- | --- |
-| Run and bundle evidence | The journey needs a stable work-bundle or run-like anchor, copied snapshots, generated sidecars, and artifact roles. | Provisional first slice pressure only. |
-| Settings and context evidence | Settings and parameter-like files need source, role, freshness, conflict, snapshot, and variant treatment without write-back. | Provisional first slice pressure only. |
-| Code and dependency provenance | Code-shaped evidence explains path selection, settings read, and sidecar derivation without managed execution. | Provisional first slice pressure only. |
-| Setup and runtime boundary evidence | Setup and registry-like evidence appears as declared or observed context before device control. | Context-only pressure; no live runtime adoption yet. |
-| Execution readiness evidence | Dependency and readiness pressure appears, but execution remains out of scope. | Diagnostic pressure only; defer runner adoption. |
-| Conflict diagnostics | Conflict display is needed inside one bundle, but known-good comparison remains follow-on. | Limited diff pressure only; no comparator adoption yet. |
+| Run or bundle anchor | A passive report needs one bounded object to explain. | Durable recording and handoff journeys should preserve stable anchors, but `JC-001` does not decide the storage model. |
+| Artifact roles | Files need user-facing roles before their contents are interpreted. | Later import/export, handoff, and lineage work should keep role explicit instead of relying on extensions or paths. |
+| Selected context | Settings-like files can appear selected without being authoritative truth. | Future producer-side features may record selection reason and freshness, but passive explanation must still handle absence. |
+| Generated and copied artifacts | Sidecars and snapshots can explain workflow history while being stale or partial. | Later lineage work should preserve source relation and invalidation evidence when available. |
+| Code-shaped evidence | Static code clues help explain selection and derivation without execution. | Code portability or runner work should build on explicit code identity only after separate safety decisions. |
+| Setup evidence | Registry or setup-like files are useful context but not proof of physical truth. | Setup, apply, leases, and hardware verification require later ADRs and runtime boundaries. |
+| Static readiness | Dependency and expected-output clues are useful before execution. | Readiness can remain diagnostic until a managed runner or runtime handoff is accepted. |
+| Sharing boundary | Public output needs stable public identities and redaction behavior. | Public/export/support flows need explicit recipient-aware policy before broader sharing claims. |
 
-## Product-Value Adoption Steps
+## Missing Facts To Preserve
 
-The deferred boundary is owned by
-[`decisions/passive-evidence-view.md`](decisions/passive-evidence-view.md).
+These facts are reportable gaps, not required inputs:
 
-| Design pressure | Smallest useful product-value step | Read-side missing facts to keep visible | Later composition path |
-| --- | --- | --- | --- |
-| Run and bundle evidence | Open an existing work bundle and produce an artifact-role inventory anchored by a run-like or bundle identity. | Missing anchor, role, lifecycle, copied snapshot, generated sidecar, or included/excluded artifact explanation. | Later run records can link scan points, parameter snapshots, code references, execution records, and handoff packages. |
-| Settings and context evidence | Show selected settings, copied snapshots, generated context, variants, conflicts, freshness, and unknown active state as evidence. | Missing selected source, selection reason, freshness, snapshot coverage, variant status, or context mismatch. | Later calibration workflows can propose updates, review diffs, and link accepted snapshots to runs. |
-| Code and dependency provenance | Surface code-shaped evidence that explains settings path selection and derivation flow without executing it. | Missing entrypoint, code origin, settings path reference, dependency or lockfile clue, or sidecar generator reference. | Later managed execution can resolve exact code versions and execution records after safety boundaries exist. |
-| Setup and runtime boundary evidence | Represent setup/registry-like context as declared or observed evidence with role and sharing boundary. | Missing setup source, verification status, physical-context freshness, or unsafe-to-verify label. | Later diagnostics and resource semantics can build on manifests after ADRs for device apply and leases. |
-| Execution readiness evidence | Show readiness gaps and dependency-shaped clues as static evidence. | Missing dependency category, environment clue, expected output shape, or failure-policy hint. | Later runner records can capture logs, artifacts, status, and environment after control-PC safety decisions. |
-| Conflict diagnostics | Explain conflicts between artifacts inside one bundle with layer-by-layer evidence. | Missing source, relation, affected fact, next-check wording, or reason a winner cannot be selected. | Later known-good comparison can compare bundle, setup, method, calibration, and analysis layers. |
+- preferred bundle or run anchor;
+- artifact role;
+- evidence handling: observed, inferred, generated, copied, user-declared,
+  unchecked, unsafe-to-inspect, or missing;
+- selected settings source and selection reason;
+- source timestamp or freshness marker;
+- generated artifact source and invalidation rule;
+- copied snapshot source and coverage;
+- code origin or immutable code reference;
+- dependency or readiness clue;
+- sharing boundary for sensitive source details.
 
-## First Adoption Slice
+## Design Rule
 
-The first useful slice is not "write a perfect run record." It is:
-
-```text
-existing bundle
-  -> role inventory
-  -> selected-context explanation
-  -> code-shape provenance
-  -> missing-fact gaps
-  -> public-safe fixture evidence view
-```
-
-This slice can be useful even when the producer did not record everything. The
-system should show what is observed, inferred, copied, generated, unchecked,
-or missing.
-
-## Missing Facts Worth Preserving
-
-These are facts the read view may show as missing, inferred, copied,
-generated, unchecked, or unsafe to verify. They are not required inputs and do
-not define a future write-side API.
-
-| Fact | Why it matters | First-slice handling |
-| --- | --- | --- |
-| Bundle or run-like anchor | Gives the explanation a stable entry point. | Represent, even if imported from existing files. |
-| Artifact role | Separates anchor, selected context, generated sidecar, copied snapshot, variant, and unknown evidence. | Represent for included artifacts; represent backups through relation-level ambiguity. |
-| Evidence handling | Prevents observed, inferred, generated, copied, unchecked, and unsafe evidence from looking equivalent. | Represent for artifacts and relations. |
-| Selected settings source | Explains which settings appear selected without making them authoritative. | Represent as observed, inferred, or missing. |
-| Snapshot relation | Explains why a copied settings file may differ from current settings. | Represent when snapshots are present. |
-| Generated relation | Explains sidecars without claiming every sidecar is current. | Represent when sidecars are present. |
-| Code reference | Explains path selection or derivation flow without execution. | Represent as lightweight evidence. |
-| Sharing boundary | Keeps internal diagnostics and public exports separate. | Represent with fixture-safe labels. |
-| Dependency/readiness hint | Shows execution risk before running code. | Include when visible. |
-| Variant lineage | Preserves branch ambiguity. | Include one representative example. |
-
-## Evidence View Ordering
-
-For `JC-001`, layer the evidence view in this order:
-
-1. Artifact-role inventory anchored by a bundle or run-like object.
-2. Selected-context and snapshot explanation for settings-like files.
-3. Generated-sidecar relation and completeness gaps.
-4. Code-shape provenance for settings selection and derivation.
-5. Sharing-boundary and redaction view.
-6. Static readiness hints.
-7. Follow-on known-good or scientific comparability only after this slice is
-   validated.
-
-This order keeps the first slice read-first while preserving missing-fact
-pressure for future decisions.
-
-## Validation Slice Candidate
-
-Shape the first slice as:
-
-```text
-existing work bundle
-  -> explainable context bundle
-```
-
-The user-visible outcome is an offline evidence view that explains selected
-context, code-shaped provenance, generated and copied artifacts, variants,
-ambiguity, and sharing boundaries without mutation.
-
-The accepted decision owns the non-goals for this slice.
-
-## Open Questions For Later Decisions
-
-- Which artifact-role vocabulary should become a stable domain concept.
-- Whether selected context, generated relation, and copied snapshot should
-  share one relation model or stay separate in the first implementation.
-- How to express freshness without implying live truth.
-- How to represent code references without accepting code identity ownership.
-- Which sharing-boundary labels are needed before public docs or external
-  support packages exist.
-- Which static readiness hints are useful enough to include in the first slice.
+Do not turn a missing fact into mandatory producer scope by default. Later
+journeys should decide whether the fact is best supplied by explicit recording,
+user selection, static inspection, export metadata, or no product ownership.

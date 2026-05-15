@@ -32,7 +32,7 @@ Use owner documents for durable detail:
 | --- | --- | --- | --- |
 | `JC-001` passive evidence view | Accepted | [`../journeys/jc-001/README.md`](../journeys/jc-001/README.md) | First accepted slice. Keep reopen or extension detail in the owning decision, contract, or prototype document before updating shared coordination. |
 | `JC-002` selected-run analysis handoff | Validating | [`../journeys/jc-002/README.md`](../journeys/jc-002/README.md) | Decide whether the current fixture-backed handoff snapshot prototype earns an accepted fixture-scale boundary or needs another lab scenario. |
-| Product-value adoption routes | Provisional | This tracker; placement context in [`../strategy/experience-map.md`](../strategy/experience-map.md) | Routes are named by standalone user value. Design-pressure names do not become capability ownership until multiple journeys justify it. |
+| Product-value adoption routes | Provisional | This tracker; placement context in [`../strategy/experience-map.md`](../strategy/experience-map.md) | Routes are named by standalone user value. Design-pressure names do not become durable product ownership until multiple journeys justify it. |
 | Future candidate rows | Not Started / Deferred | [`../evidence/inventory.md`](../evidence/inventory.md) | Canonical `JC` candidate wording and boundaries stay in the evidence owner until a journey-specific owner is created. |
 
 ## Product-Value Adoption Routes
@@ -59,7 +59,7 @@ otherwise.
 
 | Slice | Owner | Phase | Coordination note |
 | --- | --- | --- | --- |
-| Existing run/work bundle to explainable context bundle | [`../journeys/jc-001/slices/passive-evidence-view.md`](../journeys/jc-001/slices/passive-evidence-view.md) | Accepted | Backed by the accepted passive evidence-view decision. |
+| Existing run/work bundle to explainable context bundle | [`../journeys/jc-001/decisions/passive-evidence-view.md`](../journeys/jc-001/decisions/passive-evidence-view.md) | Accepted | Backed by the accepted passive evidence-view decision. |
 | Starred runs to analysis handoff package | [`../journeys/jc-002/README.md`](../journeys/jc-002/README.md) | Validating | Current prototype validates a fixture-scale handoff boundary only. |
 | Ordinary Python script to durable measurement record | `JC-015` candidate | Not Started | Substrate candidate to promote earlier if `JC-002`, `JC-011`, or `JC-016` needs realistic recorded inputs. |
 | One reviewed package to one lab-owned runtime for one bounded local run | `JC-016` candidate | Not Started | Runtime-handoff candidate only; not generic scheduling, resource management, rollback, or autonomous calibration platform scope. |
@@ -83,5 +83,5 @@ Update this tracker only when shared coordination changes:
 - a candidate moves into or out of active coordination;
 - a cross-journey dependency changes.
 
-Keep per-`JC` next decisions in that `JC`'s README, slice, prototype, contract,
+Keep per-`JC` next decisions in that `JC`'s README, decision, prototype, contract,
 or decision document.

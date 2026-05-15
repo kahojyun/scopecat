@@ -11,8 +11,8 @@ export format.
 Describe the current-state and future-state journey for moving selected
 experiment data from a control computer to an analysis computer.
 
-This journey depends on the handoff snapshot definition in
-[`contracts/handoff-snapshot.md`](contracts/handoff-snapshot.md).
+This journey depends on the handoff snapshot boundary in
+[`snapshot-boundary.md`](snapshot-boundary.md).
 
 ## Actor And Situation
 

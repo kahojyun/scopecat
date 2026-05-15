@@ -5,7 +5,7 @@
 Accepted boundary on 2026-05-12.
 
 This decision is fixture validated and boundary accepted. It is not user
-validated, product accepted, or a durable subsystem-ownership decision.
+validated, product accepted, or a durable subsystem decision.
 
 ## Decision
 
@@ -29,9 +29,8 @@ install dependencies, assert source-of-record authority, or repair the bundle.
 This decision is promoted from:
 
 - [`../journey.md`](../journey.md);
-- [`../slices/passive-evidence-view.md`](../slices/passive-evidence-view.md);
 - [`../contracts/evidence-view.md`](../contracts/evidence-view.md);
-- [`../prototypes/static-analysis-spike.md`](../prototypes/static-analysis-spike.md).
+- [`../prototypes/passive-evidence-view.md`](../prototypes/passive-evidence-view.md).
 
 The static-analysis spike validated that the synthetic fixture can produce an
 evidence view preserving roles, relations, conflicts, missing facts, sharing
@@ -77,10 +76,10 @@ The first slice does not include:
 - support-boundary export policy;
 - durable storage schema;
 - general parser framework;
-- subsystem ownership decisions beyond this slice.
+- subsystem decisions beyond this slice.
 
-These may become later scope after a separate evidence-backed decision. Use a
-journey, slice, spike, ADR, prototype result, or ownership map as appropriate.
+These may become later scope after a separate evidence-backed journey,
+prototype result, ADR, or architecture decision.
 
 ## Missing-Fact Vocabulary Kept In Read Scope
 
@@ -109,16 +108,16 @@ complete the task better, interpret every confidence signal correctly, or treat
 the passive evidence view as accepted product direction.
 
 Follow-on status: the second-journey path is now represented by `JC-002`, which
-tests selected-run analysis handoff pressure against the provisional `JC-001`
-design-pressure owners. Any future `JC-001` reopen or extension should update
-this decision or its owning scope, contract, or ownership document before
-changing cross-journey tracker coordination.
+tests selected-run analysis handoff pressure against the design memory from
+`JC-001`. Any future `JC-001` reopen or extension should update this decision
+or its owning prototype or contract before changing cross-journey tracker
+coordination.
 
 Confidence remains narrative-based, not numeric. Code-reference handling stays
 static until a later code-provenance or execution-readiness decision exists.
 
-Design-pressure labels touched by this slice remain provisional until a later
-capability map promotes ownership boundaries.
+Design-pressure labels touched by this slice remain design memory only until a
+later journey or architecture decision proves that a durable owner is needed.
 
 ## Reversal Criteria
 
@@ -137,5 +136,4 @@ Revisit this decision if one of these occurs:
 [`../prototypes/passive-evidence-view.md`](../prototypes/passive-evidence-view.md)
 defines the first implementation-facing prototype scope for this decision. Keep
 the prototype read-only and fixture-sized unless a later scope document
-explicitly promotes a broader parser, storage, UI, or capability-ownership
-decision.
+explicitly promotes a broader parser, storage, UI, or product-surface decision.

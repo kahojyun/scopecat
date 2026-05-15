@@ -2,63 +2,50 @@
 
 ## Status
 
-Accepted first journey record. This is an index and history status, not a
-shared validation status for every artifact in this folder.
+Accepted first journey record. This folder is an earned record for one
+validated slice, not a template for future `JC` folders.
 
 ## Purpose
 
-Collect the durable `JC-001` journey, slice, decision, prototype, contract, and
-design-pressure notes in one place.
+`JC-001` validates a read-only passive evidence view for an existing experiment
+work bundle:
 
-`JC-001` is the accepted first slice for explaining an existing work bundle as
-a passive evidence view. The validated boundary is read-only, fixture-sized, no
-execution, no mutation, no hardware verification, no source-of-record
-authority, and no package/parser/storage/UI promotion.
+```text
+existing work bundle
+  -> artifact roles
+  -> evidence relations
+  -> conflicts and missing facts
+  -> sharing-aware report
+```
 
-Use this folder as an earned exemplar for later journey candidates, not as a
-packet to copy wholesale.
+The accepted boundary is fixture-sized, read-only, no execution, no mutation,
+no hardware verification, no source-of-record authority, and no promoted
+parser, storage, UI, runner, or subsystem ownership.
 
 ## Reading Order
 
-| Order | Document | Type | Use for |
-| --- | --- | --- | --- |
-| 1 | [`selection.md`](selection.md) | Selection | Why this journey and fixture boundary were selected. |
-| 2 | [`journey.md`](journey.md) | Journey | Current-state and future-state user journey. |
-| 3 | [`design-pressure.md`](design-pressure.md) | Design pressure | Product-value and design-pressure memory preserved from this journey. |
-| 4 | [`slices/passive-evidence-view.md`](slices/passive-evidence-view.md) | Slice | Accepted validation slice shape. |
-| 5 | [`contracts/evidence-view.md`](contracts/evidence-view.md) | Contract | Minimum concepts and cross-pressure contracts. |
-| 6 | [`prototypes/static-analysis-spike.md`](prototypes/static-analysis-spike.md) | Prototype | Static-analysis spike result. |
-| 7 | [`decisions/passive-evidence-view.md`](decisions/passive-evidence-view.md) | Decision | Accepted passive evidence-view boundary. |
-| 8 | [`prototypes/passive-evidence-view.md`](prototypes/passive-evidence-view.md) | Prototype | Two-fixture prototype scope and validation result. |
-| 9 | [`contracts/manifest-and-public-output.md`](contracts/manifest-and-public-output.md) | Contract | Fixture-validated manifest, public identity, and public-output redaction contract. |
-| 10 | [`contracts/design-pressure-ownership.md`](contracts/design-pressure-ownership.md) | Contract | Provisional design-pressure ownership for accepted fact and contract families. |
-
-## Audience Read Paths
-
-| Audience | Read path |
-| --- | --- |
-| Product or history reader | Selection -> journey -> slice -> decision. |
-| Implementation reviewer | Decision -> prototype scope -> manifest/public-output contract -> static-analysis spike -> evidence-view contract. |
-| Architecture reviewer | Evidence-view contract -> design-pressure ownership -> decision -> tracker status. |
+| Order | Document | Use for |
+| --- | --- | --- |
+| 1 | [`journey.md`](journey.md) | User need, current-state pain, and future-state outcome. |
+| 2 | [`decisions/passive-evidence-view.md`](decisions/passive-evidence-view.md) | Canonical accepted boundary, deferred scope, and reopening criteria. |
+| 3 | [`prototypes/passive-evidence-view.md`](prototypes/passive-evidence-view.md) | Fixture-backed validation result and implementation-facing prototype scope. |
+| 4 | [`contracts/evidence-view.md`](contracts/evidence-view.md) | Minimal vocabulary and report-shape contract used by the accepted slice. |
+| 5 | [`contracts/manifest-and-public-output.md`](contracts/manifest-and-public-output.md) | Fixture manifest, public identity, and public-output redaction contract. |
+| 6 | [`design-pressure.md`](design-pressure.md) | Design memory to preserve for later journeys without accepting a capability map. |
+| 7 | [`selection.md`](selection.md) | Historical note on why this journey and fixture were selected. |
 
 ## Current State
 
-The first slice has been validated through:
+The accepted slice has been validated by:
 
-- an accepted passive evidence-view decision;
-- a two-fixture read-only prototype;
-- fixture-sized manifest validation and expected-shape checks;
-- a fixture-validated manifest and public-output identity contract;
-- explicit validated-boundary and reopen criteria for the prototype;
-- provisional design-pressure ownership for the accepted evidence-view facts.
+- a passive evidence-view decision;
+- two committed public-safe fixtures;
+- a read-only prototype that emits `evidence-view.json` and
+  `evidence-view.md`;
+- regression checks for fixture-local paths, role/relation coverage, conflicts,
+  missing facts, and public-output redaction.
 
-Cross-journey coordination that depends on `JC-001` is summarized in
-[`../../status/progress-tracker.md`](../../status/progress-tracker.md), but
-`JC-001` reopen or extension detail should be recorded in the owning decision,
-slice, prototype, contract, or design-pressure document before tracker
-coordination is updated.
-
-## Exemplar Boundary
-
-This folder is an example of how later artifacts can accumulate after evidence
-earns them. It should not be copied wholesale for a new journey candidate.
+Cross-journey status is summarized in
+[`../../status/progress-tracker.md`](../../status/progress-tracker.md).
+`JC-001` reopen or extension detail belongs first in the decision, prototype,
+contract, or design-pressure note before tracker coordination changes.
