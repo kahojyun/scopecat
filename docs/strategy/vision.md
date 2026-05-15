@@ -9,7 +9,7 @@ architecture decision.
 ## Purpose
 
 State the clearest project-level product boundaries so later journeys,
-adoption ladders, and architecture decisions do not drift into an accidental
+adoption routes, and architecture decisions do not drift into an accidental
 framework replacement, single required starting point, or full-platform adoption
 requirement.
 
@@ -32,21 +32,21 @@ make framework replacement the default adoption story.
 
 ## Adoption Model
 
-Scopecat should be adopted through narrow, independently useful ladders. Each
-ladder should be able to create standalone value for the users who need it, and
-different users may start on different ladders.
+Scopecat should be adopted through narrow, independently useful routes. Each
+route should be able to create standalone value for the users who need it, and
+different users may start on different routes.
 
-Design work should still consider the full set of ladders together so later
-composition is possible. A complete workflow may require several ladders to
+Design work should still consider the full set of routes together so later
+composition is possible. A complete workflow may require several routes to
 compose, but no initial adoption path should require users to adopt the full
 platform.
 
-Top-level pains are composition pressure, not single-ladder implementation
+Top-level pains are composition pressure, not single-route implementation
 requirements. They can show why multiple capabilities eventually need to work
 together, but each promoted journey still needs a concrete user sequence,
 validation fixture, explicit boundary, and standalone value.
 
-Before a ladder is piloted with a lab, its owner should state the minimum
+Before a route is piloted with a lab, its owner should state the minimum
 adoption contract: what the lab must record or provide, what Scopecat will not
 touch, how the path fails or can be disabled safely, and what first useful
 output the lab gets before broader adoption.
@@ -180,7 +180,7 @@ becoming hidden product scope.
 ## Not Default Adoption Requirements
 
 The following are not default adoption requirements, prerequisites, or
-replacement targets for every ladder:
+replacement targets for every route:
 
 - a replacement for the lab's existing measurement GUI or control GUI;
 - an instrument-control framework;
@@ -222,5 +222,5 @@ ordered first slice:
   measurement data without taking over hardware control.
 
 These value areas can compose over time. None requires every user to start from
-the same ladder, and none requires Scopecat to replace the lab's working
+the same route, and none requires Scopecat to replace the lab's working
 acquisition stack as a prerequisite.

@@ -23,10 +23,6 @@ execution readiness, lineage, handoff, and later automation.
 
 ## Current Use
 
-- [`extracted/research-acceptance-readiness-triage.md`](extracted/research-acceptance-readiness-triage.md)
-  classifies this note's guardrails, evidence-backed inferences, adoption
-  hypotheses, future pressure, ADR-gated directions, and rejected upfront
-  directions.
 - [`../inventory.md`](../inventory.md) preserves the design pressures
   behind this note while keeping subsystem order, implementation scope, and
   scaffold shape unaccepted.
@@ -45,8 +41,8 @@ promotion into durable product, architecture, or decision documents.
 Do preserve the problem pressure behind its capabilities. Measurement History
 is useful and comparatively easy to adopt, but over-centering it would risk a
 measurement-system-shaped internal tool with weak differentiation. The other
-capability pressures in this note should be used to challenge that bias before
-W2 selects a first journey.
+capability pressures in this note should be used as historical design pressure,
+not as accepted subsystem order.
 
 Retain this note longer than the predecessor project import, but delete it
 after the first selected journey has produced a smaller capability/adoption

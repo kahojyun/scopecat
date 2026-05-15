@@ -83,5 +83,5 @@ Update this tracker only when shared coordination changes:
 - a candidate moves into or out of active coordination;
 - a cross-journey dependency changes.
 
-Keep per-`JC` next decisions in that `JC`'s README, decision, prototype, contract,
-or decision document.
+Keep per-`JC` next decisions in that `JC`'s README, decision, prototype, or
+contract.

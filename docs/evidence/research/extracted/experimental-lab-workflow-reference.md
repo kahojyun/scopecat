@@ -14,8 +14,8 @@ Use this note for gap discovery; do not promote it directly into product scope.
 - Role-synthesis discussion from internal expert-style reasoning across
   experimental-physicist, lab-manager, and data/control-engineer perspectives.
   Treat these as domain hypotheses unless supported by existing evidence.
-- Existing extracted research:
-  - [`research-acceptance-readiness-triage.md`](research-acceptance-readiness-triage.md)
+- Existing promoted evidence and candidate wording in
+  [`../../inventory.md`](../../inventory.md).
 - Internal fixture source maps prepared from local sample trees. Use these only
   as full-fidelity internal evidence; promote public-safe intent and role
   patterns, not exact local artifact details.

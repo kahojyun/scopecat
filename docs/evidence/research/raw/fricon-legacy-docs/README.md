@@ -53,10 +53,10 @@ execution can be analyzed on more equal terms.
 
 ## Current Use
 
-- [`../../extracted/research-acceptance-readiness-triage.md`](../../extracted/research-acceptance-readiness-triage.md)
-  classifies Fricon predecessor content by acceptance readiness for Scopecat.
-- No product, journey, capability, domain, architecture, or decision document
-  has accepted Fricon claims yet.
+- [`../../../inventory.md`](../../../inventory.md) captures the current promoted
+  evidence, pressures, and guardrails derived from this predecessor material.
+- No source-local Fricon status or scope order is accepted unless a current
+  Scopecat owner document or decision says so.
 
 ## Remaining Value
 
@@ -75,10 +75,10 @@ Future extraction should preserve the provenance that Fricon was replaced by
 this project and should avoid treating any Fricon scope order as accepted for
 the current system.
 
-Cleanup note: after W1, this snapshot keeps only predecessor evidence, pressure,
-and rejection-rationale documents that may still support W2 fixture selection
-or later ADR/capability extraction. It no longer keeps predecessor docs
-scaffolding as an active reading path.
+Cleanup note: this snapshot keeps only predecessor evidence, pressure, and
+rejection-rationale documents that may still support future fixtures or later
+ADR extraction. It no longer keeps predecessor docs scaffolding as an active
+reading path.
 
 ## Source Inventory
 

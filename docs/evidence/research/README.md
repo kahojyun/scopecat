@@ -70,7 +70,7 @@ Every research note should declare one status:
 | Triaged | Read once; main possible value is known. |
 | Extracting | Claims are being pulled into extracted notes or durable docs. |
 | Extracted | Important content has been promoted or summarized elsewhere. |
-| Transitional | Extracted or summarized material kept temporarily until W2 or a later owner doc absorbs the remaining useful claims. |
+| Transitional | Extracted or summarized material kept temporarily until a current owner doc absorbs the remaining useful claims. |
 | Quarantined | Preserved for evidence, pressure, vocabulary, or provenance, but explicitly not accepted as product plan, scope, or architecture. |
 | Superseded | Replaced by newer research, summary, or decision. |
 | Archived | Kept for provenance; should not normally be consulted. |
@@ -121,21 +121,22 @@ there is a clear internal need.
 Durable conclusions should be promoted along the current docs model:
 
 ```text
-Evidence -> User Journey -> Pain Point -> Product-Value Adoption Ladder
-  -> Design Pressure -> Domain Concept -> Architecture Contract
-  -> Capability or Subsystem Spec, only when justified
+Evidence -> Journey -> Validation Slice
+  -> Decision or Contract, only when needed
 ```
 
 Use the narrowest durable destination that exists or is justified by real
 content:
 
-- repeated pain points -> `product/`
+- repeated pain points and candidate wording -> `evidence/inventory.md`
 - end-to-end workflows -> `journeys/`
-- adoption routes or hypotheses -> `journeys/` or a current tracker
-- design-pressure or promoted capability owner notes -> `capabilities/`
-- stable domain vocabulary -> `concepts/`
-- ownership, dependency, or integration contracts -> `architecture/`
-- accepted or rejected decisions -> `decisions/`
+- adoption routes or hypotheses -> `status/progress-tracker.md` or a future
+  `strategy/adoption-routes.md`
+- design pressure -> the owning `journeys/` note or evidence inventory
+- stable domain vocabulary -> a narrow contract or future `architecture/`
+  owner, only when needed
+- accepted or rejected decisions -> the owning `journeys/` or future
+  `architecture/` decision
 - public-facing material -> future `user/` docs after redaction review
 
 Do not create placeholder directories just to match this taxonomy.
