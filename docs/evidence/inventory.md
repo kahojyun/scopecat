@@ -55,7 +55,7 @@ or validation detail rather than primary product pain.
 ## Sources
 
 - [`research/extracted/experimental-lab-workflow-reference.md`](research/extracted/experimental-lab-workflow-reference.md)
-- [`research/raw/fricon-legacy-docs/README.md`](research/raw/fricon-legacy-docs/README.md)
+- [`research/extracted/fricon-predecessor-lessons.md`](research/extracted/fricon-predecessor-lessons.md)
 - workflow improvement case code tree, cited only as an internal source family.
   Do not cite its old local folder name as a product concept; it is a real
   improvement case, not a generic sample app.
@@ -157,10 +157,12 @@ For the current project-level relationship to existing experiment systems, use
 
 ## Direction-Bias Correction
 
-Predecessor project documentation strongly emphasizes its Measurement History
-framing and stable reopen. That material is useful evidence, but Scopecat
-exists partly to correct the predecessor project's narrowed direction. It
-should not be treated as the default source of priority.
+Predecessor project documentation, now summarized in
+[`research/extracted/fricon-predecessor-lessons.md`](research/extracted/fricon-predecessor-lessons.md),
+strongly emphasized its Measurement History framing and stable reopen. That
+material is useful evidence, but Scopecat exists partly to correct the
+predecessor project's narrowed direction. It should not be treated as the
+default source of priority.
 
 The workflow improvement case code tree represents a real current workflow with
 observable friction and candidate Scopecat intervention points. It adds a
