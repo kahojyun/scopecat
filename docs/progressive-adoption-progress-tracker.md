@@ -112,14 +112,19 @@ commitments. Promote a row into a dedicated owner document only after a second
 journey or an implementation decision shows that the same fact family needs
 durable ownership.
 
+The experimental workflow reference now exposes two composition gaps that this
+table should keep visible without promoting a capability map: durable recording
+substrate pressure behind `JC-015`, and bounded automation handoff pressure
+behind `JC-016`.
+
 | Capability | Starting User Pain | Provisional First-Step Pressure | Possible Later Composition | Phase |
 | --- | --- | --- | --- | --- |
-| Measurement History | Data and run records are scattered or fragile. | Open an existing work bundle and produce an artifact-role inventory anchored by a run-like or bundle identity. | Later run records can link scan points, parameter snapshots, code versions, execution records, and remote runs into history. | Provisional |
-| Scan Framework | Scan loops are ad hoc and hard to preview. | A standalone scan plan expands points and previews desired state without hardware. | Plans write scan-point records, bind parameter snapshots, and become frozen remote execution packages. | Not Started |
-| Parameter Memory | Configs, calibrations, and notes drift across files. | Show selected settings, copied snapshots, generated context, variants, conflicts, freshness, and unknown active state as evidence. | Calibration workflows propose updates, review diffs, and link accepted snapshots to runs. | Provisional |
+| Measurement History | Data and run records are scattered or fragile. | Open an existing work bundle and produce an artifact-role inventory anchored by a run-like or bundle identity; `JC-015` adds the candidate substrate path where ordinary Python writes durable records, lifecycle state, and stable IDs. | Later run records can link scan points, parameter snapshots, code versions, execution records, handoff snapshots, advisory evidence, and bounded automation handoff records into history. | Provisional |
+| Scan Framework | Scan loops are ad hoc and hard to preview. | A standalone scan plan expands points and previews desired state without hardware. | Plans write scan-point records, bind parameter snapshots, become frozen queue intent, and feed dry-run or bounded runtime handoff packages after execution boundaries are accepted. | Not Started |
+| Parameter Memory | Configs, calibrations, and notes drift across files. | Show selected settings, copied snapshots, generated context, variants, conflicts, freshness, and unknown active state as evidence. | Calibration workflows propose updates, review diffs, link accepted snapshots to runs, and hand reviewed proposals to a lab-owned runtime only after apply boundaries are accepted. | Provisional |
 | Code Asset Registry | Scripts and drivers are copied across experiments and machines. | Surface code-shaped evidence that explains settings path selection and derivation flow without executing it. | Managed execution and instrument runtime resolve exact code versions after safety boundaries exist. | Provisional |
-| Instrument Runtime | Setup and shared-resource context is easy to lose or misuse. | Represent setup or registry-like context as declared or observed evidence before device control. | Leases and apply semantics require explicit safety ADRs before becoming adoption steps. | Provisional |
-| Managed Code Runner | Script execution is hard to trust across local control computers, but control PCs must not become more fragile. | Show readiness gaps and dependency-shaped clues as static evidence. | Workflow and remote execution use runner records as provenance after control-PC service, rollback, and mutation boundaries are decided. | Provisional |
+| Instrument Runtime | Setup and shared-resource context is easy to lose or misuse. | Represent setup or registry-like context as declared or observed evidence before device control. | A bounded automation handoff can record runtime owner, supplied bounds, stop behavior, and audit evidence; leases and apply semantics require explicit safety decisions before becoming adoption steps. | Provisional |
+| Managed Code Runner | Script execution is hard to trust across local control computers, but control PCs must not become more fragile. | Show readiness gaps and dependency-shaped clues as static evidence. | Mock-queue readiness and bounded handoff records can precede real execution; workflow and remote execution use runner records as provenance only after control-PC service, rollback, and mutation boundaries are decided. | Provisional |
 | Comparability and conflict review | Valid-looking runs and setup states are hard to compare across non-identical systems, method variants, calibration state, and analysis choices. | Explain conflicts between artifacts inside one bundle with layer-by-layer evidence. | Plan preview, calibration review, setup manifests, campaign navigation, and handoff records use the same comparison evidence once their boundaries are validated. | Provisional |
 | Declared physical context and local schemas | Physical wiring, chip topology, aliases, attenuation, and experiment parameters are hard to verify from software and hard to fit into one universal schema. | One bounded setup, sample, or campaign records a small declared schema with source, freshness, validity, and verification status, then uses it for lookup, calculation, visualization, comparison, or handoff. | Setup maps, comparability review, calibration impact, layout views, and diagnostics build on versioned local schemas once useful fields are proven. | Not Started |
 | Analysis and claim lineage | Figures, fits, reports, and conclusions lose links back to raw data, processing choices, calibration context, and rerun history. | A report, figure, or derived artifact links back to source runs, code, context, corrections, fits, exclusions, and unresolved ambiguity. | Publication review, calibration-impact checks, campaign summaries, and handoff packages build on the same lineage model after W2 validates the first fixture. | Not Started |
@@ -146,6 +151,12 @@ owned by
 This table should stay short. If multiple wedges need active coordination at
 the same time, create a narrower migration-wedge owner note and keep only links
 and statuses in this tracker.
+
+Lab-management context from the workflow reference is not a migration wedge by
+default. Booking, cooldown planning, shift handoff, sample inventory, safety,
+training, incidents, personnel coordination, and multi-equipment scheduling may
+inform readiness, lifecycle, context handles, or apply guardrails, but they
+should not turn this table into a lab-operations backlog.
 
 | Wedge | User-Visible Outcome | Capabilities Involved | Main Learning Goal | Phase |
 | --- | --- | --- | --- | --- |
