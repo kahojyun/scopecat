@@ -33,7 +33,7 @@ artifact in the folder is at the same validation level.
 | Fixture validated | Synthetic, redacted, or high-fidelity fixture checks pass. | Real users can make better decisions from the output. |
 | User validated | Representative users can complete the target task and interpret the output correctly. | Broader product direction is accepted. |
 | Accepted boundary | The project accepts a scoped product, domain, or architecture boundary until reopening criteria fire. | Product-market fit, subsystem ownership, or broad capability acceptance. |
-| Product accepted | Enough user and product evidence exists to treat the journey or capability as part of product direction. | Future scope can skip decision gates. |
+| Product accepted | Enough user and product evidence exists to treat the journey or adoption route as part of product direction. | Future scope can skip decision gates. |
 | Provisional | Evidence pressure is explicit, but the project has not promoted it into a durable map, ownership model, or adoption plan. | Accepted boundary. |
 | Deferred | The scope is intentionally postponed and needs a later evidence-backed decision. | Rejected forever. |
 | Reopened | A later journey, fixture, user result, or implementation result has challenged a previous accepted claim or scope. | The whole earlier `JC` is invalid. |
@@ -52,7 +52,7 @@ fixtures, and contracts. Tracker and index labels are navigation metadata.
 | --- | --- | --- | --- |
 | Validation status | `Doc ready`, `Fixture validated`, `Accepted boundary`, `Product accepted` | How far a specific artifact, claim, fixture, or decision has been validated. | Use in `JC-###` documents and accepted decisions. |
 | Tracker phase | `Ready`, `Promoted`, `Accepted`, `Transitional`, `Quarantined` | Where a workstream or inventory item sits in the progressive adoption tracker. | Use in `progressive-adoption-progress-tracker.md`. |
-| Index descriptor | `Active tracker`, `First-wedge record`, `W1 evidence owner` | How a reader should navigate the document set. | Use in `document-index.md` and README entry points. |
+| Index descriptor | `Active tracker`, `First-wedge record`, `Evidence owner` | How a reader should navigate the document set. | Use in `document-index.md` and README entry points. |
 
 ## Change Classes
 
@@ -194,14 +194,14 @@ Evidence owner
   -> optional promotion surfaces when earned
 ```
 
-Optional promotion surfaces include adoption extraction, migration wedge,
-concepts and contracts, spike or prototype scope, accepted decision, and
-ownership pass. These are not a checklist to complete. Create one only when it
-has a durable reader, removes ambiguity that blocks the next decision, or
-prevents a later implementation or review from depending on hidden reasoning.
-An optional surface stops being optional when implementation, architecture
-boundary changes, public output, fixture behavior, generated artifacts, or
-accepted scope depends on it.
+Optional promotion surfaces include product-value route placement,
+design-pressure extraction, migration wedge, concepts and contracts, spike or
+prototype scope, accepted decision, and ownership pass. These are not a
+checklist to complete. Create one only when it has a durable reader, removes
+ambiguity that blocks the next decision, or prevents a later implementation or
+review from depending on hidden reasoning. An optional surface stops being
+optional when implementation, architecture boundary changes, public output,
+fixture behavior, generated artifacts, or accepted scope depends on it.
 
 ### Minimum Record Checklist
 
@@ -259,6 +259,29 @@ narrower docs. If the pressure changes accepted scope, fixture checks, owner
 boundaries, API/schema/UI/storage behavior, execution, mutation, or hardware
 semantics, move the decision to the narrower owner before implementation
 depends on it.
+
+### Design Pressure Versus Capability Ownership
+
+Treat design pressure as evidence-linked design memory, not as an accepted
+capability map. It may preserve a useful intent such as declarative plan
+preview, code and dependency provenance, runtime boundary evidence, execution
+readiness, settings/context evidence, or analysis lineage.
+
+Do not promote a design-pressure label into capability ownership just because a
+journey mentions it. Promote only when a later journey, prototype, or
+architecture decision shows that a durable owner, contract, or product surface
+is needed.
+
+When writing a `JC` document:
+
+- name adoption paths by user-visible product value;
+- name design pressure by the fact, evidence, or boundary it preserves;
+- keep historical capability names in research or as explicitly historical
+  vocabulary only;
+- keep missing facts as read-side report output unless a later decision accepts
+  explicit source or producer support;
+- avoid creating subsystem docs, capability maps, or owner routing before the
+  validation slice needs them.
 
 ## Source-Map Gate
 
@@ -351,7 +374,7 @@ and mark behavior as accepted, rejected, or deferred.
 - Opaque binary artifacts such as `.pkl`, `.npy`, `.npz`, and archives should be
   cataloged by metadata, hashes, producer/consumer links, and nearby code
   before semantic claims. Do not unpickle or execute opaque artifacts just to
-  improve a W2 fixture.
+  improve a journey fixture.
 - Caches, checkpoints, generated bytecode, copied folders, and embedded VCS
   metadata are strong provenance and portability evidence, but should not
   become source-of-record design patterns.
@@ -385,7 +408,7 @@ Role lenses may switch inside one journey:
 | Decide whether results affect configuration | Configuration reviewer, analyst |
 | Hand off or report | Analyst, recipient, method author |
 
-Promoted W2 journey documents should keep the full current-state spine visible
+Promoted journey documents should keep the full current-state spine visible
 while scoping the future slice narrowly.
 
 ## Promotion Guidance
@@ -402,8 +425,8 @@ while scoping the future slice narrowly.
   guardrails constrain or invalidate a journey only through fixture, interview,
   or prototype checks.
 - Convert JTBD candidates into journey phrasing. Require fixtures for
-  capability gaps. Keep baseline capabilities as substrate or validation
-  detail.
+  design-pressure or capability-gap questions. Keep baseline capabilities as
+  substrate or validation detail.
 - Promote latent or future pressure only when the selected fixture or user
   validation proves it materially supports or blocks the journey.
 - Keep calibration write-back, setup/device mutation, parameter-memory
@@ -415,29 +438,29 @@ while scoping the future slice narrowly.
 
 ## Acceptance Gates
 
-### W1 To W2 Readiness
+### Evidence To Journey Readiness
 
-A future W1 pass is ready for W2 source mapping and journey drafting when:
+A future evidence pass is ready for source mapping and journey drafting when:
 
 - major journey candidates link to evidence, source support, or explicit
   assumptions, with validation routes for direct, inferred, latent,
   interview-driven, and future/ADR pressure;
 - claim support, source coverage, and Scopecat leverage are separated so
-  confidence cannot silently become W2 priority;
+  confidence cannot silently become journey priority;
 - top-level pain narratives decompose into smaller `PN` rows, and pain, JTBD,
   capability-gap, adoption-guardrail, and baseline statements are separated
   before journey ranking;
-- the first W2 source-map traceability is explicit enough to prevent a vague
+- the first source-map traceability is explicit enough to prevent a vague
   single-run reopen story;
-- the leading W2 candidate is identified with clear boundaries, while
+- the leading journey candidate is identified with clear boundaries, while
   hypotheses, future pressure, ADR-gated items, and anti-patterns remain outside
   accepted scope;
 - role-play outputs, behavioral/scaling priors, external framework baselines,
   declared physical context, manual metadata ROI, portability, and public
   redaction constraints are visible without being promoted into broad product
   scope;
-- advanced lineage and capability-gap cases remain validation cases unless the
-  selected fixture requires them.
+- advanced lineage and design-pressure gap cases remain validation cases unless
+  the selected fixture requires them.
 
 ### Product Decision Readiness
 
@@ -584,7 +607,8 @@ Use these prompts for later validation backlog:
 - Which `PN` rows should become explicit JTBD statements?
 - Which adoption-risk hypotheses need journey checks?
 - Which behavioral or scaling priors should remain in role-play prompts?
-- Which capability-gap questions should this journey test first?
+- Which design-pressure or capability-gap questions should this journey test
+  first?
 - Which manually maintained physical or sample-topology fields earn their
   maintenance cost through a concrete output?
 - What is the smallest versioned local schema model that avoids pretending to

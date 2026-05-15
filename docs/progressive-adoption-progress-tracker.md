@@ -7,21 +7,21 @@ early work into a premature subsystem scaffold.
 
 Current state: `JC-001` has an accepted passive evidence-view decision, a
 static-analysis spike, a two-fixture read-only prototype scope, a
-fixture-validated manifest/public-output contract, and a provisional capability
-ownership pass for the first wedge. `JC-002` now has a drafting document set
-and a fixture-backed read-only handoff snapshot prototype. The current decision
-point is whether the `JC-002` fixture is strong enough to promote an accepted
-prototype boundary or whether another lab scenario should challenge it first.
-This tracker is active. Unpromoted W3+ adoption ladders, migration wedges,
-capability names, and contract ideas remain hypotheses until a selected W2
-journey promotes them.
+fixture-validated manifest/public-output contract, and a provisional
+design-pressure ownership pass for the first wedge. `JC-002` now has a
+drafting document set and a fixture-backed read-only handoff snapshot
+prototype. The current decision point is whether the `JC-002` fixture is
+strong enough to promote an accepted prototype boundary or whether another lab
+scenario should challenge it first. This tracker is active. Unpromoted product
+value ladders, migration wedges, design-pressure names, and contract ideas
+remain hypotheses until a selected `JC` promotes them.
 
 Keep this tracker compact. It may hold the current phase table, the current
 decision point, and small hypothesis inventories while there is only one active
 accepted wedge. When multiple journeys, adoption ladders, migration wedges,
-baseline-capability analyses, or shared contracts become active, move the
-durable detail into a narrower owner document and leave only phase and links
-here.
+baseline analyses, design-pressure notes, or shared contracts become active,
+move the durable detail into a narrower owner document and leave only phase and
+links here.
 
 This tracker is organized around progressive platform adoption:
 
@@ -35,7 +35,7 @@ Journey-first discovery
 
 ## Phase Legend
 
-The tracker uses phase labels for workstreams and inventories.
+The tracker uses phase labels for coordination tracks and inventories.
 
 | Phase | Meaning |
 | --- | --- |
@@ -77,26 +77,28 @@ ownership.
 | --- | --- | --- |
 | Documentation policy | Ready | Captured in `README.md` and `AGENTS.md`. |
 | Project vision and boundaries | Drafting | `vision.md` states current project-level direction, progressive adoption constraints, explicit recording and complexity ownership boundaries, and clear non-goals without becoming a roadmap, PRD, capability map, or architecture decision. |
-| Automation architecture notes | Quarantined | Stored as research input; contains broad capability-pressure hypotheses that must be revalidated without accepting subsystem order or scaffolding. |
+| Automation architecture notes | Quarantined | Stored as research input; contains broad design-pressure hypotheses that must be revalidated without accepting subsystem order or scaffolding. |
 | Research acceptance-readiness triage | Transitional | `research/extracted/research-acceptance-readiness-triage.md` separates accepted guardrails, evidence, inferences, adoption hypotheses, future pressure, ADR-gated items, and directions not to accept upfront. |
 | Experimental lab workflow reference | Quarantined | `research/extracted/experimental-lab-workflow-reference.md` preserves public-safe lab workflow intent for gap discovery without promoting legacy artifact shapes into product scope. |
-| Evidence and pain-point inventory | Ready | `evidence-and-pain-point-inventory.md` is the W1 owner. `JC-001` has been promoted into the first-wedge document set. |
+| Evidence and pain-point inventory | Ready | `evidence-and-pain-point-inventory.md` is the evidence owner. `JC-001` has been promoted into the first-wedge document set. |
 | Product experience map | Drafting | `product-experience-map.md` owns complete-experience shape, experience-step labels, and cross-journey coverage gaps without becoming a product plan or prototype scope. |
 | JC-001 first-wedge document set | Ready | `jc-001/README.md` owns the detailed reading order for the first accepted wedge. |
 | JC-002 analysis handoff document set | Validating | `jc-002/README.md` owns the selected-run handoff journey and links to the first fixture-backed prototype. |
 
-## Workstreams
+## Coordination Tracks
 
-| ID | Workstream | Phase | Durable Output | Exit Criteria |
-| --- | --- | --- | --- | --- |
-| W1 | Evidence and pain points | Ready | `evidence-and-pain-point-inventory.md` | Major claims link back to interview notes, codebase observations, source coverage, explicit assumptions, or clearly labeled blind-persona adoption pressure; behavioral/scaling priors are separated from evidence; pain, JTBD, capability-gap, guardrail, and baseline statements are distinguished; top-level pain narratives decompose into foundational pain points with visibility and validation route. |
-| W2 | End-to-end journeys | Ready | `jc-001/jc-001-work-bundle-explanation-journey.md` | At least one current-state and future-state journey is written across capability boundaries. |
-| W3 | Adoption ladders | Provisional | `jc-001/jc-001-capability-adoption-extraction.md` | JC-001 adoption pressure is explicit without promoting a broader adoption plan; promote to drafting after a product or architecture decision tests whether the same adoption pressure needs durable ownership. |
-| W4 | Migration wedges | Ready | `jc-001/jc-001-existing-bundle-to-explainable-context-wedge.md` | The accepted `JC-001` passive evidence-view wedge is ready; broader wedge ranking remains future W4 work. |
-| W5 | Capability map | Provisional | `jc-001/jc-001-passive-evidence-view-capability-ownership.md` | JC-001 ownership pressure is explicit without promoting a broader capability map; promote to drafting after either a small map is selected or a second journey tests the owners. |
-| W6 | Cross-capability contracts | Ready | `jc-001/jc-001-concepts-and-contracts.md` | Shared concepts, provisional owner pressure, and dependency direction are explicit for the accepted wedge. |
-| W7 | Technical spikes and prototypes | Ready | `jc-001/jc-001-static-analysis-spike.md`; `jc-001/jc-001-passive-evidence-view-prototype-scope.md` | The static-analysis spike has a question, result, decision impact, and follow-up; the read-only prototype scope records two-fixture validation. |
-| W8 | Decision promotion | Accepted | `jc-001/jc-001-passive-evidence-view-decision.md` | The passive evidence-view boundary is accepted at fixture scale. |
+The old `W1`-style sequence was useful while `JC-001` was being extracted, but
+it now reads too much like a fixed lifecycle. Use these tracks as coordination
+surfaces, not required stages for every `JC`.
+
+| Track | Phase | Current owner or output | Exit / review signal |
+| --- | --- | --- | --- |
+| Evidence and pain inventory | Ready | `evidence-and-pain-point-inventory.md` | Major claims retain evidence class, source coverage, validation route, and non-goals; new `JC` rows are added only when the evidence owner can state a narrow candidate boundary. |
+| Product-value routes and experience placement | Drafting | `product-experience-map.md`; adoption ladder table below | Product-value routes stay named by standalone user value; design-pressure names do not become capability ownership until multiple journeys justify it. |
+| Active journey candidates | Validating | `jc-002/README.md`; candidate rows in the evidence owner | Each active `JC` owns its next decision, fixture boundary, and promotion state; the tracker keeps only compact links and phase changes. |
+| Active migration wedges | Ready / Validating | `JC-001` document set; `JC-002` handoff snapshot | A wedge is tracked here only while it changes cross-journey coordination or near-term decision order. |
+| Design pressure and contracts | Provisional | `jc-001/jc-001-capability-adoption-extraction.md`; `jc-001/jc-001-concepts-and-contracts.md`; `jc-001/jc-001-passive-evidence-view-capability-ownership.md` | Pressure labels stay provisional until a later journey or implementation decision proves a durable owner, contract, or capability map is needed. |
+| Prototype and decision records | Accepted / Validating | `jc-001/jc-001-passive-evidence-view-decision.md`; `jc-001` prototype scope; `JC-002` prototype docs | Accepted decisions state scope, non-goals, validation boundary, and reopening criteria; validating prototypes stay fixture-scoped. |
 
 ## Adoption Ladders To Define
 
@@ -152,8 +154,8 @@ Candidate parking lot, not active coordination:
 | Plan preview, parameter snapshots, copied-code identity, dry-run packages | `JC-004`, `JC-007`, `JC-008`, `JC-013` |
 | Resource leases, managed execution, and remote dry run | Deferred; needs a narrower owner and accepted safety/runtime decisions before active tracking. |
 
-For W2 validation, use the generic lab context and external-framework baseline
-owned by
+For future journey validation, use the generic lab context and
+external-framework baseline owned by
 [`evidence-and-pain-point-inventory.md`](evidence-and-pain-point-inventory.md).
 Use [`vision.md`](vision.md) for project-level adoption boundaries with
 existing experiment systems.
@@ -163,11 +165,11 @@ existing experiment systems.
 Completed path:
 
 ```text
-W1 evidence inventory
+Evidence inventory
   -> JC-001 journey and wedge
   -> accepted passive evidence-view decision
   -> two-fixture prototype
-  -> provisional ownership pass
+  -> provisional design-pressure ownership pass
 ```
 
 This section is a coordination surface, not the owner of every active journey's
@@ -179,7 +181,7 @@ Active coordination points:
 
 - `JC-002`: decide whether the handoff snapshot prototype earns an accepted
   fixture-scale boundary, needs another scenario, or should feed back into a
-  small capability map with the `JC-001` ownership pass.
+  small design-pressure ownership review with the `JC-001` ownership pass.
 
 For parallel journey edits and promotion rules, use
 [`jc-analysis-operating-standard.md`](jc-analysis-operating-standard.md). This
