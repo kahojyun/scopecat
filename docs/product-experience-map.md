@@ -2,17 +2,8 @@
 
 ## Status And Use
 
-Drafting experience map.
-
-Reader takeaway:
-
-- Accepted direction: compose small evidence, readiness, and handoff journeys.
-- Research pressure: realistic lab workflows show where future gaps may exist.
-- Action: use this map to place or split `JC` work; do not treat gaps as
-  commitments.
-- Boundary rule: keep explanation, packaging, comparison, proposal, advisory,
-  mutation, and generated-output work in separate validation slices unless a
-  narrower owner explicitly joins them.
+Drafting experience map. Use it to place or split `JC` work across the fuller
+lab workflow; do not treat candidate gaps as commitments.
 
 This document describes cross-journey experience shape. It is not a product
 plan, roadmap, capability map, subsystem spec, API contract, UI spec, storage
@@ -23,16 +14,10 @@ design, or prototype scope.
 Give future journey work one durable place to describe the fuller product
 experience without making any one `JC-###` too broad to validate.
 
-A `JC` is a journey candidate: a narrow, evidence-backed slice of product
-behavior with its own validation boundary.
-
-If a future journey touches one of these steps, create or update the owning
-`JC` with a validation boundary, evidence source, and explicit non-goals.
-
-Earlier documents intentionally kept `JC-001` and `JC-002` narrow enough for
-fixture-scale validation. That left some complete-experience pressure scattered
-across tracker rows, top-level pain narratives, future-pressure notes, and
-journey non-goals.
+The canonical `JC` wording, evidence basis, drafting signal, and main boundary
+live in
+[`evidence-and-pain-point-inventory.md`](evidence-and-pain-point-inventory.md).
+This map only shows how current and candidate journeys compose.
 
 ```text
 complete experience pressure
@@ -47,40 +32,14 @@ Project-level product direction and boundaries are owned by
 [`vision.md`](vision.md). This map only shows how validated and candidate
 journeys may compose into a fuller user experience.
 
-One representative long-form experience is:
-
-```text
-Before measurement:
-  experiment user prepares work
-  -> previews intended scan or method shape
-  -> stages measurement code, config, and environment context for a target
-     measurement computer
-  -> validates local readiness without taking over hardware control
-  -> brings up sample, setup, and calibration evidence as context, not as
-     Scopecat-owned physical truth
-
-During measurement:
-  -> runs measurement in an existing local stack
-  -> records data, metadata, code provenance, calibration context, and run
-     lifecycle evidence
-  -> gets passive, replayable decision evidence from explicitly recorded slices
-     when a long-running run needs continue, stop, repeat, retune, or zoom
-     judgment
-
-After measurement:
-  -> later opens an existing run or work bundle
-  -> sees source identity, selected context, code references, companion
-     artifacts, missing facts, conflicts, and sharing boundaries
-  -> selects valuable runs or a run group
-  -> creates an immutable pre-analysis handoff snapshot
-  -> opens the snapshot offline on the analysis computer
-
-Analysis lineage:
-  -> compares current evidence with a known-good reference when trust is weak
-  -> reviews whether valid-looking runs, setup states, or method variants are
-     scientifically comparable
-  -> links later figures, reports, fits, or claims back to source evidence
-```
+| Moment | User is trying to | Scopecat helps by | Candidate JCs |
+| --- | --- | --- | --- |
+| Before measurement | Prepare method, code, config, setup, and calibration context before scarce experiment time. | Preview intent, expose readiness gaps, preserve setup evidence as context, and avoid hardware authority. | `JC-004`, `JC-005`, `JC-007`, `JC-008`, `JC-012`, `JC-013` |
+| During measurement | Run in the existing local stack while preserving enough evidence to understand partial, continued, stopped, or retuned work. | Record durable data and lifecycle state, replay decision evidence, and preserve generated protocol or run-family lineage. | `JC-006`, `JC-011`, `JC-015` |
+| After measurement | Recover useful runs, context, code references, companion artifacts, conflicts, and sharing boundaries. | Explain existing evidence and package selected runs for offline analysis handoff. | `JC-001`, `JC-002` |
+| Trust and comparison | Decide whether current work, known-good references, or valid-looking runs can be trusted or compared. | Show differences, missing facts, comparability gaps, and declared-context limits. | `JC-009`, `JC-010`, `JC-012` |
+| Analysis lineage | Keep figures, fits, reports, and claims linked to source evidence and unresolved ambiguity. | Trace derived artifacts back to source runs, processing choices, corrections, calibration context, and exclusions. | `JC-014` |
+| Bounded automation | Make informal queues or calibration loops explicit before one bounded local run. | Validate frozen intent, mock readiness, reviewed proposals, replay behavior, and one bounded handoff to a lab-owned runtime. | `JC-003`, `JC-007`, `JC-008`, `JC-011`, `JC-016` |
 
 The silhouette is useful because it shows why small slices need to compose. It
 does not mean every step is accepted product direction today.
@@ -90,98 +49,40 @@ does not mean every step is accepted product direction today.
 These silhouettes are placement aids. Each line may cross several `JC`
 boundaries; promote only the smallest valuable slice.
 
-| E2E pressure | Candidate composition | Split point |
+| User-facing pressure | Candidate composition | Split point |
 | --- | --- | --- |
-| Inherited bundle becomes analysis-ready context. | `JC-001` explains the bundle -> `JC-002` packages selected runs -> `JC-014` later links derived figures, fits, reports, or claims back to the snapshot and source runs. | `JC-002` packages already-known artifacts; it does not generate or own derived analysis outputs. |
-| Existing method moves toward another control computer. | `JC-004` cleans notebook/copied-code provenance -> `JC-013` compares copied method or config assets with a known-good source -> `JC-008` validates a dry-run package. | Code/config diagnostics and readiness records are not deployment, package installation, environment sync, or remote execution. |
-| Planned campaign becomes reviewable before scarce experiment time. | `JC-007` previews and freezes intent -> `JC-005` validates bring-up evidence -> `JC-003` reviews calibration proposals before mutation. | Intent preview, setup evidence, calibration proposal, and write-back are separate boundaries. |
-| Long-running measurement produces decision-grade evidence. | `JC-015` records durable data, lifecycle, and sweep semantics -> `JC-011` consumes recorded inputs for decision support -> `JC-006` preserves generated protocol, correction, and run-family lineage -> `JC-003` or `JC-014` can later review calibration or analysis impact. | Measurement-time advice records evidence; it does not mutate scan plans, hardware, calibration, or analysis claims. |
-| Informal lab automation becomes explicit. | Existing notebook-cell queues or script loops -> `JC-007` freezes plan intent -> `JC-008` mock-validates queue readiness and failure policy -> `JC-003` or `JC-011` validates calibration proposal or advisory behavior -> `JC-016` hands a bounded package to a lab-owned runtime. | Early automation journeys may validate queue, lifecycle, readiness, and proposal contracts with mock or recorded inputs; real hardware apply and unattended execution need narrower accepted runtime boundaries. |
-| Valid-looking results need trust and comparison. | `JC-009` compares current evidence with a known-good reference -> `JC-010` reviews scientific comparability -> `JC-012` uses declared local schema only when it powers a concrete comparison, lookup, visualization, handoff, or diagnostic output. | Diagnostic comparison is not rollback; comparability review is not equivalence scoring; declared setup context is not software-proven truth. |
-| Minimal local schema earns maintenance effort. | `JC-012` starts with one setup, sample, or campaign schema that produces useful output -> later journeys may reuse the same declared context in handoff, diagnostics, comparability, or lineage. | Manual metadata is justified by immediate value, not by future ontology completeness. |
+| Inherited bundle becomes analysis-ready context. | Explain bundle -> package selected runs -> trace derived artifacts. | Packaging known artifacts is separate from generating analysis outputs. |
+| Existing method moves toward another control computer. | Clean code provenance -> compare copied assets -> validate dry run. | Diagnostics and readiness are separate from deployment or environment sync. |
+| Planned campaign becomes reviewable before scarce experiment time. | Preview intent -> validate bring-up evidence -> review calibration proposal. | Intent, setup evidence, proposal, and write-back remain separate. |
+| Long-running measurement produces decision-grade evidence. | Record durable run -> replay decision support -> preserve campaign lineage. | Advice records evidence; it does not mutate hardware, scan plans, or claims. |
+| Informal lab automation becomes explicit. | Freeze queue intent -> mock readiness -> review proposal -> hand one reviewed package to one lab-owned runtime for one bounded local run. | Early automation can validate contracts; the bounded local run needs an accepted runtime boundary. |
+| Valid-looking results need trust and comparison. | Compare known-good -> review comparability -> use declared local context. | Diagnostics are not rollback, and comparability is not equivalence scoring. |
 
 ## Lab Workflow Reference
 
 Detailed lab workflows live in
 [`research/extracted/experimental-lab-workflow-reference.md`](research/extracted/experimental-lab-workflow-reference.md).
-Use that quarantined research note for realistic experiment context such as
-cross-computer code staging, sample bring-up, calibration chains, measurement
-campaign decisions, analysis handoff, report lineage, and lab-management
-surroundings.
+Use that quarantined research note for realistic experiment context. Treat
+lab-management details as surrounding context only: they may inform readiness,
+lifecycle, minimal context handles, or apply guardrails, but they are not
+accepted multi-equipment scheduling, personnel coordination, training,
+compliance, ELN, LIMS, or cloud operations scope. Use [`vision.md`](vision.md)
+for the project-level non-goals.
 
-Here, "product-relevant pressure" means workflow evidence that may justify
-future journey work, but is not accepted scope. Only that pressure belongs here:
+## Journey Slicing Rules
 
-- code, config, dependency, and setup context may need to move to a target
-  measurement computer before a run;
-- data, source evidence, and selected context may need to move from a
-  measurement computer to an analysis computer after a run;
-- calibration, setup, generated-protocol, correction, and lifecycle evidence
-  can affect whether a run is understandable, comparable, or safe to hand off;
-- these details should shape journey slicing without accepting hardware
-  control, scheduling, deployment, write-back, ELN/LIMS, report-generation, or
-  full lab-management scope.
-
-Lab-management context should inform evidence and automation boundaries without
-turning Scopecat into a lab operations platform. Booking and cooldown planning
-may supply readiness context, shift handoff may supply lifecycle or next-action
-evidence, sample inventory may supply minimal context handles, and safety or
-incident records may constrain apply decisions. They are not accepted
-multi-equipment scheduling, personnel coordination, training, compliance, ELN,
-LIMS, or cloud operations scope.
-
-## Composition Rules
-
-Prefer small validated slices before mutation:
+Keep journey slices small and user-visible:
 
 - Read existing artifacts before claiming ownership of truth.
-- Package known data and context before producing new analysis outputs.
+- Package known data and context before producing analysis outputs.
 - Preview intent and readiness before touching hardware or environments.
 - Diagnose gaps before selecting truth, applying changes, or restoring state.
-- Preserve declared setup or schema context only when it produces a visible
-  user output.
-- Record measurement-time advice as evidence before connecting it to
-  calibration, scan-plan, or hardware mutation.
-- Link derived analysis artifacts back to source evidence before generating
-  reports or scoring claim correctness.
-- Treat mutation, authoritative state, managed execution, and automation as
-  explicit future-decision boundaries.
-
-## JC Boundary Placement
-
-Use these boundaries when a future journey looks too large:
-
-| Boundary | Put inside the `JC` | Keep outside until separately validated |
-| --- | --- | --- |
-| Explanation | Roles, relations, conflicts, missing facts, provenance, and sharing boundary for existing artifacts. | Repair, import, execution, source-of-record authority, or scientific equivalence. |
-| Handoff packaging | Immutable package of already-known selected data, required sidecars, context slots, and warnings. | Generated plots, fits, reports, publication arrays, managed analysis execution, or public publish workflow. |
-| Readiness | Static or explicitly supplied checks that expose missing dependencies, unsafe assumptions, or portability gaps. | Installation, environment mutation, deployment, queueing, remote execution, or driver repair. |
-| Comparison | Differences, confidence gaps, known-good references, and unresolved ambiguity. | Rollback, restore, automatic normalization, authoritative winner selection, or claim correctness. |
-| Proposal | Reviewable calibration, setup, or parameter change with source evidence and impact. | Hidden write-back, autonomous calibration, apply semantics, or rollback guarantees. |
-| Advisory | Replayable stop, continue, repeat, retune, zoom, or quality evidence from recorded data. | Hardware control, scan-plan mutation, parameter write-back, passive scraping, or opaque AI advice. |
-| Declared context | One local setup, sample, topology, alias, or schema used for a visible job. | Universal ontology, exhaustive inventory, or software-proof of physical truth. |
-
-## Automation Placement Near JC Decisions
-
-Existing labs may already automate through notebooks, scripts, queued cells,
-framework schedulers, and local calibration loops. Treat those as current-state
-automation evidence, not as proof that Scopecat owns the hardware runtime.
-
-Automation-oriented `JC` work can start before real hardware apply when the
-slice validates one of these contracts:
-
-- frozen plan or queue intent;
-- readiness gates and preflight evidence;
-- explicit lifecycle and failure policy;
-- mock, recorded-input, or shadow replay behavior;
-- reviewed calibration, parameter, or next-step proposals;
-- audit records for what was requested, checked, approved, run, skipped,
-  stopped, or failed.
-
-Do not hide automation inside a passive journey. If a journey introduces
-unattended execution, real instrument apply, resource locking, rollback, or
-autonomous calibration, the owning `JC` or decision must state the instrument
-runtime owner, safety assumptions, stop behavior, and audit record.
+- Preserve declared setup or schema context only when it powers visible output.
+- Record advice and proposals as evidence before connecting them to mutation.
+- For automation, start with frozen intent, readiness gates, lifecycle, failure
+  policy, replay or shadow behavior, and audit records. A bounded local run
+  needs an accepted runtime owner, safety assumptions, stop behavior, and audit
+  boundary.
 
 ## Current And Candidate Journey Coverage
 
@@ -201,7 +102,7 @@ owner before this placement table becomes the source of truth.
 | Code, method, and queue readiness | `JC-004`, `JC-007`, `JC-008`, `JC-013` | Separate copied-code provenance, frozen plan or queue intent, dry-run or mock-queue readiness, and shared asset drift diagnostics. |
 | Setup and declared context | `JC-005`, `JC-012` | Preserve bring-up/setup evidence and only maintain declared local schema when it powers visible lookup, calculation, visualization, comparison, handoff, or diagnostics. |
 | Calibration and advisory automation | `JC-003`, `JC-011` | Validate proposal, impact, replay, advisory, and shadow-loop evidence before real apply or autonomous calibration. |
-| Bounded real automation handoff | `JC-016` | State the first narrow boundary for handing a reviewed plan, proposal, or queue package to a lab-owned runtime with runtime owner, stop behavior, failure policy, and audit record explicit. |
+| Bounded local runtime handoff | `JC-016` | One reviewed package handed to one lab-owned runtime for one bounded local run, with runtime owner, stop behavior, failure policy, and audit record explicit. |
 | Campaign and generated lineage | `JC-006` | Preserve generated protocol, correction, classifier, feedback, and run-family relations without broadening into a full scientific workflow model. |
 | Trust and comparison | `JC-009`, `JC-010` | Place known-good diagnostics and scientific comparability review without accepting rollback, equivalence scoring, or setup truth authority. |
 | Derived analysis impact | `JC-014` | Link figures, reports, fits, and claims back to source evidence before considering report generation or publication workflow. |
@@ -209,38 +110,3 @@ owner before this placement table becomes the source of truth.
 Adjacent steps are context, not prototype scope. The tracker owns current
 phase, priority, and coordination status; owning `JC` documents own validation
 boundaries.
-
-## Research-Pressure Gaps, Not Backlog
-
-These pressures help place future `JC` work in the larger experience. They are
-not priorities, requirements, commitments, or prototype scope.
-
-Before run:
-
-- Pressure: code, config, dependency, and setup context may need staging onto a
-  target measurement computer. Boundary: not deployment or remote execution.
-- Pressure: sample/device bring-up and calibration evidence can affect trust.
-  Boundary: proposal-versus-apply remains explicit.
-- Pressure: declared setup, sample, topology, or schema context may power
-  lookup, calculation, visualization, comparison, handoff, or diagnostics.
-  Boundary: not a universal setup database.
-
-During run:
-
-- Pressure: live inspection or live preview may be useful before and during a
-  run. Boundary: preview and inspection are not managed execution.
-- Pressure: completed sweep slices may need fit, quality, anomaly, and
-  intent-specific feedback. Boundary: use explicitly recorded data without
-  taking over hardware control.
-- Pressure: partial, paused, retuned, repeated, corrected, and invalidated run
-  evidence may matter. Boundary: record why the operator continued, stopped, or
-  returned to calibration without automating the decision.
-
-After run:
-
-- Pressure: figures, reports, fits, and claims need links back to source runs,
-  code, context, corrections, exclusions, and unresolved ambiguity. Boundary:
-  lineage first, report generation later if ever validated.
-- Pressure: failure, interruption, manual intervention, and recovery evidence
-  can explain partial or rescued work. Boundary: explanation before managed
-  recovery.

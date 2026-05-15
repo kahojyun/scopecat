@@ -27,7 +27,7 @@ This tracker is organized around progressive platform adoption:
 
 ```text
 Journey-first discovery
-  -> capability-first adoption ladders
+  -> product-value adoption ladders
   -> thin vertical migration wedges
   -> contract-first architecture
   -> subsystem specs only when needed
@@ -100,57 +100,34 @@ ownership.
 
 ## Adoption Ladders To Define
 
-The `JC-001`-touched rows now include provisional first-wedge pressure only.
-Rows marked `Provisional` are not seeded capability-map work yet. Rows marked
-`Not Started` remain W1 hypotheses for later W3 work; they do not define a
-capability map or promote implementation scope before a W2 journey validates
-the need.
+The greenfield automation note framed early adoption around independently
+useful foundational capabilities, not a monolithic replacement system. Current
+docs should preserve that principle while avoiding a premature subsystem map:
+an adoption ladder is a standalone product-value path; the capability names are
+only the pressure or boundary vocabulary underneath it.
 
-This table is a staging inventory, not the durable capability map. The names
-are capability-pressure labels, not subsystem names or replacement-platform
-commitments. Promote a row into a dedicated owner document only after a second
-journey or an implementation decision shows that the same fact family needs
-durable ownership.
-
-The experimental workflow reference now exposes two composition gaps that this
-table should keep visible without promoting a capability map: durable recording
-substrate pressure behind `JC-015`, and bounded automation handoff pressure
-behind `JC-016`.
-
-| Capability | Starting User Pain | Provisional First-Step Pressure | Possible Later Composition | Phase |
+| Product-value adoption ladder | Touched `JC` rows | Phase | Standalone value | Capability or boundary pressure preserved |
 | --- | --- | --- | --- | --- |
-| Measurement History | Data and run records are scattered or fragile. | Open an existing work bundle and produce an artifact-role inventory anchored by a run-like or bundle identity; `JC-015` adds the candidate substrate path where ordinary Python writes durable records, lifecycle state, and stable IDs. | Later run records can link scan points, parameter snapshots, code versions, execution records, handoff snapshots, advisory evidence, and bounded automation handoff records into history. | Provisional |
-| Scan Framework | Scan loops are ad hoc and hard to preview. | A standalone scan plan expands points and previews desired state without hardware. | Plans write scan-point records, bind parameter snapshots, become frozen queue intent, and feed dry-run or bounded runtime handoff packages after execution boundaries are accepted. | Not Started |
-| Parameter Memory | Configs, calibrations, and notes drift across files. | Show selected settings, copied snapshots, generated context, variants, conflicts, freshness, and unknown active state as evidence. | Calibration workflows propose updates, review diffs, link accepted snapshots to runs, and hand reviewed proposals to a lab-owned runtime only after apply boundaries are accepted. | Provisional |
-| Code Asset Registry | Scripts and drivers are copied across experiments and machines. | Surface code-shaped evidence that explains settings path selection and derivation flow without executing it. | Managed execution and instrument runtime resolve exact code versions after safety boundaries exist. | Provisional |
-| Instrument Runtime | Setup and shared-resource context is easy to lose or misuse. | Represent setup or registry-like context as declared or observed evidence before device control. | A bounded automation handoff can record runtime owner, supplied bounds, stop behavior, and audit evidence; leases and apply semantics require explicit safety decisions before becoming adoption steps. | Provisional |
-| Managed Code Runner | Script execution is hard to trust across local control computers, but control PCs must not become more fragile. | Show readiness gaps and dependency-shaped clues as static evidence. | Mock-queue readiness and bounded handoff records can precede real execution; workflow and remote execution use runner records as provenance only after control-PC service, rollback, and mutation boundaries are decided. | Provisional |
-| Comparability and conflict review | Valid-looking runs and setup states are hard to compare across non-identical systems, method variants, calibration state, and analysis choices. | Explain conflicts between artifacts inside one bundle with layer-by-layer evidence. | Plan preview, calibration review, setup manifests, campaign navigation, and handoff records use the same comparison evidence once their boundaries are validated. | Provisional |
-| Declared physical context and local schemas | Physical wiring, chip topology, aliases, attenuation, and experiment parameters are hard to verify from software and hard to fit into one universal schema. | One bounded setup, sample, or campaign records a small declared schema with source, freshness, validity, and verification status, then uses it for lookup, calculation, visualization, comparison, or handoff. | Setup maps, comparability review, calibration impact, layout views, and diagnostics build on versioned local schemas once useful fields are proven. | Not Started |
-| Analysis and claim lineage | Figures, fits, reports, and conclusions lose links back to raw data, processing choices, calibration context, and rerun history. | A report, figure, or derived artifact links back to source runs, code, context, corrections, fits, exclusions, and unresolved ambiguity. | Publication review, calibration-impact checks, campaign summaries, and handoff packages build on the same lineage model after W2 validates the first fixture. | Not Started |
+| Run history and analysis handoff | `JC-001`, `JC-002`, `JC-006`, `JC-015` | Provisional | Open, understand, reopen, select, package, and later trace measurement work without replacing acquisition code. | Measurement History; durable recording substrate; campaign lineage. |
+| Method and code portability diagnostics | `JC-004`, `JC-008`, `JC-013` | Not Started | Explain copied notebooks, scripts, runnable configuration, known-good sources, drift, and dry-run readiness before deployment or managed execution. | Code Asset Registry; Managed Code Runner readiness; no package registry or environment sync. |
+| Experiment intent and readiness | `JC-007`, `JC-008`, `JC-016` | Not Started | Preview, diff, freeze, and mock-check plan or queue intent before one bounded runtime handoff is considered. | Scan Framework; execution-package readiness; runtime-handoff boundary. |
+| Calibration and parameter review | `JC-003`, `JC-011`, `JC-012`, `JC-016` | Provisional | Review calibration, parameter, declared-context, and advisory evidence before mutation or bounded apply. | Parameter Memory; declared local context; proposal before apply. |
+| Trust, diagnostics, and comparability | `JC-009`, `JC-010`, `JC-012` | Provisional | Compare known-good references, current bundles, valid-looking runs, setup states, samples, or method variants without claiming equivalence. | Comparability review; conflict diagnostics; declared context limits. |
+| Analysis and claim lineage | `JC-002`, `JC-006`, `JC-014` | Not Started | Trace figures, fits, reports, and claims back to source runs, processing choices, corrections, exclusions, and ambiguity. | Analysis lineage; report impact without ELN or report generation. |
+
+Do not promote Instrument Runtime or Managed Code Runner into standalone
+adoption ladders until a lab can get useful value from adopting them alone.
+For now they are boundary pressure: runtime owner, supplied bounds, readiness,
+stop behavior, failure policy, audit records, and the decision that Scopecat
+does not own hardware safety limits unless an accepted runtime decision says
+otherwise.
 
 ## Candidate Migration Wedges
 
-The `JC-001` wedge row is ready because it is backed by the accepted passive
-evidence-view decision. The `Starred runs to analysis handoff package` row is
-validating because a lightweight `JC-002` document set, synthetic fixture,
-and read-only prototype now exist, but it is not an accepted journey,
-manifest/API/storage/UI contract, or implementation scope. The remaining rows
-are W1 hypotheses for later
-W4 work; future wedge priority should be decided from evidence, user value,
-migration cost, architectural learning, and whether a pain is directly visible
-or latent behind constrained legacy workflows.
-Recent user-context refinement raises internal analysis handoff above
-cross-machine scientific comparison as a nearer adoption pressure: users need
-to find high-value runs on an experiment-control computer and move selected
-data plus context to an analysis computer without losing source identity. The
-current candidate detail, validation coverage, and live-preview boundary are
-owned by
-[`jc-002/README.md`](jc-002/README.md).
-
-This table should stay short. If multiple wedges need active coordination at
-the same time, create a narrower migration-wedge owner note and keep only links
-and statuses in this tracker.
+This tracker carries only active or near-decision wedge coordination. Canonical
+candidate wording and boundaries live in
+[`evidence-and-pain-point-inventory.md`](evidence-and-pain-point-inventory.md)
+or a narrower `JC` owner.
 
 Lab-management context from the workflow reference is not a migration wedge by
 default. Booking, cooldown planning, shift handoff, sample inventory, safety,
@@ -158,22 +135,22 @@ training, incidents, personnel coordination, and multi-equipment scheduling may
 inform readiness, lifecycle, context handles, or apply guardrails, but they
 should not turn this table into a lab-operations backlog.
 
-| Wedge | User-Visible Outcome | Capabilities Involved | Main Learning Goal | Phase |
-| --- | --- | --- | --- | --- |
-| Existing run/work bundle to explainable context bundle | A user opens an existing work bundle and sees anchor artifacts, selected context candidates, code-shaped provenance, generated sidecars, copied snapshots, variants, ambiguity, producer-fact gaps, and sharing boundaries without mutation. | Measurement History, Parameter Memory, Code Asset Registry, Instrument Runtime, Managed Code Runner, Comparability and conflict review | Test whether passive explanation across context, code, generated/copied artifacts, variants, and producer gaps is the strongest first wedge before new writes, managed execution, known-good comparison, or a Measurement History-only first goal. | Ready |
-| [Starred runs to analysis handoff package](jc-002/README.md) | A user finds high-value runs, multi-selects them like files, and creates an immutable pre-analysis data-plus-context handoff snapshot for personal analysis work. | Measurement History, Analysis and claim lineage, Parameter Memory, Code Asset Registry | Test the adoption-critical path from experiment-control computer to personal analysis computer with local offline GUI/Python-reader consumption, without requiring generic export formats first, full work-bundle export/import, managed script execution, a permission system, publication workflow scope, generated-report scope, live-monitor semantics, or premature reader/API/storage/UI contracts. | Validating |
-| Known-good reference to readiness and diagnostic comparison | A user compares a current bundle or machine against a selected known-good reference, sees confidence gaps, and can share a full-fidelity internal diagnostic package or a sanitized package when crossing public, external, or restricted support boundaries. | Measurement History, Parameter Memory, Code Asset Registry, Managed Code Runner, Instrument Runtime | Test blind-persona adoption blockers around truth drift, false confidence, control-PC fragility, rollback pressure, and support diagnostics without accepting config authority, environment management, or device control. | Not Started |
-| Two valid runs to scientific comparability review | A user compares two valid-looking runs, setup states, or method variants and sees which context, calibration, setup, generated-protocol, correction, and analysis differences matter for comparison. | Measurement History, Parameter Memory, Code Asset Registry, Scan Framework, Instrument Runtime, Comparability and conflict review, Analysis and claim lineage | Test the external-framework capability gap: Scopecat should complement existing measurement systems by explaining whether results can be compared, migrated, or handed off, not by replacing acquisition/control/calibration frameworks. | Not Started |
-| Small declared setup schema to useful context output | A user maintains a minimal local schema for one setup, sample, or campaign because it immediately enables a qubit-to-instrument lookup, attenuation calculation, chip-layout parameter view, comparability check, or handoff. | Parameter Memory, Instrument Runtime, Declared physical context and local schemas, Comparability and conflict review | Test whether manually maintained physical and schema context earns its cost before adding broad setup inventory, topology databases, or universal parameter models. | Not Started |
-| Figure or report to analysis-impact lineage | A user starts from a figure, fit, report, or derived artifact and sees the source runs, processing code, correction choices, calibration context, setup assumptions, and unresolved ambiguity that affect the claim. | Measurement History, Code Asset Registry, Parameter Memory, Analysis and claim lineage | Test whether acquisition provenance plus analysis lineage can answer downstream trust and impact questions without becoming a full ELN or report generator. | Not Started |
-| `JC-015` ordinary Python script to durable measurement record | A simple script writes data, supports checkpoint-safe reads, records lifecycle state, and reopens by stable ID. | Measurement History | Validate durable-record substrate without displacing the workflow-bundle first goal. | Not Started |
-| Legacy scan loop to previewable scan plan | A user replaces nested loops with a plan that can preview scan points before execution. | Scan Framework, Measurement History | Test scan semantics without requiring hardware control. | Not Started |
-| Scattered config files to parameter snapshot | A script uses a frozen parameter snapshot instead of local config drift. | Parameter Memory, Measurement History | Separate durable parameters from scan-local variables. | Not Started |
-| Copied scripts to code asset reference | A run records which external script, commit, and entrypoint were used. | Code Asset Registry, Measurement History | Separate code identity from execution identity. | Not Started |
-| `JC-016` bounded automation handoff to lab-owned runtime | A reviewed plan, proposal, or queue package is handed to a lab-owned runtime with runtime owner, stop behavior, failure policy, and audit record explicit. | Scan Framework, Managed Code Runner, Instrument Runtime, Parameter Memory, Measurement History | Test the first real-automation boundary without making Scopecat the default instrument runtime, generic scheduler, rollback system, or autonomous calibration platform. | Not Started |
-| Manual instrument coordination to resource lease | Legacy code obtains an exclusive lease before controlling shared hardware. | Instrument Runtime | Validate the minimal live-resource model. | Deferred |
-| Local script to managed execution record | A script runs under supervision with logs, artifacts, status, and environment capture. | Managed Code Runner, Code Asset Registry | Separate execution records from code identity. | Deferred |
-| Local preview to remote dry run | A locally authored package validates remotely without touching hardware. | Scan Framework, Remote Execution, Code Asset Registry, Parameter Memory | Test immutable plan and validation contracts. | Deferred |
+| Wedge | Owner | Phase | Coordination note |
+| --- | --- | --- | --- |
+| Existing run/work bundle to explainable context bundle | `JC-001` document set | Ready | Backed by the accepted passive evidence-view decision. |
+| Starred runs to analysis handoff package | [`jc-002/README.md`](jc-002/README.md) | Validating | Decide whether the current fixture-backed prototype earns an accepted fixture-scale boundary or needs another scenario. |
+| Ordinary Python script to durable measurement record | `JC-015` candidate | Not Started | Substrate candidate to promote earlier if `JC-002`, `JC-011`, or `JC-016` needs realistic recorded inputs. |
+| One reviewed package to one lab-owned runtime for one bounded local run | `JC-016` candidate | Not Started | Runtime-handoff candidate only; not generic scheduling, resource management, rollback, or autonomous calibration platform scope. |
+
+Candidate parking lot, not active coordination:
+
+| Candidate pressure | Canonical rows |
+| --- | --- |
+| Known-good diagnostics and scientific comparability | `JC-009`, `JC-010` |
+| Declared setup or local schema value | `JC-012` |
+| Analysis-impact lineage | `JC-014` |
+| Plan preview, parameter snapshots, copied-code identity, dry-run packages | `JC-004`, `JC-007`, `JC-008`, `JC-013` |
+| Resource leases, managed execution, and remote dry run | Deferred; needs a narrower owner and accepted safety/runtime decisions before active tracking. |
 
 For W2 validation, use the generic lab context and external-framework baseline
 owned by
