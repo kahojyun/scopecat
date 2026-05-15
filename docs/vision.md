@@ -193,6 +193,8 @@ replacement targets for every ladder:
 - an automatic calibration or parameter write-back system;
 - a workflow scheduler, queue, or remote execution service;
 - an authoritative source of hardware truth;
+- a lab operations platform for booking, cooldown planning, shift management,
+  personnel coordination, training, incidents, or multi-equipment scheduling;
 - a full ELN, LIMS, publication workflow, or report generator;
 - a universal parameter, setup, sample, or topology ontology.
 

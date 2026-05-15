@@ -122,6 +122,14 @@ future journey work, but is not accepted scope. Only that pressure belongs here:
   control, scheduling, deployment, write-back, ELN/LIMS, report-generation, or
   full lab-management scope.
 
+Lab-management context should inform evidence and automation boundaries without
+turning Scopecat into a lab operations platform. Booking and cooldown planning
+may supply readiness context, shift handoff may supply lifecycle or next-action
+evidence, sample inventory may supply minimal context handles, and safety or
+incident records may constrain apply decisions. They are not accepted
+multi-equipment scheduling, personnel coordination, training, compliance, ELN,
+LIMS, or cloud operations scope.
+
 ## Composition Rules
 
 Prefer small validated slices before mutation:
