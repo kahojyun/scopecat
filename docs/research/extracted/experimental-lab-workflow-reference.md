@@ -15,7 +15,6 @@ Use this note for gap discovery; do not promote it directly into product scope.
   experimental-physicist, lab-manager, and data/control-engineer perspectives.
   Treat these as domain hypotheses unless supported by existing evidence.
 - Existing extracted research:
-  - [`legacy-experiment-code-sample-validation.md`](legacy-experiment-code-sample-validation.md)
   - [`research-acceptance-readiness-triage.md`](research-acceptance-readiness-triage.md)
 - Internal fixture source maps prepared from local sample trees. Use these only
   as full-fidelity internal evidence; promote public-safe intent and role

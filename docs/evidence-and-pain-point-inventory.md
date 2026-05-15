@@ -69,7 +69,7 @@ or validation detail rather than primary product pain.
 ## Sources
 
 - [`research/extracted/research-acceptance-readiness-triage.md`](research/extracted/research-acceptance-readiness-triage.md)
-- [`research/extracted/legacy-experiment-code-sample-validation.md`](research/extracted/legacy-experiment-code-sample-validation.md)
+- [`research/extracted/experimental-lab-workflow-reference.md`](research/extracted/experimental-lab-workflow-reference.md)
 - [`research/greenfield-experimental-automation-architecture-notes.md`](research/greenfield-experimental-automation-architecture-notes.md)
 - [`research/raw/fricon-legacy-docs/README.md`](research/raw/fricon-legacy-docs/README.md)
 - workflow improvement case code tree, cited only as an internal source family.
