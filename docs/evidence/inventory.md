@@ -239,42 +239,14 @@ reliable automatic versioning.
 | EV-046 | Long-running measurement decision support is a distinct pressure from live plotting or post-run analysis handoff. | Latent pressure | Medium | user refinement; blind framework role-play | User refinement and blind role-play across QCoDeS, Labber-like, Bluesky/Event Model, and LabRAD/Data Vault lenses converged that existing systems often cover live data and plots, while the unresolved pain is deciding whether a long run is still worth continuing before the full run ends. | Measurement-time decision support; durable measurement record; calibration review; analysis lineage. |
 | EV-047 | Measurement-time feedback must be method-aware, replayable, explicitly recorded, and non-intrusive to differentiate from existing measurement frameworks. | Latent pressure | Medium | user refinement; blind framework role-play; external-framework baseline | Blind framework role-play narrowed the useful capability to passive advisory feedback that understands method intent, completed sweep or stream slices, fit/quality/anomaly evidence, thresholds, uncertainty, and replayable provenance. User refinement further narrows the integration boundary: Scopecat should require experiment code to record data, sweep semantics, lifecycle events, and decision-relevant context into Scopecat rather than relying on passive scraping or framework-specific auto-adapters. It should not replace QCoDeS, Labber, Bluesky, LabRAD/Data Vault, local scripts, dashboards, callbacks, or hardware control. | Measurement-time decision support; known-good comparison; calibration proposal review; control-PC read-only companion validation. |
 
-## Pain Ranking Rubric
+## Pain Selection Method
 
-Pain order is now direction-bias corrected for selecting the next journey. It
-is based on:
-
-- workflow improvement case signal density;
-- Scopecat leverage without claiming authoritative ownership of opaque files;
-- ability to validate the pain without device control, write-back, or broad
-  managed execution;
-- pain visibility, so directly observed artifact pain does not crowd out latent
-  workflow pressure created by the old system's limits;
-- fit with a thin vertical journey that can still preserve future platform
-  composition.
-
-IDs remain stable. Table order may change as new evidence arrives.
-
-## Pain, JTBD, Capability, And Baseline Separation
-
-The `PN` prefix was originally used for all pain-shaped pressure. That is still
-useful for stable cross-reference, but Journey selection should not treat every `PN` row as
-the same kind of thing. Some rows are natural decompositions of top-level pains;
-some are adoption guardrails; some are jobs-to-be-done candidates; some are
-capability gaps; and some are expected measurement-framework baseline behavior.
-
-Use this separation when selecting journeys:
-
-| Statement kind | Meaning | Journey-selection handling |
-| --- | --- | --- |
-| Foundational pain | A user-facing inability, risk, or costly workaround that naturally decomposes a `TP` narrative. | Can become acceptance pressure for a journey after evidence and boundary checks. |
-| Adoption blocker or guardrail | A reason users or maintainers would reject the tool even if the main journey looks useful. | Constrain the journey; do not automatically turn into feature scope. |
-| JTBD candidate | A situational job that should be phrased as "when..., help me..., so I can..." in a journey. | Convert into current-state and future-state journey text before implementation planning. |
-| Capability gap | A desired system capability that existing measurement/control frameworks cover weakly, locally, or only in controlled stacks. | Use for differentiation only when tied back to a top-level pain, evidence, and a fixture. |
-| Existing-framework baseline or validation case | Behavior users may reasonably expect from mature measurement/data systems, or a technical case needed to validate a model. | Treat as substrate, fixture, acceptance detail, or non-differentiating capability; do not present as the product's main pain. |
+Use [`method.md`](method.md) for the pain-selection rubric and for separating
+foundational pains, adoption guardrails, JTBD candidates, capability gaps, and
+existing-framework baseline behavior.
 
 Current classification is approximate because a row can have secondary roles.
-It is still useful for avoiding priority inflation.
+It is useful for avoiding priority inflation, not for blocking local judgment.
 
 | Current rows | Primary kind | Natural top-level-pain link | Journey-selection implication |
 | --- | --- | --- | --- |
@@ -286,27 +258,6 @@ It is still useful for avoiding priority inflation.
 | PN-033, PN-034, PN-035, PN-036, PN-037 | Measurement-time decision-support pains | Natural decomposition of TP-010, with PN-022 and PN-021 as adoption and confidence guardrails. | Validate as an explicit-recording watchdog or decision-support fixture before accepting live analysis, recommendations, alerting, or any connection to calibration automation. |
 | PN-007, PN-015, PN-016 | Adoption affordances and portability guardrails | Support TP-002, TP-005, TP-006, TP-007, and TP-009, but are not the center of a pain narrative. | Keep as acceptance constraints around portability, low ceremony, and quick handoff affordances. |
 | PN-008, PN-009, PN-013, PN-014 | Existing-framework baseline, model question, or future technical pressure | Can support TP-001, TP-002, and TP-004, but are not strong top-level-pain decompositions by themselves. | Use as substrate or validation detail; avoid positioning lifecycle state, source-of-record clarity, setup manifests, or parameter-history model questions as primary differentiation. |
-
-Journey selection should distinguish pain from JTBD explicitly. A pain can be:
-
-```text
-I cannot tell which code and context are safe to use on this control computer,
-in an inherited bundle, or on a screening setup, so I copy a working bundle
-before using it.
-```
-
-A corresponding JTBD should be more situational:
-
-```text
-When I need to reuse a protocol on a screening setup, or check an inherited
-bundle against a known-good reference, help me compare code, environment,
-selected context, setup assumptions, calibration, and generated artifacts, so I
-can decide what must be checked before spending experiment time.
-```
-
-The JTBD is the shape of a journey. The pain explains why the journey matters.
-The capability describes what the system must do. The baseline states what a
-reasonable measurement/data system is already expected to provide.
 
 ## Pain And Pressure Inventory
 
@@ -393,6 +344,28 @@ foundational pains, fixtures, and boundaries.
 
 Later rows may still close important composition gaps. Promote them earlier if
 a selected journey depends on their substrate or runtime boundary.
+
+Evidence posture is a compact confidence label for selection work. It does not
+replace the evidence IDs or the owning journey docs.
+
+| ID | Evidence posture |
+| --- | --- |
+| JC-001 | Direct artifact evidence; accepted boundary exists. |
+| JC-002 | Direct artifact and user-refined handoff pressure; draft fixture boundary. |
+| JC-003 | Direct calibration evidence; mutation-gated. |
+| JC-004 | Direct code and notebook artifact evidence. |
+| JC-005 | Direct setup evidence, but safety and mutation gated. |
+| JC-006 | Direct generated-protocol and lineage evidence. |
+| JC-007 | Latent plan-object pressure inferred from missing durable intent. |
+| JC-008 | Latent execution-package pressure backed by code and environment artifacts. |
+| JC-009 | Inferred adoption-risk comparison pressure. |
+| JC-010 | Inferred scientific-comparability pressure. |
+| JC-011 | Latent user-refined advisory pressure; explicit-recording dependency. |
+| JC-012 | Inferred manual-context ROI pressure. |
+| JC-013 | Inferred shared-code and configuration drift pressure. |
+| JC-014 | Direct and inferred analysis-lineage pressure. |
+| JC-015 | Predecessor-backed durable-record substrate pressure. |
+| JC-016 | Derived boundary candidate across intent, readiness, and runtime handoff. |
 
 | ID | Drafting signal | Candidate journey | Evidence IDs | Why it fits now | Main boundary |
 | --- | --- | --- | --- | --- | --- |

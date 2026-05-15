@@ -29,6 +29,12 @@ Current validation artifacts:
 - [`../../../../prototypes/jc002_handoff_snapshot.py`](../../../../prototypes/jc002_handoff_snapshot.py)
 - [`../../../../tests/test_jc002_handoff_snapshot.py`](../../../../tests/test_jc002_handoff_snapshot.py)
 
+Validation command from the repository root:
+
+```sh
+python3 -m unittest tests.test_jc002_handoff_snapshot
+```
+
 ## Prototype Question
 
 Can a user take a small selected-run snapshot to an analysis computer and,

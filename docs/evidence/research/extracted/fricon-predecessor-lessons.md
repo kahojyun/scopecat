@@ -66,6 +66,18 @@ substrates, but they are not enough to define Scopecat's product direction.
 - Export and handoff should preserve source identity, semantic context,
   checksums or integrity facts, and missing-context warnings, not only bytes.
 
+## Evidence Anchors
+
+These anchors keep the deleted raw snapshot reviewable without preserving the
+full predecessor docs:
+
+| Anchor | Retained value | Current use |
+| --- | --- | --- |
+| Ordinary Python writer | A minimal explicit writer is a plausible adoption path for durable records. | `EV-012`, `JC-015` |
+| Dataset shape variety | Regular grids, traces, complex values, IQ arrays, labels, and ragged records are needed validation cases. | `EV-045`, `JC-002`, `JC-015` |
+| Handoff package pressure | Source identity, semantic context, integrity facts, and missing-context warnings matter more than byte copying alone. | `EV-022`, `JC-002` |
+| Runnable-code context | Code, lockfiles, local environments, and copied folders are diagnostic evidence before managed execution. | `EV-023`, `JC-004`, `JC-008`, `JC-013` |
+
 ## Design Mistakes To Avoid
 
 - Do not let a dataset-first storage or browser model carry whole-run meaning.

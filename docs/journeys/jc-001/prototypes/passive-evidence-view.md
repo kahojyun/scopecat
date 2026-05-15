@@ -19,6 +19,12 @@ Current implementation:
 - `tests/fixtures/jc001-layered-config-bundle/`
 - `tests/fixtures/jc001-minimal-unknown/`
 
+Validation command from the repository root:
+
+```sh
+python3 -m unittest tests.test_jc001_passive_evidence_view
+```
+
 ## Prototype Goal
 
 Given one committed public-safe fixture directory and one caller-provided

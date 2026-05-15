@@ -73,9 +73,20 @@ journeys, especially:
 
 Do not infer product acceptance directly from this note. Promote only narrow
 claims into owner documents after fixture, interview, spike, or existing
-evidence review.
+evidence review. The prompts at the end help with that judgment.
 
-Before promoting anything from this note, use the checklist at the end.
+Promotion map:
+
+| Workflow area | Current promoted owner |
+| --- | --- |
+| Existing artifact explanation and context ambiguity | `JC-001`, `PN-001`, `PN-002`, `PN-006` |
+| Selected-run analysis handoff | `JC-002`, `PN-004`, `EV-044`, `EV-045` |
+| Code/config readiness and dry-run packaging | `JC-004`, `JC-008`, `JC-013`, `TP-009` |
+| Calibration proposal and advisory automation | `JC-003`, `JC-011`, `PN-003`, `TP-010` |
+| Setup reality and declared local schema | `JC-005`, `JC-012`, `EV-041`, `EV-042`, `EV-043` |
+| Scientific comparison and known-good diagnostics | `JC-009`, `JC-010`, `TP-007`, `TP-008` |
+| Derived analysis and claim lineage | `JC-006`, `JC-014`, `EV-039` |
+| Bounded local automation handoff | `JC-016` candidate only; still needs a runtime decision before execution scope. |
 
 When using legacy sample evidence, focus on the user or lab intent behind the
 artifact. Some concrete files, names, copies, sidecars, notebooks, or scripts
@@ -317,11 +328,13 @@ journey scope unless a narrow workflow earns validation.
 | Group meetings and weekly reports | Figures, blockers, decisions, owners, and next actions shape what work continues. | Useful for analysis lineage and decision context; not full project-management scope. |
 | Safety, training, and incidents | Cryogens, magnets, high voltage, lasers/RF, and faults constrain mutation and automation. | Guardrails for ADR-gated control/apply decisions. |
 
-## Promotion Checklist
+## Promotion Prompts
 
-Promote from this note only when a narrower owner can answer:
+Promote from this note only when a narrower owner can answer the parts that
+matter for its slice. These prompts are meant to prevent workflow context from
+turning into premature platform scope; they are not a required form.
 
-Required before promotion:
+Useful prompts:
 
 - the user-visible outcome;
 - the concrete fixture or interview source;

@@ -35,6 +35,16 @@ A new `JC` does not need separate selection, journey, contract, decision, and
 prototype files at the start. Split only after length, reuse, review risk, or
 implementation dependency makes the split useful.
 
+## Prompt Cards, Not Rigid Checklists
+
+The prompts in this standard are judgment aids. They should help reviewers
+notice missing evidence, accidental scope expansion, and unclear ownership;
+they should not force every useful idea through the same document shape.
+
+It is valid to skip, merge, or rewrite a prompt when the local journey makes a
+better choice. Record the reason in the owning doc when the skipped prompt
+changes scope, validation confidence, public output, or downstream dependency.
+
 ## Status Language
 
 Use statuses on specific documents, claims, fixtures, outputs, and decisions.
@@ -75,6 +85,21 @@ the public-safe source family, redaction reason, validation facts, and owner of
 the private detail. Do not publish exact private paths, usernames, machine
 names, instrument identifiers, lab labels, sample labels, or source-derived
 location details.
+
+## Promoting A Candidate JC
+
+Promote a candidate from the evidence inventory only when a thin user-visible
+slice can be stated. A useful promotion note usually answers:
+
+- what current user situation or workaround is being improved;
+- which `EV`, `PN`, or `TP` rows create enough pressure;
+- whether the posture is direct evidence, inference, latent pressure, or a
+  derived boundary;
+- what fixture, interview, or prototype will test it;
+- what tempting adjacent scope is intentionally deferred.
+
+Keep the first promoted record compact. A single `README.md` is enough until a
+split removes real ambiguity.
 
 ## Document Splitting
 
@@ -126,11 +151,17 @@ journey or prototype needs to decide any of these boundaries:
 - which component owns stop behavior, failure policy, audit records, and
   operator accountability for a bounded local run;
 - whether a copied method, package, or plan is diagnostic evidence, a reusable
-  template, or an execution-authoritative artifact.
+  template, or an execution-authoritative artifact;
 - what write acknowledgement, partial-read, checkpoint-safe-read, stable-ID
   lifetime, reader compatibility, package versioning, migration, and
   interrupted-or-disabled recording behavior mean for a durable record or
   handoff package.
+
+Create an ADR only when a decision is needed by implementation or by more than
+one journey. Use a short kebab-case filename under the owning future ADR
+directory, for example `docs/architecture/adr-001-bounded-runtime-owner.md`.
+If the decision is still local to one journey, keep it in
+`docs/journeys/<jc>/decisions/`.
 
 An architecture ADR should state:
 
@@ -142,6 +173,21 @@ An architecture ADR should state:
 - compatibility or migration impact;
 - fixture, prototype, or user evidence;
 - reopening criteria.
+
+## Dependency Promotion
+
+A deferred substrate or boundary can move earlier when an active slice becomes
+blocked by it. Before promoting it, ask:
+
+- which active journey is blocked;
+- why a mock, fixture convention, or local note is no longer enough;
+- what the smallest new boundary would decide;
+- whether the boundary is journey-local, contract-level, or cross-journey
+  architecture;
+- what remains deliberately unowned after the promotion.
+
+This is a pressure-release valve, not a mandate to promote every dependency in
+advance.
 
 ## Change Routing
 
@@ -299,9 +345,10 @@ Update it when:
 
 Keep detailed reasoning in the owning `JC`, decision, prototype, or contract.
 
-## Review Checklist
+## Review Prompts
 
-Before accepting or broadening a `JC`, check:
+Before accepting or broadening a `JC`, use these prompts to catch the most
+common failure modes. They are not an exhaustive approval workflow.
 
 - Is the source or fixture boundary explicit and public-safe?
 - Are evidence, inference, and future pressure separated?

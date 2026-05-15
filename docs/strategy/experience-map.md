@@ -77,7 +77,9 @@ Keep journey slices small and user-visible:
 The canonical candidate wording, evidence basis, drafting signal, and main
 boundary live in
 [`../evidence/inventory.md`](../evidence/inventory.md).
-This map only shows where those `JC` rows sit in the larger experience.
+This map only shows where those `JC` rows sit in the larger experience. It
+intentionally omits evidence rank, source posture, acceptance status, and
+prototype details so it does not become a second candidate owner.
 
 If new work needs a new `JC`, update the evidence owner or a narrower `JC`
 owner before this placement table becomes the source of truth.

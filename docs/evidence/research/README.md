@@ -164,6 +164,11 @@ Git history is the long-term fallback for low-value research provenance. Do
 not keep extracted research files in the working tree merely because they once
 existed.
 
+Before deleting a source that supports active `EV`, `PN`, `TP`, `JC`, decision,
+or fixture work, first leave a compact extracted note, source map, or evidence
+anchor in the current owner. Git history is enough only when the remaining
+value is low and no active owner depends on exact context.
+
 After a research note reaches `Extracted` or `Superseded`, choose one outcome:
 
 - delete it when useful content has been promoted and remaining value is low;

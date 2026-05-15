@@ -77,6 +77,78 @@ Inventory IDs are stable cross-document references:
 After an ID is referenced from another document, do not renumber it. Add a new
 ID instead.
 
+## Pain Selection Rubric
+
+Pain order is direction-bias corrected for selecting the next journey. It is
+based on:
+
+- workflow improvement case signal density;
+- Scopecat leverage without claiming authoritative ownership of opaque files;
+- ability to validate the pain without device control, write-back, or broad
+  managed execution;
+- pain visibility, so directly observed artifact pain does not crowd out latent
+  workflow pressure created by the old system's limits;
+- fit with a thin vertical journey that can still preserve future platform
+  composition.
+
+IDs remain stable. Table order may change as new evidence arrives.
+
+## Statement-Kind Separation
+
+The `PN` prefix is a stable cross-reference for pain-shaped pressure. It is
+not enough by itself for journey selection. Some rows are natural
+decompositions of top-level pains; some are adoption guardrails; some are
+jobs-to-be-done candidates; some are capability gaps; and some are expected
+measurement-framework baseline behavior.
+
+Use this separation as a thinking aid, not as a rigid taxonomy. A row may have
+secondary roles, and a future journey can override the classification if it
+records why.
+
+| Statement kind | Meaning | Journey-selection handling |
+| --- | --- | --- |
+| Foundational pain | A user-facing inability, risk, or costly workaround that naturally decomposes a `TP` narrative. | Can become acceptance pressure for a journey after evidence and boundary checks. |
+| Adoption blocker or guardrail | A reason users or maintainers would reject the tool even if the main journey looks useful. | Constrain the journey; do not automatically turn into feature scope. |
+| JTBD candidate | A situational job that should be phrased as "when..., help me..., so I can..." in a journey. | Convert into current-state and future-state journey text before implementation planning. |
+| Capability gap | A desired system capability that existing measurement/control frameworks cover weakly, locally, or only in controlled stacks. | Use for differentiation only when tied back to a top-level pain, evidence, and a fixture. |
+| Existing-framework baseline or validation case | Behavior users may reasonably expect from mature measurement/data systems, or a technical case needed to validate a model. | Treat as substrate, fixture, acceptance detail, or non-differentiating capability; do not present as the product's main pain. |
+
+Journey selection should distinguish pain from JTBD explicitly. A pain can be:
+
+```text
+I cannot tell which code and context are safe to use on this control computer,
+in an inherited bundle, or on a screening setup, so I copy a working bundle
+before using it.
+```
+
+A corresponding JTBD should be more situational:
+
+```text
+When I need to reuse a protocol on a screening setup, or check an inherited
+bundle against a known-good reference, help me compare code, environment,
+selected context, setup assumptions, calibration, and generated artifacts, so I
+can decide what must be checked before spending experiment time.
+```
+
+The JTBD is the shape of a journey. The pain explains why the journey matters.
+The capability describes what the system must do. The baseline states what a
+reasonable measurement/data system is already expected to provide.
+
+## Updating Evidence
+
+When evidence changes, use these prompts to keep the docs coherent without
+turning evidence work into form-filling:
+
+- If a new row changes a journey candidate, update the candidate's evidence
+  posture or boundary in [`inventory.md`](inventory.md).
+- If a source is messy, biased, generated, or historical, preserve the useful
+  pressure and label its class instead of either deleting it or over-promoting
+  it.
+- If a classification does not fit the table above, write the local judgment in
+  the owning row rather than inventing a new taxonomy.
+- If a prompt, role-play, or blind review produces a good idea, tie it to
+  source evidence or mark it as latent pressure before it influences scope.
+
 ## Source Handling Guardrails
 
 - Treat LabRAD, Data Vault numeric IDs, `idx` filenames, latest-file lookups,

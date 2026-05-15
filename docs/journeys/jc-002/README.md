@@ -49,3 +49,14 @@ Decide whether the current handoff snapshot prototype earns an accepted
 fixture-scale boundary or needs another lab scenario first. Keep the reasoning
 in this folder; the project tracker should carry only phase, links, and compact
 cross-journey coordination.
+
+Use these prompts for that decision, but do not treat them as a fixed checklist:
+
+- Did the fixture validate the handoff value without requiring a final package
+  schema, reader API, GUI, storage model, or export adapter?
+- Is one synthetic fixture enough for the boundary being accepted, or does the
+  next decision depend on another realistic lab scenario?
+- Which identity, relative-path, status-vocabulary, version, missing-context,
+  and future-open promises are stable only at fixture scale?
+- Which prototype behaviors remain smoke-test conveniences and should not be
+  promoted into a contract?

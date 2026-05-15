@@ -18,9 +18,13 @@ Use owner documents for durable detail:
 
 Use the status language in
 [`../standards/jc-operating-standard.md`](../standards/jc-operating-standard.md)
-for validation meaning. This tracker only reuses those labels for compact
-coordination: `Not Started`, `Drafting`, `Provisional`, `Validating`, `Ready`,
-`Accepted`, `Quarantined`, and `Deferred`.
+for validation meaning. This tracker uses compact coordination phases only:
+`Not Started`, `Drafting`, `Provisional`, `Validating`, `Ready`, `Accepted`,
+`Quarantined`, and `Deferred`.
+
+Do not infer validation detail from a tracker phase. Put acceptance criteria,
+fixture results, reopening criteria, and skipped review prompts in the owning
+journey, decision, prototype, or contract.
 
 ## Current Focus
 
@@ -46,6 +50,10 @@ Candidate dependencies to promote only if an active slice needs them:
 | --- | --- | --- | --- |
 | `JC-015` | [`../evidence/inventory.md`](../evidence/inventory.md) | Not Started | Promote earlier only if `JC-002`, `JC-011`, or `JC-016` needs realistic recorded inputs. |
 | `JC-016` | [`../evidence/inventory.md`](../evidence/inventory.md) | Not Started | Promote only if bounded runtime handoff becomes an active validation need. |
+
+Use the dependency-promotion prompts in
+[`../standards/jc-operating-standard.md`](../standards/jc-operating-standard.md)
+before moving a candidate into active coordination.
 
 All other candidate rows and parking-lot pressure live in
 [`../evidence/inventory.md`](../evidence/inventory.md) until they need active
