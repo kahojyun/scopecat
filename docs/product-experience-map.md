@@ -85,6 +85,10 @@ These gaps help place future `JC` work in the larger experience. They are not
 priorities, requirements, or prototype scope.
 
 - Live inspection or live preview before and during a run.
+- Measurement-time decision support for long-running measurements, where completed
+  sweep slices can trigger fit, quality, anomaly, and intent-specific feedback
+  from explicitly recorded measurement data without taking over hardware
+  control.
 - Declared setup, sample, topology, or schema context when it powers lookup,
   calculation, visualization, comparison, handoff, or diagnostics.
 - Analysis-impact lineage from figures, reports, fits, and claims back to

@@ -226,5 +226,9 @@ During review:
 - Do not create subsystem specs before journeys, adoption ladders, and
   contracts justify them.
 - Do not require full-platform adoption for the first useful slice.
+- Treat top-level pains as composition pressure, not single-ladder
+  implementation requirements. A full answer may require several adoption
+  ladders, but each early slice must validate one narrow, independently useful
+  path.
 - Do not let standalone adoption stories become incompatible mini-products.
 - Keep each wedge narrow enough to validate with one concrete workflow.
