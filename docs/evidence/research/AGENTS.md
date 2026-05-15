@@ -19,9 +19,15 @@
 - Promote durable conclusions out of `research/` into the narrowest justified
   project doc. Do not leave accepted product or architecture truth only in raw
   research.
+- Promote cross-journey evidence interpretation, source-confidence rules, or
+  prompt-method rules to `docs/evidence/method.md`; keep
+  `docs/evidence/inventory.md` focused on rows and stable IDs.
 - After extraction or supersession, prefer deleting low-value research notes
-  over keeping them indefinitely. Use `archived/` only when there is clear
-  provenance, audit, citation, or rejection-rationale value.
+  over keeping them indefinitely. Before deleting a source that supports active
+  `EV`, `PN`, `TP`, `JC`, decision, or fixture work, leave a compact extracted
+  note, source map, or evidence anchor in the current owner. Use `archived/`
+  only when there is clear provenance, audit, citation, or rejection-rationale
+  value.
 - Do not create lifecycle folders, taxonomy folders, or placeholder files
   before there is real content for them.
 - Use normal Markdown links and indexes. Do not rely on Obsidian-only,
