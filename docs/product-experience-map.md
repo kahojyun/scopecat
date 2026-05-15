@@ -47,8 +47,6 @@ experiment user prepares work
      artifacts, missing facts, conflicts, and sharing boundaries
   -> selects valuable runs or a run group
   -> creates an immutable pre-analysis handoff snapshot
-  -> transfers the snapshot from the measurement computer to an analysis
-     computer
   -> opens the snapshot offline on the analysis computer
   -> compares current evidence with a known-good reference when trust is weak
   -> links later figures, reports, fits, or claims back to source evidence
