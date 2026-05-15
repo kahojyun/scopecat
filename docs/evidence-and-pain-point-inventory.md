@@ -25,6 +25,12 @@ volatile by separating:
 Legacy workflows are current-state evidence. They are not automatically
 workflows Scopecat should preserve, encourage, or emulate.
 
+Project-level product direction and adoption boundaries are owned by
+[`vision.md`](vision.md). Phase and coordination status are owned by
+[`progressive-adoption-progress-tracker.md`](progressive-adoption-progress-tracker.md).
+`JC-###` folders own journey-specific scope. This inventory owns evidence,
+stable EV/PN/TP IDs, support levels, and validation routes.
+
 ## Historical W2 Quick Start
 
 Use this document as the W1 evidence owner behind the first W2 journey. `JC-001`
@@ -50,9 +56,9 @@ has been promoted into the first-wedge document set under
 - `JC-009` and `JC-010` remain sanity-check alternatives for later
   diagnostic/comparison journeys, not rollback, environment management,
   scientific-equivalence scoring, or device-control scope.
-- Do not promote managed execution, live device control, write-back, automatic
-  rollback, environment management, framework replacement, a full ELN, or a
-  universal setup/schema model from W1.
+- Do not promote broad project boundaries from W1. Use `vision.md` for current
+  project-level default nonrequirements, and use journey documents for
+  fixture-specific exclusions.
 
 For row interpretation, keep the statement kind separate from the stable ID:
 foundational pains can drive acceptance, adoption-risk hypotheses and guardrails
@@ -158,6 +164,9 @@ Windows support, deployment management, driver maintenance, lab IT
 administration, onboarding, training, environment management, rollback
 automation, a universal experiment schema, exhaustive lab inventory management,
 or a full ELN into early scope unless a journey explicitly needs them.
+
+For the current project-level relationship to existing experiment systems, use
+`vision.md`.
 
 ## Direction-Bias Correction
 

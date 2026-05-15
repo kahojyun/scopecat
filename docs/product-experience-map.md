@@ -27,10 +27,9 @@ complete experience pressure
 
 ## Experience Shape
 
-The current system shape is an evidence and context layer around existing lab
-workflows. It does not start by replacing acquisition frameworks, ELNs,
-runners, or hardware control stacks, and it should not silently take authority
-over execution or hardware state.
+Project-level product direction and boundaries are owned by
+[`vision.md`](vision.md). This map only shows how validated and candidate
+journeys may compose into a fuller user experience.
 
 One representative long-form experience is:
 
@@ -51,10 +50,10 @@ experiment user prepares work
 The silhouette is useful because it shows why small slices need to compose. It
 does not mean every step is accepted product direction today.
 
-## Boundary Modes
+## Experience Step Labels
 
-Use boundary modes as lightweight labels for experience steps. They are not
-accepted contracts by themselves.
+Use these labels for experience steps. They are not accepted capability
+contracts or project-level boundaries by themselves.
 
 | Mode | Meaning | Current examples |
 | --- | --- | --- |
@@ -64,7 +63,7 @@ accepted contracts by themselves.
 | Diagnostic-only | Compare evidence, gaps, and confidence signals without selecting truth, restoring state, or mutating systems. | Candidate `JC-009` known-good comparison. |
 | Gap-review-only | Explain which scientific or context differences may matter without automatic equivalence scoring. | Candidate `JC-010` comparability review. |
 | Proposal-only | Show a proposed change and its evidence before mutation. | Candidate `JC-003` calibration review before write-back. |
-| ADR-gated apply or execution | Mutate parameters, setup, devices, durable state, environments, or execute managed workflows. | Device apply, rollback, managed execution, remote execution, autonomous scheduling. |
+| Apply or execution boundary | Mutation, authoritative state changes, and managed execution need explicit future decisions. | Device apply, rollback, managed execution, remote execution, autonomous scheduling. |
 
 ## Journey Coverage
 

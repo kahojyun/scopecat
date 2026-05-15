@@ -15,13 +15,13 @@ that can be handled inside one AI session.
 - `vision.md` states current project-level product direction and boundaries:
   what Scopecat does, what is not a default adoption requirement, and how it
   should complement existing experiment systems.
-- `product-experience-map.md` describes the complete cross-journey
-  experience shape without turning it into `JC`, prototype, API, schema, UI, or
-  subsystem scope.
 - `jc-analysis-operating-standard.md` defines repeatable `JC-###` status,
   source-map, promotion, acceptance, conflict, and reopening workflow.
 - `AGENTS.md` contains rules that should apply to every AI session working
   inside `docs/`.
+
+Use `document-index.md` for the fuller inventory. This README should stay an
+entry point, not a second index.
 
 ## Analysis Model
 

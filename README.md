@@ -4,14 +4,13 @@
 
 Scopecat is an early greenfield project for scientific measurement workflows.
 
-The product and architecture are still being shaped. Current analysis is
-focused on progressive adoption: understanding real user journeys, identifying
-small useful migration wedges, and only then promoting durable capability and
-architecture decisions.
+The product and architecture are still being shaped. See
+`docs/vision.md` for the current product direction and boundaries, and
+`docs/README.md` for the documentation workspace.
 
 ## Status
 
-New project workspace. Product scope, first adoption path, and architecture
+New project workspace. Product scope, adoption paths, and architecture
 boundaries are not yet final.
 
 ## Documentation

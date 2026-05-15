@@ -71,32 +71,26 @@ pressure for the journey.
 
 ## Acceptance Checks
 
-A drafted `JC-002` fixture should show:
+A drafted `JC-002` fixture should show the journey-level outcome:
 
 - selected data has stable source identity;
 - primary data and required sidecars can be found in the snapshot;
-- axes, units, shape, and labels are present or explicitly missing;
 - a local offline consumer path can list runs, warnings, and artifact roles;
-- a Python reader-like smoke test can load one run's data, axes, units, and
-  required sidecars without the original control path;
-- a Python reader-like smoke test can enumerate the selected group and load
-  each run with condition labels, shared context, and per-run overrides;
-- a consumer-side sanity plot can be produced for both one run and the selected
-  group;
+- a reader-like smoke test can load selected data without the original control
+  path;
+- a consumer-side sanity plot can be produced for one run or a selected group;
 - sample/device, purpose, and important parameters are present or explicitly
   `not_provided` or `unknown`;
-- selected-run group order, labels, and per-run overrides are preserved when a
-  group is exported;
 - original control-computer path evidence is preserved as provenance, not as a
   required portable read path;
 - snapshot export does not create new CSV, NPY, PNG, PDF, fit, deck, or report
   artifacts;
-- included non-primary artifacts are justified by recorded roles such as
-  required read sidecar, handoff context, or user-attached derived input;
-- missing fields can be grouped into diagnostic completeness views when
-  requested, without making fixed levels a default user-facing concept;
 - generated PDFs, decks, reports, fit outputs, and publication arrays remain
   outside the initial snapshot boundary.
+
+Prototype-specific checks, including axis/shape validation, selected-group
+details, artifact-role handling, and plot-spec handoff, belong in
+[`jc-002-handoff-snapshot-prototype-scope.md`](jc-002-handoff-snapshot-prototype-scope.md).
 
 ## Non-Goals
 
