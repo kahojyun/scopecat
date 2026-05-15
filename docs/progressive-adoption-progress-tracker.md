@@ -76,7 +76,7 @@ ownership.
 | Input | Phase | Notes |
 | --- | --- | --- |
 | Documentation policy | Ready | Captured in `README.md` and `AGENTS.md`. |
-| Project vision and boundaries | Drafting | `vision.md` states current project-level direction, progressive adoption constraints, explicit recording boundary, and clear non-goals without becoming a roadmap, PRD, capability map, or architecture decision. |
+| Project vision and boundaries | Drafting | `vision.md` states current project-level direction, progressive adoption constraints, explicit recording and complexity ownership boundaries, and clear non-goals without becoming a roadmap, PRD, capability map, or architecture decision. |
 | Automation architecture notes | Quarantined | Stored as research input; contains broad capability-pressure hypotheses that must be revalidated without accepting subsystem order or scaffolding. |
 | Research acceptance-readiness triage | Transitional | `research/extracted/research-acceptance-readiness-triage.md` separates accepted guardrails, evidence, inferences, adoption hypotheses, future pressure, ADR-gated items, and directions not to accept upfront. |
 | Legacy experiment code sample validation | Transitional | `research/extracted/legacy-experiment-code-sample-validation.md` validates the research triage and raises companion artifacts, analysis handoff, hardware bring-up, dependency/environment, notebook hygiene, and portability evidence. |

@@ -212,12 +212,12 @@ The hardening loop showed that reader-side redaction is the wrong place to
 guarantee public safety. Once a snapshot exists on disk, a user can bypass the
 reader and inspect CSV, JSON, sidecars, arrays, or attached files directly.
 
-Use the project-level structured redaction boundary in
-[`../jc-analysis-operating-standard.md`](../jc-analysis-operating-standard.md)
-for path handling, keyword tables, arbitrary payloads, and publish/export
-ownership. `JC-002` adds only this fixture-specific lesson: the snapshot reader
-should pass through export-produced redaction status and must not scan or
-redact already-created snapshots.
+Use the project-level complexity ownership boundary in
+[`../vision.md`](../vision.md) and the source-map sharing guidance in
+[`../jc-analysis-operating-standard.md`](../jc-analysis-operating-standard.md).
+`JC-002` adds only this fixture-specific lesson: the snapshot reader should
+pass through export-produced redaction status and must not scan or redact
+already-created snapshots.
 
 ## Non-Goals
 

@@ -99,6 +99,39 @@ A lab may later choose to write a bridge from its own framework into Scopecat's
 recording path. That bridge should be treated as user or lab integration code
 that sends explicit records, not as Scopecat owning the source framework.
 
+## Complexity Ownership Boundary
+
+Scopecat should keep its core responsibility close to structured measurement
+evidence: explicit records, manifests, statuses, relations, provenance,
+readability, replayability, and reviewable decisions.
+
+It should not absorb every high-complexity edge around that evidence by
+default. Prefer clear user or lab extension points when the problem depends on
+local conventions, domain-specific formats, or sharing policy:
+
+- Framework bridges should send explicit records into Scopecat rather than
+  making Scopecat actively adapt each existing control framework.
+- Reader support should prioritize a stable, useful basic read path and enough
+  metadata for users to transform or export data into their own analysis tools.
+  Scopecat should not treat every reader view, conversion, or export format as
+  built-in product scope.
+- User-provided artifacts should be cataloged by role, relation, provenance,
+  size or checksum, and explicit status before Scopecat claims semantic
+  understanding. Domain-specific parsing requires a deliberate adapter,
+  fixture, or decision; arbitrary files should not be executed, unpickled,
+  normalized, or interpreted by default.
+- Redaction and publishability should be owned by explicit export or publish
+  workflows. Scopecat may handle structurally known sensitive fields and
+  explicit sensitivity labels, but it should not ship a fixed built-in lab
+  keyword list for samples, devices, projects, acronyms, or local shorthand.
+  Labs or users provide keyword profiles, replacement rules, and publish
+  profiles when a workflow opts into free-text or payload redaction.
+
+This boundary is not an excuse to make users do all integration work. Scopecat
+should make the structured recording path, basic read path, adapter points, and
+policy handoff clear enough that lab-owned complexity can connect without
+becoming hidden product scope.
+
 ## Not Default Adoption Requirements
 
 The following are not default adoption requirements, prerequisites, or
@@ -109,6 +142,9 @@ replacement targets for every ladder:
 - a device-driver framework;
 - a LabRAD, QCoDeS, Labber, Bluesky, or vendor-system compatibility layer;
 - a passive scraper of arbitrary existing measurement artifacts;
+- a complete set of reader views, conversions, or export formats;
+- a semantic parser for arbitrary user-provided artifacts;
+- a built-in lab keyword list or universal redaction policy;
 - an automatic calibration or parameter write-back system;
 - a workflow scheduler, queue, or remote execution service;
 - an authoritative source of hardware truth;

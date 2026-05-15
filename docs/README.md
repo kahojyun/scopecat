@@ -13,8 +13,9 @@ that can be handled inside one AI session.
 - `document-index.md` lists the current high-value documents and how to use
   them.
 - `vision.md` states current project-level product direction and boundaries:
-  what Scopecat does, what is not a default adoption requirement, and how it
-  should complement existing experiment systems.
+  what Scopecat does, how it complements existing experiment systems, what
+  complexity belongs to users or lab-owned adapters, and what is not a default
+  adoption requirement.
 - `jc-analysis-operating-standard.md` defines repeatable `JC-###` status,
   source-map, promotion, acceptance, conflict, and reopening workflow.
 - `AGENTS.md` contains rules that should apply to every AI session working
