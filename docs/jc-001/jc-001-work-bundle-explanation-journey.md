@@ -42,10 +42,10 @@ proving active state.
 
 Scopecat must explain this evidence without declaring a hidden source of truth.
 
-## Producer-Side Trace
+## Artifact Trace Behind The Read
 
 Although the first journey is read-first, the bundle did not appear from
-nowhere. The fixture implies a minimal producer-side path:
+nowhere. The fixture implies a descriptive artifact trace:
 
 ```text
 ordinary script or notebook chooses settings path
@@ -56,16 +56,17 @@ ordinary script or notebook chooses settings path
   -> later user reopens the bundle and tries to recover intent
 ```
 
-This trace is descriptive, not accepted write scope. It identifies
-producer-fact pressure for later decisions without requiring Scopecat to
-control execution, own settings, mutate calibration, or manage environments.
+This trace is descriptive, not accepted write scope. It explains why the read
+view may show missing or ambiguous facts without requiring Scopecat to control
+execution, own settings, mutate calibration, or manage environments.
 
-## Producer-Fact Implications
+## Missing-Fact Implications
 
-The read journey identifies producer facts that future write decisions may need
-to preserve. It does not accept a write platform.
+The read journey identifies facts that would improve explanation when present.
+It does not require producers to supply them and does not accept a write
+platform.
 
-| Read need | Future producer fact | Not accepted yet |
+| Read need | Missing or ambiguous fact to surface | Not accepted yet |
 | --- | --- | --- |
 | Explain which settings were selected. | Expose or discover the selected settings source, its role, and whether selection is observed, inferred, copied, or user-declared. | Scopecat-owned configuration truth or automatic settings write-back. |
 | Explain generated sidecars. | Represent or infer `produced-by` relations from selected settings to derived sidecars, with freshness and unchecked labels. | Automatic sidecar generation as a required runtime behavior. |
@@ -74,9 +75,8 @@ to preserve. It does not accept a write platform.
 | Explain variants and backups. | Classify variants separately from selected context and expose unknown active state. | Automatic precedence rules, rollback, restore, or deployment management. |
 | Share the explanation safely. | Preserve artifact roles, relations, conflicts, missing facts, and recipient-aware sharing boundaries. | A general support-ticketing product, permission system, full bundle export/import workflow, or automatic import into active config/setup truth. |
 
-These facts can be supplied by passive recording, explicit user selection,
-static inspection, or lightweight export metadata. The journey does not decide
-which mechanism is best.
+These facts can be observed, inferred, supplied by the user, or absent. The
+journey only decides that the absence should stay visible.
 
 ## Actors
 
@@ -170,7 +170,7 @@ scientific-equivalence judgment.
 
 | Check | Must be true |
 | --- | --- |
-| Read needs imply producer-fact pressure | Capability extraction must identify which missing-fact questions affect passive explanation and future producer decisions. |
+| Read needs imply missing-fact pressure | Design-pressure extraction must identify which missing-fact questions affect passive explanation. |
 | Mechanism remains open | The journey must not assume those facts come from a managed runner, database, service, notebook capture, or control framework. |
 | Failure stays visible | If a producer did not record enough information, the future-state output must show missing or inferred evidence rather than fabricating certainty. |
 | Low ceremony survives | Existing ordinary scripts can produce or expose useful evidence without becoming full Scopecat applications. |
@@ -191,22 +191,23 @@ This journey does not accept:
   state, code execution, or arbitrary legacy-file truth;
 - scientific comparability scoring or known-good reference comparison.
 
-## Capability Pressure Carried Forward
+## Design Pressure Carried Forward
 
-These were extraction prompts for W3, not accepted capability documents. They
-are carried into the provisional
+These were extraction prompts for W3, not accepted capability documents,
+standalone adoption routes, or write-side requirements. They are carried into
+the provisional
 [`jc-001-capability-adoption-extraction.md`](jc-001-capability-adoption-extraction.md)
 and later narrowed by
 [`jc-001-passive-evidence-view-capability-ownership.md`](jc-001-passive-evidence-view-capability-ownership.md).
 
-| Capability pressure | Why the journey touches it |
+| Design pressure | Why the journey touches it |
 | --- | --- |
-| Measurement History | The bundle needs stable anchors, copied snapshots, sidecars, and run-like artifact explanation. |
-| Parameter Memory | Settings and parameter-like files need role, freshness, conflict, and snapshot treatment without write-back. |
-| Code Asset Registry | Code-shaped evidence explains path selection and derivation without managed execution. |
-| Instrument Runtime | Setup and registry-like evidence appears, but only as declared or observed context before device control. |
-| Managed Code Runner | Dependency and readiness pressure appears, but execution remains out of scope. |
-| Comparability and conflict review | Conflict display is needed, but known-good comparison and equivalence judgment remain follow-on scope. |
+| Run and bundle evidence | The bundle needs stable anchors, copied snapshots, sidecars, and run-like artifact explanation. |
+| Settings and context evidence | Settings and parameter-like files need role, freshness, conflict, and snapshot treatment without write-back. |
+| Code and dependency provenance | Code-shaped evidence explains path selection and derivation without managed execution. |
+| Setup and runtime boundary evidence | Setup and registry-like evidence appears, but only as declared or observed context before device control. |
+| Execution readiness evidence | Dependency and readiness pressure appears, but execution remains out of scope. |
+| Conflict diagnostics | Conflict display is needed, but known-good comparison and equivalence judgment remain follow-on scope. |
 
 ## Remaining Follow-On Questions
 
@@ -221,8 +222,8 @@ schema details.
 
 - Which role names should become durable user-facing terms rather than
   internal evidence labels?
-- Which producer facts need explicit future API support, and which can remain
-  recoverable by static inspection or user selection?
+- Which missing facts are valuable enough to justify explicit future support,
+  and which can remain recoverable by static inspection or user selection?
 - Which freshness labels are useful beyond observed, generated, copied,
   unchecked, and user-declared relation evidence?
 - When a bundle or method is moved to another control computer, which facts may

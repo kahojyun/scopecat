@@ -29,7 +29,7 @@ synthetic fixtures and produce an evidence view with:
 - static code-reference summary;
 - variant evidence and backup relation ambiguity;
 - conflict report;
-- missing producer-fact report;
+- missing-fact report;
 - sharing-boundary summary;
 - next-check recommendations.
 
@@ -50,7 +50,7 @@ The output should help a user answer:
   code-shaped evidence?
 - Where does backup ambiguity appear as a relation or non-precedence signal?
 - Which artifacts conflict?
-- Which producer facts are missing?
+- Which useful facts are missing?
 - Which facts carry public-safe fixture sharing labels?
 - What should be checked next before analysis, handoff, or reuse?
 
@@ -180,7 +180,7 @@ Validated behavior:
 - preserves root/selected context drift, setup-context drift, and partial
   snapshot ambiguity;
 - reports preferred anchor, selected settings provenance, generated sidecar
-  freshness, snapshot coverage, and code identity as missing producer facts;
+  freshness, snapshot coverage, and code identity as missing facts;
 - explicitly reports that no static readiness hints are observed in the
   layered-config fixture;
 - reads code artifacts as text only;
@@ -225,7 +225,7 @@ Validated behavior:
 - readiness hints can be present in a second fixture without accepting managed
   execution;
 - single-anchor bundles do not emit a preferred-anchor missing fact;
-- missing producer facts are conditional on observed artifact families;
+- missing facts are conditional on observed artifact families;
 - zero-conflict bundles still produce the accepted evidence-view sections.
 
 ## Fixture Strategy
@@ -271,7 +271,7 @@ shipping sample data, or public documentation examples have been accepted.
 | Conflict visibility | Root/selected context drift, same-shape value drift, setup-context drift, and partial snapshot ambiguity remain visible. |
 | Missing facts | Preferred anchor, selected settings provenance, generated sidecar freshness, snapshot coverage, and code identity gaps remain explicit. |
 | Sharing boundary | Committed public-safe fixture output preserves artifact roles and relation existence; regression coverage verifies that non-public artifact labels, bundle metadata, redaction-policy metadata, and source-derived status text are redacted in Markdown and JSON output with fixture-authored public handles or fixture-authored redaction handles. |
-| No authority claim | The report never declares a selected context, registry, setup, or code reference authoritative unless producer facts explicitly say so. |
+| No authority claim | The report never declares a selected context, registry, setup, or code reference authoritative unless explicit source evidence says so. |
 | Portable run | The prototype can run from a clean checkout using only documented inputs, committed test fixture data, and local tooling. |
 
 ## Reopen When
@@ -294,5 +294,5 @@ capability note, or evidence-backed decision.
 | Prototype becomes a general parser too early. | Keep the fixture strategy explicit and reject arbitrary legacy folder claims. |
 | Static code references look like executable provenance. | Label all code evidence as text-only and not executed. |
 | Public-safe view loses diagnostic value. | Preserve role and relation existence even when details are redacted. |
-| Producer facts get treated as required inputs. | Treat them as missing-fact output until a later write-side decision exists. |
+| Missing facts get treated as required inputs. | Treat them as read-side report output until a later decision accepts explicit source support. |
 | Test fixture drifts from the accepted journey. | Keep acceptance checks tied to `JC-001` and update this scope if the journey changes. |

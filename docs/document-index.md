@@ -40,10 +40,10 @@ docs/
   user/          # Public, redacted MkDocs-facing documentation.
   project/       # Vision, glossary, roadmap, and project context.
   product/       # Personas, evidence, pain points, opportunity maps.
-  journeys/      # End-to-end user journeys that cross capabilities.
+  journeys/      # End-to-end user journeys and adoption routes.
   architecture/  # System map, ownership, dependencies, contracts.
-  capabilities/  # Capability-level adoption, domain, and architecture notes.
-  concepts/      # Stable cross-capability domain concept cards.
+  capabilities/  # Promoted capability or design-pressure owner notes.
+  concepts/      # Stable cross-route or cross-capability concept cards.
   decisions/     # Project-wide ADRs.
   research/      # Raw or semi-processed research inputs.
 ```

@@ -32,7 +32,7 @@ explains:
 - copied run-bound snapshots;
 - variants and backups;
 - code-shaped provenance;
-- producer-fact gaps;
+- missing-fact gaps;
 - conflicts, missing evidence, and unchecked relations;
 - sharing boundaries.
 
@@ -59,28 +59,29 @@ Included:
 - generated-sidecar and copied-snapshot relations;
 - code-shape provenance without execution;
 - variant evidence and backup relation ambiguity;
-- producer-side missing-fact report;
+- missing-fact report;
 - public-safe fixture sharing-boundary labels.
 
 The accepted decision owns the deferred boundary for this wedge.
 
-## Capabilities Involved
+## Design Pressures Involved
 
-| Capability pressure | Role in this wedge |
+| Design pressure | Role in this wedge |
 | --- | --- |
-| Measurement History | Provides the bundle or run-like anchor and artifact-role inventory. |
-| Parameter Memory | Explains selected settings, snapshots, generated context, variants, conflicts, freshness, and unknown active state as evidence. |
-| Code Asset Registry | Surfaces non-executed code-shaped evidence that explains settings selection and derivation. |
-| Instrument Runtime | Treats setup or registry-like files as declared or observed evidence only. |
-| Managed Code Runner | Contributes static readiness and dependency clues only. |
-| Comparability and conflict review | Provides within-bundle conflict display, not known-good comparison. |
+| Run and bundle evidence | Provides the bundle or run-like anchor and artifact-role inventory. |
+| Settings and context evidence | Explains selected settings, snapshots, generated context, variants, conflicts, freshness, and unknown active state as evidence. |
+| Code and dependency provenance | Surfaces non-executed code-shaped evidence that explains settings selection and derivation. |
+| Setup and runtime boundary evidence | Treats setup or registry-like files as declared or observed evidence only. |
+| Execution readiness evidence | Contributes static readiness and dependency clues only. |
+| Conflict diagnostics | Provides within-bundle conflict display, not known-good comparison. |
 
-## Producer Facts Preserved
+## Missing Facts Preserved
 
 The wedge should expose whether these facts are observed, inferred, copied,
-generated, user-declared, unchecked, unsafe to inspect, or missing:
+generated, user-declared, unchecked, unsafe to inspect, or missing. They are
+read-side report facts, not required producer inputs.
 
-| Producer fact | Wedge handling |
+| Missing-fact family | Wedge handling |
 | --- | --- |
 | Bundle or run-like anchor | Represent as the entry point for the evidence view. |
 | Artifact role | Represent for every included artifact. |
@@ -101,7 +102,7 @@ The wedge output should include:
   variants;
 - conflict notes between related artifacts;
 - evidence-handling labels;
-- missing producer-fact report;
+- missing-fact report;
 - sharing-boundary/redaction summary;
 - next-check recommendations.
 
@@ -115,12 +116,12 @@ unsafe to share.
 | --- | --- |
 | Role inventory | The wedge identifies anchor, selected context, generated sidecar, copied snapshot, variant, unknown, and code-shape evidence where present; backup ambiguity is represented through relations and non-precedence labels. |
 | Context ambiguity | Related config/settings artifacts can be shown as related but conflicting without declaring one authoritative truth. |
-| Producer gaps | Missing selected-source, generated-relation, copied-relation, or code-reference facts remain visible. |
+| Missing-fact gaps | Missing selected-source, generated-relation, copied-relation, or code-reference facts remain visible. |
 | No execution | The wedge produces useful output without running code, notebooks, drivers, services, or hardware routines. |
 | No mutation | The wedge does not write back, repair, restore, normalize, or reorder source artifacts. |
 | Sharing boundary | Public-safe fixture output preserves the role of redacted evidence; internal-safe view differences remain follow-on validation. |
 | Low ceremony | The wedge works on ordinary files and lightweight manifests, not only on Scopecat-native projects. |
-| Future write pressure | The wedge identifies which facts future producers should record without requiring a managed runner or database now. |
+| Future support stays optional | The wedge identifies useful missing facts without requiring a managed runner, database, or write-side API now. |
 
 ## Concept And Spike Handoff
 

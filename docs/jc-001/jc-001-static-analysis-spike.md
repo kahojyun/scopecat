@@ -48,7 +48,7 @@ contract surface:
 | Artifact roles | Preserved from the manifest and normalized to the first-wedge vocabulary. |
 | Relations | Preserved as `anchors`, `appears-selected-for`, `generated-from`, `copied-from`, `references-code`, `has-variant`, `has-backup`, `conflicts-with`, `missing-fact`, and `redacts`. |
 | Conflicts | Preserved as visible user-facing ambiguity instead of automatic winner selection. |
-| Missing facts | Preserved as producer-side gaps, not fabricated truth. |
+| Missing facts | Preserved as source gaps, not fabricated truth. |
 | Sharing boundaries | Preserved as public-safe synthetic labels plus explicit redaction behavior. |
 | Execution boundary | Preserved: the analyzer reads JSON and code text only. |
 | Mutation boundary | Preserved: the analyzer does not modify the fixture. |
@@ -63,7 +63,7 @@ The generated evidence view found:
   relation-level evidence;
 - two code-reference artifacts;
 - three conflicts;
-- five missing producer facts.
+- five missing facts.
 
 ## Decision Impact
 
@@ -79,10 +79,10 @@ existing work bundle
 
 The validated decision is narrow: passive explanation can be useful before new
 write flows, managed execution, hardware integration, known-good comparison,
-or full Parameter Memory ownership.
+or full settings/context ownership.
 
 The spike also confirms that read-side explanation creates concrete
-producer-fact questions for later decisions:
+missing-fact questions for later decisions:
 
 - preferred bundle anchor;
 - selected settings path and selection reason;
@@ -90,8 +90,8 @@ producer-fact questions for later decisions:
 - run-bound snapshot coverage;
 - code origin or immutable code reference.
 
-These are write-capability implications, not requirements to build the write
-path first.
+These are report-quality implications, not requirements to build the write path
+first.
 
 ## Limits
 
@@ -116,5 +116,5 @@ import system.
 
 Promoted by
 [`jc-001-passive-evidence-view-decision.md`](jc-001-passive-evidence-view-decision.md),
-which owns the accepted scope, deferred boundary, and future producer-fact
+which owns the accepted scope, deferred boundary, and future missing-fact
 decision prompts.

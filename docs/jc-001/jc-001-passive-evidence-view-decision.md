@@ -49,7 +49,7 @@ The first wedge can include:
 - setup evidence treated as declared or observed evidence, not physical truth;
 - variant evidence and backup relation ambiguity;
 - visible conflicts;
-- explicit producer fact gaps;
+- explicit missing-fact gaps;
 - sharing-boundary labels. The current prototype validates public-safe fixture
   output and redaction-sensitive public rendering for non-public labels and
   metadata; internal-safe, external-support-safe, and unsafe-to-share view
@@ -58,8 +58,8 @@ The first wedge can include:
   [`jc-001-manifest-and-public-output-contract.md`](jc-001-manifest-and-public-output-contract.md).
 
 The evidence view should preserve ambiguity. It may say that an artifact
-appears selected, copied, generated, conflicting, redacted, or missing a
-producer fact. It must not silently choose a winner or convert inferred
+appears selected, copied, generated, conflicting, redacted, or missing a useful
+fact. It must not silently choose a winner or convert inferred
 evidence into truth.
 
 ## Deferred Boundary
@@ -82,24 +82,24 @@ The first wedge does not include:
 These may become later scope after a separate evidence-backed decision. Use a
 journey, wedge, spike, ADR, prototype result, or ownership map as appropriate.
 
-## Producer Facts Identified For Future Write Decisions
+## Missing-Fact Vocabulary Kept In Read Scope
 
-Read-side explanation showed that later write decisions should decide how to
-preserve these facts when bundles are produced:
+Read-side explanation showed that the report should keep these absent or
+ambiguous facts visible when they affect user interpretation:
 
 - preferred bundle anchor;
 - selected settings path;
 - selection reason;
-- producer timestamp or freshness marker;
+- source timestamp or freshness marker;
 - generated sidecar source;
 - generated sidecar invalidation rule;
 - copied snapshot source and coverage;
 - code origin or immutable code reference;
 - sharing-boundary policy for sensitive source details.
 
-The accepted passive wedge owns their missing-fact vocabulary and reporting.
-It does not accept write-side product scope or make these facts prerequisites
-for passive explanation.
+The accepted passive wedge owns only their missing-fact vocabulary and
+reporting. It does not accept write-side product scope or make these facts
+prerequisites for passive explanation.
 
 ## Consequences
 
@@ -110,16 +110,15 @@ the passive evidence view as accepted product direction.
 
 Follow-on status: the second-journey path is now represented by `JC-002`, which
 tests selected-run analysis handoff pressure against the provisional `JC-001`
-capability owners. Any future `JC-001` reopen or extension should update this
-decision or its owning scope, contract, or ownership document before changing
-cross-journey tracker coordination.
+design-pressure owners. Any future `JC-001` reopen or extension should update
+this decision or its owning scope, contract, or ownership document before
+changing cross-journey tracker coordination.
 
 Confidence remains narrative-based, not numeric. Code-reference handling stays
-static until a later Code Asset Registry or Managed Code Runner decision
-exists.
+static until a later code-provenance or execution-readiness decision exists.
 
-Capability names touched by this wedge remain provisional pressure labels
-until a capability map promotes ownership boundaries.
+Design-pressure labels touched by this wedge remain provisional until a later
+capability map promotes ownership boundaries.
 
 ## Reversal Criteria
 

@@ -24,14 +24,14 @@ packet to copy wholesale.
 | --- | --- | --- |
 | 1 | [`jc-001-journey-selection-note.md`](jc-001-journey-selection-note.md) | Why this journey and fixture boundary were selected. |
 | 2 | [`jc-001-work-bundle-explanation-journey.md`](jc-001-work-bundle-explanation-journey.md) | Current-state and future-state user journey. |
-| 3 | [`jc-001-capability-adoption-extraction.md`](jc-001-capability-adoption-extraction.md) | Capability pressure and standalone adoption steps. |
+| 3 | [`jc-001-capability-adoption-extraction.md`](jc-001-capability-adoption-extraction.md) | Design pressure and product-value adoption steps preserved from this wedge. |
 | 4 | [`jc-001-existing-bundle-to-explainable-context-wedge.md`](jc-001-existing-bundle-to-explainable-context-wedge.md) | First migration wedge shape. |
-| 5 | [`jc-001-concepts-and-contracts.md`](jc-001-concepts-and-contracts.md) | Minimum concepts and cross-capability contracts. |
+| 5 | [`jc-001-concepts-and-contracts.md`](jc-001-concepts-and-contracts.md) | Minimum concepts and cross-pressure contracts. |
 | 6 | [`jc-001-static-analysis-spike.md`](jc-001-static-analysis-spike.md) | Static-analysis spike result. |
 | 7 | [`jc-001-passive-evidence-view-decision.md`](jc-001-passive-evidence-view-decision.md) | Accepted passive evidence-view boundary. |
 | 8 | [`jc-001-passive-evidence-view-prototype-scope.md`](jc-001-passive-evidence-view-prototype-scope.md) | Two-fixture prototype scope and validation result. |
 | 9 | [`jc-001-manifest-and-public-output-contract.md`](jc-001-manifest-and-public-output-contract.md) | Fixture-validated manifest, public identity, and public-output redaction contract. |
-| 10 | [`jc-001-passive-evidence-view-capability-ownership.md`](jc-001-passive-evidence-view-capability-ownership.md) | Provisional ownership for accepted fact and contract families. |
+| 10 | [`jc-001-passive-evidence-view-capability-ownership.md`](jc-001-passive-evidence-view-capability-ownership.md) | Provisional design-pressure ownership for accepted fact and contract families. |
 
 ## Audience Read Paths
 
@@ -43,7 +43,7 @@ question:
 | --- | --- |
 | Product or history reader | Selection note -> journey -> adoption extraction -> wedge -> decision. |
 | Implementation reviewer | Decision -> prototype scope -> manifest/public-output contract -> static-analysis spike -> concepts and contracts. |
-| Architecture reviewer | Concepts and contracts -> capability ownership -> decision -> tracker status. |
+| Architecture reviewer | Concepts and contracts -> design-pressure ownership -> decision -> tracker status. |
 
 ## Current State
 
@@ -54,7 +54,7 @@ The first wedge has been validated through:
 - fixture-sized manifest validation and expected-shape checks;
 - a fixture-validated manifest and public-output identity contract;
 - explicit validated-boundary and reopen criteria for the prototype;
-- provisional capability ownership pressure for the accepted evidence-view facts.
+- provisional design-pressure ownership for the accepted evidence-view facts.
 
 This README owns the `JC-001` history and accepted boundary summary.
 Cross-journey coordination that depends on `JC-001` is summarized in

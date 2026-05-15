@@ -121,8 +121,9 @@ there is a clear internal need.
 Durable conclusions should be promoted along the current docs model:
 
 ```text
-Evidence -> User Journey -> Pain Point -> Product Capability
-  -> Domain Concept -> Architecture Contract -> Subsystem Spec
+Evidence -> User Journey -> Pain Point -> Product-Value Adoption Ladder
+  -> Design Pressure -> Domain Concept -> Architecture Contract
+  -> Capability or Subsystem Spec, only when justified
 ```
 
 Use the narrowest durable destination that exists or is justified by real
@@ -130,7 +131,8 @@ content:
 
 - repeated pain points -> `product/`
 - end-to-end workflows -> `journeys/`
-- capability adoption or hypotheses -> `capabilities/`
+- adoption routes or hypotheses -> `journeys/` or a current tracker
+- design-pressure or promoted capability owner notes -> `capabilities/`
 - stable domain vocabulary -> `concepts/`
 - ownership, dependency, or integration contracts -> `architecture/`
 - accepted or rejected decisions -> `decisions/`

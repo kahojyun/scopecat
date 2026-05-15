@@ -1,15 +1,15 @@
-# JC-001 Capability Adoption Extraction
+# JC-001 Design Pressure Adoption Extraction
 
 ## Status
 
 Provisional first-wedge pressure only; later artifacts use it as input without
-promoting a broader adoption plan.
+promoting a broader adoption plan or capability map.
 
 ## Purpose
 
-Extract the capabilities touched by
+Extract the design pressures touched by
 [`jc-001-work-bundle-explanation-journey.md`](jc-001-work-bundle-explanation-journey.md)
-and define the smallest standalone adoption step for each one.
+and define the smallest product-value adoption step they suggest.
 
 This note is scoped to `JC-001`. It does not define the full capability map,
 ownership model, architecture contracts, subsystem specs, or implementation
@@ -17,45 +17,50 @@ plan.
 
 ## Extraction Rule
 
-Start from the read journey, then preserve the producer-fact pressure that
-would make that read journey easier to explain later.
+Start from the read journey, then preserve the missing-fact pressure that
+explains why the read view is incomplete without turning those gaps into
+write-side requirements.
 
 ```text
 read need
-  -> recoverable producer facts
-  -> standalone adoption step
+  -> visible missing facts
+  -> product-value adoption step
   -> later composition path
 ```
 
-Do not infer that every producer fact requires managed execution, services,
+Do not infer that every missing fact requires managed execution, services,
 databases, write-back, hardware control, or environment management. Some facts
 can come from passive recording, explicit user selection, static inspection,
 lightweight manifests, or export metadata.
 
-## Capability Touches
+## Design Pressure Touches
 
-| Capability pressure | Why `JC-001` touches it | Status in this note |
+These labels preserve useful capability intent from earlier research without
+accepting those labels as product surfaces, subsystem owners, or migration
+routes.
+
+| Design pressure | Why `JC-001` touches it | Status in this note |
 | --- | --- | --- |
-| Measurement History | The journey needs a stable work-bundle or run-like anchor, copied snapshots, generated sidecars, and artifact roles. | Provisional first-wedge pressure only. |
-| Parameter Memory | Settings and parameter-like files need source, role, freshness, conflict, snapshot, and variant treatment without write-back. | Provisional first-wedge pressure only. |
-| Code Asset Registry | Code-shaped evidence explains path selection, settings read, and sidecar derivation without managed execution. | Provisional first-wedge pressure only. |
-| Instrument Runtime | Setup and registry-like evidence appears as declared or observed context before device control. | Context-only pressure; no live runtime adoption yet. |
-| Managed Code Runner | Dependency and readiness pressure appears, but execution remains out of scope. | Diagnostic pressure only; defer runner adoption. |
-| Comparability and conflict review | Conflict display is needed inside one bundle, but known-good comparison remains follow-on. | Limited diff pressure only; no comparator adoption yet. |
+| Run and bundle evidence | The journey needs a stable work-bundle or run-like anchor, copied snapshots, generated sidecars, and artifact roles. | Provisional first-wedge pressure only. |
+| Settings and context evidence | Settings and parameter-like files need source, role, freshness, conflict, snapshot, and variant treatment without write-back. | Provisional first-wedge pressure only. |
+| Code and dependency provenance | Code-shaped evidence explains path selection, settings read, and sidecar derivation without managed execution. | Provisional first-wedge pressure only. |
+| Setup and runtime boundary evidence | Setup and registry-like evidence appears as declared or observed context before device control. | Context-only pressure; no live runtime adoption yet. |
+| Execution readiness evidence | Dependency and readiness pressure appears, but execution remains out of scope. | Diagnostic pressure only; defer runner adoption. |
+| Conflict diagnostics | Conflict display is needed inside one bundle, but known-good comparison remains follow-on. | Limited diff pressure only; no comparator adoption yet. |
 
-## Standalone Adoption Steps
+## Product-Value Adoption Steps
 
 The deferred boundary is owned by
 [`jc-001-passive-evidence-view-decision.md`](jc-001-passive-evidence-view-decision.md).
 
-| Capability | Smallest useful standalone adoption step | Recoverable producer facts | Later composition path |
+| Design pressure | Smallest useful product-value step | Read-side missing facts to keep visible | Later composition path |
 | --- | --- | --- | --- |
-| Measurement History | Open an existing work bundle and produce an artifact-role inventory anchored by a run-like or bundle identity. | A producer or importer can expose anchor identity, copied snapshots, generated sidecars, and artifact roles. | Later run records can link scan points, parameter snapshots, code references, execution records, and handoff packages. |
-| Parameter Memory | Show selected settings, copied snapshots, generated context, variants, conflicts, freshness, and unknown active state as evidence. | A producer can record or expose selected settings source, snapshot relation, generated relation, and variant classification. | Later calibration workflows can propose updates, review diffs, and link accepted snapshots to runs. |
-| Code Asset Registry | Surface code-shaped evidence that explains settings path selection and derivation flow without executing it. | A producer can expose entrypoint-like evidence, settings path references, data path references, and sidecar generator references. | Later managed execution can resolve exact code versions and execution records after safety boundaries exist. |
-| Instrument Runtime | Represent setup/registry-like context as declared or observed evidence with role and sharing boundary. | A producer can expose setup context as evidence without proving live device state. | Later diagnostics and resource semantics can build on manifests after ADRs for device apply and leases. |
-| Managed Code Runner | Show readiness gaps and dependency-shaped clues as static evidence. | A producer can expose dependency categories or environment hints without installing or running anything. | Later runner records can capture logs, artifacts, status, and environment after control-PC safety decisions. |
-| Comparability and conflict review | Explain conflicts between artifacts inside one bundle with layer-by-layer evidence. | A producer can preserve enough source and relation metadata for later conflict display. | Later known-good comparison can compare bundle, setup, method, calibration, and analysis layers. |
+| Run and bundle evidence | Open an existing work bundle and produce an artifact-role inventory anchored by a run-like or bundle identity. | Missing anchor, role, lifecycle, copied snapshot, generated sidecar, or included/excluded artifact explanation. | Later run records can link scan points, parameter snapshots, code references, execution records, and handoff packages. |
+| Settings and context evidence | Show selected settings, copied snapshots, generated context, variants, conflicts, freshness, and unknown active state as evidence. | Missing selected source, selection reason, freshness, snapshot coverage, variant status, or context mismatch. | Later calibration workflows can propose updates, review diffs, and link accepted snapshots to runs. |
+| Code and dependency provenance | Surface code-shaped evidence that explains settings path selection and derivation flow without executing it. | Missing entrypoint, code origin, settings path reference, dependency or lockfile clue, or sidecar generator reference. | Later managed execution can resolve exact code versions and execution records after safety boundaries exist. |
+| Setup and runtime boundary evidence | Represent setup/registry-like context as declared or observed evidence with role and sharing boundary. | Missing setup source, verification status, physical-context freshness, or unsafe-to-verify label. | Later diagnostics and resource semantics can build on manifests after ADRs for device apply and leases. |
+| Execution readiness evidence | Show readiness gaps and dependency-shaped clues as static evidence. | Missing dependency category, environment clue, expected output shape, or failure-policy hint. | Later runner records can capture logs, artifacts, status, and environment after control-PC safety decisions. |
+| Conflict diagnostics | Explain conflicts between artifacts inside one bundle with layer-by-layer evidence. | Missing source, relation, affected fact, next-check wording, or reason a winner cannot be selected. | Later known-good comparison can compare bundle, setup, method, calibration, and analysis layers. |
 
 ## First Adoption Slice
 
@@ -66,7 +71,7 @@ existing bundle
   -> role inventory
   -> selected-context explanation
   -> code-shape provenance
-  -> producer-fact gaps
+  -> missing-fact gaps
   -> public-safe fixture evidence view
 ```
 
@@ -74,10 +79,11 @@ This slice can be useful even when the producer did not record everything. The
 system should show what is observed, inferred, copied, generated, unchecked,
 or missing.
 
-## Minimal Producer Facts
+## Missing Facts Worth Preserving
 
-These are the facts `JC-001` suggests producers should eventually record or
-make recoverable:
+These are facts the read view may show as missing, inferred, copied,
+generated, unchecked, or unsafe to verify. They are not required inputs and do
+not define a future write-side API.
 
 | Fact | Why it matters | First-slice handling |
 | --- | --- | --- |
@@ -92,7 +98,7 @@ make recoverable:
 | Dependency/readiness hint | Shows execution risk before running code. | Include when visible. |
 | Variant lineage | Preserves branch ambiguity. | Include one representative example. |
 
-## Capability Ordering
+## Evidence View Ordering
 
 For `JC-001`, layer the evidence view in this order:
 
@@ -105,7 +111,7 @@ For `JC-001`, layer the evidence view in this order:
 7. Follow-on known-good or scientific comparability only after this slice is
    validated.
 
-This order keeps the first slice read-first while preserving producer-fact
+This order keeps the first slice read-first while preserving missing-fact
 pressure for future decisions.
 
 ## Migration-Wedge Candidate

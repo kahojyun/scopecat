@@ -103,23 +103,23 @@ ownership.
 The greenfield automation note framed early adoption around independently
 useful foundational capabilities, not a monolithic replacement system. Current
 docs should preserve that principle while avoiding a premature subsystem map:
-an adoption ladder is a standalone product-value path; the capability names are
-only the pressure or boundary vocabulary underneath it.
+an adoption ladder is a standalone product-value path. Historical capability
+names are retained only as design intent when the wording still helps.
 
-| Product-value adoption ladder | Touched `JC` rows | Phase | Standalone value | Capability or boundary pressure preserved |
+| Product-value adoption ladder | Touched `JC` rows | Phase | Standalone value | Design intent preserved |
 | --- | --- | --- | --- | --- |
-| Run history and analysis handoff | `JC-001`, `JC-002`, `JC-006`, `JC-015` | Provisional | Open, understand, reopen, select, package, and later trace measurement work without replacing acquisition code. | Measurement History; durable recording substrate; campaign lineage. |
-| Method and code portability diagnostics | `JC-004`, `JC-008`, `JC-013` | Not Started | Explain copied notebooks, scripts, runnable configuration, known-good sources, drift, and dry-run readiness before deployment or managed execution. | Code Asset Registry; Managed Code Runner readiness; no package registry or environment sync. |
-| Experiment intent and readiness | `JC-007`, `JC-008`, `JC-016` | Not Started | Preview, diff, freeze, and mock-check plan or queue intent before one bounded runtime handoff is considered. | Scan Framework; execution-package readiness; runtime-handoff boundary. |
-| Calibration and parameter review | `JC-003`, `JC-011`, `JC-012`, `JC-016` | Provisional | Review calibration, parameter, declared-context, and advisory evidence before mutation or bounded apply. | Parameter Memory; declared local context; proposal before apply. |
-| Trust, diagnostics, and comparability | `JC-009`, `JC-010`, `JC-012` | Provisional | Compare known-good references, current bundles, valid-looking runs, setup states, samples, or method variants without claiming equivalence. | Comparability review; conflict diagnostics; declared context limits. |
-| Analysis and claim lineage | `JC-002`, `JC-006`, `JC-014` | Not Started | Trace figures, fits, reports, and claims back to source runs, processing choices, corrections, exclusions, and ambiguity. | Analysis lineage; report impact without ELN or report generation. |
+| Run history and analysis handoff | `JC-001`, `JC-002`, `JC-006`, `JC-015` | Provisional | Open, understand, reopen, select, package, and later trace measurement work without replacing acquisition code. | Stable run or bundle identity, durable records, lifecycle state, handoff snapshots, and campaign lineage. |
+| Method and code portability diagnostics | `JC-004`, `JC-008`, `JC-013` | Not Started | Explain copied notebooks, scripts, runnable configuration, known-good sources, drift, and dry-run readiness before deployment or managed execution. | Code and dependency provenance, entrypoint identity, lockfile or environment clues, drift diagnostics, and readiness without Git hosting or environment sync. |
+| Experiment intent and readiness | `JC-007`, `JC-008`, `JC-016` | Not Started | Preview, diff, freeze, and mock-check plan or queue intent before one bounded runtime handoff is considered. | Declarative scan or queue intent that can render desired state for preview and later share semantics with bounded apply. |
+| Calibration and parameter review | `JC-003`, `JC-011`, `JC-012`, `JC-016` | Provisional | Review calibration, parameter, declared-context, and advisory evidence before mutation or bounded apply. | Settings, calibration, local schema, proposal, and advisory evidence before authoritative write-back. |
+| Trust, diagnostics, and comparability | `JC-009`, `JC-010`, `JC-012` | Provisional | Compare known-good references, current bundles, valid-looking runs, setup states, samples, or method variants without claiming equivalence. | Conflict diagnostics, declared-context limits, comparability gaps, and known-good reference explanation without rollback or equivalence scoring. |
+| Analysis and claim lineage | `JC-002`, `JC-006`, `JC-014` | Not Started | Trace figures, fits, reports, and claims back to source runs, processing choices, corrections, exclusions, and ambiguity. | Derived-artifact lineage and report impact without ELN or report generation. |
 
-Do not promote Instrument Runtime or Managed Code Runner into standalone
-adoption ladders until a lab can get useful value from adopting them alone.
-For now they are boundary pressure: runtime owner, supplied bounds, readiness,
-stop behavior, failure policy, audit records, and the decision that Scopecat
-does not own hardware safety limits unless an accepted runtime decision says
+Do not promote runtime ownership or managed execution into standalone adoption
+ladders until a lab can get useful value from adopting them alone. For now they
+are boundary pressure: runtime owner, supplied bounds, readiness, stop
+behavior, failure policy, audit records, and the decision that Scopecat does
+not own hardware safety limits unless an accepted runtime decision says
 otherwise.
 
 ## Candidate Migration Wedges

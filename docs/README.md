@@ -29,13 +29,15 @@ entry point, not a second index.
 Use this promotion path for durable product and architecture work:
 
 ```text
-Evidence -> User Journey -> Pain Point -> Product Capability
-  -> Domain Concept -> Architecture Contract -> Subsystem Spec
+Evidence -> User Journey -> Pain Point -> Product-Value Adoption Ladder
+  -> Design Pressure -> Domain Concept -> Architecture Contract
+  -> Capability or Subsystem Spec, only when justified
 ```
 
 Research and product discovery should be journey-first. Progressive adoption
-stories should be capability-first. Subsystem or capability docs should define
-ownership and contracts, not duplicate the whole product discovery process.
+stories should be product-value-first: users adopt a useful path, not a
+subsystem name. Capability names may preserve design pressure until multiple
+journeys justify durable ownership and contracts.
 
 ## Editing Rules
 

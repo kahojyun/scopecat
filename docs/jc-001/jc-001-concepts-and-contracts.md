@@ -7,7 +7,7 @@ decision.
 
 ## Purpose
 
-Identify the minimum domain concepts and cross-capability contracts needed for
+Identify the minimum domain concepts and cross-pressure contracts needed for
 [`jc-001-existing-bundle-to-explainable-context-wedge.md`](jc-001-existing-bundle-to-explainable-context-wedge.md).
 
 This note is scoped to the first wedge only. It is not a full domain model,
@@ -43,7 +43,7 @@ truth.
 | Generated sidecar | An artifact that appears derived from selected context or code-shaped flow. | Produced-by or inferred-produced-by relation and freshness/unchecked label. |
 | Copied snapshot | A copied view of context attached to a run-like artifact or bundle. | Copied-from or snapshot-of relation, source if known, and mismatch note when current context differs. |
 | Code reference | Non-executed evidence about path selection, entrypoint-like behavior, or derivation flow. | Reference target, observed/inferred role, execution boundary, and unsafe-to-run flag when relevant. |
-| Producer fact gap | A missing or insufficient producer-side fact needed for later explanation. | Missing fact type, affected artifacts, user impact, and suggested next check. |
+| Missing fact gap | A missing or insufficient fact needed for better explanation. | Missing fact type, affected artifacts, user impact, and suggested next check. |
 | Sharing boundary | The allowed disclosure level for an artifact, field, or report section. | First prototype: public-safe and redaction-sensitive public rendering. Follow-on policy: internal-safe, external-support-safe, and unsafe-to-share. |
 | Evidence view | The user-facing report produced by the wedge. | Role inventory, relations, conflicts, missing facts, sharing summary, and next checks. |
 
@@ -51,21 +51,21 @@ truth.
 
 The first wedge should use a small role vocabulary:
 
-| Role | Meaning | Owner pressure |
+| Role | Meaning | Design pressure |
 | --- | --- | --- |
-| Anchor | Entry point for explanation. | Measurement History. |
-| Selected context | Context that appears selected for the bundle. | Parameter Memory. |
-| Generated sidecar | Derived artifact associated with selected context or code-shaped flow. | Measurement History plus Parameter Memory. |
-| Copied snapshot | Copied state attached to a run-like artifact or bundle. | Measurement History plus Parameter Memory. |
-| Variant | Related branch that may represent a different setup, method, or time period. | Parameter Memory; later comparability pressure. |
-| Code reference | Static code-shaped evidence, not executed code. | Code Asset Registry. |
-| Setup evidence | Registry-like or physical/setup context treated as declared or observed evidence. | Instrument Runtime. |
-| Readiness hint | Static dependency or environment clue. | Managed Code Runner. |
-| Unknown | Included artifact with unclear role. | Cross-capability triage. |
+| Anchor | Entry point for explanation. | Run and bundle evidence. |
+| Selected context | Context that appears selected for the bundle. | Settings and context evidence. |
+| Generated sidecar | Derived artifact associated with selected context or code-shaped flow. | Run/bundle evidence plus settings/context evidence. |
+| Copied snapshot | Copied state attached to a run-like artifact or bundle. | Run/bundle evidence plus settings/context evidence. |
+| Variant | Related branch that may represent a different setup, method, or time period. | Settings/context evidence; later comparability pressure. |
+| Code reference | Static code-shaped evidence, not executed code. | Code and dependency provenance. |
+| Setup evidence | Registry-like or physical/setup context treated as declared or observed evidence. | Setup and runtime boundary evidence. |
+| Readiness hint | Static dependency or environment clue. | Execution readiness evidence. |
+| Unknown | Included artifact with unclear role. | Cross-route triage. |
 | Fixture-authored | Synthetic or test-only artifact. | Fixture/tooling only. |
 
-Owner pressure is provisional. It indicates where later ownership might land,
-not an accepted subsystem boundary.
+Design pressure is provisional. It indicates why the role matters, not where
+later ownership must land.
 
 ## Evidence Relation Vocabulary
 
@@ -81,14 +81,14 @@ The first wedge should support only these relation types:
 | `references-code` | Artifact or bundle has non-executed code-shaped evidence. | Does not accept execution or code identity ownership. |
 | `has-variant` | Bundle has a related branch or variant. | Does not infer active precedence. |
 | `has-backup` | Bundle has a related backup. | Does not infer rollback target. |
-| `missing-fact` | Producer-side information is absent or unknown and would improve later explanation. | Does not fabricate inferred truth or make passive explanation depend on producer support. |
+| `missing-fact` | Useful source information is absent or unknown and would improve later explanation. | Does not fabricate inferred truth or make passive explanation depend on producer support. |
 | `redacts` | Public/support view hides or categorizes sensitive evidence. | Does not erase internal diagnostic value. |
 
-## Cross-Capability Contracts
+## Cross-Pressure Contracts
 
 ### Bundle Inventory Contract
 
-Purpose: Measurement History provides a bounded artifact inventory for the
+Purpose: run and bundle evidence provides a bounded artifact inventory for the
 wedge.
 
 Minimum fields:
@@ -112,8 +112,8 @@ Rules:
 
 ### Context Evidence Contract
 
-Purpose: Parameter Memory explains selected settings, snapshots, generated
-context, variants, and conflicts as evidence.
+Purpose: settings and context evidence explains selected settings, snapshots,
+generated context, variants, and conflicts as evidence.
 
 Minimum fields:
 
@@ -133,8 +133,8 @@ Rules:
 
 ### Code Reference Contract
 
-Purpose: Code Asset Registry contributes static code-shaped evidence without
-managed execution.
+Purpose: code and dependency provenance contributes static code-shaped evidence
+without managed execution.
 
 Minimum fields:
 
@@ -154,8 +154,8 @@ Rules:
 
 ### Setup Evidence Contract
 
-Purpose: Instrument Runtime contributes setup or registry-like evidence without
-device control.
+Purpose: setup and runtime boundary evidence contributes setup or registry-like
+evidence without device control.
 
 Minimum fields:
 
@@ -174,7 +174,7 @@ Rules:
 
 ### Readiness Hint Contract
 
-Purpose: Managed Code Runner pressure is represented only as static readiness
+Purpose: execution readiness pressure is represented only as static readiness
 evidence.
 
 Minimum fields:
@@ -202,7 +202,7 @@ Minimum fields:
 - conflict ID;
 - artifact pair or relation;
 - conflict type;
-- affected producer fact;
+- affected missing fact;
 - user-visible implication;
 - next check.
 
@@ -296,7 +296,7 @@ view.
   separate support/export policy is needed?
 - Can code references remain file-level, or does the first spike need
   function/cell-level references?
-- Which contract should own missing producer facts: bundle inventory, context
+- Which contract should own missing-fact wording: bundle inventory, context
   evidence, or evidence view?
 
 ## Current Downstream
