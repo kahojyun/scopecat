@@ -60,3 +60,10 @@ Use these prompts for that decision, but do not treat them as a fixed checklist:
   and future-open promises are stable only at fixture scale?
 - Which prototype behaviors remain smoke-test conveniences and should not be
   promoted into a contract?
+
+If the answer is acceptance, the expected output is a journey-local decision
+file under `decisions/` that states the accepted fixture-scale boundary,
+deferred scope, minimal compatibility and integrity stance, validation command,
+fixtures covered, and reopening criteria. Create a contract only if downstream
+tests or docs need stable manifest, reader, or output rules beyond the decision.
+Update the project tracker only if the coordination phase changes.

@@ -16,15 +16,15 @@ Use owner documents for durable detail:
 
 ## Coordination Phases
 
-Use the status language in
-[`../standards/jc-operating-standard.md`](../standards/jc-operating-standard.md)
-for validation meaning. This tracker uses compact coordination phases only:
-`Not Started`, `Drafting`, `Provisional`, `Validating`, `Ready`, `Accepted`,
-`Quarantined`, and `Deferred`.
+This tracker uses compact coordination labels only: `Not Started`, `Drafting`,
+`Provisional`, `Validating`, `Ready`, `Accepted`, `Quarantined`, and
+`Deferred`.
 
-Do not infer validation detail from a tracker phase. Put acceptance criteria,
-fixture results, reopening criteria, and skipped review prompts in the owning
-journey, decision, prototype, or contract.
+Do not infer validation detail from a tracker phase. Use
+[`../standards/jc-operating-standard.md`](../standards/jc-operating-standard.md)
+for validation status meaning, and put acceptance criteria, fixture results,
+reopening criteria, and skipped review prompts in the owning journey, decision,
+prototype, or contract.
 
 ## Current Focus
 

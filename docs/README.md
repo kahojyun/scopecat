@@ -42,6 +42,19 @@ stories should be product-value-first: users adopt a useful path, not a
 subsystem name. Historical capability names may preserve design pressure, but
 they should not become default document structure or implementation ownership.
 
+## Validation
+
+For changes that affect prototype behavior, fixture contracts, expected
+outputs, or journey validation claims, run the relevant focused command from
+the prototype doc or the full suite:
+
+```sh
+python3 -m unittest discover -s tests
+```
+
+Docs-only wording or navigation changes may not need tests, but the final note
+should say when tests were not run.
+
 ## Editing Rules
 
 - Create the narrowest durable document with a real owner and purpose.
