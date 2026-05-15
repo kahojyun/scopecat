@@ -2,8 +2,9 @@
 
 ## Status
 
-Accepted first journey record. This folder is an earned record for one
-validated slice, not a template for future `JC` folders.
+Entry point for the accepted passive evidence-view boundary. This folder is an
+earned record for one validated slice, with supporting historical, design, and
+prototype notes at their own validation levels.
 
 ## Purpose
 

@@ -2,9 +2,12 @@
 
 ## Status
 
-Draft journey seed for selected-run analysis handoff. Not accepted scope,
-prototype scope, implementation plan, UI spec, API contract, storage model, or
-export format.
+Draft journey seed for selected-run analysis handoff. The snapshot boundary is
+draft in [`snapshot-boundary.md`](snapshot-boundary.md), and the fixture-backed
+prototype is validating it.
+
+Not accepted scope, implementation plan, UI spec, API contract, storage model,
+or export format.
 
 ## Purpose
 
@@ -22,8 +25,8 @@ computer and now needs to analyze promising data elsewhere.
 The user may have found valuable data through a plotting browser, Data Vault
 or LabRAD-style paths, numeric dataset IDs, quick plots, filenames, run names,
 or memory from the measurement session. The existing sample evidence does not
-show a native star/favorite UI; star or selected-run behavior remains a
-future-state interaction pressure.
+show a native favorite UI; selection-mark behavior remains a future-state
+interaction pressure.
 
 The first success moment should stay small: the user copies the snapshot to an
 unrelated path, opens it offline, sees what was selected and why, loads the
@@ -116,5 +119,5 @@ Reopen this journey boundary if fixture or user validation shows that:
   handoff succeeds;
 - users cannot make useful plots from snapshots without a stable reader API
   being specified earlier;
-- star/favorite behavior is not the right selection metaphor for the target
+- selection-mark behavior is not the right interaction metaphor for the target
   workflow.

@@ -2,9 +2,11 @@
 
 ## Status
 
-Drafting second-journey record with a fixture-backed prototype. This is not an
-accepted decision, implementation plan, API contract, export format, storage
-design, or UI spec.
+Draft journey record with a fixture-backed prototype in validation. The
+snapshot boundary is draft and not accepted.
+
+This is not an accepted decision, implementation plan, API contract, export
+format, storage design, or UI spec.
 
 ## Purpose
 
@@ -28,10 +30,13 @@ of the first handoff snapshot boundary.
 
 ## Current Boundary
 
-This document set may define a fixture-scale analysis handoff boundary and
-validation questions. It must not define final package schema, reader API,
-storage, GUI, export adapter, permission system, managed analysis execution,
-or publication workflow.
+The canonical draft snapshot boundary lives in
+[`snapshot-boundary.md`](snapshot-boundary.md). Other documents in this folder
+summarize that boundary only.
+
+This document set may validate a fixture-scale analysis handoff boundary. It
+must not define final package schema, reader API, storage, GUI, export adapter,
+permission system, managed analysis execution, or publication workflow.
 
 The current prototype validation lives in
 [`../../../prototypes/jc002_handoff_snapshot.py`](../../../prototypes/jc002_handoff_snapshot.py)

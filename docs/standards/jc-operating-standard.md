@@ -96,6 +96,38 @@ Do not create capability maps, subsystem docs, owner routing, or broad
 architecture scaffolds before a journey, prototype, or accepted decision needs
 them.
 
+## Decision Placement
+
+Put durable decisions next to the smallest owner that can safely own them.
+
+| Decision type | Owner |
+| --- | --- |
+| One journey's product boundary, deferred scope, and reopening criteria | `docs/journeys/<jc>/decisions/` |
+| Stable fixture output, manifest vocabulary, relation semantics, or public behavior used by tests or downstream docs | `docs/journeys/<jc>/contracts/` |
+| Draft boundary that still needs fixture or user validation | A compact journey-local note such as `snapshot-boundary.md`; do not call it a contract yet. |
+| Cross-journey runtime, storage, apply, execution, integration, support, or ownership policy | Future `docs/architecture/` ADR, created only when more than one journey or implementation path depends on it. |
+| Evidence wording, support level, source class, or candidate provenance | `docs/evidence/inventory.md` |
+
+If a decision is hard to place, keep it as journey-local design pressure until
+a second journey or implementation dependency proves that it needs a broader
+owner.
+
+## Change Routing
+
+When a review or prototype result changes scope, update the owner of the changed
+claim instead of copying the change through every index.
+
+| Change | Update |
+| --- | --- |
+| Candidate wording, evidence rank, support level, or validation route | `docs/evidence/inventory.md`; tracker only if active coordination changes. |
+| Journey situation, future-state outcome, non-goals, or next decision | Owning `docs/journeys/<jc>/README.md` or `journey.md`; tracker only for phase, link, or dependency changes. |
+| Accepted boundary or reopening criteria | Owning `decisions/*.md`, plus dependent contracts, prototypes, fixtures, expected outputs, and tests. |
+| Draft boundary used by a prototype | Journey-local boundary note and prototype doc; promote to contract only after downstream behavior needs stable rules. |
+| Prototype behavior or validation output | Prototype doc, implementation, fixtures, expected outputs, and tests; contract only if stable public behavior changes. |
+| Public output, identifiers, labels, relation targets, metadata, or redaction behavior | Public-output contract, fixtures, expected outputs, and tests; process standard only if the rule itself changes. |
+| Cross-journey phase, priority, dependency, or route coordination | `docs/status/progress-tracker.md`. |
+| Cross-journey runtime, apply, storage, or ownership policy | Future architecture ADR, plus all journey docs that depend on it. |
+
 ## Source And Sharing Gate
 
 Before promoting a `JC`, identify the validation source. The source record can

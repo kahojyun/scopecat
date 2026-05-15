@@ -13,6 +13,10 @@ experiment-control computer, opened locally, inspected for missing context,
 loaded through a Python-reader-like path, and plotted without depending on
 original local paths.
 
+The canonical draft boundary lives in
+[`../snapshot-boundary.md`](../snapshot-boundary.md). This prototype document
+records validation scope and results; it should not redefine the boundary.
+
 This prototype depends on:
 
 - [`../selection.md`](../selection.md)

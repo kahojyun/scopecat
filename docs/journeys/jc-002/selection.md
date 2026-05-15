@@ -37,7 +37,7 @@ without depending on fragile local paths, memory, or the original machine.
 Existing evidence shows users preserve Data Vault paths, numeric dataset IDs,
 local file paths, and derived local snapshots inside analysis notebooks and
 helpers. That supports source-identity and context-loss pressure; it does not
-prove that a star/favorite UI already exists.
+prove that a favorite or selection-mark UI already exists.
 
 ## Selection Guardrails
 
