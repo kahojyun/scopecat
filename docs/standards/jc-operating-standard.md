@@ -127,6 +127,21 @@ journey or prototype needs to decide any of these boundaries:
   operator accountability for a bounded local run;
 - whether a copied method, package, or plan is diagnostic evidence, a reusable
   template, or an execution-authoritative artifact.
+- what write acknowledgement, partial-read, checkpoint-safe-read, stable-ID
+  lifetime, reader compatibility, package versioning, migration, and
+  interrupted-or-disabled recording behavior mean for a durable record or
+  handoff package.
+
+An architecture ADR should state:
+
+- status;
+- decision being made;
+- affected journeys and fixtures;
+- accepted boundary;
+- deferred scope;
+- compatibility or migration impact;
+- fixture, prototype, or user evidence;
+- reopening criteria.
 
 ## Change Routing
 
@@ -219,6 +234,11 @@ A product decision is ready when a reviewer can answer:
 - what scope is deferred;
 - what would reopen the decision;
 - which document or implementation depends on the result.
+
+Before accepting a fixture-backed package, snapshot, or reader boundary, also
+state the minimal compatibility stance: what identity, relative-path behavior,
+status vocabulary, version field, migration expectation, and future-open
+promise are stable at fixture scale, and what remains prototype-only.
 
 ### Contract Readiness
 

@@ -26,23 +26,13 @@ complete experience pressure
   -> later contract or decision only when earned
 ```
 
-## How Candidate Journeys Compose
+## Composition Rule
 
 Project-level product direction and boundaries are owned by
-[`vision.md`](vision.md). This map only shows how validated and candidate
-journeys may compose into a fuller user experience.
-
-| Moment | User is trying to | Scopecat helps by | Candidate JCs |
-| --- | --- | --- | --- |
-| Before measurement | Prepare method, code, config, setup, and calibration context before scarce experiment time. | Preview intent, expose readiness gaps, preserve setup evidence as context, and avoid hardware authority. | `JC-004`, `JC-005`, `JC-007`, `JC-008`, `JC-012`, `JC-013` |
-| During measurement | Run in the existing local stack while preserving enough evidence to understand partial, continued, stopped, or retuned work. | Record durable data and lifecycle state, replay decision evidence, and preserve generated protocol or run-family lineage. | `JC-006`, `JC-011`, `JC-015` |
-| After measurement | Recover useful runs, context, code references, companion artifacts, conflicts, and sharing boundaries. | Explain existing evidence and package selected runs for offline analysis handoff. | `JC-001`, `JC-002` |
-| Trust and comparison | Decide whether current work, known-good references, or valid-looking runs can be trusted or compared. | Show differences, missing facts, comparability gaps, and declared-context limits. | `JC-009`, `JC-010`, `JC-012` |
-| Analysis lineage | Keep figures, fits, reports, and claims linked to source evidence and unresolved ambiguity. | Trace derived artifacts back to source runs, processing choices, corrections, calibration context, and exclusions. | `JC-014` |
-| Bounded automation | Make informal queues or calibration loops explicit before one bounded local run. | Validate frozen intent, mock readiness, reviewed proposals, replay behavior, and one bounded handoff to a lab-owned runtime. | `JC-003`, `JC-007`, `JC-008`, `JC-011`, `JC-016` |
-
-The silhouette is useful because it shows why small slices need to compose. It
-does not mean every step is accepted product direction today.
+[`vision.md`](vision.md). Adoption-route definitions live in
+[`adoption-routes.md`](adoption-routes.md). This map only places current and
+candidate `JC` rows in the fuller lab workflow so future slices stay narrow
+while still composing.
 
 ## End-To-End Journey Silhouettes
 
@@ -52,11 +42,9 @@ boundaries; promote only the smallest valuable slice.
 | User-facing pressure | Candidate composition | Split point |
 | --- | --- | --- |
 | Inherited bundle becomes analysis-ready context. | Explain bundle -> package selected runs -> trace derived artifacts. | Packaging known artifacts is separate from generating analysis outputs. |
-| Existing method moves toward another control computer. | Clean code provenance -> compare copied assets -> validate dry run. | Diagnostics and readiness are separate from deployment or environment sync. |
 | Planned campaign becomes reviewable before scarce experiment time. | Preview intent -> validate bring-up evidence -> review calibration proposal. | Intent, setup evidence, proposal, and write-back remain separate. |
 | Long-running measurement produces decision-grade evidence. | Record durable run -> replay decision support -> preserve campaign lineage. | Advice records evidence; it does not mutate hardware, scan plans, or claims. |
 | Informal lab automation becomes explicit. | Freeze queue intent -> mock readiness -> review proposal -> hand one reviewed package to one lab-owned runtime for one bounded local run. | Early automation can validate contracts; the bounded local run needs an accepted runtime boundary. |
-| Valid-looking results need trust and comparison. | Compare known-good -> review comparability -> use declared local context. | Diagnostics are not rollback, and comparability is not equivalence scoring. |
 
 ## Lab Workflow Reference
 
@@ -108,5 +96,5 @@ owner before this placement table becomes the source of truth.
 | Derived analysis impact | `JC-014` | Link figures, reports, fits, and claims back to source evidence before considering report generation or publication workflow. |
 
 Adjacent steps are context, not prototype scope. The tracker owns current
-phase, priority, and coordination status; owning `JC` documents own validation
+phase and coordination status; owning `JC` documents own validation
 boundaries.

@@ -95,6 +95,21 @@ substrates, but they are not enough to define Scopecat's product direction.
 | Automation, runtime, mutation, and safety boundaries | [`../../../strategy/vision.md`](../../../strategy/vision.md) and [`../../../standards/jc-operating-standard.md`](../../../standards/jc-operating-standard.md) |
 | Full lab workflow gap discovery | [`experimental-lab-workflow-reference.md`](experimental-lab-workflow-reference.md) |
 
+## Source Map
+
+The raw Fricon snapshot was removed in commit `9e342e7`. The table below
+keeps enough provenance for future review without restoring the raw docs.
+
+| Deleted source document | Retained lesson | Current rows or owners affected |
+| --- | --- | --- |
+| `product/product-analysis-progress.md` | Interview-backed initial adoption pressure: ordinary Python, VNA trace records, checkpoint-safe reads, stable IDs, and low-ceremony reopen. | EV-010, EV-012, EV-023, EV-045; `JC-015` |
+| `research/lessons-for-fricon.md` | Dataset shape modes, readable partials before resumable execution, live views as disposable consumers, passive setup context, and export bundle pressure. | EV-010, EV-012, EV-022, EV-045; `JC-002`, `JC-015` |
+| `research/legacy-measurement-sample-lessons.md` | LabRAD-era artifact evidence: scattered identity, copied code, mutable parameters, setup files, calibration scripts, analysis handoff, generated artifacts, and fragile mappings. | EV-001 through EV-023; PN-001 through PN-018; `JC-001`, `JC-002`, `JC-003`, `JC-006`, `JC-013` |
+| `product/python-sdk-ux.md` | Low-ceremony SDK intent, explicit writer rewrite, trace-valued records, complex values, stable ID copy, and no LabRAD compatibility dependency. | EV-010, EV-023, EV-045; `JC-015` |
+| `postmortems/v0-lessons.md` and `decisions/ADR-001-v02-clean-reset-boundary.md` | Dataset-first model and prototype compatibility should not preserve the wrong domain model. | Direction-bias correction in [`../../inventory.md`](../../inventory.md); architecture triggers in [`../../../standards/jc-operating-standard.md`](../../../standards/jc-operating-standard.md) |
+| `product/future-concepts.md` and `research/strategic-follow-on-future-systems.md` | Parameter proposals, calibration evidence, setup/device context, managed code, export, and reviewed automation should follow evidence and ADR gates. | EV-004, EV-005, EV-011, EV-015, EV-019, EV-038, EV-043; `JC-003`, `JC-011`, `JC-016` |
+| `product/personas.md`, `product/story-map.md`, `product/capability-map.md`, `product/vision.md`, and `product/glossary.md` | Useful vocabulary and role lenses, but not current personas, route order, capability map, or subsystem ownership. | Use only through current journey, evidence, and strategy owners. |
+
 ## Retention Rule
 
 This extracted note should remain only while it helps future work avoid

@@ -6,7 +6,7 @@ Quarantined.
 
 Use this note for gap discovery; do not promote it directly into product scope.
 
-## Source
+## Inputs
 
 - User refinement on 2026-05-15: preserve realistic experimental-lab workflow
   detail so future product work can compare candidate journeys against the
@@ -14,13 +14,17 @@ Use this note for gap discovery; do not promote it directly into product scope.
 - Role-synthesis discussion from internal expert-style reasoning across
   experimental-physicist, lab-manager, and data/control-engineer perspectives.
   Treat these as domain hypotheses unless supported by existing evidence.
-- Existing promoted evidence and candidate wording in
-  [`../../inventory.md`](../../inventory.md).
 - Internal fixture source maps prepared from local sample trees. Use these only
   as full-fidelity internal evidence; promote public-safe intent and role
   patterns, not exact local artifact details.
+
+## Promoted Consumers
+
+- Existing promoted evidence and candidate wording in
+  [`../../inventory.md`](../../inventory.md) use this note for gap discovery.
 - Promoted context in
-  [`../../../strategy/experience-map.md`](../../../strategy/experience-map.md).
+  [`../../../strategy/experience-map.md`](../../../strategy/experience-map.md)
+  uses this note as a quarantined workflow reference.
 
 This note is public-safe and intentionally generic. It omits local paths,
 hostnames, machine names, user names, sample identifiers, instrument addresses,

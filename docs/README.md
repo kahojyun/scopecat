@@ -16,6 +16,10 @@ that can be handled inside one AI session.
   what Scopecat does, how it complements existing experiment systems, what
   complexity belongs to users or lab-owned adapters, and what is not a default
   adoption requirement.
+- `strategy/adoption-routes.md` owns provisional product-value route
+  hypotheses; the tracker only coordinates their current phase.
+- `evidence/inventory.md` owns evidence rows and candidate IDs, while
+  `evidence/method.md` owns interpretation rules.
 - `standards/jc-operating-standard.md` defines repeatable `JC-###` status,
   source-map, promotion, acceptance, conflict, and reopening workflow.
 - `AGENTS.md` contains rules that should apply to every AI session working

@@ -130,8 +130,8 @@ content:
 
 - repeated pain points and candidate wording -> `evidence/inventory.md`
 - end-to-end workflows -> `journeys/`
-- adoption routes or hypotheses -> `status/progress-tracker.md` or a future
-  `strategy/adoption-routes.md`
+- durable adoption route definitions -> `strategy/adoption-routes.md`
+- route phase or current coordination -> `status/progress-tracker.md`
 - design pressure -> the owning `journeys/` note or evidence inventory
 - stable domain vocabulary -> a narrow contract or future `architecture/`
   owner, only when needed
