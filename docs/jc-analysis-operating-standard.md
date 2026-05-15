@@ -246,6 +246,20 @@ For the next `JC-###`, start here:
 The `JC-001` folder shows how a candidate can accumulate later artifacts. It
 is not the minimum starting packet for new journey work.
 
+### Experience Context Versus Validation Slice
+
+A `JC-###` may mention the complete experience to explain why its slice
+matters, but only its selected validation slice should become prototype scope.
+Adjacent moments stay as context until a narrower journey, prototype, or
+decision document promotes them.
+
+Use [`product-experience-map.md`](product-experience-map.md) for experience
+pressure that spans several journeys or keeps reappearing as future scope in
+narrower docs. If the pressure changes accepted scope, fixture checks, owner
+boundaries, API/schema/UI/storage behavior, execution, mutation, or hardware
+semantics, move the decision to the narrower owner before implementation
+depends on it.
+
 ## Source-Map Gate
 
 Draft or identify the source-map record before journey prose. Its job is to
