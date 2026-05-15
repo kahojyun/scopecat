@@ -12,6 +12,9 @@ that can be handled inside one AI session.
 
 - `document-index.md` lists the current high-value documents and how to use
   them.
+- `vision.md` states current project-level product direction and boundaries:
+  what Scopecat does, what is not a default adoption requirement, and how it
+  should complement existing experiment systems.
 - `product-experience-map.md` describes the complete cross-journey
   experience shape without turning it into `JC`, prototype, API, schema, UI, or
   subsystem scope.
