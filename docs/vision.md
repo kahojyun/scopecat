@@ -46,6 +46,11 @@ requirements. They can show why multiple capabilities eventually need to work
 together, but each promoted journey still needs a concrete user sequence,
 validation fixture, explicit boundary, and standalone value.
 
+Before a ladder is piloted with a lab, its owner should state the minimum
+adoption contract: what the lab must record or provide, what Scopecat will not
+touch, how the path fails or can be disabled safely, and what first useful
+output the lab gets before broader adoption.
+
 ## Boundary With Existing Experiment Systems
 
 Existing experiment systems should remain the execution and mutation layer until
@@ -85,6 +90,11 @@ needed information into Scopecat: data, sweep semantics, lifecycle/status
 events, parameters, code/context references, and decision-relevant facts.
 Scopecat can then analyze, display, replay, and package only what was
 deliberately recorded.
+
+Explicit recording must not silently turn Scopecat into a fragile dependency of
+the acquisition loop. Any promoted recording path should state its safe
+disable, buffering, failure, and acknowledgement behavior before a lab is asked
+to rely on it.
 
 Avoid treating any of these as default integration foundations:
 

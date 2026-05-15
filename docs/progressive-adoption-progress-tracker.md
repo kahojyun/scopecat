@@ -106,9 +106,11 @@ Rows marked `Provisional` are not seeded capability-map work yet. Rows marked
 capability map or promote implementation scope before a W2 journey validates
 the need.
 
-This table is a staging inventory, not the durable capability map. Promote a
-capability row into a dedicated owner document only after a second journey or an
-implementation decision shows that the same fact family needs durable ownership.
+This table is a staging inventory, not the durable capability map. The names
+are capability-pressure labels, not subsystem names or replacement-platform
+commitments. Promote a row into a dedicated owner document only after a second
+journey or an implementation decision shows that the same fact family needs
+durable ownership.
 
 | Capability | Starting User Pain | Provisional First-Step Pressure | Possible Later Composition | Phase |
 | --- | --- | --- | --- | --- |

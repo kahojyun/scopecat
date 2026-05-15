@@ -168,6 +168,8 @@ questions without requiring the user to inspect raw manifest files:
 - What redaction status was recorded by export?
 
 This is a validation shape, not a final GUI specification.
+Recorded redaction status is export-provided metadata, not a reader-side
+public-safety verdict.
 
 ## Acceptance Checks
 
