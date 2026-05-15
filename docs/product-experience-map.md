@@ -57,103 +57,26 @@ experiment user prepares work
 The silhouette is useful because it shows why small slices need to compose. It
 does not mean every step is accepted product direction today.
 
-## Reference Lab Flows
+## Lab Workflow Reference
 
-These flows are included to keep future journey slicing grounded in real
-experiment work. They are reference context, not accepted product scope, hardware
-control scope, scheduling scope, storage contracts, or UI contracts.
+Detailed lab workflows live in
+[`research/extracted/experimental-lab-workflow-reference.md`](research/extracted/experimental-lab-workflow-reference.md).
+Use that quarantined research note for realistic experiment context such as
+cross-computer code staging, sample bring-up, calibration chains, measurement
+campaign decisions, analysis handoff, report lineage, and lab-management
+surroundings.
 
-### Cross-Computer Movement
+Only the product-relevant pressure belongs here:
 
-Measurement code and measurement data move at different points in the
-experience. Code, config, and environment context move before a run so a target
-measurement computer can be checked. Data and source evidence move after a run
-so a separate analysis computer can work offline without losing provenance.
-
-```mermaid
-flowchart TD
-  A["Prepare experiment intent"] --> B["Preview scan or method shape"]
-  B --> C["Stage measurement code and config"]
-  C --> D{"Target measurement computer"}
-  D --> D1["Cryostat or device-control computer"]
-  D --> D2["Microwave / RF rack computer"]
-  D --> D3["Optics, laser, or auxiliary-control computer"]
-  D1 --> E["Readiness check<br/>entrypoint, dependencies, paths, drivers, setup context"]
-  D2 --> E
-  D3 --> E
-  E --> F["Run measurement in existing local stack"]
-  F --> G["Record data and provenance<br/>raw data, metadata, logs, code reference, calibration context"]
-  G --> H["Create pre-analysis handoff snapshot"]
-  H --> I["Transfer to analysis computer"]
-  I --> J["Offline analysis and report work"]
-  J --> K["Link figures, fits, reports, and claims back to source evidence"]
-```
-
-### Device Bring-Up And Calibration
-
-Calibration is not one step. It is a sequence of setup checks, exploratory
-measurements, fitted updates, operator judgment, and go/no-go decisions. Future
-journeys should preserve the evidence chain without implying automatic
-write-back or device apply.
-
-```mermaid
-flowchart TD
-  A["Sample or device selected"] --> B["Mount and wiring check<br/>package, bond map, continuity"]
-  B --> C["Environment stabilization<br/>temperature, field, vacuum, shielding"]
-  C --> D["Instrument preflight<br/>drivers, clocks, triggers, attenuation, gains"]
-  D --> E["Readout or resonator discovery"]
-  E --> F["Qubit / transition spectroscopy"]
-  F --> G["Power, frequency, and bias calibration"]
-  G --> H["Coherence checks<br/>Rabi, Ramsey, T1, T2, echo where relevant"]
-  H --> I["Readout calibration<br/>thresholds, integration windows, assignment fidelity"]
-  I --> J["Gate or pulse calibration<br/>single-qubit, two-qubit, or platform-specific operations"]
-  J --> K["Crosstalk, drift, and sanity checks"]
-  K --> L{"Good enough for campaign?"}
-  L -->|yes| M["Freeze calibration context<br/>parameters, fits, evidence, operator notes"]
-  L -->|no| N["Troubleshoot<br/>sample, setup, pulse, software, environment"]
-  N --> D
-  M --> O["Ready for measurement campaign"]
-```
-
-### Measurement Campaign
-
-Run execution can produce partial, interrupted, repeated, or corrected evidence.
-Measurement-time support should start as passive, explicitly recorded, and
-replayable before any later decision accepts mutation or automation.
-
-```mermaid
-flowchart TD
-  A["Load selected code, config, and calibration context"] --> B["Compile or expand scan / protocol"]
-  B --> C["Dry-run or preview on target computer"]
-  C --> D["Run sweep, circuit, protocol, or sample-screening sequence"]
-  D --> E["Live quality and anomaly checks<br/>drift, clipping, trigger loss, fit quality, environment excursions"]
-  E --> F{"Continue?"}
-  F -->|continue| D
-  F -->|pause or retune| G["Save partial evidence and decision reason"]
-  F -->|stop| H["Finalize run record"]
-  G --> I["Recalibration, troubleshooting, or revised plan"]
-  I --> B
-  H --> J["Raw data, metadata, logs, lifecycle state, and source links"]
-```
-
-### Analysis Handoff
-
-The handoff from measurement computer to analysis computer is a distinct
-workflow from acquisition. It needs portability, integrity, and source identity;
-it is not the same as a publication export or full work-bundle import.
-
-```mermaid
-flowchart TD
-  A["Measurement complete or valuable runs selected"] --> B["Collect raw data, derived sidecars, logs, configs, calibration context"]
-  B --> C["Create manifest<br/>run IDs, sample/context handles, code references, checksums"]
-  C --> D["Apply sharing and redaction labels appropriate to recipient"]
-  D --> E["Package immutable handoff snapshot"]
-  E --> F["Transfer to analysis computer"]
-  F --> G["Verify completeness and checksums"]
-  G --> H["Open offline analysis workspace"]
-  H --> I["Fits, figures, reports, and claims"]
-  I --> J["Link outputs back to source runs and unresolved ambiguity"]
-```
+- code, config, dependency, and setup context may need to move to a target
+  measurement computer before a run;
+- data, source evidence, and selected context may need to move from a
+  measurement computer to an analysis computer after a run;
+- calibration, setup, generated-protocol, correction, and lifecycle evidence
+  can affect whether a run is understandable, comparable, or safe to hand off;
+- these details should shape journey slicing without accepting hardware
+  control, scheduling, deployment, write-back, ELN/LIMS, report-generation, or
+  full lab-management scope.
 
 ## Experience Step Labels
 
