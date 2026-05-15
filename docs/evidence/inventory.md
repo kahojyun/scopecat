@@ -27,24 +27,13 @@ Project-level product direction and adoption boundaries are owned by
 folders own journey-specific scope. This inventory owns evidence, stable
 EV/PN/TP IDs, support levels, and validation routes.
 
-## Current Promoted Journeys
+## Evidence Consumption Boundary
 
-This inventory owns source evidence and stable IDs. Journey-specific scope now
-lives in narrower owner documents:
-
-- `JC-001`: accepted passive evidence-view boundary under
-  [`../journeys/jc-001/README.md`](../journeys/jc-001/README.md), primarily
-  driven by `PN-002`, `PN-006`, `PN-005`, and `PN-001`.
-- `JC-002`: drafting selected-run analysis handoff boundary under
-  [`../journeys/jc-002/README.md`](../journeys/jc-002/README.md), primarily
-  driven by `PN-004`, `EV-044`, and `EV-045`.
-- `JC-009` and `JC-010` remain later diagnostic/comparison candidates, not
-  rollback, environment management, scientific-equivalence scoring, or
-  device-control scope.
-
-Do not reopen this inventory for journey-local scope changes. Update the
-owning journey document first, then update evidence rows only when source
-evidence, IDs, or candidate wording changes.
+Accepted or active journey scope lives in `docs/journeys/`, and current phase
+coordination lives in [`../status/progress-tracker.md`](../status/progress-tracker.md).
+This inventory only preserves the evidence IDs, candidate wording, support
+levels, and validation routes those journeys consume. Update it when evidence,
+IDs, or candidate wording changes, not for journey-local scope edits.
 
 For row interpretation, keep the statement kind separate from the stable ID:
 foundational pains can drive acceptance, adoption-risk hypotheses and guardrails
