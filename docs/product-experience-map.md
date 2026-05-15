@@ -177,25 +177,24 @@ runtime owner, safety assumptions, stop behavior, and audit record.
 
 ## Current And Candidate Journey Coverage
 
-When placing new work, first check whether it fits an existing `JC`; otherwise
-create a narrow candidate with evidence and non-goals.
+The canonical candidate wording, evidence basis, drafting signal, and main
+boundary live in
+[`evidence-and-pain-point-inventory.md`](evidence-and-pain-point-inventory.md).
+This map only shows where those `JC` rows sit in the larger experience.
 
-| State | Journey | Covers | Boundary reminder |
-| --- | --- | --- | --- |
-| Current | `JC-001` | Post-run explanation of an existing run or work bundle. | Read-only passive evidence view; no execution, mutation, import, repair, or truth ownership. |
-| Current | `JC-002` | Selected-run analysis handoff. | Immutable pre-analysis snapshot; no generated analysis outputs or final reader/API/UI contract. |
-| If validated | `JC-003` | Calibration proposal, review, and impact before write-back. | May validate proposal and shadow-loop evidence for later automation; real apply, rollback, and autonomous calibration need accepted runtime boundaries. |
-| If validated | `JC-004` | Notebook, copied-code, package, and generated-bytecode provenance cleanup. | Evidence links only; no automatic notebook-state capture, package registry, or managed runner. |
-| If validated | `JC-005` | Sample/device bring-up and setup readiness evidence. | Declared or observed evidence only; no device communication, setup apply, or physical-truth authority. |
-| If validated | `JC-006` | Generated protocol, correction, classifier, feedback, and run-family lineage. | Preserve relations; do not broaden into a full scientific workflow model. |
-| If validated | `JC-007` | Pre-run scan, method, or queue intent preview. | Preview, diff, or freeze intent only; later queue execution still needs lifecycle, runtime, and stop-behavior boundaries. |
-| If validated | `JC-008` | Dry-run or mock-queue package readiness before execution. | Can validate queue package, preflight, and failure-policy contracts; no real worker fleet, remote execution, or device control. |
-| If validated | `JC-009` | Known-good diagnostic comparison. | Comparison and diagnostic package only; no rollback, restore, installation, driver mutation, or control-PC repair. |
-| If validated | `JC-010` | Scientific comparability review. | Evidence and gap review only; no equivalence scoring, generic normalization, or universal setup model. |
-| If validated | `JC-011` | Measurement-time decision support from recorded inputs. | May validate advisory or shadow automation behavior; real hardware control, scan mutation, write-back, or scraping adapter matrices remain separate boundaries. |
-| If validated | `JC-012` | Small declared setup or local schema to useful context output. | Manual schema must power lookup, calculation, visualization, comparison, handoff, or diagnostics; no ontology-first inventory. |
-| If validated | `JC-013` | Shared code or configuration asset drift diagnostics. | Known-good and reusable-layer evidence only; no Git hosting, package registry, deployment, or automatic environment sync. |
-| If validated | `JC-014` | Figure, report, fit, or claim impact lineage. | Trace impact back to source evidence; no full ELN, report generator, publication workflow, or correctness scoring. |
+If new work needs a new `JC`, update the evidence owner or a narrower `JC`
+owner before this placement table becomes the source of truth.
+
+| Experience area | Current or candidate `JC` rows | Placement use |
+| --- | --- | --- |
+| Existing evidence explanation | `JC-001` | Anchor post-run artifacts, selected context, code references, missing facts, conflicts, and sharing boundaries before handoff, comparison, or mutation. |
+| Analysis handoff | `JC-002` | Move selected runs and enough context to an analysis computer as an immutable pre-analysis snapshot. |
+| Code, method, and queue readiness | `JC-004`, `JC-007`, `JC-008`, `JC-013` | Separate copied-code provenance, frozen plan or queue intent, dry-run or mock-queue readiness, and shared asset drift diagnostics. |
+| Setup and declared context | `JC-005`, `JC-012` | Preserve bring-up/setup evidence and only maintain declared local schema when it powers visible lookup, calculation, visualization, comparison, handoff, or diagnostics. |
+| Calibration and advisory automation | `JC-003`, `JC-011` | Validate proposal, impact, replay, advisory, and shadow-loop evidence before real apply or autonomous calibration. |
+| Campaign and generated lineage | `JC-006` | Preserve generated protocol, correction, classifier, feedback, and run-family relations without broadening into a full scientific workflow model. |
+| Trust and comparison | `JC-009`, `JC-010` | Place known-good diagnostics and scientific comparability review without accepting rollback, equivalence scoring, or setup truth authority. |
+| Derived analysis impact | `JC-014` | Link figures, reports, fits, and claims back to source evidence before considering report generation or publication workflow. |
 
 Adjacent steps are context, not prototype scope. The tracker owns current
 phase, priority, and coordination status; owning `JC` documents own validation
