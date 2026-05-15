@@ -46,18 +46,10 @@ The current prototype validation lives in
 [`../../prototypes/jc002_handoff_snapshot.py`](../../prototypes/jc002_handoff_snapshot.py)
 and
 [`../../tests/fixtures/jc002-handoff-snapshot/`](../../tests/fixtures/jc002-handoff-snapshot/).
-It validates local offline summary, reader-like group loading, consumer-side
-plots, artifact-role handling, export-provided redaction status display,
-and copy independence at synthetic fixture scale only.
-
-The first hardening pass tightened path confinement, status/value semantics,
-source-run relations, Scopecat-managed data axis/shape checks, sidecar
-consistency, derived input manifest exposure, and plot-spec handoff to a mock
-plotter. The review/fix loop also recorded redaction lessons for later export
-and publish flows, but the reader prototype does not scan for redaction, claim
-arbitrary-file redaction, or certify public safety.
-It deliberately did not add richer data-shape fixtures or an export-side
-workflow proof.
+It validates the current fixture-scale handoff boundary only. Detailed checks,
+hardening notes, and known gaps belong in
+[`jc-002-handoff-snapshot-prototype-scope.md`](jc-002-handoff-snapshot-prototype-scope.md)
+or the prototype/test artifacts, not this README.
 
 This document set must not define:
 

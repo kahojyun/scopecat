@@ -139,7 +139,7 @@ The concept set used for that handoff was:
 | Generated sidecar | An artifact derived from selected context or code-shaped flow. |
 | Copied snapshot | A copied view of context attached to a run-like artifact. |
 | Code reference | Non-executed evidence about path selection or derivation flow. |
-| Sharing boundary | Whether evidence is internal-safe, public-safe, external-support-safe, or redaction-sensitive. |
+| Sharing boundary | Whether evidence is public-safe or redaction-sensitive in the current accepted fixture boundary. Internal-safe and external-support-safe remain follow-on sharing-policy decisions. |
 
 ## Open Questions
 

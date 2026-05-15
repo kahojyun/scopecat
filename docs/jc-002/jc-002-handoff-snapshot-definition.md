@@ -188,8 +188,9 @@ Redaction belongs to export or publish flows, not to the ordinary reader. The
 reader consumes an already-created snapshot; it cannot prevent users from
 opening files directly with their own tools.
 
-For public or external sharing, export should follow the structured redaction
-boundary in
+For public or external sharing, export should follow the complexity ownership
+boundary in [`../vision.md`](../vision.md) and the source-map sharing guidance
+in
 [`../jc-analysis-operating-standard.md`](../jc-analysis-operating-standard.md):
 prefer opaque IDs and whole-field path redaction, use user- or lab-provided
 keyword profiles only in explicit publish/export workflows, and do not claim

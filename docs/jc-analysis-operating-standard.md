@@ -287,29 +287,19 @@ handle. Do not publish exact private paths, usernames, system names, source
 labels, lab labels, instrument identifiers, machine identifiers, or other
 source-derived location details.
 
-### Structured Redaction Boundary
+### Structured Sharing Boundary
 
 Treat redaction as an owned workflow, not as a universal string-scanning
-feature. A `JC` prototype, fixture, or public document should state which
-workflow owns redaction before adding redaction checks.
+feature. Use the project-level complexity boundary in
+[`vision.md`](vision.md): export or publish workflows own redaction decisions;
+readers, analysis APIs, and consumer mocks do not scan payloads or certify
+public safety unless they are explicitly the redaction owner; arbitrary free
+text, arbitrary file payloads, and lab-specific keyword lists require
+user-provided profiles or a dedicated workflow.
 
-Project-wide redaction defaults:
-
-- export or publish workflows own redaction decisions; readers, analysis APIs,
-  and consumer mocks do not scan payloads or certify public safety unless they
-  are explicitly the redaction owner;
-- Scopecat may redact fields it structurally knows are sensitive, such as local
-  paths, usernames, machine IDs, hostnames, instrument addresses, operator
-  fields, source IDs, and explicitly marked sensitive metadata;
-- Scopecat should not scan arbitrary free text or arbitrary file payloads by
-  default;
-- Scopecat should not ship a fixed built-in lab keyword list for samples,
-  projects, devices, acronyms, or local shorthand;
-- labs or users may provide custom keyword tables, replacement rules, or
-  publish profiles for workflows that explicitly opt into free-text or payload
-  redaction;
-- public fixtures and docs should use fixture-authored public handles, not real
-  private identifiers.
+For `JC` source maps and fixtures, record which workflow owns redaction before
+adding redaction checks. Public fixtures and docs should use fixture-authored
+public handles, not real private identifiers.
 
 For local path fields that cross a sharing or export boundary, prefer replacing
 the whole path with an explicit status or opaque reference. Do not preserve

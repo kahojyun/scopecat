@@ -67,16 +67,21 @@ Do not expand an earlier-phase artifact just because later-phase pressure
 exists. Convert that pressure into a new validation route unless it directly
 falsifies the accepted artifact.
 
-## Current Durable Inputs
+## Tracked Durable Inputs
+
+This table tracks phase-relevant inputs only. Use
+[`document-index.md`](document-index.md) for general navigation and document
+ownership.
 
 | Input | Phase | Notes |
 | --- | --- | --- |
 | Documentation policy | Ready | Captured in `README.md` and `AGENTS.md`. |
+| Project vision and boundaries | Drafting | `vision.md` states current project-level direction, progressive adoption constraints, explicit recording and complexity ownership boundaries, and clear non-goals without becoming a roadmap, PRD, capability map, or architecture decision. |
 | Automation architecture notes | Quarantined | Stored as research input; contains broad capability-pressure hypotheses that must be revalidated without accepting subsystem order or scaffolding. |
 | Research acceptance-readiness triage | Transitional | `research/extracted/research-acceptance-readiness-triage.md` separates accepted guardrails, evidence, inferences, adoption hypotheses, future pressure, ADR-gated items, and directions not to accept upfront. |
 | Legacy experiment code sample validation | Transitional | `research/extracted/legacy-experiment-code-sample-validation.md` validates the research triage and raises companion artifacts, analysis handoff, hardware bring-up, dependency/environment, notebook hygiene, and portability evidence. |
 | Evidence and pain-point inventory | Ready | `evidence-and-pain-point-inventory.md` is the W1 owner. `JC-001` has been promoted into the first-wedge document set. |
-| Product experience map | Drafting | `product-experience-map.md` owns complete-experience shape, boundary-mode labels, and cross-journey coverage gaps without becoming a product plan or prototype scope. |
+| Product experience map | Drafting | `product-experience-map.md` owns complete-experience shape, experience-step labels, and cross-journey coverage gaps without becoming a product plan or prototype scope. |
 | JC-001 first-wedge document set | Ready | `jc-001/README.md` owns the detailed reading order for the first accepted wedge. |
 | JC-002 analysis handoff document set | Validating | `jc-002/README.md` owns the selected-run handoff journey and links to the first fixture-backed prototype. |
 
@@ -101,9 +106,11 @@ Rows marked `Provisional` are not seeded capability-map work yet. Rows marked
 capability map or promote implementation scope before a W2 journey validates
 the need.
 
-This table is a staging inventory, not the durable capability map. Promote a
-capability row into a dedicated owner document only after a second journey or an
-implementation decision shows that the same fact family needs durable ownership.
+This table is a staging inventory, not the durable capability map. The names
+are capability-pressure labels, not subsystem names or replacement-platform
+commitments. Promote a row into a dedicated owner document only after a second
+journey or an implementation decision shows that the same fact family needs
+durable ownership.
 
 | Capability | Starting User Pain | Provisional First-Step Pressure | Possible Later Composition | Phase |
 | --- | --- | --- | --- | --- |
@@ -156,18 +163,11 @@ and statuses in this tracker.
 | Local script to managed execution record | A script runs under supervision with logs, artifacts, status, and environment capture. | Managed Code Runner, Code Asset Registry | Separate execution records from code identity. | Deferred |
 | Local preview to remote dry run | A locally authored package validates remotely without touching hardware. | Scan Framework, Remote Execution, Code Asset Registry, Parameter Memory | Test immutable plan and validation contracts. | Deferred |
 
-For W2 validation, use the current generic lab context: Windows-heavy
-instrument-control machines, multiple non-identical systems, personnel
-turnover, and uneven technical ownership. Ordinary experiment users should not
-need to become driver, deployment, machine maintenance, or
-lab-knowledge-management owners to get value from the first slices. External
-framework baselines also mean early wedges should complement existing
-acquisition, control, data, and calibration systems rather than replace them.
-Manual physical-context and schema maintenance should start only where it
-produces immediate lookup, calculation, visualization, comparison, handoff, or
-diagnostic value. Early wedges should avoid adding mandatory network services,
-cloud login, heavy background agents, or automatic driver/environment mutation
-to working control computers.
+For W2 validation, use the generic lab context and external-framework baseline
+owned by
+[`evidence-and-pain-point-inventory.md`](evidence-and-pain-point-inventory.md).
+Use [`vision.md`](vision.md) for project-level adoption boundaries with
+existing experiment systems.
 
 ## Near-Term Coordination
 
@@ -192,19 +192,10 @@ Active coordination points:
   fixture-scale boundary, needs another scenario, or should feed back into a
   small capability map with the `JC-001` ownership pass.
 
-Parallel-work rule:
-
-- A journey-local PR may update this tracker only to add or revise a link,
-  phase, or short coordination point required by the changed journey.
-- A journey-local PR should not reorder global priorities, replace another
-  journey's active decision, or turn this section into a queue of next tasks.
-- If two or more active `JC` PRs need to change priority, shared contract
-  ownership, migration-wedge ranking, or accepted sequence, use a small
-  coordination PR that updates this tracker after the affected journey owner
-  docs are clear.
-- If this section starts carrying detailed coordination for multiple wedges,
-  create a narrower owner note for that shared coordination and keep only links
-  and statuses here.
+For parallel journey edits and promotion rules, use
+[`jc-analysis-operating-standard.md`](jc-analysis-operating-standard.md). This
+tracker should only carry links, phase changes, and compact cross-journey
+coordination points.
 
 ## Review Cadence
 
@@ -225,6 +216,10 @@ During review:
 - Do not split product discovery by subsystem.
 - Do not create subsystem specs before journeys, adoption ladders, and
   contracts justify them.
-- Do not require full-platform adoption for the first useful slice.
+- Do not require full-platform adoption for any initial adoption path.
+- Treat top-level pains as composition pressure, not single-ladder
+  implementation requirements. A full answer may require several adoption
+  ladders, but each promoted slice must validate one narrow, independently
+  useful path.
 - Do not let standalone adoption stories become incompatible mini-products.
 - Keep each wedge narrow enough to validate with one concrete workflow.
