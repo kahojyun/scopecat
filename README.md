@@ -5,7 +5,7 @@
 Scopecat is an early greenfield project for scientific measurement workflows.
 
 The product and architecture are still being shaped. See
-`docs/vision.md` for the current product direction and boundaries, and
+`docs/strategy/vision.md` for the current product direction and boundaries, and
 `docs/README.md` for the documentation workspace.
 
 ## Status
