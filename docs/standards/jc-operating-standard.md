@@ -112,6 +112,22 @@ If a decision is hard to place, keep it as journey-local design pressure until
 a second journey or implementation dependency proves that it needs a broader
 owner.
 
+Architecture ADR triggers should stay concrete. Create or reopen an ADR when a
+journey or prototype needs to decide any of these boundaries:
+
+- whether preview, dry-run, mock-run, and real apply share the same intent
+  semantics;
+- how desired state, requested state, observed state, and runtime-acknowledged
+  actual state differ;
+- which owner revalidates bounds, readiness, permissions, leases, environment,
+  code identity, and live runtime capability before execution;
+- which references must be frozen, hashable, or versioned before they can
+  explain a run, handoff package, proposal, or runtime handoff;
+- which component owns stop behavior, failure policy, audit records, and
+  operator accountability for a bounded local run;
+- whether a copied method, package, or plan is diagnostic evidence, a reusable
+  template, or an execution-authoritative artifact.
+
 ## Change Routing
 
 When a review or prototype result changes scope, update the owner of the changed

@@ -55,7 +55,6 @@ or validation detail rather than primary product pain.
 ## Sources
 
 - [`research/extracted/experimental-lab-workflow-reference.md`](research/extracted/experimental-lab-workflow-reference.md)
-- [`research/greenfield-experimental-automation-architecture-notes.md`](research/greenfield-experimental-automation-architecture-notes.md)
 - [`research/raw/fricon-legacy-docs/README.md`](research/raw/fricon-legacy-docs/README.md)
 - workflow improvement case code tree, cited only as an internal source family.
   Do not cite its old local folder name as a product concept; it is a real
@@ -69,6 +68,9 @@ or validation detail rather than primary product pain.
 - public documentation for existing experiment measurement, control, data, and
   calibration frameworks, cited as external capability baseline rather than as
   exhaustive competitive analysis.
+- deleted historical automation architecture conversation note, cited only as
+  low-confidence design pressure preserved in this inventory and Git history,
+  not as source evidence, product plan, architecture, or subsystem order.
 
 The legacy code sample is internal research evidence. Public documents must
 redact local paths, machine details, instrument addresses, local users, and
@@ -167,11 +169,13 @@ registry files, wiring spreadsheets, generated protocol artifacts, derived
 `.npy`/`.npz`/`.pkl` artifacts, local environment coupling, and report or
 presentation handoff bundles. Need, value, and product shape still require journey or user validation.
 
-The automation architecture notes came from a broader attempt to replace
+A historical automation discussion came from a broader attempt to replace
 manual-discipline recordkeeping with reliable automatic versioned records and
-the workflows that become possible afterward. Their subsystem map may be
-premature, but the design pressures behind it should remain visible during journey selection
-so Scopecat does not drift back into a run-history-only plan.
+the workflows that become possible afterward. It was mostly a ChatGPT-assisted
+design conversation, so its subsystem map, order, and product conclusions are
+not source evidence. The remaining useful pressure is preserved here only where
+it connects to workflow evidence, external baselines, user context, or explicit
+ADR triggers.
 
 A later blind persona brainstorm used the generic lab context but withheld this
 repository's docs and pain inventory. Treat it as a source-bias sanity check,
@@ -200,7 +204,7 @@ toward messy exploratory labs, superconducting-style wiring concerns,
 individual rescue workflows, anti-schema bias, and passive capture. Treat this
 as a discovery-method result, not as evidence that generated pains are urgent.
 
-evidence pass should therefore separate three judgments that were previously compressed
+The evidence pass should therefore separate three judgments that were previously compressed
 into one confidence column:
 
 - whether a claim is well supported by evidence;
@@ -322,9 +326,9 @@ ID instead.
 - Cite predecessor project docs as predecessor evidence, not as a source name
   that defines Scopecat direction. Scopecat exists partly to correct that
   predecessor direction.
-- Treat automation architecture notes as capability-pressure evidence and
-  vocabulary, not as accepted subsystem boundaries, implementation order, or a
-  documentation scaffold.
+- Treat the historical automation discussion as low-confidence design pressure
+  and vocabulary, not as source evidence, accepted subsystem boundaries,
+  implementation order, or a documentation scaffold.
 - Mark counterfactual or workflow-expanding pains as latent pressure when the
   current code tree cannot show them directly because the old system constrained
   the workflow. Use those pains to shape journey-selection questions, interviews, and spikes;
@@ -365,12 +369,13 @@ lane during journey selection.
 | Legacy workflow conventions | Use as current-state evidence and validation fixtures. | Features that preserve fragile old workflows as preferred behavior. |
 | Engineering safety reasoning | Mark mutation, compatibility, storage, remote execution, and AI action as ADR-gated. | User pain unless tied back to observed workflow evidence. |
 
-## Design Pressure From Automation Notes
+## Design Pressure From Historical Automation Discussion
 
-The automation architecture notes are useful because they name independently
-useful design pressures that a run-history-only product would miss. This table
-preserves those intents for journey selection without accepting the notes' subsystem map,
-capability names, implementation order, or documentation scaffold.
+The deleted historical automation discussion was useful mainly because it named
+independently useful design pressures that a run-history-only product would
+miss. This table preserves those intents for journey selection without
+accepting the discussion's subsystem map, capability names, implementation
+order, or documentation scaffold.
 
 | Design pressure | Evidence and pain support | Why preserve it now |
 | --- | --- | --- |
@@ -461,8 +466,8 @@ Treat that weakness as visibility bias, not disproof.
 | EV-021 | Method authors are a distinct source of evidence and adoption friction. | Evidence-backed inference | High | workflow improvement case; predecessor project docs | Scan helpers, pulse rules, runner integrations, plotting utilities, report/export recipes, and generated routines are maintained by authors and then run by others who may not understand every dependency. | Low-ceremony Python adoption; copied scripts to code asset reference. |
 | EV-022 | Export and handoff need portability, integrity, and source identity. | Evidence-backed inference | Medium | predecessor project docs; workflow improvement case; engineering guardrail | Predecessor project documents name export pressure; workflow improvement case spreadsheets, decks, figures, derived arrays, and local context show handoff bundles whose source identity is easy to lose. | Publish or hand off analysis; clean or share a run safely. |
 | EV-023 | Low-ceremony Python adoption is part of the pain evidence. | Evidence-backed inference | Medium | predecessor project docs; workflow improvement case | Interview synthesis centers ordinary Python scripts, notebooks, small recording-section rewrites, stable-ID copy, and avoiding a new managed framework; workflow improvement case confirms ordinary Python/notebook gravity but not the exact product preference. | Run/reopen with context; local product readiness. |
-| EV-024 | Current artifacts under-represent prospective control pains because the old workflow has no durable plan, preview, freeze, review, or dry-run object to leave evidence behind. | Latent pressure | Medium | automation architecture notes; workflow improvement case; assumption | Automation architecture notes emphasize automatic versioned records and later workflows that depend on them; workflow improvement case shows scan loops, generated protocols, parameter files, and copied code, but not a reliable pre-execution package lifecycle. | Preview a scan plan; validate a run package before execution; review calibration before mutation. |
-| EV-025 | Reliable automatic versioned records would likely enable cross-run, campaign, handoff, and automation questions that legacy file-shaped evidence cannot fully express. | Latent pressure | Medium | automation architecture notes; workflow improvement case; predecessor project docs | Run families, corrections, generated artifacts, handoff bundles, and run-history pressure imply value beyond reopen, but current artifacts do not prove the exact future UX or priority. | Navigate campaigns; compare runs; publish or hand off analysis; define adoption routes. |
+| EV-024 | Current artifacts under-represent prospective control pains because the old workflow has no durable plan, preview, freeze, review, or dry-run object to leave evidence behind. | Latent pressure | Medium | historical automation discussion; workflow improvement case; assumption | Historical automation discussion emphasized automatic versioned records and later workflows that depend on them; workflow improvement case shows scan loops, generated protocols, parameter files, and copied code, but not a reliable pre-execution package lifecycle. | Preview a scan plan; validate a run package before execution; review calibration before mutation. |
+| EV-025 | Reliable automatic versioned records would likely enable cross-run, campaign, handoff, and automation questions that legacy file-shaped evidence cannot fully express. | Latent pressure | Medium | historical automation discussion; workflow improvement case; predecessor project docs | Run families, corrections, generated artifacts, handoff bundles, and run-history pressure imply value beyond reopen, but current artifacts do not prove the exact future UX or priority. | Navigate campaigns; compare runs; publish or hand off analysis; define adoption routes. |
 | EV-026 | Multi-system, Windows-heavy lab context strengthens same-setup readiness and bounded protocol-transfer pressure. | Evidence-backed inference | Medium | user context; workflow improvement case; engineering guardrail | Generic lab context includes multiple non-identical equipment systems and one effective instrument-control computer per station. Routine same-sample work usually stays on one setup. Same-protocol sample screening can cross non-identical equipment and computer stacks; setup bring-up, handoff, and known-good comparison may be same-setup or cross-setup depending on the fixture. | Same-setup readiness; sample-screening protocol transfer; clean or share a run safely; validate a run package before execution. |
 | EV-027 | Technical ownership is unevenly distributed across ordinary experiment users and a smaller maintainer group. | Evidence-backed inference | Medium | user context; workflow improvement case; predecessor project docs | Most users can write scripts and analyze data, while fewer users maintain devices, drivers, control computers, helper packages, and operational conventions. | Low-ceremony Python adoption; managed execution readiness; setup manifest or diagnostic records. |
 | EV-028 | Personnel turnover and short handoff windows make tacit experiment knowledge fragile. | Evidence-backed inference | Medium | user context; workflow improvement case; predecessor project docs | Generic lab context includes project turnover, active experiments inherited midstream, and knowledge spread across notebooks, copied folders, file names, comments, reports, oral explanation, and personal memory. Workflow improvement evidence shows many artifact types whose intent and active/obsolete status are hard to recover. | Take over an old experiment; publish or hand off analysis; navigate campaigns; explain a run or work bundle. |
@@ -475,12 +480,12 @@ Treat that weakness as visibility bias, not disproof.
 | EV-035 | External framework coverage is strongest inside each controlled stack and weaker as a cross-stack explanation layer for inherited scripts, notebooks, physical setup context, handoff bundles, and analysis lineage. | Evidence-backed inference | Medium | external references; workflow improvement case; blind persona check; user context | Selected public docs show strong framework-local capabilities, while workflow improvement evidence and blind brainstorms repeatedly depend on copied code, local files, manual notes, setup aliases, calibration context, and analysis artifacts outside a single framework-owned model. | Explain an existing run or work bundle; compare scientific comparability; publish or hand off analysis. |
 | EV-036 | Scientific comparability across screening setups, samples, or method variants is distinct from valid data storage, stable reopen, and code provenance. | Latent pressure | Medium | blind persona check; user context; workflow improvement case; external references | Blind role brainstorms repeatedly asked whether two valid-looking runs can be compared across setup, wiring, sample, method, calibration, and correction differences. Existing workflow evidence shows run families, generated protocols, corrections, and local context that affect comparison beyond raw data identity. Real-lab context narrows this from routine same-sample migration to sample screening, setup comparison, handoff, and exceptional protocol-transfer cases. | Compare screening runs or setups; navigate campaigns; hand off results. |
 | EV-037 | Physical setup reality needs versioned evidence beyond instrument-driver abstraction. | Evidence-backed inference | Medium | workflow improvement case; user context; blind persona check; external references | Wiring sheets, registry files, driver initialization, setup diagnostics, instrument addresses, local aliases, and generic multi-system lab context indicate that cables, channels, sample mounts, switch paths, and manual changes affect meaning even when a driver or station snapshot exists. | Setup-reality map; known-good comparison; sample-screening setup comparison. |
-| EV-038 | Calibration dependency impact should link calibration state to downstream measurements, analyses, figures, and decisions, not only to calibration routine execution. | Evidence-backed inference | Medium | workflow improvement case; external references; automation architecture notes | Qiskit Experiments and Qibocal show specialized calibration-management patterns, while workflow improvement evidence shows correction branches, readout matrices, classifiers, generated protocols, and reports whose validity depends on calibration and analysis context. | Review calibration before mutation; publish or hand off analysis; compare scientific comparability. |
+| EV-038 | Calibration dependency impact should link calibration state to downstream measurements, analyses, figures, and decisions, not only to calibration routine execution. | Evidence-backed inference | Medium | workflow improvement case; external references; historical automation discussion | Qiskit Experiments and Qibocal show specialized calibration-management patterns, while workflow improvement evidence shows correction branches, readout matrices, classifiers, generated protocols, and reports whose validity depends on calibration and analysis context. | Review calibration before mutation; publish or hand off analysis; compare scientific comparability. |
 | EV-039 | Analysis and publication lineage is a product gap separate from acquisition lineage. | Evidence-backed inference | High | workflow improvement case; blind persona check; external references | Workflow improvement evidence links raw data to derived arrays, notebooks, correction choices, figures, spreadsheets, decks, and reports. External baseline docs emphasize acquisition and framework-local data records more than claim-to-analysis-to-run impact review across messy lab bundles. | Publish or hand off analysis; figure impact review; take over an old experiment. |
 | EV-040 | Scopecat is better positioned as a complementary explainability, comparison, and handoff layer than as a replacement measurement framework. | Evidence-backed inference | Medium | external references; workflow improvement case; user context; engineering guardrail | External frameworks already provide credible run/data/control/calibration systems. User context and workflow evidence favor low-ceremony adoption around existing scripts, Windows control PCs, copied folders, local tools, and uneven technical ownership. | Adoption routes; validation slices; design pressure. |
 | EV-041 | Some experiment-critical physical and sample facts cannot be verified from software alone. | Evidence-backed inference | Medium | user context; workflow improvement case; engineering guardrail | Actual physical wiring, switch paths, mounted sample identity, chip topology, line attenuation, and qubit/gate/channel/instrument correspondences may be declared manually, inferred from files, or checked indirectly, but software records alone cannot prove them. | Setup-reality map; scientific comparability; known-good comparison; handoff. |
 | EV-042 | Manual setup and topology records have low maintenance value unless they power concrete user-facing tasks. | Latent pressure | Medium | user context; workflow improvement case | The same physical context can be valuable when used to find a qubit's instrument or channel, calculate line attenuation, visualize parameters on a chip layout, compare setup variants, or prepare handoff; otherwise it becomes stale metadata work. | Setup-reality map; useful context schema; handoff; diagnostics. |
-| EV-043 | Experiment parameter schemas and physical-configuration schemas need local evolution rather than a fixed universal model. | Evidence-backed inference | Medium | user context; workflow improvement case; automation architecture notes | Parameter files, registry files, wiring sheets, generated summaries, sample variants, and method changes show schema pressure that is hard to predefine globally, but often stable enough inside a bounded campaign, sample, method, or setup period to be versioned and reused. | Parameter memory; setup-reality map; scientific comparability; validation slices. |
+| EV-043 | Experiment parameter schemas and physical-configuration schemas need local evolution rather than a fixed universal model. | Evidence-backed inference | Medium | user context; workflow improvement case; historical automation discussion | Parameter files, registry files, wiring sheets, generated summaries, sample variants, and method changes show schema pressure that is hard to predefine globally, but often stable enough inside a bounded campaign, sample, method, or setup period to be versioned and reused. | Parameter memory; setup-reality map; scientific comparability; validation slices. |
 | EV-044 | Analysis handoff from an experiment-control computer to a user's analysis computer is a high-priority adoption pressure distinct from cross-machine scientific comparison. | Evidence-backed inference | Medium | user context; workflow improvement case | User refinement emphasized finding high-value data by experiment name, measurement-object label, quick plot, and simple selection mark, then moving selected data and context to a personal analysis computer for deeper analysis, figure making, and reporting. Workflow evidence already shows derived arrays, figures, notebooks, spreadsheets, decks, and source-identity loss. | Publish or hand off analysis; selected high-value runs to analysis handoff package; figure impact review. |
 | EV-045 | Predecessor Fricon data-shape work provides validation coverage for handoff and durable-record journeys without defining Scopecat's storage, reader API, export format, or UI. | Observation | High | predecessor project docs; research extraction | Prior Fricon documents identify regular one-, two-, and N-dimensional sweeps, trace-valued records with explicit or compact coordinates, multiple traces per outer record, first-class complex values, IQ averages/channels/single-shot arrays/labels, and generic irregular or ragged step records for minimizer-like output. | Analysis handoff validation; durable measurement record; reader and preview validation. |
 | EV-046 | Long-running measurement decision support is a distinct pressure from live plotting or post-run analysis handoff. | Latent pressure | Medium | user refinement; blind framework role-play | User refinement and blind role-play across QCoDeS, Labber-like, Bluesky/Event Model, and LabRAD/Data Vault lenses converged that existing systems often cover live data and plots, while the unresolved pain is deciding whether a long run is still worth continuing before the full run ends. | Measurement-time decision support; durable measurement record; calibration review; analysis lineage. |
