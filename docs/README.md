@@ -10,18 +10,22 @@ that can be handled inside one AI session.
 
 ## Entry Points
 
-- `document-index.md` lists the current high-value documents and how to use
+- `index.md` lists the current high-value documents and how to use
   them.
-- `vision.md` states current project-level product direction and boundaries:
+- `strategy/vision.md` states current project-level product direction and boundaries:
   what Scopecat does, how it complements existing experiment systems, what
   complexity belongs to users or lab-owned adapters, and what is not a default
   adoption requirement.
-- `jc-analysis-operating-standard.md` defines repeatable `JC-###` status,
+- `strategy/adoption-routes.md` owns provisional product-value route
+  hypotheses; the tracker only coordinates their current phase.
+- `evidence/inventory.md` owns evidence rows and candidate IDs, while
+  `evidence/method.md` owns interpretation rules.
+- `standards/jc-operating-standard.md` defines repeatable `JC-###` status,
   source-map, promotion, acceptance, conflict, and reopening workflow.
 - `AGENTS.md` contains rules that should apply to every AI session working
   inside `docs/`.
 
-Use `document-index.md` for the fuller inventory. This README should stay an
+Use `index.md` for the fuller inventory. This README should stay an
 entry point, not a second index.
 
 ## Analysis Model
@@ -29,13 +33,27 @@ entry point, not a second index.
 Use this promotion path for durable product and architecture work:
 
 ```text
-Evidence -> User Journey -> Pain Point -> Product Capability
-  -> Domain Concept -> Architecture Contract -> Subsystem Spec
+Evidence -> Journey -> Validation Slice
+  -> Decision or Contract, only when needed
 ```
 
 Research and product discovery should be journey-first. Progressive adoption
-stories should be capability-first. Subsystem or capability docs should define
-ownership and contracts, not duplicate the whole product discovery process.
+stories should be product-value-first: users adopt a useful path, not a
+subsystem name. Historical capability names may preserve design pressure, but
+they should not become default document structure or implementation ownership.
+
+## Validation
+
+For changes that affect prototype behavior, fixture contracts, expected
+outputs, or journey validation claims, run the relevant focused command from
+the prototype doc or the full suite:
+
+```sh
+python3 -m unittest discover -s tests
+```
+
+Docs-only wording or navigation changes may not need tests, but the final note
+should say when tests were not run.
 
 ## Editing Rules
 
