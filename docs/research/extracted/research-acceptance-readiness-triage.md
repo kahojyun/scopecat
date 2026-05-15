@@ -63,15 +63,17 @@ questions directly.
 
 ## Validation Updates
 
-[`legacy-experiment-code-sample-validation.md`](legacy-experiment-code-sample-validation.md)
-validates this triage against two copied legacy experiment codebases. It
-supports the main claims and adds refinements around generated-sidecar
-reconciliation, analysis handoff, dependency/environment manifest pain,
-hardware bring-up validation, readout/SPAM provenance, notebook/repository
-hygiene, and portability/sanitization as product support.
+Internal fixture source maps and the public-safe
+[`experimental-lab-workflow-reference.md`](experimental-lab-workflow-reference.md)
+validate this triage against copied legacy experiment code samples. They support
+the main claims and add refinements around generated-sidecar reconciliation,
+analysis handoff, dependency/environment manifest pain, hardware bring-up
+validation, readout/SPAM provenance, notebook/repository hygiene, and
+portability as product support.
 
-Use the validation note before promoting pain points or journeys from those
-sample codebases.
+Use the source maps for full-fidelity fixture work, and use the workflow
+reference for public-safe gap discovery before promoting pain points or journeys
+from those sample codebases.
 
 ## Acceptance Readiness Classes
 
