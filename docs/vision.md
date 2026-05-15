@@ -80,6 +80,41 @@ Scopecat should own the evidence layer around those systems. It may:
 Scopecat records, compares, explains, proposes, and packages. Existing systems
 execute and mutate.
 
+## Automation Responsibility Boundary
+
+Automation is not outside Scopecat's long-term direction. Existing lab
+workflows already contain automation through scripts, notebooks, calibration
+loops, queued cells, framework schedulers, and local operator conventions.
+Scopecat's opportunity is to make that automation explicit, reviewable,
+replayable, diagnosable, and progressively safer before it claims authority over
+hardware control.
+
+Keep these responsibilities separate:
+
+- Instrument runtimes, device drivers, vendor software, hardware interlocks,
+  and lab-owned control code own authoritative hardware constraints such as
+  output ranges, ramp behavior, timing, channel capabilities, and emergency-safe
+  states.
+- Queue, plan, and orchestration layers may own execution order, lifecycle
+  state, readiness checks, pause or abort behavior, failure policy, and audit
+  records.
+- Experiment authors and lab operators remain responsible for scientific
+  intent, physical setup assumptions, calibration meaning, and whether a planned
+  sequence is appropriate for the current apparatus.
+- Scopecat may own evidence, frozen intent, review gates, mock or shadow
+  replay, lifecycle records, diagnostics, proposals, and accountability for
+  what was requested, checked, approved, run, skipped, stopped, or failed.
+
+When Scopecat does not own the instrument runtime, it should not claim to
+enforce hardware safety limits. It may record bounds, readiness facts, and
+preflight results supplied by user code, lab-owned runtimes, drivers, or
+operators, and it should preserve which source supplied them.
+
+Journey-level automation placement belongs in the experience map or a narrower
+`JC` owner. Real hardware apply, autonomous calibration, rollback, resource
+locking, and unattended queue execution require accepted boundaries that state
+the runtime owner, safety assumptions, stop behavior, and audit record.
+
 ## Explicit Recording Boundary
 
 Scopecat should not actively adapt arbitrary existing measurement frameworks as
@@ -165,8 +200,10 @@ Some of these areas may become product surfaces, integrations, or later
 capabilities after specific journeys and decisions justify them. For example,
 Scopecat may provide its own run browser or live observation surface for
 Scopecat-recorded runs without becoming a replacement for a lab's existing
-instrument-control GUI. The boundary is about adoption prerequisites and
-authority, not a promise to avoid these areas forever.
+instrument-control GUI. It may also make existing queue or calibration
+automation more explicit before it owns any hardware-control runtime. The
+boundary is about adoption prerequisites, silent scope creep, and authority, not
+a promise to avoid these areas forever.
 
 ## Current Clear Value Areas
 
