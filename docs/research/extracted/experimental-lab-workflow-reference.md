@@ -2,21 +2,23 @@
 
 ## Status
 
-Quarantined
+Quarantined.
+
+Use this note for gap discovery; do not promote it directly into product scope.
 
 ## Source
 
 - User refinement on 2026-05-15: preserve realistic experimental-lab workflow
   detail so future product work can compare candidate journeys against the
   whole lab context.
-- Role-synthesis discussion from experimental-physicist, lab-manager, and
-  data/control-engineer perspectives. Treat these as domain hypotheses unless
-  supported by existing evidence.
+- Role-synthesis discussion from internal expert-style reasoning across
+  experimental-physicist, lab-manager, and data/control-engineer perspectives.
+  Treat these as domain hypotheses unless supported by existing evidence.
 - Existing extracted research:
   - [`legacy-experiment-code-sample-validation.md`](legacy-experiment-code-sample-validation.md)
   - [`research-acceptance-readiness-triage.md`](research-acceptance-readiness-triage.md)
-- Internal W2 fixture source maps prepared from local sample trees. Use these
-  only as full-fidelity internal evidence; promote public-safe intent and role
+- Internal fixture source maps prepared from local sample trees. Use these only
+  as full-fidelity internal evidence; promote public-safe intent and role
   patterns, not exact local artifact details.
 - Promoted context in
   [`../../product-experience-map.md`](../../product-experience-map.md).
@@ -32,7 +34,8 @@ for a product experience map but useful for future gap discovery. It is not a
 product plan, accepted journey, architecture contract, subsystem spec, hardware
 control model, scheduler model, ELN/LIMS scope, or public user documentation.
 
-The reference workflow is:
+This workflow is a research scaffold for asking better questions, not an
+accepted product journey:
 
 ```text
 prepare intent
@@ -69,6 +72,8 @@ Do not infer product acceptance directly from this note. Promote only narrow
 claims into owner documents after fixture, interview, spike, or existing
 evidence review.
 
+Before promoting anything from this note, use the checklist at the end.
+
 When using legacy sample evidence, focus on the user or lab intent behind the
 artifact. Some concrete files, names, copies, sidecars, notebooks, or scripts
 may exist because the old system lacked better primitives. They are evidence of
@@ -81,7 +86,7 @@ journeys miss high-value lab gaps. Delete or archive it after the useful
 workflow detail has moved into journey source maps, fixture plans,
 capability-adoption hypotheses, or accepted decisions.
 
-## Claim Classes
+## How To Classify Claims Before Promotion
 
 Use these classes when extracting from the workflows below:
 
@@ -102,6 +107,9 @@ lock files, notebooks, summary arrays, rendered figures, spreadsheets, decks,
 and hardware logs. Treat those artifacts as clues to intent. Do not assume the
 product should reproduce the old artifact shape.
 
+Read each row as: artifact seen -> likely intent -> product question -> scope
+trap.
+
 | Legacy artifact pattern | Likely user intent | Product gap to test | Avoid overfitting to |
 | --- | --- | --- | --- |
 | Copied code folders, backups, and dated script variants | Preserve a known-working method before changing setup, sample, or experiment assumptions. | Explain code provenance, known-good references, drift, and readiness. | Git hosting, package registries, automatic environment sync, or folder-management UX. |
@@ -113,13 +121,21 @@ product should reproduce the old artifact shape.
 | Hardware/service logs and setup scripts | Diagnose fragile local environments and equipment readiness. | Readiness and diagnostic evidence without mutation. | Hardware control, network mutation, setup apply, or environment management. |
 
 The artifact classification vocabulary from fixture work is useful when
-extracting intent: anchor, selected-context candidate, code candidate,
-generated or derived artifact, setup evidence, environment evidence, backup,
-cache, checkpoint, and unknown. Also preserve status, provenance relation,
-evidence handling, inclusion boundary, and sharing boundary. These are source
-map concepts for analysis; they are not accepted user-facing product objects.
+extracting intent:
+
+- Artifact roles: anchor, selected-context candidate, code candidate, generated
+  or derived artifact, setup evidence, environment evidence, backup, cache,
+  checkpoint, and unknown.
+- Evidence metadata: status, provenance relation, evidence handling, inclusion
+  boundary, and sharing boundary.
+
+These are source map concepts for analysis; they are not accepted user-facing
+product objects.
 
 ## Workflow Reference
+
+Each workflow gives context only. Promote only the intent, evidence to preserve,
+and boundary that a narrower owner can validate.
 
 ### 1. Pre-Run Code And Context Staging
 
@@ -140,12 +156,14 @@ flowchart TD
   H --> B
 ```
 
-| Detail | Likely class | Product gap it may expose |
-| --- | --- | --- |
-| Code identity is often visible through copied folders, backups, and variants, but the durable intent is preserving and recognizing known-working method context. | Observed role/status evidence | Copied-code provenance and known-good reference comparison. |
-| Runtime readiness is distinct from instrument-control semantics. | Observed evidence | Readiness-only checks before managed execution or hardware control. |
-| Same protocol may need adaptation across non-identical measurement computers. | Evidence-backed inference | Bounded protocol-transfer diagnostics without assuming routine same-sample migration. |
-| A product that installs, mutates, or owns the environment too early may be rejected on fragile control PCs. | Boundary guardrail | Read-only companion validation before deployment or remote execution. |
+Extraction notes:
+
+- Intent: preserve and recognize known-working method context before changing
+  setup, sample, or computer.
+- Evidence to preserve: code reference, selected configs, generated protocol
+  context, dependency/readiness clues, and observed-vs-inferred status.
+- Boundary: readiness checks should not become package deployment,
+  environment ownership, managed execution, or hardware control.
 
 ### 2. Sample Or Device Bring-Up
 
@@ -164,12 +182,15 @@ flowchart TD
   H --> E
 ```
 
-| Detail | Likely class | Product gap it may expose |
-| --- | --- | --- |
-| Wiring, registry, setup files, and instrument-driver context can affect interpretation, but static artifacts should not be promoted to authoritative setup truth. | Observed role/status evidence | Passive setup evidence and hardware bring-up validation. |
-| Setup state can be necessary context without becoming Scopecat-owned truth. | Boundary guardrail | Evidence-only setup context before apply/reconciliation semantics. |
-| Bring-up failures may explain later run quality or comparability. | Evidence-backed inference | Lifecycle and failure evidence linked to runs. |
-| Full device communication or desired-state apply is safety and ADR-gated. | Rejected as current scope | Avoid broad device framework or mutation scope. |
+Extraction notes:
+
+- Intent: understand whether physical and setup context can support the next
+  calibration or measurement.
+- Evidence to preserve: sample/device identity handles, wiring/setup artifacts,
+  readiness checks, and failure clues.
+- Boundary: static setup artifacts are not authoritative setup truth; device
+  communication, setup apply, and reconciliation remain out of scope unless
+  explicitly decided.
 
 ### 3. Calibration Sequence
 
@@ -192,12 +213,14 @@ flowchart TD
   K --> B
 ```
 
-| Detail | Likely class | Product gap it may expose |
-| --- | --- | --- |
-| Calibration mixes measurements, fits, generated files, operator judgment, and parameter edits. | Observed evidence | Reviewable calibration proposals before mutation. |
-| Frozen calibration context is needed to explain later runs. | Evidence-backed inference | Run-bound parameter snapshots and selected-context evidence. |
-| Readout/SPAM and classifier choices are first-class lineage for some results. | Observed evidence | Derived-artifact and correction lineage. |
-| Automatic calibration write-back is mutation-capable automation. | Boundary guardrail | Proposal-only first slice; write-back needs explicit decision. |
+Extraction notes:
+
+- Intent: turn calibration measurements and fits into trusted context for later
+  runs.
+- Evidence to preserve: source measurement, fit output, operator judgment,
+  selected calibration context, and correction/classifier choices.
+- Boundary: reviewable proposals can be useful; automatic write-back or hidden
+  parameter mutation needs a separate decision.
 
 ### 4. Measurement Campaign
 
@@ -219,12 +242,14 @@ flowchart TD
   J --> B
 ```
 
-| Detail | Likely class | Product gap it may expose |
-| --- | --- | --- |
-| Run families, generated protocols, correction records, and sidecars may affect interpretation; their durable intent is explainability and completeness, not legacy format preservation. | Observed role/status evidence | Run-family navigation and generated-protocol lineage. |
-| Partial, paused, retuned, corrected, or invalidated runs can be scientifically important. | Evidence-backed inference | Lifecycle evidence beyond complete/incomplete status. |
-| Long-running measurements may need passive fit, quality, anomaly, and intent feedback. | Domain hypothesis with supporting pressure | Measurement-time advisory support without control ownership. |
-| A workflow DAG, scheduler, queue, or autonomous controller is too broad for current scope. | Rejected as current scope | Keep advisory support replayable and safe to disable. |
+Extraction notes:
+
+- Intent: preserve enough context to understand the campaign, not just one
+  completed dataset.
+- Evidence to preserve: generated protocol context, sidecars, run-family
+  relations, lifecycle state, and stop/pause/retune reasons.
+- Boundary: passive, replayable decision support is different from a scheduler,
+  workflow DAG, queue, or autonomous controller.
 
 ### 5. Analysis Handoff
 
@@ -242,13 +267,14 @@ flowchart TD
   G --> H["Open offline analysis workspace"]
 ```
 
-| Detail | Likely class | Product gap it may expose |
-| --- | --- | --- |
-| Analysis handoff is distinct from acquisition. | Observed evidence | `JC-002` selected-run handoff and offline reader needs. |
-| Handoff needs source identity, portability, integrity, and unresolved ambiguity. | Evidence-backed inference | Manifest, checksum, source-link, and gap-review design. |
-| Analysis handoff artifacts can demonstrate lineage even when they do not form a guaranteed reproducible pipeline. | Observed role/status evidence | Handoff packages that preserve source links, gaps, and processing evidence. |
-| Public export and internal analysis handoff have different redaction needs. | Boundary guardrail | Recipient-aware sharing boundaries. |
-| Full work-bundle import, report generation, or publication workflow is too broad for the first handoff slice. | Rejected as current scope | Keep handoff pre-analysis and immutable. |
+Extraction notes:
+
+- Intent: move valuable data and context to analysis without losing source
+  identity.
+- Evidence to preserve: run IDs, manifest, checksums, selected context,
+  source links, unresolved gaps, and recipient-appropriate sharing labels.
+- Boundary: internal analysis handoff is not public export, full work-bundle
+  import, report generation, or publication workflow.
 
 ### 6. Analysis, Reports, And Claims
 
@@ -266,12 +292,13 @@ flowchart TD
   F --> G["Link claims back to source runs, code, calibration, and unresolved ambiguity"]
 ```
 
-| Detail | Likely class | Product gap it may expose |
-| --- | --- | --- |
-| Reports and figures need lineage back to source runs and processing choices. | Observed evidence | Analysis-impact lineage. |
-| Notebook state is useful evidence but poor automatic truth. | Observed evidence | Link code/notebook evidence without full notebook-state capture. |
-| Group-meeting outputs can reveal decision points and missing context. | Domain hypothesis | Lightweight decision records, not full ELN scope. |
-| Full publication or report-generation product is outside current scope. | Rejected as current scope | Preserve lineage first. |
+Extraction notes:
+
+- Intent: make later figures, reports, and claims traceable to source evidence.
+- Evidence to preserve: processing code references, assumptions, exclusions,
+  corrections, uncertainty, and links back to source runs.
+- Boundary: preserve lineage before considering report generation,
+  publication tooling, or full notebook-state capture.
 
 ### 7. Lab-Management Context
 
@@ -287,44 +314,27 @@ journey scope unless a narrow workflow earns validation.
 | Group meetings and weekly reports | Figures, blockers, decisions, owners, and next actions shape what work continues. | Useful for analysis lineage and decision context; not full project-management scope. |
 | Safety, training, and incidents | Cryogens, magnets, high voltage, lasers/RF, and faults constrain mutation and automation. | Guardrails for ADR-gated control/apply decisions. |
 
-## Gap-Discovery Prompts
+## Promotion Checklist
 
-Use these prompts when comparing a candidate journey to the reference workflow:
+Promote from this note only when a narrower owner can answer:
 
-- Which computer owns the current step: authoring, target measurement, shared
-  instrument-control, or analysis?
-- Is the user moving code/config before the run, or moving data/evidence after
-  the run?
-- What intent does a concrete legacy artifact reveal, and which parts are only
-  old-system workaround shape?
-- What source identity would be lost if the user copied only a folder, dataset
-  ID, notebook, or figure?
-- Which calibration, setup, generated-protocol, or correction context affects
-  trust in the result?
-- What does the user need to know without letting Scopecat mutate files,
-  environments, parameters, or hardware?
-- What partial, interrupted, retuned, repeated, or invalidated evidence would
-  be important later?
-- Which redaction boundary applies: internal handoff, restricted support,
-  external support, public docs, or publication?
-- Is the workflow naturally one journey, or is it a composition of smaller
-  validation slices?
-- Would supporting this artifact shape directly reduce user risk, or would a
-  cleaner product primitive satisfy the intent with less legacy coupling?
-
-## Promotion Guidance
-
-Promote from this note only when a narrower owner can state:
+Required before promotion:
 
 - the user-visible outcome;
 - the concrete fixture or interview source;
 - the user intent behind any legacy artifact pattern;
+- which computer owns the step: authoring, target measurement, shared
+  instrument-control, or analysis;
+- whether the workflow moves code/config before the run or data/evidence after
+  the run;
+- which source identity, calibration, setup, generated-protocol, correction, or
+  lifecycle context affects trust;
 - the boundary between evidence, proposal, diagnostic, and mutation;
 - the minimum artifacts required;
 - the redaction and sharing boundary;
 - what remains explicitly out of scope.
 
-Do not promote these broad directions directly:
+Still out of scope unless separately decided:
 
 - full ELN, LIMS, or lab-management platform;
 - scheduler, queue, lease manager, or generic workflow DAG;
