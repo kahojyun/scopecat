@@ -27,6 +27,8 @@ so the user can critique the pain framing before implementation details harden.
 | --- | --- | --- |
 | Batch intent and outcome | `tests/fixtures/pain-discovery-batch-intent-outcome/` | Is the pain execution ownership, or reviewable batch intent/outcome/failure policy? |
 | Code snapshot and explicit record | `tests/fixtures/pain-discovery-code-snapshot-explicit-record/` | Is a simple code snapshot plus explicit run record enough before a code registry exists? |
+| Parameter memory bad-state handling | `tests/fixtures/pain-discovery-parameter-memory-bad-state/` | Is retain-by-default history with yank/exclusion enough for bad parameter states before write-back exists? |
+| Code version selection | `tests/fixtures/pain-discovery-code-version-selection/` | Does selecting a prior code version or branch variant need load-and-run behavior, or is provenance-only tracking enough? |
 | Measurement record and attachments | `tests/fixtures/pain-discovery-measurement-data-attachments/` | Which outputs should become system-managed measurement data, and which remain attached artifacts? |
 
 ## Grounding Labels
@@ -363,6 +365,16 @@ already care about provenance. Loading a selected version for execution is the
 clearer quality-of-life improvement, likely with process isolation, but it
 remains a capability hypothesis until the smaller entrypoint, selected-folder,
 and minimal-executor paths prove insufficient.
+
+The code-version-selection fixture now separates those two values:
+
+- `tracking_only`: records selected code version and entrypoint for later
+  analysis;
+- `load_selected_version`: compares the stronger experiment workflow where
+  Scopecat would load the selected entrypoint in an isolated process.
+
+The second path is deliberately marked as a capability hypothesis, not an
+accepted runner architecture.
 
 ### Scopecat Boundary Around Existing Control Systems
 

@@ -1,0 +1,52 @@
+{
+  "code_asset_id": "public-calibration-template",
+  "status": "draft validation data",
+  "schema_role": "fixture shape only; not an accepted code registry API",
+  "versions": [
+    {
+      "code_version_id": "code-version-main-v1",
+      "label": "main v1 known-good",
+      "source_path": "code/template_main_v1.py",
+      "entrypoint": {
+        "module_path": "code/template_main_v1.py",
+        "symbol": "run_public_template"
+      },
+      "history_status": "known_good",
+      "operator_note": "Used for prior successful calibration."
+    },
+    {
+      "code_version_id": "code-version-main-v2",
+      "label": "main v2 current",
+      "source_path": "code/template_main_v2.py",
+      "entrypoint": {
+        "module_path": "code/template_main_v2.py",
+        "symbol": "run_public_template"
+      },
+      "history_status": "current",
+      "operator_note": "Current version under normal development."
+    },
+    {
+      "code_version_id": "code-version-explore-001",
+      "label": "exploration branch",
+      "source_path": "code/template_exploration_branch.py",
+      "entrypoint": {
+        "module_path": "code/template_exploration_branch.py",
+        "symbol": "run_public_template"
+      },
+      "history_status": "exploratory",
+      "operator_note": "Used for a trial branch that should not replace the known-good version yet."
+    }
+  ],
+  "unknowns": [
+    {
+      "field": "full transitive imports",
+      "status": "unknown",
+      "reason": "fixture does not infer arbitrary imports"
+    },
+    {
+      "field": "third-party dependency lock",
+      "status": "not_required_for_this_fixture",
+      "reason": "dependency closure remains lower-priority readiness evidence"
+    }
+  ]
+}

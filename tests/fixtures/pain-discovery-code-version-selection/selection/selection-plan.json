@@ -1,0 +1,36 @@
+{
+  "selection_id": "code-selection-public-001",
+  "status": "draft validation data",
+  "operator_goal": "Select a previous known-good code version for a calibration retry without copying files back into the experiment directory.",
+  "available_versions_ref": "versions/version-index.json",
+  "selected_code_version_id": "code-version-main-v1",
+  "selection_reason": "Previous version is known-good; current version is under development; exploration branch is not trusted for this retry.",
+  "execution_modes_compared": [
+    {
+      "mode": "tracking_only",
+      "value": "record selected version but user still runs code manually",
+      "expected_value": "better retrospective provenance",
+      "risk": "may not improve experiment workflow enough for users who ignore provenance"
+    },
+    {
+      "mode": "load_selected_version",
+      "value": "Scopecat loads the selected entrypoint in an isolated process",
+      "expected_value": "clearer experiment quality-of-life improvement",
+      "status": "capability_hypothesis",
+      "requires_future_validation": [
+        "process isolation boundary",
+        "environment readiness",
+        "safe working directory",
+        "explicit entrypoint contract",
+        "failure and outcome reporting"
+      ]
+    }
+  ],
+  "out_of_scope": [
+    "complete dependency graph inference",
+    "automatic import scanning",
+    "code registry ownership",
+    "long-running managed runner",
+    "hardware control"
+  ]
+}

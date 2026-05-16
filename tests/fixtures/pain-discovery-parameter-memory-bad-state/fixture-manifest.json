@@ -1,0 +1,46 @@
+{
+  "fixture_id": "pain-discovery-parameter-memory-bad-state",
+  "status": "draft pain-discovery fixture",
+  "purpose": "Test whether parameter memory needs retain-by-default history, yank or exclusion semantics for bad states, branch movement, and prior-version retry before Scopecat-owned write-back exists.",
+  "grounding": {
+    "direct_sample": [
+      "mutable parameter files",
+      "copied parameter snapshots beside runs",
+      "manual parameter-file versioning",
+      "calibration fit and direct update pressure"
+    ],
+    "user_clarification": [
+      "controlled mutation is not the primary pain",
+      "users need to retry with a previous parameter version",
+      "users need branches or working points",
+      "bad writes should not distort drift analysis",
+      "history should not be deleted by default"
+    ],
+    "future_hypotheses_out_of_scope": [
+      "Scopecat-owned parameter write-back",
+      "autonomous apply",
+      "rollback automation",
+      "universal parameter schema"
+    ]
+  },
+  "artifacts": [
+    {
+      "path": "states/parameter-history.json",
+      "role": "parameter memory timeline with active, yanked, and branch-moved states"
+    },
+    {
+      "path": "queries/drift-query.json",
+      "role": "example query showing bad-state exclusion from drift analysis"
+    },
+    {
+      "path": "runs/run-links.json",
+      "role": "run-to-parameter-state linkage for retry and explanation"
+    }
+  ],
+  "fixture_questions": [
+    "Is retain-by-default plus yank or exclusion enough for bad parameter states?",
+    "When is hard delete acceptable, and what payload or audit data must remain?",
+    "Does branch movement back to a prior state cover the retry workflow without Scopecat-owned write-back?",
+    "Which review decisions should be fixed records, and which should become user-defined policy later?"
+  ]
+}

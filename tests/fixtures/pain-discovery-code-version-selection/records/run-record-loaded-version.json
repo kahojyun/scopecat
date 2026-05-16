@@ -1,0 +1,35 @@
+{
+  "record_id": "run-record-code-selection-public-001",
+  "run_id": "run-public-code-selection-001",
+  "selected_code_version_id": "code-version-main-v1",
+  "selected_entrypoint": {
+    "module_path": "code/template_main_v1.py",
+    "symbol": "run_public_template",
+    "declared_by": "operator_selection",
+    "support_level": "user clarification only"
+  },
+  "execution_mode": {
+    "selected_for_fixture": "load_selected_version",
+    "status": "capability_hypothesis",
+    "comparison_mode": "tracking_only"
+  },
+  "context_refs": ["setting-snapshot-public-a"],
+  "expected_scopecat_output": [
+    "show which code version was selected before the run",
+    "show why the older known-good version was selected",
+    "record the entrypoint used by the run",
+    "distinguish provenance-only tracking from future load-and-run behavior"
+  ],
+  "unknowns": [
+    {
+      "field": "actual process launch semantics",
+      "status": "not_defined",
+      "reason": "fixture validates user value before accepting runner architecture"
+    },
+    {
+      "field": "complete dependency closure",
+      "status": "not_captured",
+      "reason": "third-party dependencies are readiness details outside this fixture"
+    }
+  ]
+}
