@@ -47,10 +47,20 @@
       "started_at": "2026-05-16T01:22:00Z",
       "ended_at": "2026-05-16T01:30:00Z",
       "produced": ["records/task-d-proposal.json"],
-      "consumed_inputs": ["baseline-fit-summary"],
-      "produced_outputs": ["calibration-proposal"],
+      "consumed_inputs": ["baseline-fit-summary", "parameters-before-readout-cal"],
+      "produced_outputs": ["calibration-proposal", "parameters-after-readout-cal-proposal"],
       "priority_support_level": "user clarification only",
       "review_reason": "fit quality flag is suspicious; proposal must not mutate parameters"
+    },
+    {
+      "task_id": "task-e",
+      "status": "skipped",
+      "started_at": null,
+      "ended_at": null,
+      "skip_reason": "required input parameters-after-readout-cal-proposal is waiting for human review",
+      "missing_or_unusable_inputs": ["parameters-after-readout-cal-proposal"],
+      "produced": [],
+      "missing_outputs": ["post-cal-check-table"]
     }
   ]
 }

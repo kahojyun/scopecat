@@ -69,6 +69,13 @@ preference, or conservative sequencing. A future executor can derive ordering
 from data dependencies, but the pain-discovery fixture should keep both concepts
 visible so users can say why one task waits for another.
 
+Inputs and outputs can also name logical states of the same mutable artifact at
+different stages, such as `parameters-before-readout-cal` and
+`parameters-after-readout-cal-proposal` for a shared `parameters.json`. In that
+case, `mutual_exclusion_keys` should express the shared mutable resource, while
+`inputs` and `outputs` express which state a later task depends on. The fixture
+does not require Scopecat to diff, write, snapshot, or rollback the file.
+
 ### Current Workaround
 
 Users queue notebook cells, write loops manually, copy parameters into side

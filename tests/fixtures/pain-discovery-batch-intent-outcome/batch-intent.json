@@ -163,6 +163,11 @@
           "key": "public-device-alpha",
           "support_level": "user clarification only",
           "note": "Calibration proposal uses the same synthetic apparatus group as the high-priority sweep."
+        },
+        {
+          "key": "mutable-file:setting/parameters.json",
+          "support_level": "direct sample for shared parameter-file mutation pressure; synthetic key",
+          "note": "Represents read/write conflict around a shared mutable parameter file without requiring a lease or transaction system."
         }
       ],
       "failure_or_review_intent": "record proposal and require human review; do not write parameters",
@@ -173,6 +178,16 @@
           "required": true,
           "transport": "scopecat_record",
           "legacy_transport_examples": ["python_variable", "file_path", "manual notebook lookup"]
+        },
+        {
+          "input_id": "parameters-before-readout-cal",
+          "kind": "parameter_state",
+          "source_ref": "setting/parameters.json",
+          "required": true,
+          "transport": {
+            "status": "not_declared",
+            "legacy_possibilities": ["shared_json_file", "notebook_loaded_dict"]
+          }
         }
       ],
       "outputs": [
@@ -181,6 +196,13 @@
           "kind": "proposal",
           "transport": "scopecat_record",
           "path_hint": "records/task-d-proposal.json"
+        },
+        {
+          "output_id": "parameters-after-readout-cal-proposal",
+          "kind": "parameter_state_proposal",
+          "target_ref": "setting/parameters.json",
+          "transport": "scopecat_record",
+          "write_policy": "proposal_only_no_write_back"
         }
       ],
       "expected_outputs": ["records/task-d-proposal.json"],
@@ -189,6 +211,50 @@
         "required": true,
         "reason": "fit quality is allowed to be suspicious; no parameter write-back in this fixture"
       }
+    },
+    {
+      "task_id": "task-e",
+      "label": "run with proposed readout state",
+      "operator_priority_hint": {
+        "value": "user-high",
+        "support_level": "fixture design probe"
+      },
+      "kind": "measurement",
+      "ordering": {
+        "not_before": ["task-d"]
+      },
+      "mutual_exclusion_keys": [
+        {
+          "key": "public-device-alpha",
+          "support_level": "user clarification only",
+          "note": "Uses the same synthetic apparatus group as task-d."
+        },
+        {
+          "key": "mutable-file:setting/parameters.json",
+          "support_level": "direct sample for shared parameter-file mutation pressure; synthetic key",
+          "note": "Represents dependency on a specific logical parameter state, not actual file write-back."
+        }
+      ],
+      "failure_or_review_intent": "do not run until the proposed parameter state is reviewed",
+      "inputs": [
+        {
+          "input_id": "parameters-after-readout-cal-proposal",
+          "from_task": "task-d",
+          "required": true,
+          "kind": "parameter_state_proposal",
+          "review_required": true
+        }
+      ],
+      "outputs": [
+        {
+          "output_id": "post-cal-check-table",
+          "kind": "measurement_table",
+          "transport": "scopecat_record",
+          "path_hint": "records/task-e-record.json"
+        }
+      ],
+      "expected_outputs": ["records/task-e-record.json"],
+      "context_refs": ["code-snapshot-alpha", "setting-snapshot-alpha"]
     }
   ],
   "fixture_questions": [

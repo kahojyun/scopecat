@@ -1,0 +1,9 @@
+{
+  "record_id": "record-task-e",
+  "task_id": "task-e",
+  "role": "measurement",
+  "status": "not_created",
+  "reason": "Task skipped because required parameter state proposal is waiting for review.",
+  "declared_inputs": ["parameters-after-readout-cal-proposal"],
+  "declared_outputs": ["post-cal-check-table"]
+}

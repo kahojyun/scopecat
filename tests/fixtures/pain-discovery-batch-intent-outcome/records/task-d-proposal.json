@@ -3,8 +3,8 @@
   "task_id": "task-d",
   "role": "calibration-proposal",
   "status": "requires_human_review",
-  "declared_inputs": ["baseline-fit-summary"],
-  "declared_outputs": ["calibration-proposal"],
+  "declared_inputs": ["baseline-fit-summary", "parameters-before-readout-cal"],
+  "declared_outputs": ["calibration-proposal", "parameters-after-readout-cal-proposal"],
   "proposed_change": {
     "target": "setting-snapshot-alpha",
     "field": "readout.threshold",
