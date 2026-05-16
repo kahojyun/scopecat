@@ -43,14 +43,22 @@
     },
     {
       "task_id": "task-d",
-      "status": "waiting_for_human_review",
+      "status": "waiting_for_review",
       "started_at": "2026-05-16T01:22:00Z",
       "ended_at": "2026-05-16T01:30:00Z",
       "produced": ["records/task-d-proposal.json"],
       "consumed_inputs": ["baseline-fit-summary", "parameters-before-readout-cal"],
       "produced_outputs": ["calibration-proposal", "parameters-after-readout-cal-proposal"],
       "priority_support_level": "user clarification only",
-      "review_reason": "fit quality flag is suspicious; proposal must not mutate parameters"
+      "review_reason": "fit quality flag is suspicious; whether this becomes direct apply with recorded diff or explicit proposal/review is an open validation question",
+      "calibration_update_policy": {
+        "status": "open_validation_question",
+        "variants": [
+          "direct_user_apply_with_recorded_parameter_diff",
+          "explicit_proposal_for_review"
+        ],
+        "autonomous_apply": "out_of_scope"
+      }
     },
     {
       "task_id": "task-e",

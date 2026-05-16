@@ -2,7 +2,7 @@
   "record_id": "record-task-c",
   "task_id": "task-c",
   "role": "measurement",
-  "status": "completed",
+  "status": "succeeded",
   "data": {
     "path": "records/task-c-table.csv",
     "shape": [3, 2],

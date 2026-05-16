@@ -113,7 +113,14 @@
   },
   "legacy_migration_note": {
     "old_pattern": "Data Vault dataset plus run-adjacent parameter, CSV, NPZ, or JSON sidecars used as workaround",
-    "desired_replacement": "primary measurement table plus role-labeled attachments",
+    "desired_replacement": "Arrow-table-like or custom-manifest primary measurement payload plus role-labeled attachments; storage/export/API undecided",
+    "missing_validation_cases": [
+      "IQ",
+      "shots",
+      "traces",
+      "VNA-like data",
+      "analysis ndarray payload"
+    ],
     "support_level": "sample plus user clarification"
   }
 }

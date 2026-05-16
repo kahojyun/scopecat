@@ -3,10 +3,11 @@
   "batch_id": "batch-public-001",
   "status": "draft pain-discovery fixture",
   "created_at": "2026-05-16T00:00:00Z",
+  "manifest_role": "validation IR for review and minimal local-executor experiments; field names are not accepted schema or API",
   "operator": {
     "status": "redacted"
   },
-  "purpose": "Test whether reviewable batch intent, failure policy, and outcome records answer the pain before Scopecat owns execution.",
+  "purpose": "Test whether helper-generated intent plus a minimal local executor and run report answer the pain before full managed-runner capabilities such as retry, resume, priority scheduling, leases, or hardware orchestration.",
   "grounding": {
     "direct_sample": [
       "ordered scan loops",
@@ -24,11 +25,11 @@
     ]
   },
   "scope_boundary": {
-    "scopecat_owns": [
+    "scopecat_validates": [
       "declared intent record",
       "readiness and provenance references",
       "outcome record",
-      "review gates and proposal labels"
+      "review gates and calibration-update decision evidence"
     ],
     "scopecat_does_not_own": [
       "hardware execution",
@@ -64,13 +65,19 @@
         {
           "output_id": "baseline-table",
           "kind": "measurement_table",
-          "transport": "scopecat_record",
+          "transport_hint": {
+            "status": "example_only",
+            "value": "fixture_record_file"
+          },
           "path_hint": "records/task-a-table.csv"
         },
         {
           "output_id": "baseline-fit-summary",
           "kind": "fit_or_quality_summary",
-          "transport": "scopecat_record",
+          "transport_hint": {
+            "status": "example_only",
+            "value": "fixture_record_file"
+          },
           "path_hint": "records/task-a-record.json"
         }
       ],
@@ -101,7 +108,10 @@
           "input_id": "baseline-fit-summary",
           "from_task": "task-a",
           "required": true,
-          "transport": "scopecat_record",
+          "transport_hint": {
+            "status": "example_only",
+            "value": "fixture_record_file"
+          },
           "legacy_transport_examples": ["python_variable", "file_path"]
         }
       ],
@@ -109,7 +119,10 @@
         {
           "output_id": "sample-table",
           "kind": "measurement_table",
-          "transport": "scopecat_record",
+          "transport_hint": {
+            "status": "example_only",
+            "value": "fixture_record_file"
+          },
           "path_hint": "records/task-b-record.json"
         }
       ],
@@ -140,7 +153,10 @@
         {
           "output_id": "independent-check-table",
           "kind": "measurement_table",
-          "transport": "scopecat_record",
+          "transport_hint": {
+            "status": "example_only",
+            "value": "fixture_record_file"
+          },
           "path_hint": "records/task-c-table.csv"
         }
       ],
@@ -170,13 +186,24 @@
           "note": "Represents read/write conflict around a shared mutable parameter file without requiring a lease or transaction system."
         }
       ],
-      "failure_or_review_intent": "record proposal and require human review; do not write parameters",
+      "failure_or_review_intent": "record calibration update evidence; direct apply with recorded diff versus explicit proposal/review remains an open validation question",
+      "calibration_update_policy": {
+        "status": "open_validation_question",
+        "variants": [
+          "direct_user_apply_with_recorded_parameter_diff",
+          "explicit_proposal_for_review"
+        ],
+        "autonomous_apply": "out_of_scope"
+      },
       "inputs": [
         {
           "input_id": "baseline-fit-summary",
           "from_task": "task-a",
           "required": true,
-          "transport": "scopecat_record",
+          "transport_hint": {
+            "status": "example_only",
+            "value": "fixture_record_file"
+          },
           "legacy_transport_examples": ["python_variable", "file_path", "manual notebook lookup"]
         },
         {
@@ -194,22 +221,28 @@
         {
           "output_id": "calibration-proposal",
           "kind": "proposal",
-          "transport": "scopecat_record",
+          "transport_hint": {
+            "status": "example_only",
+            "value": "fixture_record_file"
+          },
           "path_hint": "records/task-d-proposal.json"
         },
         {
           "output_id": "parameters-after-readout-cal-proposal",
           "kind": "parameter_state_proposal",
           "target_ref": "setting/parameters.json",
-          "transport": "scopecat_record",
-          "write_policy": "proposal_only_no_write_back"
+          "transport_hint": {
+            "status": "example_only",
+            "value": "fixture_record_file"
+          },
+          "write_policy": "open_validation_question; compare direct update recording with explicit proposal review"
         }
       ],
       "expected_outputs": ["records/task-d-proposal.json"],
       "context_refs": ["code-snapshot-calibration", "setting-snapshot-alpha"],
       "review_gate": {
         "required": true,
-        "reason": "fit quality is allowed to be suspicious; no parameter write-back in this fixture"
+        "reason": "fit quality is allowed to be suspicious; direct apply with recorded diff and explicit proposal/review are both validation variants"
       }
     },
     {
@@ -249,7 +282,10 @@
         {
           "output_id": "post-cal-check-table",
           "kind": "measurement_table",
-          "transport": "scopecat_record",
+          "transport_hint": {
+            "status": "example_only",
+            "value": "fixture_record_file"
+          },
           "path_hint": "records/task-e-record.json"
         }
       ],
@@ -259,7 +295,7 @@
   ],
   "fixture_questions": [
     "Is this intent record useful before leaving the lab?",
-    "Is outcome recording enough before a managed runner exists?",
+    "Is outcome recording enough before full managed-runner capabilities exist?",
     "Which fields are required if execution still happens through notebook or IPython?",
     "Which failure policies need real scheduling before they can be validated?"
   ]

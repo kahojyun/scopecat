@@ -24,17 +24,29 @@ phase and coordination only.
 | Route hypothesis | Touched `JC` rows | Standalone value being tested |
 | --- | --- | --- |
 | Run history and analysis handoff | `JC-001`, `JC-002`, `JC-006`, `JC-015` | Open, understand, reopen, select, package, and later trace measurement work without replacing acquisition code. |
-| Method and code portability diagnostics | `JC-004`, `JC-008`, `JC-013` | Explain copied notebooks, scripts, runnable configuration, known-good sources, drift, and dry-run readiness before deployment or managed execution. |
-| Experiment intent and readiness | `JC-007`, `JC-008`, `JC-016` | Preview, diff, freeze, and mock-check plan or queue intent before one bounded runtime handoff is considered. |
-| Calibration and parameter review | `JC-003`, `JC-011`, `JC-012`, `JC-016` | Review calibration, parameter, declared-context, and advisory evidence before mutation or bounded apply. |
+| Method and code portability diagnostics | `JC-004`, `JC-008`, `JC-013` | Explain copied notebooks, scripts, selected entrypoints, user-code snapshots, known-good sources, drift, and readiness before any deployment or managed-runner capability is accepted. |
+| Experiment intent and readiness | `JC-007`, `JC-008`, `JC-016` | Preview, diff, freeze, and validate helper-authored local batch intent with outcome reports before any managed execution or broader runtime ownership is considered. |
+| Calibration and parameter memory | `JC-003`, `JC-011`, `JC-012`, `JC-016` | Query parameter drift, branches, run linkage, direct-update history, declared-context, and advisory evidence before optional proposal/review or bounded apply. |
 | Trust, diagnostics, and comparability | `JC-009`, `JC-010`, `JC-012` | Compare known-good references, current bundles, valid-looking runs, setup states, samples, or method variants without claiming equivalence. |
 | Analysis and claim lineage | `JC-002`, `JC-006`, `JC-014` | Trace figures, fits, reports, and claims back to source runs, processing choices, corrections, exclusions, and ambiguity. |
 
 ## Promotion Rule
 
-Do not promote runtime ownership, managed execution, or a capability name into a
-standalone adoption route until a lab can get useful value from adopting that
-route alone.
+Keep runtime ownership, managed execution, code registry, automatic version
+management, proposal workflow, and similar solution-shaped names out of
+adoption routes by default. Treat them as capability hypotheses; promote only
+pain-framed routes after accepted journey evidence or user validation shows
+standalone value, and after any required ADR or safety decision.
+
+Current corrective stance:
+
+- `JC-008` should validate helper-authored batch intent plus a minimal local
+  executor and outcome report, not a managed runner.
+- `JC-003` should start from parameter memory, drift, branches, run linkage,
+  and direct-update history; explicit proposal/review is optional future scope.
+- `JC-016` remains a capability hypothesis until lower-level local execution,
+  explicit recording, parameter memory, stop behavior, runtime owner, and audit
+  records are validated separately.
 
 Routes may guide journey selection and cross-journey review. They do not own
 contracts, implementation boundaries, API schemas, storage models, hardware

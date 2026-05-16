@@ -96,9 +96,9 @@ task.
 
 Scopecat should show intended versus actual execution, which failure did not
 block later work with no `not_before` dependency, which task waited for human
-review, which calibration result is only a proposal, and which later task
-needed an unavailable prior output. The output should identify which parts are
-observed sample patterns, user-clarified desired behavior, or proposed
+review, which calibration update path was used or left open, and which later
+task needed an unavailable prior output. The output should identify which parts
+are observed sample patterns, user-clarified desired behavior, or proposed
 managed-runner semantics.
 
 ### Explicit Unknowns
@@ -258,7 +258,9 @@ less certain for measurement plotting, but may matter for analysis outputs.
 
 This note does not decide storage, reader API, or export format. It does mean
 the measurement fixture should avoid implying that simple scalar CSV examples
-are enough to validate the measurement data model.
+are enough to validate the measurement data model. Measurement validation needs
+ordinary complex cases such as IQ, shots, traces, VNA-like records, and possibly
+analysis `ndarray` payloads.
 
 ### Calibration Proposal Apply Is Still Open
 

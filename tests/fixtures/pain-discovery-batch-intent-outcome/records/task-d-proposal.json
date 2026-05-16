@@ -1,8 +1,17 @@
 {
   "record_id": "proposal-task-d",
   "task_id": "task-d",
-  "role": "calibration-proposal",
-  "status": "requires_human_review",
+  "role": "calibration-update-decision-evidence",
+  "status": "waiting_for_review",
+  "review_required": true,
+  "calibration_update_policy": {
+    "status": "open_validation_question",
+    "variants": [
+      "direct_user_apply_with_recorded_parameter_diff",
+      "explicit_proposal_for_review"
+    ],
+    "autonomous_apply": "out_of_scope"
+  },
   "declared_inputs": ["baseline-fit-summary", "parameters-before-readout-cal"],
   "declared_outputs": ["calibration-proposal", "parameters-after-readout-cal-proposal"],
   "proposed_change": {
@@ -20,5 +29,5 @@
     "status": "pending",
     "decision": "not_provided"
   },
-  "mutation_policy": "do not apply in this fixture"
+  "mutation_policy": "compare direct user apply with recorded diff against explicit proposal/review; autonomous apply is out of scope"
 }
