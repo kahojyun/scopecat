@@ -201,9 +201,10 @@ replacement targets for every route:
 Some of these areas may become product surfaces, integrations, or later
 capabilities after specific journeys and decisions justify them. For example,
 Scopecat may provide its own run browser or live observation surface for
-Scopecat-recorded runs without becoming a replacement for a lab's existing
-instrument-control GUI. It may also make existing queue or calibration
-automation more explicit before it owns any hardware-control runtime. The
+Scopecat-recorded runs, including read-only same-station LAN browsing, without
+becoming a replacement for a lab's existing instrument-control GUI. It may also
+make existing queue or calibration automation more explicit before it owns any
+hardware-control runtime. The
 boundary is about adoption prerequisites, silent scope creep, and authority, not
 a promise to avoid these areas forever.
 
@@ -216,6 +217,8 @@ ordered first slice:
 - preserve selected context, code-shaped provenance, companion artifacts,
   ambiguity, and sharing boundaries;
 - create immutable pre-analysis handoff snapshots for selected runs;
+- reduce same-station data-browsing bottlenecks through read-only LAN access
+  before remote experiment execution;
 - compare evidence and gaps without claiming authoritative truth;
 - support parameter memory, advisory evidence, and optional reviewable
   proposals before any parameter or calibration mutation;

@@ -24,6 +24,7 @@ phase and coordination only.
 | Route hypothesis | Touched `JC` rows | Standalone value being tested |
 | --- | --- | --- |
 | Run history and analysis handoff | `JC-001`, `JC-002`, `JC-006`, `JC-015` | Open, understand, reopen, select, package, and later trace measurement work without replacing acquisition code. |
+| Same-station data access | `JC-011`, `JC-015`, `JC-017` | Let another same-LAN station computer browse historical records and optionally observe running-run data without taking over hardware control or requiring cross-setup migration. |
 | Method and code portability diagnostics | `JC-004`, `JC-008`, `JC-013` | Explain copied notebooks, scripts, static entrypoint evidence, user-code snapshots, known-good sources, drift, and readiness before any deployment, code-version loader, or managed-runner capability is accepted. |
 | Experiment intent and readiness | `JC-007`, `JC-008`, `JC-016` | Evidence-backed value starts with reviewable intent and outcome reports; minimal local execution, shared-resource hints, review gates, and requested resume/remeasure actions remain fixture-gated hypotheses before managed execution or broader runtime ownership is considered. |
 | Calibration and parameter memory | `JC-003`, `JC-011`, `JC-012`, `JC-016` | Start with parameter drift queries, branch or working-point history, run linkage, direct-update history, bad-state labeling/exclusion, declared-context, and running-run read/monitor evidence before separating prior-version retry, proposal/review, apply, or mutation-ownership decisions. |
@@ -55,6 +56,9 @@ Current corrective stance:
   user measurement code as the inside of the existing lab stack, with Scopecat
   owning declared intent, context, records, outcomes, and review outside that
   function boundary.
+- `JC-017` should validate read-only same-station browsing before remote
+  experiment execution. Shared folders are a baseline for simple file-based
+  systems, but they should not define the richer realtime read/monitor path.
 
 Routes may guide journey selection and cross-journey review. They do not own
 contracts, implementation boundaries, API schemas, storage models, hardware
