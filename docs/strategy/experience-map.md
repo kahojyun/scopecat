@@ -94,7 +94,6 @@ owner before this placement table becomes the source of truth.
 | Existing evidence explanation | `JC-001` | Accepted boundary | Anchor post-run artifacts, selected context, code references, missing facts, conflicts, and sharing boundaries before handoff, comparison, or mutation. |
 | Analysis handoff | `JC-002` | Draft boundary | Move selected runs and enough context to an analysis computer as an immutable pre-analysis snapshot. |
 | Durable recording and reopen | `JC-015` | Substrate hypothesis | Explore ordinary-Python recording, lifecycle evidence, running-run reads, and reopen by stable opaque ID before richer handoff or read/monitor paths depend on recorded inputs. Append/read atomicity, buffering, and per-machine location resolution are not settled here. |
-| Same-station data access | `JC-017` | User-clarified constraint | Place stable record identity, legacy source refs, machine-specific locations, and read capabilities as acceptance checks for `JC-001`, `JC-002`, and `JC-015`; do not spin up a standalone LAN browsing fixture before those paths need it. |
 | Code, method, and queue readiness | `JC-004`, `JC-007`, `JC-008`, `JC-013` | Candidate or fixture-gated | Separate copied-code provenance, frozen plan or queue intent, dry-run or mock-queue readiness, simulated or lab-owned grouped-calibration outcomes, and shared asset drift diagnostics. |
 | Setup and declared context | `JC-005`, `JC-012` | Candidate or ADR-gated | Preserve bring-up/setup evidence and only maintain declared local schema when it powers visible lookup, calculation, visualization, comparison, handoff, or diagnostics. |
 | Calibration and running-run observation | `JC-003`, `JC-011` | Candidate or fixture-gated | Place parameter-memory/query pressure and running-run read/monitor support before optional saved advice, optional proposal/review, real apply, or autonomous calibration. |
@@ -102,6 +101,11 @@ owner before this placement table becomes the source of truth.
 | Campaign and generated lineage | `JC-006` | Candidate | Preserve generated protocol, correction, classifier, feedback, and run-family relations without broadening into a full scientific workflow model. |
 | Trust and comparison | `JC-009`, `JC-010` | Candidate | Place known-good diagnostics and scientific comparability review without accepting rollback, equivalence scoring, or setup truth authority. |
 | Derived analysis impact | `JC-014` | Candidate | Link figures, reports, fits, and claims back to source evidence before considering report generation or publication workflow. |
+
+Same-station data access is now a cross-cutting acceptance constraint, not a
+candidate `JC`: stable record identity, legacy source refs, machine-specific
+locations, and read capabilities should be checked where `JC-001`, `JC-002`, or
+`JC-015` need cross-machine access.
 
 Adjacent steps are context, not prototype scope. The tracker owns current
 phase and coordination status; owning `JC` documents own validation
