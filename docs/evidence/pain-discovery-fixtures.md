@@ -208,3 +208,101 @@ Use these prompts when reviewing the fixtures:
 4. Which fields should be produced by user code explicitly rather than inferred?
 5. Which behavior would make Scopecat too close to a runner, code registry,
    deployment manager, or report generator too early?
+
+## User Review Notes
+
+These notes record the first user critique of the pain-discovery fixtures. They
+are validation inputs, not accepted architecture or product commitments.
+
+### Batch Intent Needs A Minimal Local Executor
+
+The user does not see a batch intent record alone as sufficient. A complex
+intent that users must parse and execute themselves does not solve the pain.
+The early boundary should therefore test a **minimal local executor** or a
+small standalone package that can interpret the intent.
+
+This does not automatically promote a full managed runner. The validation
+ladder becomes:
+
+1. helper-generated intent around ordinary Python;
+2. local executor for simple sequential and dataflow cases;
+3. outcome report;
+4. later reliability features such as retry, resume, priority scheduling,
+   resource leases, and richer DAG translation.
+
+The intended user-facing shape should feel like builder code or decorated
+functions, not hand-authored manifest files. The manifest is a serialized
+record and interchange format, not the first authoring surface.
+
+### Intent Declaration Comes From Users First
+
+Early fixtures should assume users or helper APIs declare task order, inputs,
+outputs, and mutual exclusion. Later, a fuller system may derive some of this
+from recorded experiment context, parameter memory, templates, or code
+snapshots. Arbitrary code inference is still out of scope.
+
+### Dataflow Is Logical, Not Transport
+
+Inputs and outputs are logical task products or state IDs. The concrete
+transport may still be Python variables, files, notebook state, or Scopecat
+records in existing workflows. Early validation should test whether logical
+dataflow is enough for review and simple local execution without requiring a
+full artifact routing system.
+
+### Measurement Data Should Not Be Too Narrow
+
+The user's preferred direction is an Arrow-table-like data model plus a custom
+manifest for complex structures. IQ data, shots, traces, and VNA-like data are
+ordinary measurement needs and should not be deferred. `ndarray` support is
+less certain for measurement plotting, but may matter for analysis outputs.
+
+This note does not decide storage, reader API, or export format. It does mean
+the measurement fixture should avoid implying that simple scalar CSV examples
+are enough to validate the measurement data model.
+
+### Calibration Proposal Apply Is Still Open
+
+The current fixture keeps calibration proposals as review-only with no
+write-back. The user questioned whether a non-applying proposal will be adopted:
+in real experiments, calibration updates are often directly applied with
+variable-assignment-like code. A proposal-only path may require extra code
+without obvious benefit unless parameter memory automatically records and
+displays diffs around existing update code.
+
+So the open question is not "should Scopecat apply calibration now?" but:
+
+- Can users keep their direct update style while Scopecat records parameter
+  memory and diffs?
+- Is explicit proposal useful as an optional higher-safety path?
+- What is the smallest fixture that compares direct apply with proposal/review
+  without accepting autonomous calibration?
+
+### Code Snapshot Minimum
+
+The most important code provenance field is the entrypoint. Recording it is
+simple and high value. For user-owned code, folder selection plus an ignore
+mechanism may be enough initially. Third-party dependency capture affects full
+reproducibility, but it is less central to experiment intent and can remain a
+lower-priority readiness detail.
+
+### First User-Visible Outputs
+
+The likely first visible outputs are:
+
+| Fixture | First useful output |
+| --- | --- |
+| Batch intent/outcome | Run report from the minimal local executor. |
+| Code snapshot | Exported snapshot folder with entrypoint and selected code evidence. |
+| Measurement data/attachments | Reader API or export path over recorded data plus attachments. |
+
+### Prioritization
+
+The user did not choose one fixture as the only next prototype; all three are
+valuable. Prioritization should therefore be by cost-to-learning ratio:
+
+- Batch fixture tests whether a minimal local executor can solve immediate
+  unattended/sequential workflow pain without full orchestration.
+- Code snapshot fixture tests whether explicit entrypoint plus selected folder
+  capture solves most no-git provenance pain.
+- Measurement fixture tests the recording substrate needed by both batch
+  reports and later analysis/handoff.
