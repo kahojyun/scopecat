@@ -30,7 +30,7 @@ so the user can critique the pain framing before implementation details harden.
 | Parameter memory bad-state handling | `tests/fixtures/pain-discovery-parameter-memory-bad-state/` | Is retain-by-default history with yank/exclusion enough for bad parameter states before write-back exists? |
 | Code version selection | `tests/fixtures/pain-discovery-code-version-selection/` | Does selecting a prior code version or branch variant need load-and-run behavior, or is provenance-only tracking enough? |
 | Measurement record and attachments | `tests/fixtures/pain-discovery-measurement-data-attachments/` | Which outputs should become system-managed measurement data, and which remain attached artifacts? |
-| Long-run watchdog and replay | `tests/fixtures/pain-discovery-long-run-watchdog/` | Can explicitly recorded partial slices produce useful, replayable advisory evidence before live control or autonomous calibration? |
+| Running-run read and monitor | `tests/fixtures/pain-discovery-long-run-watchdog/` | Can explicitly recorded data plus progress/readiness markers support analysis while a long run continues, before automated advice or scan mutation is accepted? |
 
 ## Grounding Labels
 
@@ -296,43 +296,59 @@ analysis ndarray payloads remain missing validation cases.
 The user can separate "measurement data format Scopecat should own" from
 "artifact attachments Scopecat should catalog and link."
 
-## Fixture 6: Long-Run Watchdog And Replay
+## Fixture 6: Running-Run Read And Monitor
 
 ### Pain Tested
 
-Long-running measurements may need method-aware quality, anomaly, or decision
-feedback before the full run finishes, but that feedback must be explicitly
-recorded, replayable, and non-intrusive.
+During long-running measurements, users need to read already-recorded data and
+know the progress, completeness, or fit-readiness of the analysis unit they
+care about before the full run finishes. A complete sweep slice is one useful
+unit, but it should not be the only readable granularity.
 
 ### Current Workaround
 
-Users watch plots, callbacks, notebooks, or framework dashboards and may lose
-the evidence behind stop, continue, repeat, zoom, or retune decisions.
+Users watch plots, callbacks, notebooks, or framework dashboards, manually infer
+what data is ready enough for the analysis they want, and run ad hoc analysis
+without a shared progress/readiness contract.
 
 ### Input Artifacts
 
 - `records/partial-sweep-record.json`: explicit partial-sweep data and
   lifecycle events.
+- `records/progress-readiness-index.json`: running-run data availability and
+  readiness index for scripts and monitors.
+- `records/live-monitor-note.json`: simple live-monitor capabilities and the
+  boundary for recording exploratory UI actions.
 - `data/partial-sweep.csv`: tiny public-safe partial sweep table.
-- `records/decision-packet.json`: advisory quality/anomaly decision evidence.
-- `records/replay-check.json`: expected replay result from recorded inputs.
+- `records/decision-packet.json`: optional later advisory quality/anomaly
+  decision evidence.
+- `records/replay-check.json`: optional later replay result from recorded
+  inputs.
 
 ### Expected Scopecat Output
 
-Scopecat should show which slice was complete enough for analysis, the
-quality/anomaly evidence, the advisory recommendation, and whether the same
-decision can be replayed from recorded inputs.
+Scopecat should show the running run state, latest explicitly recorded data,
+which analysis units are complete, partial, readable, or fit-ready, and a reader
+path that ordinary user scripts or a simple live monitor can consume. Cursor
+movement, temporary range selection, and preview fits do not need durable
+records unless the user saves a fit result or operator decision.
 
 ### Explicit Unknowns
 
-The fixture does not accept live control, scan-plan mutation, parameter
-write-back, framework scraping, alerting UI, opaque AI advice, or autonomous
-calibration.
+The fixture does not accept automated fitting as a required first slice, live
+control, adaptive scan-plan mutation, append-to-existing-measurement semantics,
+multi-subplan scan plotting, parameter write-back, framework scraping, opaque
+AI advice, or autonomous calibration. Running user-provided fitting code at
+completed multidimensional slices is a later hypothesis. ROI-first scan
+ordering, resume, retry, and multi-subplan declarative scans are scan-plan
+modeling questions, not validated first-slice scope.
 
 ### Success Criteria
 
-The user can decide whether explicit partial-recording plus replayable decision
-packets are useful before any live-advisory or automation surface exists.
+The user can decide whether running-run read/monitor support with explicit
+progress and readiness markers is useful before Scopecat promotes replayable
+automated advice, fit packaging, scan-plan changes, or live-advisory
+automation.
 
 ## Source-Support Map
 
@@ -346,7 +362,7 @@ become undocumented product commitments.
 | Parameter bad states should be retained by default and excluded/yanked from drift. | User clarification; workflow improvement case | Mutable parameter files and copied snapshots | Do not delete by default; hard delete only for cleanup such as accidental large payloads | `pain-discovery-parameter-memory-bad-state/` | Write-back, rollback automation, permission model |
 | Code-version selection may need load-and-run to improve experiment QoL. | User clarification; workflow improvement case | Copied folders, variants, weak canonical identity | Tracking-only helps provenance but may not drive adoption | `pain-discovery-code-version-selection/` | Code registry, process isolation contract, dependency closure |
 | Measurement data model cannot be validated by scalar CSV only. | User clarification; sample artifact review | Data Vault-like tables, sidecars, arrays | IQ, shots, traces, VNA-like records are ordinary needs | `pain-discovery-measurement-data-attachments/` | Final Arrow/storage/API schema |
-| Long-run advisory should be explicit, replayable, and non-intrusive. | User refinement; blind role-play; external baseline | Partial direct support from long-running scans and fit outputs | Measurement code should record decision-relevant data into Scopecat | `pain-discovery-long-run-watchdog/` | Live advisor UI, scan mutation, parameter apply, framework adapters |
+| Running-run analysis should start with read/monitor support plus readiness markers. | User refinement; blind role-play; external baseline | Partial direct support from long-running scans and fit outputs | Near-term need is reading recorded data from a still-running run, knowing the relevant analysis-unit readiness, and optionally saving fit/decision artifacts. | `pain-discovery-long-run-watchdog/` | Automated fit execution, replayable advice, adaptive scan mutation, append-style scan plans, framework adapters |
 
 ## Review Questions
 
@@ -531,7 +547,7 @@ The likely first visible outputs are:
 | Parameter memory bad-state handling | Parameter history view or query showing active, yanked, and excluded states. |
 | Code version selection | Selection report comparing provenance-only tracking with future load-and-run value. |
 | Measurement data/attachments | Reader API or export path over recorded data plus attachments. |
-| Long-run watchdog/replay | Replayable decision packet from explicitly recorded partial measurement input. |
+| Running-run read/monitor | Progress/readiness index plus reader/live-monitor input from explicitly recorded partial measurement data. |
 
 ### Prioritization
 
@@ -548,5 +564,6 @@ by cost-to-learning ratio:
 - Parameter-memory and code-version-selection fixtures test whether recently
   clarified pains can be handled without accepting mutation ownership or a code
   registry too early.
-- Long-run watchdog fixture tests whether the concrete `JC-011` shape needs
-  fixture evidence before live advisory or automation scope is promoted.
+- Running-run fixture tests whether the concrete `JC-011` shape should start
+  with reader/live-monitor value and explicit readiness markers before live
+  advisory or automation scope is promoted.

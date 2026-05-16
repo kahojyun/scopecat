@@ -10,7 +10,17 @@
       "point_start": 0,
       "point_end": 3,
       "status": "complete_enough_for_quality_check"
-    }
+    },
+    "progress_readiness_ref": "records/progress-readiness-index.json"
+  },
+  "analysis_access": {
+    "allowed_consumers": [
+      "user_script_reader",
+      "simple_live_monitor"
+    ],
+    "readability_contract": "recorded data can be read while the run continues",
+    "readiness_contract": "fit readiness is described for declared analysis units; users may still inspect partial data at their own chosen granularity",
+    "ui_operation_recording": "not required for simple live inspection"
   },
   "lifecycle_events": [
     {
@@ -25,7 +35,7 @@
   ],
   "context_refs": ["code-snapshot-alpha-v2", "setting-snapshot-alpha"],
   "boundary": {
-    "scopecat_role": "record and analyze explicitly supplied data",
+    "scopecat_role": "record explicitly supplied data and expose progress/readiness markers to readers",
     "does_not_own": ["acquisition", "instrument polling", "scan mutation", "parameter write-back"]
   }
 }

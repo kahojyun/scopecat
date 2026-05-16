@@ -1,21 +1,25 @@
 {
   "fixture_id": "pain-discovery-long-run-watchdog",
   "status": "draft pain-discovery fixture",
-  "purpose": "Test whether explicitly recorded partial measurement slices plus replayable quality or anomaly decisions support long-running measurement advice before live control, scan mutation, or autonomous calibration exists.",
+  "purpose": "Test whether a running run can expose explicitly recorded data plus progress/readiness markers that user scripts or live monitors can consume before the run finishes, while keeping automated fit/advice, scan mutation, and autonomous calibration out of the base claim.",
   "grounding": {
     "user_refinement": [
-      "measurement-time feedback should be method-aware, replayable, explicitly recorded, and non-intrusive",
+      "near-term need is reading already recorded data from a running run and knowing the completeness/readiness of the relevant analysis unit",
+      "a live monitor may show latest data and simple cursor/range-fit previews, but Scopecat does not need to record every intermediate UI operation",
       "experiment code should record data, sweep semantics, lifecycle events, and decision-relevant context into Scopecat"
     ],
     "prompt_method_check": [
-      "blind role-play suggested passive advisory feedback over framework replacement"
+      "blind role-play suggested passive advisory feedback and more aggressive adaptive scan behavior; this fixture treats those as later hypotheses"
     ],
     "external_baseline": [
       "existing frameworks already cover acquisition, plotting, callbacks, dashboards, scheduling, or calibration in their own stacks"
     ],
     "future_hypotheses_out_of_scope": [
+      "automated fit execution as a required first slice",
       "hardware control",
-      "scan-plan mutation",
+      "adaptive scan-plan mutation",
+      "append-to-existing-measurement semantics",
+      "multi-subplan scan plotting contract",
       "parameter write-back",
       "opaque AI advisor",
       "framework-specific passive scraping",
@@ -28,12 +32,20 @@
       "role": "explicitly recorded partial sweep slices and lifecycle events"
     },
     {
+      "path": "records/progress-readiness-index.json",
+      "role": "running-run progress and readiness index for scripts and monitors"
+    },
+    {
+      "path": "records/live-monitor-note.json",
+      "role": "simple live-monitor capability and recording boundary"
+    },
+    {
       "path": "records/decision-packet.json",
-      "role": "replayable quality/anomaly decision evidence"
+      "role": "optional later automated quality/anomaly decision evidence"
     },
     {
       "path": "records/replay-check.json",
-      "role": "recorded-input replay check for the same decision packet"
+      "role": "optional later recorded-input replay check for the same decision packet"
     },
     {
       "path": "data/partial-sweep.csv",
@@ -41,9 +53,9 @@
     }
   ],
   "fixture_questions": [
-    "Can explicit partial-sweep recording produce useful decision evidence before a full live-advisory product exists?",
-    "Which data slice is complete enough for a quality or anomaly decision?",
-    "Can the same decision be replayed from recorded inputs?",
-    "What remains advisory evidence rather than hardware, scan, or parameter authority?"
+    "Can explicit partial-sweep recording tell users which recorded data is available and which analysis units are fit-ready while the run continues?",
+    "Can ordinary scripts and a simple live monitor consume the same running-run progress/readiness index?",
+    "Which saved fit or operator-decision artifacts, if any, should become durable evidence?",
+    "Which later ideas remain outside the first slice: automated fit execution, replayable advice, adaptive scan mutation, or append-style scan plans?"
   ]
 }

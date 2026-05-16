@@ -43,7 +43,7 @@ boundaries; promote only the smallest valuable slice.
 | --- | --- | --- |
 | Inherited bundle becomes analysis-ready context. | Explain bundle -> package selected runs -> trace derived artifacts. | Packaging known artifacts is separate from generating analysis outputs. |
 | Planned campaign becomes reviewable before scarce experiment time. | Preview intent -> validate bring-up evidence -> review parameter or calibration evidence. | Intent, setup evidence, parameter memory, optional proposal, and write-back remain separate. |
-| Long-running measurement produces decision-grade evidence. | Record durable run -> replay decision support -> preserve campaign lineage. | Advice records evidence; it does not mutate hardware, scan plans, or claims. |
+| Long-running measurement remains inspectable while still running. | Record durable run -> expose progress/readiness markers -> optionally save fit or decision evidence -> preserve campaign lineage. | Observation and saved advice do not mutate hardware, scan plans, or claims. |
 | Informal lab automation becomes explicit. | Freeze grouped calibration intent -> check readiness -> run a bounded local plan when safe -> record quality gates, review decisions, and outcomes. | Minimal local execution can validate user value; broader runtime ownership still needs an accepted boundary. |
 
 ## Lab Workflow Reference
@@ -92,7 +92,7 @@ owner before this placement table becomes the source of truth.
 | Analysis handoff | `JC-002` | Move selected runs and enough context to an analysis computer as an immutable pre-analysis snapshot. |
 | Code, method, and queue readiness | `JC-004`, `JC-007`, `JC-008`, `JC-013` | Separate copied-code provenance, frozen plan or queue intent, dry-run or mock-queue readiness, and shared asset drift diagnostics. |
 | Setup and declared context | `JC-005`, `JC-012` | Preserve bring-up/setup evidence and only maintain declared local schema when it powers visible lookup, calculation, visualization, comparison, handoff, or diagnostics. |
-| Calibration and advisory automation | `JC-003`, `JC-011` | Validate parameter memory, impact, replay, advisory, optional proposal, and shadow-loop evidence before real apply or autonomous calibration. |
+| Calibration and running-run observation | `JC-003`, `JC-011` | Validate parameter memory, impact, running-run read/monitor support, optional saved advice, optional proposal, and shadow-loop evidence before real apply or autonomous calibration. |
 | Bounded local execution hypothesis | `JC-016` | Place the possible bridge from reviewed intent, local execution evidence, parameter memory, code-version selection, and advisory evidence into one bounded local-run decision; do not treat runtime ownership as accepted. |
 | Campaign and generated lineage | `JC-006` | Preserve generated protocol, correction, classifier, feedback, and run-family relations without broadening into a full scientific workflow model. |
 | Trust and comparison | `JC-009`, `JC-010` | Place known-good diagnostics and scientific comparability review without accepting rollback, equivalence scoring, or setup truth authority. |

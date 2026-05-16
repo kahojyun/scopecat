@@ -122,9 +122,9 @@ its core live-observation model.
 
 For measurement-time feedback, experiment code should explicitly record the
 needed information into Scopecat: data, sweep semantics, lifecycle/status
-events, parameters, code/context references, and decision-relevant facts.
-Scopecat can then analyze, display, replay, and package only what was
-deliberately recorded.
+events, parameters, code/context references, progress/readiness markers, and
+any saved decision-relevant facts. Scopecat can then read, display, analyze,
+replay, and package only what was deliberately recorded.
 
 Explicit recording must not silently turn Scopecat into a fragile dependency of
 the acquisition loop. Any promoted recording path should state its safe
@@ -219,8 +219,9 @@ ordered first slice:
 - compare evidence and gaps without claiming authoritative truth;
 - support parameter memory, advisory evidence, and optional reviewable
   proposals before any parameter or calibration mutation;
-- support measurement-time decision evidence from explicitly recorded
-  measurement data without taking over hardware control.
+- support running-run read/monitor workflows and optional measurement-time
+  decision evidence from explicitly recorded measurement data without taking
+  over hardware control.
 
 These value areas can compose over time. None requires every user to start from
 the same route, and none requires Scopecat to replace the lab's working

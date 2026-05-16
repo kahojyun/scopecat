@@ -1,7 +1,8 @@
 {
   "decision_packet_id": "decision-public-001",
-  "status": "draft validation data",
+  "status": "later hypothesis validation data",
   "source_record": "records/partial-sweep-record.json",
+  "scope": "optional automated fit/advice after a readiness unit becomes fit-ready; not required for the base running-run read/monitor pain",
   "decision_kind": "measurement_time_quality_advice",
   "recommendation": "review_before_continuing_same_scan_region",
   "quality_gate": {
@@ -23,5 +24,5 @@
     "quality gate threshold",
     "analysis version or rule label"
   ],
-  "boundary": "advisory evidence only; not a command, not scientific proof, not parameter mutation"
+  "boundary": "advisory evidence only; not a command, not scientific proof, not parameter mutation, and not adaptive scan-plan mutation"
 }
