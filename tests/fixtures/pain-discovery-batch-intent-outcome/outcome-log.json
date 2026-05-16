@@ -19,10 +19,10 @@
       "ended_at": "2026-05-16T01:13:00Z",
       "produced": ["records/task-b-record.json"],
       "produced_outputs": ["sample-table"],
-      "review_trigger": {
+      "quality_gate": {
         "status": "review_required",
         "category": "low-fit-score",
-        "message": "synthetic fixture quality flag; public-safe placeholder"
+        "message": "Synthetic fixture quality flag; the task ran successfully but the analysis result needs review."
       },
       "blocked_task_evidence": {
         "status": "not_global_stop",
@@ -37,7 +37,7 @@
       "produced": ["records/task-c-record.json"],
       "produced_outputs": ["independent-check-table"],
       "continuation_context": {
-        "status": "continued_after_group_review_trigger",
+        "status": "continued_after_group_quality_gate",
         "support_level": "user clarification only",
         "reason": "No review-required output from task-b was listed in task-c ordering.not_before, and this fixture records task-c after task-b ended without claiming enforced resource-state tracking."
       }

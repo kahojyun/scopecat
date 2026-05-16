@@ -10,11 +10,13 @@
     "columns": ["frequency", "signal"]
   },
   "declared_outputs": ["sample-table"],
-  "fit_quality": {
+  "quality_gate": {
+    "kind": "fit_quality",
     "score": 0.42,
     "threshold": 0.75,
     "decision": "review_required",
-    "decided_by": "user_script"
+    "decided_by": "user_script",
+    "run_status_relation": "task execution succeeded; quality gate requires review"
   },
   "public_safe": true
 }

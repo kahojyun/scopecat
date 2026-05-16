@@ -11,7 +11,7 @@
   "declared_outputs": ["independent-check-table"],
   "context_refs": ["code-snapshot-alpha", "setting-snapshot-beta"],
   "continuation_context": {
-    "review_trigger_task": "task-b",
+    "quality_gate_task": "task-b",
     "reason": "task-b is not in task-c ordering.not_before; this fixture records task-c after task-b ended even though task-b produced a review-required fit.",
     "support_level": "user clarification only"
   }

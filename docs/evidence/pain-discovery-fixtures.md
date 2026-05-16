@@ -240,7 +240,8 @@ This does not automatically promote a full managed runner. The validation
 ladder becomes:
 
 1. helper-generated intent around ordinary Python;
-2. local executor for simple sequential and dataflow cases;
+2. local executor for simple sequential and dataflow cases that can run the
+   declared plan to completion when no review gate blocks it;
 3. outcome report;
 4. later reliability features such as retry, resume, priority scheduling,
    resource leases, and richer DAG translation.
@@ -276,6 +277,17 @@ executor fixture should cover group-level continuation, review gates,
 dependency-blocked downstream work, and resumable intent at a small scale.
 `mutual_exclusion_keys` can be understood as lightweight resource hints, not
 proof that Scopecat must own a real lease service.
+
+Run status and analysis or health status should remain separate. A calibration
+task can complete successfully while a user-script quality gate marks the fit as
+low confidence and asks for review. This avoids treating scientific quality,
+analysis confidence, and executor success as one state machine.
+
+Reasonable first review decisions are accept, reject, remeasure selected group,
+edit or replace the parameter state manually and continue, or mark the result as
+excluded from later drift/quality analysis. A future hook or user-defined policy
+could choose among these decisions, but the fixture should first show the
+decision record and its downstream effect without requiring a plugin system.
 
 ### Intent Declaration Comes From Users First
 
@@ -326,9 +338,11 @@ The user's current clarification weakens controlled mutation as an early pain:
 the primary value is parameter memory, not Scopecat-owned write-back. Users need
 to pick a previous parameter version for retry, move a branch or working point
 back to a better version, and avoid bad writes distorting drift analysis. It is
-still open whether bad parameter states should be deleted, hidden, tombstoned,
-or excluded from drift queries by label; that is a parameter-memory model
-question, not proof that Scopecat should own mutation.
+not acceptable to delete history by default. The better default is to keep bad
+states with labels or exclusions so drift queries can omit them without losing
+audit history. Hard delete is only a cleanup path for cases such as accidentally
+writing large payloads; the useful distinction is closer to package-index
+`yank` versus `delete`.
 
 ### Code Snapshot Minimum
 
@@ -343,9 +357,12 @@ helps later provenance, but it can still leave users copying code back into an
 experiment directory, creating more versions. The stronger user need is to
 select a previous code version or branch variant for an experiment, run tests or
 exploratory changes on a separate branch, and have Scopecat record which version
-actually ran. Loading a selected version in an isolated process is a plausible
-future capability, but it remains a capability hypothesis until the smaller
-entrypoint, selected-folder, and minimal-executor paths prove insufficient.
+actually ran. A conservative tracking-only path improves retrospective analysis
+but may not improve the experiment experience enough for users who do not
+already care about provenance. Loading a selected version for execution is the
+clearer quality-of-life improvement, likely with process isolation, but it
+remains a capability hypothesis until the smaller entrypoint, selected-folder,
+and minimal-executor paths prove insufficient.
 
 ### Scopecat Boundary Around Existing Control Systems
 

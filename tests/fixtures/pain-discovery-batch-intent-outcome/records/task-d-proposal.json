@@ -21,8 +21,11 @@
     "new_value": "redacted-public-placeholder"
   },
   "evidence": {
-    "fit_quality": "suspicious",
-    "fit_quality_reason": "synthetic fixture placeholder",
+    "quality_gate": {
+      "kind": "fit_quality",
+      "status": "suspicious",
+      "reason": "synthetic fixture placeholder"
+    },
     "support_level": "sample plus user clarification"
   },
   "review": {
