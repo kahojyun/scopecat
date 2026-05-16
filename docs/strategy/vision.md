@@ -200,11 +200,8 @@ replacement targets for every route:
 
 Some of these areas may become product surfaces, integrations, or later
 capabilities after specific journeys and decisions justify them. For example,
-Scopecat may provide its own run browser for Scopecat-recorded runs.
-Same-station access should first be treated as an identity and location
-constraint: records need stable opaque IDs plus machine-specific locations or
-legacy source refs, so a run is not identified by one control-PC filesystem
-path. A live
+Scopecat may provide its own run browser for Scopecat-recorded runs, including
+future same-station historical access when a route validates that need. A live
 observation surface is later scope unless it proves adoption value independent
 from remote execution or richer control workflows. Scopecat may also make
 existing queue or calibration automation more explicit before it owns any
@@ -212,7 +209,7 @@ hardware-control runtime. The
 boundary is about adoption prerequisites, silent scope creep, and authority, not
 a promise to avoid these areas forever.
 
-## Current Value Areas And Constraints
+## Current Value Areas
 
 The clearest current value areas are listed here as direction, not as a single
 ordered first slice:
@@ -227,13 +224,6 @@ ordered first slice:
 - support running-run read/monitor workflows and optional measurement-time
   decision evidence from explicitly recorded measurement data without taking
   over hardware control.
-
-Current cross-route constraints to preserve:
-
-- make record identity stable across control-PC paths, mapped drives, shared
-  folders, exports, and analysis-computer mounts before validating
-  same-station cross-machine access, live observation, or remote experiment
-  execution;
 
 These value areas can compose over time. None requires every user to start from
 the same route, and none requires Scopecat to replace the lab's working

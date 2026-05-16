@@ -32,7 +32,7 @@ phase and coordination only.
 
 ## Cross-Route Constraints
 
-Same-station data access is not a standalone route yet. Preserve it as an
+Same-station data access is not a standalone route yet. Preserve it as a
 validation constraint on run explanation, analysis handoff, and durable reopen:
 stable opaque `record_id`, legacy source refs, machine-specific locations, and
 read capabilities should let another same-station computer resolve historical
