@@ -361,12 +361,39 @@ become undocumented product commitments.
 
 | Claim | Source family | Direct sample support | User clarification | Fixture path | Still hypothetical |
 | --- | --- | --- | --- | --- | --- |
-| Minimal local executor is the next validation step because batch intent alone is not useful enough. | User clarification; workflow improvement case | Sequential scans, loops, interruptions, retry traces | Record-only intent would leave users parsing their own manifest; current fixture is intent plus simulated outcome, not executor proof. | `pain-discovery-batch-intent-outcome/` | Full managed runner, retry/resume engine, scheduler |
-| Grouped calibration with review gates is the strongest batch episode. | User clarification; quarantined workflow reference | Calibration fit/update pressure only | Multi-step calibration, group-level fit scoring, review, continuation, and requested resume/remeasure action | `pain-discovery-batch-intent-outcome/` | Real resource leases, enforced concurrency, autonomous scheduling, actual resume execution |
-| Parameter bad states should be retained by default and excluded/yanked from drift. | User clarification; workflow improvement case | Mutable parameter files and copied snapshots | Do not delete by default; hard delete only for cleanup such as accidental large payloads | `pain-discovery-parameter-memory-bad-state/` | Write-back, rollback automation, permission model |
-| Code-version selection may need load-and-run to improve experiment QoL. | User clarification; workflow improvement case | Copied folders, variants, weak canonical identity | Tracking-only helps provenance but may not drive adoption | `pain-discovery-code-version-selection/` | Code registry, process isolation contract, dependency closure |
+| Minimal local executor is the next validation step because batch intent alone is not useful enough. | User clarification; workflow improvement case; sample code review | Sequential sweep helpers, `KeyboardInterrupt` handling, manual `skip_seq`, failed-fit/refit paths | Record-only intent would leave users parsing their own manifest; current fixture is intent plus simulated outcome, not executor proof. | `pain-discovery-batch-intent-outcome/` | Full managed runner, general retry/resume engine, scheduler |
+| Grouped calibration with review gates is the strongest batch episode. | User clarification; quarantined workflow reference; sample code review | Notebook calibration chains, direct fit/update loops, manual calibration section, manual-review comments | Multi-step calibration, group-level fit scoring, review, continuation, and requested resume/remeasure action | `pain-discovery-batch-intent-outcome/` | Real resource leases, enforced concurrency, autonomous scheduling, actual resume execution |
+| Parameter bad states should be retained by default and excluded/yanked from drift. | User clarification; workflow improvement case; sample code review | Mutable parameter JSON, direct overwrites, run-adjacent snapshots, historical analysis reads | Do not delete by default; hard delete only for cleanup such as accidental large payloads | `pain-discovery-parameter-memory-bad-state/` | Write-back, rollback automation, permission model |
+| Code-version selection may need load-and-run to improve experiment QoL. | User clarification; workflow improvement case; sample code review | Copied folders, old/bk/copy variants, divergent old/current implementations | Tracking-only helps provenance but may not drive adoption | `pain-discovery-code-version-selection/` | Code registry, process isolation contract, dependency closure |
+| Same-station LAN access should start with historical-only browsing. | User clarification; sample artifact review | Data Vault IDs, folder helpers, UNC/shared-path examples, sidecar parameter lookup | Historical browsing lets report preparation happen without blocking the active measurement computer; live observation alone is not yet a separate value claim. | Future same-station browsing fixture | Remote execution, live observation as standalone value, service architecture |
 | Measurement data model cannot be validated by scalar CSV only. | User clarification; sample artifact review | Data Vault-like tables, sidecars, arrays | IQ, shots, traces, VNA-like records are ordinary needs | `pain-discovery-measurement-data-attachments/` | Final Arrow/storage/API schema |
 | Running-run analysis should start with read/monitor support plus readiness markers. | User refinement; blind role-play; external baseline | Partial direct support from long-running scans and fit outputs | Near-term need is reading recorded data from a still-running run, knowing the relevant analysis-unit readiness, and optionally saving fit/decision artifacts. | `pain-discovery-long-run-watchdog/` | Automated fit execution, replayable advice, adaptive scan mutation, append-style scan plans, framework adapters |
+
+## Adoption Route Payoff Rule
+
+Do not promote an adoption route because its mechanisms are architecturally
+cleaner than the legacy workflow. Promote a route only when the fixture or
+prototype shows enough workflow return to justify the user adopting that route,
+including any rewrite of the user-owned code responsible for that part of the
+experiment workflow.
+
+The adoption unit is the route, not an isolated internal feature. A route may
+need several small mechanisms to feel worthwhile, while any one mechanism may
+look weak in isolation.
+
+For validation timing, use the cheapest test that can disprove the value claim:
+
+- Validate record-only slices when the promised value is retrospective:
+  provenance, handoff, audit, drift query, or historical browsing.
+- Validate interactive prototypes before asking users to change experiment
+  behavior or rewrite route-owned code: selected-run browsing, parameter query,
+  code-version selection, or batch review decisions.
+- Validate an execution prototype before claiming workflow improvement from an
+  executor route. For batch, simple run-to-completion is only the baseline; the
+  first strong payoff test should include resume, retry, review continuation,
+  or selected remeasurement.
+- Require an ADR before Scopecat owns mutation, hardware control, background
+  scheduling, environment management, or remote execution.
 
 ## Review Questions
 
@@ -391,19 +418,24 @@ The user does not see a batch intent record alone as sufficient. A complex
 intent that users must parse and execute themselves does not solve the pain.
 The current fixture records a declared intent and simulated outcome; the next
 validation should test a **minimal local executor** or a small standalone
-package that can interpret the intent.
+package that can interpret the intent. Running a plan to completion is a basic
+expectation and mainly makes intent clearer than hand-written sequential code
+with `try`/`except`; the adoption payoff becomes meaningfully stronger when
+the executor can preserve state and continue after failure or review.
 
 This does not automatically promote a full managed runner. The validation
 ladder becomes:
 
 1. helper-generated intent around ordinary Python;
 2. observed executor transcript or run report for simple sequential and
-   dataflow cases that can run the
-   declared plan to completion when no review gate blocks it;
+   dataflow cases that can run the declared plan to completion when no review
+   gate blocks it;
 3. blocked/review outcome report that distinguishes run status from quality
    gates;
-4. later reliability features such as retry, resume, priority scheduling,
-   resource leases, and richer DAG translation.
+4. continuation proof for resume, retry, review decisions, and selected
+   remeasurement;
+5. later reliability features such as priority scheduling, resource leases,
+   and richer DAG translation.
 
 The intended user-facing shape should feel like builder code or decorated
 functions, not hand-authored manifest files. The manifest is a serialized
@@ -496,14 +528,18 @@ So the open question is not "should Scopecat apply calibration now?" but:
   without accepting autonomous calibration?
 
 The user's current clarification weakens controlled mutation as an early pain:
-the primary value is parameter memory, not Scopecat-owned write-back. Users need
-to pick a previous parameter version for retry, move a branch or working point
-back to a better version, and avoid bad writes distorting drift analysis. It is
-not acceptable to delete history by default. The better default is to keep bad
-states with labels or exclusions so drift queries can omit them without losing
-audit history. Hard delete is only a cleanup path for cases such as accidentally
-writing large payloads; the useful distinction is closer to package-index
-`yank` versus `delete`.
+the primary value is replacing hard-to-analyze mutable parameter files with
+drift queries, branch or working-point history, run linkage, and explicit
+checkpoints after parameter updates. Users need to pick a previous parameter
+version for retry, move a branch or working point back to a better version, and
+avoid bad writes distorting drift analysis. The distinction between write and
+apply is not yet important enough to shape the first fixture; proposal objects
+are a possible review artifact produced by parameter memory, not the original
+requirement. It is not acceptable to delete history by default. The better
+default is to keep bad states with labels or exclusions so drift queries can
+omit them without losing audit history. Hard delete is only a cleanup path for
+cases such as accidentally writing large payloads; the useful distinction is
+closer to package-index `yank` versus `delete`.
 
 ### Code Snapshot Minimum
 
@@ -534,6 +570,25 @@ The code-version-selection fixture now separates those two values:
 
 The second path is deliberately marked as a capability hypothesis, not an
 accepted runner architecture.
+
+### Same-Station LAN Historical Browsing
+
+The minimum valuable LAN access slice is historical-only read browsing from
+another same-station computer. It already solves a concrete collaboration
+problem: one person can inspect prior runs or prepare report figures without
+blocking the only computer currently used for measurement.
+
+Live observation should not be promoted as a separate first-slice value. User
+clarification says it usually appears together with remote execution or richer
+control workflows. Keep it as later nice-to-have unless a fixture or prototype
+shows independent adoption payoff.
+
+Sample evidence supports the mechanism more than the pain statement: Data Vault
+IDs, folder/index helpers, sidecar `parameters.json` lookup, and a few
+UNC/shared-path examples show that historical browsing is already file- and
+ID-driven. The sample code does not directly prove a one-control-machine social
+bottleneck, so the collaboration pain remains user-clarified until interview or
+same-station prototype evidence exists.
 
 ### Scopecat Boundary Around Existing Control Systems
 

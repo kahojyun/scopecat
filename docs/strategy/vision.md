@@ -200,10 +200,12 @@ replacement targets for every route:
 
 Some of these areas may become product surfaces, integrations, or later
 capabilities after specific journeys and decisions justify them. For example,
-Scopecat may provide its own run browser or live observation surface for
-Scopecat-recorded runs, including read-only same-station LAN browsing, without
-becoming a replacement for a lab's existing instrument-control GUI. It may also
-make existing queue or calibration automation more explicit before it owns any
+Scopecat may provide its own run browser for Scopecat-recorded runs, including
+historical-only read browsing from another same-station LAN computer, without
+becoming a replacement for a lab's existing instrument-control GUI. A live
+observation surface is later scope unless it proves adoption value independent
+from remote execution or richer control workflows. Scopecat may also make
+existing queue or calibration automation more explicit before it owns any
 hardware-control runtime. The
 boundary is about adoption prerequisites, silent scope creep, and authority, not
 a promise to avoid these areas forever.
@@ -217,11 +219,11 @@ ordered first slice:
 - preserve selected context, code-shaped provenance, companion artifacts,
   ambiguity, and sharing boundaries;
 - create immutable pre-analysis handoff snapshots for selected runs;
-- reduce same-station data-browsing bottlenecks through read-only LAN access
-  before remote experiment execution;
+- reduce same-station data-browsing bottlenecks through historical-only
+  read-only LAN access before live observation or remote experiment execution;
 - compare evidence and gaps without claiming authoritative truth;
-- support parameter memory, advisory evidence, and optional reviewable
-  proposals before any parameter or calibration mutation;
+- support parameter memory, drift queries, branches, run linkage, and explicit
+  checkpoints before any parameter or calibration mutation ownership;
 - support running-run read/monitor workflows and optional measurement-time
   decision evidence from explicitly recorded measurement data without taking
   over hardware control.
