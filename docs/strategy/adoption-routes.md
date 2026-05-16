@@ -24,7 +24,7 @@ phase and coordination only.
 | Route hypothesis | Touched `JC` rows | Standalone value being tested |
 | --- | --- | --- |
 | Run history and analysis handoff | `JC-001`, `JC-002`, `JC-006`, `JC-015` | Open, understand, reopen, select, package, and later trace measurement work without replacing acquisition code. |
-| Same-station data access | `JC-002`, `JC-015`, `JC-017` | Let another same-LAN station computer browse historical records and selected-run previews without taking over hardware control, blocking measurement work, or requiring cross-setup migration. |
+| Same-station data access | `JC-001`, `JC-002`, `JC-015`, `JC-017` | Preserve stable opaque record identity and machine-specific locations so another same-station computer can browse historical records and selected-run previews without taking over hardware control, blocking measurement work, or requiring cross-setup migration. |
 | Method and code portability diagnostics | `JC-004`, `JC-008`, `JC-013` | Explain copied notebooks, scripts, static entrypoint evidence, user-code snapshots, known-good sources, drift, and readiness before any deployment, code-version loader, or managed-runner capability is accepted. |
 | Experiment intent and readiness | `JC-007`, `JC-008`, `JC-016` | Evidence-backed value starts with reviewable intent and outcome reports; strong adoption payoff likely requires continuation behavior such as resume, retry, review continuation, or selected remeasurement before managed execution or broader runtime ownership is considered. |
 | Calibration and parameter memory | `JC-003`, `JC-011`, `JC-012`, `JC-016` | Start with replacing mutable parameter files through drift queries, branch or working-point history, run linkage, direct-update checkpoints, and bad-state labeling/exclusion before separating proposal/review, apply, or mutation-ownership decisions. |
@@ -61,10 +61,13 @@ Current corrective stance:
   user measurement code as the inside of the existing lab stack, with Scopecat
   owning declared intent, context, records, outcomes, and review outside that
   function boundary.
-- `JC-017` should validate historical-only read browsing from another
-  same-station computer before live observation or remote experiment execution.
-  Shared folders are a baseline for simple file-based systems, but they should
-  not define the richer read path.
+- `JC-017` should not become a standalone LAN browser route yet. Treat it as a
+  cross-machine identity/access constraint on record explanation, handoff, and
+  durable reopen: stable opaque `record_id`, legacy source refs,
+  machine-specific locations, and read capabilities. Validate historical-only
+  read access from another same-station computer before live observation or
+  remote experiment execution. Shared folders are a baseline for simple
+  file-based systems, but they should not define record identity.
 
 Routes may guide journey selection and cross-journey review. They do not own
 contracts, implementation boundaries, API schemas, storage models, hardware

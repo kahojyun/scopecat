@@ -200,9 +200,11 @@ replacement targets for every route:
 
 Some of these areas may become product surfaces, integrations, or later
 capabilities after specific journeys and decisions justify them. For example,
-Scopecat may provide its own run browser for Scopecat-recorded runs, including
-historical-only read browsing from another same-station LAN computer, without
-becoming a replacement for a lab's existing instrument-control GUI. A live
+Scopecat may provide its own run browser for Scopecat-recorded runs.
+Same-station access should first be treated as an identity and location
+constraint: records need stable opaque IDs plus machine-specific locations or
+legacy source refs, so a run is not identified by one control-PC filesystem
+path. A live
 observation surface is later scope unless it proves adoption value independent
 from remote execution or richer control workflows. Scopecat may also make
 existing queue or calibration automation more explicit before it owns any
@@ -219,8 +221,10 @@ ordered first slice:
 - preserve selected context, code-shaped provenance, companion artifacts,
   ambiguity, and sharing boundaries;
 - create immutable pre-analysis handoff snapshots for selected runs;
-- reduce same-station data-browsing bottlenecks through historical-only
-  read-only LAN access before live observation or remote experiment execution;
+- reduce same-station data-browsing bottlenecks by making record identity
+  stable across control-PC paths, mapped drives, shared folders, exports, and
+  analysis-computer mounts before live observation or remote experiment
+  execution;
 - compare evidence and gaps without claiming authoritative truth;
 - support parameter memory, drift queries, branches, run linkage, and explicit
   checkpoints before any parameter or calibration mutation ownership;

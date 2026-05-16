@@ -365,7 +365,7 @@ become undocumented product commitments.
 | Grouped calibration with review gates is the strongest batch episode. | User clarification; quarantined workflow reference; sample code review | Notebook calibration chains, direct fit/update loops, manual calibration section, manual-review comments | Multi-step calibration, group-level fit scoring, review, continuation, and requested resume/remeasure action | `pain-discovery-batch-intent-outcome/` | Real resource leases, enforced concurrency, autonomous scheduling, actual resume execution |
 | Parameter bad states should be retained by default and excluded/yanked from drift. | User clarification; workflow improvement case; sample code review | Mutable parameter JSON, direct overwrites, run-adjacent snapshots, historical analysis reads | Do not delete by default; hard delete only for cleanup such as accidental large payloads | `pain-discovery-parameter-memory-bad-state/` | Write-back, rollback automation, permission model |
 | Code-version selection may need load-and-run to improve experiment QoL. | User clarification; workflow improvement case; sample code review | Copied folders, old/bk/copy variants, divergent old/current implementations | Tracking-only helps provenance but may not drive adoption | `pain-discovery-code-version-selection/` | Code registry, process isolation contract, dependency closure |
-| Same-station LAN access should start with historical-only browsing. | User clarification; sample artifact review | Data Vault IDs, folder helpers, UNC/shared-path examples, sidecar parameter lookup | Historical browsing lets report preparation happen without blocking the active measurement computer; live observation alone is not yet a separate value claim. | Future same-station browsing fixture | Remote execution, live observation as standalone value, service architecture |
+| Same-station access should constrain record identity and locations. | User clarification; sample artifact review | Data Vault IDs, folder helpers, UNC/shared-path examples, sidecar parameter lookup | Historical browsing lets report preparation happen without blocking the active measurement computer; the useful fixture pressure is stable opaque record identity plus machine-specific locations, not a standalone LAN browser. | Cross-machine variant in existing record/handoff fixtures | Path-shaped record identity, remote execution, live observation as standalone value, service architecture |
 | Measurement data model cannot be validated by scalar CSV only. | User clarification; sample artifact review | Data Vault-like tables, sidecars, arrays | IQ, shots, traces, VNA-like records are ordinary needs | `pain-discovery-measurement-data-attachments/` | Final Arrow/storage/API schema |
 | Running-run analysis should start with read/monitor support plus readiness markers. | User refinement; blind role-play; external baseline | Partial direct support from long-running scans and fit outputs | Near-term need is reading recorded data from a still-running run, knowing the relevant analysis-unit readiness, and optionally saving fit/decision artifacts. | `pain-discovery-long-run-watchdog/` | Automated fit execution, replayable advice, adaptive scan mutation, append-style scan plans, framework adapters |
 
@@ -571,12 +571,28 @@ The code-version-selection fixture now separates those two values:
 The second path is deliberately marked as a capability hypothesis, not an
 accepted runner architecture.
 
-### Same-Station LAN Historical Browsing
+### Same-Station Cross-Machine Access
 
-The minimum valuable LAN access slice is historical-only read browsing from
-another same-station computer. It already solves a concrete collaboration
+The minimum valuable same-station access slice is historical-only read browsing
+from another same-station computer. It already solves a concrete collaboration
 problem: one person can inspect prior runs or prepare report figures without
 blocking the only computer currently used for measurement.
+
+Do not add a standalone LAN browsing fixture yet. As currently framed, it would
+mostly duplicate local record browsing. The distinct constraint is that record
+identity must not be a local filesystem path. The same run should be referable
+by a stable opaque ID and resolved through machine-specific locations or legacy
+source references.
+
+Useful fixture fields, when this is added as a variant to measurement,
+durable-record, or handoff fixtures:
+
+- stable opaque `record_id`;
+- legacy/source refs such as Data Vault directory plus dataset number;
+- machine-specific locations such as control-PC path, mapped drive, UNC path,
+  exported snapshot path, or analysis-computer mount;
+- access mode and read capabilities for each location;
+- explicit read-only boundary and unavailable/stale-location behavior.
 
 Live observation should not be promoted as a separate first-slice value. User
 clarification says it usually appears together with remote execution or richer
@@ -588,7 +604,7 @@ IDs, folder/index helpers, sidecar `parameters.json` lookup, and a few
 UNC/shared-path examples show that historical browsing is already file- and
 ID-driven. The sample code does not directly prove a one-control-machine social
 bottleneck, so the collaboration pain remains user-clarified until interview or
-same-station prototype evidence exists.
+cross-machine access evidence exists.
 
 ### Scopecat Boundary Around Existing Control Systems
 
