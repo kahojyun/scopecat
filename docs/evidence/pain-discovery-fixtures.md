@@ -19,6 +19,9 @@ The main ideas under review are:
 - selected code-version provenance versus future load-and-run behavior;
 - batch or queue intent;
 - explicit recording versus arbitrary code inference;
+- portable export/import and optional shared-storage discovery versus remote
+  connection or remote execution;
+- explicit code checkpoints versus automatic cross-computer sync;
 - migration support for legacy sidecars and hand-built artifact bundles.
 
 Each fixture is public-safe and synthetic. The fixtures are intentionally small
@@ -365,7 +368,8 @@ become undocumented product commitments.
 | Grouped calibration with review gates is the strongest batch episode. | User clarification; quarantined workflow reference; sample code review | Notebook calibration chains, direct fit/update loops, manual calibration section, manual-review comments | Multi-step calibration, group-level fit scoring, review, continuation, and requested resume/remeasure action | `pain-discovery-batch-intent-outcome/` | Real resource leases, enforced concurrency, autonomous scheduling, actual resume execution |
 | Parameter bad states should be retained by default and excluded/yanked from drift. | User clarification; workflow improvement case; sample code review | Mutable parameter JSON, direct overwrites, run-adjacent snapshots, historical analysis reads | Do not delete by default; hard delete only for cleanup such as accidental large payloads | `pain-discovery-parameter-memory-bad-state/` | Write-back, rollback automation, permission model |
 | Code-version selection may need load-and-run to improve experiment QoL. | User clarification; workflow improvement case; sample code review | Copied folders, old/bk/copy variants, divergent old/current implementations | Tracking-only helps provenance but may not drive adoption | `pain-discovery-code-version-selection/` | Code registry, process isolation contract, dependency closure |
-| Same-station access should constrain record identity and locations. | User clarification; sample artifact review | Data Vault IDs, folder helpers, UNC/shared-path examples, sidecar parameter lookup | Historical browsing lets report preparation happen without blocking the active measurement computer; the useful fixture pressure is stable opaque record identity plus machine-specific locations, not a standalone LAN browser. | Cross-machine variant in existing record/handoff fixtures | Path-shaped record identity, remote execution, live observation as standalone value, service architecture |
+| Same-station access should constrain record identity, export/import, and optional shared-storage locations. | User clarification; sample artifact review | Data Vault IDs, folder helpers, UNC/shared-path examples, sidecar parameter lookup | Historical browsing may be solved by selected sample/cooldown/run handoff packages or NAS-backed discovery; the useful fixture pressure is stable opaque record identity plus machine-specific locations, not a standalone LAN browser. | Cross-machine variant in existing record/handoff fixtures | Path-shaped record identity, remote execution, live observation as standalone value, mandatory central storage, service architecture |
+| Cross-computer code movement needs explicit checkpoints before automatic sync. | User clarification; workflow improvement case; sample code review | Copied folders, old/bk/copy variants, divergent old/current implementations, local paths | One-time folder copy can work; ongoing edits across computers create source-of-truth and conflict pressure that may need version-control-like semantics hidden behind lab-facing checkpoint/publish/pull concepts. | Code snapshot and code-version-selection variants | Git hosting, automatic bidirectional sync, deployment manager, managed runner |
 | Measurement data model cannot be validated by scalar CSV only. | User clarification; sample artifact review | Data Vault-like tables, sidecars, arrays | IQ, shots, traces, VNA-like records are ordinary needs | `pain-discovery-measurement-data-attachments/` | Final Arrow/storage/API schema |
 | Running-run analysis should start with read/monitor support plus readiness markers. | User refinement; blind role-play; external baseline | Partial direct support from long-running scans and fit outputs | Near-term need is reading recorded data from a still-running run, knowing the relevant analysis-unit readiness, and optionally saving fit/decision artifacts. | `pain-discovery-long-run-watchdog/` | Automated fit execution, replayable advice, adaptive scan mutation, append-style scan plans, framework adapters |
 
@@ -571,19 +575,36 @@ The code-version-selection fixture now separates those two values:
 The second path is deliberately marked as a capability hypothesis, not an
 accepted runner architecture.
 
-### Same-Station Cross-Machine Access
+### Cross-Machine Records And Shared Storage
 
-The minimum hypothesized same-station access slice is historical-only read
-browsing from another same-station computer. User clarification suggests it
-could solve a concrete collaboration problem: one person can inspect prior runs
-or prepare report figures without blocking the only computer currently used for
-measurement.
+The minimum useful cross-machine slice is no longer "LAN browsing" by itself.
+Historical browsing from another same-station computer may be solved by a good
+selected-run, sample, or cooldown handoff package that can be copied and opened
+elsewhere. That reframes the original bottleneck away from remote connection
+and toward portable records.
+
+Shared storage such as a lab NAS can be an optional transport and discovery
+backend when the lab already has backup infrastructure. The early architecture
+should still be local-first: a single computer can record and browse, export or
+import packages can move records manually, and a shared folder or NAS can later
+host record packages or manifests that clients scan into a local rebuildable
+index cache. Do not require a central server, deployed database, background
+indexer, or live sync service from this fixture.
+
+This makes the fixture distributed-record-aware, not a distributed
+experiment-control fixture. If multiple station computers or users can reach
+the same instruments, conflict handling remains outside the fixture: physical
+or network isolation, existing control systems, booking, and direct user
+coordination are acceptable current workarounds. Leases, permissions,
+arbitration, failure behavior, and hardware-control safety assumptions need a
+later resource/runtime decision before they become Scopecat scope.
 
 Do not add a standalone LAN browsing fixture yet. As currently framed, it would
 mostly duplicate local record browsing. The distinct constraint is that record
 identity must not be a local filesystem path. The same run should be referable
-by a stable opaque ID and resolved through machine-specific locations or legacy
-source references.
+by a stable opaque ID and resolved through export/import paths,
+machine-specific locations, shared-storage references, or legacy source
+references.
 
 Useful fixture fields, when this is added as a variant to measurement,
 durable-record, or handoff fixtures:
@@ -592,13 +613,15 @@ durable-record, or handoff fixtures:
 - legacy/source refs such as Data Vault directory plus dataset number;
 - machine-specific locations such as control-PC path, mapped drive, UNC path,
   exported snapshot path, or analysis-computer mount;
+- optional shared-storage or NAS refs and the manifest version discovered
+  there;
 - access mode and read capabilities for each location;
 - explicit read-only boundary and unavailable/stale-location behavior.
 
 Live observation should not be promoted as a separate first-slice value. User
 clarification says it usually appears together with remote execution or richer
-control workflows. Keep it as later nice-to-have unless a fixture or prototype
-shows independent adoption payoff.
+read/monitor workflows. Keep it as later nice-to-have unless a fixture or
+prototype shows independent adoption payoff.
 
 Sample evidence supports the mechanism more than the pain statement: Data Vault
 IDs, folder/index helpers, sidecar `parameters.json` lookup, and a few
@@ -606,6 +629,23 @@ UNC/shared-path examples show that historical browsing is already file- and
 ID-driven. The sample code does not directly prove a one-control-machine social
 bottleneck, so the collaboration pain remains user-clarified until interview or
 cross-machine access evidence exists.
+
+### Code Movement Between Computers
+
+Code movement should be split into two validation questions. One-time migration
+can often stay simple: copy the experiment-code folder, configure the
+environment, adjust machine-local paths, and record the selected entrypoint and
+snapshot. Ongoing edits across multiple computers are harder: users need a
+usable source of truth, changed-file comparison, restore of prior known-good
+versions, selected-version run records, and a way to keep machine-local config
+out of portable code.
+
+The user-facing concepts to test before a code registry are checkpoint,
+publish, pull/update, restore, compare, selected version, and machine-local
+profile. The substrate may eventually be Git or content-addressed snapshots,
+but the fixture should not expose Git hosting, merge/rebase semantics,
+automatic bidirectional sync, deployment management, or managed execution as
+accepted scope.
 
 ### Scopecat Boundary Around Existing Control Systems
 

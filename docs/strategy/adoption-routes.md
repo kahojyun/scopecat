@@ -23,8 +23,8 @@ phase and coordination only.
 
 | Route hypothesis | Touched `JC` rows | Standalone value being tested |
 | --- | --- | --- |
-| Run history and analysis handoff | `JC-001`, `JC-002`, `JC-006`, `JC-015` | Open, understand, reopen, select, package, and later trace measurement work without replacing acquisition code. |
-| Method and code portability diagnostics | `JC-004`, `JC-008`, `JC-013` | Explain copied notebooks, scripts, static entrypoint evidence, user-code snapshots, known-good sources, drift, and readiness before any deployment, code-version loader, or managed-runner capability is accepted. |
+| Run history and analysis handoff | `JC-001`, `JC-002`, `JC-006`, `JC-015` | Open, understand, reopen, select, package, export/import, optionally discover through shared storage, and later trace measurement work without replacing acquisition code or requiring remote connection. |
+| Method and code portability diagnostics | `JC-004`, `JC-008`, `JC-013` | Explain copied notebooks, scripts, static entrypoint evidence, user-code snapshots, known-good sources, drift, one-time migration, and readiness before any deployment, code-version loader, automatic sync, or managed-runner capability is accepted. |
 | Experiment intent and readiness | `JC-007`, `JC-008`, `JC-016` | Current route hypothesis starts with reviewable intent and outcome reports; strong adoption payoff likely requires continuation behavior such as resume, retry, review continuation, or selected remeasurement before managed execution or broader runtime ownership is considered. |
 | Calibration and parameter memory | `JC-003`, `JC-011`, `JC-012`, `JC-016` | Start with replacing mutable parameter files through drift queries, branch or working-point history, run linkage, direct-update checkpoints, and bad-state labeling/exclusion before separating proposal/review, apply, or mutation-ownership decisions. |
 | Trust, diagnostics, and comparability | `JC-009`, `JC-010`, `JC-012` | Compare known-good references, current bundles, valid-looking runs, setup states, samples, or method variants without claiming equivalence. |
@@ -34,11 +34,36 @@ phase and coordination only.
 
 Same-station data access is not a standalone route yet. Preserve it as a
 validation constraint on run explanation, analysis handoff, and durable reopen:
-stable opaque `record_id`, legacy source refs, machine-specific locations, and
-read capabilities should let another same-station computer resolve historical
-records without treating the control-PC path as identity. Shared folders are a
-baseline for simple file-based systems, but they should not define record
-identity. Live observation and remote execution remain later scope.
+stable opaque `record_id`, legacy source refs, machine-specific locations,
+optional shared-storage refs, and read capabilities should let another
+same-station computer resolve historical records without treating the
+control-PC path as identity.
+
+The preferred early ladder is local durable record -> export/import selected
+runs or sample/cooldown packages -> optional NAS/shared-folder publish and
+discovery -> optional generated indexes or local index caches. Shared storage
+is a transport and discovery backend, not mandatory architecture. A deployed
+database, background indexer service, live sync service, or remote execution
+service requires later route evidence and an ADR.
+
+Historical browsing from another computer may be solved by portable handoff
+packages, so it should not be used by itself to justify remote connection.
+Live observation and remote execution remain later scope.
+
+This route makes Scopecat distributed-record-aware, not a distributed
+experiment-control system. Shared record discovery must not imply shared
+instrument authority. If several computers or users can reach the same
+instruments, conflicts remain handled by lab convention, physical or network
+isolation, existing control systems, booking, or direct coordination until a
+later resource/runtime route validates leases, permissions, arbitration, and
+failure behavior.
+
+Cross-computer code movement should also stay explicit at first. One-time
+folder migration is a weak pain; ongoing edits across computers are the
+stronger source-of-truth problem. Validate checkpoint, publish, pull/update,
+restore, compare, selected version, and machine-local profile concepts before
+promoting automatic sync, Git hosting, deployment management, or load-selected
+version execution.
 
 ## Promotion Rule
 

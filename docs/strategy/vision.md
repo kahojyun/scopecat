@@ -80,6 +80,48 @@ Scopecat should own the evidence layer around those systems. It may:
 Scopecat records, compares, explains, proposes, and packages. Existing systems
 execute and mutate.
 
+## Cross-Machine And Storage Boundary
+
+Cross-machine workflows should start from portable records, handoff packages,
+and optional shared storage, not remote execution.
+
+This makes Scopecat distributed-record-aware, not a distributed
+experiment-control system. Multiple computers may resolve, copy, index, or read
+the same record evidence, but that does not mean multiple computers can safely
+operate the same instruments through Scopecat.
+
+Scopecat may:
+
+- create local-first durable records with stable opaque IDs and portable
+  manifests;
+- export or import selected runs, samples, cooldowns, or handoff packages;
+- publish or read records from shared folders, NAS, or similar lab storage when
+  the lab already has that infrastructure;
+- let each client build a local, rebuildable index cache from record manifests;
+- record machine-specific locations, legacy source references, access modes,
+  and stale or unavailable storage locations.
+
+Scopecat should not initially own remote shell/session control, remote
+experiment execution, multi-user command arbitration, account management,
+service discovery, or a central database. Users who need remote operation can
+use existing lab tools such as Remote Desktop, SSH, VPN, or lab IT-managed
+infrastructure.
+
+Instrument access conflicts remain owned by lab infrastructure, existing
+control systems, network or physical isolation, booking and operator
+conventions, or explicit user coordination until a later runtime/resource
+ownership decision accepts leases, arbitration, permissions, failure behavior,
+and safety assumptions.
+
+Shared storage is an optional transport, discovery, and backup target. It is
+not the product center, and early routes should still work on one machine or
+through explicit export/import without a NAS or server.
+
+Data and code also have different sharing semantics. Measurement records are
+usually append-mostly evidence; experiment code needs checkpoint, selected
+version, compare, restore, and machine-local configuration semantics before any
+automatic cross-computer synchronization is considered.
+
 ## Automation Responsibility Boundary
 
 Automation is not outside Scopecat's long-term direction. Existing lab
@@ -192,6 +234,8 @@ replacement targets for every route:
 - a built-in lab keyword list or universal redaction policy;
 - an automatic calibration or parameter write-back system;
 - a workflow scheduler, queue, or remote execution service;
+- a remote desktop, shell, or remote session product;
+- a required central storage server, deployed database, or sync service;
 - an authoritative source of hardware truth;
 - a lab operations platform for booking, cooldown planning, shift management,
   personnel coordination, training, incidents, or multi-equipment scheduling;
@@ -218,6 +262,8 @@ ordered first slice:
 - preserve selected context, code-shaped provenance, companion artifacts,
   ambiguity, and sharing boundaries;
 - create immutable pre-analysis handoff snapshots for selected runs;
+- support portable records, explicit export/import, and optional shared-storage
+  discovery without remote execution;
 - compare evidence and gaps without claiming authoritative truth;
 - support parameter memory, drift queries, branches, run linkage, and explicit
   checkpoints before any parameter or calibration mutation ownership;

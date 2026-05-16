@@ -42,7 +42,9 @@ boundaries; promote only the smallest valuable slice.
 | User-facing pressure | Candidate composition | Split point |
 | --- | --- | --- |
 | Inherited bundle becomes analysis-ready context. | Explain bundle -> package selected runs -> trace derived artifacts. | Packaging known artifacts is separate from generating analysis outputs. |
-| One station has multiple computers but one data bottleneck. | Stable record identity -> machine-specific locations -> historical records and selected-run previews from another station computer. | This is a cross-machine access constraint on record browsing and handoff, not a separate LAN browser surface; live observation belongs to later read/monitor or remote-execution validation unless it proves separate adoption payoff. |
+| One station has multiple computers but one data bottleneck. | Stable record identity -> export/import or shared-storage discovery -> machine-specific locations -> historical records and selected-run previews from another station computer. | Historical browsing may be solved by portable handoff before remote connection; this is a cross-machine access constraint on record browsing and handoff, not a separate LAN browser surface. Live observation belongs to later read/monitor or remote-execution validation unless it proves separate adoption payoff. |
+| One cooldown or lab has data spread across multiple stations. | Local durable records -> optional NAS/shared-storage publish -> local index cache over manifests -> cross-station browsing or handoff. | Shared storage is an optional transport and discovery backend, not required central architecture; remote execution remains outside this slice. |
+| Experiment code is copied between control computers. | Selected folder and entrypoint -> machine-local config separation -> checkpoint/compare -> explicit publish or pull/update. | One-time folder migration is simpler than ongoing sync; do not promote Git hosting, deployment, automatic sync, or load-selected-version execution from this placement alone. |
 | Planned campaign becomes reviewable before scarce experiment time. | Preview intent -> validate bring-up evidence -> review parameter or calibration evidence. | Intent, setup evidence, parameter memory, optional proposal, and write-back remain separate. |
 | Long-running measurement remains inspectable while still running. | Explore explicit recording -> expose progress/readiness markers -> optionally save fit or decision evidence -> preserve campaign lineage. | Observation and saved advice do not mutate hardware, scan plans, or claims; append/read semantics still need storage evidence. |
 | Informal lab automation becomes explicit. | Freeze grouped calibration intent -> check readiness -> record outcome from lab-owned or future minimal execution -> record quality gates, review decisions, requested next action, and continuation. | Current fixture tests intent/outcome semantics; run-to-completion is baseline, while resume, retry, review continuation, or selected remeasurement are the higher-payoff executor validations. |
@@ -91,9 +93,9 @@ owner before this placement table becomes the source of truth.
 | Experience area | Current or candidate `JC` rows | Placement use |
 | --- | --- | --- |
 | Existing evidence explanation | `JC-001` | Anchor post-run artifacts, selected context, code references, missing facts, conflicts, and sharing boundaries before handoff, comparison, or mutation. |
-| Analysis handoff | `JC-002` | Move selected runs and enough context to an analysis computer as an immutable pre-analysis snapshot. |
-| Durable recording and reopen | `JC-015` | Explore ordinary-Python recording, lifecycle evidence, running-run reads, and reopen by stable opaque ID before richer handoff or read/monitor paths depend on recorded inputs. |
-| Code, method, and queue readiness | `JC-004`, `JC-007`, `JC-008`, `JC-013` | Separate copied-code provenance, frozen plan or queue intent, dry-run or mock-queue readiness, simulated or lab-owned grouped-calibration outcomes, and shared asset drift diagnostics. |
+| Analysis handoff | `JC-002` | Move selected runs and enough context to an analysis computer as an immutable pre-analysis snapshot, with export/import or optional shared-storage discovery as the first cross-machine answer. |
+| Durable recording and reopen | `JC-015` | Explore ordinary-Python recording, lifecycle evidence, running-run reads, stable opaque IDs, portable manifests, and reopen before richer handoff or read/monitor paths depend on recorded inputs. |
+| Code, method, and queue readiness | `JC-004`, `JC-007`, `JC-008`, `JC-013` | Separate copied-code provenance, one-time migration from ongoing checkpoint/sync pressure, frozen plan or queue intent, dry-run or mock-queue readiness, simulated or lab-owned grouped-calibration outcomes, and shared asset drift diagnostics. |
 | Setup and declared context | `JC-005`, `JC-012` | Preserve bring-up/setup evidence and only maintain declared local schema when it powers visible lookup, calculation, visualization, comparison, handoff, or diagnostics. |
 | Calibration and running-run observation | `JC-003`, `JC-011` | Place parameter-memory/query pressure and running-run read/monitor support before optional saved advice, optional proposal/review, real apply, or autonomous calibration. |
 | Bounded local execution hypothesis | `JC-016` | Place the possible bridge from reviewed intent, local execution evidence, parameter memory, code-version selection, and advisory evidence into one bounded local-run decision without treating runtime ownership as accepted here. |
@@ -103,8 +105,13 @@ owner before this placement table becomes the source of truth.
 
 Same-station data access is now a cross-cutting validation constraint, not a
 candidate `JC`: stable record identity, legacy source refs, machine-specific
-locations, and read capabilities should be checked if `JC-001`, `JC-002`, or
-`JC-015` need cross-machine access.
+locations, optional shared-storage refs, export/import behavior, and read
+capabilities should be checked if `JC-001`, `JC-002`, or `JC-015` need
+cross-machine access. This should not imply remote execution, mandatory NAS,
+deployed database scope, or shared instrument-control authority. If multiple
+station computers can reach the same instruments, conflict coordination remains
+external unless a later resource/runtime journey accepts leases, permissions,
+arbitration, failure behavior, and safety assumptions.
 
 Adjacent steps are context, not prototype scope. The tracker owns current
 phase and coordination status; owning `JC` documents own validation
