@@ -7,9 +7,11 @@ reader API, storage model, export format, UI spec, or accepted decision.
 
 ## Definition
 
-A handoff snapshot is an immutable, portable, pre-analysis package containing
-selected experiment data plus enough context to read, plot, and explain the
-data on another computer.
+A handoff snapshot is a portable, pre-analysis package containing selected
+experiment data plus enough context to read, plot, and explain the data on
+another computer. It is intended to become immutable after export, but this
+draft boundary does not yet define package finalization, checksums, manifest
+versioning, partial-copy behavior, or integrity verification.
 
 ```text
 control computer

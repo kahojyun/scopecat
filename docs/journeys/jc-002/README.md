@@ -11,9 +11,11 @@ format, storage design, or UI spec.
 ## Purpose
 
 `JC-002` covers internal analysis handoff: a user finds valuable post-run data,
-selects one or more runs, and creates an immutable pre-analysis snapshot that
-can move from an experiment-control computer to a personal analysis computer
-without losing source identity or essential context.
+selects one or more runs, and creates a portable pre-analysis snapshot that can
+move from an experiment-control computer to a personal analysis computer
+without losing source identity or essential context. The snapshot is intended
+to be finalized after export, but integrity and immutability mechanics are not
+accepted yet.
 
 Generated figures, PDFs, decks, fit outputs, and publication/report artifacts
 are separate derived analysis records or later lineage work. They are not part

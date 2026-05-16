@@ -48,8 +48,11 @@ Candidate dependencies to promote only if an active slice needs them:
 
 | Candidate | Owner | Phase | Coordination note |
 | --- | --- | --- | --- |
-| `JC-015` | [`../evidence/inventory.md`](../evidence/inventory.md) | Not Started | Promote earlier only if `JC-002`, `JC-011`, or `JC-016` needs realistic recorded inputs. |
-| `JC-016` | [`../evidence/inventory.md`](../evidence/inventory.md) | Not Started | Promote only if bounded runtime handoff becomes an active validation need. |
+| `JC-015` | [`../evidence/inventory.md`](../evidence/inventory.md) | Not Started | Promote earlier only if `JC-002` or `JC-011` needs realistic recorded inputs. |
+
+Runtime-boundary composition questions such as `JC-016` stay parked in the
+inventory. They should not enter active coordination until a narrower accepted
+journey, fixture, and ADR trigger create a concrete runtime-owner question.
 
 Use the dependency-promotion prompts in
 [`../standards/jc-operating-standard.md`](../standards/jc-operating-standard.md)

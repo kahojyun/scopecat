@@ -24,6 +24,10 @@ Treat source families separately:
 - The workflow improvement case adds current friction around notebooks, copied
   code, parameter and registry files, wiring sheets, generated artifacts,
   derived arrays, environment coupling, and report handoff.
+- Current-owner clarification is useful for narrowing intended pains and
+  workarounds, but it is not independent user research. Mark it as
+  `user-clarified` and require a fixture, prototype, or later user validation
+  before using it as accepted demand.
 - Historical automation discussion is low-confidence design pressure, not
   source evidence or accepted subsystem order.
 - Blind persona and capability-gap role-play are prompt-method checks, not user
@@ -57,7 +61,8 @@ ready for an early slice, or especially high leverage.
 Read source support as two axes:
 
 - source family: predecessor lessons, workflow improvement case, user context,
-  blind persona check, external references, or low-confidence design pressure;
+  current-owner clarification, blind persona check, external references, or
+  low-confidence design pressure;
 - claim handling: observation, inference, latent pressure, engineering
   guardrail, assumption, future pressure, or ADR-gated decision.
 

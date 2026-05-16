@@ -86,18 +86,19 @@ Cross-machine workflows should start from portable records, handoff packages,
 and optional shared storage, not remote execution.
 
 This makes Scopecat distributed-record-aware, not a distributed
-experiment-control system. Multiple computers may resolve, copy, index, or read
-the same record evidence, but that does not mean multiple computers can safely
-operate the same instruments through Scopecat.
+experiment-control system. Multiple computers may resolve, copy, or read the
+same record evidence, but that does not mean multiple computers can safely
+operate the same instruments through Scopecat. Indexing beyond simple local
+record lookup remains a later validation and architecture question.
 
 Scopecat may:
 
 - create local-first durable records with stable opaque IDs and portable
   manifests;
 - export or import selected runs, samples, cooldowns, or handoff packages;
-- publish or read records from shared folders, NAS, or similar lab storage when
-  the lab already has that infrastructure;
-- let each client build a local, rebuildable index cache from record manifests;
+- preserve enough storage references to later validate publish or read flows
+  through shared folders, NAS, or similar lab storage when the lab already has
+  that infrastructure;
 - record machine-specific locations, legacy source references, access modes,
   and stale or unavailable storage locations.
 
@@ -116,6 +117,12 @@ and safety assumptions.
 Shared storage is an optional transport, discovery, and backup target. It is
 not the product center, and early routes should still work on one machine or
 through explicit export/import without a NAS or server.
+
+Concrete shared-storage mechanics such as atomic publish, partial-copy
+handling, concurrent publishers, manifest version discovery, cache
+invalidation, generated indexes, background indexing, and access control are
+architecture questions. They require a narrower fixture, prototype, or ADR
+before they become accepted product behavior.
 
 Data and code also have different sharing semantics. Measurement records are
 usually append-mostly evidence; experiment code needs checkpoint, selected
@@ -261,7 +268,8 @@ ordered first slice:
 - explain an existing run or work bundle without mutating it;
 - preserve selected context, code-shaped provenance, companion artifacts,
   ambiguity, and sharing boundaries;
-- create immutable pre-analysis handoff snapshots for selected runs;
+- create portable pre-analysis handoff snapshots for selected runs, with
+  finalization and integrity mechanics validated separately;
 - support portable records, explicit export/import, and optional shared-storage
   discovery without remote execution;
 - compare evidence and gaps without claiming authoritative truth;
