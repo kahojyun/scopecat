@@ -8,7 +8,7 @@
     "shape": [3, 2],
     "columns": ["x", "signal"]
   },
-  "declared_outputs": ["independent-check-table"],
+  "declared_outputs": ["independent-check-table", "independent-check-summary"],
   "context_refs": ["code-snapshot-alpha", "setting-snapshot-beta"],
   "continuation_context": {
     "quality_gate_task": "task-b",

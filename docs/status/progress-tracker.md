@@ -33,7 +33,7 @@ prototype, or contract.
 | `JC-001` passive evidence view | Accepted | [`../journeys/jc-001/README.md`](../journeys/jc-001/README.md) | First accepted slice. Keep reopen or extension detail in the owning decision, contract, or prototype document before updating shared coordination. |
 | `JC-002` selected-run analysis handoff | Validating | [`../journeys/jc-002/README.md`](../journeys/jc-002/README.md) | Journey record and snapshot boundary are draft; the fixture-backed prototype is validating whether the boundary can become accepted. |
 | Product-value route hypotheses | Provisional | [`../strategy/adoption-routes.md`](../strategy/adoption-routes.md) | Strategy owns route definitions; this tracker only reflects that they are provisional. |
-| Future candidate rows | Not Started / Deferred | [`../evidence/inventory.md`](../evidence/inventory.md) | Canonical `JC` candidate wording and boundaries stay in the evidence owner until a journey-specific owner is created. |
+| Future candidate rows | Not Started / Deferred | [`../evidence/inventory.md`](../evidence/inventory.md) | Canonical `JC` candidate wording and boundaries stay in the evidence owner until a journey-specific owner is created. `Not Started` means no promoted journey owner; draft evidence fixture probes may still exist outside active coordination. |
 
 ## Validation Slice Coordination
 
@@ -57,7 +57,10 @@ before moving a candidate into active coordination.
 
 All other candidate rows and parking-lot pressure live in
 [`../evidence/inventory.md`](../evidence/inventory.md) until they need active
-coordination.
+coordination. Draft evidence probes such as
+[`../evidence/pain-discovery-fixtures.md`](../evidence/pain-discovery-fixtures.md)
+do not change tracker phase unless a `JC`, route, or validation slice moves
+into shared coordination.
 
 ## Review Rule
 

@@ -82,7 +82,7 @@ Promotion map:
 | Existing artifact explanation and context ambiguity | `JC-001`, `PN-001`, `PN-002`, `PN-006` |
 | Selected-run analysis handoff | `JC-002`, `PN-004`, `EV-044`, `EV-045` |
 | Code/config readiness and dry-run packaging | `JC-004`, `JC-008`, `JC-013`, `TP-009` |
-| Parameter memory, calibration decision evidence, and measurement-time advisory hypotheses | `JC-003`, `JC-011`, `PN-003`, `TP-010` |
+| Parameter memory, calibration decision evidence, measurement-time read/monitor pressure, and deferred advisory hypotheses | `JC-003`, `JC-011`, `PN-003`, `TP-010` |
 | Setup reality and declared local schema | `JC-005`, `JC-012`, `EV-041`, `EV-042`, `EV-043` |
 | Scientific comparison and known-good diagnostics | `JC-009`, `JC-010`, `TP-007`, `TP-008` |
 | Derived analysis and claim lineage | `JC-006`, `JC-014`, `EV-039` |

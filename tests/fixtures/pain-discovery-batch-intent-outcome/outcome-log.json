@@ -18,7 +18,7 @@
       "started_at": "2026-05-16T01:11:00Z",
       "ended_at": "2026-05-16T01:13:00Z",
       "produced": ["records/task-b-record.json", "records/task-b-table.csv"],
-      "produced_outputs": ["sample-table"],
+      "produced_outputs": ["sample-table", "sample-fit-summary"],
       "quality_gate": {
         "status": "review_required",
         "category": "low-fit-score",
@@ -35,7 +35,7 @@
       "started_at": "2026-05-16T01:14:00Z",
       "ended_at": "2026-05-16T01:21:00Z",
       "produced": ["records/task-c-record.json", "records/task-c-table.csv"],
-      "produced_outputs": ["independent-check-table"],
+      "produced_outputs": ["independent-check-table", "independent-check-summary"],
       "continuation_context": {
         "status": "continued_after_group_quality_gate",
         "support_level": "user clarification only",

@@ -573,10 +573,11 @@ accepted runner architecture.
 
 ### Same-Station Cross-Machine Access
 
-The minimum valuable same-station access slice is historical-only read browsing
-from another same-station computer. It already solves a concrete collaboration
-problem: one person can inspect prior runs or prepare report figures without
-blocking the only computer currently used for measurement.
+The minimum hypothesized same-station access slice is historical-only read
+browsing from another same-station computer. User clarification suggests it
+could solve a concrete collaboration problem: one person can inspect prior runs
+or prepare report figures without blocking the only computer currently used for
+measurement.
 
 Do not add a standalone LAN browsing fixture yet. As currently framed, it would
 mostly duplicate local record browsing. The distinct constraint is that record

@@ -45,7 +45,7 @@ boundaries; promote only the smallest valuable slice.
 | One station has multiple computers but one data bottleneck. | Stable record identity -> machine-specific locations -> historical records and selected-run previews from another station computer. | This is a cross-machine access constraint on record browsing and handoff, not a separate LAN browser surface; live observation belongs to later read/monitor or remote-execution validation unless it proves separate adoption payoff. |
 | Planned campaign becomes reviewable before scarce experiment time. | Preview intent -> validate bring-up evidence -> review parameter or calibration evidence. | Intent, setup evidence, parameter memory, optional proposal, and write-back remain separate. |
 | Long-running measurement remains inspectable while still running. | Explore explicit recording -> expose progress/readiness markers -> optionally save fit or decision evidence -> preserve campaign lineage. | Observation and saved advice do not mutate hardware, scan plans, or claims; append/read semantics still need storage evidence. |
-| Informal lab automation becomes explicit. | Freeze grouped calibration intent -> check readiness -> record outcome from lab-owned or future minimal execution -> record quality gates, review decisions, requested next action, and continuation. | Current fixture validates intent/outcome semantics; run-to-completion is baseline, while resume, retry, review continuation, or selected remeasurement are the higher-payoff executor validations. |
+| Informal lab automation becomes explicit. | Freeze grouped calibration intent -> check readiness -> record outcome from lab-owned or future minimal execution -> record quality gates, review decisions, requested next action, and continuation. | Current fixture tests intent/outcome semantics; run-to-completion is baseline, while resume, retry, review continuation, or selected remeasurement are the higher-payoff executor validations. |
 
 ## Lab Workflow Reference
 
@@ -81,30 +81,29 @@ Keep journey slices small and user-visible:
 The canonical candidate wording, evidence basis, drafting signal, and main
 boundary live in
 [`../evidence/inventory.md`](../evidence/inventory.md).
-This map only shows where those `JC` rows sit in the larger experience. It
-keeps a compact status posture so unaccepted hypotheses do not look equivalent
-to accepted or draft journey work; detailed evidence rank and prototype
-boundaries still live in the owning evidence or journey docs.
+This map only shows where those `JC` rows sit in the larger experience. It does
+not own evidence rank, current phase, acceptance status, fixture results, or
+prototype boundaries.
 
 If new work needs a new `JC`, update the evidence owner or a narrower `JC`
 owner before this placement table becomes the source of truth.
 
-| Experience area | Current or candidate `JC` rows | Status posture | Placement use |
-| --- | --- | --- | --- |
-| Existing evidence explanation | `JC-001` | Accepted boundary | Anchor post-run artifacts, selected context, code references, missing facts, conflicts, and sharing boundaries before handoff, comparison, or mutation. |
-| Analysis handoff | `JC-002` | Draft boundary | Move selected runs and enough context to an analysis computer as an immutable pre-analysis snapshot. |
-| Durable recording and reopen | `JC-015` | Substrate hypothesis | Explore ordinary-Python recording, lifecycle evidence, running-run reads, and reopen by stable opaque ID before richer handoff or read/monitor paths depend on recorded inputs. Append/read atomicity, buffering, and per-machine location resolution are not settled here. |
-| Code, method, and queue readiness | `JC-004`, `JC-007`, `JC-008`, `JC-013` | Candidate or fixture-gated | Separate copied-code provenance, frozen plan or queue intent, dry-run or mock-queue readiness, simulated or lab-owned grouped-calibration outcomes, and shared asset drift diagnostics. |
-| Setup and declared context | `JC-005`, `JC-012` | Candidate or ADR-gated | Preserve bring-up/setup evidence and only maintain declared local schema when it powers visible lookup, calculation, visualization, comparison, handoff, or diagnostics. |
-| Calibration and running-run observation | `JC-003`, `JC-011` | Candidate or fixture-gated | Place parameter-memory/query pressure and running-run read/monitor support before optional saved advice, optional proposal/review, real apply, or autonomous calibration. |
-| Bounded local execution hypothesis | `JC-016` | Capability hypothesis only | Place the possible bridge from reviewed intent, local execution evidence, parameter memory, code-version selection, and advisory evidence into one bounded local-run decision; do not treat runtime ownership as accepted. |
-| Campaign and generated lineage | `JC-006` | Candidate | Preserve generated protocol, correction, classifier, feedback, and run-family relations without broadening into a full scientific workflow model. |
-| Trust and comparison | `JC-009`, `JC-010` | Candidate | Place known-good diagnostics and scientific comparability review without accepting rollback, equivalence scoring, or setup truth authority. |
-| Derived analysis impact | `JC-014` | Candidate | Link figures, reports, fits, and claims back to source evidence before considering report generation or publication workflow. |
+| Experience area | Current or candidate `JC` rows | Placement use |
+| --- | --- | --- |
+| Existing evidence explanation | `JC-001` | Anchor post-run artifacts, selected context, code references, missing facts, conflicts, and sharing boundaries before handoff, comparison, or mutation. |
+| Analysis handoff | `JC-002` | Move selected runs and enough context to an analysis computer as an immutable pre-analysis snapshot. |
+| Durable recording and reopen | `JC-015` | Explore ordinary-Python recording, lifecycle evidence, running-run reads, and reopen by stable opaque ID before richer handoff or read/monitor paths depend on recorded inputs. |
+| Code, method, and queue readiness | `JC-004`, `JC-007`, `JC-008`, `JC-013` | Separate copied-code provenance, frozen plan or queue intent, dry-run or mock-queue readiness, simulated or lab-owned grouped-calibration outcomes, and shared asset drift diagnostics. |
+| Setup and declared context | `JC-005`, `JC-012` | Preserve bring-up/setup evidence and only maintain declared local schema when it powers visible lookup, calculation, visualization, comparison, handoff, or diagnostics. |
+| Calibration and running-run observation | `JC-003`, `JC-011` | Place parameter-memory/query pressure and running-run read/monitor support before optional saved advice, optional proposal/review, real apply, or autonomous calibration. |
+| Bounded local execution hypothesis | `JC-016` | Place the possible bridge from reviewed intent, local execution evidence, parameter memory, code-version selection, and advisory evidence into one bounded local-run decision without treating runtime ownership as accepted here. |
+| Campaign and generated lineage | `JC-006` | Preserve generated protocol, correction, classifier, feedback, and run-family relations without broadening into a full scientific workflow model. |
+| Trust and comparison | `JC-009`, `JC-010` | Place known-good diagnostics and scientific comparability review without accepting rollback, equivalence scoring, or setup truth authority. |
+| Derived analysis impact | `JC-014` | Link figures, reports, fits, and claims back to source evidence before considering report generation or publication workflow. |
 
-Same-station data access is now a cross-cutting acceptance constraint, not a
+Same-station data access is now a cross-cutting validation constraint, not a
 candidate `JC`: stable record identity, legacy source refs, machine-specific
-locations, and read capabilities should be checked where `JC-001`, `JC-002`, or
+locations, and read capabilities should be checked if `JC-001`, `JC-002`, or
 `JC-015` need cross-machine access.
 
 Adjacent steps are context, not prototype scope. The tracker owns current

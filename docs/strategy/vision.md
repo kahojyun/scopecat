@@ -212,7 +212,7 @@ hardware-control runtime. The
 boundary is about adoption prerequisites, silent scope creep, and authority, not
 a promise to avoid these areas forever.
 
-## Current Clear Value Areas
+## Current Value Areas And Constraints
 
 The clearest current value areas are listed here as direction, not as a single
 ordered first slice:
@@ -221,16 +221,19 @@ ordered first slice:
 - preserve selected context, code-shaped provenance, companion artifacts,
   ambiguity, and sharing boundaries;
 - create immutable pre-analysis handoff snapshots for selected runs;
-- reduce same-station data-browsing bottlenecks by making record identity
-  stable across control-PC paths, mapped drives, shared folders, exports, and
-  analysis-computer mounts before live observation or remote experiment
-  execution;
 - compare evidence and gaps without claiming authoritative truth;
 - support parameter memory, drift queries, branches, run linkage, and explicit
   checkpoints before any parameter or calibration mutation ownership;
 - support running-run read/monitor workflows and optional measurement-time
   decision evidence from explicitly recorded measurement data without taking
   over hardware control.
+
+Current cross-route constraints to preserve:
+
+- make record identity stable across control-PC paths, mapped drives, shared
+  folders, exports, and analysis-computer mounts before validating
+  same-station cross-machine access, live observation, or remote experiment
+  execution;
 
 These value areas can compose over time. None requires every user to start from
 the same route, and none requires Scopecat to replace the lab's working

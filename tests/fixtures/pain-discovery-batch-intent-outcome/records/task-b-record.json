@@ -9,7 +9,7 @@
     "shape": [3, 2],
     "columns": ["frequency", "signal"]
   },
-  "declared_outputs": ["sample-table"],
+  "declared_outputs": ["sample-table", "sample-fit-summary"],
   "quality_gate": {
     "kind": "fit_quality",
     "score": 0.42,

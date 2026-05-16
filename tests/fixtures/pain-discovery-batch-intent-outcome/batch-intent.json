@@ -206,9 +206,9 @@
           "note": "Review uses the same abstract resource key for the grouped calibration fixture; this is not a real lease."
         },
         {
-          "key": "mutable-file:setting/parameters.json",
+          "key": "mutable-parameter-state:active-setting",
           "support_level": "direct sample for shared parameter-file mutation pressure; synthetic key",
-          "note": "Represents read/write conflict around a shared mutable parameter file without requiring a lease or transaction system."
+          "note": "Represents read/write conflict around a shared mutable parameter state without requiring a lease or transaction system. Legacy workflows may store that state in a file such as setting/parameters.json."
         }
       ],
       "failure_or_review_intent": "record calibration update evidence; direct apply with recorded diff versus explicit proposal/review remains an open validation question",
@@ -234,7 +234,8 @@
         {
           "input_id": "parameters-before-readout-cal",
           "kind": "parameter_state",
-          "source_ref": "setting/parameters.json",
+          "source_ref": "parameter-state:active-setting",
+          "legacy_location_hint": "setting/parameters.json",
           "required": true,
           "transport": {
             "status": "not_declared",
@@ -255,7 +256,8 @@
         {
           "output_id": "parameters-after-readout-cal-proposal",
           "kind": "parameter_state_proposal",
-          "target_ref": "setting/parameters.json",
+          "target_ref": "parameter-state:active-setting",
+          "legacy_location_hint": "setting/parameters.json",
           "transport_hint": {
             "status": "example_only",
             "value": "fixture_record_file"
@@ -288,9 +290,9 @@
           "note": "Uses the same abstract resource key as the grouped frequency calibration."
         },
         {
-          "key": "mutable-file:setting/parameters.json",
+          "key": "mutable-parameter-state:active-setting",
           "support_level": "direct sample for shared parameter-file mutation pressure; synthetic key",
-          "note": "Represents dependency on a specific logical parameter state, not actual file write-back."
+          "note": "Represents dependency on a specific logical parameter state, not actual file write-back. Legacy workflows may store that state in a file such as setting/parameters.json."
         }
       ],
       "failure_or_review_intent": "do not run until the proposed parameter state is reviewed",
