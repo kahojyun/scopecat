@@ -29,13 +29,31 @@ so the user can critique the pain framing before implementation details harden.
 | Code snapshot and explicit record | `tests/fixtures/pain-discovery-code-snapshot-explicit-record/` | Is a simple code snapshot plus explicit run record enough before a code registry exists? |
 | Measurement record and attachments | `tests/fixtures/pain-discovery-measurement-data-attachments/` | Which outputs should become system-managed measurement data, and which remain attached artifacts? |
 
+## Grounding Labels
+
+The fixture fields should be read with these support levels:
+
+| Label | Meaning |
+| --- | --- |
+| `direct sample` | Visible in static sample source or artifacts. |
+| `sample plus user clarification` | The sample shows the current pattern or pressure, while the user clarification supplies the future-state meaning. |
+| `user clarification only` | Explicitly described by the user, but not visible in the sample. |
+| `premature` | Useful as a design probe only; do not promote without a fixture, helper, or user validation. |
+
 ## Fixture 1: Batch Intent And Outcome
 
 ### Pain Tested
 
 Notebook or IPython can already run multiple cells, but it gives weak support
 for reviewing intended task order, continuing independent work after a failure,
-recording retry policy, and using idle time for lower-priority calibration.
+recording failure or retry intent and observed outcomes, and using idle time
+for lower-priority calibration.
+
+Sample grounding: direct sample evidence supports sequential scans, sweep
+intent, recording, interruption, failure/retry traces, and calibration
+proposal/write-back pressure. Dependency semantics, priority arbitration,
+independent continuation after failure, and idle backfill are user-clarified
+or premature unless a later helper fixture proves them.
 
 ### Current Workaround
 
@@ -53,8 +71,10 @@ task.
 ### Expected Scopecat Output
 
 Scopecat should show intended versus actual execution, which failure did not
-block independent tasks, which task waited for human review, and which
-calibration result is only a proposal.
+block declared-independent work, which task waited for human review, and which
+calibration result is only a proposal. The output should identify which parts
+are observed sample patterns, user-clarified desired behavior, or proposed
+managed-runner semantics.
 
 ### Explicit Unknowns
 
@@ -102,6 +122,12 @@ resolve a full dependency graph, or decide which copied file is canonical.
 The user can decide whether code snapshot and explicit entrypoint recording
 solve most provenance pain before designing a code registry or managed runner.
 
+Sample grounding: copied folders, backup variants, duplicated helpers, mutable
+notebooks, path hacks, and weak canonical identity are direct sample evidence.
+Explicit selected entrypoints, hash-based snapshots, and dependency summaries
+are user-clarified desired records. Code registry, bare git management,
+`uv.lock`, temp run folders, and managed runners remain future hypotheses.
+
 ## Fixture 3: Measurement Record And Attachments
 
 ### Pain Tested
@@ -125,8 +151,16 @@ derived files without a stable source relation.
 
 ### Expected Scopecat Output
 
-Scopecat should treat the primary table as system-managed measurement data,
-while treating derived outputs as role-labeled attachments linked to sources.
+A review view should show the proposed split between primary system-managed
+measurement data and cataloged attachments, while preserving which parts are
+legacy workaround evidence. The fixture should not imply a final storage
+format, reader API, GUI contract, or source-relation schema.
+
+Sample grounding: the sample directly supports Data Vault-like tables,
+independent/dependent columns, row capture, CSV exports, run-adjacent parameter
+sidecars, JSON/NPZ sidecars, derived arrays, notebooks, PDFs, workbooks, and
+decks. The desired system-managed primary measurement format comes from user
+clarification.
 
 ### Explicit Unknowns
 

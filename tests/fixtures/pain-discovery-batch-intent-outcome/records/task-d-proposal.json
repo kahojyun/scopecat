@@ -11,7 +11,12 @@
   },
   "evidence": {
     "fit_quality": "suspicious",
-    "fit_quality_reason": "synthetic fixture placeholder"
+    "fit_quality_reason": "synthetic fixture placeholder",
+    "support_level": "sample plus user clarification"
+  },
+  "review": {
+    "status": "pending",
+    "decision": "not_provided"
   },
   "mutation_policy": "do not apply in this fixture"
 }

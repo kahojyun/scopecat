@@ -1,6 +1,7 @@
 {
   "notebook_id": "notebook-public-copy",
   "status": "ambiguous legacy evidence",
+  "support_level": "direct sample for ambiguity; synthetic cell summary",
   "cells": [
     {
       "cell_id": "cell-3",
@@ -16,9 +17,9 @@
     },
     {
       "cell_id": "cell-12",
-      "execution_count": 21,
+      "execution_count": null,
       "contains": "plot output",
-      "provenance_status": "analysis evidence only"
+      "provenance_status": "analysis evidence only; missing execution count remains ambiguous"
     }
   ],
   "fixture_lesson": "Copied notebook evidence can be cataloged, but explicit run record owns selected entrypoint."

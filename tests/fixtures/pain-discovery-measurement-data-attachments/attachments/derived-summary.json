@@ -2,6 +2,7 @@
   "artifact_id": "derived-summary",
   "source_measurements": ["measurement-public-001"],
   "role": "derived analysis attachment",
+  "payload_status": "synthetic example; Scopecat should not parse this as a required scientific schema",
   "summary": {
     "peak_bias_v": 0.10,
     "quality_flag": "public-fixture-placeholder"

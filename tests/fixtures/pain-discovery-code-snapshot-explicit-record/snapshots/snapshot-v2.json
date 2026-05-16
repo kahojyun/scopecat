@@ -15,13 +15,19 @@
     }
   ],
   "dependency_summary": {
-    "status": "provided",
-    "kind": "minimal lock summary",
+    "status": "observed_incomplete",
+    "kind": "dependency/readiness excerpt",
     "dependencies": [
       {
         "name": "public-fixture-runtime",
         "version": "0.0.0"
       }
+    ],
+    "unknowns": [
+      "full transitive dependency graph",
+      "local services",
+      "private packages",
+      "OS-specific paths"
     ]
   },
   "version_note": "Selected snapshot explicitly named by the run record."

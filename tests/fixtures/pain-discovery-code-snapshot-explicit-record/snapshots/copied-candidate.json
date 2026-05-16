@@ -1,0 +1,20 @@
+{
+  "snapshot_id": "code-copy-candidate",
+  "status": "ambiguous copied candidate",
+  "canonical_status": "unknown",
+  "capture_method": "fixture-authored representation of copied code evidence",
+  "support_level": "direct sample for copied/backup pattern; synthetic file list",
+  "files": [
+    {
+      "path": "code/experiment_template_copy.py",
+      "role": "copied experiment template candidate",
+      "sha256": "fixture-sha256-template-copy"
+    },
+    {
+      "path": "code/helper_waveforms.py",
+      "role": "shared helper module candidate",
+      "sha256": "fixture-sha256-helper-v1"
+    }
+  ],
+  "warning": "Do not infer that this copied candidate is active or obsolete from its name alone."
+}

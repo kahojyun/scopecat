@@ -7,6 +7,21 @@
     "status": "redacted"
   },
   "purpose": "Test whether reviewable batch intent, failure policy, and outcome records answer the pain before Scopecat owns execution.",
+  "grounding": {
+    "direct_sample": [
+      "ordered scan loops",
+      "recorded measurement outputs",
+      "partial stop or interruption evidence",
+      "failure and retry traces",
+      "calibration fit/review/write-back pressure"
+    ],
+    "user_clarification_only_or_premature": [
+      "multi-task dependency DAG",
+      "priority arbitration",
+      "idle backfill scheduling",
+      "managed continuation of independent tasks after failure"
+    ]
+  },
   "scope_boundary": {
     "scopecat_owns": [
       "declared intent record",
@@ -27,44 +42,56 @@
     {
       "task_id": "task-a",
       "label": "baseline sweep",
-      "priority": "user-high",
+      "operator_priority_hint": {
+        "value": "user-high",
+        "support_level": "user clarification only"
+      },
       "kind": "measurement",
-      "depends_on": [],
-      "may_run_after_failure_of": [],
-      "failure_policy": "stop dependents only",
+      "declared_preconditions": [],
+      "declared_independent_of": [],
+      "failure_or_review_intent": "stop dependent work only if a future runner owns dependencies",
       "expected_outputs": ["records/task-a-record.json"],
       "context_refs": ["code-snapshot-alpha", "setting-snapshot-alpha"]
     },
     {
       "task_id": "task-b",
       "label": "sample sweep",
-      "priority": "user-high",
+      "operator_priority_hint": {
+        "value": "user-high",
+        "support_level": "user clarification only"
+      },
       "kind": "measurement",
-      "depends_on": ["task-a"],
-      "may_run_after_failure_of": [],
-      "failure_policy": "skip if dependency failed",
+      "declared_preconditions": ["task-a"],
+      "declared_independent_of": [],
+      "failure_or_review_intent": "skip if declared precondition failed",
       "expected_outputs": ["records/task-b-record.json"],
       "context_refs": ["code-snapshot-alpha", "setting-snapshot-alpha"]
     },
     {
       "task_id": "task-c",
       "label": "independent check",
-      "priority": "user-high",
+      "operator_priority_hint": {
+        "value": "user-high",
+        "support_level": "user clarification only"
+      },
       "kind": "measurement",
-      "depends_on": [],
-      "may_run_after_failure_of": ["task-a", "task-b"],
-      "failure_policy": "continue independent tasks",
+      "declared_preconditions": [],
+      "declared_independent_of": ["task-a", "task-b"],
+      "failure_or_review_intent": "continue if independence is explicit and a future runner can enforce it",
       "expected_outputs": ["records/task-c-record.json"],
       "context_refs": ["code-snapshot-alpha", "setting-snapshot-beta"]
     },
     {
       "task_id": "task-d",
-      "label": "idle calibration proposal",
-      "priority": "background-low",
+      "label": "calibration proposal",
+      "operator_priority_hint": {
+        "value": "background-low",
+        "support_level": "user clarification only"
+      },
       "kind": "calibration-proposal",
-      "depends_on": ["task-a"],
-      "may_run_after_failure_of": ["task-b"],
-      "failure_policy": "record proposal and require human review",
+      "declared_preconditions": ["task-a"],
+      "declared_independent_of": ["task-b"],
+      "failure_or_review_intent": "record proposal and require human review; do not write parameters",
       "expected_outputs": ["records/task-d-proposal.json"],
       "context_refs": ["code-snapshot-calibration", "setting-snapshot-alpha"],
       "review_gate": {

@@ -1,7 +1,28 @@
 {
   "fixture_id": "pain-discovery-code-snapshot-explicit-record",
   "status": "draft pain-discovery fixture",
-  "purpose": "Test whether explicit code snapshot and entrypoint recording solve most no-git provenance pain before a code registry or managed runner exists.",
+  "purpose": "Test whether explicit code snapshot and entrypoint recording solve most manual provenance pain before a code registry or managed runner exists.",
+  "grounding": {
+    "direct_sample": [
+      "copied folders and backup variants",
+      "duplicated helper modules",
+      "mutable or ambiguous notebooks",
+      "hardcoded paths and local runtime assumptions",
+      "weak canonical identity for copied assets"
+    ],
+    "user_clarified_desired_records": [
+      "explicit selected entrypoint",
+      "hash-based code snapshot",
+      "experiment template version history"
+    ],
+    "future_hypotheses_out_of_scope": [
+      "managed code registry",
+      "system-managed bare git repository",
+      "uv.lock as required dependency contract",
+      "temporary run folder execution",
+      "managed runner"
+    ]
+  },
   "redaction_policy": {
     "source": "public-test-fixture",
     "forbidden_content": [
@@ -33,6 +54,10 @@
       "role": "code snapshot"
     },
     {
+      "path": "snapshots/copied-candidate.json",
+      "role": "copied candidate with unknown canonical status"
+    },
+    {
       "path": "records/run-record.json",
       "role": "explicit run provenance record"
     },
@@ -43,7 +68,7 @@
   ],
   "fixture_questions": [
     "Does explicit snapshot and entrypoint recording cover the core code-version pain?",
-    "Which remaining fields would require a real code registry?",
+    "Which remaining fields are still painful without a real code registry?",
     "Which information must be user-declared instead of inferred from arbitrary code?"
   ]
 }

@@ -10,6 +10,7 @@
   },
   "context_refs": ["code-snapshot-alpha", "setting-snapshot-beta"],
   "independence_evidence": {
-    "declared_independent_of_failed_task": "task-b"
+    "declared_independent_of_failed_task": "task-b",
+    "support_level": "user clarification only"
   }
 }

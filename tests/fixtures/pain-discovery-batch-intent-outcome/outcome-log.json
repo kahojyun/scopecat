@@ -17,10 +17,13 @@
       "started_at": "2026-05-16T01:11:00Z",
       "ended_at": "2026-05-16T01:13:00Z",
       "failure": {
-        "category": "analysis-check-failed",
+        "category": "fit-check-failed",
         "message": "synthetic fixture failure; public-safe placeholder"
       },
-      "blocked_tasks": [],
+      "blocked_task_evidence": {
+        "status": "not_modeled",
+        "reason": "sample does not prove scheduler-level blocked-task accounting"
+      },
       "produced": []
     },
     {
@@ -28,7 +31,8 @@
       "status": "succeeded_after_independent_failure",
       "started_at": "2026-05-16T01:14:00Z",
       "ended_at": "2026-05-16T01:21:00Z",
-      "produced": ["records/task-c-record.json"]
+      "produced": ["records/task-c-record.json"],
+      "continuation_support_level": "user clarification only"
     },
     {
       "task_id": "task-d",
@@ -36,6 +40,7 @@
       "started_at": "2026-05-16T01:22:00Z",
       "ended_at": "2026-05-16T01:30:00Z",
       "produced": ["records/task-d-proposal.json"],
+      "priority_support_level": "user clarification only",
       "review_reason": "fit quality flag is suspicious; proposal must not mutate parameters"
     }
   ]
