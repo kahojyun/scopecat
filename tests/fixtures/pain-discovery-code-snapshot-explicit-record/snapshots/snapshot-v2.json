@@ -1,0 +1,28 @@
+{
+  "snapshot_id": "code-snapshot-alpha-v2",
+  "status": "selected for run",
+  "capture_method": "explicit file snapshot",
+  "files": [
+    {
+      "path": "code/experiment_template.py",
+      "role": "experiment template",
+      "sha256": "fixture-sha256-template-v2"
+    },
+    {
+      "path": "code/helper_waveforms.py",
+      "role": "helper module",
+      "sha256": "fixture-sha256-helper-v1"
+    }
+  ],
+  "dependency_summary": {
+    "status": "provided",
+    "kind": "minimal lock summary",
+    "dependencies": [
+      {
+        "name": "public-fixture-runtime",
+        "version": "0.0.0"
+      }
+    ]
+  },
+  "version_note": "Selected snapshot explicitly named by the run record."
+}

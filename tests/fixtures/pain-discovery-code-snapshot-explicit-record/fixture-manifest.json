@@ -1,0 +1,49 @@
+{
+  "fixture_id": "pain-discovery-code-snapshot-explicit-record",
+  "status": "draft pain-discovery fixture",
+  "purpose": "Test whether explicit code snapshot and entrypoint recording solve most no-git provenance pain before a code registry or managed runner exists.",
+  "redaction_policy": {
+    "source": "public-test-fixture",
+    "forbidden_content": [
+      "real absolute paths",
+      "usernames",
+      "machine labels",
+      "network addresses",
+      "hardware identifiers",
+      "real sample labels"
+    ]
+  },
+  "artifacts": [
+    {
+      "path": "code/experiment_template.py",
+      "role": "experiment template",
+      "handling": "text-only; must not execute"
+    },
+    {
+      "path": "code/helper_waveforms.py",
+      "role": "helper module",
+      "handling": "text-only; must not execute"
+    },
+    {
+      "path": "snapshots/snapshot-v1.json",
+      "role": "code snapshot"
+    },
+    {
+      "path": "snapshots/snapshot-v2.json",
+      "role": "code snapshot"
+    },
+    {
+      "path": "records/run-record.json",
+      "role": "explicit run provenance record"
+    },
+    {
+      "path": "notebook-evidence/cell-map.json",
+      "role": "ambiguous notebook evidence"
+    }
+  ],
+  "fixture_questions": [
+    "Does explicit snapshot and entrypoint recording cover the core code-version pain?",
+    "Which remaining fields would require a real code registry?",
+    "Which information must be user-declared instead of inferred from arbitrary code?"
+  ]
+}

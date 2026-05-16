@@ -1,0 +1,59 @@
+{
+  "fixture_id": "pain-discovery-measurement-data-attachments",
+  "record_id": "measurement-public-001",
+  "status": "draft pain-discovery fixture",
+  "purpose": "Separate system-managed measurement data from attached derived artifacts.",
+  "task_relation": {
+    "batch_id": "batch-public-001",
+    "task_id": "task-a"
+  },
+  "primary_data": {
+    "role": "system-managed measurement table",
+    "path": "data/primary-table.csv",
+    "shape": [4, 3],
+    "axes": [
+      {
+        "name": "bias",
+        "column": "bias_v",
+        "unit": "V"
+      }
+    ],
+    "values": [
+      {
+        "name": "response_i",
+        "column": "response_i",
+        "unit": "a.u."
+      },
+      {
+        "name": "response_q",
+        "column": "response_q",
+        "unit": "a.u."
+      }
+    ]
+  },
+  "metadata": {
+    "measurement_label": "public fixture bias scan",
+    "context_refs": ["setting-snapshot-alpha", "code-snapshot-alpha-v2"],
+    "source_system": "scopecat-managed-recording-fixture"
+  },
+  "attachments": [
+    {
+      "artifact_id": "derived-summary",
+      "path": "attachments/derived-summary.json",
+      "role": "derived analysis attachment",
+      "source_relation": ["measurement-public-001"],
+      "semantic_handling": "catalog and link; do not rerun or verify scientific correctness"
+    },
+    {
+      "artifact_id": "plot-placeholder",
+      "path": "attachments/plot-placeholder.txt",
+      "role": "user-attached plot",
+      "source_relation": ["measurement-public-001"],
+      "semantic_handling": "inert attachment"
+    }
+  ],
+  "legacy_migration_note": {
+    "old_pattern": "extra data files near a numbered run directory",
+    "desired_replacement": "primary measurement table plus role-labeled attachments"
+  }
+}

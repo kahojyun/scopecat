@@ -1,0 +1,10 @@
+{
+  "artifact_id": "derived-summary",
+  "source_measurements": ["measurement-public-001"],
+  "role": "derived analysis attachment",
+  "summary": {
+    "peak_bias_v": 0.10,
+    "quality_flag": "public-fixture-placeholder"
+  },
+  "handling": "catalog relation and metadata; no scientific correctness claim"
+}

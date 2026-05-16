@@ -1,0 +1,25 @@
+{
+  "notebook_id": "notebook-public-copy",
+  "status": "ambiguous legacy evidence",
+  "cells": [
+    {
+      "cell_id": "cell-3",
+      "execution_count": 18,
+      "contains": "template definition",
+      "provenance_status": "not enough to prove selected run entrypoint"
+    },
+    {
+      "cell_id": "cell-9",
+      "execution_count": 7,
+      "contains": "manual parameter edit",
+      "provenance_status": "mutation risk; not accepted as run provenance without explicit record"
+    },
+    {
+      "cell_id": "cell-12",
+      "execution_count": 21,
+      "contains": "plot output",
+      "provenance_status": "analysis evidence only"
+    }
+  ],
+  "fixture_lesson": "Copied notebook evidence can be cataloged, but explicit run record owns selected entrypoint."
+}

@@ -1,0 +1,17 @@
+{
+  "record_id": "proposal-task-d",
+  "task_id": "task-d",
+  "role": "calibration-proposal",
+  "status": "requires_human_review",
+  "proposed_change": {
+    "target": "setting-snapshot-alpha",
+    "field": "readout.threshold",
+    "old_value": "redacted-public-placeholder",
+    "new_value": "redacted-public-placeholder"
+  },
+  "evidence": {
+    "fit_quality": "suspicious",
+    "fit_quality_reason": "synthetic fixture placeholder"
+  },
+  "mutation_policy": "do not apply in this fixture"
+}

@@ -1,0 +1,82 @@
+{
+  "fixture_id": "pain-discovery-batch-intent-outcome",
+  "batch_id": "batch-public-001",
+  "status": "draft pain-discovery fixture",
+  "created_at": "2026-05-16T00:00:00Z",
+  "operator": {
+    "status": "redacted"
+  },
+  "purpose": "Test whether reviewable batch intent, failure policy, and outcome records answer the pain before Scopecat owns execution.",
+  "scope_boundary": {
+    "scopecat_owns": [
+      "declared intent record",
+      "readiness and provenance references",
+      "outcome record",
+      "review gates and proposal labels"
+    ],
+    "scopecat_does_not_own": [
+      "hardware execution",
+      "driver behavior",
+      "real scheduling",
+      "resource locking",
+      "automatic retry",
+      "parameter write-back"
+    ]
+  },
+  "tasks": [
+    {
+      "task_id": "task-a",
+      "label": "baseline sweep",
+      "priority": "user-high",
+      "kind": "measurement",
+      "depends_on": [],
+      "may_run_after_failure_of": [],
+      "failure_policy": "stop dependents only",
+      "expected_outputs": ["records/task-a-record.json"],
+      "context_refs": ["code-snapshot-alpha", "setting-snapshot-alpha"]
+    },
+    {
+      "task_id": "task-b",
+      "label": "sample sweep",
+      "priority": "user-high",
+      "kind": "measurement",
+      "depends_on": ["task-a"],
+      "may_run_after_failure_of": [],
+      "failure_policy": "skip if dependency failed",
+      "expected_outputs": ["records/task-b-record.json"],
+      "context_refs": ["code-snapshot-alpha", "setting-snapshot-alpha"]
+    },
+    {
+      "task_id": "task-c",
+      "label": "independent check",
+      "priority": "user-high",
+      "kind": "measurement",
+      "depends_on": [],
+      "may_run_after_failure_of": ["task-a", "task-b"],
+      "failure_policy": "continue independent tasks",
+      "expected_outputs": ["records/task-c-record.json"],
+      "context_refs": ["code-snapshot-alpha", "setting-snapshot-beta"]
+    },
+    {
+      "task_id": "task-d",
+      "label": "idle calibration proposal",
+      "priority": "background-low",
+      "kind": "calibration-proposal",
+      "depends_on": ["task-a"],
+      "may_run_after_failure_of": ["task-b"],
+      "failure_policy": "record proposal and require human review",
+      "expected_outputs": ["records/task-d-proposal.json"],
+      "context_refs": ["code-snapshot-calibration", "setting-snapshot-alpha"],
+      "review_gate": {
+        "required": true,
+        "reason": "fit quality is allowed to be suspicious; no parameter write-back in this fixture"
+      }
+    }
+  ],
+  "fixture_questions": [
+    "Is this intent record useful before leaving the lab?",
+    "Is outcome recording enough before a managed runner exists?",
+    "Which fields are required if execution still happens through notebook or IPython?",
+    "Which failure policies need real scheduling before they can be validated?"
+  ]
+}

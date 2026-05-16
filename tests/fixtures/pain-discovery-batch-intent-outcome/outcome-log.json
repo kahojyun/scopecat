@@ -1,0 +1,42 @@
+{
+  "fixture_id": "pain-discovery-batch-intent-outcome",
+  "batch_id": "batch-public-001",
+  "execution_owner": "external notebook or lab script",
+  "scopecat_role": "recorded declared outcomes only",
+  "outcomes": [
+    {
+      "task_id": "task-a",
+      "status": "succeeded",
+      "started_at": "2026-05-16T01:00:00Z",
+      "ended_at": "2026-05-16T01:10:00Z",
+      "produced": ["records/task-a-record.json"]
+    },
+    {
+      "task_id": "task-b",
+      "status": "failed",
+      "started_at": "2026-05-16T01:11:00Z",
+      "ended_at": "2026-05-16T01:13:00Z",
+      "failure": {
+        "category": "analysis-check-failed",
+        "message": "synthetic fixture failure; public-safe placeholder"
+      },
+      "blocked_tasks": [],
+      "produced": []
+    },
+    {
+      "task_id": "task-c",
+      "status": "succeeded_after_independent_failure",
+      "started_at": "2026-05-16T01:14:00Z",
+      "ended_at": "2026-05-16T01:21:00Z",
+      "produced": ["records/task-c-record.json"]
+    },
+    {
+      "task_id": "task-d",
+      "status": "waiting_for_human_review",
+      "started_at": "2026-05-16T01:22:00Z",
+      "ended_at": "2026-05-16T01:30:00Z",
+      "produced": ["records/task-d-proposal.json"],
+      "review_reason": "fit quality flag is suspicious; proposal must not mutate parameters"
+    }
+  ]
+}

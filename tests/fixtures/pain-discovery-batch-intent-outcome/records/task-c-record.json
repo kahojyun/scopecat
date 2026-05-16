@@ -1,0 +1,15 @@
+{
+  "record_id": "record-task-c",
+  "task_id": "task-c",
+  "role": "measurement",
+  "status": "completed",
+  "data": {
+    "path": "records/task-c-table.csv",
+    "shape": [3, 2],
+    "columns": ["x", "signal"]
+  },
+  "context_refs": ["code-snapshot-alpha", "setting-snapshot-beta"],
+  "independence_evidence": {
+    "declared_independent_of_failed_task": "task-b"
+  }
+}

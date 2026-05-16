@@ -1,0 +1,27 @@
+{
+  "record_id": "run-record-public-001",
+  "run_id": "run-public-001",
+  "selected_code_snapshot": "code-snapshot-alpha-v2",
+  "selected_entrypoint": {
+    "module_path": "code/experiment_template.py",
+    "symbol": "run_public_template",
+    "declared_by": "user code"
+  },
+  "context_refs": ["setting-snapshot-alpha"],
+  "notebook_relation": {
+    "status": "explicitly_recorded_entrypoint_supersedes_notebook_guess",
+    "notebook_evidence_ref": "notebook-evidence/cell-map.json"
+  },
+  "unknowns": [
+    {
+      "field": "full transitive dependency graph",
+      "status": "unknown",
+      "reason": "not captured by this fixture"
+    },
+    {
+      "field": "notebook execution order",
+      "status": "unknown",
+      "reason": "Scopecat must not infer it from arbitrary notebook state"
+    }
+  ]
+}
