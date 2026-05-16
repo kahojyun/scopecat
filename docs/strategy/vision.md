@@ -22,9 +22,9 @@ is already clear enough to guide those documents.
 Scopecat is a progressively adoptable evidence, recording, analysis, and
 handoff layer for scientific measurement workflows.
 
-It helps users make measurement work explainable, comparable, reviewable,
-replayable, and portable across the messy boundary between experiment code,
-data, parameters, analysis, decisions, and later handoff.
+It helps users make measurement work explainable, comparable, reviewable, and
+portable across the messy boundary between experiment code, data, parameters,
+analysis, decisions, and later handoff.
 
 Scopecat should complement existing measurement, control, data, and calibration
 systems. It may grow into broader product surfaces over time, but it should not
@@ -72,8 +72,9 @@ Scopecat should own the evidence layer around those systems. It may:
   generated artifacts, and source identity;
 - compare current evidence with previous-good, previous-failed, selected, or
   expected references;
-- run or replay analysis over recorded inputs;
-- produce fit, quality, anomaly, and decision evidence;
+- record analysis inputs, outputs, and rerun intent when explicitly supplied or
+  validated by a journey;
+- preserve fit, quality, anomaly, and decision evidence;
 - create reviewable parameter-memory records, advisory proposals, annotations,
   handoff snapshots, and lineage records.
 
@@ -135,8 +136,8 @@ Automation is not outside Scopecat's long-term direction. Existing lab
 workflows already contain automation through scripts, notebooks, calibration
 loops, queued cells, framework schedulers, and local operator conventions.
 Scopecat's opportunity is to make that automation explicit, reviewable,
-replayable, diagnosable, and progressively safer before it claims authority over
-hardware control.
+diagnosable, and progressively safer before it claims authority over hardware
+control.
 
 Keep these responsibilities separate:
 

@@ -26,7 +26,7 @@ phase and coordination only.
 | Run history and analysis handoff | `JC-001`, `JC-002`, `JC-006`, `JC-015` | Open, understand, reopen, select, package, export/import, optionally discover through shared storage, and later trace measurement work without replacing acquisition code or requiring remote connection. |
 | Method and code portability diagnostics | `JC-004`, `JC-008`, `JC-013` | Explain copied notebooks, scripts, static entrypoint evidence, user-code snapshots, known-good sources, drift, one-time migration, and readiness before any deployment, code-version loader, automatic sync, or managed-runner capability is accepted. |
 | Experiment intent and readiness | `JC-007`, `JC-008` | Current route hypothesis starts with reviewable intent and outcome reports; strong adoption payoff likely requires continuation behavior such as resume, retry, review continuation, or selected remeasurement before managed execution or broader runtime ownership is considered. |
-| Calibration and parameter memory | `JC-003`, `JC-011`, `JC-012` | Start with replacing mutable parameter files through drift queries, branch or working-point history, run linkage, direct-update checkpoints, and bad-state labeling/exclusion before separating proposal/review, apply, or mutation-ownership decisions. |
+| Calibration and parameter memory | `JC-003`, `JC-011`, `JC-012` | Start with replacing mutable parameter files through drift queries, branch or working-point history, run linkage, direct-update checkpoints, bad-state labeling/exclusion, and measurement-time fit/readiness evidence before separating proposal/review, apply, or mutation-ownership decisions. |
 | Trust, diagnostics, and comparability | `JC-009`, `JC-010`, `JC-012` | Compare known-good references, current bundles, valid-looking runs, setup states, samples, or method variants without claiming equivalence. |
 | Analysis and claim lineage | `JC-002`, `JC-006`, `JC-014` | Trace figures, fits, reports, and claims back to source runs, processing choices, corrections, exclusions, and ambiguity. |
 
@@ -49,8 +49,10 @@ The candidate validation ladder is local durable record -> export/import
 selected runs or sample/cooldown packages -> optional NAS/shared-folder
 references or discovery probes. Shared storage is a possible transport and
 discovery backend, not mandatory architecture. Generated indexes, local index
-caches, a deployed database, background indexer service, live sync service, or
-remote execution service require later route evidence and an ADR.
+caches, a deployed database, background indexer service, or live sync service
+require later route evidence and an ADR. A remote execution service is not a
+record-access route; it requires accepted journey evidence and a
+runtime/resource ownership decision.
 
 Historical browsing from another computer may be solved by portable handoff
 packages, so it should not be used by itself to justify remote connection.
@@ -60,9 +62,9 @@ This constraint makes Scopecat distributed-record-aware, not a distributed
 experiment-control system. Shared record discovery must not imply shared
 instrument authority. If several computers or users can reach the same
 instruments, conflicts remain handled by lab convention, physical or network
-isolation, existing control systems, booking, or direct coordination until a
-later resource/runtime route validates leases, permissions, arbitration, and
-failure behavior.
+isolation, existing control systems, booking, or direct coordination until
+accepted journey evidence and a runtime/resource ownership decision validate
+leases, permissions, arbitration, and failure behavior.
 
 Cross-computer code movement should also stay explicit at first. One-time
 folder migration is a weak pain; ongoing edits across computers are the

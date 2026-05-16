@@ -371,7 +371,7 @@ become undocumented product commitments.
 | Same-station access should constrain record identity, export/import, and optional shared-storage locations. | Project-owner clarification; sample artifact review | Data Vault IDs, folder helpers, UNC/shared-path examples, sidecar parameter lookup | Historical browsing may be solved by selected sample/cooldown/run handoff packages or NAS-backed discovery; the useful fixture pressure is stable opaque record identity plus machine-specific locations, not a standalone LAN browser. | Cross-machine variant in existing record/handoff fixtures | Path-shaped record identity, remote execution, live observation as standalone value, mandatory central storage, service architecture |
 | Cross-computer code movement needs explicit checkpoints before automatic sync. | Project-owner clarification; workflow improvement case; sample code review | Copied folders, old/bk/copy variants, divergent old/current implementations, local paths | One-time folder copy can work; ongoing edits across computers create source-of-truth and conflict pressure that may need version-control-like semantics; publish/pull remains later than snapshot/checkpoint validation. | Code snapshot and code-version-selection variants | Git hosting, automatic bidirectional sync, deployment manager, managed runner |
 | Measurement data model cannot be validated by scalar CSV only. | Project-owner clarification; sample artifact review | Data Vault-like tables, sidecars, arrays | IQ, shots, traces, VNA-like records are ordinary needs | `pain-discovery-measurement-data-attachments/` | Final Arrow/storage/API schema |
-| Running-run analysis should start with read/monitor support plus readiness markers. | Project-owner refinement; blind role-play; external baseline | Partial direct support from long-running scans and fit outputs | Near-term need is reading recorded data from a still-running run, knowing the relevant analysis-unit readiness, and optionally saving fit/decision artifacts. | `pain-discovery-long-run-watchdog/` | Automated fit execution, replayable advice, adaptive scan mutation, append-style scan plans, framework adapters |
+| Running-run analysis should start with read/monitor support plus readiness markers. | Project-owner clarification; prompt-method role-play check; external baseline | Partial direct support from long-running scans and fit outputs | Near-term need is reading recorded data from a still-running run, knowing the relevant analysis-unit readiness, and optionally saving fit/decision artifacts. | `pain-discovery-long-run-watchdog/` | Automated fit execution, replayable advice, adaptive scan mutation, append-style scan plans, framework adapters |
 
 ## Fixture Payoff Review Notes
 
@@ -414,10 +414,11 @@ Use these prompts when reviewing the fixtures:
 5. Which behavior would make Scopecat too close to a runner, code registry,
    deployment manager, or report generator too early?
 
-## User Review Notes
+## Project-Owner Review Notes
 
-These notes record the first user critique of the pain-discovery fixtures. They
-are validation inputs, not accepted architecture or product commitments.
+These notes record the project owner's critique of the pain-discovery fixtures.
+They are user-clarified inputs, not independent user validation, accepted
+architecture, or product commitments.
 
 ### Batch Intent Needs A Minimal Local Executor
 
