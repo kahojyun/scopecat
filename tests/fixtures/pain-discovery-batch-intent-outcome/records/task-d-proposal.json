@@ -1,0 +1,36 @@
+{
+  "record_id": "proposal-task-d",
+  "task_id": "task-d",
+  "role": "calibration-update-decision-evidence",
+  "status": "waiting_for_review",
+  "review_required": true,
+  "calibration_update_policy": {
+    "status": "open_validation_question",
+    "variants": [
+      "direct_user_apply_with_recorded_parameter_diff",
+      "explicit_proposal_for_review"
+    ],
+    "autonomous_apply": "out_of_scope"
+  },
+  "declared_inputs": ["sample-table", "parameters-before-readout-cal"],
+  "declared_outputs": ["calibration-proposal", "parameters-after-readout-cal-proposal"],
+  "proposed_change": {
+    "target": "setting-snapshot-alpha",
+    "field": "readout.threshold",
+    "old_value": "redacted-public-placeholder",
+    "new_value": "redacted-public-placeholder"
+  },
+  "evidence": {
+    "quality_gate": {
+      "kind": "fit_quality",
+      "status": "suspicious",
+      "reason": "synthetic fixture placeholder"
+    },
+    "support_level": "sample plus user clarification"
+  },
+  "review": {
+    "status": "pending",
+    "decision": "not_provided"
+  },
+  "mutation_policy": "compare direct user apply with recorded diff against explicit proposal/review; autonomous apply is out of scope"
+}

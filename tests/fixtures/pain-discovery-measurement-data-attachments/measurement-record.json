@@ -1,0 +1,137 @@
+{
+  "fixture_id": "pain-discovery-measurement-data-attachments",
+  "record_id": "measurement-public-001",
+  "status": "draft pain-discovery fixture",
+  "purpose": "Separate system-managed measurement data from attached derived artifacts.",
+  "source_refs": [
+    {
+      "kind": "data_vault_dataset",
+      "id": "synthetic-00042",
+      "support_level": "direct sample for source convention; synthetic id"
+    },
+    {
+      "kind": "scan_sequence",
+      "id": "synthetic-seq-000",
+      "support_level": "direct sample for sequence/scan concept; synthetic id"
+    }
+  ],
+  "fixture_cross_reference": {
+    "batch_id": "batch-public-001",
+    "task_id": "task-a",
+    "support_level": "premature for sample; included only to connect pain-discovery fixtures"
+  },
+  "primary_data": {
+    "role": "system-managed measurement table hypothesis",
+    "fixture_scope": "scalar/IQ/trace seed only; not complete measurement-model coverage",
+    "current_substrate": "data-vault-plus-sidecar-workaround",
+    "desired_owner": "scopecat-managed-primary-measurement-data",
+    "path": "data/primary-table.csv",
+    "shape": [4, 3],
+    "shape_status": "computed/catalog metadata in this fixture, not required user input",
+    "axes": [
+      {
+        "name": "bias",
+        "column": "bias_v",
+        "unit": "V"
+      }
+    ],
+    "values": [
+      {
+        "name": "response_i",
+        "column": "response_i",
+        "unit": "a.u."
+      },
+      {
+        "name": "response_q",
+        "column": "response_q",
+        "unit": "a.u."
+      }
+    ]
+  },
+  "metadata": {
+    "measurement_label": "public fixture bias scan",
+    "context_refs": [
+      {
+        "kind": "parameter_snapshot",
+        "id": "setting-snapshot-alpha"
+      },
+      {
+        "kind": "code_snapshot",
+        "id": "code-snapshot-alpha-v2"
+      }
+    ],
+    "fixture_note": "Scopecat-managed primary measurement data is a desired future direction from user clarification, not a final storage/API contract."
+  },
+  "attachments": [
+    {
+      "artifact_id": "near-raw-sidecar",
+      "path": "attachments/sequence-000.npz.placeholder",
+      "role": "old-system near-raw sidecar workaround",
+      "source_relation": [
+        {
+          "relation": "sidecar_of",
+          "target": "measurement-public-001",
+          "confidence": "declared fixture relation"
+        }
+      ],
+      "handling_policy": "catalog migration context; do not treat as future primary format"
+    },
+    {
+      "artifact_id": "derived-summary",
+      "path": "attachments/derived-summary.json",
+      "role": "derived analysis attachment",
+      "source_relation": [
+        {
+          "relation": "derived_from",
+          "target": "measurement-public-001",
+          "confidence": "declared fixture relation"
+        }
+      ],
+      "handling_policy": "catalog and link; do not rerun or verify scientific correctness"
+    },
+    {
+      "artifact_id": "plot-placeholder",
+      "path": "attachments/plot-placeholder.txt",
+      "role": "user-attached plot",
+      "source_relation": [
+        {
+          "relation": "visualizes",
+          "target": "measurement-public-001",
+          "confidence": "declared fixture relation"
+        }
+      ],
+      "handling_policy": "inert attachment"
+    }
+  ],
+  "incomplete_recording_case": {
+    "status": "not_included_as_payload",
+    "support_level": "direct sample",
+    "examples": [
+      "lazy dataset not created before first row",
+      "metadata or sidecar saving disabled",
+      "partial sidecar bundle after interruption"
+    ]
+  },
+  "legacy_migration_note": {
+    "old_pattern": "Data Vault dataset plus run-adjacent parameter, CSV, NPZ, or JSON sidecars used as workaround",
+    "desired_replacement": "Arrow-table-like or custom-manifest primary measurement payload plus role-labeled attachments; storage/export/API undecided",
+    "missing_validation_cases": [
+      "shots",
+      "VNA-like data",
+      "analysis ndarray payload"
+    ],
+    "added_seed_cases": [
+      {
+        "kind": "IQ table",
+        "path": "data/iq-table.csv",
+        "status": "tiny public-safe placeholder"
+      },
+      {
+        "kind": "trace table",
+        "path": "data/trace-table.csv",
+        "status": "tiny public-safe placeholder"
+      }
+    ],
+    "support_level": "sample plus user clarification"
+  }
+}

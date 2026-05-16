@@ -1,0 +1,13 @@
+{
+  "record_id": "record-task-a",
+  "task_id": "task-a",
+  "role": "measurement",
+  "status": "succeeded",
+  "data": {
+    "path": "records/task-a-table.csv",
+    "shape": [3, 2],
+    "columns": ["x", "signal"]
+  },
+  "declared_outputs": ["baseline-table", "baseline-fit-summary"],
+  "context_refs": ["code-snapshot-alpha", "setting-snapshot-alpha"]
+}

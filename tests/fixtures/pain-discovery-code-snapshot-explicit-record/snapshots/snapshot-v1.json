@@ -1,0 +1,22 @@
+{
+  "snapshot_id": "code-snapshot-alpha-v1",
+  "status": "historical candidate",
+  "capture_method": "explicit file snapshot",
+  "files": [
+    {
+      "path": "code/experiment_template.py",
+      "role": "experiment template",
+      "sha256": "fixture-sha256-template-v1"
+    },
+    {
+      "path": "code/helper_waveforms.py",
+      "role": "helper module",
+      "sha256": "fixture-sha256-helper-v1"
+    }
+  ],
+  "dependency_summary": {
+    "status": "not_provided",
+    "reason": "fixture tests code snapshot before dependency management"
+  },
+  "version_note": "Earlier template before explicit context ref was added."
+}

@@ -49,28 +49,30 @@ missing, excluded, redacted, or only referenced.
 | --- | --- | --- |
 | 1 | User opens post-run history and finds high-value runs by name, time, simple preview, label, or selection mark. | Valuable runs are recoverable without relying on memory or latest-file conventions. |
 | 2 | User selects one or more runs like files. | The selection set becomes explicit before export. |
-| 3 | Scopecat shows a low-ceremony handoff prompt with auto-filled context and visible missing fields. | Users can add purpose, sample/device label, selected reason, or important parameters without blocking export. |
+| 3 | Scopecat records low-ceremony handoff information slots with visible missing-value states. | Purpose, sample/device label, selected reason, and important parameters can be present, `not_provided`, `unknown`, or redacted without blocking export. |
 | 4 | Scopecat creates an immutable handoff snapshot by packaging already-known artifacts and context. | Data, source identity, read guidance, required sidecars, context slots, and missing warnings travel together without generating new analysis outputs. |
-| 5 | User moves the snapshot to an analysis computer and opens it with a local offline GUI or Python reader. | Data can be inspected, read, and plotted without the original control machine's local paths, network access, cloud login, or control-PC availability. |
-| 6 | User produces figures, fit results, PDFs, slides, or notes outside the snapshot. | Derived outputs can later be linked back as append-only analysis records, but do not redefine the original handoff. |
+| 5 | User moves the snapshot to an analysis computer and opens it through an offline consumer path such as a Python reader or validation UI. | Data can be inspected, read, and plotted without the original control machine's local paths, network access, cloud login, or control-PC availability. |
+| 6 | User produces figures, fit results, PDFs, slides, or notes outside the snapshot. | Derived outputs remain outside the first snapshot boundary; later linkage belongs to a separate analysis-lineage journey or decision. |
 
 ## Snapshot Prompt Shape
 
 The first future-state prompt should stay small:
 
 ```text
-Selected runs: auto-filled
-Snapshot title: user-provided or suggested
-Sample/device: suggested when available, editable, may be not_provided
+Selected runs: declared selection set
+Snapshot title: user-provided or not_provided
+Sample/device: provided, not_provided, unknown, or redacted
 Purpose or note: optional
-Important parameters: suggested, user can pin or edit
+Important parameters: included when already known or explicitly provided
 Include required read sidecars: default yes
-Include user-attached derived inputs: visible optional review item
+Include user-attached derived inputs: optional known-artifact selection
 Include internal verification references: advanced optional
 ```
 
 This prompt shape is not a UI spec. It records the expected information
-pressure for the journey.
+pressure for the journey. Suggestions, pinning, editing, and other prompt
+behavior remain open interaction questions until fixture validation justifies
+them.
 
 ## Acceptance Checks
 

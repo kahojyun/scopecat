@@ -1,0 +1,83 @@
+{
+  "fixture_id": "pain-discovery-batch-intent-outcome",
+  "batch_id": "batch-public-001",
+  "execution_owner": "simulated outcome fixture; external notebook or lab script remains the comparison baseline until an observed minimal-executor transcript exists",
+  "scopecat_role": "record declared intent, simulated outcome, review gates, and requested next action without owning hardware control",
+  "outcomes": [
+    {
+      "task_id": "task-a",
+      "status": "succeeded",
+      "started_at": "2026-05-16T01:00:00Z",
+      "ended_at": "2026-05-16T01:10:00Z",
+      "produced": ["records/task-a-record.json", "records/task-a-table.csv"],
+      "produced_outputs": ["baseline-table", "baseline-fit-summary"]
+    },
+    {
+      "task_id": "task-b",
+      "status": "succeeded",
+      "started_at": "2026-05-16T01:11:00Z",
+      "ended_at": "2026-05-16T01:13:00Z",
+      "produced": ["records/task-b-record.json", "records/task-b-table.csv"],
+      "produced_outputs": ["sample-table", "sample-fit-summary"],
+      "quality_gate": {
+        "status": "review_required",
+        "category": "low-fit-score",
+        "message": "Synthetic fixture quality flag; the task ran successfully but the analysis result needs review."
+      },
+      "blocked_task_evidence": {
+        "status": "not_global_stop",
+        "reason": "The review applies to this group's calibration result; unrelated groups may continue when the declared plan has no dependency or active overlap."
+      }
+    },
+    {
+      "task_id": "task-c",
+      "status": "succeeded",
+      "started_at": "2026-05-16T01:14:00Z",
+      "ended_at": "2026-05-16T01:21:00Z",
+      "produced": ["records/task-c-record.json", "records/task-c-table.csv"],
+      "produced_outputs": ["independent-check-table", "independent-check-summary"],
+      "continuation_context": {
+        "status": "continued_after_group_quality_gate",
+        "support_level": "user clarification only",
+        "reason": "No review-required output from task-b was listed in task-c ordering.not_before, and this fixture records task-c after task-b ended without claiming enforced resource-state tracking."
+      }
+    },
+    {
+      "task_id": "task-d",
+      "status": "waiting_for_review",
+      "started_at": "2026-05-16T01:22:00Z",
+      "ended_at": "2026-05-16T01:30:00Z",
+      "produced": ["records/task-d-proposal.json"],
+      "consumed_inputs": ["sample-table", "parameters-before-readout-cal"],
+      "produced_outputs": ["calibration-proposal", "parameters-after-readout-cal-proposal"],
+      "priority_support_level": "user clarification only",
+      "review_reason": "group B fit quality flag is suspicious; whether this becomes direct apply with recorded diff or explicit proposal/review is an open validation question",
+      "calibration_update_policy": {
+        "status": "open_validation_question",
+        "variants": [
+          "direct_user_apply_with_recorded_parameter_diff",
+          "explicit_proposal_for_review"
+        ],
+        "autonomous_apply": "out_of_scope"
+      }
+    },
+    {
+      "task_id": "task-e",
+      "status": "blocked",
+      "started_at": null,
+      "ended_at": null,
+      "blocked_by": [
+        {
+          "type": "input_review_required",
+          "input_id": "parameters-after-readout-cal-proposal",
+          "from_task": "task-d"
+        }
+      ],
+      "would_resume_after": "review_accepts_required_input_or_marks_selected_group_for_remeasurement",
+      "missing_or_unusable_inputs": ["parameters-after-readout-cal-proposal"],
+      "produced": [],
+      "status_record": "records/task-e-record.json",
+      "missing_outputs": ["post-cal-check-table"]
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "query_id": "drift-query-public-001",
+  "status": "draft validation data",
+  "question": "Show readout threshold drift for working-point-a without letting a known bad write distort the trend.",
+  "inputs": {
+    "parameter_memory_ref": "states/parameter-history.json",
+    "branch_id": "working-point-a",
+    "parameter": "readout_threshold"
+  },
+  "default_filter": {
+    "exclude_history_status": ["yanked"],
+    "exclude_drift_analysis_include_by_default": false
+  },
+  "included_states": [
+    {
+      "state_id": "param-state-001",
+      "value": 0.50
+    },
+    {
+      "state_id": "param-state-003",
+      "value": 0.50
+    }
+  ],
+  "excluded_states": [
+    {
+      "state_id": "param-state-002",
+      "value": 9.99,
+      "reason": "yanked bad write"
+    }
+  ],
+  "open_questions": [
+    "Should excluded states appear by default as annotations on drift plots?",
+    "Which users can mark a state as yanked or restore it to normal history?",
+    "What audit payload must remain if a large bad state is hard-deleted?"
+  ]
+}

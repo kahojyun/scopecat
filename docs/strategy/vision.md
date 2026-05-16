@@ -74,8 +74,8 @@ Scopecat should own the evidence layer around those systems. It may:
   expected references;
 - run or replay analysis over recorded inputs;
 - produce fit, quality, anomaly, and decision evidence;
-- create reviewable proposals, annotations, handoff snapshots, and lineage
-  records.
+- create reviewable parameter-memory records, advisory proposals, annotations,
+  handoff snapshots, and lineage records.
 
 Scopecat records, compares, explains, proposes, and packages. Existing systems
 execute and mutate.
@@ -122,9 +122,9 @@ its core live-observation model.
 
 For measurement-time feedback, experiment code should explicitly record the
 needed information into Scopecat: data, sweep semantics, lifecycle/status
-events, parameters, code/context references, and decision-relevant facts.
-Scopecat can then analyze, display, replay, and package only what was
-deliberately recorded.
+events, parameters, code/context references, progress/readiness markers, and
+any saved decision-relevant facts. Scopecat can then read, display, analyze,
+replay, and package only what was deliberately recorded.
 
 Explicit recording must not silently turn Scopecat into a fragile dependency of
 the acquisition loop. Any promoted recording path should state its safe
@@ -200,14 +200,16 @@ replacement targets for every route:
 
 Some of these areas may become product surfaces, integrations, or later
 capabilities after specific journeys and decisions justify them. For example,
-Scopecat may provide its own run browser or live observation surface for
-Scopecat-recorded runs without becoming a replacement for a lab's existing
-instrument-control GUI. It may also make existing queue or calibration
-automation more explicit before it owns any hardware-control runtime. The
+Scopecat may provide its own run browser for Scopecat-recorded runs, including
+future same-station historical access when a route validates that need. A live
+observation surface is later scope unless it proves adoption value independent
+from remote execution or richer control workflows. Scopecat may also make
+existing queue or calibration automation more explicit before it owns any
+hardware-control runtime. The
 boundary is about adoption prerequisites, silent scope creep, and authority, not
 a promise to avoid these areas forever.
 
-## Current Clear Value Areas
+## Current Value Areas
 
 The clearest current value areas are listed here as direction, not as a single
 ordered first slice:
@@ -217,9 +219,11 @@ ordered first slice:
   ambiguity, and sharing boundaries;
 - create immutable pre-analysis handoff snapshots for selected runs;
 - compare evidence and gaps without claiming authoritative truth;
-- support reviewable proposals before any parameter or calibration mutation;
-- support measurement-time decision evidence from explicitly recorded
-  measurement data without taking over hardware control.
+- support parameter memory, drift queries, branches, run linkage, and explicit
+  checkpoints before any parameter or calibration mutation ownership;
+- support running-run read/monitor workflows and optional measurement-time
+  decision evidence from explicitly recorded measurement data without taking
+  over hardware control.
 
 These value areas can compose over time. None requires every user to start from
 the same route, and none requires Scopecat to replace the lab's working

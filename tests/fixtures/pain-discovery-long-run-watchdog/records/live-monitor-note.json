@@ -1,0 +1,25 @@
+{
+  "note_id": "live-monitor-public-001",
+  "status": "draft validation data",
+  "source_record": "records/partial-sweep-record.json",
+  "mode": "simple_live_monitor",
+  "expected_capabilities": [
+    "show latest explicitly recorded data",
+    "mark progress and readiness for declared analysis units",
+    "allow cursor or range selection",
+    "allow simple fit preview for operator judgment"
+  ],
+  "recording_boundary": {
+    "default_not_recorded": [
+      "cursor movement",
+      "temporary range selections",
+      "preview fit attempts"
+    ],
+    "record_if_saved_by_user": [
+      "chosen range",
+      "fit result artifact",
+      "operator stop or continue decision"
+    ]
+  },
+  "boundary": "live inspection is a disposable consumer of recorded data; it is not on the acquisition acknowledgement path"
+}
