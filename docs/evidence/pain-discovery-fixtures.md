@@ -49,11 +49,25 @@ for reviewing intended task order, continuing independent work after a failure,
 recording failure or retry intent and observed outcomes, and using idle time
 for lower-priority calibration.
 
+The strongest target episode is a multi-step calibration flow like the one in
+[`research/extracted/experimental-lab-workflow-reference.md`](research/extracted/experimental-lab-workflow-reference.md):
+several calibration steps must run in order, individual steps may be split by
+qubit group, groups on the same chip often must not run concurrently, each
+group can produce its own fit and score, low-scoring fits may need human
+review, other groups should continue when safe, and later steps such as gate
+calibration should resume from the stopped point after review or mark only
+selected groups for remeasurement. In many chip workflows, the chip/group
+conflict and the instrument conflict are effectively the same resource
+constraint; the fixture should not imply a separate chip scheduler when an
+abstract instrument/resource key is enough.
+
 Sample grounding: direct sample evidence supports sequential scans, sweep
 intent, recording, interruption, failure/retry traces, and calibration
 proposal/write-back pressure. Ordering constraints, mutual exclusion, priority
 arbitration, independent continuation after failure, and idle backfill are
-user-clarified or premature unless a later helper fixture proves them.
+user-clarified or premature unless a later helper fixture proves them. The
+multi-step calibration flow is user-clarified and domain-grounded, not yet
+directly proven by static sample artifacts.
 
 The batch fixture should avoid an expansive status vocabulary. Use a small set
 such as `pending`, `succeeded`, `failed`, `blocked`,
@@ -94,12 +108,12 @@ task.
 
 ### Expected Scopecat Output
 
-Scopecat should show intended versus actual execution, which failure did not
-block later work with no `not_before` dependency, which task waited for human
-review, which calibration update path was used or left open, and which later
-task needed an unavailable prior output. The output should identify which parts
-are observed sample patterns, user-clarified desired behavior, or proposed
-managed-runner semantics.
+Scopecat should show intended versus actual execution, which failure or review
+trigger did not block later work with no `not_before` dependency, which task
+waited for human review, which calibration update path was used or left open,
+and which later task needed an unavailable prior output. The output should
+identify which parts are observed sample patterns, user-clarified desired
+behavior, or proposed managed-runner semantics.
 
 ### Explicit Unknowns
 
@@ -110,7 +124,8 @@ manifest and outcome record are useful enough before those capabilities exist.
 ### Success Criteria
 
 The user can review the batch before leaving the lab and later understand which
-tasks ran, failed, continued, waited for review, or produced proposals.
+tasks ran, failed, continued, triggered review, waited for review, or produced
+proposals.
 
 ## Fixture 2: Code Snapshot And Explicit Record
 
@@ -234,6 +249,34 @@ The intended user-facing shape should feel like builder code or decorated
 functions, not hand-authored manifest files. The manifest is a serialized
 record and interchange format, not the first authoring surface.
 
+The batch feature should be tested as part of Scopecat rather than only as an
+isolated manifest format. Early users may define tasks and dependencies
+explicitly. A later integration hypothesis is that task intent could connect to
+recorded experiment context, parameter memory, code snapshots, and templates,
+but that should not be treated as accepted architecture from this fixture.
+
+### Calibration Batch Episode
+
+Use the calibration reference workflow as the highest-value batch validation
+case:
+
+- frequency or readout calibration split across qubit groups;
+- same-chip or shared-instrument groups mutually exclusive even when logically
+  independent;
+- per-group fit score and user-script quality decision;
+- low score causes human review for that group, not necessarily a global stop;
+- other groups can continue when they have no dependency on the reviewed
+  output and no active resource conflict;
+- downstream gate calibration waits for accepted frequency or readout states;
+- review should allow resume from the stopped point, or mark only selected
+  groups for remeasurement.
+
+This does not require accepting a rich DAG engine yet. It does mean the minimal
+executor fixture should cover group-level continuation, review gates,
+dependency-blocked downstream work, and resumable intent at a small scale.
+`mutual_exclusion_keys` can be understood as lightweight resource hints, not
+proof that Scopecat must own a real lease service.
+
 ### Intent Declaration Comes From Users First
 
 Early fixtures should assume users or helper APIs declare task order, inputs,
@@ -279,6 +322,14 @@ So the open question is not "should Scopecat apply calibration now?" but:
 - What is the smallest fixture that compares direct apply with proposal/review
   without accepting autonomous calibration?
 
+The user's current clarification weakens controlled mutation as an early pain:
+the primary value is parameter memory, not Scopecat-owned write-back. Users need
+to pick a previous parameter version for retry, move a branch or working point
+back to a better version, and avoid bad writes distorting drift analysis. It is
+still open whether bad parameter states should be deleted, hidden, tombstoned,
+or excluded from drift queries by label; that is a parameter-memory model
+question, not proof that Scopecat should own mutation.
+
 ### Code Snapshot Minimum
 
 The most important code provenance field is the entrypoint. Recording it is
@@ -286,6 +337,25 @@ simple and high value. For user-owned code, folder selection plus an ignore
 mechanism may be enough initially. Third-party dependency capture affects full
 reproducibility, but it is less central to experiment intent and can remain a
 lower-priority readiness detail.
+
+A snapshot-only export is probably not enough for the code-version pain. It
+helps later provenance, but it can still leave users copying code back into an
+experiment directory, creating more versions. The stronger user need is to
+select a previous code version or branch variant for an experiment, run tests or
+exploratory changes on a separate branch, and have Scopecat record which version
+actually ran. Loading a selected version in an isolated process is a plausible
+future capability, but it remains a capability hypothesis until the smaller
+entrypoint, selected-folder, and minimal-executor paths prove insufficient.
+
+### Scopecat Boundary Around Existing Control Systems
+
+The intended mental model is a measurement function boundary: inside the
+function is the existing lab stack; outside it is Scopecat's world of declared
+intent, context, records, outcomes, and review. Early fixtures should preserve
+that boundary. Later ambitions such as device-communication code version
+management, automatic restarts, leases, and replacing unmaintained LabRAD-like
+services may be valuable if they improve the integrated experience, but they
+need separate validation and safety decisions.
 
 ### First User-Visible Outputs
 

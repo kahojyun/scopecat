@@ -154,6 +154,12 @@ turning evidence work into form-filling:
   the concept attractive. Keep the concept as a capability hypothesis until a
   fixture or user validation proves that the smaller pain-focused path is not
   enough.
+- If the pain is caused by code or execution fragmentation, distinguish the
+  minimum useful integrated support from a full runtime product. For example,
+  selecting a previous code version for a bounded local run may be a real user
+  workflow, while automatic dependency closure, isolated process management,
+  code registries, restart supervision, leases, and replacement of an existing
+  control stack remain separate capability hypotheses.
 
 ## Source Handling Guardrails
 
@@ -217,10 +223,10 @@ not as accepted subsystem names:
 | --- | --- | --- |
 | Run and bundle evidence | EV-001, EV-002, EV-003, EV-010, EV-016; PN-001, PN-015 | Useful anchor for identity, data, lifecycle, and context, but not enough by itself to differentiate Scopecat. |
 | Scan semantics and preview | EV-010, EV-016, EV-019, EV-021, EV-024; PN-012, PN-017 | Pre-run plan pressure needs representation before device apply or workflow orchestration. |
-| Settings, calibration, and context evidence | EV-004, EV-005, EV-015, EV-043; PN-002, PN-003, PN-014, PN-032 | Current files create source-of-truth ambiguity; start with candidate states, local schemas, and advisory proposed values, without accepting a proposal workflow or write-back route. |
+| Settings, calibration, and context evidence | EV-004, EV-005, EV-015, EV-043; PN-002, PN-003, PN-014, PN-032 | Current files create source-of-truth ambiguity; start with candidate states, local schemas, prior-version retry, branch/working-point history, and advisory proposed values, without accepting a proposal workflow or write-back route. |
 | Code and dependency provenance | EV-006, EV-008, EV-021; PN-006 | Code identity is separate from execution. |
 | Setup and runtime boundary evidence | EV-011, EV-037, EV-041, EV-042; PN-008, PN-028, PN-031 | Setup context is real, but live control and leases require validation and safety decisions. |
-| Execution readiness and lifecycle evidence | EV-007, EV-021, EV-023, EV-024, EV-026, EV-027, EV-031, EV-032; PN-005, PN-016, PN-018, PN-022, PN-025 | Readiness, helper-authored batch intent, minimal local execution, known-good references, failure policy, and outcome records matter before schedulers, managed runners, or environment mutation. |
+| Execution readiness and lifecycle evidence | EV-007, EV-021, EV-023, EV-024, EV-026, EV-027, EV-031, EV-032; PN-005, PN-016, PN-018, PN-022, PN-025 | Readiness, helper-authored grouped calibration intent, minimal local execution, review gates, resume/remeasure markers, known-good references, failure policy, and outcome records matter before schedulers, managed runners, or environment mutation. |
 | Cross-journey handoff and lineage | EV-009, EV-017, EV-018, EV-019, EV-022, EV-025, EV-028, EV-029, EV-030, EV-033, EV-044, EV-045; PN-004, PN-010, PN-011, PN-012, PN-019, PN-020, PN-021, PN-023, PN-024 | Derived results, corrections, run families, reports, handoff, false-confidence risk, and data-shape validation guide vertical journey selection. |
 
 ## External Baseline Rule

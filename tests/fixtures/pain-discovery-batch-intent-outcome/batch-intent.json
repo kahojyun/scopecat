@@ -7,7 +7,7 @@
   "operator": {
     "status": "redacted"
   },
-  "purpose": "Test whether helper-generated intent plus a minimal local executor and run report answer the pain before full managed-runner capabilities such as retry, resume, priority scheduling, leases, or hardware orchestration.",
+  "purpose": "Test whether helper-generated grouped calibration intent plus a minimal local executor and run report answer the pain before full managed-runner capabilities such as retry, resume, priority scheduling, real leases, or hardware orchestration.",
   "grounding": {
     "direct_sample": [
       "ordered scan loops",
@@ -17,8 +17,11 @@
       "calibration fit/review/write-back pressure"
     ],
     "user_clarification_only_or_premature": [
-      "multi-task ordering constraints",
+      "multi-step calibration ordering constraints",
+      "qubit-group conflicts that often coincide with instrument/resource conflicts",
       "mutual exclusion without a full lease system",
+      "low fit score review gates",
+      "resume or selected remeasurement after review",
       "priority arbitration",
       "idle backfill scheduling",
       "managed continuation of independent tasks after failure"
@@ -43,7 +46,7 @@
   "tasks": [
     {
       "task_id": "task-a",
-      "label": "baseline sweep",
+      "label": "frequency calibration group A",
       "operator_priority_hint": {
         "value": "user-high",
         "support_level": "user clarification only"
@@ -54,9 +57,9 @@
       },
       "mutual_exclusion_keys": [
         {
-          "key": "public-device-alpha",
+          "key": "resource:shared-readout-chain-alpha",
           "support_level": "user clarification only",
-          "note": "Represents a simple mutually exclusive apparatus or device group without requiring users to adopt leases."
+          "note": "Represents a shared instrument/resource conflict that may also be the practical same-chip group conflict, without requiring users to adopt real leases."
         }
       ],
       "failure_or_review_intent": "stop dependent work only if a future runner owns dependencies",
@@ -86,7 +89,7 @@
     },
     {
       "task_id": "task-b",
-      "label": "sample sweep",
+      "label": "frequency calibration group B",
       "operator_priority_hint": {
         "value": "user-high",
         "support_level": "user clarification only"
@@ -97,12 +100,12 @@
       },
       "mutual_exclusion_keys": [
         {
-          "key": "public-device-alpha",
+          "key": "resource:shared-readout-chain-alpha",
           "support_level": "user clarification only",
-          "note": "Represents a simple mutually exclusive apparatus or device group without requiring users to adopt leases."
+          "note": "Represents a shared instrument/resource conflict that may also be the practical same-chip group conflict, without requiring users to adopt real leases."
         }
       ],
-      "failure_or_review_intent": "skip if declared precondition failed",
+      "failure_or_review_intent": "record low fit score and require review of this group without blocking logically independent groups",
       "inputs": [
         {
           "input_id": "baseline-fit-summary",
@@ -131,7 +134,7 @@
     },
     {
       "task_id": "task-c",
-      "label": "independent check",
+      "label": "frequency calibration group C continues after group B review trigger",
       "operator_priority_hint": {
         "value": "user-high",
         "support_level": "user clarification only"
@@ -142,12 +145,12 @@
       },
       "mutual_exclusion_keys": [
         {
-          "key": "public-device-beta",
+          "key": "resource:shared-readout-chain-alpha",
           "support_level": "user clarification only",
-          "note": "Different key means this task is not mutually exclusive with the failed sample sweep in this synthetic intent."
+          "note": "Same resource key marks intended non-overlap with group B while both are active. This fixture records task C after task B ended, but does not prove enforced resource state."
         }
       ],
-      "failure_or_review_intent": "continue if no failed task appears in not_before and no active mutual-exclusion key blocks it",
+      "failure_or_review_intent": "continue after group B produces a review-required fit if no blocking dependency appears in not_before and the declared outcome order has no active overlap",
       "inputs": [],
       "outputs": [
         {
@@ -165,20 +168,20 @@
     },
     {
       "task_id": "task-d",
-      "label": "calibration proposal",
+      "label": "review group B frequency update",
       "operator_priority_hint": {
         "value": "background-low",
         "support_level": "user clarification only"
       },
       "kind": "calibration-proposal",
       "ordering": {
-        "not_before": ["task-a"]
+        "not_before": ["task-b"]
       },
       "mutual_exclusion_keys": [
         {
-          "key": "public-device-alpha",
+          "key": "resource:shared-readout-chain-alpha",
           "support_level": "user clarification only",
-          "note": "Calibration proposal uses the same synthetic apparatus group as the high-priority sweep."
+          "note": "Review uses the same abstract resource key for the grouped calibration fixture; this is not a real lease."
         },
         {
           "key": "mutable-file:setting/parameters.json",
@@ -197,8 +200,8 @@
       },
       "inputs": [
         {
-          "input_id": "baseline-fit-summary",
-          "from_task": "task-a",
+          "input_id": "sample-table",
+          "from_task": "task-b",
           "required": true,
           "transport_hint": {
             "status": "example_only",
@@ -247,7 +250,7 @@
     },
     {
       "task_id": "task-e",
-      "label": "run with proposed readout state",
+      "label": "gate calibration waiting for accepted frequency state",
       "operator_priority_hint": {
         "value": "user-high",
         "support_level": "fixture design probe"
@@ -258,9 +261,9 @@
       },
       "mutual_exclusion_keys": [
         {
-          "key": "public-device-alpha",
+          "key": "resource:shared-readout-chain-alpha",
           "support_level": "user clarification only",
-          "note": "Uses the same synthetic apparatus group as task-d."
+          "note": "Uses the same abstract resource key as the grouped frequency calibration."
         },
         {
           "key": "mutable-file:setting/parameters.json",
@@ -286,10 +289,10 @@
             "status": "example_only",
             "value": "fixture_record_file"
           },
-          "path_hint": "records/task-e-record.json"
+          "path_hint": "records/task-e-table.csv"
         }
       ],
-      "expected_outputs": ["records/task-e-record.json"],
+      "expected_outputs": ["records/task-e-table.csv"],
       "context_refs": ["code-snapshot-alpha", "setting-snapshot-alpha"]
     }
   ],

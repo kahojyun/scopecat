@@ -11,8 +11,8 @@
   "declared_outputs": ["independent-check-table"],
   "context_refs": ["code-snapshot-alpha", "setting-snapshot-beta"],
   "continuation_context": {
-    "failed_task": "task-b",
-    "reason": "task-b is not in task-c ordering.not_before, and the synthetic mutual-exclusion keys do not overlap",
+    "review_trigger_task": "task-b",
+    "reason": "task-b is not in task-c ordering.not_before; this fixture records task-c after task-b ended even though task-b produced a review-required fit.",
     "support_level": "user clarification only"
   }
 }

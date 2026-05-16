@@ -11,7 +11,7 @@
       "from_task": "task-d"
     }
   ],
-  "would_resume_after": "review_accepts_required_input",
+  "would_resume_after": "review_accepts_required_input_or_marks_selected_group_for_remeasurement",
   "declared_inputs": ["parameters-after-readout-cal-proposal"],
-  "declared_outputs": ["post-cal-check-table"]
+  "missing_outputs": ["post-cal-check-table"]
 }

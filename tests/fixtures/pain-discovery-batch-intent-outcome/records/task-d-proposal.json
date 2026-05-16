@@ -12,7 +12,7 @@
     ],
     "autonomous_apply": "out_of_scope"
   },
-  "declared_inputs": ["baseline-fit-summary", "parameters-before-readout-cal"],
+  "declared_inputs": ["sample-table", "parameters-before-readout-cal"],
   "declared_outputs": ["calibration-proposal", "parameters-after-readout-cal-proposal"],
   "proposed_change": {
     "target": "setting-snapshot-alpha",
