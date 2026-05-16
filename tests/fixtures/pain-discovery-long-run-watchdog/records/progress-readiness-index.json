@@ -3,11 +3,12 @@
   "status": "draft validation data",
   "running_run_id": "run-public-long-001",
   "source_record": "records/partial-sweep-record.json",
+  "range_convention": "zero_based_inclusive_point_indices",
   "readable_recorded_data": [
     {
       "data_ref": "data/partial-sweep.csv",
       "point_start": 0,
-      "point_end": 4,
+      "point_end": 3,
       "readable_while_running": true
     }
   ],

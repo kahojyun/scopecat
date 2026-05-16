@@ -24,9 +24,9 @@ phase and coordination only.
 | Route hypothesis | Touched `JC` rows | Standalone value being tested |
 | --- | --- | --- |
 | Run history and analysis handoff | `JC-001`, `JC-002`, `JC-006`, `JC-015` | Open, understand, reopen, select, package, and later trace measurement work without replacing acquisition code. |
-| Method and code portability diagnostics | `JC-004`, `JC-008`, `JC-013` | Explain copied notebooks, scripts, selected entrypoints, user-code snapshots, code-version selection pressure, known-good sources, drift, and readiness before any deployment or managed-runner capability is accepted. |
-| Experiment intent and readiness | `JC-007`, `JC-008`, `JC-016` | Evidence-backed value starts with reviewable intent and outcome reports; minimal local execution, shared-resource hints, review gates, and resume/remeasure markers remain fixture-gated hypotheses before managed execution or broader runtime ownership is considered. |
-| Calibration and parameter memory | `JC-003`, `JC-011`, `JC-012`, `JC-016` | Query parameter drift, branches, run linkage, prior-version retry, bad-state exclusion, direct-update history, declared-context, and advisory evidence before any proposal/review, apply, or mutation-ownership decision. |
+| Method and code portability diagnostics | `JC-004`, `JC-008`, `JC-013` | Explain copied notebooks, scripts, static entrypoint evidence, user-code snapshots, known-good sources, drift, and readiness before any deployment, code-version loader, or managed-runner capability is accepted. |
+| Experiment intent and readiness | `JC-007`, `JC-008`, `JC-016` | Evidence-backed value starts with reviewable intent and outcome reports; minimal local execution, shared-resource hints, review gates, and requested resume/remeasure actions remain fixture-gated hypotheses before managed execution or broader runtime ownership is considered. |
+| Calibration and parameter memory | `JC-003`, `JC-011`, `JC-012`, `JC-016` | Start with parameter drift queries, branch or working-point history, run linkage, direct-update history, bad-state labeling/exclusion, declared-context, and running-run read/monitor evidence before separating prior-version retry, proposal/review, apply, or mutation-ownership decisions. |
 | Trust, diagnostics, and comparability | `JC-009`, `JC-010`, `JC-012` | Compare known-good references, current bundles, valid-looking runs, setup states, samples, or method variants without claiming equivalence. |
 | Analysis and claim lineage | `JC-002`, `JC-006`, `JC-014` | Trace figures, fits, reports, and claims back to source runs, processing choices, corrections, exclusions, and ambiguity. |
 
@@ -40,14 +40,15 @@ standalone value, and after any required ADR or safety decision.
 
 Current corrective stance:
 
-- `JC-008` should validate helper-authored batch intent plus a minimal local
-  executor and outcome report for bounded grouped calibration, not a managed
-  runner.
-- `JC-003` should start from parameter memory, drift, branches, run linkage,
-  prior-version retry, direct-update history, and bad-state handling. Bad
+- `JC-008` should validate helper-authored batch intent, simulated or
+  lab-owned outcome reports, and then a separate observed minimal-executor
+  transcript for bounded grouped calibration if that remains necessary. It is
+  not a managed runner.
+- `JC-003` should start from parameter memory, drift, branches or working
+  points, run linkage, direct-update history, and bad-state handling. Bad
   states should be kept by default with yank/exclusion-style semantics; hard
-  delete is a cleanup path, not the default history model.
-  explicit proposal/review is optional future scope.
+  delete is a cleanup path, not the default history model. Explicit
+  proposal/review is optional future scope.
 - `JC-016` remains a capability hypothesis until lower-level local execution,
   explicit recording, parameter memory, stop behavior, runtime owner, and audit
   records are validated separately. The early execution boundary should treat

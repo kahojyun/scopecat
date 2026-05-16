@@ -45,8 +45,8 @@
       "role": "operator selection and execution-mode comparison"
     },
     {
-      "path": "records/run-record-loaded-version.json",
-      "role": "run provenance record for selected version"
+      "path": "records/run-record-selected-version.json",
+      "role": "run provenance record for selected version; not observed loader evidence"
     }
   ],
   "fixture_questions": [

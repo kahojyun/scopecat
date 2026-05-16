@@ -1,0 +1,43 @@
+{
+  "fixture_id": "pain-discovery-measurement-data-attachments",
+  "status": "draft pain-discovery fixture",
+  "purpose": "Separate system-managed measurement data from attached artifacts while keeping the measurement data model incomplete and explicitly fixture-gated.",
+  "grounding": {
+    "direct_sample": [
+      "Data Vault-like primary tables",
+      "near-raw sidecar workarounds",
+      "derived summaries and attached artifacts"
+    ],
+    "user_clarification": [
+      "measurement data should move toward system-managed formats",
+      "attachments may remain cataloged without parsing",
+      "IQ, shots, traces, and VNA-like records are ordinary measurement needs"
+    ],
+    "future_hypotheses_out_of_scope": [
+      "final Arrow schema",
+      "reader API contract",
+      "export format",
+      "analysis ndarray storage contract",
+      "complete VNA or shot fixture coverage"
+    ]
+  },
+  "artifacts": [
+    {
+      "path": "measurement-record.json",
+      "role": "draft measurement record with scalar, IQ, trace, and attachment seeds"
+    },
+    {
+      "path": "data/",
+      "role": "tiny public-safe seed tables"
+    },
+    {
+      "path": "attachments/",
+      "role": "attached derived or sidecar artifacts"
+    }
+  ],
+  "fixture_questions": [
+    "Which outputs should become system-managed measurement data?",
+    "Which outputs should remain cataloged attachments?",
+    "What complex measurement cases are still missing before storage/API work?"
+  ]
+}

@@ -9,22 +9,24 @@
     "support_level": "user clarification only"
   },
   "execution_mode": {
-    "selected_for_fixture": "load_selected_version",
-    "status": "capability_hypothesis",
-    "comparison_mode": "tracking_only"
+    "selected_for_fixture": "selected_version_provenance",
+    "status": "draft validation data",
+    "observed_execution": false,
+    "compared_future_mode": "load_selected_version",
+    "future_mode_status": "capability_hypothesis"
   },
   "context_refs": ["setting-snapshot-public-a"],
   "expected_scopecat_output": [
     "show which code version was selected before the run",
     "show why the older known-good version was selected",
-    "record the entrypoint used by the run",
+    "record the entrypoint intended for the run",
     "distinguish provenance-only tracking from future load-and-run behavior"
   ],
   "unknowns": [
     {
       "field": "actual process launch semantics",
       "status": "not_defined",
-      "reason": "fixture validates user value before accepting runner architecture"
+      "reason": "fixture validates selected-version value before accepting runner or loader architecture"
     },
     {
       "field": "complete dependency closure",

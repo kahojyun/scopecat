@@ -3,11 +3,11 @@
   "batch_id": "batch-public-001",
   "status": "draft pain-discovery fixture",
   "created_at": "2026-05-16T00:00:00Z",
-  "manifest_role": "validation IR for review and minimal local-executor experiments; field names are not accepted schema or API",
+  "manifest_role": "validation IR for review and future minimal local-executor experiments; field names are not accepted schema or API",
   "operator": {
     "status": "redacted"
   },
-  "purpose": "Test whether helper-generated grouped calibration intent plus a minimal local executor and run report answer the pain before full managed-runner capabilities such as retry, resume, priority scheduling, real leases, or hardware orchestration.",
+  "purpose": "Test whether grouped calibration intent plus simulated outcome records clarify the pain before adding observed minimal-executor evidence or full managed-runner capabilities such as retry, resume, priority scheduling, real leases, or hardware orchestration.",
   "grounding": {
     "direct_sample": [
       "ordered scan loops",
@@ -42,6 +42,10 @@
       "automatic retry",
       "parameter write-back"
     ]
+  },
+  "context_ref_policy": {
+    "status": "placeholder_refs",
+    "note": "Context refs are synthetic cross-fixture or external placeholders for pain discovery; unresolved refs must not be treated as fixture validation failures unless a later test declares a closed fixture graph."
   },
   "tasks": [
     {
@@ -84,7 +88,7 @@
           "path_hint": "records/task-a-record.json"
         }
       ],
-      "expected_outputs": ["records/task-a-record.json"],
+      "expected_outputs": ["records/task-a-record.json", "records/task-a-table.csv"],
       "context_refs": ["code-snapshot-alpha", "setting-snapshot-alpha"]
     },
     {
@@ -127,6 +131,15 @@
             "value": "fixture_record_file"
           },
           "path_hint": "records/task-b-table.csv"
+        },
+        {
+          "output_id": "sample-fit-summary",
+          "kind": "fit_or_quality_summary",
+          "transport_hint": {
+            "status": "example_only",
+            "value": "fixture_record_file"
+          },
+          "path_hint": "records/task-b-record.json"
         }
       ],
       "expected_outputs": ["records/task-b-record.json", "records/task-b-table.csv"],
@@ -161,9 +174,18 @@
             "value": "fixture_record_file"
           },
           "path_hint": "records/task-c-table.csv"
+        },
+        {
+          "output_id": "independent-check-summary",
+          "kind": "fit_or_quality_summary",
+          "transport_hint": {
+            "status": "example_only",
+            "value": "fixture_record_file"
+          },
+          "path_hint": "records/task-c-record.json"
         }
       ],
-      "expected_outputs": ["records/task-c-record.json"],
+      "expected_outputs": ["records/task-c-record.json", "records/task-c-table.csv"],
       "context_refs": ["code-snapshot-alpha", "setting-snapshot-beta"]
     },
     {

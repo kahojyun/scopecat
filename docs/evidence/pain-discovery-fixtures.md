@@ -8,12 +8,15 @@ contracts, schemas, product requirements, or architecture decisions.
 ## Purpose
 
 These fixtures test whether several solution-shaped ideas in the evidence
-inventory are real user pains, enabling capabilities, or premature design.
+inventory are real user pains, enabling capabilities, or premature design. The
+terms below are deliberately phrased as contrasts, not product commitments.
 
 The main ideas under review are:
 
-- managed execution;
-- code registry or automatic code version management;
+- reviewable intent/outcome records versus a full managed runner;
+- entrypoint and selected-folder snapshots versus a code registry or automatic
+  code version manager;
+- selected code-version provenance versus future load-and-run behavior;
 - batch or queue intent;
 - explicit recording versus arbitrary code inference;
 - migration support for legacy sidecars and hand-built artifact bundles.
@@ -30,7 +33,7 @@ so the user can critique the pain framing before implementation details harden.
 | Parameter memory bad-state handling | `tests/fixtures/pain-discovery-parameter-memory-bad-state/` | Is retain-by-default history with yank/exclusion enough for bad parameter states before write-back exists? |
 | Code version selection | `tests/fixtures/pain-discovery-code-version-selection/` | Does selecting a prior code version or branch variant need load-and-run behavior, or is provenance-only tracking enough? |
 | Measurement record and attachments | `tests/fixtures/pain-discovery-measurement-data-attachments/` | Which outputs should become system-managed measurement data, and which remain attached artifacts? |
-| Running-run read and monitor | `tests/fixtures/pain-discovery-long-run-watchdog/` | Can explicitly recorded data plus progress/readiness markers support analysis while a long run continues, before automated advice or scan mutation is accepted? |
+| Running-run read and monitor | `tests/fixtures/pain-discovery-long-run-watchdog/` (legacy directory name) | Can explicitly recorded data plus progress/readiness markers support analysis while a long run continues, before automated advice or scan mutation is accepted? |
 
 ## Grounding Labels
 
@@ -228,7 +231,8 @@ restore an older known-good script before running an experiment.
   code-version choices.
 - `selection/selection-plan.json`: comparison between `tracking_only` and
   `load_selected_version`.
-- `records/run-record-loaded-version.json`: selected-version run record.
+- `records/run-record-selected-version.json`: selected-version run record; not
+  observed loader evidence.
 - `code/*.py`: inert public-safe code text; must not be executed by static
   analysis prototypes.
 
@@ -357,8 +361,8 @@ become undocumented product commitments.
 
 | Claim | Source family | Direct sample support | User clarification | Fixture path | Still hypothetical |
 | --- | --- | --- | --- | --- | --- |
-| Minimal local executor is needed because batch intent alone is not useful enough. | User clarification; workflow improvement case | Sequential scans, loops, interruptions, retry traces | Record-only intent would leave users parsing their own manifest. | `pain-discovery-batch-intent-outcome/` | Full managed runner, retry/resume engine, scheduler |
-| Grouped calibration with review gates is the strongest batch episode. | User clarification; quarantined workflow reference | Calibration fit/update pressure only | Multi-step calibration, group-level fit scoring, review, continuation, resume/remeasure | `pain-discovery-batch-intent-outcome/` | Real resource leases, enforced concurrency, autonomous scheduling |
+| Minimal local executor is the next validation step because batch intent alone is not useful enough. | User clarification; workflow improvement case | Sequential scans, loops, interruptions, retry traces | Record-only intent would leave users parsing their own manifest; current fixture is intent plus simulated outcome, not executor proof. | `pain-discovery-batch-intent-outcome/` | Full managed runner, retry/resume engine, scheduler |
+| Grouped calibration with review gates is the strongest batch episode. | User clarification; quarantined workflow reference | Calibration fit/update pressure only | Multi-step calibration, group-level fit scoring, review, continuation, and requested resume/remeasure action | `pain-discovery-batch-intent-outcome/` | Real resource leases, enforced concurrency, autonomous scheduling, actual resume execution |
 | Parameter bad states should be retained by default and excluded/yanked from drift. | User clarification; workflow improvement case | Mutable parameter files and copied snapshots | Do not delete by default; hard delete only for cleanup such as accidental large payloads | `pain-discovery-parameter-memory-bad-state/` | Write-back, rollback automation, permission model |
 | Code-version selection may need load-and-run to improve experiment QoL. | User clarification; workflow improvement case | Copied folders, variants, weak canonical identity | Tracking-only helps provenance but may not drive adoption | `pain-discovery-code-version-selection/` | Code registry, process isolation contract, dependency closure |
 | Measurement data model cannot be validated by scalar CSV only. | User clarification; sample artifact review | Data Vault-like tables, sidecars, arrays | IQ, shots, traces, VNA-like records are ordinary needs | `pain-discovery-measurement-data-attachments/` | Final Arrow/storage/API schema |
@@ -385,16 +389,19 @@ are validation inputs, not accepted architecture or product commitments.
 
 The user does not see a batch intent record alone as sufficient. A complex
 intent that users must parse and execute themselves does not solve the pain.
-The early boundary should therefore test a **minimal local executor** or a
-small standalone package that can interpret the intent.
+The current fixture records a declared intent and simulated outcome; the next
+validation should test a **minimal local executor** or a small standalone
+package that can interpret the intent.
 
 This does not automatically promote a full managed runner. The validation
 ladder becomes:
 
 1. helper-generated intent around ordinary Python;
-2. local executor for simple sequential and dataflow cases that can run the
+2. observed executor transcript or run report for simple sequential and
+   dataflow cases that can run the
    declared plan to completion when no review gate blocks it;
-3. outcome report;
+3. blocked/review outcome report that distinguishes run status from quality
+   gates;
 4. later reliability features such as retry, resume, priority scheduling,
    resource leases, and richer DAG translation.
 
@@ -411,7 +418,9 @@ but that should not be treated as accepted architecture from this fixture.
 ### Calibration Batch Episode
 
 Use the calibration reference workflow as the highest-value batch validation
-case:
+case. The static fixture can describe the intended continuation and blocked
+state, but actual resume or selected remeasurement execution still needs a
+later executor transcript:
 
 - frequency or readout calibration split across qubit groups;
 - same-chip or shared-instrument groups mutually exclusive even when logically
@@ -421,12 +430,12 @@ case:
 - other groups can continue when they have no dependency on the reviewed
   output and no active resource conflict;
 - downstream gate calibration waits for accepted frequency or readout states;
-- review should allow resume from the stopped point, or mark only selected
-  groups for remeasurement.
+- review should record whether the next requested action is resume from the
+  stopped point or remeasure selected groups.
 
-This does not require accepting a rich DAG engine yet. It does mean the minimal
+This does not require accepting a rich DAG engine yet. It does mean the next
 executor fixture should cover group-level continuation, review gates,
-dependency-blocked downstream work, and resumable intent at a small scale.
+dependency-blocked downstream work, and requested next action at a small scale.
 `mutual_exclusion_keys` can be understood as lightweight resource hints, not
 proof that Scopecat must own a real lease service.
 
@@ -542,7 +551,7 @@ The likely first visible outputs are:
 
 | Fixture | First useful output |
 | --- | --- |
-| Batch intent/outcome | Run report from the minimal local executor. |
+| Batch intent/outcome | Declared intent plus simulated outcome now; observed run report only after a minimal local-executor fixture exists. |
 | Code snapshot | Exported snapshot folder with entrypoint and selected code evidence. |
 | Parameter memory bad-state handling | Parameter history view or query showing active, yanked, and excluded states. |
 | Code version selection | Selection report comparing provenance-only tracking with future load-and-run value. |
@@ -555,8 +564,9 @@ The user did not choose one fixture as the only next prototype; the fixture set
 is valuable as a set of validation probes. Prioritization should therefore be
 by cost-to-learning ratio:
 
-- Batch fixture tests whether a minimal local executor can solve immediate
-  unattended/sequential workflow pain without full orchestration.
+- Batch fixture currently tests intent/outcome semantics and identifies the
+  minimal local executor as the next validation step, without claiming executor
+  evidence already exists.
 - Code snapshot fixture tests whether explicit entrypoint plus selected folder
   capture solves most no-git provenance pain.
 - Measurement fixture tests the recording substrate needed by both batch

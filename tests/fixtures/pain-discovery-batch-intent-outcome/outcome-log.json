@@ -1,8 +1,8 @@
 {
   "fixture_id": "pain-discovery-batch-intent-outcome",
   "batch_id": "batch-public-001",
-  "execution_owner": "minimal local executor validation target; external notebook or lab script remains the comparison baseline",
-  "scopecat_role": "record declared intent, local execution outcome, review gates, and resume markers without owning hardware control",
+  "execution_owner": "simulated outcome fixture; external notebook or lab script remains the comparison baseline until an observed minimal-executor transcript exists",
+  "scopecat_role": "record declared intent, simulated outcome, review gates, and requested next action without owning hardware control",
   "outcomes": [
     {
       "task_id": "task-a",

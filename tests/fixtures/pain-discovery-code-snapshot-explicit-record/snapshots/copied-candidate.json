@@ -4,6 +4,8 @@
   "canonical_status": "unknown",
   "capture_method": "fixture-authored representation of copied code evidence",
   "support_level": "direct sample for copied/backup pattern; synthetic file list",
+  "materialization_status": "not_all_files_materialized_in_fixture",
+  "materialization_note": "The copied template path represents an observed candidate file list, not a runnable fixture file.",
   "files": [
     {
       "path": "code/experiment_template_copy.py",
