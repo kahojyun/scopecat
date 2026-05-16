@@ -50,7 +50,7 @@ missing, excluded, redacted, or only referenced.
 | 1 | User opens post-run history and finds high-value runs by name, time, simple preview, label, or selection mark. | Valuable runs are recoverable without relying on memory or latest-file conventions. |
 | 2 | User selects one or more runs like files. | The selection set becomes explicit before export. |
 | 3 | Scopecat records low-ceremony handoff information slots with visible missing-value states. | Purpose, sample/device label, selected reason, and important parameters can be present, `not_provided`, `unknown`, or redacted without blocking export. |
-| 4 | Scopecat creates an immutable handoff snapshot by packaging already-known artifacts and context. | Data, source identity, read guidance, required sidecars, context slots, and missing warnings travel together without generating new analysis outputs. |
+| 4 | Scopecat creates a portable handoff snapshot by packaging already-known artifacts and context. | Data, source identity, read guidance, required sidecars, context slots, and missing warnings travel together without generating new analysis outputs; finalization and integrity mechanics remain separate validation questions. |
 | 5 | User moves the snapshot to an analysis computer and opens it through an offline consumer path such as a Python reader or validation UI. | Data can be inspected, read, and plotted without the original control machine's local paths, network access, cloud login, or control-PC availability. |
 | 6 | User produces figures, fit results, PDFs, slides, or notes outside the snapshot. | Derived outputs remain outside the first snapshot boundary; later linkage belongs to a separate analysis-lineage journey or decision. |
 

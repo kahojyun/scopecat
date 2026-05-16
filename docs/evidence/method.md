@@ -24,6 +24,10 @@ Treat source families separately:
 - The workflow improvement case adds current friction around notebooks, copied
   code, parameter and registry files, wiring sheets, generated artifacts,
   derived arrays, environment coupling, and report handoff.
+- Current-owner clarification is useful for narrowing intended pains and
+  workarounds, but it is not independent user research. Mark it as
+  `user-clarified` and require a fixture, prototype, or later user validation
+  before using it as accepted demand.
 - Historical automation discussion is low-confidence design pressure, not
   source evidence or accepted subsystem order.
 - Blind persona and capability-gap role-play are prompt-method checks, not user
@@ -57,7 +61,8 @@ ready for an early slice, or especially high leverage.
 Read source support as two axes:
 
 - source family: predecessor lessons, workflow improvement case, user context,
-  blind persona check, external references, or low-confidence design pressure;
+  current-owner clarification, blind persona check, external references, or
+  low-confidence design pressure;
 - claim handling: observation, inference, latent pressure, engineering
   guardrail, assumption, future pressure, or ADR-gated decision.
 
@@ -154,11 +159,11 @@ turning evidence work into form-filling:
 - If a prompt, role-play, or blind review produces a good idea, tie it to
   source evidence or mark it as latent pressure before it influences scope.
 - If a discussion introduces a solution-shaped concept such as code registry,
-  managed runner, automatic version management, proposal workflow, runtime
-  handoff, or universal metadata, first recover the user-visible pain that made
-  the concept attractive. Keep the concept as a capability hypothesis until a
-  fixture or user validation proves that the smaller pain-focused path is not
-  enough.
+  managed runner, automatic version management, proposal workflow, central
+  database, shared-storage service, runtime handoff, or universal metadata,
+  first recover the user-visible pain that made the concept attractive. Keep
+  the concept as a capability hypothesis until a fixture or user validation
+  proves that the smaller pain-focused path is not enough.
 - If the pain is caused by code or execution fragmentation, distinguish the
   minimum useful integrated support from a full runtime product. For example,
   selecting a previous code version for a bounded local run may be a real user
@@ -216,7 +221,7 @@ them in their lane.
 | Durable-doc ownership policy | Put accepted facts in the smallest owning project doc. | A product information architecture or database model. |
 | Journey-first docs policy | Delay capability/spec promotion until a concrete journey explains the need. | Proof that the first route must follow tracker order. |
 | Legacy workflow conventions | Use as current-state evidence and validation fixtures. | Features that preserve fragile old workflows as preferred behavior. |
-| Engineering safety reasoning | Mark mutation, compatibility, storage, remote execution, and AI action as ADR-gated. | User pain unless tied back to workflow evidence. |
+| Engineering safety reasoning | Mark mutation, compatibility, central storage, remote execution, and AI action as ADR-gated. | User pain unless tied back to workflow evidence. |
 
 ## Design Pressures
 

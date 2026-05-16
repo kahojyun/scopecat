@@ -22,9 +22,9 @@ is already clear enough to guide those documents.
 Scopecat is a progressively adoptable evidence, recording, analysis, and
 handoff layer for scientific measurement workflows.
 
-It helps users make measurement work explainable, comparable, reviewable,
-replayable, and portable across the messy boundary between experiment code,
-data, parameters, analysis, decisions, and later handoff.
+It helps users make measurement work explainable, comparable, reviewable, and
+portable across the messy boundary between experiment code, data, parameters,
+analysis, decisions, and later handoff.
 
 Scopecat should complement existing measurement, control, data, and calibration
 systems. It may grow into broader product surfaces over time, but it should not
@@ -72,13 +72,63 @@ Scopecat should own the evidence layer around those systems. It may:
   generated artifacts, and source identity;
 - compare current evidence with previous-good, previous-failed, selected, or
   expected references;
-- run or replay analysis over recorded inputs;
-- produce fit, quality, anomaly, and decision evidence;
+- record analysis inputs, outputs, and rerun intent when explicitly supplied or
+  validated by a journey;
+- preserve fit, quality, anomaly, and decision evidence;
 - create reviewable parameter-memory records, advisory proposals, annotations,
   handoff snapshots, and lineage records.
 
 Scopecat records, compares, explains, proposes, and packages. Existing systems
 execute and mutate.
+
+## Cross-Machine And Storage Boundary
+
+Cross-machine workflows should start from portable records, handoff packages,
+and optional shared storage, not remote execution.
+
+This makes Scopecat distributed-record-aware, not a distributed
+experiment-control system. Multiple computers may resolve, copy, or read the
+same record evidence, but that does not mean multiple computers can safely
+operate the same instruments through Scopecat. Indexing beyond simple local
+record lookup remains a later validation and architecture question.
+
+Scopecat may:
+
+- create local-first durable records with stable opaque IDs and portable
+  manifests;
+- export or import selected runs, samples, cooldowns, or handoff packages;
+- preserve enough storage references to later validate publish or read flows
+  through shared folders, NAS, or similar lab storage when the lab already has
+  that infrastructure;
+- record machine-specific locations, legacy source references, access modes,
+  and stale or unavailable storage locations.
+
+Scopecat should not initially own remote shell/session control, remote
+experiment execution, multi-user command arbitration, account management,
+service discovery, or a central database. Users who need remote operation can
+use existing lab tools such as Remote Desktop, SSH, VPN, or lab IT-managed
+infrastructure.
+
+Instrument access conflicts remain owned by lab infrastructure, existing
+control systems, network or physical isolation, booking and operator
+conventions, or explicit user coordination until a later runtime/resource
+ownership decision accepts leases, arbitration, permissions, failure behavior,
+and safety assumptions.
+
+Shared storage is an optional transport, discovery, and backup target. It is
+not the product center, and early routes should still work on one machine or
+through explicit export/import without a NAS or server.
+
+Concrete shared-storage mechanics such as atomic publish, partial-copy
+handling, concurrent publishers, manifest version discovery, cache
+invalidation, generated indexes, background indexing, and access control are
+architecture questions. They require a narrower fixture, prototype, or ADR
+before they become accepted product behavior.
+
+Data and code also have different sharing semantics. Measurement records are
+usually append-mostly evidence; experiment code needs checkpoint, selected
+version, compare, restore, and machine-local configuration semantics before any
+automatic cross-computer synchronization is considered.
 
 ## Automation Responsibility Boundary
 
@@ -86,8 +136,8 @@ Automation is not outside Scopecat's long-term direction. Existing lab
 workflows already contain automation through scripts, notebooks, calibration
 loops, queued cells, framework schedulers, and local operator conventions.
 Scopecat's opportunity is to make that automation explicit, reviewable,
-replayable, diagnosable, and progressively safer before it claims authority over
-hardware control.
+diagnosable, and progressively safer before it claims authority over hardware
+control.
 
 Keep these responsibilities separate:
 
@@ -192,6 +242,8 @@ replacement targets for every route:
 - a built-in lab keyword list or universal redaction policy;
 - an automatic calibration or parameter write-back system;
 - a workflow scheduler, queue, or remote execution service;
+- a remote desktop, shell, or remote session product;
+- a required central storage server, deployed database, or sync service;
 - an authoritative source of hardware truth;
 - a lab operations platform for booking, cooldown planning, shift management,
   personnel coordination, training, incidents, or multi-equipment scheduling;
@@ -217,7 +269,10 @@ ordered first slice:
 - explain an existing run or work bundle without mutating it;
 - preserve selected context, code-shaped provenance, companion artifacts,
   ambiguity, and sharing boundaries;
-- create immutable pre-analysis handoff snapshots for selected runs;
+- create portable pre-analysis handoff snapshots for selected runs, with
+  finalization and integrity mechanics validated separately;
+- support portable records, explicit export/import, and optional shared-storage
+  discovery without remote execution;
 - compare evidence and gaps without claiming authoritative truth;
 - support parameter memory, drift queries, branches, run linkage, and explicit
   checkpoints before any parameter or calibration mutation ownership;

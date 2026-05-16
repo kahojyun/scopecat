@@ -86,6 +86,11 @@ The current prototype checks:
   exclusions;
 - reader validation does not perform redaction audits.
 
+It does not validate package finalization, immutability mechanics, content
+checksums, manifest versioning, partial-copy behavior, or shared-storage
+discovery. Those belong in a later acceptance decision or fixture if the
+journey is promoted beyond fixture-scale handoff.
+
 ## Boundary Lessons
 
 The hardening loop showed that reader-side redaction is the wrong place to

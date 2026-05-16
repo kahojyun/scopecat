@@ -275,7 +275,7 @@ flowchart TD
   A["Valuable runs or run group selected"] --> B["Collect raw data, sidecars, logs, configs, calibration context, and code references"]
   B --> C["Create manifest with run IDs, checksums, sample/context handles, and unresolved gaps"]
   C --> D["Apply recipient-appropriate sharing and redaction labels"]
-  D --> E["Package immutable pre-analysis snapshot"]
+  D --> E["Package portable pre-analysis snapshot"]
   E --> F["Transfer to analysis computer"]
   F --> G["Verify completeness and integrity"]
   G --> H["Open offline analysis workspace"]

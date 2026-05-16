@@ -19,6 +19,9 @@ The main ideas under review are:
 - selected code-version provenance versus future load-and-run behavior;
 - batch or queue intent;
 - explicit recording versus arbitrary code inference;
+- portable export/import and optional shared-storage discovery versus remote
+  connection or remote execution;
+- explicit code checkpoints versus automatic cross-computer sync;
 - migration support for legacy sidecars and hand-built artifact bundles.
 
 Each fixture is public-safe and synthetic. The fixtures are intentionally small
@@ -42,8 +45,8 @@ The fixture fields should be read with these support levels:
 | Label | Meaning |
 | --- | --- |
 | `direct sample` | Visible in static sample source or artifacts. |
-| `sample plus user clarification` | The sample shows the current pattern or pressure, while the user clarification supplies the future-state meaning. |
-| `user clarification only` | Explicitly described by the user, but not visible in the sample. |
+| `sample plus user clarification` | The sample shows the current pattern or pressure, while project-owner clarification supplies the future-state meaning; this is not independent user validation. |
+| `user clarification only` | Explicitly described by the project owner during discovery review, but not visible in the sample. |
 | `premature` | Useful as a design probe only; do not promote without a fixture, helper, or user validation. |
 
 ## Fixture 1: Batch Intent And Outcome
@@ -359,39 +362,43 @@ automation.
 This table maps user-refined fixture claims back to support so they do not
 become undocumented product commitments.
 
-| Claim | Source family | Direct sample support | User clarification | Fixture path | Still hypothetical |
+| Claim | Source family | Direct sample support | Project-owner clarification | Fixture path | Still hypothetical |
 | --- | --- | --- | --- | --- | --- |
-| Minimal local executor is the next validation step because batch intent alone is not useful enough. | User clarification; workflow improvement case; sample code review | Sequential sweep helpers, `KeyboardInterrupt` handling, manual `skip_seq`, failed-fit/refit paths | Record-only intent would leave users parsing their own manifest; current fixture is intent plus simulated outcome, not executor proof. | `pain-discovery-batch-intent-outcome/` | Full managed runner, general retry/resume engine, scheduler |
-| Grouped calibration with review gates is the strongest batch episode. | User clarification; quarantined workflow reference; sample code review | Notebook calibration chains, direct fit/update loops, manual calibration section, manual-review comments | Multi-step calibration, group-level fit scoring, review, continuation, and requested resume/remeasure action | `pain-discovery-batch-intent-outcome/` | Real resource leases, enforced concurrency, autonomous scheduling, actual resume execution |
-| Parameter bad states should be retained by default and excluded/yanked from drift. | User clarification; workflow improvement case; sample code review | Mutable parameter JSON, direct overwrites, run-adjacent snapshots, historical analysis reads | Do not delete by default; hard delete only for cleanup such as accidental large payloads | `pain-discovery-parameter-memory-bad-state/` | Write-back, rollback automation, permission model |
-| Code-version selection may need load-and-run to improve experiment QoL. | User clarification; workflow improvement case; sample code review | Copied folders, old/bk/copy variants, divergent old/current implementations | Tracking-only helps provenance but may not drive adoption | `pain-discovery-code-version-selection/` | Code registry, process isolation contract, dependency closure |
-| Same-station access should constrain record identity and locations. | User clarification; sample artifact review | Data Vault IDs, folder helpers, UNC/shared-path examples, sidecar parameter lookup | Historical browsing lets report preparation happen without blocking the active measurement computer; the useful fixture pressure is stable opaque record identity plus machine-specific locations, not a standalone LAN browser. | Cross-machine variant in existing record/handoff fixtures | Path-shaped record identity, remote execution, live observation as standalone value, service architecture |
-| Measurement data model cannot be validated by scalar CSV only. | User clarification; sample artifact review | Data Vault-like tables, sidecars, arrays | IQ, shots, traces, VNA-like records are ordinary needs | `pain-discovery-measurement-data-attachments/` | Final Arrow/storage/API schema |
-| Running-run analysis should start with read/monitor support plus readiness markers. | User refinement; blind role-play; external baseline | Partial direct support from long-running scans and fit outputs | Near-term need is reading recorded data from a still-running run, knowing the relevant analysis-unit readiness, and optionally saving fit/decision artifacts. | `pain-discovery-long-run-watchdog/` | Automated fit execution, replayable advice, adaptive scan mutation, append-style scan plans, framework adapters |
+| Minimal local executor is a possible validation question because batch intent alone may not be useful enough. | Project-owner clarification; workflow improvement case; sample code review | Sequential sweep helpers, `KeyboardInterrupt` handling, manual `skip_seq`, failed-fit/refit paths | Record-only intent would leave users parsing their own manifest; current fixture is intent plus simulated outcome, not executor proof. | `pain-discovery-batch-intent-outcome/` | Full managed runner, general retry/resume engine, scheduler |
+| Grouped calibration with review gates is the strongest batch episode. | Project-owner clarification; quarantined workflow reference; sample code review | Notebook calibration chains, direct fit/update loops, manual calibration section, manual-review comments | Multi-step calibration, group-level fit scoring, review, continuation, and requested resume/remeasure action | `pain-discovery-batch-intent-outcome/` | Real resource leases, enforced concurrency, autonomous scheduling, actual resume execution |
+| Parameter bad states should be retained by default and excluded/yanked from drift. | Project-owner clarification; workflow improvement case; sample code review | Mutable parameter JSON, direct overwrites, run-adjacent snapshots, historical analysis reads | Do not delete by default; hard delete only for cleanup such as accidental large payloads | `pain-discovery-parameter-memory-bad-state/` | Write-back, rollback automation, permission model |
+| Code-version selection may need more than tracking-only to improve experiment QoL. | Project-owner clarification; workflow improvement case; sample code review | Copied folders, old/bk/copy variants, divergent old/current implementations | Tracking-only helps provenance but may not drive adoption; load-and-run remains a runtime-boundary hypothesis | `pain-discovery-code-version-selection/` | Code registry, process isolation contract, dependency closure, load-selected-version execution |
+| Same-station access should constrain record identity, export/import, and optional shared-storage locations. | Project-owner clarification; sample artifact review | Data Vault IDs, folder helpers, UNC/shared-path examples, sidecar parameter lookup | Historical browsing may be solved by selected sample/cooldown/run handoff packages or NAS-backed discovery; the useful fixture pressure is stable opaque record identity plus machine-specific locations, not a standalone LAN browser. | Cross-machine variant in existing record/handoff fixtures | Path-shaped record identity, remote execution, live observation as standalone value, mandatory central storage, service architecture |
+| Cross-computer code movement needs explicit checkpoints before automatic sync. | Project-owner clarification; workflow improvement case; sample code review | Copied folders, old/bk/copy variants, divergent old/current implementations, local paths | One-time folder copy can work; ongoing edits across computers create source-of-truth and conflict pressure that may need version-control-like semantics; publish/pull remains later than snapshot/checkpoint validation. | Code snapshot and code-version-selection variants | Git hosting, automatic bidirectional sync, deployment manager, managed runner |
+| Measurement data model cannot be validated by scalar CSV only. | Project-owner clarification; sample artifact review | Data Vault-like tables, sidecars, arrays | IQ, shots, traces, VNA-like records are ordinary needs | `pain-discovery-measurement-data-attachments/` | Final Arrow/storage/API schema |
+| Running-run analysis should start with read/monitor support plus readiness markers. | Project-owner clarification; prompt-method role-play check; external baseline | Partial direct support from long-running scans and fit outputs | Near-term need is reading recorded data from a still-running run, knowing the relevant analysis-unit readiness, and optionally saving fit/decision artifacts. | `pain-discovery-long-run-watchdog/` | Automated fit execution, replayable advice, adaptive scan mutation, append-style scan plans, framework adapters |
 
-## Adoption Route Payoff Rule
+## Fixture Payoff Review Notes
 
-Do not promote an adoption route because its mechanisms are architecturally
-cleaner than the legacy workflow. Promote a route only when the fixture or
-prototype shows enough workflow return to justify the user adopting that route,
-including any rewrite of the user-owned code responsible for that part of the
-experiment workflow.
+Adoption-route promotion is owned by
+[`../strategy/adoption-routes.md`](../strategy/adoption-routes.md), not by this
+fixture note. Use the points below only as fixture-review prompts: a fixture
+should not look valuable merely because its mechanisms are architecturally
+cleaner than the legacy workflow. It should expose enough workflow return to
+help decide whether the route justifies adoption, including any rewrite of the
+user-owned code responsible for that part of the experiment workflow.
 
 The adoption unit is the route, not an isolated internal feature. A route may
 need several small mechanisms to feel worthwhile, while any one mechanism may
 look weak in isolation.
 
-For validation timing, use the cheapest test that can disprove the value claim:
+For fixture validation timing, prefer the cheapest test that can disprove the
+value claim:
 
 - Validate record-only slices when the promised value is retrospective:
   provenance, handoff, audit, drift query, or historical browsing.
 - Validate interactive prototypes before asking users to change experiment
   behavior or rewrite route-owned code: selected-run browsing, parameter query,
   code-version selection, or batch review decisions.
-- Validate an execution prototype before claiming workflow improvement from an
-  executor route. For batch, simple run-to-completion is only the baseline; the
-  first strong payoff test should include resume, retry, review continuation,
-  or selected remeasurement.
+- Treat execution prototypes as runtime-boundary evidence, not product scope.
+  For batch, simple run-to-completion is only the baseline; stronger payoff
+  tests may include resume, retry, review continuation, or selected
+  remeasurement after a runtime-owner boundary is explicit.
 - Require an ADR before Scopecat owns mutation, hardware control, background
   scheduling, environment management, or remote execution.
 
@@ -407,24 +414,25 @@ Use these prompts when reviewing the fixtures:
 5. Which behavior would make Scopecat too close to a runner, code registry,
    deployment manager, or report generator too early?
 
-## User Review Notes
+## Project-Owner Review Notes
 
-These notes record the first user critique of the pain-discovery fixtures. They
-are validation inputs, not accepted architecture or product commitments.
+These notes record the project owner's critique of the pain-discovery fixtures.
+They are user-clarified inputs, not independent user validation, accepted
+architecture, or product commitments.
 
 ### Batch Intent Needs A Minimal Local Executor
 
 The user does not see a batch intent record alone as sufficient. A complex
 intent that users must parse and execute themselves does not solve the pain.
-The current fixture records a declared intent and simulated outcome; the next
-validation should test a **minimal local executor** or a small standalone
-package that can interpret the intent. Running a plan to completion is a basic
-expectation and mainly makes intent clearer than hand-written sequential code
-with `try`/`except`; the adoption payoff becomes meaningfully stronger when
-the executor can preserve state and continue after failure or review.
+The current fixture records a declared intent and simulated outcome; the open
+validation question is whether a **minimal local executor** or a small
+standalone package is needed to interpret the intent. Running a plan to
+completion is a basic expectation and mainly makes intent clearer than
+hand-written sequential code with `try`/`except`; stronger adoption payoff
+probably requires reviewable continuation evidence after failure or review.
 
 This does not automatically promote a full managed runner. The validation
-ladder becomes:
+ladder, if this route is selected, could be:
 
 1. helper-generated intent around ordinary Python;
 2. observed executor transcript or run report for simple sequential and
@@ -446,6 +454,10 @@ isolated manifest format. Early users may define tasks and dependencies
 explicitly. A later integration hypothesis is that task intent could connect to
 recorded experiment context, parameter memory, code snapshots, and templates,
 but that should not be treated as accepted architecture from this fixture.
+Any prototype that actually executes user code must state stop behavior,
+process and environment authority, side-effect boundaries, safe-disable
+behavior, and whether it can ever cross a remote/session boundary before it is
+used as product evidence.
 
 ### Calibration Batch Episode
 
@@ -459,16 +471,17 @@ later executor transcript:
   independent;
 - per-group fit score and user-script quality decision;
 - low score causes human review for that group, not necessarily a global stop;
-- other groups can continue when they have no dependency on the reviewed
-  output and no active resource conflict;
+- other groups can continue in the declared intent when they have no dependency
+  on the reviewed output and no declared mutual-exclusion conflict;
 - downstream gate calibration waits for accepted frequency or readout states;
 - review should record whether the next requested action is resume from the
   stopped point or remeasure selected groups.
 
-This does not require accepting a rich DAG engine yet. It does mean the next
-executor fixture should cover group-level continuation, review gates,
-dependency-blocked downstream work, and requested next action at a small scale.
-`mutual_exclusion_keys` can be understood as lightweight resource hints, not
+This does not require accepting a rich DAG engine yet. If an executor
+validation is selected, keep it at fixture scale: group-level continuation
+records, review gates, dependency-blocked downstream work, and requested next
+action. `mutual_exclusion_keys` are lightweight declared hints for review and
+small local validation, not live resource availability, enforced scheduling, or
 proof that Scopecat must own a real lease service.
 
 Run status and analysis or health status should remain separate. A calibration
@@ -556,49 +569,76 @@ select a previous code version or branch variant for an experiment, run tests or
 exploratory changes on a separate branch, and have Scopecat record which version
 actually ran. A conservative tracking-only path improves retrospective analysis
 but may not improve the experiment experience enough for users who do not
-already care about provenance. Loading a selected version for execution is the
-clearer quality-of-life improvement, likely with process isolation, but it
-remains a capability hypothesis until the smaller entrypoint, selected-folder,
-and minimal-executor paths prove insufficient.
+already care about provenance. Loading a selected version for execution may be
+the clearer quality-of-life improvement, but it raises process isolation,
+environment authority, side-effect, and runtime-owner questions. Keep it as a
+capability hypothesis until the smaller entrypoint, selected-folder, and
+code-snapshot paths prove insufficient.
 
 The code-version-selection fixture now separates those two values:
 
 - `tracking_only`: records selected code version and entrypoint for later
   analysis;
 - `load_selected_version`: compares the stronger experiment workflow where
-  Scopecat would load the selected entrypoint in an isolated process.
+  Scopecat would load the selected entrypoint, without accepting the process
+  model or runtime-owner boundary.
 
 The second path is deliberately marked as a capability hypothesis, not an
 accepted runner architecture.
 
-### Same-Station Cross-Machine Access
+### Cross-Machine Records And Shared Storage
 
-The minimum hypothesized same-station access slice is historical-only read
-browsing from another same-station computer. User clarification suggests it
-could solve a concrete collaboration problem: one person can inspect prior runs
-or prepare report figures without blocking the only computer currently used for
-measurement.
+The minimum useful cross-machine slice is no longer "LAN browsing" by itself.
+Historical browsing from another same-station computer may be solved by a good
+selected-run, sample, or cooldown handoff package that can be copied and opened
+elsewhere. That reframes the original bottleneck away from remote connection
+and toward portable records.
+
+Shared storage such as a lab NAS can be an optional transport and discovery
+backend when the lab already has backup infrastructure. The validation posture
+should still be local-first: a single computer can record and browse, export or
+import packages can move records manually, and a shared folder or NAS can later
+be tested as a location reference or discovery source. Do not require a central
+server, deployed database, generated index, local index cache, background
+indexer, or live sync service from this fixture.
+
+Shared-storage consistency is deliberately out of this fixture unless a later
+prototype selects it: atomic publish, partial writes, concurrent publishers,
+manifest version discovery, stale caches, cache invalidation, generated
+indexes, access control, and background scanning require a narrower fixture or
+ADR before they become accepted behavior.
+
+This makes the fixture distributed-record-aware, not a distributed
+experiment-control fixture. If multiple station computers or users can reach
+the same instruments, conflict handling remains outside the fixture: physical
+or network isolation, existing control systems, booking, and direct user
+coordination are acceptable current workarounds. Leases, permissions,
+arbitration, failure behavior, and hardware-control safety assumptions need a
+later resource/runtime decision before they become Scopecat scope.
 
 Do not add a standalone LAN browsing fixture yet. As currently framed, it would
 mostly duplicate local record browsing. The distinct constraint is that record
 identity must not be a local filesystem path. The same run should be referable
-by a stable opaque ID and resolved through machine-specific locations or legacy
-source references.
+by a stable opaque ID and resolved through export/import paths,
+machine-specific locations, shared-storage references, or legacy source
+references.
 
-Useful fixture fields, when this is added as a variant to measurement,
+Possible fixture fields, when this is added as a variant to measurement,
 durable-record, or handoff fixtures:
 
 - stable opaque `record_id`;
 - legacy/source refs such as Data Vault directory plus dataset number;
 - machine-specific locations such as control-PC path, mapped drive, UNC path,
   exported snapshot path, or analysis-computer mount;
+- optional shared-storage or NAS refs, without defining discovery or indexing
+  mechanics;
 - access mode and read capabilities for each location;
 - explicit read-only boundary and unavailable/stale-location behavior.
 
 Live observation should not be promoted as a separate first-slice value. User
 clarification says it usually appears together with remote execution or richer
-control workflows. Keep it as later nice-to-have unless a fixture or prototype
-shows independent adoption payoff.
+read/monitor workflows. Keep it as later nice-to-have unless a fixture or
+prototype shows independent adoption payoff.
 
 Sample evidence supports the mechanism more than the pain statement: Data Vault
 IDs, folder/index helpers, sidecar `parameters.json` lookup, and a few
@@ -606,6 +646,24 @@ UNC/shared-path examples show that historical browsing is already file- and
 ID-driven. The sample code does not directly prove a one-control-machine social
 bottleneck, so the collaboration pain remains user-clarified until interview or
 cross-machine access evidence exists.
+
+### Code Movement Between Computers
+
+Code movement should be split into two validation questions. One-time migration
+can often stay simple: copy the experiment-code folder, configure the
+environment, adjust machine-local paths, and record the selected entrypoint and
+snapshot. Ongoing edits across multiple computers are harder: users need a
+usable source of truth, changed-file comparison, restore of prior known-good
+versions, selected-version run records, and a way to keep machine-local config
+out of portable code.
+
+The smallest user-facing concepts to test before a code registry are selected
+folder, entrypoint, snapshot/checkpoint, compare, restore or select previous
+version, and machine-local profile. Publish, pull/update, shared source of
+truth, and conflict handling are later validation questions. The substrate may
+eventually be Git or content-addressed snapshots, but the fixture should not
+expose Git hosting, merge/rebase semantics, automatic bidirectional sync,
+deployment management, or managed execution as accepted scope.
 
 ### Scopecat Boundary Around Existing Control Systems
 
@@ -636,9 +694,9 @@ The user did not choose one fixture as the only next prototype; the fixture set
 is valuable as a set of validation probes. Prioritization should therefore be
 by cost-to-learning ratio:
 
-- Batch fixture currently tests intent/outcome semantics and identifies the
-  minimal local executor as the next validation step, without claiming executor
-  evidence already exists.
+- Batch fixture currently tests intent/outcome semantics and preserves a
+  minimal local executor as a possible follow-on validation question, without
+  claiming executor evidence already exists.
 - Code snapshot fixture tests whether explicit entrypoint plus selected folder
   capture solves most no-git provenance pain.
 - Measurement fixture tests the recording substrate needed by both batch
