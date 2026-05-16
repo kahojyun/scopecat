@@ -30,6 +30,7 @@ so the user can critique the pain framing before implementation details harden.
 | Parameter memory bad-state handling | `tests/fixtures/pain-discovery-parameter-memory-bad-state/` | Is retain-by-default history with yank/exclusion enough for bad parameter states before write-back exists? |
 | Code version selection | `tests/fixtures/pain-discovery-code-version-selection/` | Does selecting a prior code version or branch variant need load-and-run behavior, or is provenance-only tracking enough? |
 | Measurement record and attachments | `tests/fixtures/pain-discovery-measurement-data-attachments/` | Which outputs should become system-managed measurement data, and which remain attached artifacts? |
+| Long-run watchdog and replay | `tests/fixtures/pain-discovery-long-run-watchdog/` | Can explicitly recorded partial slices produce useful, replayable advisory evidence before live control or autonomous calibration? |
 
 ## Grounding Labels
 
@@ -170,7 +171,84 @@ Explicit selected entrypoints, hash-based snapshots, and dependency summaries
 are user-clarified desired records. Code registry, bare git management,
 `uv.lock`, temp run folders, and managed runners remain future hypotheses.
 
-## Fixture 3: Measurement Record And Attachments
+## Fixture 3: Parameter Memory Bad-State Handling
+
+### Pain Tested
+
+Users need to retry with prior parameter states, keep multiple working-point
+branches, and exclude bad writes from drift analysis without deleting history
+or accepting Scopecat-owned write-back.
+
+### Current Workaround
+
+Users keep multiple parameter files, copy old files back manually, or remember
+which intermediate states were bad enough to ignore during later analysis.
+
+### Input Artifacts
+
+- `states/parameter-history.json`: tiny parameter timeline with active,
+  yanked, and branch-moved states.
+- `queries/drift-query.json`: example drift query that excludes a yanked bad
+  state by default.
+- `runs/run-links.json`: run-to-parameter-state links for retry and
+  explanation.
+
+### Expected Scopecat Output
+
+Scopecat should show retained history, active branch heads, which run used
+which parameter state, which bad state is excluded from default drift queries,
+and why hard delete is cleanup-only.
+
+### Explicit Unknowns
+
+The fixture does not define parameter storage, schema evolution, write-back,
+rollback automation, permission policy, or a universal parameter model.
+
+### Success Criteria
+
+The user can decide whether retain-by-default history plus yank/exclusion
+semantics solves the bad-parameter-state pain before mutation ownership exists.
+
+## Fixture 4: Code Version Selection
+
+### Pain Tested
+
+Code snapshot export improves retrospective provenance, but may not improve
+experiment workflow if users still have to copy selected code versions back
+into an experiment directory manually.
+
+### Current Workaround
+
+Users copy whole folders, rename files, keep exploratory variants, or manually
+restore an older known-good script before running an experiment.
+
+### Input Artifacts
+
+- `versions/version-index.json`: prior known-good, current, and exploratory
+  code-version choices.
+- `selection/selection-plan.json`: comparison between `tracking_only` and
+  `load_selected_version`.
+- `records/run-record-loaded-version.json`: selected-version run record.
+- `code/*.py`: inert public-safe code text; must not be executed by static
+  analysis prototypes.
+
+### Expected Scopecat Output
+
+Scopecat should show which version was selected, why it was selected, which
+entrypoint would run, and whether the path is provenance-only or a future
+load-and-run capability hypothesis.
+
+### Explicit Unknowns
+
+The fixture does not accept a code registry, dependency-closure contract, temp
+run folder, isolated process API, or managed runner.
+
+### Success Criteria
+
+The user can decide whether code-version selection is real experiment value and
+whether tracking-only is too weak to drive adoption.
+
+## Fixture 5: Measurement Record And Attachments
 
 ### Pain Tested
 
@@ -187,6 +265,8 @@ derived files without a stable source relation.
 ### Input Artifacts
 
 - one primary dataframe-like measurement CSV;
+- tiny IQ and trace seed tables that show scalar CSV is not complete
+  measurement-model coverage;
 - metadata with axes, units, task relation, and context refs;
 - attached derived summary and inert plot placeholder;
 - attachment roles and source-run relations.
@@ -207,12 +287,66 @@ clarification.
 ### Explicit Unknowns
 
 The fixture does not validate universal parsing for arbitrary binary files,
-publication workflows, analysis reruns, or a final storage/API schema.
+publication workflows, analysis reruns, or a final storage/API schema. It also
+does not complete the measurement data model; shots, VNA-like data, and
+analysis ndarray payloads remain missing validation cases.
 
 ### Success Criteria
 
 The user can separate "measurement data format Scopecat should own" from
 "artifact attachments Scopecat should catalog and link."
+
+## Fixture 6: Long-Run Watchdog And Replay
+
+### Pain Tested
+
+Long-running measurements may need method-aware quality, anomaly, or decision
+feedback before the full run finishes, but that feedback must be explicitly
+recorded, replayable, and non-intrusive.
+
+### Current Workaround
+
+Users watch plots, callbacks, notebooks, or framework dashboards and may lose
+the evidence behind stop, continue, repeat, zoom, or retune decisions.
+
+### Input Artifacts
+
+- `records/partial-sweep-record.json`: explicit partial-sweep data and
+  lifecycle events.
+- `data/partial-sweep.csv`: tiny public-safe partial sweep table.
+- `records/decision-packet.json`: advisory quality/anomaly decision evidence.
+- `records/replay-check.json`: expected replay result from recorded inputs.
+
+### Expected Scopecat Output
+
+Scopecat should show which slice was complete enough for analysis, the
+quality/anomaly evidence, the advisory recommendation, and whether the same
+decision can be replayed from recorded inputs.
+
+### Explicit Unknowns
+
+The fixture does not accept live control, scan-plan mutation, parameter
+write-back, framework scraping, alerting UI, opaque AI advice, or autonomous
+calibration.
+
+### Success Criteria
+
+The user can decide whether explicit partial-recording plus replayable decision
+packets are useful before any live-advisory or automation surface exists.
+
+## Source-Support Map
+
+This table maps user-refined fixture claims back to support so they do not
+become undocumented product commitments.
+
+| Claim | Source family | Direct sample support | User clarification | Fixture path | Still hypothetical |
+| --- | --- | --- | --- | --- | --- |
+| Minimal local executor is needed because batch intent alone is not useful enough. | User clarification; workflow improvement case | Sequential scans, loops, interruptions, retry traces | Record-only intent would leave users parsing their own manifest. | `pain-discovery-batch-intent-outcome/` | Full managed runner, retry/resume engine, scheduler |
+| Grouped calibration with review gates is the strongest batch episode. | User clarification; quarantined workflow reference | Calibration fit/update pressure only | Multi-step calibration, group-level fit scoring, review, continuation, resume/remeasure | `pain-discovery-batch-intent-outcome/` | Real resource leases, enforced concurrency, autonomous scheduling |
+| Parameter bad states should be retained by default and excluded/yanked from drift. | User clarification; workflow improvement case | Mutable parameter files and copied snapshots | Do not delete by default; hard delete only for cleanup such as accidental large payloads | `pain-discovery-parameter-memory-bad-state/` | Write-back, rollback automation, permission model |
+| Code-version selection may need load-and-run to improve experiment QoL. | User clarification; workflow improvement case | Copied folders, variants, weak canonical identity | Tracking-only helps provenance but may not drive adoption | `pain-discovery-code-version-selection/` | Code registry, process isolation contract, dependency closure |
+| Measurement data model cannot be validated by scalar CSV only. | User clarification; sample artifact review | Data Vault-like tables, sidecars, arrays | IQ, shots, traces, VNA-like records are ordinary needs | `pain-discovery-measurement-data-attachments/` | Final Arrow/storage/API schema |
+| Long-run advisory should be explicit, replayable, and non-intrusive. | User refinement; blind role-play; external baseline | Partial direct support from long-running scans and fit outputs | Measurement code should record decision-relevant data into Scopecat | `pain-discovery-long-run-watchdog/` | Live advisor UI, scan mutation, parameter apply, framework adapters |
 
 ## Review Questions
 
@@ -394,12 +528,16 @@ The likely first visible outputs are:
 | --- | --- |
 | Batch intent/outcome | Run report from the minimal local executor. |
 | Code snapshot | Exported snapshot folder with entrypoint and selected code evidence. |
+| Parameter memory bad-state handling | Parameter history view or query showing active, yanked, and excluded states. |
+| Code version selection | Selection report comparing provenance-only tracking with future load-and-run value. |
 | Measurement data/attachments | Reader API or export path over recorded data plus attachments. |
+| Long-run watchdog/replay | Replayable decision packet from explicitly recorded partial measurement input. |
 
 ### Prioritization
 
-The user did not choose one fixture as the only next prototype; all three are
-valuable. Prioritization should therefore be by cost-to-learning ratio:
+The user did not choose one fixture as the only next prototype; the fixture set
+is valuable as a set of validation probes. Prioritization should therefore be
+by cost-to-learning ratio:
 
 - Batch fixture tests whether a minimal local executor can solve immediate
   unattended/sequential workflow pain without full orchestration.
@@ -407,3 +545,8 @@ valuable. Prioritization should therefore be by cost-to-learning ratio:
   capture solves most no-git provenance pain.
 - Measurement fixture tests the recording substrate needed by both batch
   reports and later analysis/handoff.
+- Parameter-memory and code-version-selection fixtures test whether recently
+  clarified pains can be handled without accepting mutation ownership or a code
+  registry too early.
+- Long-run watchdog fixture tests whether the concrete `JC-011` shape needs
+  fixture evidence before live advisory or automation scope is promoted.

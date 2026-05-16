@@ -1,0 +1,49 @@
+{
+  "fixture_id": "pain-discovery-long-run-watchdog",
+  "status": "draft pain-discovery fixture",
+  "purpose": "Test whether explicitly recorded partial measurement slices plus replayable quality or anomaly decisions support long-running measurement advice before live control, scan mutation, or autonomous calibration exists.",
+  "grounding": {
+    "user_refinement": [
+      "measurement-time feedback should be method-aware, replayable, explicitly recorded, and non-intrusive",
+      "experiment code should record data, sweep semantics, lifecycle events, and decision-relevant context into Scopecat"
+    ],
+    "prompt_method_check": [
+      "blind role-play suggested passive advisory feedback over framework replacement"
+    ],
+    "external_baseline": [
+      "existing frameworks already cover acquisition, plotting, callbacks, dashboards, scheduling, or calibration in their own stacks"
+    ],
+    "future_hypotheses_out_of_scope": [
+      "hardware control",
+      "scan-plan mutation",
+      "parameter write-back",
+      "opaque AI advisor",
+      "framework-specific passive scraping",
+      "replacement live plotting product"
+    ]
+  },
+  "artifacts": [
+    {
+      "path": "records/partial-sweep-record.json",
+      "role": "explicitly recorded partial sweep slices and lifecycle events"
+    },
+    {
+      "path": "records/decision-packet.json",
+      "role": "replayable quality/anomaly decision evidence"
+    },
+    {
+      "path": "records/replay-check.json",
+      "role": "recorded-input replay check for the same decision packet"
+    },
+    {
+      "path": "data/partial-sweep.csv",
+      "role": "tiny public-safe partial sweep table"
+    }
+  ],
+  "fixture_questions": [
+    "Can explicit partial-sweep recording produce useful decision evidence before a full live-advisory product exists?",
+    "Which data slice is complete enough for a quality or anomaly decision?",
+    "Can the same decision be replayed from recorded inputs?",
+    "What remains advisory evidence rather than hardware, scan, or parameter authority?"
+  ]
+}

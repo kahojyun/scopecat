@@ -68,8 +68,9 @@ The first snapshot boundary excludes:
 - active setup, parameter, configuration, or execution-state import;
 - complete work-bundle export/import.
 
-Later analysis outputs may link back to the snapshot as append-only derived
-records. They must not mutate what the original snapshot meant.
+Later analysis outputs may be linked back to the snapshot by a separate
+analysis-lineage journey or decision. This draft boundary does not define
+append-only derived record semantics, storage, or mutation behavior.
 
 ## Optional Advanced Attachments
 

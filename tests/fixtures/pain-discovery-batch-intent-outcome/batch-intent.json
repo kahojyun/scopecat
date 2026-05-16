@@ -126,10 +126,10 @@
             "status": "example_only",
             "value": "fixture_record_file"
           },
-          "path_hint": "records/task-b-record.json"
+          "path_hint": "records/task-b-table.csv"
         }
       ],
-      "expected_outputs": ["records/task-b-record.json"],
+      "expected_outputs": ["records/task-b-record.json", "records/task-b-table.csv"],
       "context_refs": ["code-snapshot-alpha", "setting-snapshot-alpha"]
     },
     {
@@ -287,12 +287,13 @@
           "kind": "measurement_table",
           "transport_hint": {
             "status": "example_only",
-            "value": "fixture_record_file"
+            "value": "not_produced_in_blocked_fixture"
           },
-          "path_hint": "records/task-e-table.csv"
+          "not_produced_reason": "task-e is blocked pending review of the required parameter state"
         }
       ],
-      "expected_outputs": ["records/task-e-table.csv"],
+      "expected_outputs": [],
+      "expected_status_record": "records/task-e-record.json",
       "context_refs": ["code-snapshot-alpha", "setting-snapshot-alpha"]
     }
   ],

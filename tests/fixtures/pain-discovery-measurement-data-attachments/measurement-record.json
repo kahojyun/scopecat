@@ -22,6 +22,7 @@
   },
   "primary_data": {
     "role": "system-managed measurement table hypothesis",
+    "fixture_scope": "scalar/IQ seed only; not complete measurement-model coverage",
     "current_substrate": "data-vault-plus-sidecar-workaround",
     "desired_owner": "scopecat-managed-primary-measurement-data",
     "path": "data/primary-table.csv",
@@ -115,11 +116,21 @@
     "old_pattern": "Data Vault dataset plus run-adjacent parameter, CSV, NPZ, or JSON sidecars used as workaround",
     "desired_replacement": "Arrow-table-like or custom-manifest primary measurement payload plus role-labeled attachments; storage/export/API undecided",
     "missing_validation_cases": [
-      "IQ",
       "shots",
-      "traces",
       "VNA-like data",
       "analysis ndarray payload"
+    ],
+    "added_seed_cases": [
+      {
+        "kind": "IQ table",
+        "path": "data/iq-table.csv",
+        "status": "tiny public-safe placeholder"
+      },
+      {
+        "kind": "trace table",
+        "path": "data/trace-table.csv",
+        "status": "tiny public-safe placeholder"
+      }
     ],
     "support_level": "sample plus user clarification"
   }

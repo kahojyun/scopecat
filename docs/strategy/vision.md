@@ -74,8 +74,8 @@ Scopecat should own the evidence layer around those systems. It may:
   expected references;
 - run or replay analysis over recorded inputs;
 - produce fit, quality, anomaly, and decision evidence;
-- create reviewable proposals, annotations, handoff snapshots, and lineage
-  records.
+- create reviewable parameter-memory records, advisory proposals, annotations,
+  handoff snapshots, and lineage records.
 
 Scopecat records, compares, explains, proposes, and packages. Existing systems
 execute and mutate.
@@ -217,7 +217,8 @@ ordered first slice:
   ambiguity, and sharing boundaries;
 - create immutable pre-analysis handoff snapshots for selected runs;
 - compare evidence and gaps without claiming authoritative truth;
-- support reviewable proposals before any parameter or calibration mutation;
+- support parameter memory, advisory evidence, and optional reviewable
+  proposals before any parameter or calibration mutation;
 - support measurement-time decision evidence from explicitly recorded
   measurement data without taking over hardware control.
 

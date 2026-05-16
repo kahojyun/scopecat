@@ -172,12 +172,12 @@ rule directly affects row interpretation.
 
 ## Evidence Gaps Summary
 
-The directly visible artifact-derived categories are saturated enough for
-journey drafting: selected context, ambiguity, portability, code and notebook
-provenance, local runtime readiness, run identity, companion artifacts,
-generated protocol lineage, calibration and configuration mutation pressure,
-analysis handoff, derived artifacts, shape and lifecycle validation cases, and
-anti-patterns.
+The directly visible artifact-derived recovery categories are saturated enough
+for journey drafting: selected context, ambiguity, portability, code and
+notebook provenance, local runtime readiness, run identity, companion
+artifacts, generated protocol lineage, calibration and configuration mutation
+pressure, analysis handoff, derived artifacts, shape and lifecycle validation
+cases, and anti-patterns.
 
 Future research should target exact examples, citations, fixtures, or latent
 workflow validation for JTBD conversion, plan preview, dry-run packaging,
@@ -255,7 +255,7 @@ It is useful for avoiding priority inflation, not for blocking local judgment.
 | PN-017, PN-018 | JTBD and capability candidates | Natural from TP-001 and TP-003, but too capability-shaped to accept directly. | Convert into plan-preview or minimal local-executor validation before implementation scope. |
 | PN-004, PN-010, PN-011, PN-012, PN-019, PN-029, PN-030 | Lineage, handoff, and campaign validation cases | Natural from TP-003, TP-005, TP-006, TP-008, and TP-009 when the fixture contains generated protocols, correction branches, run families, figures, code-shaped method history, or manual interventions. | Pull into journey selection only when the selected fixture needs them; otherwise keep as follow-on validation. |
 | PN-020, PN-021, PN-022, PN-023, PN-024, PN-025 | Adoption-risk hypotheses and guardrails | Natural decomposition of TP-007, and guardrails for TP-009 when shared code/config records could drift from real machines or lab practice. | Constrain early journeys around truth drift, false confidence, control-PC safety, share-boundary handling, known-good references, and recovery evidence; validate exact rejection thresholds before treating them as proven user blockers. |
-| PN-026, PN-027, PN-028, PN-031, PN-032 | Capability-gap pains | Natural decomposition of TP-008 and the method-comparison parts of TP-009. | Use to test differentiation around comparability, full-stack diff, setup reality, metadata ROI, and local schema evolution. |
+| PN-026, PN-027, PN-028, PN-031, PN-032 | Capability-gap validation hypotheses | Natural decomposition of TP-008 and the method-comparison parts of TP-009. | Use to test differentiation around comparability, full-stack diff, setup reality, metadata ROI, and local schema evolution. |
 | PN-033, PN-034, PN-035, PN-036, PN-037 | Measurement-time decision-support pains | Natural decomposition of TP-010, with PN-022 and PN-021 as adoption and confidence guardrails. | Validate as an explicit-recording watchdog or decision-support fixture before accepting live analysis, recommendations, alerting, or any connection to calibration automation. |
 | PN-007, PN-015, PN-016 | Adoption affordances and portability guardrails | Support TP-002, TP-005, TP-006, TP-007, and TP-009, but are not the center of a pain narrative. | Keep as acceptance constraints around portability, low ceremony, and quick handoff affordances. |
 | PN-008, PN-009, PN-013, PN-014 | Existing-framework baseline, model question, or future technical pressure | Can support TP-001, TP-002, and TP-004, but are not strong top-level-pain decompositions by themselves. | Use as substrate or validation detail; avoid positioning lifecycle state, source-of-record clarity, setup manifests, or parameter-history model questions as primary differentiation. |
