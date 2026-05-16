@@ -54,10 +54,17 @@
     },
     {
       "task_id": "task-e",
-      "status": "skipped",
+      "status": "blocked",
       "started_at": null,
       "ended_at": null,
-      "skip_reason": "required input parameters-after-readout-cal-proposal is waiting for human review",
+      "blocked_by": [
+        {
+          "type": "input_review_required",
+          "input_id": "parameters-after-readout-cal-proposal",
+          "from_task": "task-d"
+        }
+      ],
+      "would_resume_after": "review_accepts_required_input",
       "missing_or_unusable_inputs": ["parameters-after-readout-cal-proposal"],
       "produced": [],
       "missing_outputs": ["post-cal-check-table"]

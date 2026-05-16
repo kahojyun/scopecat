@@ -2,8 +2,16 @@
   "record_id": "record-task-e",
   "task_id": "task-e",
   "role": "measurement",
-  "status": "not_created",
-  "reason": "Task skipped because required parameter state proposal is waiting for review.",
+  "status": "blocked",
+  "reason": "Task has not started because required parameter state proposal is waiting for review.",
+  "blocked_by": [
+    {
+      "type": "input_review_required",
+      "input_id": "parameters-after-readout-cal-proposal",
+      "from_task": "task-d"
+    }
+  ],
+  "would_resume_after": "review_accepts_required_input",
   "declared_inputs": ["parameters-after-readout-cal-proposal"],
   "declared_outputs": ["post-cal-check-table"]
 }

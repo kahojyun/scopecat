@@ -56,10 +56,13 @@ arbitration, independent continuation after failure, and idle backfill are
 user-clarified or premature unless a later helper fixture proves them.
 
 The batch fixture should avoid an expansive status vocabulary. Use a small set
-such as `succeeded`, `failed`, `skipped`, `waiting_for_review`, and `canceled`,
-then attach context fields for why a task continued, waited, or was skipped.
-This keeps product validation focused on useful review semantics rather than a
-runner-specific state machine.
+such as `pending`, `succeeded`, `failed`, `blocked`,
+`waiting_for_review`, `skipped`, and `canceled`, then attach context fields for
+why a task continued, waited, was blocked, or was skipped. Use
+`waiting_for_review` for the task or output that needs a human decision. Use
+`blocked` for a downstream task that cannot start because a required input,
+dependency, or resource is unavailable. This keeps product validation focused
+on useful review semantics rather than a runner-specific state machine.
 
 The fixture should also model task dataflow. In real Python/notebook workflows,
 later tasks often depend on earlier results through Python variables, files, or
