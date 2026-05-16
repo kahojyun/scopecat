@@ -51,9 +51,15 @@ for lower-priority calibration.
 
 Sample grounding: direct sample evidence supports sequential scans, sweep
 intent, recording, interruption, failure/retry traces, and calibration
-proposal/write-back pressure. Dependency semantics, priority arbitration,
-independent continuation after failure, and idle backfill are user-clarified
-or premature unless a later helper fixture proves them.
+proposal/write-back pressure. Ordering constraints, mutual exclusion, priority
+arbitration, independent continuation after failure, and idle backfill are
+user-clarified or premature unless a later helper fixture proves them.
+
+The batch fixture should avoid an expansive status vocabulary. Use a small set
+such as `succeeded`, `failed`, `skipped`, `waiting_for_review`, and `canceled`,
+then attach context fields for why a task continued, waited, or was skipped.
+This keeps product validation focused on useful review semantics rather than a
+runner-specific state machine.
 
 ### Current Workaround
 
@@ -71,10 +77,10 @@ task.
 ### Expected Scopecat Output
 
 Scopecat should show intended versus actual execution, which failure did not
-block declared-independent work, which task waited for human review, and which
-calibration result is only a proposal. The output should identify which parts
-are observed sample patterns, user-clarified desired behavior, or proposed
-managed-runner semantics.
+block later work with no `not_before` dependency, which task waited for human
+review, and which calibration result is only a proposal. The output should
+identify which parts are observed sample patterns, user-clarified desired
+behavior, or proposed managed-runner semantics.
 
 ### Explicit Unknowns
 

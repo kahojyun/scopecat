@@ -9,8 +9,9 @@
     "columns": ["x", "signal"]
   },
   "context_refs": ["code-snapshot-alpha", "setting-snapshot-beta"],
-  "independence_evidence": {
-    "declared_independent_of_failed_task": "task-b",
+  "continuation_context": {
+    "failed_task": "task-b",
+    "reason": "task-b is not in task-c ordering.not_before, and the synthetic mutual-exclusion keys do not overlap",
     "support_level": "user clarification only"
   }
 }

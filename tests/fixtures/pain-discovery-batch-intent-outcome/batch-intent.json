@@ -16,7 +16,8 @@
       "calibration fit/review/write-back pressure"
     ],
     "user_clarification_only_or_premature": [
-      "multi-task dependency DAG",
+      "multi-task ordering constraints",
+      "mutual exclusion without a full lease system",
       "priority arbitration",
       "idle backfill scheduling",
       "managed continuation of independent tasks after failure"
@@ -47,8 +48,16 @@
         "support_level": "user clarification only"
       },
       "kind": "measurement",
-      "declared_preconditions": [],
-      "declared_independent_of": [],
+      "ordering": {
+        "not_before": []
+      },
+      "mutual_exclusion_keys": [
+        {
+          "key": "public-device-alpha",
+          "support_level": "user clarification only",
+          "note": "Represents a simple mutually exclusive apparatus or device group without requiring users to adopt leases."
+        }
+      ],
       "failure_or_review_intent": "stop dependent work only if a future runner owns dependencies",
       "expected_outputs": ["records/task-a-record.json"],
       "context_refs": ["code-snapshot-alpha", "setting-snapshot-alpha"]
@@ -61,8 +70,16 @@
         "support_level": "user clarification only"
       },
       "kind": "measurement",
-      "declared_preconditions": ["task-a"],
-      "declared_independent_of": [],
+      "ordering": {
+        "not_before": ["task-a"]
+      },
+      "mutual_exclusion_keys": [
+        {
+          "key": "public-device-alpha",
+          "support_level": "user clarification only",
+          "note": "Represents a simple mutually exclusive apparatus or device group without requiring users to adopt leases."
+        }
+      ],
       "failure_or_review_intent": "skip if declared precondition failed",
       "expected_outputs": ["records/task-b-record.json"],
       "context_refs": ["code-snapshot-alpha", "setting-snapshot-alpha"]
@@ -75,9 +92,17 @@
         "support_level": "user clarification only"
       },
       "kind": "measurement",
-      "declared_preconditions": [],
-      "declared_independent_of": ["task-a", "task-b"],
-      "failure_or_review_intent": "continue if independence is explicit and a future runner can enforce it",
+      "ordering": {
+        "not_before": []
+      },
+      "mutual_exclusion_keys": [
+        {
+          "key": "public-device-beta",
+          "support_level": "user clarification only",
+          "note": "Different key means this task is not mutually exclusive with the failed sample sweep in this synthetic intent."
+        }
+      ],
+      "failure_or_review_intent": "continue if no failed task appears in not_before and no active mutual-exclusion key blocks it",
       "expected_outputs": ["records/task-c-record.json"],
       "context_refs": ["code-snapshot-alpha", "setting-snapshot-beta"]
     },
@@ -89,8 +114,16 @@
         "support_level": "user clarification only"
       },
       "kind": "calibration-proposal",
-      "declared_preconditions": ["task-a"],
-      "declared_independent_of": ["task-b"],
+      "ordering": {
+        "not_before": ["task-a"]
+      },
+      "mutual_exclusion_keys": [
+        {
+          "key": "public-device-alpha",
+          "support_level": "user clarification only",
+          "note": "Calibration proposal uses the same synthetic apparatus group as the high-priority sweep."
+        }
+      ],
       "failure_or_review_intent": "record proposal and require human review; do not write parameters",
       "expected_outputs": ["records/task-d-proposal.json"],
       "context_refs": ["code-snapshot-calibration", "setting-snapshot-alpha"],

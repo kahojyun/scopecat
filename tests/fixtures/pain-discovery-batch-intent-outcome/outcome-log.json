@@ -28,11 +28,15 @@
     },
     {
       "task_id": "task-c",
-      "status": "succeeded_after_independent_failure",
+      "status": "succeeded",
       "started_at": "2026-05-16T01:14:00Z",
       "ended_at": "2026-05-16T01:21:00Z",
       "produced": ["records/task-c-record.json"],
-      "continuation_support_level": "user clarification only"
+      "continuation_context": {
+        "status": "continued_after_unrelated_failure",
+        "support_level": "user clarification only",
+        "reason": "No failed task was listed in task-c ordering.not_before, and its mutual_exclusion_keys did not overlap the failed task in this synthetic fixture."
+      }
     },
     {
       "task_id": "task-d",
