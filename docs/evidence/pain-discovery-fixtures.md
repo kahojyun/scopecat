@@ -61,6 +61,14 @@ then attach context fields for why a task continued, waited, or was skipped.
 This keeps product validation focused on useful review semantics rather than a
 runner-specific state machine.
 
+The fixture should also model task dataflow. In real Python/notebook workflows,
+later tasks often depend on earlier results through Python variables, files, or
+sidecar records. Represent that as declared `inputs` and `outputs`, while
+keeping `ordering.not_before` for non-data ordering such as warmup, operator
+preference, or conservative sequencing. A future executor can derive ordering
+from data dependencies, but the pain-discovery fixture should keep both concepts
+visible so users can say why one task waits for another.
+
 ### Current Workaround
 
 Users queue notebook cells, write loops manually, copy parameters into side
@@ -70,7 +78,7 @@ task.
 ### Input Artifacts
 
 - `batch-intent.json`: declared task list, priorities, dependencies, failure
-  policy, review gates, and expected outputs.
+  policy, review gates, inputs, and outputs.
 - `outcome-log.json`: actual task statuses and links to produced records.
 - `records/*.json`: tiny measurement or proposal records produced by tasks.
 
@@ -78,9 +86,10 @@ task.
 
 Scopecat should show intended versus actual execution, which failure did not
 block later work with no `not_before` dependency, which task waited for human
-review, and which calibration result is only a proposal. The output should
-identify which parts are observed sample patterns, user-clarified desired
-behavior, or proposed managed-runner semantics.
+review, which calibration result is only a proposal, and which later task
+needed an unavailable prior output. The output should identify which parts are
+observed sample patterns, user-clarified desired behavior, or proposed
+managed-runner semantics.
 
 ### Explicit Unknowns
 

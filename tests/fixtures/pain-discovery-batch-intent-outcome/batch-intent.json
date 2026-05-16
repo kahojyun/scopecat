@@ -59,6 +59,21 @@
         }
       ],
       "failure_or_review_intent": "stop dependent work only if a future runner owns dependencies",
+      "inputs": [],
+      "outputs": [
+        {
+          "output_id": "baseline-table",
+          "kind": "measurement_table",
+          "transport": "scopecat_record",
+          "path_hint": "records/task-a-table.csv"
+        },
+        {
+          "output_id": "baseline-fit-summary",
+          "kind": "fit_or_quality_summary",
+          "transport": "scopecat_record",
+          "path_hint": "records/task-a-record.json"
+        }
+      ],
       "expected_outputs": ["records/task-a-record.json"],
       "context_refs": ["code-snapshot-alpha", "setting-snapshot-alpha"]
     },
@@ -81,6 +96,23 @@
         }
       ],
       "failure_or_review_intent": "skip if declared precondition failed",
+      "inputs": [
+        {
+          "input_id": "baseline-fit-summary",
+          "from_task": "task-a",
+          "required": true,
+          "transport": "scopecat_record",
+          "legacy_transport_examples": ["python_variable", "file_path"]
+        }
+      ],
+      "outputs": [
+        {
+          "output_id": "sample-table",
+          "kind": "measurement_table",
+          "transport": "scopecat_record",
+          "path_hint": "records/task-b-record.json"
+        }
+      ],
       "expected_outputs": ["records/task-b-record.json"],
       "context_refs": ["code-snapshot-alpha", "setting-snapshot-alpha"]
     },
@@ -103,6 +135,15 @@
         }
       ],
       "failure_or_review_intent": "continue if no failed task appears in not_before and no active mutual-exclusion key blocks it",
+      "inputs": [],
+      "outputs": [
+        {
+          "output_id": "independent-check-table",
+          "kind": "measurement_table",
+          "transport": "scopecat_record",
+          "path_hint": "records/task-c-table.csv"
+        }
+      ],
       "expected_outputs": ["records/task-c-record.json"],
       "context_refs": ["code-snapshot-alpha", "setting-snapshot-beta"]
     },
@@ -125,6 +166,23 @@
         }
       ],
       "failure_or_review_intent": "record proposal and require human review; do not write parameters",
+      "inputs": [
+        {
+          "input_id": "baseline-fit-summary",
+          "from_task": "task-a",
+          "required": true,
+          "transport": "scopecat_record",
+          "legacy_transport_examples": ["python_variable", "file_path", "manual notebook lookup"]
+        }
+      ],
+      "outputs": [
+        {
+          "output_id": "calibration-proposal",
+          "kind": "proposal",
+          "transport": "scopecat_record",
+          "path_hint": "records/task-d-proposal.json"
+        }
+      ],
       "expected_outputs": ["records/task-d-proposal.json"],
       "context_refs": ["code-snapshot-calibration", "setting-snapshot-alpha"],
       "review_gate": {

@@ -8,6 +8,7 @@
     "shape": [3, 2],
     "columns": ["x", "signal"]
   },
+  "declared_outputs": ["independent-check-table"],
   "context_refs": ["code-snapshot-alpha", "setting-snapshot-beta"],
   "continuation_context": {
     "failed_task": "task-b",

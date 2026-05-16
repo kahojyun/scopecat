@@ -8,5 +8,6 @@
     "shape": [3, 2],
     "columns": ["x", "signal"]
   },
+  "declared_outputs": ["baseline-table", "baseline-fit-summary"],
   "context_refs": ["code-snapshot-alpha", "setting-snapshot-alpha"]
 }
