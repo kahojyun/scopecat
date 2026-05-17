@@ -38,8 +38,8 @@ separate decisions.
 
 Local batch execution may be unattended when the user has declared the steps,
 order, review gates, and stop/failure policy. Open-ended autonomy, remote
-execution, resource arbitration, automatic mutation, and Scopecat-decided
-write-back remain separate decisions.
+execution, resource arbitration, Scopecat-decided mutation, and
+Scopecat-decided write-back remain separate decisions.
 
 Cross-computer code movement should first be tested as explicit selection and
 recovery. Publish/pull, automatic sync, Git hosting, deployment management,
