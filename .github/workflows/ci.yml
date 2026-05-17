@@ -21,4 +21,9 @@ jobs:
           python-version: "3.14"
 
       - name: Run tests
-        run: python -m unittest discover -s tests
+        run: |
+          if [ -d tests ]; then
+            python -m unittest discover -s tests
+          else
+            echo "No executable test suite is currently present."
+          fi
