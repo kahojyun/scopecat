@@ -18,10 +18,10 @@ that can be handled inside one AI session.
   adoption requirement.
 - `strategy/adoption-routes.md` owns provisional product-value route
   hypotheses; the tracker only coordinates their current phase.
-- `evidence/inventory.md` owns evidence rows and stable pressure IDs, while
+- `evidence/inventory.md` owns stable evidence claims, while
   `evidence/method.md` owns interpretation rules.
 - `evidence/pain-packets/README.md` indexes evidence-backed failure packets
-  without promoting them into validation fixtures or product scope.
+  without promoting them into validation artifacts or product scope.
 - `AGENTS.md` contains rules that should apply to every AI session working
   inside `docs/`.
 
@@ -40,7 +40,7 @@ Source material
   -> Option and risk exploration
   -> Scenario candidates
   -> Validation charter
-  -> User, fixture, or prototype validation
+  -> User, reference-case, or prototype validation
   -> Product decision, deletion, or deferral
   -> Contract or ADR only when blocked or accepted scope needs it
 ```
@@ -61,7 +61,7 @@ implementation ownership, or a ranked backlog.
 
 ## Validation
 
-For changes that affect executable behavior, fixture contracts, expected
+For changes that affect executable behavior, reference-case contracts, expected
 outputs, or validation claims, run the relevant focused command when one
 exists.
 

@@ -116,7 +116,7 @@ keeps enough provenance for future review without restoring the raw docs.
 | --- | --- | --- |
 | `product/product-analysis-progress.md` | Interview-backed initial adoption pressure: ordinary Python, VNA trace records, checkpoint-safe reads, stable IDs, and low-ceremony reopen. | EV-010, EV-012, EV-023, EV-045; durable-record pressure. |
 | `research/lessons-for-fricon.md` | Dataset shape modes, readable partials before resumable execution, live views as disposable consumers, passive setup context, and export bundle pressure. | EV-010, EV-012, EV-022, EV-045; handoff and durable-record pressure. |
-| `research/legacy-measurement-sample-lessons.md` | LabRAD-era artifact evidence: scattered identity, copied code, mutable parameters, setup files, calibration scripts, analysis handoff, generated artifacts, and fragile mappings. | EV-001 through EV-023; PN-001 through PN-018; existing-bundle, handoff, parameter, lineage, and code-readiness pressure. |
+| `research/legacy-measurement-sample-lessons.md` | LabRAD-era artifact evidence: scattered identity, copied code, mutable parameters, setup files, calibration scripts, analysis handoff, generated artifacts, and fragile mappings. | EV-001 through EV-023; existing-bundle, handoff, parameter, lineage, and code-readiness pressure. |
 | `product/python-sdk-ux.md` | Low-ceremony SDK intent, explicit writer rewrite, trace-valued records, complex values, stable ID copy, and no LabRAD compatibility dependency. | EV-010, EV-023, EV-045; durable-record pressure. |
 | `postmortems/v0-lessons.md` and `decisions/ADR-001-v02-clean-reset-boundary.md` | Dataset-first model and prototype compatibility should not preserve the wrong domain model. | Direction-bias correction in [`../../inventory.md`](../../inventory.md); architecture triggers should be handled only when a concrete boundary needs them. |
 | `product/future-concepts.md` and `research/strategic-follow-on-future-systems.md` | Parameter proposals, calibration evidence, setup/device context, managed code, export, and reviewed automation should follow evidence and ADR gates. | EV-004, EV-005, EV-011, EV-015, EV-019, EV-038, EV-043; parameter, read/monitor, and runtime-boundary pressure. |
@@ -126,5 +126,5 @@ keeps enough provenance for future review without restoring the raw docs.
 
 This extracted note should remain only while it helps future work avoid
 repeating Fricon's measurement-history-first bias. Delete or compress it after
-the useful lessons are fully absorbed into validation decisions, fixtures,
+the useful lessons are fully absorbed into validation decisions, reference cases,
 contracts, or architecture ADRs.

@@ -17,5 +17,5 @@
   validation statuses, and do not use trackers as slice-local task queues.
   Move durable detail into narrower owner docs once it has multiple active
   consumers.
-- Do not copy an existing validation-slice structure unless the new validation slice has
-  earned the same artifact types.
+- Do not copy an existing validation artifact structure unless the new
+  validation question has earned the same artifact types.

@@ -3,12 +3,13 @@
 ## Status
 
 Evidence-backed problem framing. These packets are not validation charters,
-fixtures, product requirements, contracts, schemas, or architecture decisions.
+validation artifacts, product requirements, contracts, schemas, or architecture
+decisions.
 
 ## Purpose
 
 Keep user-facing failure cases close to their evidence without turning them
-into premature fixture or prototype plans. A packet may combine sample-backed
+into premature validation artifacts or prototype plans. A packet may combine sample-backed
 evidence, project-owner clarification, and derived hypotheses, but it must keep
 those layers separate.
 
@@ -36,9 +37,10 @@ resolved by evidence review alone.
 | [`measurement-record-sidecars.md`](measurement-record-sidecars.md) | Measurement rows, Data Vault-style workarounds, sidecars, primary-data ownership, and attachments. |
 | [`running-run-partial-records.md`](running-run-partial-records.md) | Partial recorded data, progress/readiness, stop/interruption, and live-advisory boundaries. |
 | [`analysis-handoff-lineage.md`](analysis-handoff-lineage.md) | Selected-run handoff, derived analysis packets, reports, source links, and same-station access constraints. |
+| [`diagnostics-comparability.md`](diagnostics-comparability.md) | Known-good references, setup reality, diagnostic support packets, and scientific comparability limits. |
 
 ## Promotion Rule
 
 Do not promote a packet directly into product scope. First choose the smallest
-validation question, then decide whether it needs user review, a fixture, an
-interactive prototype, or an ADR.
+validation question, then decide whether it needs user review, a reference
+case, an interactive prototype, or an ADR.

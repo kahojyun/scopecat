@@ -2,7 +2,7 @@
 
 ## Status
 
-Evidence-backed pain packet. Not a validation charter, fixture, runtime
+Evidence-backed pain packet. Not a validation charter, reference case, runtime
 contract, scheduler design, or managed-runner scope.
 
 ## User-Facing Failure

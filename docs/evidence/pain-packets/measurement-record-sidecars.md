@@ -38,7 +38,7 @@ context, what is an attachment, and what remains ambiguous.
   sidecar workaround versus future primary measurement record.
 - Attachment handling should preserve relation uncertainty and avoid rerunning
   notebooks or parsing arbitrary binary payloads.
-- Fixture examples may use tiny CSV/JSON placeholders, but should mark columns,
+- Reference cases may use tiny CSV/JSON placeholders, but should mark columns,
   shape, IDs, and scientific values as synthetic.
 
 ## Premature / Do Not Promote Yet

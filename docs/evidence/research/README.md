@@ -128,7 +128,7 @@ Source material
   -> Option and risk exploration
   -> Scenario candidates
   -> Validation charter
-  -> User, fixture, or prototype validation
+  -> User, reference-case, or prototype validation
   -> Product decision, deletion, or deferral
   -> Contract or ADR only when blocked or accepted scope needs it
 ```
@@ -138,18 +138,18 @@ content:
 
 - source material, extraction notes, and redaction context -> research notes or
   extracted research files
-- repeated pain points and pressure wording -> `evidence/inventory.md`
+- stable evidence claims -> `evidence/inventory.md`
 - evidence interpretation, source posture, and bias rules -> `evidence/method.md`
-- assumptions and validation risks -> the owning evidence, strategy, or
+- assumptions and validation risks -> the owning evidence, pain-packet, strategy, or
   validation document
 - workflow and domain analysis -> extracted research notes or
-  `evidence/inventory.md` when it changes problem framing
+  `evidence/pain-packets/` when it changes problem framing
 - evidence-backed failure packets -> `evidence/pain-packets/`
 - option exploration and adoption hypotheses -> `strategy/adoption-routes.md`
 - scenario candidates and validation charters -> a narrow validation owner only
   when there is a concrete validation question
 - route phase or current coordination -> `status/progress-tracker.md`
-- design pressure -> the evidence inventory or strategy owner
+- design pressure -> the evidence method, pain-packet, or strategy owner
 - stable domain vocabulary -> a narrow contract or future `architecture/`
   owner, only when needed
 - accepted, rejected, deleted, or deferred scope -> a narrow decision document,
@@ -181,10 +181,10 @@ Git history is the long-term fallback for low-value research provenance. Do
 not keep extracted research files in the working tree merely because they once
 existed.
 
-Before deleting a source that supports active `EV`, `PN`, `TP`, decision,
-or fixture work, first leave a compact extracted note, source map, or evidence
-anchor in the current owner. Git history is enough only when the remaining
-value is low and no active owner depends on exact context.
+Before deleting a source that supports active `EV`, decision, validation, or
+architecture work, first leave a compact extracted note, source map, or
+evidence anchor in the current owner. Git history is enough only when the
+remaining value is low and no active owner depends on exact context.
 
 After a research note reaches `Extracted` or `Superseded`, choose one outcome:
 

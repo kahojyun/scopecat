@@ -24,7 +24,7 @@
   `docs/evidence/inventory.md` focused on rows and stable IDs.
 - After extraction or supersession, prefer deleting low-value research notes
   over keeping them indefinitely. Before deleting a source that supports active
-  `EV`, `PN`, `TP`, decision, or fixture work, leave a compact extracted
+  `EV`, decision, validation, or architecture work, leave a compact extracted
   note, source map, or evidence anchor in the current owner. Use `archived/`
   only when there is clear provenance, audit, citation, or rejection-rationale
   value.

@@ -1,206 +1,101 @@
-# Scopecat Vision And Boundaries
+# Product Brief And Boundaries
 
 ## Status
 
-Drafting project vision and boundary note. This is not a roadmap, product
-requirements document, capability map, API contract, storage design, UI spec, or
-architecture decision.
+Drafting product brief. Not a roadmap, PRD, capability map, API contract,
+storage design, UI spec, architecture decision, or validation charter.
 
 ## Purpose
 
-State the clearest project-level product boundaries so later validation work,
-adoption routes, and architecture decisions do not drift into an accidental
-framework replacement, single required starting point, or full-platform adoption
-requirement.
-
-Narrow validation or decision documents, accepted decisions, and future architecture contracts
-own implementation-grade detail. This document owns only durable direction that
-is already clear enough to guide those documents.
+State durable product direction and non-goals so later strategy, validation,
+and architecture work does not drift into a framework replacement, a full lab
+platform, or a single mandatory adoption path.
 
 ## Product Direction
 
 Scopecat is a progressively adoptable workflow-structuring, recording,
 analysis, and handoff layer for scientific measurement workflows.
 
-It helps users turn messy experiment code, data, parameters, analysis,
-decisions, and later handoff into explicit records and workflows that are
-easier to run, inspect, resume, select, package, and automate.
+It helps users turn messy experiment code, data, parameters, analysis choices,
+decisions, and handoff bundles into explicit records and workflows that are
+easier to run, inspect, resume, select, package, compare, and review.
 
-Explainability, provenance, reviewability, and auditability are structural
-benefits of this explicit record layer, but they should not be the only or
-first adoption story. Early adoption should be justified by concrete workflow
-convenience, easier recovery, handoff value, and bounded automation leverage
-only where a route has validated the behavior change.
+Provenance, explainability, lineage, reviewability, and auditability are
+important benefits, but they should usually be earned through concrete workflow
+return. Early adoption should be justified by recovery, selection, handoff,
+diagnostic value, readable progress, or bounded automation value, not by
+provenance as a separate clerical obligation.
 
-Scopecat should complement existing measurement, control, data, and calibration
-systems. It may grow into broader product surfaces over time, but it should not
-make framework replacement the default adoption story.
+Scopecat should complement existing measurement, control, data, calibration,
+and analysis systems. It may grow broader product surfaces over time, but
+framework replacement is not the default story.
 
 ## Adoption Model
 
-Scopecat should be adopted through narrow, independently useful routes. Each
-route should be able to create standalone value for the users who need it, and
-different users may start on different routes.
+Scopecat should be adoptable through narrow, independently useful routes. Each
+route should name:
 
-For many lab users, the first valuable output is not a complete audit trail. It
-is a faster way to find useful runs, choose code or parameter versions, continue
-after interruptions, inspect active data, or move a usable package to another
-analysis context. Provenance and audit records should emerge from the same
-structured workflow rather than require a separate clerical workflow.
+- the first useful output;
+- the user behavior it changes;
+- what users or lab code must provide;
+- what Scopecat will not touch;
+- how the path fails, degrades, or can be disabled safely.
 
-The clearest near-term wedge is recovery plus handoff: make existing runs,
-code, context, and selected data easier to find, trust enough to use, and move
-to analysis without replacing the acquisition stack. Automation remains part of
-the longer product direction, but it should enter early adoption only through
-narrow validation work such as explicit read/monitor records or fixture-scale
-batch outcome reports.
+Different users may start on different routes. A future complete workflow may
+compose several routes, but no first adoption path should require users to
+adopt the whole platform.
 
-Design work should still consider the full set of routes together so later
-composition is possible. A complete workflow may require several routes to
-compose, but no initial adoption path should require users to adopt the full
-platform.
+## System Boundary
 
-Top-level pains are composition pressure, not single-route implementation
-requirements. They can show why multiple capabilities eventually need to work
-together, but each promoted validation target still needs a concrete user
-sequence, validation fixture, explicit boundary, and standalone value.
-
-Before a route is piloted with a lab, its owner should state the minimum
-adoption contract in payoff-first order: the first useful output, the exact
-workflow behavior the lab must change, what the lab must record or provide,
-what Scopecat will not touch, and how the path fails or can be disabled safely.
-
-## Boundary With Existing Experiment Systems
-
-Existing experiment systems should remain the execution and mutation layer until
-a later accepted decision says otherwise. They continue to own:
+Existing experiment systems remain the execution and mutation layer until a
+later accepted decision says otherwise. They continue to own:
 
 - instrument communication and driver behavior;
 - hardware state and safety limits;
 - acquisition timing and acknowledgement paths;
 - live parameter application;
-- run queues, scan execution, and emergency recovery;
+- trusted run queues, scan execution, and emergency recovery;
 - local vendor, LabRAD, QCoDeS, Labber, Bluesky, notebook, or script control
-  practices that are already trusted by a lab.
+  practices already trusted by a lab.
 
-Scopecat should own the evidence layer around those systems. It may:
+Scopecat can own evidence around those systems:
 
-- record measurement data, context, lifecycle events, and decision-relevant
-  facts explicitly sent to it by user experiment code;
-- preserve code references, parameter/context snapshots, selected values,
-  generated artifacts, and source identity;
-- compare current evidence with previous-good, previous-failed, selected, or
-  expected references;
-- record analysis inputs, outputs, and rerun intent when explicitly supplied or
-  validated by a slice;
-- preserve fit, quality, anomaly, and decision evidence;
-- create reviewable parameter-memory records, advisory proposals, annotations,
-  handoff snapshots, and lineage records.
+- explicit measurement records, lifecycle events, context, and decision facts;
+- code references, selected user-code snapshots, entrypoints, and dependency
+  readiness evidence;
+- parameter/context snapshots, selected values, generated artifacts, and source
+  identity;
+- comparison with previous-good, previous-failed, selected, or expected
+  references;
+- analysis inputs, outputs, correction choices, exclusions, fit results,
+  quality evidence, annotations, and handoff packages.
 
-Scopecat records, compares, explains, proposes, and packages. Existing systems
-execute and mutate. The payoff is that users can recover, select, inspect, and
-hand off work around those systems without first replacing trusted control
-software.
+The working boundary is: Scopecat records, compares, explains, proposes, and
+packages. Existing systems execute and mutate. Any exception needs a narrower
+validation owner and, where safety or authority is involved, an ADR.
 
-## Cross-Machine And Storage Boundary
+## Cross-Machine Boundary
 
-Cross-machine workflows should start from portable records, handoff packages,
-and optional shared storage, not remote execution.
+Cross-machine value should start from portable records, explicit export/import,
+handoff packages, and optional shared-storage references. This makes Scopecat
+distributed-record-aware, not a distributed experiment-control system.
 
-This makes Scopecat distributed-record-aware, not a distributed
-experiment-control system. Multiple computers may resolve, copy, or read the
-same record evidence, but that does not mean multiple computers can safely
-operate the same instruments through Scopecat. Indexing beyond simple local
-record lookup remains a later validation and architecture question.
+Multiple computers may resolve, copy, or inspect record evidence. That does
+not mean multiple computers can safely operate the same instruments through
+Scopecat. Remote execution, multi-user command arbitration, account management,
+central databases, background indexers, live sync services, and resource
+leases are later architecture questions, not default adoption requirements.
 
-Scopecat may:
+Shared storage or NAS can be a transport, discovery, or backup aid when a lab
+already has it. Early routes should still work through local records or
+explicit handoff without requiring a server.
 
-- create local-first durable records with stable opaque IDs and portable
-  manifests;
-- export or import selected runs, samples, cooldowns, or handoff packages;
-- preserve enough storage references to later validate publish or read flows
-  through shared folders, NAS, or similar lab storage when the lab already has
-  that infrastructure;
-- record machine-specific locations, legacy source references, access modes,
-  and stale or unavailable storage locations.
+## Recording Boundary
 
-Scopecat should not initially own remote shell/session control, remote
-experiment execution, multi-user command arbitration, account management,
-service discovery, or a central database. Users who need remote operation can
-use existing lab tools such as Remote Desktop, SSH, VPN, or lab IT-managed
-infrastructure.
-
-Instrument access conflicts remain owned by lab infrastructure, existing
-control systems, network or physical isolation, booking and operator
-conventions, or explicit user coordination until a later runtime/resource
-ownership decision accepts leases, arbitration, permissions, failure behavior,
-and safety assumptions.
-
-Shared storage is an optional transport, discovery, and backup target. It is
-not the product center, and early routes should still work on one machine or
-through explicit export/import without a NAS or server.
-
-Concrete shared-storage mechanics such as atomic publish, partial-copy
-handling, concurrent publishers, manifest version discovery, cache
-invalidation, generated indexes, background indexing, and access control are
-architecture questions. They require a narrower fixture, prototype, or ADR
-before they become accepted product behavior.
-
-Data and code also have different sharing semantics. Measurement records are
-usually append-mostly evidence; experiment code needs checkpoint, selected
-version, compare, restore, and machine-local configuration semantics before any
-automatic cross-computer synchronization is considered.
-
-## Automation Responsibility Boundary
-
-Automation is not outside Scopecat's long-term direction. Existing lab
-workflows already contain automation through scripts, notebooks, calibration
-loops, queued cells, framework schedulers, and local operator conventions.
-Scopecat's opportunity is to make that automation explicit, reviewable,
-diagnosable, and progressively safer before it claims authority over hardware
-control.
-
-Keep these responsibilities separate:
-
-- Instrument runtimes, device drivers, vendor software, hardware interlocks,
-  and lab-owned control code own authoritative hardware constraints such as
-  output ranges, ramp behavior, timing, channel capabilities, and emergency-safe
-  states.
-- Queue, plan, and orchestration layers may own execution order, lifecycle
-  state, readiness checks, pause or abort behavior, failure policy, and audit
-  records.
-- Experiment authors and lab operators remain responsible for scientific
-  intent, physical setup assumptions, calibration meaning, and whether a planned
-  sequence is appropriate for the current apparatus.
-- Scopecat may own evidence, frozen intent, review gates, mock or shadow
-  replay, lifecycle records, diagnostics, proposals, and accountability for
-  what was requested, checked, approved, run, skipped, stopped, or failed.
-
-When Scopecat does not own the instrument runtime, it should not claim to
-enforce hardware safety limits. It may record bounds, readiness facts, and
-preflight results supplied by user code, lab-owned runtimes, drivers, or
-operators, and it should preserve which source supplied them.
-
-Automation placement belongs in the experience map or a narrower validation
-slice. Real hardware apply, autonomous calibration, rollback, resource locking,
-and unattended queue execution require accepted boundaries that state the
-runtime owner, safety assumptions, stop behavior, and audit record.
-
-## Explicit Recording Boundary
-
-Scopecat should not actively adapt arbitrary existing measurement frameworks as
-its core live-observation model.
-
-For measurement-time feedback, experiment code should explicitly record the
-needed information into Scopecat: data, sweep semantics, lifecycle/status
-events, parameters, code/context references, progress/readiness markers, and
-any saved decision-relevant facts. Scopecat can then read, display, analyze,
-replay, and package only what was deliberately recorded.
-
-Explicit recording must not silently turn Scopecat into a fragile dependency of
-the acquisition loop. Any promoted recording path should state its safe
-disable, buffering, failure, and acknowledgement behavior before a lab is asked
-to rely on it.
+Scopecat should prefer explicit recording over passive adaptation. Experiment
+code, helper libraries, or lab-owned bridges should deliberately send data,
+sweep semantics, lifecycle/status events, parameters, code/context references,
+progress markers, and saved decisions into Scopecat.
 
 Avoid treating any of these as default integration foundations:
 
@@ -209,98 +104,61 @@ Avoid treating any of these as default integration foundations:
 - reading mid-write mutable files as the primary integration path;
 - scraping framework GUIs or local folders as the normal model;
 - building a matrix of built-in framework-specific auto-adapters;
-- claiming to infer authoritative truth from opaque legacy files.
+- inferring authoritative truth from opaque legacy files.
 
-A lab may later choose to write a bridge from its own framework into Scopecat's
-recording path. That bridge should be treated as user or lab integration code
-that sends explicit records, not as Scopecat owning the source framework.
+Any promoted recording path must state its disable, buffering, failure, and
+acknowledgement behavior before a lab is asked to rely on it.
 
-## Complexity Ownership Boundary
+## Complexity Ownership
 
 Scopecat should keep its core responsibility close to structured measurement
 evidence: explicit records, manifests, statuses, relations, provenance,
 readability, replayability, and reviewable decisions.
 
-It should not absorb every high-complexity edge around that evidence by
-default. Prefer clear user or lab extension points when the problem depends on
-local conventions, domain-specific formats, or sharing policy:
+Local conventions, domain-specific formats, free-text redaction policy,
+physical setup semantics, and framework-specific bridge behavior should enter
+through explicit adapter or policy surfaces. They should not silently become
+core product scope because one workflow needed them.
 
-- Framework bridges should send explicit records into Scopecat rather than
-  making Scopecat actively adapt each existing control framework.
-- Reader support should prioritize a stable, useful basic read path and enough
-  metadata for users to transform or export data into their own analysis tools.
-  Scopecat should not treat every reader view, conversion, or export format as
-  built-in product scope.
-- User-provided artifacts should be cataloged by role, relation, provenance,
-  size or checksum, and explicit status before Scopecat claims semantic
-  understanding. Domain-specific parsing requires a deliberate adapter,
-  fixture, or decision; arbitrary files should not be executed, unpickled,
-  normalized, or interpreted by default.
-- Redaction and publishability should be owned by explicit export or publish
-  workflows. Scopecat may handle structurally known sensitive fields and
-  explicit sensitivity labels, but it should not ship a fixed built-in lab
-  keyword list for samples, devices, projects, acronyms, or local shorthand.
-  Labs or users provide keyword profiles, replacement rules, and publish
-  profiles when a workflow opts into free-text or payload redaction.
-
-This boundary is not an excuse to make users do all integration work. Scopecat
-should make the structured recording path, basic read path, adapter points, and
-policy handoff clear enough that lab-owned complexity can connect without
-becoming hidden product scope.
+This does not mean users must do all integration work. Scopecat should make
+the structured recording path, basic read path, adapter points, and policy
+handoff clear enough that lab-owned complexity can connect deliberately.
 
 ## Not Default Adoption Requirements
 
-The following are not default adoption requirements, prerequisites, or
-replacement targets for every route:
+The following are not default prerequisites, adoption requirements, or
+replacement targets:
 
-- a replacement for the lab's existing measurement GUI or control GUI;
-- an instrument-control framework;
-- a device-driver framework;
+- a replacement for an existing measurement GUI or control GUI;
+- an instrument-control or device-driver framework;
 - a LabRAD, QCoDeS, Labber, Bluesky, or vendor-system compatibility layer;
-- a passive scraper of arbitrary existing measurement artifacts;
-- a complete set of reader views, conversions, or export formats;
-- a semantic parser for arbitrary user-provided artifacts;
+- a passive scraper for arbitrary measurement artifacts;
+- a complete reader/export/conversion suite;
+- a semantic parser for arbitrary user artifacts;
 - a built-in lab keyword list or universal redaction policy;
 - an automatic calibration or parameter write-back system;
-- a workflow scheduler, queue, or remote execution service;
-- a remote desktop, shell, or remote session product;
+- a workflow scheduler, queue, remote execution service, or remote desktop;
 - a required central storage server, deployed database, or sync service;
-- an authoritative source of hardware truth;
-- a lab operations platform for booking, cooldown planning, shift management,
-  personnel coordination, training, incidents, or multi-equipment scheduling;
-- a full ELN, LIMS, publication workflow, or report generator;
+- an authoritative source of hardware, setup, sample, or topology truth;
+- a lab operations platform, ELN, LIMS, publication workflow, or report
+  generator;
 - a universal parameter, setup, sample, or topology ontology.
 
-Some of these areas may become product surfaces, integrations, or later
-capabilities after specific validation work and decisions justify them. For example,
-Scopecat may provide its own run browser for Scopecat-recorded runs, including
-future same-station historical access when a route validates that need. A live
-observation surface is later scope unless it proves adoption value independent
-from remote execution or richer control workflows. Scopecat may also make
-existing queue or calibration automation more explicit before it owns any
-hardware-control runtime. The
-boundary is about adoption prerequisites, silent scope creep, and authority, not
-a promise to avoid these areas forever.
+Some of these may become validated product surfaces later. The boundary is
+about adoption prerequisites, silent scope creep, and authority.
 
 ## Current Value Areas
 
-The clearest current value areas are listed here as direction, not as a single
-ordered first slice:
+Current direction should stay close to these value areas:
 
 - explain an existing run or work bundle without mutating it;
 - recover selected context, code identity, companion artifacts, ambiguity, and
   sharing boundaries;
-- create portable pre-analysis handoff snapshots for selected runs, with
-  finalization and integrity mechanics validated separately;
-- support portable records, explicit export/import, and optional shared-storage
-  discovery without remote execution;
-- compare evidence and gaps without claiming authoritative truth;
+- create portable pre-analysis handoff snapshots for selected runs;
+- support explicit export/import and optional shared-storage discovery without
+  remote execution;
+- compare evidence and gaps without claiming authoritative setup truth;
 - support parameter memory, drift queries, branches, run linkage, and explicit
-  checkpoints before any parameter or calibration mutation ownership;
-- support running-run read/monitor workflows and optional measurement-time
-  decision evidence from explicitly recorded measurement data without taking
-  over hardware control.
-
-These value areas can compose over time. None requires every user to start from
-the same route, and none requires Scopecat to replace the lab's working
-acquisition stack as a prerequisite.
+  checkpoints before mutation ownership;
+- support running-run read/monitor workflows from explicitly recorded data
+  without taking over hardware control.
