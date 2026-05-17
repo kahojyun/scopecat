@@ -19,12 +19,17 @@ is already clear enough to guide those documents.
 
 ## Product Direction
 
-Scopecat is a progressively adoptable evidence, recording, analysis, and
-handoff layer for scientific measurement workflows.
+Scopecat is a progressively adoptable workflow-structuring, recording,
+analysis, and handoff layer for scientific measurement workflows.
 
-It helps users make measurement work explainable, comparable, reviewable, and
-portable across the messy boundary between experiment code, data, parameters,
-analysis, decisions, and later handoff.
+It helps users turn messy experiment code, data, parameters, analysis,
+decisions, and later handoff into explicit records and workflows that are
+easier to run, inspect, resume, select, package, and automate.
+
+Explainability, provenance, reviewability, and auditability are structural
+benefits of this explicit record layer, but they should not be the only or
+first adoption story. Early adoption should be justified by concrete workflow
+convenience, automation leverage, easier recovery, and handoff value.
 
 Scopecat should complement existing measurement, control, data, and calibration
 systems. It may grow into broader product surfaces over time, but it should not
@@ -35,6 +40,12 @@ make framework replacement the default adoption story.
 Scopecat should be adopted through narrow, independently useful routes. Each
 route should be able to create standalone value for the users who need it, and
 different users may start on different routes.
+
+For many lab users, the first valuable output is not a complete audit trail. It
+is a faster way to find useful runs, choose code or parameter versions, continue
+after interruptions, inspect active data, or move a usable package to another
+analysis context. Provenance and audit records should emerge from the same
+structured workflow rather than require a separate clerical workflow.
 
 Design work should still consider the full set of routes together so later
 composition is possible. A complete workflow may require several routes to

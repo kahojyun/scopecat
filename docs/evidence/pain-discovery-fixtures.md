@@ -11,6 +11,12 @@ These fixtures test whether several solution-shaped ideas in the evidence
 inventory are real user pains, enabling capabilities, or premature design. The
 terms below are deliberately phrased as contrasts, not product commitments.
 
+The validation target is the user-visible workflow return, not provenance
+purity by itself. A fixture can preserve provenance and audit evidence, but it
+should still show why a lab user would adopt it for convenience, automation,
+recovery, handoff, or inspection before asking them to change experiment code or
+habits.
+
 The main ideas under review are:
 
 - reviewable intent/outcome records versus a full managed runner;
@@ -169,7 +175,8 @@ resolve a full dependency graph, or decide which copied file is canonical.
 ### Success Criteria
 
 The user can decide whether code snapshot and explicit entrypoint recording
-solve most provenance pain before designing a code registry or managed runner.
+make code selection, recovery, and later explanation useful enough before
+designing a code registry or managed runner.
 
 Sample grounding: copied folders, backup variants, duplicated helpers, mutable
 notebooks, path hacks, and weak canonical identity are direct sample evidence.
@@ -395,6 +402,9 @@ value claim:
 - Validate interactive prototypes before asking users to change experiment
   behavior or rewrite route-owned code: selected-run browsing, parameter query,
   code-version selection, or batch review decisions.
+- Treat provenance-only improvement as insufficient when the fixture requires a
+  user to rewrite experiment behavior. In that case, require a visible
+  convenience, automation, recovery, or handoff payoff.
 - Treat execution prototypes as runtime-boundary evidence, not product scope.
   For batch, simple run-to-completion is only the baseline; stronger payoff
   tests may include resume, retry, review continuation, or selected
@@ -682,7 +692,7 @@ The likely first visible outputs are:
 | Fixture | First useful output |
 | --- | --- |
 | Batch intent/outcome | Declared intent plus simulated outcome now; observed run report only after a minimal local-executor fixture exists. |
-| Code snapshot | Exported snapshot folder with entrypoint and selected code evidence. |
+| Code snapshot | Exported snapshot folder with entrypoint and selected code evidence, useful for choosing or restoring the code that should run next. |
 | Parameter memory bad-state handling | Parameter history view or query showing active, yanked, and excluded states. |
 | Code version selection | Selection report comparing provenance-only tracking with future load-and-run value. |
 | Measurement data/attachments | Reader API or export path over recorded data plus attachments. |
@@ -698,7 +708,8 @@ by cost-to-learning ratio:
   minimal local executor as a possible follow-on validation question, without
   claiming executor evidence already exists.
 - Code snapshot fixture tests whether explicit entrypoint plus selected folder
-  capture solves most no-git provenance pain.
+  capture improves no-git code selection and recovery enough before a registry
+  or loader exists; provenance is a structural benefit, not the only payoff.
 - Measurement fixture tests the recording substrate needed by both batch
   reports and later analysis/handoff.
 - Parameter-memory and code-version-selection fixtures test whether recently

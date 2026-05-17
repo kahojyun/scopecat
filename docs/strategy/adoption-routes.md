@@ -15,6 +15,12 @@ Preserve route hypotheses only when they help current `JC` selection avoid
 overfitting to one slice. A route is durable enough to live here only when it
 names standalone user value that could be adopted progressively.
 
+Route value should be phrased around the workflow return that would make a lab
+change behavior: convenience, recovery, selection, packaging, readable progress,
+or bounded automation. Provenance, auditability, and lineage matter, but they
+should usually appear as benefits of the structured workflow unless a route is
+explicitly downstream analysis or review work.
+
 The canonical `JC` candidate wording, evidence basis, and boundaries still live
 in [`../evidence/inventory.md`](../evidence/inventory.md). The tracker owns
 phase and coordination only.
@@ -23,12 +29,12 @@ phase and coordination only.
 
 | Route hypothesis | Related `JC` refs | Standalone value being tested |
 | --- | --- | --- |
-| Run history and analysis handoff | `JC-001`, `JC-002`, `JC-006`, `JC-015` | Open, understand, reopen, select, package, export/import, optionally discover through shared storage, and later trace measurement work without replacing acquisition code or requiring remote connection. |
-| Method and code portability diagnostics | `JC-004`, `JC-008`, `JC-013` | Explain copied notebooks, scripts, static entrypoint evidence, user-code snapshots, known-good sources, drift, one-time migration, and readiness before any deployment, code-version loader, automatic sync, or managed-runner capability is accepted. |
-| Experiment intent and readiness | `JC-007`, `JC-008` | Current route hypothesis starts with reviewable intent and outcome reports; strong adoption payoff likely requires continuation behavior such as resume, retry, review continuation, or selected remeasurement before managed execution or broader runtime ownership is considered. |
-| Calibration and parameter memory | `JC-003`, `JC-011`, `JC-012` | Start with replacing mutable parameter files through drift queries, branch or working-point history, run linkage, direct-update checkpoints, bad-state labeling/exclusion, and measurement-time fit/readiness evidence before separating proposal/review, apply, or mutation-ownership decisions. |
+| Run selection and analysis handoff | `JC-001`, `JC-002`, `JC-006`, `JC-015` | Find, preview, reopen, select, package, export/import, optionally discover through shared storage, and later trace measurement work without replacing acquisition code or requiring remote connection. |
+| Method and code portability diagnostics | `JC-004`, `JC-008`, `JC-013` | Choose usable entrypoints, snapshots, known-good sources, one-time migrations, and readiness checks around copied notebooks and scripts before any deployment, code-version loader, automatic sync, or managed-runner capability is accepted. |
+| Experiment intent and readiness | `JC-007`, `JC-008` | Reduce hand-written sequencing and calibration-batch bookkeeping through reviewable intent, outcome reports, and readiness checks; strong adoption payoff likely requires continuation behavior such as resume, retry, review continuation, or selected remeasurement before managed execution or broader runtime ownership is considered. |
+| Calibration and parameter memory | `JC-003`, `JC-011`, `JC-012` | Make retry, working-point selection, drift queries, direct-update checkpoints, bad-state labeling/exclusion, and measurement-time fit/readiness easier before separating proposal/review, apply, or mutation-ownership decisions. |
 | Trust, diagnostics, and comparability | `JC-009`, `JC-010`, `JC-012` | Compare known-good references, current bundles, valid-looking runs, setup states, samples, or method variants without claiming equivalence. |
-| Analysis and claim lineage | `JC-002`, `JC-006`, `JC-014` | Trace figures, fits, reports, and claims back to source runs, processing choices, corrections, exclusions, and ambiguity. |
+| Downstream analysis and claim lineage | `JC-002`, `JC-006`, `JC-014` | Recheck figures, fits, reports, and claims by tracing them back to source runs, processing choices, corrections, exclusions, and ambiguity after handoff or analysis work has created a concrete need. |
 
 `JC` overlap means shared evidence or composition pressure, not route
 ownership. A route may reference the same `JC` as another route only to show
@@ -81,7 +87,7 @@ Keep runtime ownership, managed execution, code registry, automatic version
 management, proposal workflow, and similar solution-shaped names out of
 adoption routes by default. Treat them as capability hypotheses; promote only
 pain-framed routes after accepted journey evidence or user validation shows
-standalone value, and after any required ADR or safety decision.
+standalone workflow value, and after any required ADR or safety decision.
 
 Use the owning evidence and fixture docs for lower-level evidence and fixture
 questions:

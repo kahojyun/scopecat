@@ -123,6 +123,16 @@ trust, and technical-owner boundaries matter during journey selection.
 - Most users can write experiment scripts and plot or analyze data, but they do
   not want to spend scarce experiment time on environment repair, configuration
   archaeology, driver issues, or file organization.
+- Current owner clarification says early lab adoption is driven primarily by
+  convenience and automation leverage: easier run selection, context recovery,
+  parameter/version choice, handoff, and measurement-time inspection. Stronger
+  provenance and auditability are useful structural benefits, but they should
+  not require users to maintain a separate clerical workflow before those
+  practical returns are visible.
+- Coarse capture can be acceptable before fine-grained lineage is justified.
+  For example, packaging the relevant experiment environment or selected code
+  context may be a reasonable early workaround when it helps users run, move, or
+  recover work, even if it is not a precise audit model.
 - A smaller technical-owner group maintains devices, drivers, control computers,
   helper packages, and operational conventions. Their work shapes what ordinary
   experiment users can safely rely on, but it should not force every user into a
@@ -194,14 +204,15 @@ rule directly affects row interpretation.
 ## Evidence Gaps Summary
 
 The directly visible artifact-derived recovery categories have enough coverage
-for current provenance and journey-shaping drafts: selected context, ambiguity,
-portability, code and notebook provenance, local runtime readiness, run
-identity, companion artifacts, generated protocol lineage, calibration and
-configuration mutation pressure, analysis handoff, derived artifacts, and
-anti-patterns. This is not a claim that source-map coverage, user demand, or
-failure-case coverage is complete. The measurement data model is also not
-saturated: ordinary complex measurement cases such as shots, VNA-like traces,
-analysis arrays, and reader/export behavior still need fixture evidence.
+for current workflow-structuring, recovery, and provenance-supporting drafts:
+selected context, ambiguity, portability, code and notebook provenance, local
+runtime readiness, run identity, companion artifacts, generated protocol
+lineage, calibration and configuration mutation pressure, analysis handoff,
+derived artifacts, and anti-patterns. This is not a claim that source-map
+coverage, user demand, or failure-case coverage is complete. The measurement
+data model is also not saturated: ordinary complex measurement cases such as
+shots, VNA-like traces, analysis arrays, and reader/export behavior still need
+fixture evidence.
 
 Future research should target exact examples, citations, fixtures, or latent
 workflow validation for JTBD conversion, plan preview, dry-run packaging,
@@ -353,6 +364,13 @@ This is pain decomposition: a narrative can seed a journey, but it is not the
 journey itself. A journey still needs actors, sequence, entry and exit
 conditions, stakes, and acceptance checks.
 
+When a narrative asks users to change experiment behavior, prefer the pain
+framing that explains the practical return: less hunting, easier selection,
+better recovery, simpler handoff, readable progress, or less hand-rolled
+automation. Provenance and audit records can justify later review and debugging,
+but they should not be treated as the primary adoption payoff unless the
+selected route is explicitly downstream analysis or review.
+
 Treat top-level pains as composition pressure, not single-route
 implementation requirements. A TP may need several adoption routes to fully
 resolve in the complete system, while any promoted validation slice should
@@ -467,7 +485,7 @@ redaction risks.
 ## Saturation Assessment
 
 The recurring directly visible evidence pass categories have enough coverage
-for current provenance-oriented journey drafting:
+for current workflow-structuring and provenance-supporting journey drafting:
 
 - selected context, ambiguity, and portability;
 - code/notebook provenance;
@@ -480,8 +498,9 @@ for current provenance-oriented journey drafting:
 - anti-patterns that should not be preserved.
 
 Future journey work probably should not need another broad pass over those
-artifact-derived categories before drafting a provenance-oriented journey, but
-this is a working judgment rather than a saturation proof. It applies only to
+artifact-derived categories before drafting a workflow-structuring or
+provenance-supporting journey, but this is a working judgment rather than a
+saturation proof. It applies only to
 the reviewed predecessor and workflow-improvement source families, not to
 adoption-risk hypotheses, cross-lab demand, role behavior, market
 differentiation, or completion of the measurement data model. Remaining
