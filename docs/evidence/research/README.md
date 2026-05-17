@@ -144,6 +144,7 @@ content:
   validation document
 - workflow and domain analysis -> extracted research notes or
   `evidence/inventory.md` when it changes problem framing
+- evidence-backed failure packets -> `evidence/pain-packets/`
 - option exploration and adoption hypotheses -> `strategy/adoption-routes.md`
 - scenario candidates and validation charters -> a narrow validation owner only
   when there is a concrete validation question

@@ -73,12 +73,12 @@ adoption routes by default. Treat them as capability hypotheses. Promote only
 pain-framed routes after user validation or thin validation work shows
 standalone workflow value, and after any required ADR or safety decision.
 
-Use the owning evidence and fixture docs for lower-level questions:
+Use the owning evidence and pain-packet docs for lower-level questions:
 [`../evidence/inventory.md`](../evidence/inventory.md) owns evidence and pain
 rows, while
-[`../evidence/pain-discovery-fixtures.md`](../evidence/pain-discovery-fixtures.md)
-owns current fixture questions and support levels. Fixture notes should not
-define route promotion by themselves.
+[`../evidence/pain-packets/README.md`](../evidence/pain-packets/README.md)
+owns current failure packets and support levels. Pain packets should not define
+route promotion by themselves.
 
 Routes may guide scenario or validation-charter selection and cross-option
 review. They do not own contracts, implementation boundaries, API schemas,

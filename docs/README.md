@@ -20,6 +20,8 @@ that can be handled inside one AI session.
   hypotheses; the tracker only coordinates their current phase.
 - `evidence/inventory.md` owns evidence rows and stable pressure IDs, while
   `evidence/method.md` owns interpretation rules.
+- `evidence/pain-packets/README.md` indexes evidence-backed failure packets
+  without promoting them into validation fixtures or product scope.
 - `AGENTS.md` contains rules that should apply to every AI session working
   inside `docs/`.
 

@@ -1,5 +1,0 @@
-Public-safe placeholder for an old-system near-raw sidecar.
-
-The real sample contains NPZ/JSON/CSV sidecars and run-adjacent copied context.
-This placeholder exists only to test cataloging and migration handling. It is
-not a future primary measurement format.
