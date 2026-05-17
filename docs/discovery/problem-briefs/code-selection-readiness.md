@@ -9,7 +9,8 @@ Evidence-backed problem brief.
 Experiment code, notebooks, helpers, and local runtime assumptions fragment
 into copied folders, backup variants, path hacks, ambiguous notebooks, and weak
 canonical identity. Users need to choose, restore, explain, or migrate the code
-that matters without adopting a full code registry or managed execution system.
+that matters without adopting a full code registry, deployment system, or
+general managed execution platform.
 
 ## Observed Sample Evidence
 
@@ -29,19 +30,23 @@ that matters without adopting a full code registry or managed execution system.
   previous version may be the clearer workflow payoff.
 - Folder selection plus ignore rules may be enough before dependency closure or
   registry semantics.
+- A selected code reference should be usable by later run, handoff, or
+  calibration-batch workflows; otherwise users may still have to manually
+  reconstruct which code should run.
 
 ## Derived Hypotheses
 
 - Start with explicit selected folder, entrypoint, snapshot/checkpoint,
   duplicate/copy ambiguity, and readiness notes.
-- Code-version selection should distinguish tracking-only value from future
-  load-selected-version value.
-- Readiness should be fail-before-write diagnostics, not managed execution.
+- Code-version selection should include a thin selected-version handoff for
+  later local execution, not only retrospective tracking.
+- Readiness should be fail-before-write diagnostics and selected-code binding,
+  not a general managed execution platform.
 
 ## Out Of Scope For This Brief
 
-- Dependency closure, process isolation, code registries, Git hosting,
-  automatic sync, deployment management, and managed runners.
+- Full dependency closure, process isolation platforms, code registries, Git
+  hosting, automatic sync, deployment management, and managed runner platforms.
 - Inferring canonical status from folder names such as `old`, `backup`, `_bk`,
   `copy`, or `temp`.
 
@@ -49,5 +54,5 @@ that matters without adopting a full code registry or managed execution system.
 
 - Is explicit entrypoint plus selected-folder snapshot enough to improve code
   selection, recovery, and explanation?
-- If tracking-only is too weak, what minimum selected-version workflow creates
-  value before Scopecat owns process execution?
+- Can selected code references feed later local run or calibration-batch steps
+  without Scopecat becoming a deployment or managed-runner system?

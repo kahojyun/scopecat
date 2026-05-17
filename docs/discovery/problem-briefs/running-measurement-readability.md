@@ -38,8 +38,11 @@ sweep than to in-run scan-plan adjustment.
 
 - Start with explicit recording, progress/readiness markers, and a reader path
   ordinary scripts or a simple GUI monitor can consume.
-- Cursor movement, temporary range selection, and preview fits need not be
-  durable unless the user saves a fit result or operator decision.
+- Cursor movement and temporary range selection need not be durable unless the
+  user saves a fit result or operator decision.
+- User-requested preview computation, such as fitting a parabola over a
+  selected range, can be part of monitor usefulness without becoming automatic
+  scan-plan adjustment.
 
 ## Out Of Scope For This Brief
 
@@ -51,7 +54,7 @@ sweep than to in-run scan-plan adjustment.
 
 - Can explicit partial records plus progress/readiness markers let users inspect
   useful parts of a running measurement before it ends?
-- Does range selection plus parabolic fitting make the monitor useful enough without
-  promoting adaptive scan mutation or automatic next-step advice?
+- Does range selection plus parabolic fitting make the monitor useful enough
+  without promoting adaptive scan mutation or automatic next-step advice?
 - Which readiness granularity is real enough to justify changing experiment
   code?

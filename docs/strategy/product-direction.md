@@ -45,7 +45,8 @@ Python/helper steps and improves a concrete workflow such as calibration
 continuation. Inside an IPython or notebook-like local arbitrary-code
 environment, code execution itself is not the main product boundary. Remote
 execution, open-ended autonomy, concurrency, resource arbitration, automatic
-retry/mutation policy, and parameter write-back are separate decisions.
+retry/mutation policy, and Scopecat-decided parameter write-back are separate
+decisions.
 
 Scopecat's executor value should come from experiment semantics, not from
 being a general code runner. It may wrap an existing runtime or workflow
@@ -55,13 +56,14 @@ links to runs, parameters, code references, known-good references, and analysis
 handoff.
 
 Scopecat can own records and explanations around those systems: measurement
-records, context, lifecycle events, code references, parameter snapshots,
-generated artifacts, selected references, analysis choices, quality notes,
-annotations, and handoff packages.
+records, context, lifecycle events, selected code references, parameter
+snapshots, declared parameter-write records, generated artifacts, selected
+references, analysis choices, quality notes, annotations, and handoff packages.
 
 Cross-machine value should start from portable records, explicit export/import,
-handoff packages, and optional shared-storage references. This makes Scopecat
-record-aware across machines, not a distributed experiment-control system.
+handoff packages, existing shared-storage discovery or references, and
+openability checks. This makes Scopecat record-aware across machines, not a
+distributed experiment-control system.
 
 Recording should be explicit. Experiment code, helper libraries, or lab-owned
 bridges should deliberately send data, sweep semantics, lifecycle/status
@@ -87,8 +89,9 @@ These are not default adoption prerequisites:
   model;
 - providing a complete reader/export/conversion suite or semantic parser for
   arbitrary user artifacts;
-- owning calibration write-back, parameter mutation, general scheduling, remote
-  execution, open-ended autonomy, central storage, or sync services;
+- autonomously deciding calibration write-back or parameter mutation;
+- owning general scheduling, remote execution, open-ended autonomy, central
+  storage, or sync services;
 - becoming the authoritative source of hardware, setup, sample, or topology
   truth;
 - replacing lab operations, ELN, LIMS, publication, or report-generation

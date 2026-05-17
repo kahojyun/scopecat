@@ -37,14 +37,17 @@ without losing context or silently trusting incomplete artifacts.
   recovery/status packages.
 - Stable opaque record IDs, legacy source refs, machine-specific locations, and
   optional shared-storage refs may be enough before central storage or sync.
+- Existing NAS or shared-folder locations may support handoff package
+  discovery, indexing, validation, or openability checks without making
+  Scopecat the owner of central storage or sync.
 - Selection rationale should become first-class: active ID, rejected
   alternatives, anomaly notes, and missing derived inputs.
 
 ## Out Of Scope For This Brief
 
 - Full report generation, publication workflow, automatic reanalysis, claim
-  correctness scoring, central services, remote execution, and mandatory shared
-  storage.
+  correctness scoring, central services, remote execution, mandatory shared
+  storage, and multi-user sync services.
 - Treating folder names such as `old`, `backup`, or `copy` as proof of status.
 
 ## Possible Validation Questions
@@ -52,5 +55,7 @@ without losing context or silently trusting incomplete artifacts.
 - Can selected-run packages preserve source identity, companion files,
   missing-context warnings, and portable openability better than manual copy
   workflows?
+- Can Scopecat discover, index, or validate selected handoff bundles on
+  existing shared storage without becoming a central storage service?
 - When do downstream analysis/report links become valuable enough to validate
   as their own question rather than as handoff detail?

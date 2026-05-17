@@ -28,24 +28,28 @@ retried, and which bad writes should be excluded from later analysis.
   update style is common and should not be dismissed.
 - Bad states should not be deleted by default. The useful model is closer to
   yank/exclude-from-default-analysis than hard delete.
+- User-declared parameter write steps may be part of a local batch or
+  calibration workflow. The stronger boundary is Scopecat deciding what to
+  mutate, not Scopecat recording or executing an explicit user-authored write.
 
 ## Derived Hypotheses
 
 - A small validation question could compare direct updates plus automatic
   checkpoint/diff recording against explicit proposal/review.
-- Run-linked parameter history may be valuable before Scopecat owns any apply
-  or mutation path.
+- Run-linked parameter history, previews, checkpoints, and declared write-step
+  records may be valuable before Scopecat owns automatic mutation decisions.
 
 ## Out Of Scope For This Brief
 
-- Universal parameter models, final storage format, write-back ownership,
-  rollback automation, hard-delete policy, and autonomous calibration.
+- Universal parameter models, final storage format, Scopecat-decided write-back
+  ownership, rollback automation, hard-delete policy, and autonomous
+  calibration.
 - Treating static files as authoritative live hardware or setup truth.
 
 ## Possible Validation Questions
 
 - Can retained history, run links, branch/working-point labels, and bad-state
-  exclusion solve the immediate drift/retry pain without Scopecat applying
-  parameters?
+  exclusion solve the immediate drift/retry pain while making declared writes
+  auditable?
 - Is proposal/review adopted only in higher-risk paths, or does it need to be
   part of the first parameter-memory experience?
