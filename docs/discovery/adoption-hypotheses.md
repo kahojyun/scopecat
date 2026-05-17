@@ -48,3 +48,10 @@ and managed load-selected-version execution remain later hypotheses.
 General runtime ownership, managed execution, code registries, automatic
 version management, proposal workflows, and similar solution names should stay
 out of this file unless a validation result makes them the next question.
+
+High-bar runtime expansion is not permanently excluded. Owning drivers, scan
+framework behavior, hardware-control runtime, service lifecycle, concurrency,
+or resource arbitration should be treated as later expansion pressure that needs
+separate evidence and decision records, not as an early adoption assumption.
+If validated later, these capabilities should remain optional adoption paths or
+backend choices rather than mandatory replacements for existing lab systems.

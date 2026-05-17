@@ -77,6 +77,26 @@ physical setup semantics, and framework-specific bridge behavior should enter
 through explicit adapter or policy surfaces. They should not silently become
 core product scope because one workflow needed them.
 
+## Expansion Posture
+
+Early design should preserve future expansion paths without making them default
+adoption requirements. Scopecat can start at the experiment-semantics and
+workflow layer while leaving room for deeper runtime ownership if later evidence
+shows that adapters, references, readiness checks, or handoff records are not
+enough.
+
+Higher-bar expansions include owning more scan execution semantics, stronger
+device-service lifecycle support, deeper concurrency/resource behavior, or
+selected driver/control capabilities. These are not ruled out permanently, but
+they need explicit validation and decision records because they change
+responsibility for hardware state, timing, recovery, and lab operations.
+
+Future scan, driver, or control capabilities should be optional adoption paths
+and backend choices, not mandatory replacements for existing lab systems. A lab
+should be able to keep using LabRAD, QCoDeS, Labber, vendor systems, or
+lab-owned scripts while adopting only the Scopecat layers that improve its
+current workflow.
+
 ## Not Default Adoption Prerequisites
 
 Early adoption should not require:
@@ -101,7 +121,7 @@ bridges.
 
 ## Product Non-Goals
 
-Scopecat should not become:
+Without a later explicit decision, Scopecat should not become:
 
 - the authoritative runtime for drivers, low-level hardware control,
   timing-critical execution, or lab-owned service operations;
