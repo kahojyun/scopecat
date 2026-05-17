@@ -12,8 +12,9 @@ status. Index descriptors are navigation labels, not validation statuses.
 
 ```text
 docs/
-  strategy/   project direction and adoption routes
-  evidence/   evidence inventory, pain packets, interpretation method, research intake
+  strategy/   product direction and boundaries
+  discovery/  problem briefs and adoption hypotheses
+  evidence/   evidence inventory, interpretation method, research intake
   status/     compact coordination
 ```
 
@@ -23,10 +24,10 @@ docs/
 | --- | --- | --- | --- |
 | [`README.md`](README.md) | Stable policy | Documentation purpose, entry points, and editing rules. | Should stay compact and avoid current file inventory. |
 | [`AGENTS.md`](AGENTS.md) | Stable policy | Always-applied AI instructions for work inside `docs/`. | Keep operational; do not move long background here. |
-| [`strategy/vision.md`](strategy/vision.md) | Drafting product brief | Current product direction and boundaries: progressive adoption, explicit recording, complementing existing experiment systems, complexity ownership, and clear non-goals. | Not a roadmap, PRD, capability map, API/schema/UI/storage contract, or architecture decision. |
-| [`strategy/adoption-routes.md`](strategy/adoption-routes.md) | Provisional route owner | Product-value route hypotheses grouped by user-visible payoff and behavior change. | Not a roadmap, capability map, implementation order, or product acceptance claim. |
-| [`evidence/inventory.md`](evidence/inventory.md) | Evidence owner | Stable `EV-*` evidence claims and source posture. | Interpretation rules belong in `evidence/method.md`; problem framing belongs in `evidence/pain-packets/`. |
-| [`evidence/pain-packets/README.md`](evidence/pain-packets/README.md) | Pain packet index | Evidence-backed failure packets split by observed sample evidence, owner clarification, derived hypotheses, and premature scope. | Not validation charters, product requirements, schemas, contracts, or architecture decisions. |
+| [`strategy/product-brief.md`](strategy/product-brief.md) | Drafting product brief | Current product direction and boundaries: progressive adoption, explicit recording, complementing existing experiment systems, complexity ownership, and clear non-goals. | Narrower docs own validation, contracts, schemas, and decisions. |
+| [`discovery/adoption-hypotheses.md`](discovery/adoption-hypotheses.md) | Provisional hypothesis owner | Product-value hypotheses grouped by user-visible behavior change. | Not implementation order or accepted product scope. |
+| [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md) | Problem brief index | Evidence-backed problem briefs split by observed sample evidence, owner clarification, derived hypotheses, and current boundary. | Not validation charters or product requirements. |
+| [`evidence/inventory.md`](evidence/inventory.md) | Evidence owner | Stable `EV-*` evidence claims and source posture. | Interpretation rules belong in `evidence/method.md`; problem framing belongs in `discovery/problem-briefs/`. |
 | [`evidence/method.md`](evidence/method.md) | Evidence method | Source confidence, bias correction, source-handling guardrails, prompt-method hygiene, design pressure handling, and external baseline interpretation. | Does not own evidence rows or accepted validation scope. |
 | [`evidence/external-baseline.md`](evidence/external-baseline.md) | External baseline | Public framework references used to avoid false differentiation claims. | Recheck versions and access dates before using for published claims or implementation decisions. |
 | [`status/progress-tracker.md`](status/progress-tracker.md) | Active tracker | Compact phase, link, and coordination surface. | Not a task queue, roadmap, or second backlog. |

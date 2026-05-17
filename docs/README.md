@@ -2,7 +2,7 @@
 
 `docs/` is Scopecat's long-lived project memory. It preserves context that
 must survive across AI sessions and the project lifecycle: product framing,
-research conclusions, workflow and scenario framing, architecture contracts,
+research conclusions, problem framing, architecture contracts,
 decisions, public user documentation, and unresolved questions.
 
 Do not use `docs/` for temporary reasoning, per-session task lists, or notes
@@ -12,15 +12,15 @@ that can be handled inside one AI session.
 
 - `index.md` lists the current high-value documents and how to use
   them.
-- `strategy/vision.md` states current project-level product direction and boundaries:
+- `strategy/product-brief.md` states current product direction and boundaries:
   what Scopecat does, how it complements existing experiment systems, what
   complexity belongs to users or lab-owned adapters, and what is not a default
   adoption requirement.
-- `strategy/adoption-routes.md` owns provisional product-value route
+- `discovery/adoption-hypotheses.md` owns provisional product-value
   hypotheses; the tracker only coordinates their current phase.
 - `evidence/inventory.md` owns stable evidence claims, while
   `evidence/method.md` owns interpretation rules.
-- `evidence/pain-packets/README.md` indexes evidence-backed failure packets
+- `discovery/problem-briefs/README.md` indexes evidence-backed problem briefs
   without promoting them into validation artifacts or product scope.
 - `AGENTS.md` contains rules that should apply to every AI session working
   inside `docs/`.
@@ -30,28 +30,23 @@ entry point, not a second index.
 
 ## Analysis Model
 
-Use this working model for product analysis. It is not a checklist and should
-not force every claim through every step:
+Use this ownership model for product analysis:
 
 ```text
 Source material
   -> Evidence and claim hygiene
-  -> Problem, workflow, and domain framing
-  -> Option and risk exploration
-  -> Scenario candidates
-  -> Validation charter
-  -> User, reference-case, or prototype validation
-  -> Product decision, deletion, or deferral
-  -> Contract or ADR only when blocked or accepted scope needs it
+  -> Problem and workflow framing
+  -> Hypotheses and validation questions
+  -> Validation result or deletion
+  -> Product decision or contract only when needed
 ```
 
 Adjacent steps can be worked in the same pass, but they should not collapse
 into the same artifact by default. Evidence hygiene, problem framing, option
 exploration, validation results, and product contracts have different owners.
 
-The current project is mostly in evidence and claim hygiene; problem, workflow,
-and domain framing; and option and risk exploration. Scenario,
-validation-charter, prototype, decision, contract, and ADR documents should
+The current project is mostly in evidence hygiene, problem framing, and
+hypothesis comparison. Validation, decision, contract, and ADR documents should
 appear only when they answer a concrete next question.
 
 Progressive adoption stories should be product-value-first: users adopt a

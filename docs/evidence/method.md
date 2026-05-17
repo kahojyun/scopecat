@@ -22,8 +22,8 @@ permission to merge their durable artifacts.
 | Work layer | Usually belongs together | Durable owner |
 | --- | --- | --- |
 | Source intake and evidence hygiene | Source material, extraction, claim classification, source posture, and bias triage. | Research notes, extracted research files, `inventory.md`, and this method document. |
-| Problem framing | Problem or pressure clustering, workflow/domain analysis, assumptions, and risks. | `pain-packets/`, extracted research notes, or strategy docs when framing changes route hypotheses. |
-| Option exploration | Adoption hypotheses, scenario candidates, validation questions, and charter drafting. | Strategy docs or a narrow validation owner; do not treat options as accepted scope. |
+| Problem framing | Problem or pressure clustering, workflow/domain analysis, assumptions, and risks. | `../discovery/problem-briefs/`, extracted research notes, or discovery docs when framing changes hypotheses. |
+| Option exploration | Adoption hypotheses, scenario candidates, validation questions, and charter drafting. | Discovery docs or a narrow validation owner; do not treat options as accepted scope. |
 | Validation and disposition | User validation, reference-case validation, prototype validation, acceptance, deletion, or deferral. | The owning validation, decision, tracker, or reference-case document. |
 | Contracts and architecture | Stable vocabulary, API/schema/storage contracts, ownership boundaries, and ADRs. | Future `architecture/` content only when blocked or accepted scope needs it. |
 
@@ -81,14 +81,14 @@ urgent, ready for implementation, or especially high leverage.
 `EV-*` is the only stable evidence ID family. After an evidence ID is
 referenced from another document, do not renumber it. Add a new row instead.
 
-Problem framing now uses named pain-packet documents rather than durable pain
-IDs. If a problem packet needs a stable reference, link to the packet filename
+Problem framing now uses named problem-brief documents rather than durable pain
+IDs. If a problem brief needs a stable reference, link to the brief filename
 and heading.
 
 ## Problem-Framing Rubric
 
-Use pain packets to move from evidence toward user-facing failures. A good
-packet separates:
+Use problem briefs to move from evidence toward user-facing failures. A good
+brief separates:
 
 - observed sample evidence;
 - project-owner clarification;
@@ -96,7 +96,7 @@ packet separates:
 - premature or solution-shaped scope;
 - possible validation questions.
 
-Do not promote a packet directly into product scope. A packet becomes useful
+Do not promote a brief directly into product scope. A brief becomes useful
 when it helps choose a smaller next question, not when it accumulates the most
 capabilities.
 
@@ -123,7 +123,8 @@ is already expected to provide.
 
 When evidence changes, use these prompts:
 
-- If a new row changes a pain packet or adoption route, update that owner.
+- If a new row changes a problem brief or adoption hypothesis, update that
+  owner.
 - If a source is messy, biased, generated, or historical, preserve the useful
   pressure and label its class instead of either deleting it or over-promoting
   it.

@@ -2,8 +2,7 @@
 
 ## Status
 
-Evidence-backed pain packet. Not a code registry, dependency lock contract,
-managed runner, package manager, or deployment design.
+Evidence-backed problem brief.
 
 ## User-Facing Failure
 
@@ -40,7 +39,7 @@ execution system.
   load-selected-version value.
 - Readiness should be fail-before-write diagnostics, not managed execution.
 
-## Premature / Do Not Promote Yet
+## Current Boundary
 
 - Hash snapshot manifests as observed user practice.
 - `uv.lock`, portable dependency closure, temp run folders, process isolation

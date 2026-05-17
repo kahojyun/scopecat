@@ -8,9 +8,9 @@ roadmap, capability map, or validation task list.
 Use owner documents for durable detail:
 
 - evidence claims: [`../evidence/inventory.md`](../evidence/inventory.md)
-- pain packet framing: [`../evidence/pain-packets/README.md`](../evidence/pain-packets/README.md)
-- product direction: [`../strategy/vision.md`](../strategy/vision.md)
-- adoption route hypotheses: [`../strategy/adoption-routes.md`](../strategy/adoption-routes.md)
+- problem framing: [`../discovery/problem-briefs/README.md`](../discovery/problem-briefs/README.md)
+- product direction: [`../strategy/product-brief.md`](../strategy/product-brief.md)
+- adoption hypotheses: [`../discovery/adoption-hypotheses.md`](../discovery/adoption-hypotheses.md)
 
 ## Coordination Phases
 
@@ -27,16 +27,13 @@ contract, or ADR document.
 
 | Item | Phase | Owner | Coordination note |
 | --- | --- | --- | --- |
-| Evidence register cleanup | Ready | [`../evidence/inventory.md`](../evidence/inventory.md) | The old candidate layer and its prototypes were removed. The inventory now owns stable evidence claims only; problem framing moved to pain packets and route hypotheses. |
-| Product-value route hypotheses | Provisional | [`../strategy/adoption-routes.md`](../strategy/adoption-routes.md) | Routes remain useful as adoption-value hypotheses, but they are not implementation order or accepted scope. |
-| Pain packet cleanup | Ready | [`../evidence/pain-packets/README.md`](../evidence/pain-packets/README.md) | The premature synthetic validation layer was removed. Pain packets now preserve evidence-backed failures, owner clarifications, hypotheses, and premature boundaries. |
+| Evidence register | Ready | [`../evidence/inventory.md`](../evidence/inventory.md) | Owns stable evidence claims only. |
+| Problem briefs | Ready | [`../discovery/problem-briefs/README.md`](../discovery/problem-briefs/README.md) | Own evidence-backed failure framing and current boundaries. |
+| Adoption hypotheses | Provisional | [`../discovery/adoption-hypotheses.md`](../discovery/adoption-hypotheses.md) | Own behavior-change hypotheses for future validation selection. |
 
 ## Active Validation Work
 
-There is no active accepted validation target after the cleanup. Previous
-prototype-heavy slices were deleted because they encoded more detail than the
-current evidence model needs. Git history remains the fallback if a future
-validation charter justifies reconstructing one.
+There is no active accepted validation target.
 
 ## Review Rule
 
@@ -47,5 +44,5 @@ Update this tracker only when shared coordination changes:
 - a candidate validation question moves into or out of active coordination;
 - a cross-option or cross-validation dependency changes.
 
-Keep detailed reasoning in the owning evidence, strategy, pain-packet,
+Keep detailed reasoning in the owning evidence, discovery, strategy,
 validation, decision, or contract document.

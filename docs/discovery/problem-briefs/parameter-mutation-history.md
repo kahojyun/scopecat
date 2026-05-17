@@ -2,8 +2,7 @@
 
 ## Status
 
-Evidence-backed pain packet. Not a storage schema, write-back contract,
-permission model, rollback design, or autonomous calibration scope.
+Evidence-backed problem brief.
 
 ## User-Facing Failure
 
@@ -17,7 +16,7 @@ retried, and which bad writes should be excluded from later analysis.
 - Experiment and calibration code directly overwrites parameter JSON.
 - Historical analysis reads run-scoped parameter snapshots.
 - Setting directories contain active files, backups, dated variants, lock
-  clues, generated sidecars, and run-number snapshots.
+  clues, generated companion files, and run-number snapshots.
 - Local parameter manager code shows snapshot, diff, and reset pressure, but
   does not validate product rollback semantics.
 
@@ -37,7 +36,7 @@ retried, and which bad writes should be excluded from later analysis.
 - Run-linked parameter history may be valuable before Scopecat owns any apply
   or mutation path.
 
-## Premature / Do Not Promote Yet
+## Current Boundary
 
 - Universal parameter model, final storage format, permission model, write-back
   ownership, rollback automation, hard-delete policy, or autonomous calibration.

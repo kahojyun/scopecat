@@ -20,9 +20,9 @@ realistic lab workflow pressure. Prefer promoted owner docs first:
 
 - stable evidence claims: [`../../inventory.md`](../../inventory.md)
 - evidence interpretation rules: [`../../method.md`](../../method.md)
-- failure packets: [`../../pain-packets/`](../../pain-packets/)
-- adoption route hypotheses: [`../../../strategy/adoption-routes.md`](../../../strategy/adoption-routes.md)
-- product boundaries: [`../../../strategy/vision.md`](../../../strategy/vision.md)
+- problem briefs: [`../../../discovery/problem-briefs/`](../../../discovery/problem-briefs/)
+- adoption hypotheses: [`../../../discovery/adoption-hypotheses.md`](../../../discovery/adoption-hypotheses.md)
+- product boundaries: [`../../../strategy/product-brief.md`](../../../strategy/product-brief.md)
 
 Do not infer product acceptance directly from this note. Promote only narrow
 claims into owner documents after reference-case, interview, spike, or existing
@@ -32,15 +32,15 @@ evidence review.
 
 | Workflow area | Current promoted owner |
 | --- | --- |
-| Existing artifact explanation and context ambiguity | EV-001, EV-002, EV-003, EV-006, EV-007 and relevant pain packets. |
+| Existing artifact explanation and context ambiguity | EV-001, EV-002, EV-003, EV-006, EV-007 and relevant problem briefs. |
 | Selected-run analysis handoff | EV-009, EV-022, EV-039, EV-044, EV-045 and handoff route pressure. |
 | Code/config readiness and dry-run packaging | EV-006, EV-007, EV-021, EV-025, EV-050 and code/readiness pressure. |
-| Parameter memory and calibration decision evidence | EV-004, EV-005, EV-015, EV-038 and parameter/calibration pain packets. |
-| Measurement-time read/monitor pressure and deferred advisory hypotheses | EV-046, EV-047 and running-run pain packet. |
-| Setup reality and declared local schema | EV-041, EV-042, EV-043 and diagnostics/comparability packet. |
-| Scientific comparison and known-good diagnostics | EV-030, EV-032, EV-036, EV-037, EV-041, EV-042 and diagnostics/comparability packet. |
-| Derived analysis and claim lineage | EV-017, EV-018, EV-039 and analysis handoff packet. |
-| Bounded local automation handoff | EV-024 and batch failure/review packet; still requires runtime-boundary evidence before execution scope. |
+| Parameter memory and calibration decision evidence | EV-004, EV-005, EV-015, EV-038 and parameter/calibration problem briefs. |
+| Measurement-time read/monitor pressure and deferred advisory hypotheses | EV-046, EV-047 and running-run problem brief. |
+| Setup reality and declared local schema | EV-041, EV-042, EV-043 and diagnostics/comparability brief. |
+| Scientific comparison and known-good diagnostics | EV-030, EV-032, EV-036, EV-037, EV-041, EV-042 and diagnostics/comparability brief. |
+| Derived analysis and claim lineage | EV-017, EV-018, EV-039 and analysis handoff brief. |
+| Bounded local automation handoff | EV-024 and batch failure/review brief; still requires runtime-boundary evidence before execution scope. |
 
 ## Retained Workflow Lenses
 
@@ -72,7 +72,7 @@ Relevant pressures:
 - wiring sheets, registry files, driver initialization, setup diagnostics, and
   local aliases;
 - physical facts that software alone cannot prove;
-- support packets that may need recipient-aware sharing boundaries.
+- support context that may need recipient-aware sharing boundaries.
 
 Avoid promoting:
 
@@ -136,7 +136,7 @@ Before promoting a detail from this note, answer:
 - Which `EV-*` claims support it?
 - Is it observed evidence, owner clarification, derived hypothesis, or
   low-confidence design pressure?
-- Which pain packet or route owns the next durable statement?
+- Which problem brief or hypothesis owns the next durable statement?
 - What smaller question can be answered before accepting architecture or
   execution scope?
 - What would make this detail safe to delete from the research note?

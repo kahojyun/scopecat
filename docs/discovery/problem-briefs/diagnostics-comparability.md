@@ -2,8 +2,7 @@
 
 ## Status
 
-Evidence-backed pain packet. Not a validation charter, diagnostic schema,
-setup model, equivalence score, rollback design, or support workflow contract.
+Evidence-backed problem brief.
 
 ## User-Facing Failure
 
@@ -46,7 +45,7 @@ facts that matter scientifically or operationally.
 - Recipient-aware sharing is a separate product question from public-safe
   redaction.
 
-## Premature / Do Not Promote Yet
+## Current Boundary
 
 - Scopecat-owned setup truth, automatic equivalence scoring, rollback,
   deployment, remote support agents, or managed environment mutation.

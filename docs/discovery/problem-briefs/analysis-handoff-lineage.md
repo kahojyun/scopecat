@@ -2,12 +2,11 @@
 
 ## Status
 
-Evidence-backed pain packet. Not a report generator, publication workflow,
-central storage plan, remote execution surface, or full ELN/LIMS scope.
+Evidence-backed problem brief.
 
 ## User-Facing Failure
 
-Selected runs, source IDs, required sidecars, notebooks, helper code, derived
+Selected runs, source IDs, required companion files, notebooks, helper code, derived
 arrays, figures, workbooks, and reports are hard to move, reopen, and trace
 back to source evidence without losing context or silently trusting incomplete
 artifacts.
@@ -35,14 +34,14 @@ artifacts.
 
 ## Derived Hypotheses
 
-- Split handoff into pre-analysis package, analysis packet, claim/report packet,
-  and recovery/status packet.
+- Ask whether handoff needs separate pre-analysis, analysis, claim/report, or
+  recovery/status packages.
 - Stable opaque record IDs, legacy source refs, machine-specific locations, and
   optional shared-storage refs may be enough before central storage or sync.
 - Selection rationale should become first-class: active ID, rejected
   alternatives, anomaly notes, and missing derived inputs.
 
-## Premature / Do Not Promote Yet
+## Current Boundary
 
 - Full report generation, publication workflow, automatic reanalysis, claim
   correctness scoring, central server, generated indexes, background indexer,
@@ -51,7 +50,8 @@ artifacts.
 
 ## Possible Validation Questions
 
-- Can selected-run packages preserve source identity, sidecars, missing-context
-  warnings, and portable openability better than manual copy workflows?
+- Can selected-run packages preserve source identity, companion files,
+  missing-context warnings, and portable openability better than manual copy
+  workflows?
 - When does analysis/report lineage become valuable enough to validate as its
-  own packet rather than as handoff detail?
+  own question rather than as handoff detail?

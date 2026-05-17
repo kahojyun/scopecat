@@ -102,10 +102,10 @@ full predecessor docs:
 | --- | --- |
 | Direction-bias correction: measurement history is useful but too narrow as a product center | [`../../inventory.md`](../../inventory.md) |
 | Durable recording and ordinary Python substrate pressure | [`../../inventory.md`](../../inventory.md) |
-| Analysis handoff and selected high-value run packaging | [`../../inventory.md`](../../inventory.md) and [`../../../strategy/adoption-routes.md`](../../../strategy/adoption-routes.md) |
+| Analysis handoff and selected high-value run packaging | [`../../inventory.md`](../../inventory.md) and [`../../../discovery/adoption-hypotheses.md`](../../../discovery/adoption-hypotheses.md) |
 | Passive evidence view and source/context ambiguity | [`../../inventory.md`](../../inventory.md) |
-| Automation, runtime, mutation, and safety boundaries | [`../../../strategy/vision.md`](../../../strategy/vision.md) |
-| Full lab workflow gap discovery | [`experimental-lab-workflow-reference.md`](experimental-lab-workflow-reference.md) |
+| Automation, runtime, mutation, and safety boundaries | [`../../../strategy/product-brief.md`](../../../strategy/product-brief.md) |
+| Full lab workflow gap discovery | [`lab-workflow-pressure-check.md`](lab-workflow-pressure-check.md) |
 
 ## Source Map
 

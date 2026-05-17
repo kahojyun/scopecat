@@ -2,8 +2,7 @@
 
 ## Status
 
-Evidence-backed pain packet. Not a live-advisor product, automated fitting
-contract, scan-plan mutation model, or framework adapter plan.
+Evidence-backed problem brief.
 
 ## User-Facing Failure
 
@@ -16,7 +15,7 @@ is complete, partial, readable, or fit-ready before the full run finishes.
 - Sweep and scan code records rows during iteration.
 - Stop/interruption behavior and partial-recording patterns are visible.
 - VNA and mesh/landscape scans include start/stop metadata, appended chunks,
-  per-sequence sidecars, and partial-stop ambiguity.
+  per-sequence companion files, and partial-stop ambiguity.
 - Fit/quality review and retune decisions exist, but not as a mature live
   watcher or advisory loop.
 - Recording can be incomplete or disabled through lazy dataset creation,
@@ -36,7 +35,7 @@ is complete, partial, readable, or fit-ready before the full run finishes.
 - Cursor movement, temporary range selection, and preview fits need not be
   durable unless the user saves a fit result or operator decision.
 
-## Premature / Do Not Promote Yet
+## Current Boundary
 
 - Automated fitting as first scope, replayable advice, opaque AI advisory,
   adaptive scan mutation, append-to-existing-measurement semantics, framework

@@ -2,8 +2,7 @@
 
 ## Status
 
-Evidence-backed pain packet. Not a validation charter, reference case, runtime
-contract, scheduler design, or managed-runner scope.
+Evidence-backed problem brief.
 
 ## User-Facing Failure
 
@@ -40,7 +39,7 @@ enough if users still have to parse and execute it manually.
 - Calibration batch review is the best candidate episode because it combines
   fit quality, manual decision, continuation, and downstream blocking pressure.
 
-## Premature / Do Not Promote Yet
+## Current Boundary
 
 - Task DAG semantics, blocked-task accounting, priority arbitration, idle
   backfill, resource leases, and managed continuation after failure.
