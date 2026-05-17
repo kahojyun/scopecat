@@ -118,19 +118,28 @@ there is a clear internal need.
 
 ## Promotion Targets
 
-Durable conclusions should be promoted along the current docs model:
+Durable conclusions should be promoted along the current working model. This is
+not a checklist; skip steps that do not fit the evidence:
 
 ```text
-Evidence -> Opportunity Pressure -> Scenario Or JTBD -> Validation Question
-  -> Decision or Contract, only when needed
+Evidence
+  -> Evidence posture and bias triage
+  -> Problem framing
+  -> Workflow and domain analysis
+  -> Option exploration
+  -> Validation charter
+  -> Thin validation slice
+  -> Decision, contract, or ADR only if blocked
 ```
 
 Use the narrowest durable destination that exists or is justified by real
 content:
 
 - repeated pain points and pressure wording -> `evidence/inventory.md`
-- end-to-end workflows -> `strategy/experience-map.md`
-- durable adoption route definitions -> `strategy/adoption-routes.md`
+- evidence interpretation, source posture, and bias rules -> `evidence/method.md`
+- workflow and domain analysis -> extracted research notes or
+  `strategy/experience-map.md` only when it has durable cross-document value
+- option exploration and adoption hypotheses -> `strategy/adoption-routes.md`
 - route phase or current coordination -> `status/progress-tracker.md`
 - design pressure -> the evidence inventory or strategy owner
 - stable domain vocabulary -> a narrow contract or future `architecture/`

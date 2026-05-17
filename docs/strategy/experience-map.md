@@ -2,7 +2,7 @@
 
 ## Status And Use
 
-Drafting experience map. Use it to place opportunity pressures across the
+Drafting experience map. Use it to place workflow and domain pressures across the
 fuller lab workflow; do not treat gaps as commitments.
 
 This document describes cross-route experience shape. It is not a product
@@ -11,14 +11,16 @@ design, or prototype scope.
 
 ## Purpose
 
-Give future validation work one durable place to describe the fuller product
-experience without making any one slice too broad to validate.
+Give future validation work one durable place to describe how evidence-backed
+workflow problems may compose without making any option too broad to validate.
 
 ```text
-complete experience pressure
-  -> route or scenario-sized validation slice
+workflow or domain pressure
+  -> problem framing or route hypothesis
+  -> validation charter
   -> fixture, interview, or prototype boundary
-  -> later contract or decision only when earned
+  -> thin validation slice only if the charter needs one
+  -> later contract or decision only when blocked
 ```
 
 ## Composition Rule
@@ -27,13 +29,13 @@ Project-level product direction and boundaries are owned by
 [`vision.md`](vision.md). Adoption-route definitions live in
 [`adoption-routes.md`](adoption-routes.md). Evidence and pain rows live in
 [`../evidence/inventory.md`](../evidence/inventory.md). This map only places
-current opportunity pressures in the fuller lab workflow so future validation
-slices stay narrow while still composing.
+current workflow and domain pressures in the fuller lab workflow so future
+validation work stays narrow while still composing.
 
 ## End-To-End Silhouettes
 
 These silhouettes are placement aids. Each line may require several validation
-slices; promote only the smallest valuable slice.
+questions or slices; promote only the smallest valuable validation target.
 
 | User-facing pressure | Candidate composition | Split point |
 | --- | --- | --- |
@@ -70,7 +72,7 @@ Keep validation slices small and user-visible:
   policy, simulated or lab-owned outcomes, and audit records. A minimal local
   executor is a validation candidate, not assumed scope.
 
-## Opportunity Placement
+## Workflow Placement
 
 | Experience area | Current pressure | Placement use |
 | --- | --- | --- |
@@ -87,6 +89,6 @@ Keep validation slices small and user-visible:
 Same-station data access is a cross-cutting validation constraint, not a
 standalone route: stable record identity, legacy source refs, machine-specific
 locations, optional shared-storage refs, export/import behavior, and read
-capabilities should be checked if a future validation slice needs cross-machine
+capabilities should be checked if a future validation question needs cross-machine
 access. This should not imply remote execution, mandatory NAS, deployed
 database scope, or shared instrument-control authority.

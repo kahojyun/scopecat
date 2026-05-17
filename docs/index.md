@@ -25,8 +25,8 @@ docs/
 | [`AGENTS.md`](AGENTS.md) | Stable policy | Always-applied AI instructions for work inside `docs/`. | Keep operational; do not move long background here. |
 | [`strategy/vision.md`](strategy/vision.md) | Drafting project vision | Current product direction and boundaries: progressive adoption, explicit recording, complementing existing experiment systems, complexity ownership, and clear non-goals. | Not a roadmap, PRD, capability map, API/schema/UI/storage contract, or architecture decision. |
 | [`strategy/adoption-routes.md`](strategy/adoption-routes.md) | Provisional route owner | Product-value route hypotheses grouped by user-visible payoff and behavior change. | Not a roadmap, capability map, implementation order, or product acceptance claim. |
-| [`strategy/experience-map.md`](strategy/experience-map.md) | Drafting experience map | Complete-experience shape across opportunity pressures and possible validation slices. | Not an accepted product plan, roadmap, capability map, API/schema/UI/storage contract, or prototype scope. |
-| [`evidence/inventory.md`](evidence/inventory.md) | Evidence owner | Canonical evidence, lab/user context, top-level pains, pain/pressure rows, opportunity pressures, anti-patterns, and saturation. | Interpretation rules belong in `evidence/method.md`; external references belong in `evidence/external-baseline.md`. |
+| [`strategy/experience-map.md`](strategy/experience-map.md) | Drafting experience map | Complete-experience placement across workflow/domain pressures and possible validation questions. | Not an accepted product plan, roadmap, capability map, API/schema/UI/storage contract, or prototype scope. |
+| [`evidence/inventory.md`](evidence/inventory.md) | Evidence owner | Canonical evidence, lab/user context, top-level pains, pain/pressure rows, analysis options, anti-patterns, and saturation. | Interpretation rules belong in `evidence/method.md`; external references belong in `evidence/external-baseline.md`. |
 | [`evidence/method.md`](evidence/method.md) | Evidence method | Source confidence, bias correction, source-handling guardrails, prompt-method hygiene, design pressure handling, and external baseline interpretation. | Does not own evidence rows or validation-slice scope. |
 | [`evidence/external-baseline.md`](evidence/external-baseline.md) | External baseline | Public framework references used to avoid false differentiation claims. | Recheck versions and access dates before using for published claims or implementation decisions. |
 | [`status/progress-tracker.md`](status/progress-tracker.md) | Active tracker | Compact phase, link, and coordination surface. | Not a task queue, roadmap, or second backlog. |
@@ -38,7 +38,7 @@ docs/
 Do not create directories only to match a taxonomy. Add these only when there
 is durable content with a clear owner and purpose:
 
-- `architecture/` for cross-slice contracts, ADRs, and ownership decisions;
+- `architecture/` for contracts, ADRs, and ownership decisions;
 - `user/` for public, redacted MkDocs-facing documentation;
 
 ## Maintenance

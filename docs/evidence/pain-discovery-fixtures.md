@@ -2,7 +2,7 @@
 
 ## Status
 
-Draft validation fixtures. These are not accepted validation slices,
+Draft validation fixtures. These are not accepted validation work,
 contracts, schemas, product requirements, or architecture decisions.
 
 ## Purpose

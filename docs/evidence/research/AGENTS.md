@@ -19,7 +19,7 @@
 - Promote durable conclusions out of `research/` into the narrowest justified
   project doc. Do not leave accepted product or architecture truth only in raw
   research.
-- Promote cross-slice evidence interpretation, source-confidence rules, or
+- Promote cross-option evidence interpretation, source-confidence rules, or
   prompt-method rules to `docs/evidence/method.md`; keep
   `docs/evidence/inventory.md` focused on rows and stable IDs.
 - After extraction or supersession, prefer deleting low-value research notes

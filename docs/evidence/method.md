@@ -5,13 +5,13 @@
 Ready evidence-method owner.
 
 This document owns interpretation rules for evidence rows. It is not the
-evidence inventory, product vision, research index, validation-slice owner, or
+evidence inventory, product vision, research index, validation owner, or
 architecture decision.
 
 ## Purpose
 
 Keep [`inventory.md`](inventory.md) focused on evidence IDs, pain rows,
-top-level pains, opportunity pressures, anti-patterns, and saturation. Use this
+top-level pains, analysis options, anti-patterns, and saturation. Use this
 document to interpret source confidence, bias correction, source handling, and
 promotion hygiene.
 

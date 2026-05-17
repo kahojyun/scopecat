@@ -28,18 +28,29 @@ entry point, not a second index.
 
 ## Analysis Model
 
-Use this promotion path for durable product and architecture work:
+Use this working model for product analysis. It is not a checklist and should
+not force every claim through every step:
 
 ```text
-Evidence -> Opportunity Pressure -> Scenario Or JTBD -> Validation Question
-  -> Decision or Contract, only when needed
+Evidence
+  -> Evidence posture and bias triage
+  -> Problem framing
+  -> Workflow and domain analysis
+  -> Option exploration
+  -> Validation charter
+  -> Thin validation slice
+  -> Decision, contract, or ADR only if blocked
 ```
 
-Research and product discovery should be scenario-first. Progressive adoption
-stories should be product-value-first: users adopt a useful path, not a
-subsystem name. Historical capability names may preserve design pressure, but
-they should not become default document structure, implementation ownership, or
-a ranked backlog.
+The current project is mostly in evidence synthesis, problem framing, workflow
+and domain analysis, and option exploration. Scenario, validation-charter,
+prototype, decision, contract, and ADR documents should appear only when they
+answer a concrete next question.
+
+Progressive adoption stories should be product-value-first: users adopt a
+useful path, not a subsystem name. Historical capability names may preserve
+design pressure, but they should not become default document structure,
+implementation ownership, or a ranked backlog.
 
 ## Validation
 

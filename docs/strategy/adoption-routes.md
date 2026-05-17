@@ -70,7 +70,7 @@ validation work shows they are needed.
 Keep runtime ownership, managed execution, code registry, automatic version
 management, proposal workflow, and similar solution-shaped names out of
 adoption routes by default. Treat them as capability hypotheses. Promote only
-pain-framed routes after user validation or accepted validation slices show
+pain-framed routes after user validation or thin validation work shows
 standalone workflow value, and after any required ADR or safety decision.
 
 Use the owning evidence and fixture docs for lower-level questions:
@@ -80,6 +80,6 @@ rows, while
 owns current fixture questions and support levels. Fixture notes should not
 define route promotion by themselves.
 
-Routes may guide scenario selection and cross-slice review. They do not own
-contracts, implementation boundaries, API schemas, storage models, hardware
-safety assumptions, or accepted product scope.
+Routes may guide scenario or validation-charter selection and cross-option
+review. They do not own contracts, implementation boundaries, API schemas,
+storage models, hardware safety assumptions, or accepted product scope.
