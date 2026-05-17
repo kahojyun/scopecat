@@ -1,4 +1,0 @@
-Public-safe inert plot placeholder.
-
-This file represents a user-attached plot or report output. Scopecat should
-catalog the relation to the source measurement, not parse this as primary data.

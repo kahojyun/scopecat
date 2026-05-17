@@ -10,7 +10,7 @@
 - Do not infer current product direction directly from raw research.
 - When adding a research note, include `Status`, `Source`, `Summary`,
   `Current Use`, and `Remaining Value`.
-- For user interview summaries, include participant context, journey evidence,
+- For user interview summaries, include participant context, scenario evidence,
   pain evidence, adoption signals, and portability/public-redaction notes where
   relevant.
 - Track extraction progress in the note itself; create or update
@@ -19,12 +19,14 @@
 - Promote durable conclusions out of `research/` into the narrowest justified
   project doc. Do not leave accepted product or architecture truth only in raw
   research.
-- Promote cross-journey evidence interpretation, source-confidence rules, or
+- Promote cross-option evidence interpretation, source-confidence rules, or
   prompt-method rules to `docs/evidence/method.md`; keep
-  `docs/evidence/inventory.md` focused on rows and stable IDs.
+  `docs/evidence/evidence-register.md` focused on rows and stable IDs.
+- Promote problem framing to `docs/discovery/problem-briefs/` and adoption
+  hypotheses to `docs/discovery/adoption-hypotheses.md`.
 - After extraction or supersession, prefer deleting low-value research notes
   over keeping them indefinitely. Before deleting a source that supports active
-  `EV`, `PN`, `TP`, `JC`, decision, or fixture work, leave a compact extracted
+  `EV`, decision, validation, or architecture work, leave a compact extracted
   note, source map, or evidence anchor in the current owner. Use `archived/`
   only when there is clear provenance, audit, citation, or rejection-rationale
   value.

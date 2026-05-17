@@ -1,3 +1,0 @@
-This public-safe note is intentionally included with an unrecognized role.
-The prototype should preserve it as an unknown artifact instead of discarding
-it or inventing authority.

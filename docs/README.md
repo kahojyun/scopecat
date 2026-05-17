@@ -1,66 +1,32 @@
 # Scopecat Docs
 
-`docs/` is Scopecat's long-lived project memory. It preserves context that
-must survive across AI sessions and the project lifecycle: product framing,
-journeys, research conclusions, architecture contracts, decisions, public user
-documentation, and unresolved questions.
+`docs/` is Scopecat's durable project memory. It keeps product direction,
+research conclusions, problem framing, decisions, and future user documentation
+in plain Markdown.
 
-Do not use `docs/` for temporary reasoning, per-session task lists, or notes
-that can be handled inside one AI session.
+Use [`index.md`](index.md) as the navigation map.
 
-## Entry Points
+## Current Model
 
-- `index.md` lists the current high-value documents and how to use
-  them.
-- `strategy/vision.md` states current project-level product direction and boundaries:
-  what Scopecat does, how it complements existing experiment systems, what
-  complexity belongs to users or lab-owned adapters, and what is not a default
-  adoption requirement.
-- `strategy/adoption-routes.md` owns provisional product-value route
-  hypotheses; the tracker only coordinates their current phase.
-- `evidence/inventory.md` owns evidence rows and candidate IDs, while
-  `evidence/method.md` owns interpretation rules.
-- `standards/jc-operating-standard.md` defines repeatable `JC-###` status,
-  source-map, promotion, acceptance, conflict, and reopening workflow.
-- `AGENTS.md` contains rules that should apply to every AI session working
-  inside `docs/`.
+Keep durable statements in the narrowest owner:
 
-Use `index.md` for the fuller inventory. This README should stay an
-entry point, not a second index.
+- evidence claims: [`evidence/evidence-register.md`](evidence/evidence-register.md)
+- evidence interpretation: [`evidence/method.md`](evidence/method.md)
+- problem framing: [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md)
+- adoption hypotheses: [`discovery/adoption-hypotheses.md`](discovery/adoption-hypotheses.md)
+- product direction: [`strategy/product-direction.md`](strategy/product-direction.md)
+- research inputs: [`evidence/research/README.md`](evidence/research/README.md)
 
-## Analysis Model
-
-Use this promotion path for durable product and architecture work:
-
-```text
-Evidence -> Journey -> Validation Slice
-  -> Decision or Contract, only when needed
-```
-
-Research and product discovery should be journey-first. Progressive adoption
-stories should be product-value-first: users adopt a useful path, not a
-subsystem name. Historical capability names may preserve design pressure, but
-they should not become default document structure or implementation ownership.
-
-## Validation
-
-For changes that affect prototype behavior, fixture contracts, expected
-outputs, or journey validation claims, run the relevant focused command from
-the prototype doc or the full suite:
-
-```sh
-python3 -m unittest discover -s tests
-```
-
-Docs-only wording or navigation changes may not need tests, but the final note
-should say when tests were not run.
+Create validation, decision, architecture, or user docs only when there is a
+specific durable owner and content for them.
 
 ## Editing Rules
 
-- Create the narrowest durable document with a real owner and purpose.
 - Update existing documents before creating new structure.
 - Do not create placeholder directories, sentinel files, or broad scaffolds.
 - Mark hypotheses, accepted decisions, and open questions explicitly when the
   distinction matters.
 - Keep public-facing documentation under `docs/user/` when it is introduced,
   and treat it as redacted by default.
+- Docs-only wording or navigation changes may not need tests. If there are no
+  remaining executable tests for the changed area, say that explicitly.

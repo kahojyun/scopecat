@@ -5,13 +5,13 @@
 Scopecat is an early greenfield project for scientific measurement workflows.
 
 The product and architecture are still being shaped. See
-`docs/strategy/vision.md` for the current product direction and boundaries, and
+`docs/strategy/product-direction.md` for the current product direction and boundaries, and
 `docs/README.md` for the documentation workspace.
 
 ## Status
 
-New project workspace. Product scope, adoption paths, and architecture
-boundaries are not yet final.
+New project workspace. Current docs describe evidence, hypotheses, and
+boundaries, not finalized product commitments.
 
 ## Documentation
 
@@ -20,9 +20,3 @@ Start with `docs/README.md`.
 The documentation workspace is the long-lived project memory for product
 analysis, research, architecture decisions, and future user documentation.
 It should not be treated as a finalized product specification.
-
-## Guardrail
-
-Do not infer product commitments from this README. Treat specific product
-claims, capability boundaries, and adoption sequences as hypotheses until they
-are promoted into durable docs or decisions.
