@@ -19,12 +19,18 @@ is already clear enough to guide those documents.
 
 ## Product Direction
 
-Scopecat is a progressively adoptable evidence, recording, analysis, and
-handoff layer for scientific measurement workflows.
+Scopecat is a progressively adoptable workflow-structuring, recording,
+analysis, and handoff layer for scientific measurement workflows.
 
-It helps users make measurement work explainable, comparable, reviewable, and
-portable across the messy boundary between experiment code, data, parameters,
-analysis, decisions, and later handoff.
+It helps users turn messy experiment code, data, parameters, analysis,
+decisions, and later handoff into explicit records and workflows that are
+easier to run, inspect, resume, select, package, and automate.
+
+Explainability, provenance, reviewability, and auditability are structural
+benefits of this explicit record layer, but they should not be the only or
+first adoption story. Early adoption should be justified by concrete workflow
+convenience, easier recovery, handoff value, and bounded automation leverage
+only where a route has validated the behavior change.
 
 Scopecat should complement existing measurement, control, data, and calibration
 systems. It may grow into broader product surfaces over time, but it should not
@@ -35,6 +41,19 @@ make framework replacement the default adoption story.
 Scopecat should be adopted through narrow, independently useful routes. Each
 route should be able to create standalone value for the users who need it, and
 different users may start on different routes.
+
+For many lab users, the first valuable output is not a complete audit trail. It
+is a faster way to find useful runs, choose code or parameter versions, continue
+after interruptions, inspect active data, or move a usable package to another
+analysis context. Provenance and audit records should emerge from the same
+structured workflow rather than require a separate clerical workflow.
+
+The clearest near-term wedge is recovery plus handoff: make existing runs,
+code, context, and selected data easier to find, trust enough to use, and move
+to analysis without replacing the acquisition stack. Automation remains part of
+the longer product direction, but it should enter early adoption only through
+narrow validation slices such as explicit read/monitor records or fixture-scale
+batch outcome reports.
 
 Design work should still consider the full set of routes together so later
 composition is possible. A complete workflow may require several routes to
@@ -47,9 +66,9 @@ together, but each promoted journey still needs a concrete user sequence,
 validation fixture, explicit boundary, and standalone value.
 
 Before a route is piloted with a lab, its owner should state the minimum
-adoption contract: what the lab must record or provide, what Scopecat will not
-touch, how the path fails or can be disabled safely, and what first useful
-output the lab gets before broader adoption.
+adoption contract in payoff-first order: the first useful output, the exact
+workflow behavior the lab must change, what the lab must record or provide,
+what Scopecat will not touch, and how the path fails or can be disabled safely.
 
 ## Boundary With Existing Experiment Systems
 
@@ -79,7 +98,9 @@ Scopecat should own the evidence layer around those systems. It may:
   handoff snapshots, and lineage records.
 
 Scopecat records, compares, explains, proposes, and packages. Existing systems
-execute and mutate.
+execute and mutate. The payoff is that users can recover, select, inspect, and
+hand off work around those systems without first replacing trusted control
+software.
 
 ## Cross-Machine And Storage Boundary
 
@@ -267,8 +288,8 @@ The clearest current value areas are listed here as direction, not as a single
 ordered first slice:
 
 - explain an existing run or work bundle without mutating it;
-- preserve selected context, code-shaped provenance, companion artifacts,
-  ambiguity, and sharing boundaries;
+- recover selected context, code identity, companion artifacts, ambiguity, and
+  sharing boundaries;
 - create portable pre-analysis handoff snapshots for selected runs, with
   finalization and integrity mechanics validated separately;
 - support portable records, explicit export/import, and optional shared-storage
