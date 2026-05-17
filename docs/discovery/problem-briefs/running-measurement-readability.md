@@ -18,6 +18,8 @@ sweep than to in-run scan-plan adjustment.
 - Stop/interruption behavior and partial-recording patterns are visible.
 - VNA and mesh/landscape scans include start/stop metadata, appended chunks,
   per-sequence companion files, and partial-stop ambiguity.
+- Existing LabRAD Grapher use includes selecting a range in live data and
+  fitting a parabola, which is a useful reference for monitor ergonomics.
 - Fit/quality review and retune decisions exist, but not as a reason to start
   with complex in-run scan-plan adjustment or automatic next-step advice.
 - Recording can be incomplete or disabled through lazy dataset creation,
@@ -28,8 +30,9 @@ sweep than to in-run scan-plan adjustment.
 - The near-term need is reading recorded data from a still-running run,
   monitoring the latest useful sweep in a GUI, and knowing readiness at the
   granularity users care about.
-- Optional fit or operator-decision evidence may matter after the simpler
-  read/monitor value is validated.
+- Range selection and parabolic-fit affordances are part of the existing user
+  expectation, but they do not need durable records unless the user saves a fit
+  result or operator decision.
 
 ## Derived Hypotheses
 
@@ -48,5 +51,7 @@ sweep than to in-run scan-plan adjustment.
 
 - Can explicit partial records plus progress/readiness markers let users inspect
   useful parts of a running measurement before it ends?
+- Does range selection plus parabolic fitting make the monitor useful enough without
+  promoting adaptive scan mutation or automatic next-step advice?
 - Which readiness granularity is real enough to justify changing experiment
   code?
