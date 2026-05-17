@@ -14,8 +14,8 @@
   historical back-links when a README or index already owns the navigation.
 - Keep trackers compact: coordination labels, current decision points, links,
   and short cross-document coordination notes. Do not use tracker labels as
-  validation statuses, and do not use trackers as journey-local task queues.
+  validation statuses, and do not use trackers as slice-local task queues.
   Move durable detail into narrower owner docs once it has multiple active
   consumers.
-- Do not copy an existing journey folder structure unless the new journey has
+- Do not copy an existing validation-slice structure unless the new validation slice has
   earned the same artifact types.

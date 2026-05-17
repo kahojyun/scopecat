@@ -2,8 +2,8 @@
 
 `docs/` is Scopecat's long-lived project memory. It preserves context that
 must survive across AI sessions and the project lifecycle: product framing,
-journeys, research conclusions, architecture contracts, decisions, public user
-documentation, and unresolved questions.
+research conclusions, opportunity and scenario framing, architecture contracts,
+decisions, public user documentation, and unresolved questions.
 
 Do not use `docs/` for temporary reasoning, per-session task lists, or notes
 that can be handled inside one AI session.
@@ -18,10 +18,11 @@ that can be handled inside one AI session.
   adoption requirement.
 - `strategy/adoption-routes.md` owns provisional product-value route
   hypotheses; the tracker only coordinates their current phase.
-- `evidence/inventory.md` owns evidence rows and candidate IDs, while
+- `evidence/inventory.md` owns evidence rows and stable pressure IDs, while
   `evidence/method.md` owns interpretation rules.
-- `standards/jc-operating-standard.md` defines repeatable `JC-###` status,
-  source-map, promotion, acceptance, conflict, and reopening workflow.
+- `standards/validation-slice-standard.md` defines the lightweight promotion
+  path from evidence to scenario, validation question, fixture or prototype,
+  and accepted boundary.
 - `AGENTS.md` contains rules that should apply to every AI session working
   inside `docs/`.
 
@@ -33,27 +34,24 @@ entry point, not a second index.
 Use this promotion path for durable product and architecture work:
 
 ```text
-Evidence -> Journey -> Validation Slice
+Evidence -> Opportunity Pressure -> Scenario Or JTBD -> Validation Slice
   -> Decision or Contract, only when needed
 ```
 
-Research and product discovery should be journey-first. Progressive adoption
+Research and product discovery should be scenario-first. Progressive adoption
 stories should be product-value-first: users adopt a useful path, not a
 subsystem name. Historical capability names may preserve design pressure, but
-they should not become default document structure or implementation ownership.
+they should not become default document structure, implementation ownership, or
+a ranked backlog.
 
 ## Validation
 
-For changes that affect prototype behavior, fixture contracts, expected
-outputs, or journey validation claims, run the relevant focused command from
-the prototype doc or the full suite:
+For changes that affect executable behavior, fixture contracts, expected
+outputs, or validation claims, run the relevant focused command when one
+exists.
 
-```sh
-python3 -m unittest discover -s tests
-```
-
-Docs-only wording or navigation changes may not need tests, but the final note
-should say when tests were not run.
+Docs-only wording or navigation changes may not need tests. If there are no
+remaining executable tests for the changed area, say that explicitly.
 
 ## Editing Rules
 

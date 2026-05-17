@@ -8,12 +8,12 @@ architecture decision.
 
 ## Purpose
 
-State the clearest project-level product boundaries so later journeys,
+State the clearest project-level product boundaries so later validation slices,
 adoption routes, and architecture decisions do not drift into an accidental
 framework replacement, single required starting point, or full-platform adoption
 requirement.
 
-Narrow journey documents, accepted decisions, and future architecture contracts
+Narrow validation-slice or decision documents, accepted decisions, and future architecture contracts
 own implementation-grade detail. This document owns only durable direction that
 is already clear enough to guide those documents.
 
@@ -62,7 +62,7 @@ platform.
 
 Top-level pains are composition pressure, not single-route implementation
 requirements. They can show why multiple capabilities eventually need to work
-together, but each promoted journey still needs a concrete user sequence,
+together, but each promoted validation slice still needs a concrete user sequence,
 validation fixture, explicit boundary, and standalone value.
 
 Before a route is piloted with a lab, its owner should state the minimum
@@ -92,7 +92,7 @@ Scopecat should own the evidence layer around those systems. It may:
 - compare current evidence with previous-good, previous-failed, selected, or
   expected references;
 - record analysis inputs, outputs, and rerun intent when explicitly supplied or
-  validated by a journey;
+  validated by a slice;
 - preserve fit, quality, anomaly, and decision evidence;
 - create reviewable parameter-memory records, advisory proposals, annotations,
   handoff snapshots, and lineage records.
@@ -181,10 +181,10 @@ enforce hardware safety limits. It may record bounds, readiness facts, and
 preflight results supplied by user code, lab-owned runtimes, drivers, or
 operators, and it should preserve which source supplied them.
 
-Journey-level automation placement belongs in the experience map or a narrower
-`JC` owner. Real hardware apply, autonomous calibration, rollback, resource
-locking, and unattended queue execution require accepted boundaries that state
-the runtime owner, safety assumptions, stop behavior, and audit record.
+Automation placement belongs in the experience map or a narrower validation
+slice. Real hardware apply, autonomous calibration, rollback, resource locking,
+and unattended queue execution require accepted boundaries that state the
+runtime owner, safety assumptions, stop behavior, and audit record.
 
 ## Explicit Recording Boundary
 
@@ -272,7 +272,7 @@ replacement targets for every route:
 - a universal parameter, setup, sample, or topology ontology.
 
 Some of these areas may become product surfaces, integrations, or later
-capabilities after specific journeys and decisions justify them. For example,
+capabilities after specific validation slices and decisions justify them. For example,
 Scopecat may provide its own run browser for Scopecat-recorded runs, including
 future same-station historical access when a route validates that need. A live
 observation surface is later scope unless it proves adoption value independent

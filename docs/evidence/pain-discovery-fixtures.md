@@ -2,7 +2,7 @@
 
 ## Status
 
-Draft validation fixtures. These are not accepted journey candidates,
+Draft validation fixtures. These are not accepted validation slices,
 contracts, schemas, product requirements, or architecture decisions.
 
 ## Purpose
@@ -716,6 +716,6 @@ by cost-to-learning ratio:
 - Parameter-memory and code-version-selection fixtures test whether recently
   clarified pains can be handled without accepting mutation ownership or a code
   registry too early.
-- Running-run fixture tests whether the concrete `JC-011` shape should start
+- Running-run fixture tests whether the concrete read/monitor shape should start
   with reader/live-monitor value and explicit readiness markers before live
   advisory or automation scope is promoted.

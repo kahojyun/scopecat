@@ -9,7 +9,7 @@ Use this note for gap discovery; do not promote it directly into product scope.
 ## Inputs
 
 - User refinement on 2026-05-15: preserve realistic experimental-lab workflow
-  detail so future product work can compare candidate journeys against the
+  detail so future product work can compare candidate scenarios against the
   whole lab context.
 - Role-synthesis discussion from internal expert-style reasoning across
   experimental-physicist, lab-manager, and data/control-engineer perspectives.
@@ -34,11 +34,11 @@ and lab-specific project labels.
 
 This note records realistic experimental-lab workflow detail that is too broad
 for a product experience map but useful for future gap discovery. It is not a
-product plan, accepted journey, architecture contract, subsystem spec, hardware
+product plan, accepted validation slice, architecture contract, subsystem spec, hardware
 control model, scheduler model, ELN/LIMS scope, or public user documentation.
 
 This workflow is a research scaffold for asking better questions, not an
-accepted product journey:
+accepted product scenario:
 
 ```text
 prepare intent
@@ -60,7 +60,7 @@ integrity, and handoff problem.
 ## Current Use
 
 Use this note as a gap-discovery reference when drafting or reviewing future
-journeys, especially:
+validation scenarios, especially:
 
 - dry-run package readiness;
 - copied-code provenance;
@@ -79,14 +79,14 @@ Promotion map:
 
 | Workflow area | Current promoted owner |
 | --- | --- |
-| Existing artifact explanation and context ambiguity | `JC-001`, `PN-001`, `PN-002`, `PN-006` |
-| Selected-run analysis handoff | `JC-002`, `PN-004`, `EV-044`, `EV-045` |
-| Code/config readiness and dry-run packaging | `JC-004`, `JC-008`, `JC-013`, `TP-009` |
-| Parameter memory, calibration decision evidence, measurement-time read/monitor pressure, and deferred advisory hypotheses | `JC-003`, `JC-011`, `PN-003`, `TP-010` |
-| Setup reality and declared local schema | `JC-005`, `JC-012`, `EV-041`, `EV-042`, `EV-043` |
-| Scientific comparison and known-good diagnostics | `JC-009`, `JC-010`, `TP-007`, `TP-008` |
-| Derived analysis and claim lineage | `JC-006`, `JC-014`, `EV-039` |
-| Bounded local automation handoff | `JC-016` candidate only; still needs a runtime decision before execution scope. |
+| Existing artifact explanation and context ambiguity | PN-001, PN-002, PN-006 and existing-bundle pressure in [`../../inventory.md`](../../inventory.md). |
+| Selected-run analysis handoff | PN-004, EV-044, EV-045 and handoff route pressure. |
+| Code/config readiness and dry-run packaging | TP-009 and code/readiness pressure. |
+| Parameter memory, calibration decision evidence, measurement-time read/monitor pressure, and deferred advisory hypotheses | PN-003, TP-010, parameter-memory pressure, and read/monitor pressure. |
+| Setup reality and declared local schema | EV-041, EV-042, EV-043 and setup/useful-context pressure. |
+| Scientific comparison and known-good diagnostics | TP-007, TP-008 and trust/comparability pressure. |
+| Derived analysis and claim lineage | EV-039 and derived-analysis impact pressure. |
+| Bounded local automation handoff | Runtime-boundary pressure only; still needs a runtime decision before execution scope. |
 
 When using legacy sample evidence, focus on the user or lab intent behind the
 artifact. Some concrete files, names, copies, sidecars, notebooks, or scripts
@@ -96,8 +96,8 @@ pressure, not product shapes to preserve by default.
 ## Remaining Value
 
 This note remains useful while future product work is deciding whether candidate
-journeys miss high-value lab gaps. Delete or archive it after the useful
-workflow detail has moved into journey source maps, fixture plans,
+validation slices miss high-value lab gaps. Delete or archive it after the useful
+workflow detail has moved into validation source maps, fixture plans,
 capability-adoption hypotheses, or accepted decisions.
 
 ## How To Classify Claims Before Promotion
@@ -106,12 +106,12 @@ Use these classes when extracting from the workflows below:
 
 | Class | Meaning | Handling |
 | --- | --- | --- |
-| Observed evidence | Directly supported by existing extracted research or current fixtures. | Can support evidence inventory or journey source maps. |
+| Observed evidence | Directly supported by existing extracted research or current fixtures. | Can support evidence inventory or validation source maps. |
 | Observed role/status evidence | Static artifacts show a likely role, status, or relation, but not authoritative runtime truth. | Preserve as source-map evidence with confidence and ambiguity labels. |
 | Evidence-backed inference | Reasonable conclusion from observed artifacts, current docs, or multiple source families. | Candidate for promotion after owner review. |
 | Domain hypothesis | Plausible lab workflow detail from role synthesis or domain reasoning. | Validate before promotion. |
-| Boundary guardrail | Detail that protects scope, safety, or public redaction boundaries. | Keep visible when slicing journeys. |
-| Rejected as current scope | Useful background that would over-broaden current product scope. | Keep out of journey acceptance unless new evidence and a decision reverse it. |
+| Boundary guardrail | Detail that protects scope, safety, or public redaction boundaries. | Keep visible when slicing validation work. |
+| Rejected as current scope | Useful background that would over-broaden current product scope. | Keep out of slice acceptance unless new evidence and a decision reverse it. |
 
 ## Intent Lens For Legacy Artifacts
 
@@ -317,7 +317,7 @@ Extraction notes:
 ### 7. Lab-Management Context
 
 Operational work surrounds the experiment but should not dominate product
-journey scope unless a narrow workflow earns validation.
+scope unless a narrow workflow earns validation.
 
 | Activity | Why it matters | Product handling |
 | --- | --- | --- |

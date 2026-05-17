@@ -73,15 +73,15 @@ full predecessor docs:
 
 | Anchor | Retained value | Current use |
 | --- | --- | --- |
-| Ordinary Python writer | A minimal explicit writer is a plausible adoption path for durable records. | `EV-012`, `JC-015` |
-| Dataset shape variety | Regular grids, traces, complex values, IQ arrays, labels, and ragged records are needed validation cases. | `EV-045`, `JC-002`, `JC-015` |
-| Handoff package pressure | Source identity, semantic context, integrity facts, and missing-context warnings matter more than byte copying alone. | `EV-022`, `JC-002` |
-| Runnable-code context | Code, lockfiles, local environments, and copied folders are diagnostic evidence before managed execution. | `EV-023`, `JC-004`, `JC-008`, `JC-013` |
+| Ordinary Python writer | A minimal explicit writer is a plausible adoption path for durable records. | EV-012 and durable-record pressure in [`../../inventory.md`](../../inventory.md). |
+| Dataset shape variety | Regular grids, traces, complex values, IQ arrays, labels, and ragged records are needed validation cases. | EV-045 and handoff/durable-record validation pressure. |
+| Handoff package pressure | Source identity, semantic context, integrity facts, and missing-context warnings matter more than byte copying alone. | EV-022 and selected-data handoff pressure. |
+| Runnable-code context | Code, lockfiles, local environments, and copied folders are diagnostic evidence before managed execution. | EV-023 and code/readiness pressure. |
 
 ## Design Mistakes To Avoid
 
 - Do not let a dataset-first storage or browser model carry whole-run meaning.
-  Dataset artifacts can own data-shape facts; journey or run records should own
+  Dataset artifacts can own data-shape facts; scenario or run records should own
   lifecycle, context, provenance, and user intent.
 - Do not let compatibility with prototype workspaces preserve the wrong domain
   model. Real post-reset records need durability; pre-reset test workspaces do
@@ -89,9 +89,9 @@ full predecessor docs:
 - Do not mix archived proposals, implementation facts, AI process notes,
   product plans, and domain decisions in one planning surface.
 - Do not use Fricon personas or capability maps as current role or subsystem
-  truth. Roles should stay journey-local lenses until validated.
+  truth. Roles should stay scenario-local lenses until validated.
 - Do not promote future runner, device, calibration, export, or AI automation
-  surfaces before a journey validates the boundary and an ADR accepts the
+  surfaces before a validation slice validates the boundary and an ADR accepts the
   risky ownership.
 - Do not infer public API, storage, reader, or UI shape from Fricon SDK
   sketches. Keep the product intent, not the names or object model.
@@ -101,10 +101,10 @@ full predecessor docs:
 | Fricon lesson | Current owner |
 | --- | --- |
 | Direction-bias correction: measurement history is useful but too narrow as a product center | [`../../inventory.md`](../../inventory.md) |
-| Durable recording and ordinary Python substrate pressure | `JC-015` candidate in [`../../inventory.md`](../../inventory.md) |
-| Analysis handoff and selected high-value run packaging | [`../../../journeys/jc-002/README.md`](../../../journeys/jc-002/README.md) |
-| Passive evidence view and source/context ambiguity | [`../../../journeys/jc-001/README.md`](../../../journeys/jc-001/README.md) |
-| Automation, runtime, mutation, and safety boundaries | [`../../../strategy/vision.md`](../../../strategy/vision.md) and [`../../../standards/jc-operating-standard.md`](../../../standards/jc-operating-standard.md) |
+| Durable recording and ordinary Python substrate pressure | [`../../inventory.md`](../../inventory.md) and [`../../../strategy/experience-map.md`](../../../strategy/experience-map.md) |
+| Analysis handoff and selected high-value run packaging | [`../../inventory.md`](../../inventory.md) and [`../../../strategy/adoption-routes.md`](../../../strategy/adoption-routes.md) |
+| Passive evidence view and source/context ambiguity | [`../../inventory.md`](../../inventory.md) |
+| Automation, runtime, mutation, and safety boundaries | [`../../../strategy/vision.md`](../../../strategy/vision.md) and [`../../../standards/validation-slice-standard.md`](../../../standards/validation-slice-standard.md) |
 | Full lab workflow gap discovery | [`experimental-lab-workflow-reference.md`](experimental-lab-workflow-reference.md) |
 
 ## Source Map
@@ -114,17 +114,17 @@ keeps enough provenance for future review without restoring the raw docs.
 
 | Deleted source document | Retained lesson | Current rows or owners affected |
 | --- | --- | --- |
-| `product/product-analysis-progress.md` | Interview-backed initial adoption pressure: ordinary Python, VNA trace records, checkpoint-safe reads, stable IDs, and low-ceremony reopen. | EV-010, EV-012, EV-023, EV-045; `JC-015` |
-| `research/lessons-for-fricon.md` | Dataset shape modes, readable partials before resumable execution, live views as disposable consumers, passive setup context, and export bundle pressure. | EV-010, EV-012, EV-022, EV-045; `JC-002`, `JC-015` |
-| `research/legacy-measurement-sample-lessons.md` | LabRAD-era artifact evidence: scattered identity, copied code, mutable parameters, setup files, calibration scripts, analysis handoff, generated artifacts, and fragile mappings. | EV-001 through EV-023; PN-001 through PN-018; `JC-001`, `JC-002`, `JC-003`, `JC-006`, `JC-013` |
-| `product/python-sdk-ux.md` | Low-ceremony SDK intent, explicit writer rewrite, trace-valued records, complex values, stable ID copy, and no LabRAD compatibility dependency. | EV-010, EV-023, EV-045; `JC-015` |
-| `postmortems/v0-lessons.md` and `decisions/ADR-001-v02-clean-reset-boundary.md` | Dataset-first model and prototype compatibility should not preserve the wrong domain model. | Direction-bias correction in [`../../inventory.md`](../../inventory.md); architecture triggers in [`../../../standards/jc-operating-standard.md`](../../../standards/jc-operating-standard.md) |
-| `product/future-concepts.md` and `research/strategic-follow-on-future-systems.md` | Parameter proposals, calibration evidence, setup/device context, managed code, export, and reviewed automation should follow evidence and ADR gates. | EV-004, EV-005, EV-011, EV-015, EV-019, EV-038, EV-043; `JC-003`, `JC-011`, `JC-016` |
-| `product/personas.md`, `product/story-map.md`, `product/capability-map.md`, `product/vision.md`, and `product/glossary.md` | Useful vocabulary and role lenses, but not current personas, route order, capability map, or subsystem ownership. | Use only through current journey, evidence, and strategy owners. |
+| `product/product-analysis-progress.md` | Interview-backed initial adoption pressure: ordinary Python, VNA trace records, checkpoint-safe reads, stable IDs, and low-ceremony reopen. | EV-010, EV-012, EV-023, EV-045; durable-record pressure. |
+| `research/lessons-for-fricon.md` | Dataset shape modes, readable partials before resumable execution, live views as disposable consumers, passive setup context, and export bundle pressure. | EV-010, EV-012, EV-022, EV-045; handoff and durable-record pressure. |
+| `research/legacy-measurement-sample-lessons.md` | LabRAD-era artifact evidence: scattered identity, copied code, mutable parameters, setup files, calibration scripts, analysis handoff, generated artifacts, and fragile mappings. | EV-001 through EV-023; PN-001 through PN-018; existing-bundle, handoff, parameter, lineage, and code-readiness pressure. |
+| `product/python-sdk-ux.md` | Low-ceremony SDK intent, explicit writer rewrite, trace-valued records, complex values, stable ID copy, and no LabRAD compatibility dependency. | EV-010, EV-023, EV-045; durable-record pressure. |
+| `postmortems/v0-lessons.md` and `decisions/ADR-001-v02-clean-reset-boundary.md` | Dataset-first model and prototype compatibility should not preserve the wrong domain model. | Direction-bias correction in [`../../inventory.md`](../../inventory.md); architecture triggers in [`../../../standards/validation-slice-standard.md`](../../../standards/validation-slice-standard.md). |
+| `product/future-concepts.md` and `research/strategic-follow-on-future-systems.md` | Parameter proposals, calibration evidence, setup/device context, managed code, export, and reviewed automation should follow evidence and ADR gates. | EV-004, EV-005, EV-011, EV-015, EV-019, EV-038, EV-043; parameter, read/monitor, and runtime-boundary pressure. |
+| `product/personas.md`, `product/story-map.md`, `product/capability-map.md`, `product/vision.md`, and `product/glossary.md` | Useful vocabulary and role lenses, but not current personas, route order, capability map, or subsystem ownership. | Use only through current evidence and strategy owners. |
 
 ## Retention Rule
 
 This extracted note should remain only while it helps future work avoid
 repeating Fricon's measurement-history-first bias. Delete or compress it after
-the useful lessons are fully absorbed into journey decisions, fixtures,
+the useful lessons are fully absorbed into validation decisions, fixtures,
 contracts, or architecture ADRs.

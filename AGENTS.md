@@ -14,4 +14,4 @@
 - Keep prototypes within their stated boundary; static-analysis prototypes must
   not execute analyzed fixture or source code.
 - Do not generalize architecture, ownership, or reusable contracts from one
-  journey unless an accepted decision states that scope.
+  validation slice unless an accepted decision states that scope.

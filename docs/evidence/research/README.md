@@ -104,7 +104,7 @@ For user interview summaries, also include:
 ```markdown
 ## Participant Context
 
-## Journey Evidence
+## Scenario Evidence
 
 ## Pain Evidence
 
@@ -121,21 +121,21 @@ there is a clear internal need.
 Durable conclusions should be promoted along the current docs model:
 
 ```text
-Evidence -> Journey -> Validation Slice
+Evidence -> Opportunity Pressure -> Scenario Or JTBD -> Validation Slice
   -> Decision or Contract, only when needed
 ```
 
 Use the narrowest durable destination that exists or is justified by real
 content:
 
-- repeated pain points and candidate wording -> `evidence/inventory.md`
-- end-to-end workflows -> `journeys/`
+- repeated pain points and pressure wording -> `evidence/inventory.md`
+- end-to-end workflows -> `strategy/experience-map.md`
 - durable adoption route definitions -> `strategy/adoption-routes.md`
 - route phase or current coordination -> `status/progress-tracker.md`
-- design pressure -> the owning `journeys/` note or evidence inventory
+- design pressure -> the evidence inventory or strategy owner
 - stable domain vocabulary -> a narrow contract or future `architecture/`
   owner, only when needed
-- accepted or rejected decisions -> the owning `journeys/` or future
+- accepted or rejected decisions -> a narrow decision document or future
   `architecture/` decision
 - public-facing material -> future `user/` docs after redaction review
 
@@ -164,7 +164,7 @@ Git history is the long-term fallback for low-value research provenance. Do
 not keep extracted research files in the working tree merely because they once
 existed.
 
-Before deleting a source that supports active `EV`, `PN`, `TP`, `JC`, decision,
+Before deleting a source that supports active `EV`, `PN`, `TP`, decision,
 or fixture work, first leave a compact extracted note, source map, or evidence
 anchor in the current owner. Git history is enough only when the remaining
 value is low and no active owner depends on exact context.
