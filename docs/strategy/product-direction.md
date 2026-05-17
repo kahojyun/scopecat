@@ -77,23 +77,35 @@ physical setup semantics, and framework-specific bridge behavior should enter
 through explicit adapter or policy surfaces. They should not silently become
 core product scope because one workflow needed them.
 
-## Non-Goal Groups
+## Not Default Adoption Prerequisites
 
-These are not default adoption prerequisites:
+Early adoption should not require:
 
-- replacing existing measurement GUIs, control GUIs, drivers, or hardware
-  control frameworks;
-- replacing LabRAD, QCoDeS, Labber, Bluesky, vendor systems, or lab-owned
+- replacing existing measurement GUIs, control GUIs, drivers, hardware-control
+  frameworks, LabRAD, QCoDeS, Labber, Bluesky, vendor systems, or lab-owned
   scripts;
-- passively scraping arbitrary measurement artifacts as the main integration
+- a complete reader/export/conversion suite or semantic parser for arbitrary
+  user artifacts;
+- passive scraping of arbitrary measurement artifacts as the main integration
   model;
-- providing a complete reader/export/conversion suite or semantic parser for
-  arbitrary user artifacts;
-- autonomously deciding calibration write-back or parameter mutation;
-- owning general scheduling, remote execution, open-ended autonomy, central
-  storage, or sync services;
-- becoming the authoritative source of hardware, setup, sample, or topology
-  truth;
-- replacing lab operations, ELN, LIMS, publication, or report-generation
-  systems;
-- defining a universal parameter, setup, sample, or topology ontology.
+- Scopecat-decided calibration write-back or parameter mutation;
+- general scheduling, remote execution, open-ended autonomy, central storage,
+  or sync services.
+
+These are not permanent bans. Scopecat may later expand related capabilities
+when a narrower workflow proves the need and the boundary remains controlled.
+Examples include managing device-service code references, preparing or
+rendering declarative scan plans into parameters for existing systems,
+validating generated parameters before handoff, and using explicit adapters or
+bridges.
+
+## Product Non-Goals
+
+Scopecat should not become:
+
+- the authoritative runtime for drivers, low-level hardware control,
+  timing-critical execution, or lab-owned service operations;
+- the authoritative source of hardware, setup, sample, or topology truth;
+- a replacement for lab operations, ELN, LIMS, publication, or
+  report-generation systems;
+- a universal parameter, setup, sample, or topology ontology.
