@@ -9,6 +9,11 @@
 - Prefer one owning document per durable fact. Cross-link instead of
   duplicating, and make accepted decisions, validation scope, contracts,
   hypotheses, and open questions easy to distinguish.
+- Preserve document-layer boundaries: `docs/evidence/` owns stable evidence
+  claims and source posture, `docs/discovery/problem-briefs/` owns current
+  problem framing, `docs/discovery/adoption-hypotheses.md` owns behavior
+  hypotheses, and `docs/strategy/product-direction.md` owns product direction
+  and long-term boundary posture.
 - Keep cross-references purposeful: use them for entry points, owner
   boundaries, required dependencies, or source evidence. Avoid repeated
   historical back-links when a README or index already owns the navigation.
