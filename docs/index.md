@@ -14,7 +14,6 @@ status. Index descriptors are navigation labels, not validation statuses.
 docs/
   strategy/   project direction, adoption routes, experience placement
   evidence/   evidence inventory, interpretation method, research intake
-  standards/  durable process and review rules
   status/     compact coordination
 ```
 
@@ -27,10 +26,9 @@ docs/
 | [`strategy/vision.md`](strategy/vision.md) | Drafting project vision | Current product direction and boundaries: progressive adoption, explicit recording, complementing existing experiment systems, complexity ownership, and clear non-goals. | Not a roadmap, PRD, capability map, API/schema/UI/storage contract, or architecture decision. |
 | [`strategy/adoption-routes.md`](strategy/adoption-routes.md) | Provisional route owner | Product-value route hypotheses grouped by user-visible payoff and behavior change. | Not a roadmap, capability map, implementation order, or product acceptance claim. |
 | [`strategy/experience-map.md`](strategy/experience-map.md) | Drafting experience map | Complete-experience shape across opportunity pressures and possible validation slices. | Not an accepted product plan, roadmap, capability map, API/schema/UI/storage contract, or prototype scope. |
-| [`evidence/inventory.md`](evidence/inventory.md) | Evidence owner | Canonical evidence, lab/user context, top-level pains, pain/pressure rows, opportunity pressures, anti-patterns, and saturation. | Interpretation rules belong in `evidence/method.md`; external references belong in `evidence/external-baseline.md`; validation-slice process belongs in the standard. |
+| [`evidence/inventory.md`](evidence/inventory.md) | Evidence owner | Canonical evidence, lab/user context, top-level pains, pain/pressure rows, opportunity pressures, anti-patterns, and saturation. | Interpretation rules belong in `evidence/method.md`; external references belong in `evidence/external-baseline.md`. |
 | [`evidence/method.md`](evidence/method.md) | Evidence method | Source confidence, bias correction, source-handling guardrails, prompt-method hygiene, design pressure handling, and external baseline interpretation. | Does not own evidence rows or validation-slice scope. |
 | [`evidence/external-baseline.md`](evidence/external-baseline.md) | External baseline | Public framework references used to avoid false differentiation claims. | Recheck versions and access dates before using for published claims or implementation decisions. |
-| [`standards/validation-slice-standard.md`](standards/validation-slice-standard.md) | Draft process standard | Promotion path from evidence to scenario, validation question, fixture/prototype, and accepted boundary. | Process owner only; use evidence and strategy docs for source material. |
 | [`status/progress-tracker.md`](status/progress-tracker.md) | Active tracker | Compact phase, link, and coordination surface. | Not a task queue, roadmap, or second backlog. |
 | [`evidence/research/README.md`](evidence/research/README.md) | Stable research policy | Research directory purpose and promotion rule. | Does not define product direction. |
 | [`evidence/research/research-index.md`](evidence/research/research-index.md) | Working research index | Current research inputs, extraction state, caveats, and retention rules. | Research entries are evidence inputs unless separately promoted. |

@@ -121,7 +121,7 @@ there is a clear internal need.
 Durable conclusions should be promoted along the current docs model:
 
 ```text
-Evidence -> Opportunity Pressure -> Scenario Or JTBD -> Validation Slice
+Evidence -> Opportunity Pressure -> Scenario Or JTBD -> Validation Question
   -> Decision or Contract, only when needed
 ```
 

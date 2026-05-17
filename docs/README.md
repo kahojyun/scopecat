@@ -20,9 +20,6 @@ that can be handled inside one AI session.
   hypotheses; the tracker only coordinates their current phase.
 - `evidence/inventory.md` owns evidence rows and stable pressure IDs, while
   `evidence/method.md` owns interpretation rules.
-- `standards/validation-slice-standard.md` defines the lightweight promotion
-  path from evidence to scenario, validation question, fixture or prototype,
-  and accepted boundary.
 - `AGENTS.md` contains rules that should apply to every AI session working
   inside `docs/`.
 
@@ -34,7 +31,7 @@ entry point, not a second index.
 Use this promotion path for durable product and architecture work:
 
 ```text
-Evidence -> Opportunity Pressure -> Scenario Or JTBD -> Validation Slice
+Evidence -> Opportunity Pressure -> Scenario Or JTBD -> Validation Question
   -> Decision or Contract, only when needed
 ```
 

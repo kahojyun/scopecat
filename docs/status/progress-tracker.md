@@ -11,7 +11,6 @@ Use owner documents for durable detail:
 - product direction: [`../strategy/vision.md`](../strategy/vision.md)
 - adoption route hypotheses: [`../strategy/adoption-routes.md`](../strategy/adoption-routes.md)
 - experience placement: [`../strategy/experience-map.md`](../strategy/experience-map.md)
-- validation-slice process: [`../standards/validation-slice-standard.md`](../standards/validation-slice-standard.md)
 
 ## Coordination Phases
 

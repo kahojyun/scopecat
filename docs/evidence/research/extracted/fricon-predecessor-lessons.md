@@ -104,7 +104,7 @@ full predecessor docs:
 | Durable recording and ordinary Python substrate pressure | [`../../inventory.md`](../../inventory.md) and [`../../../strategy/experience-map.md`](../../../strategy/experience-map.md) |
 | Analysis handoff and selected high-value run packaging | [`../../inventory.md`](../../inventory.md) and [`../../../strategy/adoption-routes.md`](../../../strategy/adoption-routes.md) |
 | Passive evidence view and source/context ambiguity | [`../../inventory.md`](../../inventory.md) |
-| Automation, runtime, mutation, and safety boundaries | [`../../../strategy/vision.md`](../../../strategy/vision.md) and [`../../../standards/validation-slice-standard.md`](../../../standards/validation-slice-standard.md) |
+| Automation, runtime, mutation, and safety boundaries | [`../../../strategy/vision.md`](../../../strategy/vision.md) |
 | Full lab workflow gap discovery | [`experimental-lab-workflow-reference.md`](experimental-lab-workflow-reference.md) |
 
 ## Source Map
@@ -118,7 +118,7 @@ keeps enough provenance for future review without restoring the raw docs.
 | `research/lessons-for-fricon.md` | Dataset shape modes, readable partials before resumable execution, live views as disposable consumers, passive setup context, and export bundle pressure. | EV-010, EV-012, EV-022, EV-045; handoff and durable-record pressure. |
 | `research/legacy-measurement-sample-lessons.md` | LabRAD-era artifact evidence: scattered identity, copied code, mutable parameters, setup files, calibration scripts, analysis handoff, generated artifacts, and fragile mappings. | EV-001 through EV-023; PN-001 through PN-018; existing-bundle, handoff, parameter, lineage, and code-readiness pressure. |
 | `product/python-sdk-ux.md` | Low-ceremony SDK intent, explicit writer rewrite, trace-valued records, complex values, stable ID copy, and no LabRAD compatibility dependency. | EV-010, EV-023, EV-045; durable-record pressure. |
-| `postmortems/v0-lessons.md` and `decisions/ADR-001-v02-clean-reset-boundary.md` | Dataset-first model and prototype compatibility should not preserve the wrong domain model. | Direction-bias correction in [`../../inventory.md`](../../inventory.md); architecture triggers in [`../../../standards/validation-slice-standard.md`](../../../standards/validation-slice-standard.md). |
+| `postmortems/v0-lessons.md` and `decisions/ADR-001-v02-clean-reset-boundary.md` | Dataset-first model and prototype compatibility should not preserve the wrong domain model. | Direction-bias correction in [`../../inventory.md`](../../inventory.md); architecture triggers should be handled only when a concrete boundary needs them. |
 | `product/future-concepts.md` and `research/strategic-follow-on-future-systems.md` | Parameter proposals, calibration evidence, setup/device context, managed code, export, and reviewed automation should follow evidence and ADR gates. | EV-004, EV-005, EV-011, EV-015, EV-019, EV-038, EV-043; parameter, read/monitor, and runtime-boundary pressure. |
 | `product/personas.md`, `product/story-map.md`, `product/capability-map.md`, `product/vision.md`, and `product/glossary.md` | Useful vocabulary and role lenses, but not current personas, route order, capability map, or subsystem ownership. | Use only through current evidence and strategy owners. |
 
