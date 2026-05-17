@@ -123,12 +123,12 @@ task.
 
 ### Expected Scopecat Output
 
-Scopecat should show intended versus actual execution, which failure or review
-trigger did not block later work with no `not_before` dependency, which task
-waited for human review, which calibration update path was used or left open,
-and which later task needed an unavailable prior output. The output should
-identify which parts are observed sample patterns, user-clarified desired
-behavior, or proposed managed-runner semantics.
+Scopecat should show declared intent versus recorded or simulated outcome, which
+failure or review trigger did not block later work with no `not_before`
+dependency, which task waited for human review, which calibration update path
+was used or left open, and which later task needed an unavailable prior output.
+The output should identify which parts are observed sample patterns,
+user-clarified desired behavior, or proposed managed-runner semantics.
 
 ### Explicit Unknowns
 
