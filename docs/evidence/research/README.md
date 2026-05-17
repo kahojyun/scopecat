@@ -143,7 +143,7 @@ content:
 - assumptions and validation risks -> the owning evidence, strategy, or
   validation document
 - workflow and domain analysis -> extracted research notes or
-  `strategy/experience-map.md` only when it has durable cross-document value
+  `evidence/inventory.md` when it changes problem framing
 - option exploration and adoption hypotheses -> `strategy/adoption-routes.md`
 - scenario candidates and validation charters -> a narrow validation owner only
   when there is a concrete validation question

@@ -22,9 +22,6 @@ Use this note for gap discovery; do not promote it directly into product scope.
 
 - Existing promoted evidence and candidate wording in
   [`../../inventory.md`](../../inventory.md) use this note for gap discovery.
-- Promoted context in
-  [`../../../strategy/experience-map.md`](../../../strategy/experience-map.md)
-  uses this note as a quarantined workflow reference.
 
 This note is public-safe and intentionally generic. It omits local paths,
 hostnames, machine names, user names, sample identifiers, instrument addresses,
@@ -33,8 +30,8 @@ and lab-specific project labels.
 ## Summary
 
 This note records realistic experimental-lab workflow detail that is too broad
-for a product experience map but useful for future gap discovery. It is not a
-product plan, accepted validation slice, architecture contract, subsystem spec, hardware
+for strategy docs but useful for future gap discovery. It is not a
+product plan, accepted validation scope, architecture contract, subsystem spec, hardware
 control model, scheduler model, ELN/LIMS scope, or public user documentation.
 
 This workflow is a research scaffold for asking better questions, not an
@@ -96,9 +93,9 @@ pressure, not product shapes to preserve by default.
 ## Remaining Value
 
 This note remains useful while future product work is deciding whether candidate
-validation slices miss high-value lab gaps. Delete or archive it after the useful
-workflow detail has moved into validation source maps, fixture plans,
-capability-adoption hypotheses, or accepted decisions.
+validation questions miss high-value lab gaps. Delete or archive it after the
+useful workflow detail has moved into validation source maps, fixture plans,
+adoption-route hypotheses, evidence inventory rows, or accepted decisions.
 
 ## How To Classify Claims Before Promotion
 

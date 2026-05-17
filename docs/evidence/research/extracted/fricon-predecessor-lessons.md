@@ -91,7 +91,7 @@ full predecessor docs:
 - Do not use Fricon personas or capability maps as current role or subsystem
   truth. Roles should stay scenario-local lenses until validated.
 - Do not promote future runner, device, calibration, export, or AI automation
-  surfaces before a validation slice validates the boundary and an ADR accepts the
+  surfaces before validation work validates the boundary and an ADR accepts the
   risky ownership.
 - Do not infer public API, storage, reader, or UI shape from Fricon SDK
   sketches. Keep the product intent, not the names or object model.
@@ -101,7 +101,7 @@ full predecessor docs:
 | Fricon lesson | Current owner |
 | --- | --- |
 | Direction-bias correction: measurement history is useful but too narrow as a product center | [`../../inventory.md`](../../inventory.md) |
-| Durable recording and ordinary Python substrate pressure | [`../../inventory.md`](../../inventory.md) and [`../../../strategy/experience-map.md`](../../../strategy/experience-map.md) |
+| Durable recording and ordinary Python substrate pressure | [`../../inventory.md`](../../inventory.md) |
 | Analysis handoff and selected high-value run packaging | [`../../inventory.md`](../../inventory.md) and [`../../../strategy/adoption-routes.md`](../../../strategy/adoption-routes.md) |
 | Passive evidence view and source/context ambiguity | [`../../inventory.md`](../../inventory.md) |
 | Automation, runtime, mutation, and safety boundaries | [`../../../strategy/vision.md`](../../../strategy/vision.md) |

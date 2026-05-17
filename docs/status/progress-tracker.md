@@ -10,7 +10,6 @@ Use owner documents for durable detail:
 - evidence and pressure wording: [`../evidence/inventory.md`](../evidence/inventory.md)
 - product direction: [`../strategy/vision.md`](../strategy/vision.md)
 - adoption route hypotheses: [`../strategy/adoption-routes.md`](../strategy/adoption-routes.md)
-- experience placement: [`../strategy/experience-map.md`](../strategy/experience-map.md)
 
 ## Coordination Phases
 
@@ -29,12 +28,11 @@ ADR document.
 | --- | --- | --- | --- |
 | Evidence and pressure cleanup | Drafting | [`../evidence/inventory.md`](../evidence/inventory.md) | The old candidate layer and its prototypes were removed. The inventory now needs evidence/claim hygiene, problem framing, and option/risk cleanup without ranked candidate rows. |
 | Product-value route hypotheses | Provisional | [`../strategy/adoption-routes.md`](../strategy/adoption-routes.md) | Routes remain useful as adoption-value hypotheses, but they are not implementation order or accepted scope. |
-| Experience placement | Provisional | [`../strategy/experience-map.md`](../strategy/experience-map.md) | The map places workflow and domain pressures across the lab workflow without assigning slice IDs. |
 | Pain-discovery fixtures | Drafting | [`../evidence/pain-discovery-fixtures.md`](../evidence/pain-discovery-fixtures.md) | Existing synthetic fixtures remain critique material. They are not accepted contracts, schemas, or product requirements. |
 
 ## Active Validation Work
 
-There is no active accepted validation slice after the cleanup. Previous
+There is no active accepted validation target after the cleanup. Previous
 prototype-heavy slices were deleted because they encoded more detail than the
 current evidence model needs. Git history remains the fallback if a future
 validation charter justifies reconstructing one.
@@ -44,7 +42,7 @@ validation charter justifies reconstructing one.
 Update this tracker only when shared coordination changes:
 
 - a phase changes;
-- a route, problem-framing note, validation charter, or thin validation slice needs a link;
+- a route, problem-framing note, validation charter, or validation target needs a link;
 - a candidate validation question moves into or out of active coordination;
 - a cross-option or cross-validation dependency changes.
 

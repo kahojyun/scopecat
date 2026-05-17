@@ -23,7 +23,7 @@ permission to merge their durable artifacts.
 | Work layer | Usually belongs together | Durable owner |
 | --- | --- | --- |
 | Source intake and evidence hygiene | Source material, extraction, claim classification, source posture, and bias triage. | Research notes, extracted research files, `inventory.md`, and this method document. |
-| Problem framing | Problem or pressure clustering, workflow/domain analysis, assumptions, and risks. | `inventory.md`, extracted research notes, or `strategy/experience-map.md` when the placement has cross-document value. |
+| Problem framing | Problem or pressure clustering, workflow/domain analysis, assumptions, and risks. | `inventory.md`, extracted research notes, or `strategy/adoption-routes.md` when the framing changes route hypotheses. |
 | Option exploration | Adoption hypotheses, scenario candidates, validation questions, and charter drafting. | Strategy docs or a narrow validation owner; do not treat options as accepted scope. |
 | Validation and product disposition | User validation, fixture validation, prototype validation, acceptance, deletion, or deferral. | The owning validation, decision, tracker, or fixture document. |
 | Contracts and architecture | Stable vocabulary, API/schema/storage contracts, ownership boundaries, and ADRs. | Future `architecture/` content only when blocked or accepted scope needs it. |

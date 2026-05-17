@@ -8,12 +8,12 @@ architecture decision.
 
 ## Purpose
 
-State the clearest project-level product boundaries so later validation slices,
+State the clearest project-level product boundaries so later validation work,
 adoption routes, and architecture decisions do not drift into an accidental
 framework replacement, single required starting point, or full-platform adoption
 requirement.
 
-Narrow validation-slice or decision documents, accepted decisions, and future architecture contracts
+Narrow validation or decision documents, accepted decisions, and future architecture contracts
 own implementation-grade detail. This document owns only durable direction that
 is already clear enough to guide those documents.
 
@@ -52,7 +52,7 @@ The clearest near-term wedge is recovery plus handoff: make existing runs,
 code, context, and selected data easier to find, trust enough to use, and move
 to analysis without replacing the acquisition stack. Automation remains part of
 the longer product direction, but it should enter early adoption only through
-narrow validation slices such as explicit read/monitor records or fixture-scale
+narrow validation work such as explicit read/monitor records or fixture-scale
 batch outcome reports.
 
 Design work should still consider the full set of routes together so later
@@ -62,8 +62,8 @@ platform.
 
 Top-level pains are composition pressure, not single-route implementation
 requirements. They can show why multiple capabilities eventually need to work
-together, but each promoted validation slice still needs a concrete user sequence,
-validation fixture, explicit boundary, and standalone value.
+together, but each promoted validation target still needs a concrete user
+sequence, validation fixture, explicit boundary, and standalone value.
 
 Before a route is piloted with a lab, its owner should state the minimum
 adoption contract in payoff-first order: the first useful output, the exact
@@ -272,7 +272,7 @@ replacement targets for every route:
 - a universal parameter, setup, sample, or topology ontology.
 
 Some of these areas may become product surfaces, integrations, or later
-capabilities after specific validation slices and decisions justify them. For example,
+capabilities after specific validation work and decisions justify them. For example,
 Scopecat may provide its own run browser for Scopecat-recorded runs, including
 future same-station historical access when a route validates that need. A live
 observation surface is later scope unless it proves adoption value independent
