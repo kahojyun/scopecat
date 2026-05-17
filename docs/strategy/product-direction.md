@@ -20,7 +20,7 @@ and handoff bundles easier to explain, select, package, compare, and review
 around existing lab systems.
 
 Early value should come from practical workflow return: recovery, selection,
-handoff, diagnostic clarity, readable progress, or reviewable calibration work.
+handoff, diagnostic clarity, readable progress, or runnable calibration work.
 Provenance and auditability matter only when they make those workflows easier.
 
 ## User QoL Outcomes
@@ -39,6 +39,11 @@ Prefer work that lets users:
 Existing experiment systems own execution and mutation by default: instrument
 communication, hardware state, acquisition timing, live parameter application,
 trusted scan execution, and emergency recovery.
+
+Scopecat may validate thin local workflow execution only when it calls
+user-authored Python/helper steps and improves a concrete workflow such as
+calibration continuation. That does not make Scopecat the owner of drivers,
+timing-critical control, hardware safety, or parameter write-back.
 
 Scopecat can own records and explanations around those systems: measurement
 records, context, lifecycle events, code references, parameter snapshots,
@@ -73,7 +78,7 @@ These are not default adoption prerequisites:
   model;
 - providing a complete reader/export/conversion suite or semantic parser for
   arbitrary user artifacts;
-- owning calibration write-back, parameter mutation, scheduling, remote
+- owning calibration write-back, parameter mutation, general scheduling, remote
   execution, central storage, or sync services;
 - becoming the authoritative source of hardware, setup, sample, or topology
   truth;

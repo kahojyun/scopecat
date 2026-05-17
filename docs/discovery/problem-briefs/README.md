@@ -40,7 +40,7 @@ Each brief should separate:
 
 | Brief | Use For |
 | --- | --- |
-| [`calibration-work-review.md`](calibration-work-review.md) | Sequential scans, calibration work, interruption, review gates, continuation, and outcome questions. |
+| [`calibration-work-continuation.md`](calibration-work-continuation.md) | Sequential scans, calibration work, interruption, review gates, continuation, and thin local execution questions. |
 | [`parameter-mutation-history.md`](parameter-mutation-history.md) | Mutable parameter files, run-linked snapshots, drift queries, bad states, and apply/review boundaries. |
 | [`code-selection-readiness.md`](code-selection-readiness.md) | Copied folders, entrypoint ambiguity, code snapshots, dependency readiness, and code-version selection. |
 | [`measurement-record-attachments.md`](measurement-record-attachments.md) | Measurement rows, companion artifacts, primary-data boundaries, and attachments. |
