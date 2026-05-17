@@ -36,14 +36,16 @@ Prefer work that lets users:
 
 ## Ownership Assumptions
 
-Existing experiment systems own execution and mutation by default: instrument
-communication, hardware state, acquisition timing, live parameter application,
-trusted scan execution, and emergency recovery.
+Existing experiment systems own low-level control and mutation by default:
+instrument communication, hardware state, acquisition timing, live parameter
+application, trusted scan execution, and emergency recovery.
 
-Scopecat may validate thin local workflow execution only when it calls
-user-authored Python/helper steps and improves a concrete workflow such as
-calibration continuation. That does not make Scopecat the owner of drivers,
-timing-critical control, hardware safety, or parameter write-back.
+Scopecat may validate a local sequential executor when it runs user-authored
+Python/helper steps and improves a concrete workflow such as calibration
+continuation. That scope is close to a structured IPython or notebook cell
+queue. It becomes a separate decision when it adds unattended autonomy,
+concurrency, remote execution, resource arbitration, hardware safety policy,
+automatic retry/mutation policy, or parameter write-back.
 
 Scopecat can own records and explanations around those systems: measurement
 records, context, lifecycle events, code references, parameter snapshots,

@@ -24,7 +24,7 @@ Problem framing lives in
 | --- | --- | --- |
 | Select and hand off useful runs | Existing bundle ambiguity, selected-context loss, source identity, portable record movement, and handoff pressure. | Can users select useful runs and move enough context to an analysis computer with less reconstruction than copying folders manually? |
 | Choose or migrate experiment code | Copied folders, notebooks, entrypoint ambiguity, dependency readiness, known-good references, and cross-computer code drift. | Can users choose, restore, or migrate the next code version without guessing which copied folder is working? |
-| Run and continue calibration work | Scan semantics, grouped calibration intent, review gates, failure policy, continuation, thin local execution, and outcome records. | Can users run user-authored calibration steps, pause for review, and continue useful work without Scopecat owning hardware control or write-back? |
+| Run and continue calibration work | Scan semantics, grouped calibration intent, review gates, failure policy, continuation, local sequential execution, and outcome records. | Can users run user-authored calibration steps one after another, pause for review, and continue useful work better than with notebook cell queues? |
 | Recover parameter state | Mutable parameter files, direct updates, bad states, drift queries, working-point branches, and run links. | Can users recover and compare parameter states without asking Scopecat to apply mutations? |
 | Compare against known-good context | False confidence, setup reality, known-good references, scientific comparability, support packages, and control-PC safety. | Can users see changed or missing context against a reference without Scopecat claiming equivalence or setup truth? |
 | Recheck analysis handoff impact | Derived arrays, figures, fits, reports, correction choices, exclusions, source runs, and calibration impact. | Can users recheck derived analysis after a handoff, calibration, setup, code, or analysis change without tracing notebooks manually? |
@@ -40,6 +40,6 @@ Cross-computer code movement should first be tested as explicit selection and
 recovery. Publish/pull, automatic sync, Git hosting, deployment management,
 and load-selected-version execution remain later hypotheses.
 
-Runtime ownership, managed execution, code registries, automatic version
-management, proposal workflows, and similar solution names should stay out of
-this file unless a validation result makes them the next question.
+General runtime ownership, managed execution, code registries, automatic
+version management, proposal workflows, and similar solution names should stay
+out of this file unless a validation result makes them the next question.
