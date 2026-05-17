@@ -566,8 +566,9 @@ closer to package-index `yank` versus `delete`.
 
 ### Code Snapshot Minimum
 
-The most important code provenance field is the entrypoint. Recording it is
-simple and high value. For user-owned code, folder selection plus an ignore
+The most important code selection field is the entrypoint. Recording it is
+simple and high value because it helps users choose, restore, or explain the
+code path that matters. For user-owned code, folder selection plus an ignore
 mechanism may be enough initially. Third-party dependency capture affects full
 reproducibility, but it is less central to experiment intent and can remain a
 lower-priority readiness detail.
@@ -576,11 +577,11 @@ A snapshot-only export is probably not enough for the code-version pain. It
 helps later provenance, but it can still leave users copying code back into an
 experiment directory, creating more versions. The stronger user need is to
 select a previous code version or branch variant for an experiment, run tests or
-exploratory changes on a separate branch, and have Scopecat record which version
-actually ran. A conservative tracking-only path improves retrospective analysis
-but may not improve the experiment experience enough for users who do not
-already care about provenance. Loading a selected version for execution may be
-the clearer quality-of-life improvement, but it raises process isolation,
+exploratory changes on a separate branch, and record which version was actually
+used as a byproduct. A conservative tracking-only path improves retrospective
+analysis but may not improve the experiment experience enough for users who do
+not already care about provenance. Loading a selected version for execution may
+be the clearer quality-of-life improvement, but it raises process isolation,
 environment authority, side-effect, and runtime-owner questions. Keep it as a
 capability hypothesis until the smaller entrypoint, selected-folder, and
 code-snapshot paths prove insufficient.
