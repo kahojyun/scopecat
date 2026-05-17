@@ -36,10 +36,10 @@ retried, and which bad writes should be excluded from later analysis.
 - Run-linked parameter history may be valuable before Scopecat owns any apply
   or mutation path.
 
-## Current Boundary
+## Out Of Scope For This Brief
 
-- Universal parameter model, final storage format, permission model, write-back
-  ownership, rollback automation, hard-delete policy, or autonomous calibration.
+- Universal parameter models, final storage format, write-back ownership,
+  rollback automation, hard-delete policy, and autonomous calibration.
 - Treating static files as authoritative live hardware or setup truth.
 
 ## Possible Validation Questions

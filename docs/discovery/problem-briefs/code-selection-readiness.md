@@ -1,4 +1,4 @@
-# Copied Code Provenance
+# Code Selection Readiness
 
 ## Status
 
@@ -9,8 +9,7 @@ Evidence-backed problem brief.
 Experiment code, notebooks, helpers, and local runtime assumptions fragment
 into copied folders, backup variants, path hacks, ambiguous notebooks, and weak
 canonical identity. Users need to choose, restore, explain, or migrate the code
-that matters without immediately adopting a full code registry or managed
-execution system.
+that matters without adopting a full code registry or managed execution system.
 
 ## Observed Sample Evidence
 
@@ -39,12 +38,10 @@ execution system.
   load-selected-version value.
 - Readiness should be fail-before-write diagnostics, not managed execution.
 
-## Current Boundary
+## Out Of Scope For This Brief
 
-- Hash snapshot manifests as observed user practice.
-- `uv.lock`, portable dependency closure, temp run folders, process isolation
-  API, code registry, Git hosting, automatic sync, deployment manager, or
-  managed runner.
+- Dependency closure, process isolation, code registries, Git hosting,
+  automatic sync, deployment management, and managed runners.
 - Inferring canonical status from folder names such as `old`, `backup`, `_bk`,
   `copy`, or `temp`.
 

@@ -12,10 +12,9 @@
 - Keep cross-references purposeful: use them for entry points, owner
   boundaries, required dependencies, or source evidence. Avoid repeated
   historical back-links when a README or index already owns the navigation.
-- Keep trackers compact: coordination labels, current decision points, links,
-  and short cross-document coordination notes. Do not use tracker labels as
-  validation statuses, and do not use trackers as slice-local task queues.
-  Move durable detail into narrower owner docs once it has multiple active
-  consumers.
+- Add coordination trackers only when there is active cross-document state.
+  Keep them compact: current decision points, links, and short coordination
+  notes. Move durable detail into narrower owner docs once it has multiple
+  active consumers.
 - Do not copy an existing validation artifact structure unless the new
   validation question has earned the same artifact types.

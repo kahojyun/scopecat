@@ -13,10 +13,10 @@ Each hypothesis should stay phrased as a behavior change to test. Concrete UI,
 schema, runner, storage, sync, or service shapes belong in a later validation
 or architecture owner only after a smaller question needs them.
 
-Evidence claims live in [`../evidence/inventory.md`](../evidence/inventory.md).
+Evidence claims live in
+[`../evidence/evidence-register.md`](../evidence/evidence-register.md).
 Problem framing lives in
-[`problem-briefs/README.md`](problem-briefs/README.md). The tracker owns current
-coordination only.
+[`problem-briefs/README.md`](problem-briefs/README.md).
 
 ## Hypotheses
 
@@ -43,4 +43,3 @@ and load-selected-version execution remain later hypotheses.
 Runtime ownership, managed execution, code registries, automatic version
 management, proposal workflows, and similar solution names should stay out of
 this file unless a validation result makes them the next question.
-

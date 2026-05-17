@@ -8,7 +8,7 @@ scenario owner, a validation charter, or an architecture plan.
 ## Inputs
 
 This note distills lab workflow patterns from current-owner clarification,
-workflow improvement evidence, predecessor Fricon lessons, prompt-method
+workflow improvement evidence, predecessor measurement-system lessons, prompt-method
 role-play, and external measurement-framework baseline review.
 
 It deliberately avoids private sample paths and concrete local identifiers.
@@ -18,11 +18,11 @@ It deliberately avoids private sample paths and concrete local identifiers.
 Use this file only as a background check when future product work risks missing
 realistic lab workflow pressure. Prefer promoted owner docs first:
 
-- stable evidence claims: [`../../inventory.md`](../../inventory.md)
+- stable evidence claims: [`../../evidence-register.md`](../../evidence-register.md)
 - evidence interpretation rules: [`../../method.md`](../../method.md)
 - problem briefs: [`../../../discovery/problem-briefs/`](../../../discovery/problem-briefs/)
 - adoption hypotheses: [`../../../discovery/adoption-hypotheses.md`](../../../discovery/adoption-hypotheses.md)
-- product boundaries: [`../../../strategy/product-brief.md`](../../../strategy/product-brief.md)
+- product boundaries: [`../../../strategy/product-direction.md`](../../../strategy/product-direction.md)
 
 Do not infer product acceptance directly from this note. Promote only narrow
 claims into owner documents after reference-case, interview, spike, or existing

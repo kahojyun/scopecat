@@ -1,4 +1,4 @@
-# Batch Failure And Review
+# Calibration Batch Review
 
 ## Status
 
@@ -25,27 +25,23 @@ enough if users still have to parse and execute it manually.
 - The stronger pain is queue-level: exceptions can break rough queues, useful
   independent work should sometimes continue, and lower-priority calibration may
   run after higher-priority work.
-- A minimal local executor or standalone package may be needed for adoption
-  because record-only intent leaves too much execution burden on users.
-- The authoring surface should feel like helper/builder code or decorated
-  functions, not hand-written manifest files.
+- Record-only intent may leave too much execution burden on users.
+- Authoring should stay close to normal Python helper code.
 
 ## Derived Hypotheses
 
-- Start by testing declared intent plus observed or simulated outcome reports.
+- Test whether declared intent plus outcome reports explain review and failure
+  better than notebook cells alone.
 - A useful validation target may need run-to-completion evidence plus explicit
   blocked/review states before testing resume, retry, review continuation, or
   selected remeasurement.
 - Calibration batch review is the best candidate episode because it combines
   fit quality, manual decision, continuation, and downstream blocking pressure.
 
-## Current Boundary
+## Out Of Scope For This Brief
 
-- Task DAG semantics, blocked-task accounting, priority arbitration, idle
-  backfill, resource leases, and managed continuation after failure.
-- Scopecat-owned scheduling, retries, locking, hardware execution, or
-  write-back.
-- Treating status vocabulary as a runner state machine.
+- General schedulers, hardware execution, resource leases, and write-back.
+- A runner state machine.
 
 ## Possible Validation Questions
 

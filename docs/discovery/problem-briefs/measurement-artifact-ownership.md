@@ -40,11 +40,10 @@ is context, what is an attachment, and what remains ambiguous.
 - Reference cases may use tiny CSV/JSON placeholders, but should mark columns,
   shape, IDs, and scientific values as synthetic.
 
-## Current Boundary
+## Out Of Scope For This Brief
 
-- Final table format, Arrow/storage/API choice, canonical record ID model,
-  `source_system`, batch/task relation, final source-relation schema, or GUI
-  contract.
+- Final table format, storage/API choice, record ID model, source-relation
+  schema, and GUI contract.
 - Treating companion-file copying as the recommended future workflow.
 
 ## Possible Validation Questions

@@ -1,4 +1,4 @@
-# Running-Run Partial Records
+# Running Measurement Readability
 
 ## Status
 
@@ -35,11 +35,10 @@ is complete, partial, readable, or fit-ready before the full run finishes.
 - Cursor movement, temporary range selection, and preview fits need not be
   durable unless the user saves a fit result or operator decision.
 
-## Current Boundary
+## Out Of Scope For This Brief
 
-- Automated fitting as first scope, replayable advice, opaque AI advisory,
-  adaptive scan mutation, append-to-existing-measurement semantics, framework
-  scraping, parameter write-back, or autonomous calibration.
+- Automated fitting, AI advisory, adaptive scan mutation, framework scraping,
+  parameter write-back, and autonomous calibration.
 - Treating live observation as standalone adoption value before read/monitor
   value is proven.
 

@@ -54,12 +54,11 @@ pain evidence, adoption signals, and redaction notes when relevant.
 
 ## Promotion Targets
 
-- evidence claims -> [`../inventory.md`](../inventory.md)
+- evidence claims -> [`../evidence-register.md`](../evidence-register.md)
 - evidence interpretation, source posture, and bias rules -> [`../method.md`](../method.md)
 - problem framing -> [`../../discovery/problem-briefs/`](../../discovery/problem-briefs/)
 - adoption hypotheses -> [`../../discovery/adoption-hypotheses.md`](../../discovery/adoption-hypotheses.md)
-- product direction and boundaries -> [`../../strategy/product-brief.md`](../../strategy/product-brief.md)
-- current coordination -> [`../../status/progress-tracker.md`](../../status/progress-tracker.md)
+- product direction and boundaries -> [`../../strategy/product-direction.md`](../../strategy/product-direction.md)
 
 Create validation, decision, architecture, or user docs only when there is a
 specific durable owner and content for them.

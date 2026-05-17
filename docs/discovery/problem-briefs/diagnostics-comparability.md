@@ -45,11 +45,11 @@ facts that matter scientifically or operationally.
 - Recipient-aware sharing is a separate product question from public-safe
   redaction.
 
-## Current Boundary
+## Out Of Scope For This Brief
 
-- Scopecat-owned setup truth, automatic equivalence scoring, rollback,
-  deployment, remote support agents, or managed environment mutation.
-- Universal physical setup ontology, universal parameter schema, or full
+- Scopecat-owned setup truth, equivalence scoring, rollback, deployment,
+  remote support, and managed environment mutation.
+- Universal physical setup ontology, universal parameter schema, and
   hardware-resource arbitration.
 - Treating a software snapshot as enough proof of scientific comparability.
 

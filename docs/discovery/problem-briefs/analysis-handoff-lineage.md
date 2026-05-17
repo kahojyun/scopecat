@@ -41,11 +41,11 @@ artifacts.
 - Selection rationale should become first-class: active ID, rejected
   alternatives, anomaly notes, and missing derived inputs.
 
-## Current Boundary
+## Out Of Scope For This Brief
 
 - Full report generation, publication workflow, automatic reanalysis, claim
-  correctness scoring, central server, generated indexes, background indexer,
-  live sync, remote execution, or mandatory shared storage.
+  correctness scoring, central services, remote execution, and mandatory shared
+  storage.
 - Treating folder names such as `old`, `backup`, or `copy` as proof of status.
 
 ## Possible Validation Questions

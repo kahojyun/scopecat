@@ -1,49 +1,34 @@
-# Document Index
+# Document Map
 
 ## Purpose
 
-Compact index of high-value docs for readers and future AI sessions. Stable
-documentation policy belongs in [`README.md`](README.md).
+Navigation map for current Scopecat docs.
 
-If this index and a document's own status disagree, trust the document's own
-status. Index descriptors are navigation labels, not validation statuses.
-
-## Core Map
+## Map
 
 ```text
 docs/
   strategy/   product direction and boundaries
   discovery/  problem briefs and adoption hypotheses
-  evidence/   evidence inventory, interpretation method, research intake
-  status/     compact coordination
+  evidence/   evidence register, method, research, external baseline
 ```
 
-## Index
-
-| Document | Descriptor | Use For | Caveat |
-| --- | --- | --- | --- |
-| [`README.md`](README.md) | Stable policy | Documentation purpose, entry points, and editing rules. | Should stay compact and avoid current file inventory. |
-| [`AGENTS.md`](AGENTS.md) | Stable policy | Always-applied AI instructions for work inside `docs/`. | Keep operational; do not move long background here. |
-| [`strategy/product-brief.md`](strategy/product-brief.md) | Drafting product brief | Current product direction and boundaries: progressive adoption, explicit recording, complementing existing experiment systems, complexity ownership, and clear non-goals. | Narrower docs own validation, contracts, schemas, and decisions. |
-| [`discovery/adoption-hypotheses.md`](discovery/adoption-hypotheses.md) | Provisional hypothesis owner | Product-value hypotheses grouped by user-visible behavior change. | Not implementation order or accepted product scope. |
-| [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md) | Problem brief index | Evidence-backed problem briefs split by observed sample evidence, owner clarification, derived hypotheses, and current boundary. | Not validation charters or product requirements. |
-| [`evidence/inventory.md`](evidence/inventory.md) | Evidence owner | Stable `EV-*` evidence claims and source posture. | Interpretation rules belong in `evidence/method.md`; problem framing belongs in `discovery/problem-briefs/`. |
-| [`evidence/method.md`](evidence/method.md) | Evidence method | Source confidence, bias correction, source-handling guardrails, prompt-method hygiene, design pressure handling, and external baseline interpretation. | Does not own evidence rows or accepted validation scope. |
-| [`evidence/external-baseline.md`](evidence/external-baseline.md) | External baseline | Public framework references used to avoid false differentiation claims. | Recheck versions and access dates before using for published claims or implementation decisions. |
-| [`status/progress-tracker.md`](status/progress-tracker.md) | Active tracker | Compact phase, link, and coordination surface. | Not a task queue, roadmap, or second backlog. |
-| [`evidence/research/README.md`](evidence/research/README.md) | Stable research policy | Research directory purpose and promotion rule. | Does not define product direction. |
-| [`evidence/research/research-index.md`](evidence/research/research-index.md) | Working research index | Current research inputs, extraction state, caveats, and retention rules. | Research entries are evidence inputs unless separately promoted. |
+| Document | Use For |
+| --- | --- |
+| [`README.md`](README.md) | Documentation purpose and editing rules. |
+| [`AGENTS.md`](AGENTS.md) | AI-session rules for work inside `docs/`. |
+| [`strategy/product-direction.md`](strategy/product-direction.md) | Current product direction, default ownership boundaries, and non-goals. |
+| [`discovery/adoption-hypotheses.md`](discovery/adoption-hypotheses.md) | Product-value hypotheses grouped by user-visible behavior change. |
+| [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md) | Evidence-backed problem briefs. |
+| [`evidence/evidence-register.md`](evidence/evidence-register.md) | Stable `EV-*` evidence claims and source posture. |
+| [`evidence/method.md`](evidence/method.md) | Evidence classes, support rules, source handling, and update rules. |
+| [`evidence/external-baseline.md`](evidence/external-baseline.md) | External framework baseline. |
+| [`evidence/research/README.md`](evidence/research/README.md) | Research directory policy. |
+| [`evidence/research/research-index.md`](evidence/research/research-index.md) | Current research inputs and extracted notes. |
 
 ## Future Areas
 
-Do not create directories only to match a taxonomy. Add these only when there
-is durable content with a clear owner and purpose:
+Add only when there is durable content with a clear owner:
 
 - `architecture/` for contracts, ADRs, and ownership decisions;
-- `user/` for public, redacted MkDocs-facing documentation;
-
-## Maintenance
-
-Update this index when a document becomes a regular entry point for future
-work, when its status changes meaningfully, or when a risky caveat needs to be
-visible before reading.
+- `user/` for public, redacted user documentation.
