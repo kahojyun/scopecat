@@ -20,7 +20,8 @@ Treat source families separately:
   code, parameter and registry files, wiring sheets, generated artifacts,
   derived arrays, environment coupling, and report handoff;
 - current-owner clarification can narrow intended pains and workarounds, but it
-  is not independent user research;
+  is not independent user research; it can still justify lab-specific discovery
+  when the claim is explicitly scoped to the project owner's lab;
 - historical automation discussion is low-confidence design pressure;
 - blind persona and capability-gap role-play are prompt-method checks, not user
   research;
