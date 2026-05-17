@@ -44,7 +44,7 @@ Each brief should separate:
 | [`parameter-mutation-history.md`](parameter-mutation-history.md) | Mutable parameter files, run-linked snapshots, drift queries, bad states, and apply/review boundaries. |
 | [`code-selection-readiness.md`](code-selection-readiness.md) | Copied folders, entrypoint ambiguity, code snapshots, dependency readiness, and code-version selection. |
 | [`measurement-record-attachments.md`](measurement-record-attachments.md) | Measurement rows, companion artifacts, primary-data boundaries, and attachments. |
-| [`running-measurement-readability.md`](running-measurement-readability.md) | Partial recorded data, progress/readiness, stop/interruption, and live-advisory boundaries. |
+| [`running-measurement-readability.md`](running-measurement-readability.md) | Partial recorded data, progress/readiness, stop/interruption, and monitor boundaries. |
 | [`analysis-handoff.md`](analysis-handoff.md) | Selected-run handoff, derived analysis packages, reports, source links, and same-station access constraints. |
 | [`known-good-diagnostics.md`](known-good-diagnostics.md) | Known-good references, setup reality, diagnostic support packages, and scientific comparability limits. |
 

@@ -21,7 +21,7 @@ sweep than to in-run scan-plan adjustment.
 - Existing LabRAD Grapher use includes selecting a range in live data and
   fitting a parabola, which is a useful reference for monitor ergonomics.
 - Fit/quality review and retune decisions exist, but not as a reason to start
-  with complex in-run scan-plan adjustment or automatic next-step advice.
+  with complex in-run scan-plan changes or automatic retune.
 - Recording can be incomplete or disabled through lazy dataset creation,
   `save` flags, `pause_store`, `pause_save`, or bypass paths.
 
@@ -42,19 +42,18 @@ sweep than to in-run scan-plan adjustment.
   user saves a fit result or operator decision.
 - User-requested preview computation, such as fitting a parabola over a
   selected range, can be part of monitor usefulness without becoming automatic
-  scan-plan adjustment.
+  retune or scan-plan control.
 
 ## Out Of Scope For This Brief
 
-- Complex in-run scan-plan adjustment, automatic next-step advice, adaptive
-  scan mutation, framework scraping, parameter write-back, and autonomous
-  calibration.
+- Complex in-run scan-plan changes, automatic retune/write-back, framework
+  scraping, and autonomous calibration.
 
 ## Possible Validation Questions
 
 - Can explicit partial records plus progress/readiness markers let users inspect
   useful parts of a running measurement before it ends?
 - Does range selection plus parabolic fitting make the monitor useful enough
-  without promoting adaptive scan mutation or automatic next-step advice?
+  without promoting automatic retune or scan-plan control?
 - Which readiness granularity is real enough to justify changing experiment
   code?
