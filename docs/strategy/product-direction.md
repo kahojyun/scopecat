@@ -23,6 +23,17 @@ Early value should come from practical workflow return: recovery, selection,
 handoff, diagnostic clarity, readable progress, or runnable calibration work.
 Provenance and auditability matter only when they make those workflows easier.
 
+## Primary Adoption Context
+
+Scopecat is primarily being shaped for the project owner and their lab. Product
+direction can rely on repeated local workflow pain, maintainability pressure,
+and migration risk in that lab without first proving broad market demand.
+
+This makes deeper integration with the lab's measurement core a legitimate
+long-term ambition. It does not remove the need for evidence before committing
+to specific runtime, driver, scan, service, or migration scope, but the evidence
+may come from local high-value workflows rather than a broad external user base.
+
 ## User QoL Outcomes
 
 Prefer work that lets users:

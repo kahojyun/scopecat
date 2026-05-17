@@ -13,6 +13,11 @@ Each hypothesis should stay phrased as a behavior change to test. Concrete UI,
 schema, runner, storage, sync, or service shapes belong in a later validation
 or architecture owner only after a smaller question needs them.
 
+Discovery is primarily judged against the project owner's lab context. Local
+repeatability, maintenance burden, migration risk, and high-value workflow
+improvement are enough to justify a hypothesis; broad external validation is not
+required before the project can choose a lab-specific direction.
+
 Evidence claims live in
 [`../evidence/evidence-register.md`](../evidence/evidence-register.md).
 Problem framing lives in
