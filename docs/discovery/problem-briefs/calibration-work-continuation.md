@@ -40,8 +40,13 @@ every exception, and decide continuation from scattered notebook state.
 - In the minimal version, this executor stays inside the same local arbitrary
   code execution context as IPython or a notebook. The important boundary is not
   "can it execute code"; it is whether Scopecat crosses into remote execution,
-  unattended autonomy, concurrency, resource arbitration, automatic
+  open-ended autonomy, concurrency, resource arbitration, automatic
   mutation/retry policy, or calibration write-back.
+- The differentiator is not a new general-purpose executor. Scopecat should
+  bind execution to calibration intent, review gates, failure policy, outputs,
+  parameter/run/code context, and follow-on analysis or diagnostics.
+- The actual invocation mechanism may be a thin wrapper around an existing
+  Python process, workflow, or task-running library.
 - Calibration work continuation is a strong candidate episode because it
   combines fit quality, manual decision, continuation, selected remeasurement,
   and downstream blocking pressure.
@@ -49,7 +54,7 @@ every exception, and decide continuation from scattered notebook state.
 ## Out Of Scope For This Brief
 
 - General schedulers, remote execution, resource leases, hardware-control
-  frameworks, unattended autonomy, automatic mutation/retry policy, and
+  frameworks, open-ended autonomy, automatic mutation/retry policy, and
   write-back.
 - A reusable runner framework beyond the smallest local sequential executor.
 
@@ -59,5 +64,5 @@ every exception, and decide continuation from scattered notebook state.
   review, record failed-fit decisions, and continue useful work better than a
   notebook cell queue?
 - What is the smallest runnable proof that improves real calibration work
-  before accepting remote execution, unattended operation, resource arbitration,
+  before accepting remote execution, open-ended autonomy, resource arbitration,
   automatic retry/mutation, or write-back scope?

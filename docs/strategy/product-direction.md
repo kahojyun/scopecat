@@ -44,8 +44,15 @@ Scopecat may validate a local sequential executor when it runs user-authored
 Python/helper steps and improves a concrete workflow such as calibration
 continuation. Inside an IPython or notebook-like local arbitrary-code
 environment, code execution itself is not the main product boundary. Remote
-execution, unattended autonomy, concurrency, resource arbitration, automatic
+execution, open-ended autonomy, concurrency, resource arbitration, automatic
 retry/mutation policy, and parameter write-back are separate decisions.
+
+Scopecat's executor value should come from experiment semantics, not from
+being a general code runner. It may wrap an existing runtime or workflow
+library while owning the step contract, experiment intent links, lifecycle
+states, review gates, failure/continuation records, output registration, and
+links to runs, parameters, code references, known-good references, and analysis
+handoff.
 
 Scopecat can own records and explanations around those systems: measurement
 records, context, lifecycle events, code references, parameter snapshots,
@@ -81,7 +88,7 @@ These are not default adoption prerequisites:
 - providing a complete reader/export/conversion suite or semantic parser for
   arbitrary user artifacts;
 - owning calibration write-back, parameter mutation, general scheduling, remote
-  execution, central storage, or sync services;
+  execution, open-ended autonomy, central storage, or sync services;
 - becoming the authoritative source of hardware, setup, sample, or topology
   truth;
 - replacing lab operations, ELN, LIMS, publication, or report-generation
