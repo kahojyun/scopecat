@@ -42,10 +42,10 @@ application, trusted scan execution, and emergency recovery.
 
 Scopecat may validate a local sequential executor when it runs user-authored
 Python/helper steps and improves a concrete workflow such as calibration
-continuation. That scope is close to a structured IPython or notebook cell
-queue. It becomes a separate decision when it adds unattended autonomy,
-concurrency, remote execution, resource arbitration, hardware safety policy,
-automatic retry/mutation policy, or parameter write-back.
+continuation. Inside an IPython or notebook-like local arbitrary-code
+environment, code execution itself is not the main product boundary. Remote
+execution, unattended autonomy, concurrency, resource arbitration, automatic
+retry/mutation policy, and parameter write-back are separate decisions.
 
 Scopecat can own records and explanations around those systems: measurement
 records, context, lifecycle events, code references, parameter snapshots,

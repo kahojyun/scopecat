@@ -37,11 +37,11 @@ every exception, and decide continuation from scattered notebook state.
 - The smallest credible validation target is a local sequential batch executor:
   it runs user-authored Python/helper steps one after another while recording
   intent, progress, blocked/review states, outcomes, and requested next action.
-- In the minimal version, this executor has a similar risk profile to a user
-  running the same steps through an IPython or notebook cell queue. It becomes a
-  different risk class when it adds unattended autonomy, retries with mutation,
-  concurrency, remote execution, resource arbitration, hardware safety policy,
-  or calibration write-back.
+- In the minimal version, this executor stays inside the same local arbitrary
+  code execution context as IPython or a notebook. The important boundary is not
+  "can it execute code"; it is whether Scopecat crosses into remote execution,
+  unattended autonomy, concurrency, resource arbitration, automatic
+  mutation/retry policy, or calibration write-back.
 - Calibration work continuation is a strong candidate episode because it
   combines fit quality, manual decision, continuation, selected remeasurement,
   and downstream blocking pressure.
@@ -59,5 +59,5 @@ every exception, and decide continuation from scattered notebook state.
   review, record failed-fit decisions, and continue useful work better than a
   notebook cell queue?
 - What is the smallest runnable proof that improves real calibration work
-  before accepting general scheduling, remote execution, automatic retry, or
-  write-back scope?
+  before accepting remote execution, unattended operation, resource arbitration,
+  automatic retry/mutation, or write-back scope?
