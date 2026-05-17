@@ -20,8 +20,19 @@ and handoff bundles easier to explain, select, package, compare, and review
 around existing lab systems.
 
 Early value should come from practical workflow return: recovery, selection,
-handoff, diagnostic clarity, readable progress, or bounded automation evidence.
-Provenance and auditability matter when they support those workflows.
+handoff, diagnostic clarity, readable progress, or reviewable calibration work.
+Provenance and auditability matter only when they make those workflows easier.
+
+## User QoL Outcomes
+
+Prefer work that lets users:
+
+- find and move useful runs without rebuilding context by hand;
+- inspect readable parts of long measurements before the full run finishes;
+- choose, restore, or migrate the experiment code that actually matters;
+- recover parameter states, compare drift, and exclude known-bad states;
+- compare a current setup or bundle against a known-good reference;
+- hand off analysis context without requiring a complete provenance program.
 
 ## Ownership Assumptions
 
@@ -31,7 +42,7 @@ trusted scan execution, and emergency recovery.
 
 Scopecat can own records and explanations around those systems: measurement
 records, context, lifecycle events, code references, parameter snapshots,
-generated artifacts, selected references, analysis choices, quality evidence,
+generated artifacts, selected references, analysis choices, quality notes,
 annotations, and handoff packages.
 
 Cross-machine value should start from portable records, explicit export/import,
@@ -69,4 +80,3 @@ These are not default adoption prerequisites:
 - replacing lab operations, ELN, LIMS, publication, or report-generation
   systems;
 - defining a universal parameter, setup, sample, or topology ontology.
-

@@ -1,4 +1,4 @@
-# Calibration Batch Review
+# Calibration Work Review
 
 ## Status
 
@@ -8,8 +8,8 @@ Evidence-backed problem brief.
 
 Users can express sequential scan and calibration work in notebooks or Python,
 but failure, interruption, review gates, continuation, and downstream blocking
-remain hard to inspect after the fact. A complex intent record alone is not
-enough if users still have to parse and execute it manually.
+remain hard to inspect after the fact. The immediate user need is a clearer
+record of what happened and what can happen next, not a general runner.
 
 ## Observed Sample Evidence
 
@@ -22,9 +22,9 @@ enough if users still have to parse and execute it manually.
 
 ## Project-Owner Clarification
 
-- The stronger pain is queue-level: exceptions can break rough queues, useful
-  independent work should sometimes continue, and lower-priority calibration may
-  run after higher-priority work.
+- The stronger pain is work-review level: exceptions can break rough queues,
+  useful independent work should sometimes continue, and lower-priority
+  calibration may run after higher-priority work.
 - Record-only intent may leave too much execution burden on users.
 - Authoring should stay close to normal Python helper code.
 
@@ -35,7 +35,7 @@ enough if users still have to parse and execute it manually.
 - A useful validation target may need run-to-completion evidence plus explicit
   blocked/review states before testing resume, retry, review continuation, or
   selected remeasurement.
-- Calibration batch review is the best candidate episode because it combines
+- Calibration work review is the best candidate episode because it combines
   fit quality, manual decision, continuation, and downstream blocking pressure.
 
 ## Out Of Scope For This Brief

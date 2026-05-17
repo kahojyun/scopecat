@@ -19,13 +19,13 @@ that matters without adopting a full code registry or managed execution system.
   local service assumptions, registry endpoints, and import-time loads show
   readiness pressure.
 - Notebook source cells can be ambiguous or mutation-capable; notebook outputs
-  and execution counts are not reliable provenance.
+  and execution counts are not reliable records of what ran.
 
 ## Project-Owner Clarification
 
 - The most important explicit record is likely the selected entrypoint or
   template/version used for a run.
-- Snapshot-only provenance may be too retrospective; selection or loading of a
+- Snapshot-only capture may be too retrospective; selection or loading of a
   previous version may be the clearer workflow payoff.
 - Folder selection plus ignore rules may be enough before dependency closure or
   registry semantics.

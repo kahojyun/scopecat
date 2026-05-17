@@ -1,4 +1,4 @@
-# Analysis Handoff And Lineage
+# Analysis Handoff
 
 ## Status
 
@@ -6,10 +6,9 @@ Evidence-backed problem brief.
 
 ## User-Facing Failure
 
-Selected runs, source IDs, required companion files, notebooks, helper code, derived
-arrays, figures, workbooks, and reports are hard to move, reopen, and trace
-back to source evidence without losing context or silently trusting incomplete
-artifacts.
+Selected runs, source IDs, required companion files, notebooks, helper code,
+derived arrays, figures, workbooks, and reports are hard to move and reopen
+without losing context or silently trusting incomplete artifacts.
 
 ## Observed Sample Evidence
 
@@ -53,5 +52,5 @@ artifacts.
 - Can selected-run packages preserve source identity, companion files,
   missing-context warnings, and portable openability better than manual copy
   workflows?
-- When does analysis/report lineage become valuable enough to validate as its
-  own question rather than as handoff detail?
+- When do downstream analysis/report links become valuable enough to validate
+  as their own question rather than as handoff detail?

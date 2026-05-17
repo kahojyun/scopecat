@@ -40,13 +40,13 @@ Each brief should separate:
 
 | Brief | Use For |
 | --- | --- |
-| [`calibration-batch-review.md`](calibration-batch-review.md) | Sequential scans, calibration batches, interruption, failure/review, and minimal-executor questions. |
+| [`calibration-work-review.md`](calibration-work-review.md) | Sequential scans, calibration work, interruption, review gates, continuation, and outcome questions. |
 | [`parameter-mutation-history.md`](parameter-mutation-history.md) | Mutable parameter files, run-linked snapshots, drift queries, bad states, and apply/review boundaries. |
 | [`code-selection-readiness.md`](code-selection-readiness.md) | Copied folders, entrypoint ambiguity, code snapshots, dependency readiness, and code-version selection. |
-| [`measurement-artifact-ownership.md`](measurement-artifact-ownership.md) | Measurement rows, companion artifacts, primary-data ownership, and attachments. |
+| [`measurement-record-attachments.md`](measurement-record-attachments.md) | Measurement rows, companion artifacts, primary-data boundaries, and attachments. |
 | [`running-measurement-readability.md`](running-measurement-readability.md) | Partial recorded data, progress/readiness, stop/interruption, and live-advisory boundaries. |
-| [`analysis-handoff-lineage.md`](analysis-handoff-lineage.md) | Selected-run handoff, derived analysis packages, reports, source links, and same-station access constraints. |
-| [`diagnostics-comparability.md`](diagnostics-comparability.md) | Known-good references, setup reality, diagnostic support packages, and scientific comparability limits. |
+| [`analysis-handoff.md`](analysis-handoff.md) | Selected-run handoff, derived analysis packages, reports, source links, and same-station access constraints. |
+| [`known-good-diagnostics.md`](known-good-diagnostics.md) | Known-good references, setup reality, diagnostic support packages, and scientific comparability limits. |
 
 ## Promotion Rule
 

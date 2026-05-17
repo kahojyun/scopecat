@@ -1,4 +1,4 @@
-# Measurement Artifact Ownership
+# Measurement Record Attachments
 
 ## Status
 
@@ -24,16 +24,16 @@ is context, what is an attachment, and what remains ambiguous.
 
 ## Project-Owner Clarification
 
-- Near-raw sidecar files are often old-system workarounds caused by Data Vault
+- Near-raw companion files are often old-system workarounds caused by Data Vault
   limitations, not the desired future shape.
 - Future primary measurement data should likely be Scopecat-managed enough to
   support plotting and inspection.
 - Cross-run analysis outputs may remain cataloged attachments linked to source
-  evidence rather than parsed primary records.
+  records rather than parsed primary records.
 
 ## Derived Hypotheses
 
-- Separate current substrate from desired ownership: Data Vault/table plus
+- Separate current substrate from desired record boundary: Data Vault/table plus
   companion-file workaround versus future primary measurement record.
 - Attachment handling should preserve relation uncertainty and avoid rerunning
   notebooks or parsing arbitrary binary payloads.

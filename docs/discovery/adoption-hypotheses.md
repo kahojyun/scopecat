@@ -22,12 +22,12 @@ Problem framing lives in
 
 | Hypothesis | Evidence pressure | Question to test |
 | --- | --- | --- |
-| Run selection and analysis handoff | Existing bundle ambiguity, selected-context loss, source identity, portable record movement, and handoff pressure. | Can users select useful runs and move enough context to an analysis computer with less reconstruction than copying folders manually? |
-| Method and code portability diagnostics | Copied folders, notebooks, entrypoint ambiguity, dependency readiness, known-good references, and cross-computer code drift. | Can users choose, restore, or migrate the next code version without guessing which copied folder is working? |
-| Experiment intent and readiness | Scan semantics, grouped calibration intent, review gates, failure policy, and outcome records. | Can explicit intent and outcome records make interrupted or reviewed calibration work easier to understand before Scopecat owns execution? |
-| Calibration and parameter memory | Mutable parameter files, direct updates, bad states, drift queries, working-point branches, and run links. | Can users recover and compare parameter states without asking Scopecat to apply mutations? |
-| Trust, diagnostics, and comparability | False confidence, setup reality, known-good references, scientific comparability, support packages, and control-PC safety. | Can users see changed or missing evidence against a reference without Scopecat claiming equivalence or setup truth? |
-| Downstream analysis and claim lineage | Derived arrays, figures, fits, reports, correction choices, exclusions, source runs, and calibration impact. | Can users recheck derived analysis after a handoff, calibration, setup, code, or analysis change without tracing notebooks manually? |
+| Select and hand off useful runs | Existing bundle ambiguity, selected-context loss, source identity, portable record movement, and handoff pressure. | Can users select useful runs and move enough context to an analysis computer with less reconstruction than copying folders manually? |
+| Choose or migrate experiment code | Copied folders, notebooks, entrypoint ambiguity, dependency readiness, known-good references, and cross-computer code drift. | Can users choose, restore, or migrate the next code version without guessing which copied folder is working? |
+| Review calibration work | Scan semantics, grouped calibration intent, review gates, failure policy, continuation, and outcome records. | Can users understand interrupted or reviewed calibration work well enough to choose the next action before Scopecat owns execution? |
+| Recover parameter state | Mutable parameter files, direct updates, bad states, drift queries, working-point branches, and run links. | Can users recover and compare parameter states without asking Scopecat to apply mutations? |
+| Compare against known-good context | False confidence, setup reality, known-good references, scientific comparability, support packages, and control-PC safety. | Can users see changed or missing context against a reference without Scopecat claiming equivalence or setup truth? |
+| Recheck analysis handoff impact | Derived arrays, figures, fits, reports, correction choices, exclusions, source runs, and calibration impact. | Can users recheck derived analysis after a handoff, calibration, setup, code, or analysis change without tracing notebooks manually? |
 
 ## Shared Constraints
 

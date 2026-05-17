@@ -17,9 +17,9 @@ identity, explicit data shape, checkpoint-safe reads, source identity, and
 low-ceremony reopen are important substrates.
 
 It also showed that measurement history alone is too narrow. Scopecat discovery
-needs to cover intent, setup, code, calibration, analysis handoff, lineage, and
-bounded automation pressure without inheriting the predecessor's product order,
-object model, personas, UI, or storage sketches.
+needs to cover intent, setup, code, calibration, analysis handoff, and bounded
+automation pressure without inheriting the predecessor's product order, object
+model, personas, UI, or storage sketches.
 
 ## Preserved Lessons
 
@@ -36,8 +36,8 @@ object model, personas, UI, or storage sketches.
   summaries are useful context without proving physical truth.
 - Code identity is separate from execution ownership.
 - Analysis handoff is distinct from acquisition.
-- Calibration and parameter work should first produce evidence, diffs, health
-  gates, working refs, and audit trails before mutation ownership.
+- Calibration and parameter work should first produce history, diffs, health
+  gates, and working refs before mutation ownership.
 - Export and handoff should preserve source identity, semantic context,
   integrity facts, and missing-context warnings.
 
@@ -59,4 +59,3 @@ object model, personas, UI, or storage sketches.
 | Analysis handoff and selected high-value run packaging. | [`../../evidence-register.md`](../../evidence-register.md), [`../../../discovery/adoption-hypotheses.md`](../../../discovery/adoption-hypotheses.md) |
 | Runtime, mutation, and safety boundaries. | [`../../../strategy/product-direction.md`](../../../strategy/product-direction.md) |
 | Lab workflow gap checking. | [`lab-workflow-pressure-check.md`](lab-workflow-pressure-check.md) |
-

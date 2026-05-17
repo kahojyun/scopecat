@@ -1,4 +1,4 @@
-# Diagnostics And Comparability
+# Known-Good Diagnostics
 
 ## Status
 
@@ -7,10 +7,9 @@ Evidence-backed problem brief.
 ## User-Facing Failure
 
 Users can often reopen a run or inspect a code bundle, but they still cannot
-tell whether the current setup, sample, calibration, generated protocol,
-environment, or analysis context is comparable to a known-good reference. This
-creates a trust problem: two results may look valid locally while differing in
-facts that matter scientifically or operationally.
+tell what changed against a known-good reference: setup, sample, calibration,
+generated protocol, environment, or analysis context. The first useful output
+is a practical change/gap report, not a claim of scientific equivalence.
 
 ## Observed Sample Evidence
 
