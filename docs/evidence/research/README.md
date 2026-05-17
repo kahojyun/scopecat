@@ -122,30 +122,37 @@ Durable conclusions should be promoted along the current working model. This is
 not a checklist; skip steps that do not fit the evidence:
 
 ```text
-Evidence
-  -> Evidence posture and bias triage
-  -> Problem framing
-  -> Workflow and domain analysis
-  -> Option exploration
+Source material
+  -> Evidence and claim hygiene
+  -> Problem, workflow, and domain framing
+  -> Option and risk exploration
+  -> Scenario candidates
   -> Validation charter
-  -> Thin validation slice
-  -> Decision, contract, or ADR only if blocked
+  -> User, fixture, or prototype validation
+  -> Product decision, deletion, or deferral
+  -> Contract or ADR only when blocked or accepted scope needs it
 ```
 
 Use the narrowest durable destination that exists or is justified by real
 content:
 
+- source material, extraction notes, and redaction context -> research notes or
+  extracted research files
 - repeated pain points and pressure wording -> `evidence/inventory.md`
 - evidence interpretation, source posture, and bias rules -> `evidence/method.md`
+- assumptions and validation risks -> the owning evidence, strategy, or
+  validation document
 - workflow and domain analysis -> extracted research notes or
   `strategy/experience-map.md` only when it has durable cross-document value
 - option exploration and adoption hypotheses -> `strategy/adoption-routes.md`
+- scenario candidates and validation charters -> a narrow validation owner only
+  when there is a concrete validation question
 - route phase or current coordination -> `status/progress-tracker.md`
 - design pressure -> the evidence inventory or strategy owner
 - stable domain vocabulary -> a narrow contract or future `architecture/`
   owner, only when needed
-- accepted or rejected decisions -> a narrow decision document or future
-  `architecture/` decision
+- accepted, rejected, deleted, or deferred scope -> a narrow decision document,
+  progress note, or future `architecture/` decision, depending on durability
 - public-facing material -> future `user/` docs after redaction review
 
 Do not create placeholder directories just to match this taxonomy.

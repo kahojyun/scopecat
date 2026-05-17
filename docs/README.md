@@ -2,7 +2,7 @@
 
 `docs/` is Scopecat's long-lived project memory. It preserves context that
 must survive across AI sessions and the project lifecycle: product framing,
-research conclusions, opportunity and scenario framing, architecture contracts,
+research conclusions, workflow and scenario framing, architecture contracts,
 decisions, public user documentation, and unresolved questions.
 
 Do not use `docs/` for temporary reasoning, per-session task lists, or notes
@@ -32,20 +32,25 @@ Use this working model for product analysis. It is not a checklist and should
 not force every claim through every step:
 
 ```text
-Evidence
-  -> Evidence posture and bias triage
-  -> Problem framing
-  -> Workflow and domain analysis
-  -> Option exploration
+Source material
+  -> Evidence and claim hygiene
+  -> Problem, workflow, and domain framing
+  -> Option and risk exploration
+  -> Scenario candidates
   -> Validation charter
-  -> Thin validation slice
-  -> Decision, contract, or ADR only if blocked
+  -> User, fixture, or prototype validation
+  -> Product decision, deletion, or deferral
+  -> Contract or ADR only when blocked or accepted scope needs it
 ```
 
-The current project is mostly in evidence synthesis, problem framing, workflow
-and domain analysis, and option exploration. Scenario, validation-charter,
-prototype, decision, contract, and ADR documents should appear only when they
-answer a concrete next question.
+Adjacent steps can be worked in the same pass, but they should not collapse
+into the same artifact by default. Evidence hygiene, problem framing, option
+exploration, validation results, and product contracts have different owners.
+
+The current project is mostly in evidence and claim hygiene; problem, workflow,
+and domain framing; and option and risk exploration. Scenario,
+validation-charter, prototype, decision, contract, and ADR documents should
+appear only when they answer a concrete next question.
 
 Progressive adoption stories should be product-value-first: users adopt a
 useful path, not a subsystem name. Historical capability names may preserve

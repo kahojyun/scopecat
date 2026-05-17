@@ -15,6 +15,28 @@ top-level pains, analysis options, anti-patterns, and saturation. Use this
 document to interpret source confidence, bias correction, source handling, and
 promotion hygiene.
 
+## Analysis Layer Boundaries
+
+Treat neighboring analysis steps as work that may happen in one pass, not as
+permission to merge their durable artifacts.
+
+| Work layer | Usually belongs together | Durable owner |
+| --- | --- | --- |
+| Source intake and evidence hygiene | Source material, extraction, claim classification, source posture, and bias triage. | Research notes, extracted research files, `inventory.md`, and this method document. |
+| Problem framing | Problem or pressure clustering, workflow/domain analysis, assumptions, and risks. | `inventory.md`, extracted research notes, or `strategy/experience-map.md` when the placement has cross-document value. |
+| Option exploration | Adoption hypotheses, scenario candidates, validation questions, and charter drafting. | Strategy docs or a narrow validation owner; do not treat options as accepted scope. |
+| Validation and product disposition | User validation, fixture validation, prototype validation, acceptance, deletion, or deferral. | The owning validation, decision, tracker, or fixture document. |
+| Contracts and architecture | Stable vocabulary, API/schema/storage contracts, ownership boundaries, and ADRs. | Future `architecture/` content only when blocked or accepted scope needs it. |
+
+The critical separations are:
+
+```text
+evidence hygiene != problem framing
+problem framing != option exploration
+option exploration != validation result
+validation result != product contract
+```
+
 ## Bias Correction
 
 Treat source families separately:
@@ -106,12 +128,12 @@ jobs-to-be-done candidates; some are capability gaps; and some are expected
 measurement-framework baseline behavior.
 
 Use this separation as a thinking aid, not as a rigid taxonomy. A row may have
-secondary roles, and a future validation slice can override the classification if it
-records why.
+secondary roles, and future validation work can override the classification if
+it records why.
 
 | Statement kind | Meaning | Validation handling |
 | --- | --- | --- |
-| Foundational pain | A user-facing inability, risk, or costly workaround that naturally decomposes a `TP` narrative. | Can become acceptance pressure for a validation slice after evidence and boundary checks. |
+| Foundational pain | A user-facing inability, risk, or costly workaround that naturally decomposes a `TP` narrative. | Can become acceptance pressure for validation work after evidence and boundary checks. |
 | Adoption blocker or guardrail | A reason users or maintainers would reject the tool even if the main slice looks useful. | Constrain the slice; do not automatically turn into feature scope. |
 | JTBD candidate | A situational job that should be phrased as "when..., help me..., so I can..." in a scenario. | Convert into current-state and future-state scenario text before implementation planning. |
 | Capability gap | A desired system capability that existing measurement/control frameworks cover weakly, locally, or only in controlled stacks. | Use for differentiation only when tied back to a top-level pain, evidence, and a fixture. |
@@ -119,8 +141,8 @@ records why.
 
 Execution records should separate executor status from scientific or analysis
 status. A task can run successfully while a health check, fit score, or quality
-gate asks for review. Do not collapse these into one lifecycle state unless a
-validation slice explicitly defines that contract.
+gate asks for review. Do not collapse these into one lifecycle state unless
+accepted validation work explicitly defines that contract.
 
 Validation selection should distinguish pain from JTBD explicitly. A pain can
 be:
@@ -156,6 +178,8 @@ turning evidence work into form-filling:
   it.
 - If a classification does not fit the table above, write the local judgment in
   the owning row rather than inventing a new taxonomy.
+- If several steps happen in one work session, still record the durable claim in
+  the narrowest owner for its layer.
 - If a prompt, role-play, or blind review produces a good idea, tie it to
   source evidence or mark it as latent pressure before it influences scope.
 - If a discussion introduces a solution-shaped concept such as code registry,

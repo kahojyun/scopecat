@@ -27,7 +27,7 @@ ADR document.
 
 | Item | Phase | Owner | Coordination note |
 | --- | --- | --- | --- |
-| Evidence and pressure cleanup | Drafting | [`../evidence/inventory.md`](../evidence/inventory.md) | The old candidate layer and its prototypes were removed. The inventory now needs evidence-posture, problem-framing, and option cleanup without ranked candidate rows. |
+| Evidence and pressure cleanup | Drafting | [`../evidence/inventory.md`](../evidence/inventory.md) | The old candidate layer and its prototypes were removed. The inventory now needs evidence/claim hygiene, problem framing, and option/risk cleanup without ranked candidate rows. |
 | Product-value route hypotheses | Provisional | [`../strategy/adoption-routes.md`](../strategy/adoption-routes.md) | Routes remain useful as adoption-value hypotheses, but they are not implementation order or accepted scope. |
 | Experience placement | Provisional | [`../strategy/experience-map.md`](../strategy/experience-map.md) | The map places workflow and domain pressures across the lab workflow without assigning slice IDs. |
 | Pain-discovery fixtures | Drafting | [`../evidence/pain-discovery-fixtures.md`](../evidence/pain-discovery-fixtures.md) | Existing synthetic fixtures remain critique material. They are not accepted contracts, schemas, or product requirements. |
