@@ -7,8 +7,8 @@ Evidence-backed problem brief.
 ## User-Facing Failure
 
 During long-running measurements, users may need to inspect already-recorded
-data, stop or recover from partial runs, and decide whether some analysis unit
-is complete, partial, inspectable, or fit-ready before the full run finishes.
+data, stop or recover from partial runs, and decide whether an analysis unit is
+complete, partial, ready to inspect, or fit-ready before the full run finishes.
 The near-term product pull is closer to a Labber-like monitor for the latest
 usable sweep than to in-run scan-plan adjustment.
 
@@ -55,5 +55,5 @@ usable sweep than to in-run scan-plan adjustment.
   useful parts of a running measurement before it ends?
 - Does range selection plus parabolic fitting make the monitor useful enough
   without promoting automatic retune or scan-plan control?
-- Which readiness granularity is real enough to justify changing experiment
+- Which readiness granularity is concrete enough to justify changing experiment
   code?

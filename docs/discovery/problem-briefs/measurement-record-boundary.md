@@ -28,8 +28,8 @@ is context, what is an attachment, and what remains ambiguous.
   limitations, not the desired future shape.
 - Future primary measurement data should likely be Scopecat-managed enough to
   support plotting and inspection.
-- Cross-run analysis outputs may remain cataloged linked artifacts tied to
-  source records rather than parsed primary records.
+- Cross-run analysis outputs may remain cataloged as linked artifacts
+  associated with source records rather than parsed primary records.
 
 ## Derived Hypotheses
 
@@ -49,7 +49,7 @@ is context, what is an attachment, and what remains ambiguous.
 ## Possible Validation Questions
 
 - Can a review view distinguish primary measurement data, old-system companion
-  files, context snapshots, and derived linked artifacts without defining the
-  final storage model?
+  files, context snapshots, and derived artifacts linked to source records
+  without defining the final storage model?
 - Which ordinary measurement shapes must be present before the data model is
   credible: IQ, shots, traces, VNA-like records, arrays, or only scalar tables?
