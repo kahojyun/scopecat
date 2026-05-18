@@ -28,6 +28,10 @@ Provenance and auditability matter only when they make those workflows easier.
 Scopecat is primarily being shaped for the project owner and their lab. Product
 direction can rely on repeated local workflow pain, maintainability pressure,
 and migration risk in that lab without first proving broad market demand.
+That local evidence may include risk from aging or unmaintained measurement
+infrastructure. In that context, selectively replacing parts of an existing
+control stack can be a maintainability improvement rather than only an
+expansion of product burden.
 
 This makes deeper integration with the lab's measurement core a legitimate
 long-term ambition. It does not remove the need for evidence before committing
@@ -101,6 +105,11 @@ device-service lifecycle support, deeper concurrency/resource behavior, or
 selected driver/control capabilities. These are not ruled out permanently, but
 they need explicit validation and decision records because they change
 responsibility for hardware state, timing, recovery, and lab operations.
+For the owner lab, that validation may also include maintenance risk from
+unmaintained inherited systems. If replacing a local LabRAD-era service,
+driver, or scan boundary reduces operational risk and makes the workflow more
+understandable, it can be a legitimate optional migration path rather than a
+sign that Scopecat is defaulting to universal control-framework ownership.
 
 Future scan, driver, or control capabilities should be optional adoption paths
 and backend choices, not mandatory replacements for existing lab systems. A lab
