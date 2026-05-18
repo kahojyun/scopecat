@@ -55,6 +55,14 @@ Existing experiment systems own low-level control and mutation by default:
 instrument communication, hardware state, acquisition timing, live parameter
 application, trusted scan execution, and emergency recovery.
 
+Even when Scopecat models device, driver, or scan paths, it should not own
+low-level communication protocols such as VISA, serial, TCP, EPICS, LabRAD, or
+vendor APIs as product primitives. Those protocols and timing-sensitive control
+loops remain backend responsibilities. Scopecat's role is to help users
+structure, review, record, compare, and hand off the intent of communicating
+with devices, then connect that intent to explicit adapters or lab-owned
+bridges.
+
 Scopecat may validate a local sequential executor when it runs user-authored
 Python/helper steps and improves a concrete workflow such as calibration
 continuation. Inside an IPython or notebook-like local arbitrary-code
@@ -110,6 +118,10 @@ unmaintained inherited systems. If replacing a local LabRAD-era service,
 driver, or scan boundary reduces operational risk and makes the workflow more
 understandable, it can be a legitimate optional migration path rather than a
 sign that Scopecat is defaulting to universal control-framework ownership.
+The intended ownership center remains structured communication intent,
+execution context, records, and adapter contracts; concrete transport,
+instrument protocol, and timing-critical behavior should stay in the selected
+backend unless a later decision explicitly narrows a different boundary.
 
 Future scan, driver, or control capabilities should be optional adoption paths
 and backend choices, not mandatory replacements for existing lab systems. A lab
