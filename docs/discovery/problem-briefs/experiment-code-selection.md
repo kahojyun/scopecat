@@ -1,4 +1,4 @@
-# Code Selection Readiness
+# Experiment Code Selection
 
 ## Status
 
@@ -18,7 +18,7 @@ general managed execution platform.
   notebook copies, checkpoints, pycache, and archives are visible.
 - Local runbooks, conda exports, hardcoded Windows paths, private packages,
   local service assumptions, registry endpoints, and import-time loads show
-  readiness pressure.
+  pressure to validate the local environment.
 - Notebook source cells can be ambiguous or mutation-capable; notebook outputs
   and execution counts are not reliable records of what ran.
 
@@ -37,11 +37,11 @@ general managed execution platform.
 ## Derived Hypotheses
 
 - Start with explicit selected folder, entrypoint, snapshot/checkpoint,
-  duplicate/copy ambiguity, and readiness notes.
+  duplicate/copy ambiguity, and notes about the local environment.
 - Code-version selection should include a thin selected-version handoff for
   later local execution, not only retrospective tracking.
-- Readiness should be fail-before-write diagnostics and selected-code binding,
-  not a general managed execution platform.
+- Environment validation should mean fail-before-write diagnostics and
+  selected-code binding, not a general managed execution platform.
 
 ## Out Of Scope For This Brief
 

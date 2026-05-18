@@ -1,4 +1,4 @@
-# Known-Good Diagnostics
+# Known-Good Comparison
 
 ## Status
 
@@ -37,7 +37,7 @@ is a practical change/gap report, not a claim of scientific equivalence.
 
 ## Derived Hypotheses
 
-- A useful first diagnostic output may be a gap or change report against a
+- A useful first comparison output may be a gap or change report against a
   selected known-good reference, not a claim that two setups are equivalent.
 - Setup and topology records only earn their keep if they support lookup,
   calculation, visualization, comparison, handoff, or diagnostics.

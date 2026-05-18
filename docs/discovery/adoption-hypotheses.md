@@ -32,7 +32,7 @@ Problem framing lives in
 | Run and continue calibration work | Scan semantics, grouped calibration intent, review gates, failure policy, continuation, local sequential execution, and outcome records. | Can users run user-authored calibration steps one after another, pause for review, and continue useful work better than with notebook cell queues? |
 | Recover parameter state | Mutable parameter files, direct updates, declared write steps, bad states, drift queries, working-point branches, and run links. | Can users recover, compare, and audit parameter states without Scopecat deciding mutations? |
 | Compare against known-good context | False confidence, setup reality, known-good references, scientific comparability, support packages, and control-PC safety. | Can users see changed or missing context against a reference without Scopecat claiming equivalence or setup truth? |
-| Recheck analysis handoff impact | Derived arrays, figures, fits, reports, correction choices, exclusions, source runs, existing shared storage, and calibration impact. | Can users recheck derived analysis after a handoff, calibration, setup, code, or analysis change without tracing notebooks manually? |
+| Recheck selected-run handoff impact | Derived arrays, figures, fits, reports, correction choices, exclusions, source runs, existing shared storage, and calibration impact. | Can users recheck derived analysis after a handoff, calibration, setup, code, or analysis change without tracing notebooks manually? |
 
 ## Shared Constraints
 
