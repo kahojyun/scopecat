@@ -56,12 +56,15 @@ instrument communication, hardware state, acquisition timing, live parameter
 application, trusted scan execution, and emergency recovery.
 
 Even when Scopecat models device, driver, or scan paths, it should not own
-low-level communication protocols such as VISA, serial, TCP, EPICS, LabRAD, or
-vendor APIs as product primitives. Those protocols and timing-sensitive control
-loops remain backend responsibilities. Scopecat's role is to help users
-structure, review, record, compare, and hand off the intent of communicating
-with devices, then connect that intent to explicit adapters or lab-owned
-bridges.
+low-level communication protocols such as VISA, serial, TCP, EPICS, or vendor
+APIs as product primitives. Those protocols and timing-sensitive control loops
+remain backend responsibilities. Frameworks such as LabRAD are higher-level
+RPC or service layers: they may be integrated with, wrapped, or selectively
+replaced in a local migration path, but they should not be confused with the
+wire protocols or timing mechanisms underneath them. Scopecat's role is to help
+users structure, review, record, compare, and hand off the intent of
+communicating with devices, then connect that intent to explicit adapters or
+lab-owned bridges.
 
 Scopecat may validate a local sequential executor when it runs user-authored
 Python/helper steps and improves a concrete workflow such as calibration
