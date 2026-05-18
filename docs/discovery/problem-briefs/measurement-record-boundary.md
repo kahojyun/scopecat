@@ -1,4 +1,4 @@
-# Measurement Record Attachments
+# Measurement Record Boundary
 
 ## Status
 
@@ -28,15 +28,15 @@ is context, what is an attachment, and what remains ambiguous.
   limitations, not the desired future shape.
 - Future primary measurement data should likely be Scopecat-managed enough to
   support plotting and inspection.
-- Cross-run analysis outputs may remain cataloged attachments linked to source
-  records rather than parsed primary records.
+- Cross-run analysis outputs may remain cataloged linked artifacts tied to
+  source records rather than parsed primary records.
 
 ## Derived Hypotheses
 
 - Separate current substrate from desired record boundary: Data Vault/table plus
   companion-file workaround versus future primary measurement record.
-- Attachment handling should preserve relation uncertainty and avoid rerunning
-  notebooks or parsing arbitrary binary payloads.
+- Linked artifact handling should preserve relation uncertainty and avoid
+  rerunning notebooks or parsing arbitrary binary payloads.
 - Reference cases may use tiny CSV/JSON placeholders, but should mark columns,
   shape, IDs, and scientific values as synthetic.
 
@@ -49,7 +49,7 @@ is context, what is an attachment, and what remains ambiguous.
 ## Possible Validation Questions
 
 - Can a review view distinguish primary measurement data, old-system companion
-  files, context snapshots, and derived attachments without defining the final
-  storage model?
+  files, context snapshots, and derived linked artifacts without defining the
+  final storage model?
 - Which ordinary measurement shapes must be present before the data model is
   credible: IQ, shots, traces, VNA-like records, arrays, or only scalar tables?

@@ -1,4 +1,4 @@
-# Running Measurement Readability
+# Running Measurement Inspection
 
 ## Status
 
@@ -8,9 +8,9 @@ Evidence-backed problem brief.
 
 During long-running measurements, users may need to inspect already-recorded
 data, stop or recover from partial runs, and decide whether some analysis unit
-is complete, partial, readable, or fit-ready before the full run finishes. The
-near-term product pull is closer to a Labber-like monitor for the latest usable
-sweep than to in-run scan-plan adjustment.
+is complete, partial, inspectable, or fit-ready before the full run finishes.
+The near-term product pull is closer to a Labber-like monitor for the latest
+usable sweep than to in-run scan-plan adjustment.
 
 ## Observed Sample Evidence
 

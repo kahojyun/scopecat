@@ -1,4 +1,4 @@
-# Parameter Mutation And History
+# Parameter State History
 
 ## Status
 
@@ -22,8 +22,9 @@ retried, and which bad writes should be excluded from later analysis.
 
 ## Project-Owner Clarification
 
-- The primary value is parameter memory: drift/history queries, working-point
-  or branch identity, run links, explicit checkpoints, and bad-state exclusion.
+- The primary value is parameter state history: drift/history queries,
+  working-point or branch identity, run links, explicit checkpoints, and
+  bad-state exclusion.
 - Proposal/review may be useful as an optional higher-safety path, but direct
   update style is common and should not be dismissed.
 - Bad states should not be deleted by default. The useful model is closer to
@@ -52,4 +53,4 @@ retried, and which bad writes should be excluded from later analysis.
   exclusion solve the immediate drift/retry pain while making declared writes
   auditable?
 - Is proposal/review adopted only in higher-risk paths, or does it need to be
-  part of the first parameter-memory experience?
+  part of the first parameter state history experience?

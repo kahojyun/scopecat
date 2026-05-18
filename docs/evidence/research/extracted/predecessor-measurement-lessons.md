@@ -48,7 +48,7 @@ model, personas, UI, or storage sketches.
 | Ordinary Python writer | A minimal explicit writer is a plausible adoption path for durable records. | EV-012 and durable-record pressure in [`../../evidence-register.md`](../../evidence-register.md). |
 | Dataset shape variety | Regular grids, traces, complex values, IQ arrays, labels, and ragged records are needed validation cases. | EV-045 and handoff/durable-record pressure. |
 | Handoff package pressure | Source identity, semantic context, integrity facts, and missing-context warnings matter more than byte copying alone. | EV-022 and selected-data handoff pressure. |
-| Runnable-code context | Code, lockfiles, local environments, and copied folders are diagnostic evidence before managed execution. | EV-023 and code/readiness pressure. |
+| Runnable-code context | Code, lockfiles, local environments, and copied folders are diagnostic evidence before managed execution. | EV-023 and code environment-validation pressure. |
 
 ## Current Mapping
 

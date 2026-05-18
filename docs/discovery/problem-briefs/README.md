@@ -41,12 +41,12 @@ Each brief should separate:
 | Brief | Use For |
 | --- | --- |
 | [`calibration-work-continuation.md`](calibration-work-continuation.md) | Sequential scans, calibration work, interruption, review gates, continuation, and thin local execution questions. |
-| [`parameter-mutation-history.md`](parameter-mutation-history.md) | Mutable parameter files, run-linked snapshots, drift queries, bad states, and apply/review boundaries. |
-| [`code-selection-readiness.md`](code-selection-readiness.md) | Copied folders, entrypoint ambiguity, code snapshots, dependency readiness, and code-version selection. |
-| [`measurement-record-attachments.md`](measurement-record-attachments.md) | Measurement rows, companion artifacts, primary-data boundaries, and attachments. |
-| [`running-measurement-readability.md`](running-measurement-readability.md) | Partial recorded data, progress/readiness, stop/interruption, and monitor boundaries. |
-| [`analysis-handoff.md`](analysis-handoff.md) | Selected-run handoff, derived analysis packages, reports, source links, and same-station access constraints. |
-| [`known-good-diagnostics.md`](known-good-diagnostics.md) | Known-good references, setup reality, diagnostic support packages, and scientific comparability limits. |
+| [`parameter-state-history.md`](parameter-state-history.md) | Mutable parameter files, run-linked snapshots, drift queries, bad states, and apply/review boundaries. |
+| [`experiment-code-selection.md`](experiment-code-selection.md) | Copied folders, entrypoint ambiguity, code snapshots, environment validation, and code-version selection. |
+| [`measurement-record-boundary.md`](measurement-record-boundary.md) | Measurement rows, companion artifacts, primary-data boundaries, and linked artifacts. |
+| [`running-measurement-inspection.md`](running-measurement-inspection.md) | Partial recorded data, progress/readiness, stop/interruption, and monitor boundaries. |
+| [`selected-run-handoff.md`](selected-run-handoff.md) | Selected-run handoff, derived analysis packages, reports, source links, and same-station access constraints. |
+| [`known-good-comparison.md`](known-good-comparison.md) | Known-good references, setup reality, change/gap reports, and scientific comparability limits. |
 
 ## Promotion Rule
 
