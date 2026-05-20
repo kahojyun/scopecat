@@ -13,6 +13,7 @@ executor design, relation graph, or warning taxonomy.
 
 - [`selected-measurement-export-decision-summary.md`](selected-measurement-export-decision-summary.md)
 - [`preview-ready-selected-measurement-export-validation-result.md`](preview-ready-selected-measurement-export-validation-result.md)
+- [`storage-transition-export-fixture.md`](storage-transition-export-fixture.md)
 - [`running-measurement-inspection-validation-result.md`](running-measurement-inspection-validation-result.md)
 - [`calibration-work-continuation-validation-result.md`](calibration-work-continuation-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
@@ -24,6 +25,12 @@ Selected measurement export has the strongest implementation-shaped boundary.
 It earned a pure structured summary builder for explicit selected measurement
 sets, default bundles, optional linked context, declared preview metadata,
 degraded-preview warnings, and non-recursive traversal.
+
+The storage-transition export fixture adds early-adoption pressure without
+changing that implementation boundary. It separates source identity, current
+reference, and package materialization for managed records and external file
+references, and it treats missing or moved external context as warning-worthy.
+It does not decide the final storage model or external-reference policy.
 
 Running measurement inspection has fixture-level validation for state summaries
 over already-recorded data from still-running measurements. It pressures
@@ -72,6 +79,10 @@ Several separations now appear repeatedly enough to keep carrying forward:
   optional future help, not the trust base.
 - Source identity, fixture paths, package-relative materialized files, external
   local paths, and future managed storage identities are different things.
+- A current reference used before export is also separate from package
+  materialization. Managed records may not need user-facing filesystem paths,
+  while available external references can still be materialized into export
+  packages.
 - Normal policies belong in structured state. Warnings should be reserved for
   degraded, missing, uncertain, risky, stale, unavailable, or review-needed
   conditions.

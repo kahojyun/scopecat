@@ -1,0 +1,82 @@
+# Expected Storage-Transition Export Review
+
+## Fixture Wrapper
+
+- expected output id: `storage-transition-measurement-export.expected`
+- status: `expected_validation_output`
+- source fixture: `export-input.json`
+- reference semantics: `storage_transition_fixture`
+- guard: This expected output is not a final storage architecture, package
+  format, schema contract, or path-addressed identity model.
+
+`path` and `package_materialized_path` values are package-relative fixture
+files used for export/openability checks. They are not durable record identity.
+
+## Candidate Summary Review
+
+### Selected Export Set
+
+- selection mode: `multi_measurement`
+- selected measurements: `measurement-02001`, `measurement-02002`
+- traversal policy: `non_recursive`
+
+Selecting these measurements exports their declared default bundles. Linked
+files are reported with declared inclusion status and are not recursively
+traversed.
+
+### Storage And Source Identity
+
+| Measurement | Source identity | Current reference | Package materialization | Availability |
+| --- | --- | --- | --- | --- |
+| `measurement-02001` | Scopecat-managed record | `scopecat://measurements/measurement-02001/primary-data` | `source/managed/02001_qB_rabi_20260519_092000.csv` | `available` |
+| `measurement-02002` | external file reference | `LAB_LOCAL:/redacted/datavault/session-beta/02002_qB_ramsey_20260519_095500.csv` | `source/external_materialized/02002_qB_ramsey_20260519_095500.csv` | `available_for_export` |
+
+Managed storage, external source identity, and package materialization are
+separate concepts. A managed record does not need to expose an internal
+filesystem path. An external reference can still be materialized into an export
+package when available.
+
+### Included By Default
+
+| Measurement | Experiment | Included items |
+| --- | --- | --- |
+| `measurement-02001` | qB Rabi amplitude sweep | qB Rabi source data (`source/managed/02001_qB_rabi_20260519_092000.csv`); qB Rabi parameter snapshot (`snapshots/run-02001-parameters.json`) |
+| `measurement-02002` | qB Ramsey detuning scan | qB Ramsey source data (`source/external_materialized/02002_qB_ramsey_20260519_095500.csv`); qB Ramsey parameter snapshot (`snapshots/run-02002-parameters.json`) |
+
+### Linked Context
+
+- Session beta cooldown note (`attachments/session-beta-cooldown-note.md`):
+  managed attachment, included by user, linked to both selected measurements.
+- Local fit scratchpad (`artifacts/local-fit-scratchpad.ipynb`): user-declared
+  external artifact linked to `measurement-02002`, but missing or moved.
+
+### Warnings
+
+- `missing_external_reference`: a user-declared external artifact for
+  `measurement-02002` cannot be materialized into the export package.
+
+## Boundary Notes
+
+- externally referenced but available selected source data is normal state, not
+  a warning.
+- missing or moved external linked context is warning-worthy.
+- package-relative materialized paths are openability/export paths, not the
+  final storage identity model.
+- this fixture does not decide whether external-reference mode is temporary
+  adoption support or a normal long-term workflow.
+- this fixture does not add an importer, package writer, checksum contract,
+  GUI workflow, moved-path repair behavior, or recursive relation traversal.
+
+## Reviewer Questions
+
+A reviewer should be able to answer:
+
+- which selected measurements are managed by Scopecat versus externally
+  referenced;
+- which source identity is recoverable after export;
+- which files are materialized into package-relative paths;
+- which linked context is user-included;
+- which external reference is missing or moved;
+- that package paths are not durable identity;
+- that final storage architecture and external-reference policy remain
+  undecided.

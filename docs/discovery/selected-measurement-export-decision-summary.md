@@ -23,6 +23,7 @@ implementation-planning conversation.
 - `tests/fixtures/selected_run_handoff/minimal/`
 - `tests/fixtures/selected_run_handoff/multi_measurement_export/`
 - `tests/fixtures/selected_run_handoff/preview_ready_measurement_export/`
+- `tests/fixtures/selected_run_handoff/storage_transition_export/`
 - `tests/fixtures/scan_data_shapes/`
 
 ## Earned Candidate
@@ -59,6 +60,8 @@ The current fixtures and spikes cover the main product boundary:
   artifacts, missing context, and local-only paths can be distinguished;
 - fixture paths can stand in for package-relative materialized files without
   making filesystem paths the durable identity model;
+- source identity, current references, and package materialization paths can be
+  distinguished for managed data and externally referenced data;
 - selected measurements can be exported together without treating adjacent IDs
   or rejected alternatives as implicit export members;
 - declared metadata can produce simple preview and plot-candidate surfaces
