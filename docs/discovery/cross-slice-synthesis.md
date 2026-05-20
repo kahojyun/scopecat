@@ -14,6 +14,7 @@ executor design, relation graph, or warning taxonomy.
 - [`selected-measurement-export-decision-summary.md`](selected-measurement-export-decision-summary.md)
 - [`preview-ready-selected-measurement-export-validation-result.md`](preview-ready-selected-measurement-export-validation-result.md)
 - [`storage-transition-export-fixture.md`](storage-transition-export-fixture.md)
+- [`storage-transition-export-validation-result.md`](storage-transition-export-validation-result.md)
 - [`external-file-reference-policy.md`](external-file-reference-policy.md)
 - [`running-measurement-inspection-validation-result.md`](running-measurement-inspection-validation-result.md)
 - [`calibration-work-continuation-validation-result.md`](calibration-work-continuation-validation-result.md)
@@ -33,6 +34,11 @@ identity, current reference, and package materialization for managed records
 and lab-managed network references, and it treats missing or moved external
 context as warning-worthy. It does not decide the final storage model or
 external-reference policy.
+
+The storage-transition validation result stops that slice at fixture
+validation. It carries forward the source/current-reference/materialization
+split and external-file policy vocabulary, while explicitly deferring storage,
+checksum, backup, package writer, importer, and GUI behavior.
 
 Running measurement inspection has fixture-level validation for state summaries
 over already-recorded data from still-running measurements. It pressures

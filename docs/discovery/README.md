@@ -35,6 +35,7 @@ product contracts too early.
 | [`preview-ready-selected-measurement-export-implementation-plan.md`](preview-ready-selected-measurement-export-implementation-plan.md) | Code-facing plan for the pure selected measurement export summary builder. |
 | [`preview-ready-selected-measurement-export-validation-result.md`](preview-ready-selected-measurement-export-validation-result.md) | Result of the first implementation-shaped export candidate. |
 | [`storage-transition-export-fixture.md`](storage-transition-export-fixture.md) | Fixture note for managed storage, external references, source identity, and export materialization pressure. |
+| [`storage-transition-export-validation-result.md`](storage-transition-export-validation-result.md) | Result of the storage-transition fixture and domain review. |
 | [`external-file-reference-policy.md`](external-file-reference-policy.md) | Candidate external-file policy modes that affect export, import, inspection, and provenance. |
 
 ### Running Measurement Inspection
