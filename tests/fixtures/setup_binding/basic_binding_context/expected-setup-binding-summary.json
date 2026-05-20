@@ -44,6 +44,7 @@
         "sample_id": "sample-alpha",
         "cooldown_id": "cooldown-2026-05",
         "selected_registry_id": "station-registry-mmcs2-redacted",
+        "inner_payload_handling": "opaque_payload_with_declared_summary_fields",
         "logical_binding_count": 3,
         "generated_view_count": 0
       },
@@ -54,6 +55,7 @@
         "sample_id": "sample-alpha",
         "cooldown_id": "cooldown-2026-05",
         "selected_registry_id": "station-registry-mmcs2-redacted",
+        "inner_payload_handling": "opaque_payload_with_declared_summary_fields",
         "logical_binding_count": 6,
         "generated_view_count": 2
       }

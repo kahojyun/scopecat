@@ -38,6 +38,11 @@ The station registry is referenced as separate context. Setup binding does not
 own registry connection payloads, raw hostnames, driver credentials, or
 hardware-control behavior.
 
+The setup-binding snapshot may contain user/project-defined inner payloads for
+downstream runtime code. Scopecat-owned behavior starts with the outer envelope:
+identity, provenance, selected registry context, measurement input references,
+declared summaries, simple diffs, and attention metadata.
+
 ### Logical Bindings
 
 | Logical entity | Kind | Role | Physical resource |
@@ -87,6 +92,8 @@ claim current hardware state.
 ## Boundary Notes
 
 - setup binding is adjacent to parameter state but not part of parameter state;
+- user/project-defined inner payloads are opaque by default, with declared
+  summary fields for review and UI pressure;
 - station registry context is separate and redacted;
 - generated line/readout views are fixture pressure, not a generator contract;
 - binding diffs can support review without defining a full wiring ontology;

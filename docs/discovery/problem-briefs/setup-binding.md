@@ -72,6 +72,12 @@ Observed evidence includes:
   treated as black-box provenance. Scopecat records declared or generated
   binding artifacts and references; it does not execute, inspect, or validate
   the transformation logic.
+- Setup-binding snapshots may need user/project-defined inner payloads so
+  downstream code can keep using lab-specific mapping shapes. By default,
+  Scopecat should treat that inner payload as opaque and own the outer
+  envelope: snapshot identity, provenance, selected registry context,
+  measurement input references, declared summaries, simple diffs, and attention
+  metadata.
 
 ## Derived Hypotheses
 
@@ -81,6 +87,9 @@ Observed evidence includes:
 - Setup binding starts after user/project code has produced a binding artifact
   or declared binding record. Generator/converter identity can be recorded as
   provenance, but the render pipeline remains out of scope.
+- The first boundary should allow user/project-defined inner binding payloads
+  while keeping Scopecat-owned behavior focused on outer metadata and optional
+  declared summary fields.
 - A measurement may need to reference both a selected parameter state and a
   selected setup-binding snapshot. More generally, measurements may later
   reference a list of named input snapshots, such as parameter state, setup
@@ -106,6 +115,12 @@ with generated line/readout views and simple diffs. Parameter state remains
 calibrated values and lineage/trust history. Station registry remains station
 configuration context.
 
+This also does not require Scopecat to understand every field inside a
+lab-specific binding payload. A project can provide an internal schema that
+serves downstream runtime code, while Scopecat starts from stable envelope
+metadata and declared summary views that are useful for review, export, and
+measurement context.
+
 ## Out Of Scope For This Brief
 
 - Final station registry schema.
@@ -118,6 +133,7 @@ configuration context.
   wiring generators, registry generators, parameter-to-runtime converters, or
   waveform builders.
 - Final setup-binding schema, physical wiring ontology, or channel model.
+- Deep interpretation of user/project-defined inner binding payloads.
 - Automatic parameter invalidation after binding changes.
 - GUI design for switching bindings.
 - Scientific comparability claims.

@@ -61,6 +61,15 @@
       "cooldown_id": "cooldown-2026-05",
       "session_label": "session-alpha",
       "selected_registry_id": "station-registry-mmcs2-redacted",
+      "inner_payload_policy": {
+        "ownership": "user_project_defined",
+        "scopecat_default_handling": "opaque_payload",
+        "declared_summary_fields": [
+          "logical_bindings",
+          "generated_views"
+        ],
+        "downstream_use": "project_runtime_code"
+      },
       "source_artifacts": [
         {
           "artifact_id": "binding-source-wiring-table-0001",
@@ -101,6 +110,15 @@
       "cooldown_id": "cooldown-2026-05",
       "session_label": "session-alpha",
       "selected_registry_id": "station-registry-mmcs2-redacted",
+      "inner_payload_policy": {
+        "ownership": "user_project_defined",
+        "scopecat_default_handling": "opaque_payload",
+        "declared_summary_fields": [
+          "logical_bindings",
+          "generated_views"
+        ],
+        "downstream_use": "project_runtime_code"
+      },
       "source_artifacts": [
         {
           "artifact_id": "binding-source-wiring-table-0002",

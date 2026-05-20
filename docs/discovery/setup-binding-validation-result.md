@@ -20,6 +20,8 @@ The fixture validates a first setup-binding boundary:
   snapshots;
 - parameter state, setup binding, and station registry can appear in that list
   without sharing lifecycle, diff, review, or authority semantics;
+- setup-binding snapshots can allow user/project-defined inner payloads while
+  Scopecat starts from an outer envelope and declared summaries;
 - generated line/readout views can be carried as binding context without
   executing or validating project generator/converter code;
 - a binding diff can mark attention-worthy changes without automatically
@@ -57,9 +59,18 @@ binding often appears through generated runtime artifacts. The fixture records
 their labels and consumer hints, not a product contract for rendering or
 validating them.
 
+The fixture also clarifies inner payload handling. A setup-binding snapshot may
+contain a user/project-defined payload needed by downstream runtime code.
+Scopecat does not need to deeply interpret that payload in the first boundary.
+It owns the outer envelope: snapshot identity, provenance, selected registry
+context, measurement input references, declared summary fields, simple diffs,
+and attention metadata.
+
 ## Remaining Risks
 
 - the final setup-binding schema is still undecided;
+- user/project-defined inner payload import/export behavior is still
+  undecided;
 - the station registry boundary may need a later slice if Scopecat moves
   toward station management;
 - setup-binding diffs are currently simple role-to-resource changes, not a

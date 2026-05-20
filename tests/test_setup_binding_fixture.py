@@ -13,9 +13,7 @@ def _input_fixture() -> dict:
 
 
 def _expected_summary() -> dict:
-    return json.loads(
-        (FIXTURE / "expected-setup-binding-summary.json").read_text(encoding="utf-8")
-    )
+    return json.loads((FIXTURE / "expected-setup-binding-summary.json").read_text(encoding="utf-8"))
 
 
 class SetupBindingFixtureTest(unittest.TestCase):
@@ -63,12 +61,12 @@ class SetupBindingFixtureTest(unittest.TestCase):
     def test_selected_binding_carries_logical_bindings_and_generated_views(self) -> None:
         source = _input_fixture()
         summary = _expected_summary()["candidate_summary"]
-        selected_source = {
-            item["snapshot_id"]: item for item in source["setup_binding_snapshots"]
-        }["setup-binding-0002"]
-        selected_summary = {
-            item["snapshot_id"]: item for item in summary["setup_bindings"]
-        }["setup-binding-0002"]
+        selected_source = {item["snapshot_id"]: item for item in source["setup_binding_snapshots"]}[
+            "setup-binding-0002"
+        ]
+        selected_summary = {item["snapshot_id"]: item for item in summary["setup_bindings"]}[
+            "setup-binding-0002"
+        ]
 
         self.assertEqual(selected_summary["role"], "selected_binding_snapshot")
         self.assertEqual(
@@ -86,6 +84,29 @@ class SetupBindingFixtureTest(unittest.TestCase):
         self.assertEqual(
             {view["consumer_hint"] for view in summary["generated_views"]},
             {"runtime_line_selection", "readout_position_selection"},
+        )
+
+    def test_inner_payload_is_user_defined_and_opaque_by_default(self) -> None:
+        source = _input_fixture()
+        summary = _expected_summary()["candidate_summary"]
+        selected_source = {item["snapshot_id"]: item for item in source["setup_binding_snapshots"]}[
+            "setup-binding-0002"
+        ]
+        selected_summary = {item["snapshot_id"]: item for item in summary["setup_bindings"]}[
+            "setup-binding-0002"
+        ]
+
+        policy = selected_source["inner_payload_policy"]
+
+        self.assertEqual(policy["ownership"], "user_project_defined")
+        self.assertEqual(policy["scopecat_default_handling"], "opaque_payload")
+        self.assertEqual(
+            policy["declared_summary_fields"],
+            ["logical_bindings", "generated_views"],
+        )
+        self.assertEqual(
+            selected_summary["inner_payload_handling"],
+            "opaque_payload_with_declared_summary_fields",
         )
 
     def test_binding_diff_is_attention_not_parameter_invalidation(self) -> None:
@@ -109,9 +130,9 @@ class SetupBindingFixtureTest(unittest.TestCase):
     def test_fixture_boundary_does_not_execute_project_generators(self) -> None:
         source = _input_fixture()
         summary = _expected_summary()
-        selected = {
-            item["snapshot_id"]: item for item in source["setup_binding_snapshots"]
-        }["setup-binding-0002"]
+        selected = {item["snapshot_id"]: item for item in source["setup_binding_snapshots"]}[
+            "setup-binding-0002"
+        ]
         generator = selected["source_artifacts"][1]
 
         self.assertEqual(generator["execution_claim"], "not_executed_by_fixture")
@@ -130,6 +151,8 @@ class SetupBindingFixtureTest(unittest.TestCase):
         self.assertIn("station_registry", review)
         self.assertIn("Generated Views", review)
         self.assertIn("black-box provenance", review)
+        self.assertIn("user/project-defined inner payloads", review)
+        self.assertIn("outer envelope", review)
         self.assertIn("does not claim that the selected parameter", review)
         self.assertIn("claim current hardware state", review)
 

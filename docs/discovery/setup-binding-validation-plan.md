@@ -6,8 +6,9 @@ Validation plan, not an ADR.
 
 This plan defines a first fixture boundary for setup binding. It does not
 accept final station registry schema, setup-binding schema, physical wiring
-ontology, hardware-control behavior, importer design, GUI design, or parameter
-validity rules.
+ontology, hardware-control behavior, importer design, GUI design, deep
+interpretation of user/project-defined inner payloads, or parameter validity
+rules.
 
 ## Source Material
 
@@ -64,6 +65,11 @@ list shape is future generalization pressure, not a shared snapshot framework.
 Setup binding should not own registry connection payloads, calibrated parameter
 values, or hardware-control execution.
 
+The setup-binding snapshot may carry a user/project-defined inner payload for
+downstream code. The first Scopecat-owned boundary is the outer envelope:
+identity, provenance, selected registry context, measurement input reference,
+declared summary fields, simple diff metadata, and attention metadata.
+
 ## First Fixture Shape
 
 The first fixture should stay small:
@@ -76,6 +82,8 @@ The first fixture should stay small:
 - generated line/readout views enough to show runtime binding pressure,
   including line selection and readout-position grouping;
 - generator/converter provenance as a label or source reference only;
+- inner payload handling marked as user/project-defined and opaque by default,
+  with declared summary fields for review;
 - one prior binding snapshot with a simple changed assignment;
 - one measurement referencing parameter state, setup binding, and station
   registry as a list of named input snapshots at start;
@@ -90,6 +98,7 @@ Fixture input may include:
 - setup-binding snapshot ID, source, sample/cooldown/session label, and
   selected registry reference;
 - generator or converter provenance for declared/generated binding artifacts;
+- inner payload ownership and default opaque-handling policy;
 - logical entity bindings for qubit, coupler, and readout roles;
 - generated line/readout labels or readout-position hints;
 - simple binding diff entries;
@@ -103,6 +112,8 @@ Fixture input should not include:
 - full wiring workbook payloads;
 - executable transformation code or code-derived payloads that require running
   user Python;
+- full user/project-defined inner binding payloads unless a later fixture
+  specifically validates import/export of those payloads;
 - calibrated numeric parameter values;
 - hardware commands, waveforms, trigger RAM entries, or driver calls;
 - automatic retuning or invalidation decisions.
@@ -129,6 +140,7 @@ This plan does not earn:
 - final station registry schema;
 - final setup-binding schema;
 - shared input-snapshot or run-context framework;
+- deep interpretation of user/project-defined inner payloads;
 - physical wiring ontology;
 - full wiring workbook importer;
 - execution, static analysis, validation, or ownership of user/project
