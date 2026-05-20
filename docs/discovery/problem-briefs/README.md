@@ -46,7 +46,7 @@ Each brief should separate:
 | [`measurement-record-boundary.md`](measurement-record-boundary.md) | Measurement rows, companion artifacts, primary-data boundaries, and linked artifacts. |
 | [`running-measurement-inspection.md`](running-measurement-inspection.md) | Partial recorded data, progress/readiness, stop/interruption, and monitor boundaries. |
 | [`selected-run-handoff.md`](selected-run-handoff.md) | Selected-run handoff, derived analysis packages, reports, source links, and same-station access constraints. |
-| [`known-good-comparison.md`](known-good-comparison.md) | Known-good references, setup reality, change/gap reports, and scientific comparability limits. |
+| [`selected-reference-comparison.md`](selected-reference-comparison.md) | Selected references, known-good as a narrower subtype, setup reality, comparison findings, and scientific comparability limits. |
 
 ## Promotion Rule
 

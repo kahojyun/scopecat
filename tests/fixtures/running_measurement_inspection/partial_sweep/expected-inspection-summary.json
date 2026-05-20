@@ -1,0 +1,139 @@
+{
+  "inspection_summary_id": "running-inspection-partial-sweep.expected",
+  "status": "expected_validation_output",
+  "source_fixture": "inspection-input.json",
+  "reference_semantics": {
+    "status": "fixture_paths_are_package_relative",
+    "contract_guard": "This expected output is not a final lifecycle schema, live service contract, GUI design, reader API, plotting API, or hardware-control decision.",
+    "path_fields": "latest_data_reference.path is a package-relative fixture file for openability and row-count checks.",
+    "authority": "source fields identify fixture-declared or recorded-file facts only; they do not settle final runtime, file, adapter, or storage authority."
+  },
+  "candidate_summary": {
+    "measurement": {
+      "measurement_id": "run-live-02001",
+      "legacy_data_id": 2001,
+      "label": "qA resonator live frequency sweep",
+      "experiment_type": "resonator_frequency_sweep",
+      "target": "qA",
+      "source_identity": "LAB_LOCAL:/redacted/datavault/session-beta/02001_qA_resonator_live.csv"
+    },
+    "lifecycle": {
+      "state": "recording",
+      "started_at": "2026-05-19T10:02:00Z",
+      "last_update_at": "2026-05-19T10:12:35Z",
+      "recording_enabled": true,
+      "source": "fixture_declared"
+    },
+    "progress": {
+      "recorded_points": 14,
+      "expected_points": 30,
+      "recorded_sweeps": 1,
+      "expected_sweeps": 3,
+      "points_per_sweep": 10,
+      "latest_completed_unit": {
+        "kind": "sweep",
+        "sweep_index": 0,
+        "row_count": 10,
+        "complete": true,
+        "completeness_basis": "expected_points_recorded",
+        "default_preview_candidate": true
+      },
+      "current_partial_unit": {
+        "kind": "sweep",
+        "sweep_index": 1,
+        "recorded_points": 4,
+        "expected_points": 10,
+        "complete": false,
+        "completeness_basis": "expected_points_not_yet_recorded",
+        "default_preview_candidate": false
+      },
+      "source": "fixture_declared"
+    },
+    "preview": {
+      "status": "preview_ready",
+      "metadata_source": "fixture_declared",
+      "shape_kind": "repeated_1d_sweep_table",
+      "axis_order": [
+        "drive_freq_ghz"
+      ],
+      "repeat_axis": "sweep_index",
+      "row_order": "sweep_index_blocks_drive_freq_ghz_inner_fastest",
+      "declared_roles": [
+        {
+          "name": "drive_freq_ghz",
+          "label": "Drive frequency",
+          "role": "sweep_axis",
+          "unit": "GHz"
+        },
+        {
+          "name": "response_i",
+          "label": "I quadrature",
+          "role": "measured_response",
+          "unit": "arb"
+        },
+        {
+          "name": "response_q",
+          "label": "Q quadrature",
+          "role": "measured_response",
+          "unit": "arb"
+        },
+        {
+          "name": "sweep_index",
+          "label": "Sweep index",
+          "role": "repeat_index",
+          "unit": "count"
+        }
+      ],
+      "plot_candidates": [
+        {
+          "x": "drive_freq_ghz",
+          "y": "response_i",
+          "source": "source/session-beta/02001_qA_resonator_live_partial.csv"
+        },
+        {
+          "x": "drive_freq_ghz",
+          "y": "response_q",
+          "source": "source/session-beta/02001_qA_resonator_live_partial.csv"
+        }
+      ]
+    },
+    "latest_data_reference": {
+      "path": "source/session-beta/02001_qA_resonator_live_partial.csv",
+      "kind": "partial_recorded_table",
+      "latest_completed_filter": {
+        "column": "sweep_index",
+        "equals": 0
+      },
+      "source": "recorded_file"
+    },
+    "attention_basis": {
+      "observed_at": "2026-05-19T10:14:07Z",
+      "latest_data_age_seconds": 92,
+      "stale_after_seconds": 60,
+      "source": "fixture_declared"
+    },
+    "ephemeral_monitor_state": {
+      "durable": false,
+      "selected_range": {
+        "axis": "drive_freq_ghz",
+        "min": 4.996,
+        "max": 5.006
+      },
+      "temporary_fit_preview": {
+        "kind": "parabolic_fit",
+        "status": "preview_only",
+        "fit_over": "latest_completed_unit",
+        "vertex_x": 5.001
+      }
+    },
+    "saved_decisions": [],
+    "attention": [
+      {
+        "code": "latest_data_stale",
+        "subject": "lifecycle.last_update_at",
+        "basis": "latest_data_age_seconds > stale_after_seconds",
+        "message": "Latest update is 92 seconds before the fixture observation time."
+      }
+    ]
+  }
+}

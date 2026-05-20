@@ -1,0 +1,74 @@
+{
+  "fixture_id": "scan-shape-sidecar-declared-table",
+  "fixture_status": "synthetic_public_safe",
+  "validation_goal": "Check whether a clean sidecar declaration can provide shape and column meaning for weakly labeled source data without schema inference.",
+  "measurement": {
+    "measurement_id": "synthetic-meas-02002",
+    "label": "qA sidecar-declared Rabi scan",
+    "target": "qA",
+    "source_kind": "imported_legacy_source",
+    "source_table": "source/qA_sidecar_declared_rabi.csv",
+    "metadata_source": "sidecar_declaration"
+  },
+  "data_shape": {
+    "kind": "sidecar_declared_table",
+    "table_shape": "1d_table",
+    "axis_order": [
+      "drive_amp"
+    ],
+    "physical_columns": [
+      "c0",
+      "c1",
+      "c2"
+    ]
+  },
+  "column_mapping": [
+    {
+      "physical_name": "c0",
+      "declared_name": "drive_amp",
+      "label": "Drive amplitude",
+      "role": "sweep_axis",
+      "unit": "arb"
+    },
+    {
+      "physical_name": "c1",
+      "declared_name": "p_excited",
+      "label": "Excited-state probability",
+      "role": "measured_response",
+      "unit": "probability"
+    },
+    {
+      "physical_name": "c2",
+      "declared_name": "shot_count",
+      "label": "Shot count",
+      "role": "supporting_count",
+      "unit": "count"
+    }
+  ],
+  "held_conditions": [
+    {
+      "name": "bias_v",
+      "label": "Bias",
+      "value": 0.1,
+      "unit": "V",
+      "authority": "sidecar_declared"
+    }
+  ],
+  "sidecar_authority": {
+    "authority": "user_declared",
+    "claim_guard": "Column meaning comes from sidecar declaration, not source header inference."
+  },
+  "validation_boundary": {
+    "validated": [
+      "physical columns named in sidecar exist in source table",
+      "declared names are unique",
+      "axis and measured-response roles are present"
+    ],
+    "not_validated": [
+      "sidecar semantic correctness",
+      "unit correctness",
+      "numeric suitability",
+      "scientific validity"
+    ]
+  }
+}

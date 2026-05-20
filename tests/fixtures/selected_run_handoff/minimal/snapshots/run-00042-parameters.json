@@ -1,0 +1,17 @@
+{
+  "snapshot_id": "run-00042-parameters",
+  "source": "synthetic fixture",
+  "captured_near_legacy_data_id": 42,
+  "parameters": {
+    "qA": {
+      "readout_frequency_ghz": 6.101,
+      "drive_frequency_ghz": 4.802,
+      "rabi_amp": 0.025
+    },
+    "setup": {
+      "fridge": "redacted-fixture-fridge",
+      "sample": "redacted-fixture-sample"
+    }
+  },
+  "claim_guard": "Copied parameter snapshot only. Does not prove hardware state."
+}

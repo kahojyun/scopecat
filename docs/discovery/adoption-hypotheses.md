@@ -23,15 +23,24 @@ Evidence claims live in
 Problem framing lives in
 [`problem-briefs/README.md`](problem-briefs/README.md).
 
+The selected-run handoff hypothesis has a narrow spike summary in
+[`selected-run-handoff-spike-summary.md`](selected-run-handoff-spike-summary.md).
+Its decision-ready consolidation is
+[`selected-measurement-export-decision-summary.md`](selected-measurement-export-decision-summary.md).
+
+Current cross-slice comparison lives in
+[`cross-slice-synthesis.md`](cross-slice-synthesis.md).
+
 ## Hypotheses
 
 | Hypothesis | Evidence pressure | Question to test |
 | --- | --- | --- |
 | Select and hand off useful runs | Existing bundle ambiguity, selected-context loss, source identity, portable record movement, and handoff pressure. | Can users select useful runs and move enough context to an analysis computer with less reconstruction than copying folders manually? |
-| Choose or migrate experiment code | Copied folders, notebooks, entrypoint ambiguity, dependency readiness, known-good references, selected-version handoff, and cross-computer code drift. | Can users choose, restore, or migrate the next code version without guessing which copied folder is working? |
+| Inspect running measurements | Partial recorded data, progress/readiness, stop/interruption, stale or unavailable data, and monitor expectations for latest usable sweep or slice. | Can users inspect already-recorded data during a long run and decide whether to keep watching, intervene outside Scopecat, or stop without Scopecat owning hardware control? |
+| Choose or migrate experiment code | Copied folders, notebooks, entrypoint ambiguity, dependency readiness, selected references, last-working code, selected-version handoff, and cross-computer code drift. | Can users choose, restore, or migrate the next code version without guessing which copied folder is working? |
 | Run and continue calibration work | Scan semantics, grouped calibration intent, review gates, failure policy, continuation, local sequential execution, and outcome records. | Can users run user-authored calibration steps one after another, pause for review, and continue useful work better than with notebook cell queues? |
 | Recover parameter state | Mutable parameter files, direct updates, declared write steps, bad states, drift queries, working-point branches, and run links. | Can users recover, compare, and audit parameter states without Scopecat deciding mutations? |
-| Compare against known-good context | False confidence, setup reality, known-good references, scientific comparability, support packages, and control-PC safety. | Can users see changed or missing context against a reference without Scopecat claiming equivalence or setup truth? |
+| Compare against selected reference context | False confidence, setup reality, selected references, known-good as a narrower subtype, scientific comparability, support packages, and control-PC safety. | Can users see changed, missing, unverified, redacted, unlinked, same-observed, or not-compared context against a selected reference without Scopecat claiming equivalence, setup truth, or reference goodness? |
 | Recheck selected-run handoff impact | Derived arrays, figures, fits, reports, correction choices, exclusions, source runs, existing shared storage, and calibration impact. | Can users recheck derived analysis after a handoff, calibration, setup, code, or analysis change without tracing notebooks manually? |
 
 ## Shared Constraints

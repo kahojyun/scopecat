@@ -1,0 +1,21 @@
+# Scan Data Shape Generator Spike
+
+This is a tiny validation spike for declared scan data-shape fixtures.
+
+It reads a fixture directory containing `shape-input.json` plus its referenced
+CSV source table and regenerates the expected reviewer surfaces:
+
+- `expected-shape-summary.json`
+- `expected-shape-review.md`
+
+Current scope is deliberately narrow:
+
+- declared 2D rectangular grid table;
+- declared sidecar metadata for weakly labeled table columns;
+- header, row-count, coordinate-coverage, and mapping sanity checks;
+- plot-candidate descriptions only.
+
+It is not a storage schema, dataframe API, legacy importer, plotting layer,
+schema inference engine, or scientific validation tool. Harder scan shapes such
+as ragged/adaptive scans, trace-per-point data, array-valued responses, and
+backend-specific binary containers remain deferred shape risks.

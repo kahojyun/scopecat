@@ -1,4 +1,4 @@
-# Known-Good Comparison
+# Selected Reference Comparison
 
 ## Status
 
@@ -7,9 +7,11 @@ Evidence-backed problem brief.
 ## User-Facing Failure
 
 Users can often reopen a run or inspect a code bundle, but they still cannot
-tell what changed against a known-good reference: setup, sample, calibration,
-generated protocol, environment, or analysis context. The first useful output
-is a practical change/gap report, not a claim of scientific equivalence.
+tell what changed against a selected reference: setup, sample, calibration,
+generated protocol, environment, or analysis context. That reference may be
+known-good, last-working, best-observed, or simply relevant. The first useful
+output is a practical comparison findings report, not a claim of scientific
+equivalence, goodness, or trust.
 
 ## Observed Sample Evidence
 
@@ -37,8 +39,12 @@ is a practical change/gap report, not a claim of scientific equivalence.
 
 ## Derived Hypotheses
 
-- A useful first comparison output may be a gap or change report against a
-  selected known-good reference, not a claim that two setups are equivalent.
+- A useful first comparison output may be a comparison findings report against a
+  selected reference, not a claim that the reference is known-good or that two
+  setups are equivalent.
+- Comparison findings should distinguish changed, missing, unverified,
+  redacted, unlinked, same-observed, and not-compared facts instead of using
+  "gap" as a catch-all.
 - Setup and topology records only earn their keep if they support lookup,
   calculation, visualization, comparison, handoff, or diagnostics.
 - Recipient-aware sharing is a separate product question from public-safe
@@ -54,7 +60,23 @@ is a practical change/gap report, not a claim of scientific equivalence.
 
 ## Possible Validation Questions
 
-- Can users decide what changed, what is missing, and what still needs manual
-  checking from a known-good comparison without Scopecat claiming setup truth?
+- Can users decide what changed, what is missing, unverified, redacted,
+  unlinked, same-observed, or not compared from a selected reference comparison
+  without Scopecat claiming setup truth, equivalence, or reference goodness?
 - Which diagnostic facts are safe and useful for internal support, and which
   must be omitted or redacted for public/exported artifacts?
+
+## Finding Vocabulary
+
+Use these labels when a comparison needs more precision than "same" or
+"different":
+
+| Finding | Meaning |
+| --- | --- |
+| Changed | Both sides expose the fact, and the observed values differ. |
+| Missing | A needed fact or artifact is absent on one side. |
+| Unverified | A fact is declared or implied but cannot be checked from available software evidence. |
+| Redacted | A fact exists but is intentionally hidden for recipient, policy, or publication safety. |
+| Unlinked | An artifact exists, but its source relation is uncertain. |
+| Same observed | Both sides expose the fact, and the observed values match. |
+| Not compared | The comparison is out of scope, unsupported, or intentionally skipped. |

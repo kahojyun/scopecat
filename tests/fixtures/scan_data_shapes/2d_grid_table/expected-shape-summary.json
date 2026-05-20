@@ -1,0 +1,118 @@
+{
+  "shape_summary_id": "scan-shape-2d-grid-table.expected",
+  "status": "expected_validation_output",
+  "source_fixture": "shape-input.json",
+  "measurement": {
+    "measurement_id": "synthetic-meas-02001",
+    "label": "qA frequency response map",
+    "target": "qA",
+    "source_kind": "primary_measurement",
+    "source_table": "source/qA_frequency_response_map.csv"
+  },
+  "shape": {
+    "kind": "2d_grid_table",
+    "grid_assumption": "rectangular_complete_grid",
+    "axis_order": [
+      "bias_v",
+      "drive_frequency_ghz"
+    ],
+    "axis_cardinality": {
+      "bias_v": 2,
+      "drive_frequency_ghz": 3
+    },
+    "expected_point_count": 6,
+    "actual_row_count": 6,
+    "status": "pass"
+  },
+  "declared_axes": [
+    {
+      "name": "bias_v",
+      "label": "Bias",
+      "unit": "V"
+    },
+    {
+      "name": "drive_frequency_ghz",
+      "label": "Drive frequency",
+      "unit": "GHz"
+    }
+  ],
+  "declared_dependents": [
+    {
+      "name": "signal_db",
+      "label": "Signal magnitude",
+      "unit": "dB"
+    },
+    {
+      "name": "phase_deg",
+      "label": "Signal phase",
+      "unit": "deg"
+    }
+  ],
+  "held_conditions": [
+    {
+      "name": "readout_power_dbm",
+      "label": "Readout power",
+      "value": -20,
+      "unit": "dBm",
+      "authority": "fixture_declared"
+    }
+  ],
+  "column_validation": {
+    "status": "pass",
+    "declared_columns": [
+      "bias_v",
+      "drive_frequency_ghz",
+      "signal_db",
+      "phase_deg"
+    ],
+    "source_columns": [
+      "bias_v",
+      "drive_frequency_ghz",
+      "signal_db",
+      "phase_deg",
+      "operator_note"
+    ],
+    "missing_declared_columns": [],
+    "extra_source_columns": [
+      "operator_note"
+    ]
+  },
+  "plot_candidates": [
+    {
+      "title": "qA frequency response map: Signal magnitude",
+      "x": "drive_frequency_ghz",
+      "y": "bias_v",
+      "z": "signal_db",
+      "source": "source/qA_frequency_response_map.csv"
+    },
+    {
+      "title": "qA frequency response map: Signal phase",
+      "x": "drive_frequency_ghz",
+      "y": "bias_v",
+      "z": "phase_deg",
+      "source": "source/qA_frequency_response_map.csv"
+    }
+  ],
+  "warnings": [
+    {
+      "code": "extra_source_column",
+      "subject": "operator_note",
+      "message": "Source table contains an undeclared column. It is reported but not treated as plot metadata."
+    }
+  ],
+  "boundary_notes": [
+    "The 2D grid shape comes from fixture declaration, not schema inference.",
+    "Plot candidates are declared 2D grid plot candidates only; no rendering, fit, uncertainty, or scientific validation is provided.",
+    "The fixture validates declared shape consistency only, not scientific correctness."
+  ],
+  "decisions_not_earned": [
+    "final storage schema",
+    "general dataframe API",
+    "plot rendering",
+    "automatic schema inference",
+    "ragged or adaptive scan support",
+    "trace-per-point support",
+    "array-valued measurement support",
+    "scientific validity or reproducibility"
+  ]
+}

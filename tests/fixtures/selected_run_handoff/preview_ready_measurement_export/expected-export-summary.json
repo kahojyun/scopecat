@@ -1,0 +1,199 @@
+{
+  "export_summary_id": "preview-ready-measurement-export.expected",
+  "status": "expected_validation_output",
+  "source_fixture": "export-input.json",
+  "reference_semantics": {
+    "status": "fixture_paths_are_package_relative",
+    "contract_guard": "This expected output is not a final package format, schema contract, storage layout, or path-addressed identity model.",
+    "path_fields": "source_file, path, and plot candidate source fields are package-relative materialized fixture files for openability checks.",
+    "export_source": "export_source preserves recoverable source provenance and is not necessarily the current read location.",
+    "external_reference_mode": "External-reference-only workflows are a deferred transition mode with weaker durability guarantees.",
+    "managed_storage_identity": "Future managed Scopecat data may use record IDs, artifact IDs, storage object references, or backend handles."
+  },
+  "candidate_summary": {
+    "selected_export_set": {
+      "selection_mode": "multi_measurement",
+      "selected_legacy_data_ids": [
+        1001,
+        1002
+      ],
+      "traversal_policy": "non_recursive"
+    },
+    "measurements": [
+      {
+        "role": "selected_measurement",
+        "legacy_data_id": 1001,
+        "experiment_label": "qA Rabi amplitude sweep",
+        "experiment_type": "rabi_amplitude_sweep",
+        "target": "qA",
+        "source_file": "source/session-alpha/01001_qA_rabi_20260518_101500.csv",
+        "export_source": "LAB_LOCAL:/redacted/datavault/session-alpha/01001_qA_rabi_20260518_101500.csv",
+        "primary_data_authority": "source_metadata",
+        "source_transform_policy": "no_silent_transform",
+        "default_bundle": [
+          {
+            "kind": "primary_data",
+            "label": "Run 1001 Rabi source data",
+            "path": "source/session-alpha/01001_qA_rabi_20260518_101500.csv",
+            "include_status": "included_by_default",
+            "relation": "selected_measurement_source",
+            "authority": "source_metadata"
+          },
+          {
+            "kind": "copied_metadata",
+            "label": "Run 1001 parameter snapshot",
+            "path": "snapshots/run-01001-parameters.json",
+            "include_status": "included_by_default",
+            "relation": "copied_parameter_snapshot",
+            "authority": "tool_recorded"
+          }
+        ],
+        "preview": {
+          "status": "preview_ready",
+          "metadata_authority": "fixture_declared",
+          "shape_kind": "1d_multi_response_table",
+          "axis_order": [
+            "drive_amp"
+          ],
+          "declared_roles": [
+            {
+              "name": "drive_amp",
+              "label": "Drive amplitude",
+              "role": "sweep_axis",
+              "unit": "arb"
+            },
+            {
+              "name": "iq_i",
+              "label": "I quadrature",
+              "role": "measured_response",
+              "unit": "arb"
+            },
+            {
+              "name": "iq_q",
+              "label": "Q quadrature",
+              "role": "measured_response",
+              "unit": "arb"
+            },
+            {
+              "name": "bias_v",
+              "label": "Bias",
+              "role": "held_condition",
+              "unit": "V"
+            }
+          ],
+          "plot_candidates": [
+            {
+              "x": "drive_amp",
+              "y": "iq_i",
+              "source": "source/session-alpha/01001_qA_rabi_20260518_101500.csv"
+            },
+            {
+              "x": "drive_amp",
+              "y": "iq_q",
+              "source": "source/session-alpha/01001_qA_rabi_20260518_101500.csv"
+            }
+          ],
+          "warnings": []
+        }
+      },
+      {
+        "role": "selected_measurement",
+        "legacy_data_id": 1002,
+        "experiment_label": "qA T1 decay",
+        "experiment_type": "t1_decay",
+        "target": "qA",
+        "source_file": "source/session-alpha/01002_qA_t1_20260518_104500.csv",
+        "export_source": "LAB_LOCAL:/redacted/datavault/session-alpha/01002_qA_t1_20260518_104500.csv",
+        "primary_data_authority": "source_metadata",
+        "source_transform_policy": "no_silent_transform",
+        "default_bundle": [
+          {
+            "kind": "primary_data",
+            "label": "Run 1002 T1 source data",
+            "path": "source/session-alpha/01002_qA_t1_20260518_104500.csv",
+            "include_status": "included_by_default",
+            "relation": "selected_measurement_source",
+            "authority": "source_metadata"
+          },
+          {
+            "kind": "copied_metadata",
+            "label": "Run 1002 parameter snapshot",
+            "path": "snapshots/run-01002-parameters.json",
+            "include_status": "included_by_default",
+            "relation": "copied_parameter_snapshot",
+            "authority": "tool_recorded"
+          }
+        ],
+        "preview": {
+          "status": "degraded_preview",
+          "metadata_authority": "not_declared",
+          "shape_kind": null,
+          "axis_order": [],
+          "declared_roles": [],
+          "plot_candidates": [],
+          "warnings": [
+            {
+              "code": "preview_metadata_missing",
+              "message": "Source data can be exported, but preview shape and column roles are not declared."
+            }
+          ]
+        }
+      }
+    ],
+    "linked_context": [
+      {
+        "kind": "attachment",
+        "label": "Session wiring note",
+        "path": "attachments/session-alpha-wiring-note.md",
+        "include_status": "included_by_user",
+        "relation": "documents",
+        "authority": "user_declared",
+        "linked_legacy_data_ids": [
+          1001,
+          1002
+        ]
+      },
+      {
+        "kind": "artifact",
+        "label": "qA summary candidate",
+        "path": "artifacts/qA-summary-candidate.csv",
+        "include_status": "visible_excluded",
+        "relation": "summarizes",
+        "authority": "user_declared",
+        "linked_legacy_data_ids": [
+          1001,
+          1002
+        ]
+      },
+      {
+        "kind": "attachment",
+        "label": "Run 1002 fit note",
+        "path": "attachments/run-01002-fit-note.md",
+        "include_status": "missing",
+        "relation": "documents",
+        "authority": "user_declared",
+        "linked_legacy_data_ids": [
+          1002
+        ]
+      }
+    ],
+    "warnings": [
+      {
+        "code": "local_only_path",
+        "subject": "legacy_source_location.local_path",
+        "message": "Original local path is redaction-sensitive and not portable.",
+        "public_safe_value": "LAB_LOCAL:/redacted/datavault/session-alpha"
+      },
+      {
+        "code": "preview_metadata_missing",
+        "subject": "measurement:1002",
+        "message": "Measurement 1002 can still be exported, but preview shape and column roles are missing."
+      },
+      {
+        "code": "missing_companion",
+        "subject": "attachments/run-01002-fit-note.md",
+        "message": "A user-declared companion for measurement 1002 is absent from the fixture."
+      }
+    ]
+  }
+}
