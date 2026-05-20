@@ -68,6 +68,7 @@ product contracts too early.
 | --- | --- |
 | [`problem-briefs/setup-binding.md`](problem-briefs/setup-binding.md) | Problem framing for sample/cooldown binding between logical entities and physical wiring/device resources. |
 | [`setup-binding-validation-plan.md`](setup-binding-validation-plan.md) | First fixture-validation boundary for setup-binding snapshots, diffs, and measurement references. |
+| [`setup-binding-validation-result.md`](setup-binding-validation-result.md) | Result of the first setup-binding fixture and measurement-input context review. |
 
 ## Other Problem Briefs
 

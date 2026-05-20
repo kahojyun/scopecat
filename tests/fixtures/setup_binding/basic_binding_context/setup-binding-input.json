@@ -1,0 +1,261 @@
+{
+  "fixture_id": "setup-binding-basic-context",
+  "fixture_status": "synthetic_public_safe",
+  "fixture_layer": "setup_binding_fixture",
+  "user_job": "Understand which logical experiment entities were bound to which physical station resources when a measurement started, without merging setup binding with parameter state or hardware control.",
+  "source_research_notes": [
+    "<sample>/_research/setup-binding-registry-station-config.md",
+    "<sample>/_research/setup-binding-sample-cooldown-mapping.md",
+    "<sample>/_research/setup-binding-measurement-usage.md"
+  ],
+  "station_registry_contexts": [
+    {
+      "registry_id": "station-registry-mmcs2-redacted",
+      "registry_label": "redacted MMCS2 station registry",
+      "registry_scope": "station_configuration",
+      "authority": "fixture_declared_summary",
+      "contains_connection_payloads": false,
+      "resource_labels": [
+        {
+          "resource_id": "registry-resource-drive-dac-A",
+          "resource_kind": "dac",
+          "public_label": "drive DAC group A"
+        },
+        {
+          "resource_id": "registry-resource-bias-dac-A",
+          "resource_kind": "bias_dac",
+          "public_label": "bias DAC group A"
+        },
+        {
+          "resource_id": "registry-resource-readout-awg-A",
+          "resource_kind": "readout_dac",
+          "public_label": "readout DAC group A"
+        },
+        {
+          "resource_id": "registry-resource-readout-adc-A",
+          "resource_kind": "readout_adc",
+          "public_label": "readout ADC group A"
+        },
+        {
+          "resource_id": "registry-resource-readout-lo-A",
+          "resource_kind": "lo",
+          "public_label": "readout LO group A"
+        }
+      ]
+    }
+  ],
+  "parameter_state_summaries": [
+    {
+      "snapshot_id": "param-state-0002",
+      "snapshot_family": "parameter_state",
+      "snapshot_label": "qA default bias after Rabi review",
+      "lifecycle_note": "Parameter state is selected as a separate measurement input; numeric values are outside this fixture."
+    }
+  ],
+  "setup_binding_snapshots": [
+    {
+      "snapshot_id": "setup-binding-0001",
+      "snapshot_family": "setup_binding",
+      "snapshot_label": "qA default binding before bias-line move",
+      "sample_id": "sample-alpha",
+      "cooldown_id": "cooldown-2026-05",
+      "session_label": "session-alpha",
+      "selected_registry_id": "station-registry-mmcs2-redacted",
+      "source_artifacts": [
+        {
+          "artifact_id": "binding-source-wiring-table-0001",
+          "artifact_kind": "wiring_table",
+          "label": "redacted wiring workbook row set"
+        }
+      ],
+      "logical_bindings": [
+        {
+          "logical_entity": "qA",
+          "logical_kind": "qubit",
+          "role": "drive_line",
+          "physical_resource_label": "drive_dac_A_ch04",
+          "registry_resource_id": "registry-resource-drive-dac-A"
+        },
+        {
+          "logical_entity": "qA",
+          "logical_kind": "qubit",
+          "role": "z_line",
+          "physical_resource_label": "bias_dac_A_ch01",
+          "registry_resource_id": "registry-resource-bias-dac-A"
+        },
+        {
+          "logical_entity": "qA_ro",
+          "logical_kind": "readout_line",
+          "role": "readout_adc",
+          "physical_resource_label": "readout_adc_A_ch00",
+          "registry_resource_id": "registry-resource-readout-adc-A"
+        }
+      ],
+      "generated_views": []
+    },
+    {
+      "snapshot_id": "setup-binding-0002",
+      "snapshot_family": "setup_binding",
+      "snapshot_label": "qA default binding after bias-line move",
+      "sample_id": "sample-alpha",
+      "cooldown_id": "cooldown-2026-05",
+      "session_label": "session-alpha",
+      "selected_registry_id": "station-registry-mmcs2-redacted",
+      "source_artifacts": [
+        {
+          "artifact_id": "binding-source-wiring-table-0002",
+          "artifact_kind": "wiring_table",
+          "label": "redacted wiring workbook row set"
+        },
+        {
+          "artifact_id": "binding-generator-0002",
+          "artifact_kind": "project_generator_reference",
+          "label": "project registry/binding generator reference",
+          "execution_claim": "not_executed_by_fixture"
+        }
+      ],
+      "logical_bindings": [
+        {
+          "logical_entity": "qA",
+          "logical_kind": "qubit",
+          "role": "drive_line",
+          "physical_resource_label": "drive_dac_A_ch04",
+          "registry_resource_id": "registry-resource-drive-dac-A"
+        },
+        {
+          "logical_entity": "qA",
+          "logical_kind": "qubit",
+          "role": "z_line",
+          "physical_resource_label": "bias_dac_A_ch02",
+          "registry_resource_id": "registry-resource-bias-dac-A"
+        },
+        {
+          "logical_entity": "cAB",
+          "logical_kind": "coupler",
+          "role": "z_line",
+          "physical_resource_label": "bias_dac_A_ch05",
+          "registry_resource_id": "registry-resource-bias-dac-A"
+        },
+        {
+          "logical_entity": "qA_ro",
+          "logical_kind": "readout_line",
+          "role": "readout_dac",
+          "physical_resource_label": "readout_dac_A_ch00",
+          "registry_resource_id": "registry-resource-readout-awg-A"
+        },
+        {
+          "logical_entity": "qA_ro",
+          "logical_kind": "readout_line",
+          "role": "readout_adc",
+          "physical_resource_label": "readout_adc_A_ch00",
+          "registry_resource_id": "registry-resource-readout-adc-A"
+        },
+        {
+          "logical_entity": "qA_ro",
+          "logical_kind": "readout_line",
+          "role": "readout_lo_group",
+          "physical_resource_label": "readout_lo_group_A",
+          "registry_resource_id": "registry-resource-readout-lo-A"
+        }
+      ],
+      "generated_views": [
+        {
+          "view_id": "line-info-qA-0002",
+          "view_kind": "line_info",
+          "source_relation": "generated_from_binding_and_parameter_context",
+          "consumer_hint": "runtime_line_selection",
+          "entries": [
+            {
+              "line_label": "qA_drive",
+              "logical_entity": "qA",
+              "binding_role": "drive_line",
+              "physical_resource_label": "drive_dac_A_ch04"
+            },
+            {
+              "line_label": "qA_z",
+              "logical_entity": "qA",
+              "binding_role": "z_line",
+              "physical_resource_label": "bias_dac_A_ch02"
+            }
+          ]
+        },
+        {
+          "view_id": "readout-view-qA-0002",
+          "view_kind": "readout_group",
+          "source_relation": "generated_from_binding_and_runtime_context",
+          "consumer_hint": "readout_position_selection",
+          "entries": [
+            {
+              "readout_line": "qA_ro",
+              "readout_position": 0,
+              "readout_dac": "readout_dac_A_ch00",
+              "readout_adc": "readout_adc_A_ch00",
+              "lo_group": "readout_lo_group_A"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "binding_diffs": [
+    {
+      "diff_id": "setup-binding-diff-0002",
+      "from_snapshot_id": "setup-binding-0001",
+      "to_snapshot_id": "setup-binding-0002",
+      "diff_entries": [
+        {
+          "kind": "changed",
+          "logical_entity": "qA",
+          "role": "z_line",
+          "old_physical_resource_label": "bias_dac_A_ch01",
+          "new_physical_resource_label": "bias_dac_A_ch02",
+          "attention_note": "Binding changed since the earlier calibration context; parameter validity is not decided by this fixture."
+        },
+        {
+          "kind": "added",
+          "logical_entity": "cAB",
+          "role": "z_line",
+          "old_physical_resource_label": null,
+          "new_physical_resource_label": "bias_dac_A_ch05",
+          "attention_note": "Coupler binding is now explicit for future run context."
+        }
+      ]
+    }
+  ],
+  "measurements": [
+    {
+      "measurement_id": "measurement-04001",
+      "experiment_label": "qA chevron check",
+      "run_start_time": "2026-05-20T09:30:00",
+      "logical_targets": [
+        "qA",
+        "cAB"
+      ],
+      "inputs": [
+        {
+          "name": "parameter_state",
+          "snapshot_id": "param-state-0002",
+          "role": "calibrated_values"
+        },
+        {
+          "name": "setup_binding",
+          "snapshot_id": "setup-binding-0002",
+          "role": "logical_to_physical_mapping"
+        },
+        {
+          "name": "station_registry",
+          "snapshot_id": "station-registry-mmcs2-redacted",
+          "role": "station_context"
+        }
+      ],
+      "runtime_context_refs": [
+        "line-info-qA-0002",
+        "readout-view-qA-0002"
+      ],
+      "hardware_state_claim": "not_recorded"
+    }
+  ],
+  "attention_expected": [
+    "binding_changed_since_prior_calibration"
+  ]
+}

@@ -21,6 +21,7 @@ executor design, relation graph, or warning taxonomy.
 - [`parameter-state-management-validation-result.md`](parameter-state-management-validation-result.md)
 - [`problem-briefs/setup-binding.md`](problem-briefs/setup-binding.md)
 - [`setup-binding-validation-plan.md`](setup-binding-validation-plan.md)
+- [`setup-binding-validation-result.md`](setup-binding-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
 - [`adoption-hypotheses.md`](adoption-hypotheses.md)
 
@@ -62,13 +63,14 @@ parameter state. It has not earned final branch/tag/commit semantics, schema
 migration, drift plotting, setup binding, hardware write-back, or an
 implementation candidate.
 
-Setup binding is framed with a validation plan but no fixture yet. It pressures
-sample/cooldown binding snapshots, simple binding diffs, station-registry
-references, generated line/readout views, and measurement references while
-keeping parameter state and hardware control separate. User/project
-transformation code is black-box provenance for this slice: Scopecat records
-declared or generated binding artifacts and references, not the render pipeline
-that produced them.
+Setup binding has fixture-level validation for sample/cooldown binding
+snapshots, simple binding diffs, station-registry references, generated
+line/readout views, and measurement references while keeping parameter state
+and hardware control separate. User/project transformation code is black-box
+provenance for this slice: Scopecat records declared or generated binding
+artifacts and references, not the render pipeline that produced them. The
+fixture uses a measurement `inputs` list to group named input snapshots, but it
+does not earn a shared snapshot framework.
 
 Scan/data-shape fixtures currently support declared 1D table, rectangular 2D
 grid table, and sidecar-declared weak-table pressure. Harder shapes such as
@@ -95,6 +97,7 @@ schema.
 | Warning or attention state | Export, running inspection, calibration continuation | A degraded, missing, stale, uncertain, risky, or review-needed condition. Normal policy and boundary disclaimers should not become warnings. |
 | Authority/provenance | All validated slices | A way to separate fixture-declared, observed, user-authored, external, materialized, and Scopecat-managed facts without settling final ownership. |
 | Setup binding | Parameter state, selected reference, future measurement reference pressure | The sample/cooldown/session-specific mapping from logical experiment entities to physical wiring, channels, instruments, generated line/readout state, and selected registry context. |
+| Named input snapshot | Parameter state, setup binding, measurement reference pressure | A measurement run-start context entry that references a specific snapshot family by name, such as parameter state, setup binding, or station registry, without making those families share lifecycle or diff semantics. |
 
 ## Stable Separations
 
@@ -137,8 +140,8 @@ Several separations now appear repeatedly enough to keep carrying forward:
   until a later slice earns their relationship. Setup binding is adjacent to
   parameter state because it maps sample/cooldown logical entities to physical
   wiring, channels, and devices, may need snapshots/diffs, and may be
-  referenced by measurements. It is not part of the current parameter-state
-  fixture.
+  referenced by measurements. A measurement may group these as named input
+  snapshots at run start, but that does not make them one shared state model.
 
 ## Design Pressure
 
@@ -191,6 +194,7 @@ The cross-slice comparison still does not earn:
   authority;
 - device registry, setup binding schema, physical wiring model, or station
   configuration model;
+- shared input-snapshot or run-context framework;
 - fit quality, uncertainty, reproducibility, or scientific-validity claims.
 
 ## Recommended Next Step

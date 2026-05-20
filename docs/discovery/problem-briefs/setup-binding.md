@@ -82,16 +82,34 @@ Observed evidence includes:
   or declared binding record. Generator/converter identity can be recorded as
   provenance, but the render pipeline remains out of scope.
 - A measurement may need to reference both a selected parameter state and a
-  selected setup-binding snapshot.
+  selected setup-binding snapshot. More generally, measurements may later
+  reference a list of named input snapshots, such as parameter state, setup
+  binding, and station registry context, without forcing those snapshot
+  families to share lifecycle, diff, review, or authority semantics.
 - A setup-binding diff can be useful without becoming a full wiring model,
   station registry schema, or hardware-control model.
 - Setup binding may later help selected reference comparison by making setup
   sameness, changed bindings, unverified bindings, and not-compared bindings
   explicit.
 
+## Future Generalization Pressure
+
+Setup binding may fit a broader pattern where measurements record multiple
+named input snapshots selected at run start. That pattern is useful because
+parameter state, setup binding, station registry, analysis configuration, or
+other future context can be grouped as measurement input/context without
+pretending they are the same type of state.
+
+This brief does not define the universal abstraction. Setup binding still has
+its own meaning: sample/cooldown/session-specific logical-to-physical binding,
+with generated line/readout views and simple diffs. Parameter state remains
+calibrated values and lineage/trust history. Station registry remains station
+configuration context.
+
 ## Out Of Scope For This Brief
 
 - Final station registry schema.
+- Shared input-snapshot or run-context framework.
 - Full LabRAD, QCoDeS, or hardware-control replacement.
 - Driver connection management, server lifecycle, resource arbitration, or
   instrument execution.
@@ -109,6 +127,7 @@ Observed evidence includes:
 - Can a small fixture distinguish station registry, setup-binding snapshot,
   parameter state, and measurement reference without merging them?
 - Can a measurement reference the setup-binding snapshot in effect at start
+  as one named input among parameter state and station registry context,
   without claiming current hardware state?
 - Can a setup-binding diff show changed logical-to-physical assignments without
   deciding whether parameter state is invalid?

@@ -41,6 +41,10 @@ Can Scopecat represent the sample/cooldown-specific binding between logical
 experiment entities and physical wiring/device channels, separately from both
 station registry and calibrated parameter values?
 
+First fixture:
+
+- `tests/fixtures/setup_binding/basic_binding_context/`
+
 ## Concept Boundary
 
 The first setup-binding boundary should distinguish:
@@ -50,13 +54,15 @@ The first setup-binding boundary should distinguish:
 | Station registry | Relatively stable station/lab configuration: devices, instruments, connections, drivers, timing, and data/session fields. |
 | Setup-binding snapshot | Sample/cooldown/session-specific mapping from logical entities to physical resources, generated views, and selected registry context. |
 | Parameter state | Calibrated or seed values for qubits, couplers, lines, readout, and related entries. |
-| Measurement reference | Run-start selection of parameter state, setup-binding snapshot, logical targets, and derived readout timing. |
+| Measurement reference | Run-start list of named input snapshots, including parameter state, setup-binding snapshot, station registry context, logical targets, and derived readout timing. |
 | Hardware control | Runner/server behavior that turns registry and binding context into instrument commands. |
 | Transformation provenance | User/project code identity or source artifact reference for generated binding/runtime views; recorded as provenance, not executed or validated. |
 
-Setup binding may reference registry and parameter-state identifiers, but it
-should not own registry connection payloads, calibrated parameter values, or
-hardware-control execution.
+Setup binding may reference registry and parameter-state identifiers, and the
+measurement reference may group those references as named input snapshots. That
+list shape is future generalization pressure, not a shared snapshot framework.
+Setup binding should not own registry connection payloads, calibrated parameter
+values, or hardware-control execution.
 
 ## First Fixture Shape
 
@@ -67,11 +73,12 @@ The first fixture should stay small:
 - one logical qubit, one coupler, and one readout line;
 - a mapping from logical roles to physical resource labels, such as drive line,
   Z line, readout ADC, readout DAC, and LO group;
-- one generated line/readout view enough to show runtime binding pressure;
+- generated line/readout views enough to show runtime binding pressure,
+  including line selection and readout-position grouping;
 - generator/converter provenance as a label or source reference only;
 - one prior binding snapshot with a simple changed assignment;
-- one measurement referencing both the selected parameter state and selected
-  setup-binding snapshot at start;
+- one measurement referencing parameter state, setup binding, and station
+  registry as a list of named input snapshots at start;
 - one attention item that says binding changed since an earlier calibration,
   without claiming parameter invalidity.
 
@@ -86,7 +93,8 @@ Fixture input may include:
 - logical entity bindings for qubit, coupler, and readout roles;
 - generated line/readout labels or readout-position hints;
 - simple binding diff entries;
-- measurement reference to selected setup binding and selected parameter state.
+- measurement reference with named input snapshots for selected setup binding,
+  selected parameter state, and selected station registry context.
 
 Fixture input should not include:
 
@@ -109,6 +117,7 @@ Expected review output should let a reviewer answer:
 - how logical entities map to physical resource labels;
 - which binding assignment changed relative to a prior binding;
 - which measurement referenced the binding at start;
+- which named input snapshots the measurement referenced at start;
 - that binding changes may require attention but do not automatically invalidate
   parameter state;
 - that hardware control remains out of scope.
@@ -119,6 +128,7 @@ This plan does not earn:
 
 - final station registry schema;
 - final setup-binding schema;
+- shared input-snapshot or run-context framework;
 - physical wiring ontology;
 - full wiring workbook importer;
 - execution, static analysis, validation, or ownership of user/project
