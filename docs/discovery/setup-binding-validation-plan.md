@@ -30,6 +30,11 @@ These notes show that setup binding is a chain, not one artifact:
 The first fixture should use this chain for realism without making every step
 part of the product contract.
 
+User/project transformation code is black-box provenance for this slice.
+Scopecat records declared or generated setup-binding artifacts and references;
+it does not execute, inspect, or validate the generator, converter, waveform,
+or runner code that produced or consumed them.
+
 ## Validation Question
 
 Can Scopecat represent the sample/cooldown-specific binding between logical
@@ -47,6 +52,7 @@ The first setup-binding boundary should distinguish:
 | Parameter state | Calibrated or seed values for qubits, couplers, lines, readout, and related entries. |
 | Measurement reference | Run-start selection of parameter state, setup-binding snapshot, logical targets, and derived readout timing. |
 | Hardware control | Runner/server behavior that turns registry and binding context into instrument commands. |
+| Transformation provenance | User/project code identity or source artifact reference for generated binding/runtime views; recorded as provenance, not executed or validated. |
 
 Setup binding may reference registry and parameter-state identifiers, but it
 should not own registry connection payloads, calibrated parameter values, or
@@ -62,6 +68,7 @@ The first fixture should stay small:
 - a mapping from logical roles to physical resource labels, such as drive line,
   Z line, readout ADC, readout DAC, and LO group;
 - one generated line/readout view enough to show runtime binding pressure;
+- generator/converter provenance as a label or source reference only;
 - one prior binding snapshot with a simple changed assignment;
 - one measurement referencing both the selected parameter state and selected
   setup-binding snapshot at start;
@@ -75,6 +82,7 @@ Fixture input may include:
 - station registry summary ID and public-safe resource labels;
 - setup-binding snapshot ID, source, sample/cooldown/session label, and
   selected registry reference;
+- generator or converter provenance for declared/generated binding artifacts;
 - logical entity bindings for qubit, coupler, and readout roles;
 - generated line/readout labels or readout-position hints;
 - simple binding diff entries;
@@ -85,6 +93,8 @@ Fixture input should not include:
 - raw hostnames, IP addresses, driver credentials, or private paths;
 - full station registry payloads;
 - full wiring workbook payloads;
+- executable transformation code or code-derived payloads that require running
+  user Python;
 - calibrated numeric parameter values;
 - hardware commands, waveforms, trigger RAM entries, or driver calls;
 - automatic retuning or invalidation decisions.
@@ -111,6 +121,8 @@ This plan does not earn:
 - final setup-binding schema;
 - physical wiring ontology;
 - full wiring workbook importer;
+- execution, static analysis, validation, or ownership of user/project
+  generator, converter, waveform, or runner code;
 - LabRAD, QCoDeS, or hardware-control replacement;
 - driver connection management;
 - resource arbitration;

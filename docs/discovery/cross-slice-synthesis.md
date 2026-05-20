@@ -65,7 +65,10 @@ implementation candidate.
 Setup binding is framed with a validation plan but no fixture yet. It pressures
 sample/cooldown binding snapshots, simple binding diffs, station-registry
 references, generated line/readout views, and measurement references while
-keeping parameter state and hardware control separate.
+keeping parameter state and hardware control separate. User/project
+transformation code is black-box provenance for this slice: Scopecat records
+declared or generated binding artifacts and references, not the render pipeline
+that produced them.
 
 Scan/data-shape fixtures currently support declared 1D table, rectangular 2D
 grid table, and sidecar-declared weak-table pressure. Harder shapes such as

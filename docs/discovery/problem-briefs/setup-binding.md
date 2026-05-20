@@ -41,6 +41,8 @@ Observed evidence includes:
   entities;
 - registry generation code that converts wiring tables into registry
   `Device`/`Instrument`/`connection` records;
+- project-authored generation and conversion code that encodes lab-specific
+  wiring conventions rather than universal wiring inference;
 - runtime config code that maps logical qubit groups to drive/readout LO
   groups;
 - generated `chip_info` and `line_info` files that bridge parameter state into
@@ -66,12 +68,19 @@ Observed evidence includes:
   retuning, but they do not automatically invalidate parameter state.
 - Whether a binding change affects parameter validity should be judged by
   later sample/code evidence and domain review, not assumed by this brief.
+- For the first setup-binding slice, user/project transformation code should be
+  treated as black-box provenance. Scopecat records declared or generated
+  binding artifacts and references; it does not execute, inspect, or validate
+  the transformation logic.
 
 ## Derived Hypotheses
 
 - A first setup-binding fixture should test whether Scopecat can represent a
   sample/cooldown binding snapshot separately from station registry and
   parameter state.
+- Setup binding starts after user/project code has produced a binding artifact
+  or declared binding record. Generator/converter identity can be recorded as
+  provenance, but the render pipeline remains out of scope.
 - A measurement may need to reference both a selected parameter state and a
   selected setup-binding snapshot.
 - A setup-binding diff can be useful without becoming a full wiring model,
@@ -87,6 +96,9 @@ Observed evidence includes:
 - Driver connection management, server lifecycle, resource arbitration, or
   instrument execution.
 - Full wiring workbook importer.
+- Execution, static analysis, validation, or ownership of project-authored
+  wiring generators, registry generators, parameter-to-runtime converters, or
+  waveform builders.
 - Final setup-binding schema, physical wiring ontology, or channel model.
 - Automatic parameter invalidation after binding changes.
 - GUI design for switching bindings.
