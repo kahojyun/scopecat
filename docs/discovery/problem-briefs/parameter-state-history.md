@@ -19,13 +19,20 @@ specific sample or bias configuration.
 
 ## Observed Sample Evidence
 
+- Active parameter files exist in parallel project trees, with matching broad
+  section shape but different content.
+- Backups, dated variants, sample/config-specific subsets, and copied temp
+  seeds show lineage-like pressure outside a single current file.
 - Active parameter files are copied into run-adjacent snapshots.
-- Experiment and calibration code directly overwrites parameter JSON.
+- Experiment and calibration code directly overwrites live parameter JSON.
 - Historical analysis reads run-scoped parameter snapshots.
 - Setting directories contain active files, backups, dated variants, lock
   clues, generated companion files, and run-number snapshots.
 - Local parameter manager code shows snapshot, diff, and reset pressure, but
-  does not validate product rollback semantics.
+  reset/update still overwrite live parameter JSON and do not validate product
+  rollback semantics.
+- Table-shaped parameter companions and variants show row, column, group, and
+  schema drift pressure.
 
 ## Project-Owner Clarification
 

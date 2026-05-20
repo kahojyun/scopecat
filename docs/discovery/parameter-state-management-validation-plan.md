@@ -8,12 +8,45 @@ This plan defines a first fixture boundary for parameter state management. It
 does not accept final parameter schema, branch/tag/commit semantics, hardware
 write-back, schema migration, external JSON tracking, or GUI design.
 
+## Source Material
+
+Compact source notes live under `<sample>/_research/`:
+
+- `parameter-files-and-artifacts.md`;
+- `parameter-mutation-workflows.md`;
+- `parameter-lineage-schema-pressure.md`.
+
+These notes should inform fixture realism, not override the cleaner product
+boundary. They are evidence of current practice: copied files, direct live JSON
+mutation, checkpoint-like helpers, and schema/table drift.
+
 ## Validation Question
 
 Can Scopecat represent first-class calibrated parameter state as snapshots,
 state lineages, purpose labels, trust/readiness state, reviewable diffs, and
 committed states, without deciding hardware write-back or final version-control
 semantics?
+
+## Evidence Pressure
+
+The sample evidence supports the fixture boundary:
+
+- active `parameters.json` files exist in parallel project trees with matching
+  broad shape but different content;
+- backups, dated variants, sample/config-specific subsets, and copied temp
+  seeds show branch-like or lineage-like pressure;
+- run-adjacent parameter snapshots capture the parameter state near a
+  measurement without making the snapshot measurement-owned state;
+- a local `ParamManager` has checkpoint-like `commit()`, read-only `diff()`,
+  and rollback-like `reset()`, but reset and update still overwrite the live
+  parameter file;
+- calibration and analysis notebooks commonly mutate nested parameter fields
+  and save the full live JSON state directly;
+- review-like comparison exists through diffs and printed diagnostics, but it
+  does not appear to gate writes;
+- table-shaped companions and parameter variants show row/column, group, and
+  schema drift pressure, but broad schema migration is too large for the first
+  fixture.
 
 ## Concept Boundary
 
@@ -44,8 +77,8 @@ The first fixture should stay small:
 - one sample or target group;
 - one named parameter state lineage;
 - a `lineage_purpose` such as `working_point`;
-- a seed state copied from another context and marked incomplete or not fully
-  trusted;
+- a seed state copied from another context and marked incomplete, seeded, or
+  not fully trusted;
 - a draft edit derived from that seed;
 - a reviewable diff showing changed and possibly added parameters;
 - an accepted commit-like state recorded after review;
@@ -73,6 +106,7 @@ Fixture input should not include:
 - hardware state;
 - instrument write logs;
 - external mutable JSON authority;
+- live `parameters.json` overwrite behavior as the desired product model;
 - automatic branch creation;
 - merge/rebase semantics;
 - GUI operations;
