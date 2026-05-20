@@ -15,3 +15,5 @@
   not execute analyzed fixture or source code.
 - Do not generalize architecture, ownership, or reusable contracts from one
   validation slice unless an accepted decision states that scope.
+- Use stdlib `unittest` for Python tests unless a narrower instruction says
+  otherwise. Do not assume `pytest` is available.
