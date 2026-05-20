@@ -60,7 +60,7 @@
         "base_state_id": "param-state-0001",
         "lineage_id": "lineage-qA-default-bias",
         "durable_history": false,
-        "draft_status": "review_pending"
+        "draft_status": "accepted_by_review"
       }
     ],
     "reviewable_changes": [
@@ -117,7 +117,7 @@
     "Working point is one lineage purpose label, not the generic branching model.",
     "A reviewable diff can add a parameter without earning general schema migration.",
     "A measurement references the selected parameter state at start; this fixture does not claim current hardware state.",
-    "External JSON overwrite, hardware write-back, branch/tag movement, merge, rebase, rollback automation, and GUI behavior remain out of scope."
+    "External JSON overwrite, hardware write-back, branch/tag/commit semantics, merge, rebase, rollback automation, and GUI behavior remain out of scope."
   ],
   "decisions_not_earned": [
     "final parameter schema",

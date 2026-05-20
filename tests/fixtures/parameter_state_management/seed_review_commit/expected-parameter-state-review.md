@@ -49,7 +49,8 @@ general schema migration.
 
 ### Draft History
 
-- draft `draft-change-0001` is not durable history by itself.
+- draft `draft-change-0001` was accepted by review, but is not durable history
+  by itself.
 - durable history starts when review `review-change-0001` is accepted and
   committed state `param-state-0002` exists.
 

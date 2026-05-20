@@ -2,7 +2,7 @@
   "fixture_id": "parameter-seed-review-commit",
   "fixture_status": "synthetic_public_safe",
   "fixture_layer": "parameter_state_management_fixture",
-  "user_job": "Start from a copied seed parameter state, review a small edit, commit a new calibrated state, and record which state a measurement selected at start.",
+  "user_job": "Start from a copied seed parameter state, review a small edit, commit a partially calibrated state trusted for declared entries, and record which state a measurement selected at start.",
   "source_research_notes": [
     "<sample>/_research/parameter-files-and-artifacts.md",
     "<sample>/_research/parameter-mutation-workflows.md",
@@ -110,7 +110,7 @@
       "lineage_id": "lineage-qA-default-bias",
       "author_role": "experimenter",
       "durable_history": false,
-      "draft_status": "review_pending",
+      "draft_status": "accepted_by_review",
       "change_reason": "Rabi calibration adjusted qA drive frequency and pi amplitude; readout discrimination threshold was added after reviewing classification output."
     }
   ],
