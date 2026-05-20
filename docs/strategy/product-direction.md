@@ -46,7 +46,7 @@ Prefer work that lets users:
 - inspect readable parts of long measurements before the full run finishes;
 - choose, restore, or migrate the experiment code that actually matters;
 - recover parameter states, compare drift, and exclude known-bad states;
-- compare a current setup or bundle against a known-good reference;
+- compare a current setup or bundle against a selected reference;
 - hand off analysis context without requiring a complete provenance program.
 
 ## Ownership Assumptions
@@ -74,12 +74,14 @@ execution, open-ended autonomy, concurrency, resource arbitration, automatic
 retry/mutation policy, and Scopecat-decided parameter write-back are separate
 decisions.
 
-Scopecat's executor value should come from experiment semantics, not from
-being a general code runner. It may wrap an existing runtime or workflow
-library while owning the step contract, experiment intent links, lifecycle
-states, review gates, failure/continuation records, output registration, and
-links to runs, parameters, code references, known-good references, and analysis
-handoff.
+If executor scope is later validated, its value should come from experiment
+semantics, not from being a general code runner. A possible future path is to
+wrap an existing runtime or workflow library while recording experiment intent
+links, lifecycle/review state, failure/continuation records, output
+registration, and links to runs, parameters, code references, selected
+references, and analysis handoff. Durable step contracts, authoring contracts,
+scheduler behavior, retry policy, and write-back behavior still require
+narrower validation and explicit decisions.
 
 Scopecat can own records and explanations around those systems: measurement
 records, context, lifecycle events, selected code references, parameter
@@ -90,6 +92,12 @@ Cross-machine value should start from portable records, explicit export/import,
 handoff packages, existing shared-storage discovery or references, and
 openability checks. This makes Scopecat record-aware across machines, not a
 distributed experiment-control system.
+
+Export/import should eventually support quick measurement preview on both
+sides: export preview helps choose which measurements to package, while import
+preview helps confirm what is being accepted or organized. This is an
+orientation and trust boundary, not a commitment to rendered plots, report
+generation, or scientific validation in the first slice.
 
 Recording should be explicit. Experiment code, helper libraries, or lab-owned
 bridges should deliberately send data, sweep semantics, lifecycle/status

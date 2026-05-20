@@ -22,7 +22,7 @@ Pre-run code and context:
 
 - copied experiment-code folders, ambiguous entrypoints, local paths, helper
   packages, and dependency readiness;
-- selected code scope, known-good references, and restore or migrate questions.
+- selected code scope, selected references, and restore or migrate questions.
 
 Setup and bring-up:
 

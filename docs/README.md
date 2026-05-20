@@ -12,8 +12,11 @@ Keep durable statements in the narrowest owner:
 
 - evidence claims: [`evidence/evidence-register.md`](evidence/evidence-register.md)
 - evidence interpretation: [`evidence/method.md`](evidence/method.md)
+- discovery navigation: [`discovery/README.md`](discovery/README.md)
 - problem framing: [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md)
 - adoption hypotheses: [`discovery/adoption-hypotheses.md`](discovery/adoption-hypotheses.md)
+- cross-slice synthesis: [`discovery/cross-slice-synthesis.md`](discovery/cross-slice-synthesis.md)
+- discovery deferrals: [`discovery/shared-model-extraction-deferral.md`](discovery/shared-model-extraction-deferral.md)
 - product direction: [`strategy/product-direction.md`](strategy/product-direction.md)
 - research inputs: [`evidence/research/README.md`](evidence/research/README.md)
 

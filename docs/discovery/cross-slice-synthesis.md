@@ -1,0 +1,150 @@
+# Cross-Slice Discovery Synthesis
+
+## Status
+
+Discovery synthesis, not an ADR.
+
+This document compares the currently validated slices to identify recurring
+candidate concepts and remaining design pressure. It does not accept a final
+schema, storage model, workflow model, GUI contract, export package format,
+executor design, relation graph, or warning taxonomy.
+
+## Inputs
+
+- [`selected-measurement-export-decision-summary.md`](selected-measurement-export-decision-summary.md)
+- [`preview-ready-selected-measurement-export-validation-result.md`](preview-ready-selected-measurement-export-validation-result.md)
+- [`running-measurement-inspection-validation-result.md`](running-measurement-inspection-validation-result.md)
+- [`calibration-work-continuation-validation-result.md`](calibration-work-continuation-validation-result.md)
+- [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
+- [`adoption-hypotheses.md`](adoption-hypotheses.md)
+
+## Current Slice Positions
+
+Selected measurement export has the strongest implementation-shaped boundary.
+It earned a pure structured summary builder for explicit selected measurement
+sets, default bundles, optional linked context, declared preview metadata,
+degraded-preview warnings, and non-recursive traversal.
+
+Running measurement inspection has fixture-level validation for state summaries
+over already-recorded data from still-running measurements. It pressures
+lifecycle state, progress, completeness, freshness, declared preview metadata,
+and non-durable monitor ergonomics, but has not earned a generator or live
+service.
+
+Calibration work continuation has a tiny assembler candidate for continuation
+state. It pressures episode context, planned steps, observed outputs, review
+gates, proposed writes, blocked steps, and available interventions, but has not
+earned executor, scheduler, write-back, or GUI ownership.
+
+Scan/data-shape fixtures currently support declared 1D table, rectangular 2D
+grid table, and sidecar-declared weak-table pressure. Harder shapes such as
+ragged scans, trace-per-point data, and array-valued responses remain known
+risks, not current requirements.
+
+## Recurring Candidate Concepts
+
+These concepts recur across more than one slice and are becoming useful
+analysis vocabulary. They are still candidate concepts, not accepted product
+schema.
+
+| Candidate concept | Slice pressure | Current meaning |
+| --- | --- | --- |
+| Measurement record | Export, running inspection, calibration continuation | The ordinary user-facing unit for primary recorded experiment data, selected for export, inspected while running, or referenced as calibration output. |
+| Source identity | Export, running inspection, calibration continuation | Recoverable provenance for where a record came from, distinct from current read path, package-relative fixture path, or final storage identity. |
+| Primary data reference | Export, running inspection, measurement boundary | The data item users expect to inspect, preview, export, or later plot; may be fixture path-shaped now but should not imply durable path identity. |
+| Declared preview metadata | Export, running inspection, scan/data-shape | Shape, roles, labels, units, axis order, row order, and plot candidates supplied explicitly enough to support preview without schema inference. |
+| Linked context | Export, calibration continuation, measurement boundary | Snapshots, attachments, artifacts, fit previews, notes, or derived outputs connected to a measurement or step with explicit relation and authority. |
+| Include state | Export, measurement boundary | Whether linked context is default-included, user-included, visible-but-excluded, missing, or local-only; this is not recursive graph traversal. |
+| Lifecycle or progress state | Running inspection, calibration continuation | Current status of a measurement or step, such as running, complete, partial, review-needed, or blocked. |
+| Intervention or operation | Running inspection, calibration continuation, future GUI pressure | A user-facing item that needs attention or can be acted on, without implying autonomous execution. |
+| Proposal | Calibration continuation, parameter-state pressure | A user-authored or externally managed suggested change, such as a parameter write, that Scopecat can record without applying. |
+| Warning or attention state | Export, running inspection, calibration continuation | A degraded, missing, stale, uncertain, risky, or review-needed condition. Normal policy and boundary disclaimers should not become warnings. |
+| Authority/provenance | All validated slices | A way to separate fixture-declared, observed, user-authored, external, materialized, and Scopecat-managed facts without settling final ownership. |
+
+## Stable Separations
+
+Several separations now appear repeatedly enough to keep carrying forward:
+
+- Selected records are explicit. Adjacent IDs, rejected alternatives, linked
+  artifacts, source runs, or relation graphs are not automatically included.
+- Declared metadata is the first supported path for preview. Inference from
+  notebooks, filenames, weak headers, sidecars, or legacy readers remains
+  optional future help, not the trust base.
+- Source identity, fixture paths, package-relative materialized files, external
+  local paths, and future managed storage identities are different things.
+- Normal policies belong in structured state. Warnings should be reserved for
+  degraded, missing, uncertain, risky, stale, unavailable, or review-needed
+  conditions.
+- Markdown review output is fixture/reviewer support unless a later slice
+  specifically validates a report or human-readable product artifact.
+- Proposed writes and applied writes are distinct. Recording a proposal does
+  not imply Scopecat-decided mutation or write-back authority.
+- Partial running data can be visible as normal state. Incompleteness is not a
+  warning unless it blocks a declared need.
+- Linked artifacts and attachments need labels and relations, but recursive
+  traversal, many-to-many ownership, and analysis-DAG inference remain deferred.
+
+## Design Pressure
+
+The strongest shared pressure is toward a structured record-oriented core that
+can answer three questions before any final architecture decision:
+
+- What did the user intentionally select, inspect, or continue?
+- What data, context, preview metadata, and provenance are available?
+- What is missing, degraded, blocked, stale, externally managed, or awaiting
+  user intervention?
+
+This pressure does not yet require a shared domain module. The current
+implementation candidates should remain slice-local until another slice needs
+the same code boundary rather than merely the same words.
+
+The second strongest pressure is preview readiness. Export and running
+inspection both need explicit shape and role metadata. Calibration continuation
+also references measurements and fit previews that may later benefit from the
+same preview-ready record shape, but that reuse is not yet earned.
+
+The third pressure is externally managed context. Early adoption should assume
+users may still own some snapshots, scripts, parameter files, local paths, and
+analysis artifacts outside Scopecat. Scopecat can record provenance, relation,
+warnings, and proposal state without claiming full storage, runtime, parameter,
+or analysis authority.
+
+## Not Yet Earned
+
+The cross-slice comparison still does not earn:
+
+- final measurement, artifact, attachment, relation, or data-shape schema;
+- shared `core`, `domain`, or reusable model package;
+- final storage identity, object ID, external-reference, or package path model;
+- checksum, archive, importer, or package integrity contract;
+- export/import GUI, live monitor GUI, or calibration resume GUI;
+- rendered plotting, dataframe dependency, or interactive slicing API;
+- automatic schema inference from legacy files or notebooks;
+- recursive relation traversal or analysis-DAG inference;
+- local executor, scheduler, retry policy, resource arbitration, or hardware
+  control;
+- Scopecat-decided parameter mutation, write-back, rollback, or calibration
+  authority;
+- fit quality, uncertainty, reproducibility, or scientific-validity claims.
+
+## Recommended Next Step
+
+Use this synthesis as the comparison point before promoting shared
+architecture.
+
+Shared model extraction is currently deferred in
+[`shared-model-extraction-deferral.md`](shared-model-extraction-deferral.md).
+
+The next useful work is one of:
+
+- choose another adoption slice and build a similarly narrow fixture or
+  implementation candidate;
+- add one early-adoption fixture only where it pressures a recurring concept
+  without assuming mature Scopecat ownership;
+- draft a small decision only for a concept that now has pressure from at least
+  two validated slices and an immediate implementation need.
+
+Do not consolidate the slice-local builders into shared domain code just
+because their vocabulary overlaps. Consolidation becomes justified when the
+next implementation task would otherwise duplicate behavior, tests, and
+boundary rules that have already been validated in multiple slices.
