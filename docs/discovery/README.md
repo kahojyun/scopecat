@@ -61,7 +61,7 @@ artifacts in this branch:
 
 | Brief | Use For |
 | --- | --- |
-| [`problem-briefs/parameter-state-history.md`](problem-briefs/parameter-state-history.md) | Mutable parameter files, run-linked snapshots, drift queries, bad states, and apply/review boundaries. |
+| [`problem-briefs/parameter-state-history.md`](problem-briefs/parameter-state-history.md) | First-class calibrated parameter state, working points, trusted versus incomplete snapshots, reviewable diffs, run links, and write-back boundaries. |
 | [`problem-briefs/experiment-code-selection.md`](problem-briefs/experiment-code-selection.md) | Copied folders, entrypoint ambiguity, code snapshots, environment validation, and code-version selection. |
 | [`problem-briefs/selected-reference-comparison.md`](problem-briefs/selected-reference-comparison.md) | Selected references, known-good as a narrower subtype, setup reality, comparison findings, and scientific comparability limits. |
 

@@ -1,4 +1,4 @@
-# Parameter State History
+# Parameter State Management
 
 ## Status
 
@@ -6,9 +6,16 @@ Evidence-backed problem brief.
 
 ## User-Facing Failure
 
-Mutable parameter files and calibration updates make it hard to understand
-which parameter state a run used, how parameters drifted, which state should be
-retried, and which bad writes should be excluded from later analysis.
+Mutable parameter files, copied seed states, and calibration updates make it
+hard to understand which parameter state is believed usable, which state a run
+used, how calibrated values changed over time, which working point should be
+selected for future work, and which bad or incomplete states should be avoided.
+
+A parameter snapshot is not only measurement metadata. It can represent
+first-class lab state that users care about independently of any one
+measurement: the currently trusted calibrated state, a seeded but not yet fully
+calibrated state, a previous state to reuse, or a working-point branch for a
+specific sample or bias configuration.
 
 ## Observed Sample Evidence
 
@@ -22,23 +29,53 @@ retried, and which bad writes should be excluded from later analysis.
 
 ## Project-Owner Clarification
 
-- The primary value is parameter state history: drift queries, historical
-  lookup, working-point or branch identity, run links, explicit checkpoints,
-  and bad-state exclusion.
-- Proposal/review may be useful as an optional higher-safety path, but direct
-  update style is common and should not be dismissed.
+- Parameter snapshots record calibration-relevant experiment parameters that
+  users care about as lab state, not just values attached to measurements.
+- Users may want to know how well a sample is currently calibrated, how values
+  changed after several days of periodic calibration, which previous state to
+  reuse, or which working point should be selected for a measurement.
+- A copied parameter file can be a seed for calibration and may contain values
+  from another sample. Until calibration is complete, not every value in that
+  snapshot should be treated as currently reasonable or trusted.
+- Working points may range from one default state to many sample- or
+  bias-configuration-specific states. Git-like branch, tag, and commit concepts
+  are useful analogies, but they are not accepted product vocabulary yet.
+- Starting a measurement may select a branch, tag, or commit-like parameter
+  reference. That selected parameter state is not the same as current hardware
+  state; instruments are set when the measurement starts.
+- The core workflow is closer to snapshot -> edit -> review diff -> commit new
+  state than "record every proposed write."
+- Unapplied changes should not become durable history by default. A proposal or
+  branch-like draft may be useful later, but automatic proposal-branch creation
+  could create clutter.
+- Reviewable change sets may be useful for calibration workflows: Scopecat can
+  compute a diff from a starting snapshot and show it for human confirmation
+  before committing a new state.
 - Bad states should not be deleted by default. The useful model is closer to
   yank/exclude-from-default-analysis than hard delete.
-- User-declared parameter write steps may be part of a local batch or
-  calibration workflow. The stronger boundary is Scopecat deciding what to
-  mutate, not Scopecat recording or executing an explicit user-authored write.
+- External JSON files should probably become migration/import sources or
+  compatibility surfaces, not the desired long-term source of authority.
+  Reliable parameter history, especially across schema changes, likely needs
+  Scopecat-managed parameter state.
 
 ## Derived Hypotheses
 
-- A small validation question could compare direct updates plus automatic
-  checkpoint/diff recording against explicit proposal/review.
-- Run-linked parameter history, previews, checkpoints, and declared write-step
-  records may be valuable before Scopecat owns automatic mutation decisions.
+- A first validation question should test whether Scopecat can represent
+  first-class calibrated parameter state as snapshots, working-point labels,
+  trust/readiness state, and reviewable diffs without deciding hardware
+  write-back.
+- Run-linked parameter references remain important, but they are links from
+  measurements to parameter state, not the only reason the parameter snapshot
+  exists.
+- Drift/history plots should distinguish trusted calibrated values from seeded,
+  incomplete, excluded, or exploratory states so the plotted history is not
+  misleading.
+- Schema changes such as added/removed parameters or changed table shape are
+  real future pressure. Most routine calibration may not need schema changes,
+  but exploratory work and experiment redesign can.
+- Rollback-like behavior should first mean selecting a previous parameter
+  snapshot, branch, tag, or commit-like state for future measurement setup. It
+  does not imply mutating current hardware state.
 
 ## Out Of Scope For This Brief
 
@@ -46,11 +83,20 @@ retried, and which bad writes should be excluded from later analysis.
   ownership, rollback automation, hard-delete policy, and autonomous
   calibration.
 - Treating static files as authoritative live hardware or setup truth.
+- Final branch/tag/commit vocabulary, merge behavior, automatic proposal branch
+  creation, schema migration machinery, table-shape migration, and external
+  JSON file tracking.
 
 ## Possible Validation Questions
 
-- Can retained history, run links, branch/working-point labels, and bad-state
-  exclusion solve the immediate drift/retry pain while making declared writes
-  auditable?
-- Is proposal/review adopted only in higher-risk paths, or does it need to be
-  part of the first parameter state history workflow?
+- Can a small fixture represent snapshot -> edit -> review diff -> commit new
+  parameter state while keeping hardware write-back out of scope?
+- Can parameter state carry readiness or trust status well enough to avoid
+  plotting seeded or incomplete calibration states as if they were current
+  calibrated truth?
+- Can working-point identity be represented without prematurely accepting
+  branch/tag/commit semantics?
+- Can a measurement reference the parameter state used at measurement start
+  without treating the parameter state as measurement-owned metadata?
+- Can added parameters appear in reviewable diffs without requiring full schema
+  migration design?

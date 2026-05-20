@@ -48,8 +48,9 @@ service.
 
 Calibration work continuation has a tiny assembler candidate for continuation
 state. It pressures episode context, planned steps, observed outputs, review
-gates, proposed writes, blocked steps, and available interventions, but has not
-earned executor, scheduler, write-back, or GUI ownership.
+gates, user-authored proposed writes, blocked steps, and available
+interventions, but has not earned executor, scheduler, write-back, or GUI
+ownership.
 
 Scan/data-shape fixtures currently support declared 1D table, rectangular 2D
 grid table, and sidecar-declared weak-table pressure. Harder shapes such as
@@ -72,7 +73,7 @@ schema.
 | Include state | Export, measurement boundary | Whether linked context is default-included, user-included, visible-but-excluded, missing, or local-only; this is not recursive graph traversal. |
 | Lifecycle or progress state | Running inspection, calibration continuation | Current status of a measurement or step, such as running, complete, partial, review-needed, or blocked. |
 | Intervention or operation | Running inspection, calibration continuation, future GUI pressure | A user-facing item that needs attention or can be acted on, without implying autonomous execution. |
-| Proposal | Calibration continuation, parameter-state pressure | A user-authored or externally managed suggested change, such as a parameter write, that Scopecat can record without applying. |
+| Reviewable change | Calibration continuation, parameter-state pressure | A user-authored or Scopecat-computed diff from a known state that can be reviewed before committing or applying; not durable history unless accepted. |
 | Warning or attention state | Export, running inspection, calibration continuation | A degraded, missing, stale, uncertain, risky, or review-needed condition. Normal policy and boundary disclaimers should not become warnings. |
 | Authority/provenance | All validated slices | A way to separate fixture-declared, observed, user-authored, external, materialized, and Scopecat-managed facts without settling final ownership. |
 
@@ -97,8 +98,15 @@ Several separations now appear repeatedly enough to keep carrying forward:
   conditions.
 - Markdown review output is fixture/reviewer support unless a later slice
   specifically validates a report or human-readable product artifact.
-- Proposed writes and applied writes are distinct. Recording a proposal does
-  not imply Scopecat-decided mutation or write-back authority.
+- In calibration continuation, proposed writes and applied writes are distinct.
+  Recording a user-authored proposal does not imply Scopecat-decided mutation
+  or write-back authority. In parameter-state work, start from reviewable
+  change sets and committed states rather than assuming unapplied proposals are
+  durable history.
+- Parameter snapshots can be first-class lab state, not just measurement
+  metadata. A measurement may reference the parameter state selected at
+  measurement start, while the parameter state may also carry working-point,
+  readiness, trust, branch/tag-like, or commit-like meaning independently.
 - Partial running data can be visible as normal state. Incompleteness is not a
   warning unless it blocks a declared need.
 - Linked artifacts and attachments need labels and relations, but recursive
