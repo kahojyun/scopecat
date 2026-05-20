@@ -105,8 +105,10 @@ Several separations now appear repeatedly enough to keep carrying forward:
   durable history.
 - Parameter snapshots can be first-class lab state, not just measurement
   metadata. A measurement may reference the parameter state selected at
-  measurement start, while the parameter state may also carry working-point,
-  readiness, trust, branch/tag-like, or commit-like meaning independently.
+  measurement start, while the parameter state may also carry lineage,
+  domain-purpose, readiness, trust, branch/tag-like, or commit-like meaning
+  independently. Working point is one possible lineage purpose, not the generic
+  lineage model.
 - Partial running data can be visible as normal state. Incompleteness is not a
   warning unless it blocks a declared need.
 - Linked artifacts and attachments need labels and relations, but recursive

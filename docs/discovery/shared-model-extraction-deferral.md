@@ -47,9 +47,9 @@ The slices still differ in their immediate user jobs:
   recorded data visibility;
 - calibration continuation needs review gates, blocked steps, user-authored
   proposed writes, and available interventions;
-- parameter state management pressures first-class snapshots, working-point
-  identity, trust/readiness state, reviewable changes, committed states, and
-  run links.
+- parameter state management pressures first-class snapshots, named state
+  lineages, purpose labels such as working point or exploration,
+  trust/readiness state, reviewable changes, committed states, and run links.
 
 The overlap is conceptual before it is architectural.
 

@@ -37,9 +37,12 @@ specific sample or bias configuration.
 - A copied parameter file can be a seed for calibration and may contain values
   from another sample. Until calibration is complete, not every value in that
   snapshot should be treated as currently reasonable or trusted.
-- Working points may range from one default state to many sample- or
-  bias-configuration-specific states. Git-like branch, tag, and commit concepts
-  are useful analogies, but they are not accepted product vocabulary yet.
+- Users may need multiple named parameter state lineages. A working point can
+  be a domain-specific purpose label on a lineage, especially for sample- or
+  bias-configuration-specific states, but exploration, recovery, migration, or
+  comparison may also need lineage-like organization.
+- Git-like branch, tag, and commit concepts are useful analogies, but they are
+  not accepted product vocabulary or semantics yet.
 - Starting a measurement may select a branch, tag, or commit-like parameter
   reference. That selected parameter state is not the same as current hardware
   state; instruments are set when the measurement starts.
@@ -61,9 +64,9 @@ specific sample or bias configuration.
 ## Derived Hypotheses
 
 - A first validation question should test whether Scopecat can represent
-  first-class calibrated parameter state as snapshots, working-point labels,
-  trust/readiness state, and reviewable diffs without deciding hardware
-  write-back.
+  first-class calibrated parameter state as snapshots, named state lineages,
+  domain purpose labels, trust/readiness state, and reviewable diffs without
+  deciding hardware write-back.
 - Run-linked parameter references remain important, but they are links from
   measurements to parameter state, not the only reason the parameter snapshot
   exists.
@@ -94,8 +97,9 @@ specific sample or bias configuration.
 - Can parameter state carry readiness or trust status well enough to avoid
   plotting seeded or incomplete calibration states as if they were current
   calibrated truth?
-- Can working-point identity be represented without prematurely accepting
-  branch/tag/commit semantics?
+- Can named parameter state lineage and purpose labels be represented without
+  prematurely accepting branch/tag/commit semantics or making working point the
+  only lineage concept?
 - Can a measurement reference the parameter state used at measurement start
   without treating the parameter state as measurement-owned metadata?
 - Can added parameters appear in reviewable diffs without requiring full schema

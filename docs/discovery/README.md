@@ -54,6 +54,13 @@ product contracts too early.
 | [`calibration-work-continuation-validation-plan.md`](calibration-work-continuation-validation-plan.md) | First fixture-validation boundary for continuation-state assembly. |
 | [`calibration-work-continuation-validation-result.md`](calibration-work-continuation-validation-result.md) | Result of the continuation assembler candidate and domain review. |
 
+### Parameter State Management
+
+| Document | Use For |
+| --- | --- |
+| [`problem-briefs/parameter-state-history.md`](problem-briefs/parameter-state-history.md) | Problem framing for first-class calibrated parameter state, lineages, trust/readiness state, reviewable diffs, and write-back boundaries. |
+| [`parameter-state-management-validation-plan.md`](parameter-state-management-validation-plan.md) | First fixture-validation boundary for parameter state lineage, purpose labels, reviewable diffs, and committed states. |
+
 ## Other Problem Briefs
 
 These briefs are framed but do not yet have the same level of validation
@@ -61,7 +68,6 @@ artifacts in this branch:
 
 | Brief | Use For |
 | --- | --- |
-| [`problem-briefs/parameter-state-history.md`](problem-briefs/parameter-state-history.md) | First-class calibrated parameter state, working points, trusted versus incomplete snapshots, reviewable diffs, run links, and write-back boundaries. |
 | [`problem-briefs/experiment-code-selection.md`](problem-briefs/experiment-code-selection.md) | Copied folders, entrypoint ambiguity, code snapshots, environment validation, and code-version selection. |
 | [`problem-briefs/selected-reference-comparison.md`](problem-briefs/selected-reference-comparison.md) | Selected references, known-good as a narrower subtype, setup reality, comparison findings, and scientific comparability limits. |
 
