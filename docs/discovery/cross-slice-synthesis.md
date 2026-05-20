@@ -18,6 +18,7 @@ executor design, relation graph, or warning taxonomy.
 - [`external-file-reference-policy.md`](external-file-reference-policy.md)
 - [`running-measurement-inspection-validation-result.md`](running-measurement-inspection-validation-result.md)
 - [`calibration-work-continuation-validation-result.md`](calibration-work-continuation-validation-result.md)
+- [`parameter-state-management-validation-result.md`](parameter-state-management-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
 - [`adoption-hypotheses.md`](adoption-hypotheses.md)
 
@@ -48,8 +49,16 @@ service.
 
 Calibration work continuation has a tiny assembler candidate for continuation
 state. It pressures episode context, planned steps, observed outputs, review
-gates, proposed writes, blocked steps, and available interventions, but has not
-earned executor, scheduler, write-back, or GUI ownership.
+gates, user-authored proposed writes, blocked steps, and available
+interventions, but has not earned executor, scheduler, write-back, or GUI
+ownership.
+
+Parameter state management has fixture-level validation for first-class
+parameter state lineages, purpose labels, seeded versus trusted states,
+reviewable diffs, committed states, and measurement references to selected
+parameter state. It has not earned final branch/tag/commit semantics, schema
+migration, drift plotting, setup binding, hardware write-back, or an
+implementation candidate.
 
 Scan/data-shape fixtures currently support declared 1D table, rectangular 2D
 grid table, and sidecar-declared weak-table pressure. Harder shapes such as
@@ -72,7 +81,7 @@ schema.
 | Include state | Export, measurement boundary | Whether linked context is default-included, user-included, visible-but-excluded, missing, or local-only; this is not recursive graph traversal. |
 | Lifecycle or progress state | Running inspection, calibration continuation | Current status of a measurement or step, such as running, complete, partial, review-needed, or blocked. |
 | Intervention or operation | Running inspection, calibration continuation, future GUI pressure | A user-facing item that needs attention or can be acted on, without implying autonomous execution. |
-| Proposal | Calibration continuation, parameter-state pressure | A user-authored or externally managed suggested change, such as a parameter write, that Scopecat can record without applying. |
+| Reviewable change | Calibration continuation, parameter-state pressure | A user-authored or Scopecat-computed diff from a known state that can be reviewed before committing or applying; not durable history unless accepted. |
 | Warning or attention state | Export, running inspection, calibration continuation | A degraded, missing, stale, uncertain, risky, or review-needed condition. Normal policy and boundary disclaimers should not become warnings. |
 | Authority/provenance | All validated slices | A way to separate fixture-declared, observed, user-authored, external, materialized, and Scopecat-managed facts without settling final ownership. |
 
@@ -97,12 +106,28 @@ Several separations now appear repeatedly enough to keep carrying forward:
   conditions.
 - Markdown review output is fixture/reviewer support unless a later slice
   specifically validates a report or human-readable product artifact.
-- Proposed writes and applied writes are distinct. Recording a proposal does
-  not imply Scopecat-decided mutation or write-back authority.
+- In calibration continuation, proposed writes and applied writes are distinct.
+  Recording a user-authored proposal does not imply Scopecat-decided mutation
+  or write-back authority. In parameter-state work, start from reviewable
+  change sets and committed states rather than assuming unapplied proposals are
+  durable history.
+- Parameter snapshots can be first-class lab state, not just measurement
+  metadata. A measurement may reference the parameter state selected at
+  measurement start, while the parameter state may also carry lineage,
+  domain-purpose, readiness, trust, review, and committed-state meaning
+  independently. Branch, tag, and commit remain analogies, not accepted
+  semantics. Working point is one possible lineage purpose, not the generic
+  lineage model.
 - Partial running data can be visible as normal state. Incompleteness is not a
   warning unless it blocks a declared need.
 - Linked artifacts and attachments need labels and relations, but recursive
   traversal, many-to-many ownership, and analysis-DAG inference remain deferred.
+- Device registry, setup binding, and parameter state should remain separate
+  until a later slice earns their relationship. Setup binding is adjacent to
+  parameter state because it maps sample/cooldown logical entities to physical
+  wiring, channels, and devices, may need snapshots/diffs, and may be
+  referenced by measurements. It is not part of the current parameter-state
+  fixture.
 
 ## Design Pressure
 
@@ -153,6 +178,8 @@ The cross-slice comparison still does not earn:
   control;
 - Scopecat-decided parameter mutation, write-back, rollback, or calibration
   authority;
+- device registry, setup binding schema, physical wiring model, or station
+  configuration model;
 - fit quality, uncertainty, reproducibility, or scientific-validity claims.
 
 ## Recommended Next Step

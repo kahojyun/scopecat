@@ -45,8 +45,11 @@ The slices still differ in their immediate user jobs:
   preview readiness;
 - running inspection needs progress, completeness, freshness, and partial
   recorded data visibility;
-- calibration continuation needs review gates, blocked steps, proposed writes,
-  and available interventions.
+- calibration continuation needs review gates, blocked steps, user-authored
+  proposed writes, and available interventions;
+- parameter state management pressures first-class snapshots, named state
+  lineages, purpose labels such as working point or exploration,
+  trust/readiness state, reviewable changes, committed states, and run links.
 
 The overlap is conceptual before it is architectural.
 
@@ -81,8 +84,9 @@ Useful triggers include:
   the same user-visible meaning;
 - warning or attention states need shared ordering, severity, suppression, or
   display semantics across multiple product surfaces;
-- proposal records become a concrete implementation input for both parameter
-  history and calibration continuation.
+- reviewable change records become a concrete implementation input for both
+  parameter state management and calibration continuation, with matching
+  accepted/unapplied semantics.
 
 Before extraction, the repeated behavior should have:
 
