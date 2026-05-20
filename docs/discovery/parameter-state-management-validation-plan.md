@@ -20,6 +20,10 @@ These notes should inform fixture realism, not override the cleaner product
 boundary. They are evidence of current practice: copied files, direct live JSON
 mutation, checkpoint-like helpers, and schema/table drift.
 
+First fixture:
+
+- `tests/fixtures/parameter_state_management/seed_review_commit/`
+
 ## Validation Question
 
 Can Scopecat represent first-class calibrated parameter state as snapshots,
@@ -144,6 +148,6 @@ This plan does not earn:
 
 ## Current Recommendation
 
-Create one fixture and expected output before writing any implementation
-candidate. The first goal is to validate terminology, trust/readiness state,
-lineage purpose, and reviewable diff shape.
+Review the first fixture before writing any implementation candidate. The first
+goal is to validate terminology, trust/readiness state, lineage purpose, and
+reviewable diff shape.

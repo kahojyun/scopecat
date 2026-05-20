@@ -1,0 +1,163 @@
+{
+  "fixture_id": "parameter-seed-review-commit",
+  "fixture_status": "synthetic_public_safe",
+  "fixture_layer": "parameter_state_management_fixture",
+  "user_job": "Start from a copied seed parameter state, review a small edit, commit a new calibrated state, and record which state a measurement selected at start.",
+  "source_research_notes": [
+    "<sample>/_research/parameter-files-and-artifacts.md",
+    "<sample>/_research/parameter-mutation-workflows.md",
+    "<sample>/_research/parameter-lineage-schema-pressure.md"
+  ],
+  "lineages": [
+    {
+      "lineage_id": "lineage-qA-default-bias",
+      "lineage_label": "qA default bias calibration",
+      "lineage_purpose": "working_point",
+      "target_scope": [
+        "sample-alpha",
+        "qA",
+        "default_bias"
+      ],
+      "purpose_note": "Working point is a domain purpose label on a named state lineage, not the generic branch model."
+    }
+  ],
+  "parameter_states": [
+    {
+      "state_id": "param-state-0001",
+      "lineage_id": "lineage-qA-default-bias",
+      "parent_state_id": null,
+      "state_label": "copied seed before qA calibration",
+      "state_kind": "seed_snapshot",
+      "readiness": "seeded_incomplete",
+      "trust_status": "not_fully_trusted",
+      "source_relation": "copied_from_other_sample_context",
+      "history_plot_eligibility": "exclude_from_trusted_drift_plots",
+      "entries": [
+        {
+          "path": "qubits.qA.drive_frequency_hz",
+          "label": "qA drive frequency",
+          "value": 5010000000,
+          "unit": "Hz",
+          "trust": "unverified_seed"
+        },
+        {
+          "path": "qubits.qA.pi_amp",
+          "label": "qA pi pulse amplitude",
+          "value": 0.38,
+          "unit": "arb",
+          "trust": "unverified_seed"
+        },
+        {
+          "path": "readout.qA.frequency_hz",
+          "label": "qA readout frequency",
+          "value": 7100000000,
+          "unit": "Hz",
+          "trust": "unverified_seed"
+        }
+      ]
+    },
+    {
+      "state_id": "param-state-0002",
+      "lineage_id": "lineage-qA-default-bias",
+      "parent_state_id": "param-state-0001",
+      "state_label": "qA default bias after Rabi review",
+      "state_kind": "committed_snapshot",
+      "readiness": "partially_calibrated",
+      "trust_status": "trusted_for_declared_scope",
+      "accepted_review_id": "review-change-0001",
+      "history_plot_eligibility": "include_declared_trusted_entries_only",
+      "trusted_entry_paths": [
+        "qubits.qA.drive_frequency_hz",
+        "qubits.qA.pi_amp",
+        "readout.qA.discrimination_threshold"
+      ],
+      "entries": [
+        {
+          "path": "qubits.qA.drive_frequency_hz",
+          "label": "qA drive frequency",
+          "value": 5012500000,
+          "unit": "Hz",
+          "trust": "review_accepted"
+        },
+        {
+          "path": "qubits.qA.pi_amp",
+          "label": "qA pi pulse amplitude",
+          "value": 0.42,
+          "unit": "arb",
+          "trust": "review_accepted"
+        },
+        {
+          "path": "readout.qA.frequency_hz",
+          "label": "qA readout frequency",
+          "value": 7100000000,
+          "unit": "Hz",
+          "trust": "carried_from_seed_unverified"
+        },
+        {
+          "path": "readout.qA.discrimination_threshold",
+          "label": "qA discrimination threshold",
+          "value": 0.17,
+          "unit": "arb",
+          "trust": "review_accepted"
+        }
+      ]
+    }
+  ],
+  "draft_changes": [
+    {
+      "draft_id": "draft-change-0001",
+      "base_state_id": "param-state-0001",
+      "lineage_id": "lineage-qA-default-bias",
+      "author_role": "experimenter",
+      "durable_history": false,
+      "draft_status": "review_pending",
+      "change_reason": "Rabi calibration adjusted qA drive frequency and pi amplitude; readout discrimination threshold was added after reviewing classification output."
+    }
+  ],
+  "reviewable_diffs": [
+    {
+      "review_id": "review-change-0001",
+      "draft_id": "draft-change-0001",
+      "base_state_id": "param-state-0001",
+      "target_state_id": "param-state-0002",
+      "review_status": "accepted",
+      "creates_durable_history": true,
+      "diff_entries": [
+        {
+          "kind": "changed",
+          "path": "qubits.qA.drive_frequency_hz",
+          "old_value": 5010000000,
+          "new_value": 5012500000,
+          "unit": "Hz",
+          "review_note": "Updated after spectroscopy peak review."
+        },
+        {
+          "kind": "changed",
+          "path": "qubits.qA.pi_amp",
+          "old_value": 0.38,
+          "new_value": 0.42,
+          "unit": "arb",
+          "review_note": "Updated after Rabi fit review."
+        },
+        {
+          "kind": "added",
+          "path": "readout.qA.discrimination_threshold",
+          "old_value": null,
+          "new_value": 0.17,
+          "unit": "arb",
+          "review_note": "New entry added after readout classification review."
+        }
+      ]
+    }
+  ],
+  "measurements": [
+    {
+      "measurement_id": "measurement-03001",
+      "experiment_label": "qA Rabi confirmation",
+      "selected_parameter_state_id": "param-state-0002",
+      "selection_time": "2026-05-19T14:10:00",
+      "hardware_state_claim": "not_recorded",
+      "note": "Measurement selected a committed parameter state at start; this fixture does not claim current instrument state."
+    }
+  ]
+}
