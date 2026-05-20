@@ -1,0 +1,209 @@
+{
+  "summary_id": "setup-binding-basic-context.expected",
+  "status": "expected_validation_output",
+  "source_fixture": "setup-binding-input.json",
+  "reference_semantics": {
+    "status": "fixture_only",
+    "contract_guard": "This expected output is not a final station registry schema, setup-binding schema, physical wiring ontology, hardware-control contract, generator contract, or shared snapshot framework.",
+    "measurement_inputs": "The measurement uses a list of named input snapshots so parameter state, setup binding, and station registry can be referenced together without sharing lifecycle or diff semantics.",
+    "station_registry": "Station registry is represented as a separate referenced context summary, not as setup-binding-owned connection payload.",
+    "generated_views": "Generated line/readout views are included as setup-binding pressure, but the generator and converter code remains black-box provenance."
+  },
+  "candidate_summary": {
+    "station_registry_contexts": [
+      {
+        "registry_id": "station-registry-mmcs2-redacted",
+        "registry_label": "redacted MMCS2 station registry",
+        "registry_scope": "station_configuration",
+        "contains_connection_payloads": false,
+        "resource_count": 5
+      }
+    ],
+    "input_snapshot_families": [
+      {
+        "name": "parameter_state",
+        "snapshot_id": "param-state-0002",
+        "lifecycle_semantics": "parameter_lineage_and_review"
+      },
+      {
+        "name": "setup_binding",
+        "snapshot_id": "setup-binding-0002",
+        "lifecycle_semantics": "binding_snapshot_and_diff"
+      },
+      {
+        "name": "station_registry",
+        "snapshot_id": "station-registry-mmcs2-redacted",
+        "lifecycle_semantics": "station_context_reference"
+      }
+    ],
+    "setup_bindings": [
+      {
+        "snapshot_id": "setup-binding-0001",
+        "role": "prior_binding_snapshot",
+        "snapshot_label": "qA default binding before bias-line move",
+        "sample_id": "sample-alpha",
+        "cooldown_id": "cooldown-2026-05",
+        "selected_registry_id": "station-registry-mmcs2-redacted",
+        "inner_payload_handling": "opaque_payload_with_declared_summary_fields",
+        "logical_binding_count": 3,
+        "generated_view_count": 0
+      },
+      {
+        "snapshot_id": "setup-binding-0002",
+        "role": "selected_binding_snapshot",
+        "snapshot_label": "qA default binding after bias-line move",
+        "sample_id": "sample-alpha",
+        "cooldown_id": "cooldown-2026-05",
+        "selected_registry_id": "station-registry-mmcs2-redacted",
+        "inner_payload_handling": "opaque_payload_with_declared_summary_fields",
+        "logical_binding_count": 6,
+        "generated_view_count": 2
+      }
+    ],
+    "logical_bindings": [
+      {
+        "snapshot_id": "setup-binding-0002",
+        "logical_entity": "qA",
+        "logical_kind": "qubit",
+        "role": "drive_line",
+        "physical_resource_label": "drive_dac_A_ch04"
+      },
+      {
+        "snapshot_id": "setup-binding-0002",
+        "logical_entity": "qA",
+        "logical_kind": "qubit",
+        "role": "z_line",
+        "physical_resource_label": "bias_dac_A_ch02"
+      },
+      {
+        "snapshot_id": "setup-binding-0002",
+        "logical_entity": "cAB",
+        "logical_kind": "coupler",
+        "role": "z_line",
+        "physical_resource_label": "bias_dac_A_ch05"
+      },
+      {
+        "snapshot_id": "setup-binding-0002",
+        "logical_entity": "qA_ro",
+        "logical_kind": "readout_line",
+        "role": "readout_dac",
+        "physical_resource_label": "readout_dac_A_ch00"
+      },
+      {
+        "snapshot_id": "setup-binding-0002",
+        "logical_entity": "qA_ro",
+        "logical_kind": "readout_line",
+        "role": "readout_adc",
+        "physical_resource_label": "readout_adc_A_ch00"
+      },
+      {
+        "snapshot_id": "setup-binding-0002",
+        "logical_entity": "qA_ro",
+        "logical_kind": "readout_line",
+        "role": "readout_lo_group",
+        "physical_resource_label": "readout_lo_group_A"
+      }
+    ],
+    "generated_views": [
+      {
+        "view_id": "line-info-qA-0002",
+        "view_kind": "line_info",
+        "consumer_hint": "runtime_line_selection",
+        "entry_count": 2
+      },
+      {
+        "view_id": "readout-view-qA-0002",
+        "view_kind": "readout_group",
+        "consumer_hint": "readout_position_selection",
+        "entry_count": 1
+      }
+    ],
+    "binding_diffs": [
+      {
+        "diff_id": "setup-binding-diff-0002",
+        "from_snapshot_id": "setup-binding-0001",
+        "to_snapshot_id": "setup-binding-0002",
+        "diff_counts": {
+          "changed": 1,
+          "added": 1,
+          "removed": 0
+        },
+        "diff_entries": [
+          {
+            "kind": "changed",
+            "logical_entity": "qA",
+            "role": "z_line",
+            "old_physical_resource_label": "bias_dac_A_ch01",
+            "new_physical_resource_label": "bias_dac_A_ch02"
+          },
+          {
+            "kind": "added",
+            "logical_entity": "cAB",
+            "role": "z_line",
+            "old_physical_resource_label": null,
+            "new_physical_resource_label": "bias_dac_A_ch05"
+          }
+        ]
+      }
+    ],
+    "measurement_references": [
+      {
+        "measurement_id": "measurement-04001",
+        "experiment_label": "qA chevron check",
+        "run_start_time": "2026-05-20T09:30:00",
+        "logical_targets": [
+          "qA",
+          "cAB"
+        ],
+        "inputs": [
+          {
+            "name": "parameter_state",
+            "snapshot_id": "param-state-0002",
+            "role": "calibrated_values"
+          },
+          {
+            "name": "setup_binding",
+            "snapshot_id": "setup-binding-0002",
+            "role": "logical_to_physical_mapping"
+          },
+          {
+            "name": "station_registry",
+            "snapshot_id": "station-registry-mmcs2-redacted",
+            "role": "station_context"
+          }
+        ],
+        "runtime_context_refs": [
+          "line-info-qA-0002",
+          "readout-view-qA-0002"
+        ],
+        "hardware_state_claim": "not_recorded"
+      }
+    ],
+    "attention": [
+      {
+        "code": "binding_changed_since_prior_calibration",
+        "severity": "review",
+        "basis": "qA z_line changed from bias_dac_A_ch01 to bias_dac_A_ch02 relative to the prior setup-binding snapshot.",
+        "does_not_claim": "parameter_state_invalid"
+      }
+    ]
+  },
+  "boundary_notes": [
+    "Measurement input snapshots are grouped as a list, but this fixture does not define a universal snapshot framework.",
+    "Station registry context is referenced separately from setup binding and redacts connection payloads.",
+    "Generated line/readout views are included because they pressure runtime binding context, not because Scopecat owns their generator code.",
+    "Binding changes can be attention-worthy without automatically invalidating parameter state.",
+    "The measurement reference records selected run-start context; it does not claim current hardware state."
+  ],
+  "decisions_not_earned": [
+    "final station registry schema",
+    "final setup-binding schema",
+    "shared snapshot framework",
+    "physical wiring ontology",
+    "generator or converter execution",
+    "hardware-control replacement",
+    "automatic parameter invalidation",
+    "GUI binding switcher",
+    "scientific comparability"
+  ]
+}
