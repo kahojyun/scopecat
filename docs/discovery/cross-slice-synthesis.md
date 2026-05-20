@@ -18,6 +18,7 @@ executor design, relation graph, or warning taxonomy.
 - [`external-file-reference-policy.md`](external-file-reference-policy.md)
 - [`running-measurement-inspection-validation-result.md`](running-measurement-inspection-validation-result.md)
 - [`calibration-work-continuation-validation-result.md`](calibration-work-continuation-validation-result.md)
+- [`parameter-state-management-validation-result.md`](parameter-state-management-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
 - [`adoption-hypotheses.md`](adoption-hypotheses.md)
 
@@ -51,6 +52,13 @@ state. It pressures episode context, planned steps, observed outputs, review
 gates, user-authored proposed writes, blocked steps, and available
 interventions, but has not earned executor, scheduler, write-back, or GUI
 ownership.
+
+Parameter state management has fixture-level validation for first-class
+parameter state lineages, purpose labels, seeded versus trusted states,
+reviewable diffs, committed states, and measurement references to selected
+parameter state. It has not earned final branch/tag/commit semantics, schema
+migration, drift plotting, setup binding, hardware write-back, or an
+implementation candidate.
 
 Scan/data-shape fixtures currently support declared 1D table, rectangular 2D
 grid table, and sidecar-declared weak-table pressure. Harder shapes such as

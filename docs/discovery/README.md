@@ -60,6 +60,7 @@ product contracts too early.
 | --- | --- |
 | [`problem-briefs/parameter-state-history.md`](problem-briefs/parameter-state-history.md) | Problem framing for first-class calibrated parameter state, lineages, trust/readiness state, reviewable diffs, and write-back boundaries. |
 | [`parameter-state-management-validation-plan.md`](parameter-state-management-validation-plan.md) | First fixture-validation boundary and fixture pointer for parameter state lineage, purpose labels, reviewable diffs, and committed states. |
+| [`parameter-state-management-validation-result.md`](parameter-state-management-validation-result.md) | Result of the first parameter-state fixture and domain review. |
 
 ## Other Problem Briefs
 
