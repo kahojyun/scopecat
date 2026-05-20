@@ -19,6 +19,8 @@ executor design, relation graph, or warning taxonomy.
 - [`running-measurement-inspection-validation-result.md`](running-measurement-inspection-validation-result.md)
 - [`calibration-work-continuation-validation-result.md`](calibration-work-continuation-validation-result.md)
 - [`parameter-state-management-validation-result.md`](parameter-state-management-validation-result.md)
+- [`problem-briefs/setup-binding.md`](problem-briefs/setup-binding.md)
+- [`setup-binding-validation-plan.md`](setup-binding-validation-plan.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
 - [`adoption-hypotheses.md`](adoption-hypotheses.md)
 
@@ -60,6 +62,11 @@ parameter state. It has not earned final branch/tag/commit semantics, schema
 migration, drift plotting, setup binding, hardware write-back, or an
 implementation candidate.
 
+Setup binding is framed with a validation plan but no fixture yet. It pressures
+sample/cooldown binding snapshots, simple binding diffs, station-registry
+references, generated line/readout views, and measurement references while
+keeping parameter state and hardware control separate.
+
 Scan/data-shape fixtures currently support declared 1D table, rectangular 2D
 grid table, and sidecar-declared weak-table pressure. Harder shapes such as
 ragged scans, trace-per-point data, and array-valued responses remain known
@@ -84,6 +91,7 @@ schema.
 | Reviewable change | Calibration continuation, parameter-state pressure | A user-authored or Scopecat-computed diff from a known state that can be reviewed before committing or applying; not durable history unless accepted. |
 | Warning or attention state | Export, running inspection, calibration continuation | A degraded, missing, stale, uncertain, risky, or review-needed condition. Normal policy and boundary disclaimers should not become warnings. |
 | Authority/provenance | All validated slices | A way to separate fixture-declared, observed, user-authored, external, materialized, and Scopecat-managed facts without settling final ownership. |
+| Setup binding | Parameter state, selected reference, future measurement reference pressure | The sample/cooldown/session-specific mapping from logical experiment entities to physical wiring, channels, instruments, generated line/readout state, and selected registry context. |
 
 ## Stable Separations
 
