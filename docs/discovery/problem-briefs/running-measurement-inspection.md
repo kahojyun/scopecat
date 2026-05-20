@@ -7,8 +7,9 @@ Evidence-backed problem brief.
 ## User-Facing Failure
 
 During long-running measurements, users may need to inspect already-recorded
-data, stop or recover from partial runs, and decide whether an analysis unit is
-complete, partial, ready to inspect, or fit-ready before the full run finishes.
+data, stop or recover from partial runs, and decide whether a recorded portion
+is structurally complete, still partial, or useful enough for inspection or a
+temporary fit preview before the full run finishes.
 The near-term product pull is closer to a Labber-like monitor for the latest
 usable sweep than to in-run scan-plan adjustment.
 
@@ -28,16 +29,16 @@ usable sweep than to in-run scan-plan adjustment.
 ## Project-Owner Clarification
 
 - The near-term need is reading recorded data from a still-running run,
-  monitoring the latest useful sweep in a GUI, and knowing readiness at the
-  granularity users care about.
+  monitoring the latest useful sweep through a simple monitor surface, and
+  knowing completeness at the granularity users care about.
 - Range selection and parabolic-fit affordances are part of the existing user
   expectation, but they do not need durable records unless the user saves a fit
   result or operator decision.
 
 ## Derived Hypotheses
 
-- Start with explicit recording, progress/readiness markers, and a reader path
-  ordinary scripts or a simple GUI monitor can consume.
+- Start with explicit recording, progress/completeness markers, and a reader
+  path ordinary scripts or a simple monitor can consume.
 - Cursor movement and temporary range selection need not be durable unless the
   user saves a fit result or operator decision.
 - User-requested preview computation, such as fitting a parabola over a

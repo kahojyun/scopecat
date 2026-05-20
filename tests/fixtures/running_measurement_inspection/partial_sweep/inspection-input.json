@@ -1,0 +1,129 @@
+{
+  "fixture_id": "running-inspection-partial-sweep",
+  "fixture_status": "synthetic_public_safe",
+  "user_job": "Inspect already-recorded data from a still-running measurement and decide whether to keep watching, intervene outside Scopecat, or stop.",
+  "observed_at": "2026-05-19T10:14:07Z",
+  "attention_policy": {
+    "stale_after_seconds": 60,
+    "source": "fixture_declared"
+  },
+  "measurement": {
+    "measurement_id": "run-live-02001",
+    "legacy_data_id": 2001,
+    "label": "qA resonator live frequency sweep",
+    "experiment_type": "resonator_frequency_sweep",
+    "target": "qA",
+    "source_identity": "LAB_LOCAL:/redacted/datavault/session-beta/02001_qA_resonator_live.csv",
+    "local_path_public_safe": false
+  },
+  "lifecycle": {
+    "state": "recording",
+    "started_at": "2026-05-19T10:02:00Z",
+    "last_update_at": "2026-05-19T10:12:35Z",
+    "recording_enabled": true,
+    "source": "fixture_declared"
+  },
+  "progress": {
+    "recorded_points": 14,
+    "expected_points": 30,
+    "recorded_sweeps": 1,
+    "expected_sweeps": 3,
+    "points_per_sweep": 10,
+    "latest_completed_unit": {
+      "kind": "sweep",
+      "sweep_index": 0,
+      "row_count": 10,
+      "complete": true,
+      "completeness_basis": "expected_points_recorded",
+      "default_preview_candidate": true
+    },
+    "current_partial_unit": {
+      "kind": "sweep",
+      "sweep_index": 1,
+      "recorded_points": 4,
+      "expected_points": 10,
+      "complete": false,
+      "completeness_basis": "expected_points_not_yet_recorded",
+      "default_preview_candidate": false
+    },
+    "source": "fixture_declared"
+  },
+  "latest_data_reference": {
+    "path": "source/session-beta/02001_qA_resonator_live_partial.csv",
+    "kind": "partial_recorded_table",
+    "latest_completed_filter": {
+      "column": "sweep_index",
+      "equals": 0
+    },
+    "source": "recorded_file"
+  },
+  "preview_metadata": {
+    "status": "preview_ready",
+    "metadata_source": "fixture_declared",
+    "data_shape": {
+      "kind": "repeated_1d_sweep_table",
+      "axis_order": [
+        "drive_freq_ghz"
+      ],
+      "repeat_axis": "sweep_index",
+      "row_order": "sweep_index_blocks_drive_freq_ghz_inner_fastest"
+    },
+    "declared_columns": [
+      {
+        "name": "drive_freq_ghz",
+        "label": "Drive frequency",
+        "role": "sweep_axis",
+        "unit": "GHz"
+      },
+      {
+        "name": "response_i",
+        "label": "I quadrature",
+        "role": "measured_response",
+        "unit": "arb"
+      },
+      {
+        "name": "response_q",
+        "label": "Q quadrature",
+        "role": "measured_response",
+        "unit": "arb"
+      },
+      {
+        "name": "sweep_index",
+        "label": "Sweep index",
+        "role": "repeat_index",
+        "unit": "count"
+      }
+    ],
+    "plot_candidates": [
+      {
+        "x": "drive_freq_ghz",
+        "y": "response_i",
+        "source": "source/session-beta/02001_qA_resonator_live_partial.csv"
+      },
+      {
+        "x": "drive_freq_ghz",
+        "y": "response_q",
+        "source": "source/session-beta/02001_qA_resonator_live_partial.csv"
+      }
+    ]
+  },
+  "ephemeral_monitor_state": {
+    "durable": false,
+    "selected_range": {
+      "axis": "drive_freq_ghz",
+      "min": 4.996,
+      "max": 5.006
+    },
+    "temporary_fit_preview": {
+      "kind": "parabolic_fit",
+      "status": "preview_only",
+      "fit_over": "latest_completed_unit",
+      "vertex_x": 5.001,
+      "claim_guard": "Temporary monitor fit only; not saved as analysis result or calibration decision."
+    }
+  },
+  "saved_decisions": [],
+  "attention_expected": [
+    "latest_data_stale"
+  ]
+}
