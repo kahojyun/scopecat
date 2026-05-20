@@ -26,11 +26,12 @@ It earned a pure structured summary builder for explicit selected measurement
 sets, default bundles, optional linked context, declared preview metadata,
 degraded-preview warnings, and non-recursive traversal.
 
-The storage-transition export fixture adds early-adoption pressure without
-changing that implementation boundary. It separates source identity, current
-reference, and package materialization for managed records and external file
-references, and it treats missing or moved external context as warning-worthy.
-It does not decide the final storage model or external-reference policy.
+The storage-transition export fixture adds early-adoption and lab-policy
+pressure without changing that implementation boundary. It separates source
+identity, current reference, and package materialization for managed records
+and lab-managed network references, and it treats missing or moved external
+context as warning-worthy. It does not decide the final storage model or
+external-reference policy.
 
 Running measurement inspection has fixture-level validation for state summaries
 over already-recorded data from still-running measurements. It pressures
@@ -81,8 +82,9 @@ Several separations now appear repeatedly enough to keep carrying forward:
   local paths, and future managed storage identities are different things.
 - A current reference used before export is also separate from package
   materialization. Managed records may not need user-facing filesystem paths,
-  while available external references can still be materialized into export
-  packages.
+  while available lab-managed network references can still be materialized into
+  export packages. Package materialization paths are output of export planning
+  or packaging, not pre-export input.
 - Normal policies belong in structured state. Warnings should be reserved for
   degraded, missing, uncertain, risky, stale, unavailable, or review-needed
   conditions.

@@ -1,6 +1,7 @@
 {
   "fixture_id": "storage-transition-measurement-export",
   "fixture_status": "synthetic_public_safe",
+  "fixture_layer": "pre_export_record_state",
   "user_job": "Export selected measurements when one record is already Scopecat-managed and another still references externally managed source data.",
   "selected_export_set": {
     "selection_mode": "multi_measurement",
@@ -27,14 +28,13 @@
       "storage_reference": {
         "mode": "managed",
         "current_reference": "scopecat://measurements/measurement-02001/primary-data",
-        "package_materialized_path": "source/managed/02001_qB_rabi_20260519_092000.csv",
         "availability": "available"
       },
       "default_bundle": [
         {
           "kind": "primary_data",
           "label": "qB Rabi source data",
-          "path": "source/managed/02001_qB_rabi_20260519_092000.csv",
+          "current_reference": "scopecat://measurements/measurement-02001/primary-data",
           "include_status": "included_by_default",
           "relation": "selected_measurement_source",
           "authority": "scopecat_managed"
@@ -42,7 +42,7 @@
         {
           "kind": "copied_metadata",
           "label": "qB Rabi parameter snapshot",
-          "path": "snapshots/run-02001-parameters.json",
+          "current_reference": "scopecat://measurements/measurement-02001/snapshots/run-02001-parameters",
           "include_status": "included_by_default",
           "relation": "copied_parameter_snapshot",
           "authority": "tool_recorded"
@@ -57,29 +57,28 @@
       "target": "qB",
       "run_started_at": "2026-05-19T09:55:00",
       "source_identity": {
-        "kind": "external_file_reference",
-        "display": "LAB_LOCAL:/redacted/datavault/session-beta/02002_qB_ramsey_20260519_095500.csv",
+        "kind": "lab_managed_network_reference",
+        "display": "LAB_SHARE:/redacted/datavault/session-beta/02002_qB_ramsey_20260519_095500.csv",
         "recoverable": true
       },
       "storage_reference": {
-        "mode": "external_reference",
-        "current_reference": "LAB_LOCAL:/redacted/datavault/session-beta/02002_qB_ramsey_20260519_095500.csv",
-        "package_materialized_path": "source/external_materialized/02002_qB_ramsey_20260519_095500.csv",
+        "mode": "lab_managed_network_reference",
+        "current_reference": "LAB_SHARE:/redacted/datavault/session-beta/02002_qB_ramsey_20260519_095500.csv",
         "availability": "available_for_export"
       },
       "default_bundle": [
         {
           "kind": "primary_data",
           "label": "qB Ramsey source data",
-          "path": "source/external_materialized/02002_qB_ramsey_20260519_095500.csv",
+          "current_reference": "LAB_SHARE:/redacted/datavault/session-beta/02002_qB_ramsey_20260519_095500.csv",
           "include_status": "included_by_default",
           "relation": "selected_measurement_source",
-          "authority": "external_source_metadata"
+          "authority": "lab_managed_source_metadata"
         },
         {
           "kind": "copied_metadata",
           "label": "qB Ramsey parameter snapshot",
-          "path": "snapshots/run-02002-parameters.json",
+          "current_reference": "scopecat://measurements/measurement-02002/snapshots/run-02002-parameters",
           "include_status": "included_by_default",
           "relation": "copied_parameter_snapshot",
           "authority": "tool_recorded"
@@ -102,7 +101,6 @@
       "storage_reference": {
         "mode": "managed_attachment",
         "current_reference": "scopecat://attachments/attachment-session-beta-cooldown-note",
-        "package_materialized_path": "attachments/session-beta-cooldown-note.md",
         "availability": "available"
       }
     },
@@ -117,9 +115,8 @@
         "measurement-02002"
       ],
       "storage_reference": {
-        "mode": "external_reference",
-        "current_reference": "LAB_LOCAL:/redacted/notebooks/session-beta/local-fit-scratchpad.ipynb",
-        "package_materialized_path": null,
+        "mode": "lab_managed_network_reference",
+        "current_reference": "LAB_SHARE:/redacted/notebooks/session-beta/local-fit-scratchpad.ipynb",
         "availability": "missing_or_moved"
       }
     }

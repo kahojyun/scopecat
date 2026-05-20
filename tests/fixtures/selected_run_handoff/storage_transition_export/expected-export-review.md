@@ -9,8 +9,11 @@
 - guard: This expected output is not a final storage architecture, package
   format, schema contract, or path-addressed identity model.
 
-`path` and `package_materialized_path` values are package-relative fixture
-files used for export/openability checks. They are not durable record identity.
+`export-input.json` models pre-export record/reference state. Package
+materialization paths are expected export output, not known source input.
+`path` and `package_materialized_path` values in the expected summary are
+package-relative fixture files used for export/openability checks. They are not
+durable record identity.
 
 ## Candidate Summary Review
 
@@ -29,12 +32,12 @@ traversed.
 | Measurement | Source identity | Current reference | Package materialization | Availability |
 | --- | --- | --- | --- | --- |
 | `measurement-02001` | Scopecat-managed record | `scopecat://measurements/measurement-02001/primary-data` | `source/managed/02001_qB_rabi_20260519_092000.csv` | `available` |
-| `measurement-02002` | external file reference | `LAB_LOCAL:/redacted/datavault/session-beta/02002_qB_ramsey_20260519_095500.csv` | `source/external_materialized/02002_qB_ramsey_20260519_095500.csv` | `available_for_export` |
+| `measurement-02002` | lab-managed network reference | `LAB_SHARE:/redacted/datavault/session-beta/02002_qB_ramsey_20260519_095500.csv` | `source/external_materialized/02002_qB_ramsey_20260519_095500.csv` | `available_for_export` |
 
-Managed storage, external source identity, and package materialization are
-separate concepts. A managed record does not need to expose an internal
-filesystem path. An external reference can still be materialized into an export
-package when available.
+Managed storage, lab-managed network source identity, and package
+materialization are separate concepts. A managed record does not need to expose
+an internal filesystem path. A network reference can still be materialized into
+an export package when available.
 
 ### Included By Default
 
@@ -47,8 +50,8 @@ package when available.
 
 - Session beta cooldown note (`attachments/session-beta-cooldown-note.md`):
   managed attachment, included by user, linked to both selected measurements.
-- Local fit scratchpad (`artifacts/local-fit-scratchpad.ipynb`): user-declared
-  external artifact linked to `measurement-02002`, but missing or moved.
+- Local fit scratchpad: user-declared network artifact linked to
+  `measurement-02002`, but missing or moved.
 
 ### Warnings
 
@@ -57,13 +60,15 @@ package when available.
 
 ## Boundary Notes
 
-- externally referenced but available selected source data is normal state, not
-  a warning.
+- lab-managed network referenced but available selected source data is normal
+  state, not a warning.
 - missing or moved external linked context is warning-worthy.
 - package-relative materialized paths are openability/export paths, not the
   final storage identity model.
-- this fixture does not decide whether external-reference mode is temporary
-  adoption support or a normal long-term workflow.
+- this fixture does not decide whether network-reference mode is temporary
+  adoption support, lab policy support, or a normal long-term workflow.
+- this fixture does not encourage recording arbitrary mutable local files as a
+  substitute for managed data.
 - this fixture does not add an importer, package writer, checksum contract,
   GUI workflow, moved-path repair behavior, or recursive relation traversal.
 

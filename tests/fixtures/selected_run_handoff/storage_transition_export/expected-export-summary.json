@@ -5,10 +5,11 @@
   "reference_semantics": {
     "status": "storage_transition_fixture",
     "contract_guard": "This expected output is not a final storage architecture, package format, schema contract, or path-addressed identity model.",
-    "package_paths": "path and package_materialized_path values are package-relative materialized fixture files for export/openability checks.",
+    "input_layer": "export-input.json models pre-export record/reference state; package materialization paths are not known there.",
+    "package_paths": "path and package_materialized_path values in candidate_summary model expected export materialization output for openability checks.",
     "source_identity": "source_identity preserves recoverable provenance for where a record came from and is distinct from package materialization paths.",
     "current_reference": "current_reference models the reference Scopecat would use before export; it may be a managed object reference or an external public-safe location.",
-    "external_reference_mode": "External-reference workflows are represented as early-adoption pressure with weaker durability; this fixture does not decide whether they are temporary or long-term product mode.",
+    "external_reference_mode": "Lab-managed network references are represented as early-adoption or lab-policy pressure with weaker portability until export materializes them; this fixture does not decide whether they are temporary or long-term product mode.",
     "managed_identity": "Managed records may later use IDs, backend handles, content objects, or another storage identity model; this fixture only requires that user-facing export output need not expose internal filesystem paths."
   },
   "candidate_summary": {
@@ -36,8 +37,11 @@
         "storage_reference": {
           "mode": "managed",
           "current_reference": "scopecat://measurements/measurement-02001/primary-data",
-          "package_materialized_path": "source/managed/02001_qB_rabi_20260519_092000.csv",
           "availability": "available"
+        },
+        "export_materialization": {
+          "package_materialized_path": "source/managed/02001_qB_rabi_20260519_092000.csv",
+          "status": "materialized"
         },
         "default_bundle": [
           {
@@ -66,15 +70,18 @@
         "experiment_type": "ramsey_detuning_scan",
         "target": "qB",
         "source_identity": {
-          "kind": "external_file_reference",
-          "display": "LAB_LOCAL:/redacted/datavault/session-beta/02002_qB_ramsey_20260519_095500.csv",
+          "kind": "lab_managed_network_reference",
+          "display": "LAB_SHARE:/redacted/datavault/session-beta/02002_qB_ramsey_20260519_095500.csv",
           "recoverable": true
         },
         "storage_reference": {
-          "mode": "external_reference",
-          "current_reference": "LAB_LOCAL:/redacted/datavault/session-beta/02002_qB_ramsey_20260519_095500.csv",
-          "package_materialized_path": "source/external_materialized/02002_qB_ramsey_20260519_095500.csv",
+          "mode": "lab_managed_network_reference",
+          "current_reference": "LAB_SHARE:/redacted/datavault/session-beta/02002_qB_ramsey_20260519_095500.csv",
           "availability": "available_for_export"
+        },
+        "export_materialization": {
+          "package_materialized_path": "source/external_materialized/02002_qB_ramsey_20260519_095500.csv",
+          "status": "materialized"
         },
         "default_bundle": [
           {
@@ -83,7 +90,7 @@
             "path": "source/external_materialized/02002_qB_ramsey_20260519_095500.csv",
             "include_status": "included_by_default",
             "relation": "selected_measurement_source",
-            "authority": "external_source_metadata"
+            "authority": "lab_managed_source_metadata"
           },
           {
             "kind": "copied_metadata",
@@ -111,8 +118,11 @@
         "storage_reference": {
           "mode": "managed_attachment",
           "current_reference": "scopecat://attachments/attachment-session-beta-cooldown-note",
-          "package_materialized_path": "attachments/session-beta-cooldown-note.md",
           "availability": "available"
+        },
+        "export_materialization": {
+          "package_materialized_path": "attachments/session-beta-cooldown-note.md",
+          "status": "materialized"
         }
       },
       {
@@ -126,26 +136,30 @@
           "measurement-02002"
         ],
         "storage_reference": {
-          "mode": "external_reference",
-          "current_reference": "LAB_LOCAL:/redacted/notebooks/session-beta/local-fit-scratchpad.ipynb",
-          "package_materialized_path": null,
+          "mode": "lab_managed_network_reference",
+          "current_reference": "LAB_SHARE:/redacted/notebooks/session-beta/local-fit-scratchpad.ipynb",
           "availability": "missing_or_moved"
+        },
+        "export_materialization": {
+          "package_materialized_path": null,
+          "status": "not_materialized"
         }
       }
     ],
     "warnings": [
       {
         "code": "missing_external_reference",
-        "subject": "artifacts/local-fit-scratchpad.ipynb",
+        "subject": "LAB_SHARE:/redacted/notebooks/session-beta/local-fit-scratchpad.ipynb",
         "message": "A user-declared external artifact for measurement-02002 is missing or moved and cannot be materialized into the export package."
       }
     ]
   },
   "boundary_notes": [
     "Managed storage, external reference, and package materialization are separate concepts.",
-    "The fixture does not decide whether external-reference mode is temporary adoption support or a normal long-term workflow.",
+    "The fixture does not decide whether lab-managed network reference mode is temporary adoption support, lab policy support, or a normal long-term workflow.",
     "Export materialization copies selected available data into package-relative paths without making those paths durable record identity.",
-    "Missing external context is warning-worthy; externally referenced but available source data is normal state, not a warning."
+    "Missing external context is warning-worthy; lab-managed network source data that is available for export is normal state, not a warning.",
+    "The fixture does not encourage recording arbitrary mutable local files as a substitute for managed data."
   ],
   "decisions_not_earned": [
     "final storage architecture",
