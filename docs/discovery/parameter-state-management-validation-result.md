@@ -10,7 +10,7 @@ registry model, GUI design, or shared domain model.
 
 ## Inputs
 
-- [`problem-briefs/parameter-state-history.md`](problem-briefs/parameter-state-history.md)
+- [`problem-briefs/parameter-state-management.md`](problem-briefs/parameter-state-management.md)
 - [`parameter-state-management-validation-plan.md`](parameter-state-management-validation-plan.md)
 - `tests/fixtures/parameter_state_management/seed_review_commit/`
 - `<sample>/_research/parameter-files-and-artifacts.md`
