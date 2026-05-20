@@ -13,6 +13,9 @@ executor design, relation graph, or warning taxonomy.
 
 - [`selected-measurement-export-decision-summary.md`](selected-measurement-export-decision-summary.md)
 - [`preview-ready-selected-measurement-export-validation-result.md`](preview-ready-selected-measurement-export-validation-result.md)
+- [`storage-transition-export-fixture.md`](storage-transition-export-fixture.md)
+- [`storage-transition-export-validation-result.md`](storage-transition-export-validation-result.md)
+- [`external-file-reference-policy.md`](external-file-reference-policy.md)
 - [`running-measurement-inspection-validation-result.md`](running-measurement-inspection-validation-result.md)
 - [`calibration-work-continuation-validation-result.md`](calibration-work-continuation-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
@@ -24,6 +27,18 @@ Selected measurement export has the strongest implementation-shaped boundary.
 It earned a pure structured summary builder for explicit selected measurement
 sets, default bundles, optional linked context, declared preview metadata,
 degraded-preview warnings, and non-recursive traversal.
+
+The storage-transition export fixture adds early-adoption and lab-policy
+pressure without changing that implementation boundary. It separates source
+identity, current reference, and package materialization for managed records
+and lab-managed network references, and it treats missing or moved external
+context as warning-worthy. It does not decide the final storage model or
+external-reference policy.
+
+The storage-transition validation result stops that slice at fixture
+validation. It carries forward the source/current-reference/materialization
+split and external-file policy vocabulary, while explicitly deferring storage,
+checksum, backup, package writer, importer, and GUI behavior.
 
 Running measurement inspection has fixture-level validation for state summaries
 over already-recorded data from still-running measurements. It pressures
@@ -72,6 +87,11 @@ Several separations now appear repeatedly enough to keep carrying forward:
   optional future help, not the trust base.
 - Source identity, fixture paths, package-relative materialized files, external
   local paths, and future managed storage identities are different things.
+- A current reference used before export is also separate from package
+  materialization. Managed records may not need user-facing filesystem paths,
+  while available lab-managed network references can still be materialized into
+  export packages. Package materialization paths are output of export planning
+  or packaging, not pre-export input.
 - Normal policies belong in structured state. Warnings should be reserved for
   degraded, missing, uncertain, risky, stale, unavailable, or review-needed
   conditions.
@@ -109,6 +129,13 @@ analysis artifacts outside Scopecat. Scopecat can record provenance, relation,
 warnings, and proposal state without claiming full storage, runtime, parameter,
 or analysis authority.
 
+The external-file policy note adds a narrower posture for this pressure:
+Scopecat is not a general backup system, external references can default to the
+latest external state, and original measurement data changes should not be
+silent. Lightweight observed file state, such as checksum, size, mtime, and
+observation time, is now candidate vocabulary but not an accepted integrity
+contract.
+
 ## Not Yet Earned
 
 The cross-slice comparison still does not earn:
@@ -117,6 +144,7 @@ The cross-slice comparison still does not earn:
 - shared `core`, `domain`, or reusable model package;
 - final storage identity, object ID, external-reference, or package path model;
 - checksum, archive, importer, or package integrity contract;
+- checksum, observed-file-state, file-watcher, backup, or restore contract;
 - export/import GUI, live monitor GUI, or calibration resume GUI;
 - rendered plotting, dataframe dependency, or interactive slicing API;
 - automatic schema inference from legacy files or notebooks;

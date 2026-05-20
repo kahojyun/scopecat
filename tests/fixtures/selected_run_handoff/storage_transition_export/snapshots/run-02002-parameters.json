@@ -1,0 +1,5 @@
+{
+  "target": "qB",
+  "ramsey_detuning_hz": 2500000,
+  "readout_frequency_hz": 7102000000
+}
