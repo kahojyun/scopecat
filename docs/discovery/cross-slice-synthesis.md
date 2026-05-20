@@ -14,6 +14,7 @@ executor design, relation graph, or warning taxonomy.
 - [`selected-measurement-export-decision-summary.md`](selected-measurement-export-decision-summary.md)
 - [`preview-ready-selected-measurement-export-validation-result.md`](preview-ready-selected-measurement-export-validation-result.md)
 - [`storage-transition-export-fixture.md`](storage-transition-export-fixture.md)
+- [`external-file-reference-policy.md`](external-file-reference-policy.md)
 - [`running-measurement-inspection-validation-result.md`](running-measurement-inspection-validation-result.md)
 - [`calibration-work-continuation-validation-result.md`](calibration-work-continuation-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
@@ -122,6 +123,13 @@ analysis artifacts outside Scopecat. Scopecat can record provenance, relation,
 warnings, and proposal state without claiming full storage, runtime, parameter,
 or analysis authority.
 
+The external-file policy note adds a narrower posture for this pressure:
+Scopecat is not a general backup system, external references can default to the
+latest external state, and original measurement data changes should not be
+silent. Lightweight observed file state, such as checksum, size, mtime, and
+observation time, is now candidate vocabulary but not an accepted integrity
+contract.
+
 ## Not Yet Earned
 
 The cross-slice comparison still does not earn:
@@ -130,6 +138,7 @@ The cross-slice comparison still does not earn:
 - shared `core`, `domain`, or reusable model package;
 - final storage identity, object ID, external-reference, or package path model;
 - checksum, archive, importer, or package integrity contract;
+- checksum, observed-file-state, file-watcher, backup, or restore contract;
 - export/import GUI, live monitor GUI, or calibration resume GUI;
 - rendered plotting, dataframe dependency, or interactive slicing API;
 - automatic schema inference from legacy files or notebooks;

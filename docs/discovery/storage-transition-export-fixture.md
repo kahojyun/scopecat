@@ -17,6 +17,7 @@ source input.
 
 - [`selected-measurement-export-decision-summary.md`](selected-measurement-export-decision-summary.md)
 - [`preview-ready-selected-measurement-export-validation-result.md`](preview-ready-selected-measurement-export-validation-result.md)
+- [`external-file-reference-policy.md`](external-file-reference-policy.md)
 - `tests/fixtures/selected_run_handoff/storage_transition_export/`
 
 ## Why This Fixture Exists
@@ -72,6 +73,8 @@ questions before implementation:
   missing or moved?
 - Should arbitrary mutable local-file reference mode be avoided, warned on, or
   supported only as an import source?
+- If external references default to latest state, what observed file state is
+  needed to make original measurement data changes visible?
 
 ## Still Not Earned
 
