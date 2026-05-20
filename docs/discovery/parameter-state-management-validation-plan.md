@@ -109,6 +109,7 @@ Fixture input should not include:
 
 - hardware state;
 - instrument write logs;
+- device registry or setup binding state;
 - external mutable JSON authority;
 - live `parameters.json` overwrite behavior as the desired product model;
 - automatic branch creation;
@@ -139,6 +140,8 @@ This plan does not earn:
 - schema migration for added, removed, or reshaped tables;
 - automatic proposal branch creation;
 - hardware write-back or instrument state tracking;
+- device registry, setup binding snapshots, setup binding diffs, or physical
+  wiring model;
 - external JSON change tracking;
 - drift plotting;
 - rollback automation;
@@ -151,3 +154,7 @@ This plan does not earn:
 Review the first fixture before writing any implementation candidate. The first
 goal is to validate terminology, trust/readiness state, lineage purpose, and
 reviewable diff shape.
+
+Treat setup binding as adjacent future pressure. It is separate from parameter
+state because it describes physical wiring, channel, and device relationships,
+but it may later need snapshots, simple diffs, and measurement references.

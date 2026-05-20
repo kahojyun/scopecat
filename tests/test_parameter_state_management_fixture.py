@@ -63,7 +63,9 @@ class ParameterStateManagementFixtureTest(unittest.TestCase):
         self.assertEqual(summary["reviewable_changes"][0]["review_status"], "accepted")
         self.assertEqual(summary["reviewable_changes"][0]["target_state_id"], "param-state-0002")
 
-    def test_reviewable_diff_covers_changed_and_added_entries_without_schema_migration(self) -> None:
+    def test_reviewable_diff_covers_changed_and_added_entries_without_schema_migration(
+        self,
+    ) -> None:
         summary = json.loads(
             (FIXTURE / "expected-parameter-state-summary.json").read_text(encoding="utf-8")
         )

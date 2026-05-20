@@ -67,6 +67,10 @@ specific sample or bias configuration.
   compatibility surfaces, not the desired long-term source of authority.
   Reliable parameter history, especially across schema changes, likely needs
   Scopecat-managed parameter state.
+- Device registry and setup binding should remain separate from parameter
+  state. Registry is closer to station or lab configuration. Setup binding maps
+  sample/cooldown logical entities to physical wiring, channels, and devices;
+  it is adjacent future pressure, not part of this first parameter fixture.
 
 ## Derived Hypotheses
 
@@ -86,6 +90,11 @@ specific sample or bias configuration.
 - Rollback-like behavior should first mean selecting a previous parameter
   snapshot, branch, tag, or commit-like state for future measurement setup. It
   does not imply mutating current hardware state.
+- Setup binding may need its own snapshots and simple diffs so measurements can
+  reference the binding in effect and users can switch among binding schemes
+  without re-entering wiring details. Binding changes may require attention
+  because they can imply parameter retuning, but they do not automatically
+  invalidate parameter state.
 
 ## Out Of Scope For This Brief
 
@@ -96,6 +105,8 @@ specific sample or bias configuration.
 - Final branch/tag/commit vocabulary, merge behavior, automatic proposal branch
   creation, schema migration machinery, table-shape migration, and external
   JSON file tracking.
+- Device registry, setup binding schema, binding snapshots, binding diff
+  design, physical wiring model, and station configuration model.
 
 ## Possible Validation Questions
 

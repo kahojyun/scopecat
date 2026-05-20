@@ -113,6 +113,12 @@ Several separations now appear repeatedly enough to keep carrying forward:
   warning unless it blocks a declared need.
 - Linked artifacts and attachments need labels and relations, but recursive
   traversal, many-to-many ownership, and analysis-DAG inference remain deferred.
+- Device registry, setup binding, and parameter state should remain separate
+  until a later slice earns their relationship. Setup binding is adjacent to
+  parameter state because it maps sample/cooldown logical entities to physical
+  wiring, channels, and devices, may need snapshots/diffs, and may be
+  referenced by measurements. It is not part of the current parameter-state
+  fixture.
 
 ## Design Pressure
 
@@ -163,6 +169,8 @@ The cross-slice comparison still does not earn:
   control;
 - Scopecat-decided parameter mutation, write-back, rollback, or calibration
   authority;
+- device registry, setup binding schema, physical wiring model, or station
+  configuration model;
 - fit quality, uncertainty, reproducibility, or scientific-validity claims.
 
 ## Recommended Next Step
