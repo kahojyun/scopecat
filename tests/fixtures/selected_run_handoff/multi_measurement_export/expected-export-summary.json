@@ -1,0 +1,123 @@
+{
+  "export_summary_id": "multi-measurement-export-minimal.expected",
+  "status": "expected_validation_output",
+  "source_fixture": "export-input.json",
+  "selected_export_set": {
+    "selection_mode": "multi_measurement",
+    "selected_legacy_data_ids": [
+      1001,
+      1002
+    ],
+    "traversal_policy": "non_recursive",
+    "default_included_paths": [
+      "source/session-alpha/01001_qA_rabi_20260518_101500.csv",
+      "snapshots/run-01001-parameters.json",
+      "source/session-alpha/01002_qA_t1_20260518_104500.csv",
+      "snapshots/run-01002-parameters.json"
+    ],
+    "default_included_labels": [
+      "Run 1001 Rabi source data",
+      "Run 1001 parameter snapshot",
+      "Run 1002 T1 source data",
+      "Run 1002 parameter snapshot"
+    ],
+    "included_linked_context_paths": [
+      "attachments/session-alpha-wiring-note.md"
+    ],
+    "included_linked_context_labels": [
+      "Session wiring note"
+    ],
+    "optional_paths": [
+      "artifacts/qA-summary-candidate.csv"
+    ],
+    "optional_labels": [
+      "qA summary candidate"
+    ],
+    "missing_paths": [
+      "attachments/run-01002-fit-note.md"
+    ],
+    "missing_labels": [
+      "Run 1002 fit note"
+    ]
+  },
+  "measurements": [
+    {
+      "role": "selected_measurement",
+      "legacy_data_id": 1001,
+      "experiment_label": "qA Rabi amplitude sweep",
+      "experiment_type": "rabi_amplitude_sweep",
+      "target": "qA",
+      "source_file": "source/session-alpha/01001_qA_rabi_20260518_101500.csv",
+      "default_bundle_kinds": [
+        "primary_data",
+        "copied_metadata"
+      ]
+    },
+    {
+      "role": "selected_measurement",
+      "legacy_data_id": 1002,
+      "experiment_label": "qA T1 decay",
+      "experiment_type": "t1_decay",
+      "target": "qA",
+      "source_file": "source/session-alpha/01002_qA_t1_20260518_104500.csv",
+      "default_bundle_kinds": [
+        "primary_data",
+        "copied_metadata",
+        "attachment"
+      ]
+    }
+  ],
+  "linked_context": [
+    {
+      "kind": "attachment",
+      "label": "Session wiring note",
+      "path": "attachments/session-alpha-wiring-note.md",
+      "include_status": "included",
+      "relation": "documents",
+      "authority": "user_declared",
+      "linked_legacy_data_ids": [
+        1001,
+        1002
+      ]
+    },
+    {
+      "kind": "artifact",
+      "label": "qA summary candidate",
+      "path": "artifacts/qA-summary-candidate.csv",
+      "include_status": "optional",
+      "relation": "summarizes",
+      "authority": "user_declared",
+      "linked_legacy_data_ids": [
+        1001,
+        1002
+      ],
+      "boundary_note": "Optional artifact is visible but not included by default and is not proof of analysis lineage."
+    }
+  ],
+  "warnings": [
+    {
+      "code": "local_only_path",
+      "subject": "legacy_source_location.local_path",
+      "message": "Original local path is redaction-sensitive and not portable.",
+      "public_safe_value": "LAB_LOCAL:/redacted/datavault/session-alpha"
+    },
+    {
+      "code": "missing_companion",
+      "subject": "attachments/run-01002-fit-note.md",
+      "message": "A user-declared companion for measurement 1002 is absent from the fixture."
+    }
+  ],
+  "boundary_notes": [
+    "The shared artifact is visible as optional linked context but is not part of the default measurement export bundle.",
+    "Export does not recursively include linked source measurements, notebooks, derived arrays, reports, or workbooks.",
+    "Selection and linkage indicate export intent only, not fit validity, analysis lineage, or scientific reproducibility."
+  ],
+  "decisions_not_earned": [
+    "final export package format",
+    "artifact inclusion UX",
+    "automatic analysis-DAG inference",
+    "recursive relation traversal",
+    "complete reader/export API",
+    "scientific validity or reproducibility"
+  ]
+}

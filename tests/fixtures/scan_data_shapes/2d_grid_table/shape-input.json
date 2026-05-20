@@ -1,0 +1,73 @@
+{
+  "fixture_id": "scan-shape-2d-grid-table",
+  "fixture_status": "synthetic_public_safe",
+  "validation_goal": "Check whether a clean declaration can represent a rectangular two-axis measurement table without inferring schema from legacy files.",
+  "measurement": {
+    "measurement_id": "synthetic-meas-02001",
+    "label": "qA frequency response map",
+    "target": "qA",
+    "source_kind": "primary_measurement",
+    "source_table": "source/qA_frequency_response_map.csv"
+  },
+  "data_shape": {
+    "kind": "2d_grid_table",
+    "grid_assumption": "rectangular_complete_grid",
+    "axis_order": [
+      "bias_v",
+      "drive_frequency_ghz"
+    ],
+    "expected_axis_cardinality": {
+      "bias_v": 2,
+      "drive_frequency_ghz": 3
+    }
+  },
+  "declared_columns": [
+    {
+      "name": "bias_v",
+      "label": "Bias",
+      "role": "sweep_axis",
+      "unit": "V"
+    },
+    {
+      "name": "drive_frequency_ghz",
+      "label": "Drive frequency",
+      "role": "sweep_axis",
+      "unit": "GHz"
+    },
+    {
+      "name": "signal_db",
+      "label": "Signal magnitude",
+      "role": "measured_response",
+      "unit": "dB"
+    },
+    {
+      "name": "phase_deg",
+      "label": "Signal phase",
+      "role": "measured_response",
+      "unit": "deg"
+    }
+  ],
+  "held_conditions": [
+    {
+      "name": "readout_power_dbm",
+      "label": "Readout power",
+      "value": -20,
+      "unit": "dBm",
+      "authority": "fixture_declared"
+    }
+  ],
+  "validation_boundary": {
+    "validated": [
+      "declared column names against source table header",
+      "rectangular grid row count from declared axis cardinality",
+      "extra source columns are reported"
+    ],
+    "not_validated": [
+      "role semantic correctness",
+      "unit correctness",
+      "numeric suitability",
+      "instrument calibration",
+      "scientific validity"
+    ]
+  }
+}

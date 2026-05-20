@@ -1,0 +1,160 @@
+{
+  "manifest_id": "selected-run-handoff-minimal.expected",
+  "status": "expected_validation_output",
+  "source_fixture": "handoff-input.json",
+  "selected_runs": [
+    {
+      "role": "selected",
+      "legacy_data_id": 42,
+      "experiment_label": "qA Rabi amplitude sweep",
+      "experiment_type": "rabi_amplitude_sweep",
+      "target": "qA",
+      "run_started_at": "2026-05-18T10:15:00",
+      "source_reference": {
+        "session": "session-alpha",
+        "encoded_filename": "00042_qA_rabi_20260518_101500.csv",
+        "source_file": "source/session-alpha/00042_qA_rabi_20260518_101500.csv",
+        "export_source": "LAB_LOCAL:/redacted/datavault/session-alpha/00042_qA_rabi_20260518_101500.csv"
+      },
+      "no_silent_transform": true,
+      "transform_policy": "source data export should not apply lossy compression, conversion, or filtering unless the user explicitly chooses that transform",
+      "selection_rationale": "Chosen as the candidate to hand off for downstream contrast analysis. This is a handoff choice, not a claim that the run is scientifically validated.",
+      "links": {
+        "parameter_snapshot": {
+          "path": "snapshots/run-00042-parameters.json",
+          "openability": "present"
+        },
+        "companions": [
+          {
+            "path": "companions/run-00042-iq-summary.json",
+            "relation": "observed_companion",
+            "openability": "present"
+          },
+          {
+            "path": "companions/run-00042-calibration-notes.md",
+            "relation": "referenced_but_missing",
+            "openability": "missing"
+          }
+        ],
+        "derived_artifacts": [
+          {
+            "path": "derived/analysis-summary-run-00042.csv",
+            "relation": "fixture_declared_from_selected_run",
+            "openability": "present",
+            "boundary_note": "Trace link only. Not recomputed from source data."
+          }
+        ]
+      }
+    }
+  ],
+  "figure_readiness": {
+    "status": "partial",
+    "experiment_label": "qA Rabi amplitude sweep",
+    "experiment_type": "rabi_amplitude_sweep",
+    "target": "qA",
+    "run_started_at": "2026-05-18T10:15:00",
+    "measurement_context": {
+      "session": "session-alpha",
+      "setup": "redacted-fixture-fridge",
+      "sample": "redacted-fixture-sample",
+      "held_condition": {
+        "bias_v": {
+          "value": 0.100,
+          "unit": "V"
+        }
+      },
+      "relevant_parameters": {
+        "readout_frequency_ghz": 6.101,
+        "drive_frequency_ghz": 4.802,
+        "rabi_amp": 0.025
+      }
+    },
+    "source_columns": [
+      {
+        "name": "bias_v",
+        "role": "held_condition",
+        "unit": "V"
+      },
+      {
+        "name": "drive_amp",
+        "role": "sweep_axis",
+        "unit": "arb"
+      },
+      {
+        "name": "iq_i",
+        "role": "measured_response",
+        "unit": "arb"
+      },
+      {
+        "name": "iq_q",
+        "role": "measured_response",
+        "unit": "arb"
+      }
+    ],
+    "candidate_plots": [
+      {
+        "title": "qA Rabi response",
+        "x": "drive_amp",
+        "x_unit": "arb",
+        "y": "iq_i",
+        "y_unit": "arb",
+        "source": "source/session-alpha/00042_qA_rabi_20260518_101500.csv",
+        "caution": "fixture-level plot hint only; no fit or quality claim"
+      }
+    ],
+    "missing_for_group_meeting": [
+      "calibration notes",
+      "fit result",
+      "uncertainty estimate"
+    ],
+    "boundary_note": "Enough to draft a figure candidate, not enough to claim scientific validity."
+  },
+  "warnings": [
+    {
+      "code": "local_only_path",
+      "subject": "legacy_source_location.local_path",
+      "message": "Original local path is redaction-sensitive and not portable.",
+      "public_safe_value": "LAB_LOCAL:/redacted/datavault/session-alpha"
+    },
+    {
+      "code": "missing_companion",
+      "subject": "companions/run-00042-calibration-notes.md",
+      "message": "Referenced companion is absent from the handoff fixture."
+    },
+    {
+      "code": "figure_readiness_partial",
+      "subject": "legacy_data_id:42",
+      "message": "The handoff includes experiment label, measured columns, context, and plot candidates, but calibration notes, fit results, uncertainty, and scientific selection rationale are missing."
+    }
+  ],
+  "boundary_notes": [
+    "Selected source data should not be silently compressed, converted, filtered, or otherwise transformed during export. This fixture does not define a final checksum or package contract.",
+    "The handoff preserves where the selected data was exported from using a public-safe source reference.",
+    "Source data, copied parameter context, companion artifact, and derived artifact are represented as different kinds of handoff material.",
+    "Derived artifact relations are linked by fixture declaration; this fixture does not recompute analysis.",
+    "Selection indicates handoff intent only, not run quality, reference goodness, or reproducibility."
+  ],
+  "openability_summary": {
+    "present": [
+      "source/session-alpha/00042_qA_rabi_20260518_101500.csv",
+      "snapshots/run-00042-parameters.json",
+      "companions/run-00042-iq-summary.json",
+      "derived/analysis-summary-run-00042.csv"
+    ],
+    "missing": [
+      "companions/run-00042-calibration-notes.md"
+    ],
+    "redacted_or_local_only": [
+      "legacy_source_location.local_path"
+    ]
+  },
+  "decisions_not_earned": [
+    "final package format",
+    "complete reader/export API",
+    "central storage or sync",
+    "report generation",
+    "complete reanalysis",
+    "scientific validity or reproducibility",
+    "related-but-not-exported run context"
+  ]
+}

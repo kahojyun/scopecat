@@ -1,0 +1,15 @@
+{
+  "snapshot_status": "synthetic_public_safe",
+  "legacy_data_id": 1001,
+  "parameters": {
+    "setup": {
+      "fridge": "redacted-fixture-fridge",
+      "sample": "redacted-fixture-sample"
+    },
+    "qA": {
+      "readout_frequency_ghz": 6.101,
+      "drive_frequency_ghz": 4.802,
+      "rabi_amp": 0.025
+    }
+  }
+}

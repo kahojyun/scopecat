@@ -4,6 +4,10 @@
 
 Evidence-backed problem brief.
 
+Related validation artifacts:
+[`../selected-measurement-export-decision-summary.md`](../selected-measurement-export-decision-summary.md)
+and the public-safe `tests/fixtures/scan_data_shapes/` fixtures.
+
 ## User-Facing Failure
 
 Measurement data, metadata, companion artifacts, and derived outputs are split
@@ -26,19 +30,42 @@ is context, what is an attachment, and what remains ambiguous.
 
 - Near-raw companion files are often old-system workarounds caused by Data Vault
   limitations, not the desired future shape.
-- Future primary measurement data should likely be Scopecat-managed enough to
-  support plotting and inspection.
+- Fixture paths and legacy file paths should not be treated as the desired
+  durable identity model. They represent current substrate pressure or
+  package-relative test/export materialization. Managed Scopecat data may later
+  use record IDs, artifact IDs, storage object references, or backend handles
+  instead of user-facing filesystem paths.
+- An external reference mode that records only external file locations may be
+  useful for transition or legacy workflows, but it preserves the old risks:
+  files can move, disappear, remain machine-local, or depend on user-managed
+  directory hygiene.
 - Cross-run analysis outputs may remain cataloged as linked artifacts
   associated with source records rather than parsed primary records.
+- Legacy CSV/INI/NPY/JSON/workbook combinations should be treated as model
+  adequacy stress cases, not as a first-class importer list. The product
+  question is whether Scopecat's primary measurement model can carry the
+  information those files currently scatter across paths, sidecars, and
+  notebooks.
 
 ## Derived Hypotheses
 
 - Separate current substrate from desired record boundary: Data Vault/table plus
   companion-file workaround versus future primary measurement record.
+- Validate whether future primary measurement data needs to be Scopecat-managed
+  enough to support plotting and inspection, without treating that as an
+  already-earned storage authority decision.
+- Keep source identity, package-relative materialized paths, external
+  references, and managed storage identities distinct. Path-shaped fixture
+  fields should not imply that Scopecat's future model is path-addressed.
 - Linked artifact handling should preserve relation uncertainty and avoid
   rerunning notebooks or parsing arbitrary binary payloads.
 - Reference cases may use tiny CSV/JSON placeholders, but should mark columns,
   shape, IDs, and scientific values as synthetic.
+- Current shape validation supports declared 1D multi-response tables,
+  rectangular 2D grid tables, and weak tables with sidecar-declared metadata as
+  enough for product-analysis direction. Ragged scans, trace-per-point data, and
+  array-valued measurements remain deferred shape-model risks, not current
+  importer requirements.
 
 ## Out Of Scope For This Brief
 
@@ -53,3 +80,6 @@ is context, what is an attachment, and what remains ambiguous.
   without defining the final storage model?
 - Which ordinary measurement shapes must be present before the data model is
   credible: IQ, shots, traces, VNA-like records, arrays, or only scalar tables?
+- Can a clean declared measurement/data shape represent the important metadata
+  now scattered across ad hoc legacy files without making Scopecat support every
+  file combination as a durable product format?
