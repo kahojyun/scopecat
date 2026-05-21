@@ -19,7 +19,7 @@ package-relative files used for public-safe validation.
 - legacy data id: `3001`
 - label: `qA live flux spectroscopy map`
 - target: `qA`
-- source identity: `LAB_LOCAL:/redacted/datavault/session-gamma/03001_qA_flux_spectroscopy_live.csv`
+- source identity: `LAB_LOCAL:/redacted/datavault/live-heatmap-demo/flux-spectroscopy-live-source.csv`
 
 ### Lifecycle And Progress
 
@@ -46,7 +46,7 @@ running-measurement state, not a warning by itself.
 
 ### Latest Data Reference
 
-- path: `source/session-gamma/03001_qA_flux_spectroscopy_live_partial.csv`
+- path: `source/live-heatmap-demo/flux-spectroscopy-live-partial-source.csv`
 - kind: `partial_recorded_table`
 - latest completed filter: `bias_v <= 0`
 

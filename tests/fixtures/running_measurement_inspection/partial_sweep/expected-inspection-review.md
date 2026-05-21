@@ -19,7 +19,7 @@ package-relative files used for public-safe validation.
 - legacy data id: `2001`
 - label: `qA resonator live frequency sweep`
 - target: `qA`
-- source identity: `LAB_LOCAL:/redacted/datavault/session-beta/02001_qA_resonator_live.csv`
+- source identity: `LAB_LOCAL:/redacted/datavault/live-sweep-demo/resonator-live-source.csv`
 
 ### Lifecycle And Progress
 
@@ -46,7 +46,7 @@ itself.
 
 ### Latest Data Reference
 
-- path: `source/session-beta/02001_qA_resonator_live_partial.csv`
+- path: `source/live-sweep-demo/resonator-live-partial-source.csv`
 - kind: `partial_recorded_table`
 - latest completed filter: `sweep_index == 0`
 

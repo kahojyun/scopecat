@@ -41,7 +41,7 @@
       "cooldown_id": "cooldown-2026-05",
       "run_start_time": "2026-05-20T09:30:00",
       "source_identity": "managed-record-04001",
-      "primary_data_reference": "source/session-alpha/04001_qA_chevron.csv",
+      "primary_data_reference": "source/reference-compare-current/chevron-current-source.csv",
       "inputs": [
         {
           "name": "parameter_state",
@@ -93,7 +93,7 @@
       "cooldown_id": "cooldown-2026-05",
       "run_start_time": "2026-05-21T11:15:00",
       "source_identity": "managed-record-05002",
-      "primary_data_reference": "source/session-beta/05002_qA_chevron.csv",
+      "primary_data_reference": "source/reference-compare-reference/chevron-reference-source.csv",
       "inputs": [
         {
           "name": "parameter_state",

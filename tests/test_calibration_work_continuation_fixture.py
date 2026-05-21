@@ -19,7 +19,7 @@ class CalibrationWorkContinuationFixtureTest(unittest.TestCase):
             FIXTURE / "expected-continuation-summary.json",
             FIXTURE / "snapshots" / "params-before-step-1.json",
             FIXTURE / "snapshots" / "params-before-step-2.json",
-            FIXTURE / "artifacts" / "fit-rabi-04002.json",
+            FIXTURE / "artifacts" / "rabi-fit-preview-failed-quality.json",
         ]:
             with self.subTest(path=path):
                 _load_json(path)
@@ -89,11 +89,15 @@ class CalibrationWorkContinuationFixtureTest(unittest.TestCase):
             "fixture_observed_record",
         )
         self.assertEqual(
-            outputs["fit-preview:fit-rabi-04002"]["authority"],
+            outputs["fit-preview:rabi-fit-preview-failed-quality"]["authority"],
             "fixture_observed_record",
         )
-        self.assertEqual(outputs["fit-preview:fit-rabi-04002"]["quality_score"], 0.58)
-        self.assertEqual(outputs["fit-preview:fit-rabi-04002"]["quality_threshold"], 0.8)
+        self.assertEqual(
+            outputs["fit-preview:rabi-fit-preview-failed-quality"]["quality_score"], 0.58
+        )
+        self.assertEqual(
+            outputs["fit-preview:rabi-fit-preview-failed-quality"]["quality_threshold"], 0.8
+        )
 
     def test_declared_write_is_proposed_not_applied(self) -> None:
         summary = _load_json(FIXTURE / "expected-continuation-summary.json")
@@ -111,7 +115,7 @@ class CalibrationWorkContinuationFixtureTest(unittest.TestCase):
         fit_preview = next(
             output
             for output in candidate["outputs"]
-            if output["output_id"] == "fit-preview:fit-rabi-04002"
+            if output["output_id"] == "fit-preview:rabi-fit-preview-failed-quality"
         )
         blocked_step = next(
             step for step in candidate["steps"] if step["step_id"] == "step-3-t1-check"

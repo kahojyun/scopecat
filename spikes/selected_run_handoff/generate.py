@@ -160,7 +160,7 @@ def generate_manifest(fixture_root: Path) -> dict[str, Any]:
             },
             {
                 "code": "missing_companion",
-                "subject": "companions/run-00042-calibration-notes.md",
+                "subject": "companions/selected-rabi-calibration-notes.md",
                 "message": "Referenced companion is absent from the handoff fixture.",
             },
             {

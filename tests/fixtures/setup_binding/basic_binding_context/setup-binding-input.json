@@ -59,7 +59,7 @@
       "snapshot_label": "qA default binding before bias-line move",
       "sample_id": "sample-alpha",
       "cooldown_id": "cooldown-2026-05",
-      "session_label": "session-alpha",
+      "session_label": "setup-binding-demo-session",
       "selected_registry_id": "station-registry-mmcs2-redacted",
       "inner_payload_policy": {
         "ownership": "user_project_defined",
@@ -108,7 +108,7 @@
       "snapshot_label": "qA default binding after bias-line move",
       "sample_id": "sample-alpha",
       "cooldown_id": "cooldown-2026-05",
-      "session_label": "session-alpha",
+      "session_label": "setup-binding-demo-session",
       "selected_registry_id": "station-registry-mmcs2-redacted",
       "inner_payload_policy": {
         "ownership": "user_project_defined",

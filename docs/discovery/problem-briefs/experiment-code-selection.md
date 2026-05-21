@@ -15,9 +15,9 @@ package manager, or general managed execution platform.
 
 ## Observed Sample Evidence
 
-- Parallel top-level code snapshots contain overlapping `my_scripts`,
-  `GateBased_PG`, `mqplot`, `Instrument_driver`, `util`, and plotting roots,
-  with same-named files diverging across snapshots.
+- Parallel top-level code snapshots contain overlapping helper-module,
+  pulse-generation, plotting, instrument-driver, utility, and analysis roots,
+  with same-purpose files diverging across snapshots.
 - Copied folders, backup variants, dated/person-suffixed notebooks, duplicate
   helpers, old/current branches, notebook checkpoints, pycache, archives, and
   nested backup subprojects are visible. These names are ambiguity evidence,

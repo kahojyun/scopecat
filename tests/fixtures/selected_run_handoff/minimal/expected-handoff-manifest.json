@@ -11,34 +11,34 @@
       "target": "qA",
       "run_started_at": "2026-05-18T10:15:00",
       "source_reference": {
-        "session": "session-alpha",
-        "encoded_filename": "00042_qA_rabi_20260518_101500.csv",
-        "source_file": "source/session-alpha/00042_qA_rabi_20260518_101500.csv",
-        "export_source": "LAB_LOCAL:/redacted/datavault/session-alpha/00042_qA_rabi_20260518_101500.csv"
+        "session": "selected-rabi-demo-session",
+        "encoded_filename": "selected-rabi-source.csv",
+        "source_file": "source/selected-rabi-demo/selected-rabi-source.csv",
+        "export_source": "LAB_LOCAL:/redacted/datavault/selected-rabi-demo/selected-rabi-source.csv"
       },
       "no_silent_transform": true,
       "transform_policy": "source data export should not apply lossy compression, conversion, or filtering unless the user explicitly chooses that transform",
       "selection_rationale": "Chosen as the candidate to hand off for downstream contrast analysis. This is a handoff choice, not a claim that the run is scientifically validated.",
       "links": {
         "parameter_snapshot": {
-          "path": "snapshots/run-00042-parameters.json",
+          "path": "snapshots/selected-rabi-parameter-snapshot.json",
           "openability": "present"
         },
         "companions": [
           {
-            "path": "companions/run-00042-iq-summary.json",
+            "path": "companions/selected-rabi-iq-companion.json",
             "relation": "observed_companion",
             "openability": "present"
           },
           {
-            "path": "companions/run-00042-calibration-notes.md",
+            "path": "companions/selected-rabi-calibration-notes.md",
             "relation": "referenced_but_missing",
             "openability": "missing"
           }
         ],
         "derived_artifacts": [
           {
-            "path": "derived/analysis-summary-run-00042.csv",
+            "path": "derived/selected-rabi-analysis-summary.csv",
             "relation": "fixture_declared_from_selected_run",
             "openability": "present",
             "boundary_note": "Trace link only. Not recomputed from source data."
@@ -54,7 +54,7 @@
     "target": "qA",
     "run_started_at": "2026-05-18T10:15:00",
     "measurement_context": {
-      "session": "session-alpha",
+      "session": "selected-rabi-demo-session",
       "setup": "redacted-fixture-fridge",
       "sample": "redacted-fixture-sample",
       "held_condition": {
@@ -98,7 +98,7 @@
         "x_unit": "arb",
         "y": "iq_i",
         "y_unit": "arb",
-        "source": "source/session-alpha/00042_qA_rabi_20260518_101500.csv",
+        "source": "source/selected-rabi-demo/selected-rabi-source.csv",
         "caution": "fixture-level plot hint only; no fit or quality claim"
       }
     ],
@@ -114,11 +114,11 @@
       "code": "local_only_path",
       "subject": "legacy_source_location.local_path",
       "message": "Original local path is redaction-sensitive and not portable.",
-      "public_safe_value": "LAB_LOCAL:/redacted/datavault/session-alpha"
+      "public_safe_value": "LAB_LOCAL:/redacted/datavault/selected-rabi-demo"
     },
     {
       "code": "missing_companion",
-      "subject": "companions/run-00042-calibration-notes.md",
+      "subject": "companions/selected-rabi-calibration-notes.md",
       "message": "Referenced companion is absent from the handoff fixture."
     },
     {
@@ -136,13 +136,13 @@
   ],
   "openability_summary": {
     "present": [
-      "source/session-alpha/00042_qA_rabi_20260518_101500.csv",
-      "snapshots/run-00042-parameters.json",
-      "companions/run-00042-iq-summary.json",
-      "derived/analysis-summary-run-00042.csv"
+      "source/selected-rabi-demo/selected-rabi-source.csv",
+      "snapshots/selected-rabi-parameter-snapshot.json",
+      "companions/selected-rabi-iq-companion.json",
+      "derived/selected-rabi-analysis-summary.csv"
     ],
     "missing": [
-      "companions/run-00042-calibration-notes.md"
+      "companions/selected-rabi-calibration-notes.md"
     ],
     "redacted_or_local_only": [
       "legacy_source_location.local_path"

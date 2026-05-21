@@ -65,10 +65,10 @@ class SelectedMeasurementExportSpikeTest(unittest.TestCase):
             export_sources,
             {
                 1001: (
-                    "LAB_LOCAL:/redacted/datavault/session-alpha/01001_qA_rabi_20260518_101500.csv"
+                    "LAB_LOCAL:/redacted/datavault/export-demo-session/measurement-1001-rabi-source.csv"
                 ),
                 1002: (
-                    "LAB_LOCAL:/redacted/datavault/session-alpha/01002_qA_t1_20260518_104500.csv"
+                    "LAB_LOCAL:/redacted/datavault/export-demo-session/measurement-1002-t1-source.csv"
                 ),
             },
         )
@@ -111,7 +111,7 @@ class SelectedMeasurementExportSpikeTest(unittest.TestCase):
             input_path = fixture_copy / "export-input.json"
             source = json.loads(input_path.read_text(encoding="utf-8"))
             source["measurements"][0]["default_bundle"][0]["path"] = (
-                "source/session-alpha/wrong.csv"
+                "source/export-demo-session/wrong-source.csv"
             )
             input_path.write_text(json.dumps(source), encoding="utf-8")
 
@@ -125,7 +125,7 @@ class SelectedMeasurementExportSpikeTest(unittest.TestCase):
             input_path = fixture_copy / "export-input.json"
             source = json.loads(input_path.read_text(encoding="utf-8"))
             source["measurements"][0]["preview_metadata"]["plot_candidates"][0]["source"] = (
-                "source/session-alpha/wrong.csv"
+                "source/export-demo-session/wrong-source.csv"
             )
             input_path.write_text(json.dumps(source), encoding="utf-8")
 

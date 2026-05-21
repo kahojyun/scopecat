@@ -13,8 +13,8 @@ class StorageTransitionExportFixtureTest(unittest.TestCase):
         for path in [
             FIXTURE / "export-input.json",
             FIXTURE / "expected-export-summary.json",
-            FIXTURE / "snapshots" / "run-02001-parameters.json",
-            FIXTURE / "snapshots" / "run-02002-parameters.json",
+            FIXTURE / "snapshots" / "managed-rabi-parameter-snapshot.json",
+            FIXTURE / "snapshots" / "external-ramsey-parameter-snapshot.json",
         ]:
             with self.subTest(path=path):
                 json.loads(path.read_text(encoding="utf-8"))
@@ -93,11 +93,11 @@ class StorageTransitionExportFixtureTest(unittest.TestCase):
         self.assertEqual([warning["code"] for warning in warnings], ["missing_external_reference"])
         self.assertEqual(
             warnings[0]["subject"],
-            "LAB_SHARE:/redacted/notebooks/session-beta/local-fit-scratchpad.ipynb",
+            "LAB_SHARE:/redacted/notebooks/network-storage-demo/local-fit-scratchpad.ipynb",
         )
 
         warning_text = json.dumps(warnings)
-        self.assertNotIn("02002_qB_ramsey_20260519_095500.csv", warning_text)
+        self.assertNotIn("external-ramsey-source.csv", warning_text)
 
     def test_review_states_storage_transition_boundary(self) -> None:
         review = (FIXTURE / "expected-export-review.md").read_text(encoding="utf-8")

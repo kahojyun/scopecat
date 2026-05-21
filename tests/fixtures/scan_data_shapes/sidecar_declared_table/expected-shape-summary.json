@@ -7,7 +7,7 @@
     "label": "qA sidecar-declared Rabi scan",
     "target": "qA",
     "source_kind": "imported_legacy_source",
-    "source_table": "source/qA_sidecar_declared_rabi.csv",
+    "source_table": "source/sidecar-declared-rabi-table.csv",
     "metadata_source": "sidecar_declaration"
   },
   "shape": {
@@ -71,14 +71,14 @@
       "title": "qA sidecar-declared Rabi scan: Excited-state probability",
       "x": "drive_amp",
       "y": "p_excited",
-      "source": "source/qA_sidecar_declared_rabi.csv",
+      "source": "source/sidecar-declared-rabi-table.csv",
       "metadata_source": "sidecar_declaration"
     }
   ],
   "warnings": [
     {
       "code": "legacy_source_weak_labels",
-      "subject": "source/qA_sidecar_declared_rabi.csv",
+      "subject": "source/sidecar-declared-rabi-table.csv",
       "message": "Source table uses weak physical column names; sidecar metadata is required for interpretation."
     }
   ],

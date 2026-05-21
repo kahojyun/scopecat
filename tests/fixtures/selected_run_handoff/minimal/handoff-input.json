@@ -3,9 +3,9 @@
   "fixture_status": "synthetic_public_safe",
   "user_job": "Move selected useful run context from measurement/control work into later analysis with less manual reconstruction.",
   "legacy_source_location": {
-    "session": "session-alpha",
-    "display_path": "LAB_LOCAL:/redacted/datavault/session-alpha",
-    "local_path": "/Users/example/lab/private/datavault/session-alpha",
+    "session": "selected-rabi-demo-session",
+    "display_path": "LAB_LOCAL:/redacted/datavault/selected-rabi-demo",
+    "local_path": "/Users/example/lab/private/datavault/selected-rabi-demo",
     "local_path_public_safe": false
   },
   "selected_run": {
@@ -14,28 +14,28 @@
     "experiment_type": "rabi_amplitude_sweep",
     "target": "qA",
     "run_started_at": "2026-05-18T10:15:00",
-    "encoded_filename": "00042_qA_rabi_20260518_101500.csv",
-    "source_file": "source/session-alpha/00042_qA_rabi_20260518_101500.csv",
-    "export_source": "LAB_LOCAL:/redacted/datavault/session-alpha/00042_qA_rabi_20260518_101500.csv",
+    "encoded_filename": "selected-rabi-source.csv",
+    "source_file": "source/selected-rabi-demo/selected-rabi-source.csv",
+    "export_source": "LAB_LOCAL:/redacted/datavault/selected-rabi-demo/selected-rabi-source.csv",
     "no_silent_transform": true,
     "transform_policy": "source data export should not apply lossy compression, conversion, or filtering unless the user explicitly chooses that transform",
     "selection_rationale": "Chosen as the candidate to hand off for downstream contrast analysis. This is a handoff choice, not a claim that the run is scientifically validated."
   },
   "linked_context": {
-    "parameter_snapshot": "snapshots/run-00042-parameters.json",
+    "parameter_snapshot": "snapshots/selected-rabi-parameter-snapshot.json",
     "companions": [
       {
-        "path": "companions/run-00042-iq-summary.json",
+        "path": "companions/selected-rabi-iq-companion.json",
         "relation": "observed_companion"
       },
       {
-        "path": "companions/run-00042-calibration-notes.md",
+        "path": "companions/selected-rabi-calibration-notes.md",
         "relation": "referenced_but_missing"
       }
     ],
     "derived_artifacts": [
       {
-        "path": "derived/analysis-summary-run-00042.csv",
+        "path": "derived/selected-rabi-analysis-summary.csv",
         "source_relation": "fixture_declared_from_selected_run"
       }
     ]
@@ -76,7 +76,7 @@
         "title": "qA Rabi response",
         "x": "drive_amp",
         "y": "iq_i",
-        "source": "source/session-alpha/00042_qA_rabi_20260518_101500.csv",
+        "source": "source/selected-rabi-demo/selected-rabi-source.csv",
         "caution": "fixture-level plot hint only; no fit or quality claim"
       }
     ],

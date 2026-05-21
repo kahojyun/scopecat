@@ -32,8 +32,8 @@ class PreviewReadyMeasurementExportFixtureTest(unittest.TestCase):
         for path in [
             FIXTURE / "export-input.json",
             FIXTURE / "expected-export-summary.json",
-            FIXTURE / "snapshots" / "run-01001-parameters.json",
-            FIXTURE / "snapshots" / "run-01002-parameters.json",
+            FIXTURE / "snapshots" / "measurement-1001-parameter-snapshot.json",
+            FIXTURE / "snapshots" / "measurement-1002-parameter-snapshot.json",
         ]:
             with self.subTest(path=path):
                 _load_json(path)
@@ -63,7 +63,7 @@ class PreviewReadyMeasurementExportFixtureTest(unittest.TestCase):
         )
         self.assertEqual(
             measurements[1001]["export_source"],
-            "LAB_LOCAL:/redacted/datavault/session-alpha/01001_qA_rabi_20260518_101500.csv",
+            "LAB_LOCAL:/redacted/datavault/export-demo-session/measurement-1001-rabi-source.csv",
         )
         self.assertEqual(measurements[1001]["primary_data_authority"], "source_metadata")
         self.assertEqual(
@@ -80,7 +80,7 @@ class PreviewReadyMeasurementExportFixtureTest(unittest.TestCase):
         )
         self.assertEqual(
             measurements[1002]["export_source"],
-            "LAB_LOCAL:/redacted/datavault/session-alpha/01002_qA_t1_20260518_104500.csv",
+            "LAB_LOCAL:/redacted/datavault/export-demo-session/measurement-1002-t1-source.csv",
         )
         self.assertEqual(measurements[1002]["primary_data_authority"], "source_metadata")
         self.assertEqual(measurements[1002]["preview"]["plot_candidates"], [])
@@ -105,11 +105,11 @@ class PreviewReadyMeasurementExportFixtureTest(unittest.TestCase):
         default_bundle_paths = _default_bundle_paths(summary)
 
         self.assertIn(
-            "source/session-alpha/01002_qA_t1_20260518_104500.csv",
+            "source/export-demo-session/measurement-1002-t1-source.csv",
             default_bundle_paths,
         )
         self.assertIn(
-            "snapshots/run-01002-parameters.json",
+            "snapshots/measurement-1002-parameter-snapshot.json",
             default_bundle_paths,
         )
         self.assertIn(
@@ -123,7 +123,7 @@ class PreviewReadyMeasurementExportFixtureTest(unittest.TestCase):
         measurements = {
             measurement["legacy_data_id"]: measurement for measurement in summary["measurements"]
         }
-        source_path = FIXTURE / "source" / "session-alpha" / "01002_qA_t1_20260518_104500.csv"
+        source_path = FIXTURE / "source" / "export-demo-session" / "measurement-1002-t1-source.csv"
         with source_path.open(newline="", encoding="utf-8") as handle:
             fieldnames = list(csv.DictReader(handle).fieldnames or [])
 
@@ -140,9 +140,9 @@ class PreviewReadyMeasurementExportFixtureTest(unittest.TestCase):
         summary = summary["candidate_summary"]
         linked_context = {item["path"]: item for item in summary["linked_context"]}
 
-        included_path = "attachments/session-alpha-wiring-note.md"
-        excluded_path = "artifacts/qA-summary-candidate.csv"
-        missing_path = "attachments/run-01002-fit-note.md"
+        included_path = "attachments/export-session-wiring-note.md"
+        excluded_path = "artifacts/optional-two-measurement-summary.csv"
+        missing_path = "attachments/measurement-1002-fit-note.md"
 
         self.assertIn(included_path, _linked_paths_by_status(summary, "included_by_user"))
         self.assertIn(

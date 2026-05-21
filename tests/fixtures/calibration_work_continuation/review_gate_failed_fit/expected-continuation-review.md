@@ -41,7 +41,7 @@ general workflow model or runner API.
 - measurement `run-04001`: `qA resonator response check`
 - measurement `run-04002`: `qA Rabi amplitude scan`
 - parameter snapshots: `params-before-step-1`, `params-before-step-2`
-- fit preview: `fit-rabi-04002`, `failed_quality_review`, not a durable
+- fit preview: `rabi-fit-preview-failed-quality`, `failed_quality_review`, not a durable
   analysis result, quality score `0.58` below threshold `0.8`
 
 ### Review Gates

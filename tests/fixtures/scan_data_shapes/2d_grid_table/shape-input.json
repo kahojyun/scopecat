@@ -7,7 +7,7 @@
     "label": "qA frequency response map",
     "target": "qA",
     "source_kind": "primary_measurement",
-    "source_table": "source/qA_frequency_response_map.csv"
+    "source_table": "source/declared-2d-frequency-response-grid.csv"
   },
   "data_shape": {
     "kind": "2d_grid_table",

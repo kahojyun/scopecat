@@ -41,7 +41,7 @@ class SelectedRunHandoffSpikeTest(unittest.TestCase):
         self.assertTrue(selected["no_silent_transform"])
         self.assertEqual(
             selected["source_reference"]["export_source"],
-            "LAB_LOCAL:/redacted/datavault/session-alpha/00042_qA_rabi_20260518_101500.csv",
+            "LAB_LOCAL:/redacted/datavault/selected-rabi-demo/selected-rabi-source.csv",
         )
         self.assertEqual(manifest["figure_readiness"]["status"], "partial")
         self.assertNotIn("no_silent_transform_source_data", warnings)
@@ -62,13 +62,13 @@ class SelectedRunHandoffSpikeTest(unittest.TestCase):
             fixture_copy = Path(temp_dir) / "fixture"
             shutil.copytree(FIXTURE, fixture_copy)
             source_file = (
-                fixture_copy / "source" / "session-alpha" / "00042_qA_rabi_20260518_101500.csv"
+                fixture_copy / "source" / "selected-rabi-demo" / "selected-rabi-source.csv"
             )
             source_file.unlink()
 
             manifest = generate_manifest(fixture_copy)
 
-        source_path = "source/session-alpha/00042_qA_rabi_20260518_101500.csv"
+        source_path = "source/selected-rabi-demo/selected-rabi-source.csv"
         self.assertIn(source_path, manifest["openability_summary"]["missing"])
         self.assertNotIn(source_path, manifest["openability_summary"]["present"])
 

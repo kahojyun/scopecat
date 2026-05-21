@@ -49,7 +49,7 @@
         "outputs": [
           "measurement:run-04002",
           "snapshot:params-before-step-2",
-          "fit-preview:fit-rabi-04002",
+          "fit-preview:rabi-fit-preview-failed-quality",
           "proposed-write:write-qA-pulse-amplitude"
         ],
         "plan_source": "fixture_declared",
@@ -79,7 +79,7 @@
         "measurement_id": "run-04001",
         "legacy_data_id": 4001,
         "label": "qA resonator response check",
-        "path": "source/session-delta/04001_qA_resonator_response.csv",
+        "path": "source/calibration-review-demo/resonator-response-source.csv",
         "authority": "fixture_observed_record"
       },
       {
@@ -88,7 +88,7 @@
         "measurement_id": "run-04002",
         "legacy_data_id": 4002,
         "label": "qA Rabi amplitude scan",
-        "path": "source/session-delta/04002_qA_rabi_amplitude.csv",
+        "path": "source/calibration-review-demo/rabi-amplitude-source.csv",
         "authority": "fixture_observed_record"
       },
       {
@@ -106,10 +106,10 @@
         "authority": "fixture_observed_record"
       },
       {
-        "output_id": "fit-preview:fit-rabi-04002",
+        "output_id": "fit-preview:rabi-fit-preview-failed-quality",
         "kind": "fit_preview",
         "label": "Rabi amplitude fit preview",
-        "path": "artifacts/fit-rabi-04002.json",
+        "path": "artifacts/rabi-fit-preview-failed-quality.json",
         "status": "failed_quality_review",
         "quality_score": 0.58,
         "quality_threshold": 0.8,
@@ -125,7 +125,7 @@
         "reason": "Fit quality is below the fixture-declared threshold.",
         "known": [
           "measurement:run-04002",
-          "fit-preview:fit-rabi-04002",
+          "fit-preview:rabi-fit-preview-failed-quality",
           "snapshot:params-before-step-2"
         ],
         "missing_or_unverified": [
@@ -144,7 +144,7 @@
         "current_value": 0.42,
         "current_value_source": "snapshot:params-before-step-2",
         "proposed_value": 0.49,
-        "proposed_value_source": "fit-preview:fit-rabi-04002",
+        "proposed_value_source": "fit-preview:rabi-fit-preview-failed-quality",
         "unit": "arb",
         "authority": "user_authored_step_output",
         "requires_review": "review-rabi-04002"
@@ -191,7 +191,7 @@
     "attention": [
       {
         "code": "fit_failed_quality_review",
-        "subject": "fit-preview:fit-rabi-04002",
+        "subject": "fit-preview:rabi-fit-preview-failed-quality",
         "message": "Rabi amplitude fit preview failed the fixture-declared quality review."
       },
       {

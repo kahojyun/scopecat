@@ -11,12 +11,12 @@ Selected run: legacy data ID `42`.
 
 Source reference:
 
-- session: `session-alpha`
-- encoded filename: `00042_qA_rabi_20260518_101500.csv`
+- session: `selected-rabi-demo-session`
+- encoded filename: `selected-rabi-source.csv`
 - fixture source file:
-  `source/session-alpha/00042_qA_rabi_20260518_101500.csv`
+  `source/selected-rabi-demo/selected-rabi-source.csv`
 - export source:
-  `LAB_LOCAL:/redacted/datavault/session-alpha/00042_qA_rabi_20260518_101500.csv`
+  `LAB_LOCAL:/redacted/datavault/selected-rabi-demo/selected-rabi-source.csv`
 
 Selection rationale:
 
@@ -34,7 +34,7 @@ Experiment:
 - type: `rabi_amplitude_sweep`
 - target: `qA`
 - run started at: `2026-05-18T10:15:00`
-- session: `session-alpha`
+- session: `selected-rabi-demo-session`
 - setup: `redacted-fixture-fridge`
 - sample: `redacted-fixture-sample`
 
@@ -58,7 +58,7 @@ Candidate figure panels:
 
 | Panel | X | Y | Source | Caution |
 | --- | --- | --- | --- | --- |
-| qA Rabi response | `drive_amp` | `iq_i` | `source/session-alpha/00042_qA_rabi_20260518_101500.csv` | plot hint only; no fit or quality claim |
+| qA Rabi response | `drive_amp` | `iq_i` | `source/selected-rabi-demo/selected-rabi-source.csv` | plot hint only; no fit or quality claim |
 
 Missing for group-meeting interpretation:
 
@@ -71,24 +71,24 @@ Missing for group-meeting interpretation:
 Present:
 
 - source record for run `42`;
-- copied parameter snapshot: `snapshots/run-00042-parameters.json`;
-- companion artifact: `companions/run-00042-iq-summary.json`;
-- derived artifact: `derived/analysis-summary-run-00042.csv`.
+- copied parameter snapshot: `snapshots/selected-rabi-parameter-snapshot.json`;
+- companion artifact: `companions/selected-rabi-iq-companion.json`;
+- derived artifact: `derived/selected-rabi-analysis-summary.csv`.
 
 No Silent Transform:
 
 - source record for run `42` should not be silently compressed, converted,
   filtered, or otherwise transformed during export:
-  `source/session-alpha/00042_qA_rabi_20260518_101500.csv`.
+  `source/selected-rabi-demo/selected-rabi-source.csv`.
 
 Missing:
 
-- `companions/run-00042-calibration-notes.md`.
+- `companions/selected-rabi-calibration-notes.md`.
 
 ## Warnings
 
 - `local_only_path`: the original source path is redaction-sensitive and not
-  portable. Use `LAB_LOCAL:/redacted/datavault/session-alpha` as the public-safe
+  portable. Use `LAB_LOCAL:/redacted/datavault/selected-rabi-demo` as the public-safe
   display value.
 - `missing_companion`: a referenced calibration-notes companion is absent.
 - `figure_readiness_partial`: the handoff includes experiment label, measured
@@ -121,9 +121,9 @@ A reviewer should be able to answer:
 - figure readiness: the output names the experiment type, target, source
   columns, candidate plot axes, relevant parameter context, and missing
   scientific annotations;
-- parameter context: `snapshots/run-00042-parameters.json`;
+- parameter context: `snapshots/selected-rabi-parameter-snapshot.json`;
 - companion context: one present IQ summary and one missing calibration note;
-- derived context: `derived/analysis-summary-run-00042.csv`;
+- derived context: `derived/selected-rabi-analysis-summary.csv`;
 - portability issue: local-only path is redacted;
 - trust boundary: no scientific validation, reanalysis, storage, sync, or
   package-format decision is earned.
