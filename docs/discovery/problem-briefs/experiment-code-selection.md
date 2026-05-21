@@ -23,8 +23,9 @@ package manager, or general managed execution platform.
   nested backup subprojects are visible. These names are ambiguity evidence,
   not reliable canonical-status rules.
 - At least one sample code root is a dirty Git repository, and a helper library
-  root is a nested dirty Git repository. A selected code reference may need to
-  distinguish committed version identity from observed working-tree state.
+  root is a nested dirty Git repository. This is evidence against relying on
+  internal Git state for early adoption; it does not mean the first selected
+  code record should inspect Git.
 - Calibration and experiment entrypoints are usually notebooks, selected files,
   or module functions rather than a project-level command. Some notebooks call
   a shared experiment header; others import broad helper sets and reload local
@@ -52,8 +53,8 @@ package manager, or general managed execution platform.
   template/version used for a run.
 - Snapshot-only capture may be too retrospective; selection or loading of a
   previous version may be the clearer workflow payoff.
-- Folder selection plus ignore rules may be enough before dependency closure or
-  registry semantics.
+- Early adoption should use minimal whitelist capture before dependency
+  closure, registry semantics, or broad folder analysis.
 - A selected code reference should be usable by later run, handoff, or
   calibration-batch workflows; otherwise users may still have to manually
   reconstruct which code should run.
@@ -66,30 +67,29 @@ package manager, or general managed execution platform.
   measurement. Users should not need to learn Git operations before Scopecat
   can manage code versions.
 - Workflow or DAG structure may later help stable calibration routines, but it
-  should not be the first code-versioning boundary. Start with whole selected
-  workspace or selected root plus named entrypoints; promote repeated stable
-  entrypoints into workflow steps only after their inputs and outputs are clear.
+  should not be the first code-versioning boundary. Start with selected root,
+  explicit whitelist, stripped notebook sources, and named entrypoints; promote
+  repeated stable entrypoints into workflow steps only after their inputs and
+  outputs are clear.
 
 ## Derived Hypotheses
 
-- Start with explicit selected root, entrypoint path and kind, optional selected
-  symbol or notebook cell range, observed version state, include paths,
-  exclude/classify rules, helper roots, config references, environment hints,
-  service assumptions, private imports, mutation capability, generated
-  companions, and redaction flags.
+- Start with explicit selected root, entrypoint path and kind, whitelisted
+  files, stripped notebook output policy, declared context references, and a
+  broad non-recording policy for unwhitelisted files.
 - Code-version selection should include a thin selected-version handoff for
   later local execution or review, not only retrospective tracking.
-- Environment validation should mean selected-code readiness diagnostics and
-  selected-code binding, not a general managed execution platform.
+- Environment validation should start as user-declared context references, not
+  active readiness diagnostics or a general managed execution platform.
 - Selected code context should be able to feed selected measurement export,
   selected-reference comparison, setup-binding review, and calibration
   continuation without making Scopecat own the user code or its runtime.
 - Generated code-derived companions should be recorded as observed or selected
-  artifacts with source/generator references, not recomputed automatically as
-  part of the selected-code boundary.
+  artifacts only when explicitly whitelisted or linked, not recomputed
+  automatically as part of the selected-code boundary.
 - A first selected-code fixture should model the transition from messy external
   folder to selected code context to captured-version candidate, without
-  deciding the final managed workspace store.
+  inspecting internal Git or deciding the final managed workspace store.
 
 ## Out Of Scope For This Brief
 
@@ -98,6 +98,8 @@ package manager, or general managed execution platform.
   managed runner platforms.
 - Inferring canonical status from folder names such as `old`, `backup`, `_bk`,
   `copy`, dated suffixes, person suffixes, or `temp`.
+- Internal Git analysis, dirty-state warnings, nested-repository warnings, or
+  default record-all file tracking in the first adoption slice.
 - Executing selected code, importing hardware-active modules, running notebooks,
   regenerating derived artifacts, or validating physical hardware state.
 - Deep static dependency closure through arbitrary Python, notebook output,
@@ -110,10 +112,10 @@ package manager, or general managed execution platform.
   selection, recovery, and explanation?
 - Can selected code references feed later local run or calibration-batch steps
   without Scopecat becoming a deployment or managed-runner system?
-- Is selected root plus entrypoint plus helper/include/exclude scope enough for
-  a user to tell which code context should be restored or handed off?
-- What observed version state is useful first: Git commit, dirty working-tree
-  summary, file checksums, timestamped snapshot, or user-selected bundle?
+- Is selected root plus entrypoint plus explicit whitelist enough for a user to
+  tell which code context should be restored or handed off?
+- What captured state is useful first: stripped notebook source, file
+  checksums, timestamped snapshot, archive, or user-selected bundle?
 - Should the first fixture center a measurement/calibration entrypoint, or a
   role-labeled figure/analysis input set whose code explains how selected runs
   were assembled?

@@ -94,10 +94,10 @@ model can start from ordinary user marks on measurement records.
 
 Experiment code selection has fixture-level validation for selected code
 context from a messy external folder and a candidate captured version. It
-treats Git state, nested repositories, backups, checkpoints, caches, helper
-scope, generated companions, environment hints, and mutation capability as
-observed context or attention metadata. It has not earned managed workspace
-storage, Git replacement implementation, package management, environment
+uses minimal whitelist capture, strips notebook outputs before recording, and
+does not inspect internal Git state or analyze unselected files. It has not
+earned managed workspace storage, Git replacement implementation, internal Git
+analysis, default record-all tracking, package management, environment
 ownership, execution, workflow/DAG nodes, component-level versioning, generated
 artifact regeneration, or GUI design.
 
@@ -126,8 +126,8 @@ schema.
 | Selected reference | Selected reference comparison | A user-chosen comparison anchor, such as last-working, notable, best-observed, or simply relevant. These can start as ordinary user marks on measurement records; export, parameter state, and setup binding provide supporting context for comparison. |
 | Comparison finding | Selected reference comparison, export, running inspection | A precise context-comparison result such as changed, missing, unverified, redacted, unlinked, same-observed, or not-compared. It is not automatic cause attribution. |
 | Preview compatibility | Selected reference comparison, export, running inspection, scan/data-shape | Declared preview metadata that suggests compatible quick browsing or overlay across measurements. It does not imply publication-grade plotting or user interpretation. |
-| Selected code context | Experiment code, calibration continuation, selected reference | The explicit code root, entrypoint, helper scope, classifications, environment hints, generated companions, and mutation attention that a user means to use, restore, compare, or hand off. |
-| Captured version candidate | Experiment code, export/handoff | A proposed point-in-time boundary for future Scopecat-managed code versions. It can describe capture scope and observed state without accepting storage, merge, sync, or managed workspace semantics. |
+| Selected code context | Experiment code, calibration continuation, selected reference | The explicit code root, entrypoint, whitelisted files, notebook recording policy, and declared context refs that a user means to use, restore, compare, or hand off. |
+| Captured version candidate | Experiment code, export/handoff | A proposed point-in-time boundary for future Scopecat-managed code versions. It can describe whitelist capture scope without accepting storage, merge, sync, Git inspection, or managed workspace semantics. |
 
 ## Stable Separations
 
@@ -185,13 +185,14 @@ Several separations now appear repeatedly enough to keep carrying forward:
   dimension. The first experiment-code fixture now validates selected code
   context as the minimum reference shape, while comparison behavior remains a
   later selected-reference update.
-- Git state and directory names are import evidence, not product authority.
-  Selected code context is explicit even when Git is stale, dirty, nested, or
-  absent.
-- Whole selected workspace plus named entrypoints is the first code-versioning
-  boundary. Workflow/DAG nodes, component-level versioning, and compatibility
-  contracts remain deferred until repeated stable experiment functions earn
-  inputs and outputs.
+- Early selected-code capture is whitelist-based. Internal Git state,
+  directory-name heuristics, unselected backups, caches, checkpoints, and
+  generated files are not analyzed or surfaced as warnings unless the user
+  selects them or a later slice earns that behavior.
+- Selected root plus whitelisted files and named entrypoints is the first
+  code-versioning boundary. Workflow/DAG nodes, component-level versioning,
+  and compatibility contracts remain deferred until repeated stable experiment
+  functions earn inputs and outputs.
 
 ## Design Pressure
 

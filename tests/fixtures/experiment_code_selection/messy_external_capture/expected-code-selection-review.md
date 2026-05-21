@@ -1,52 +1,46 @@
 # Experiment Code Selection Review
 
+## Capture Policy
+
+The early-adoption capture path is minimal and whitelist-based.
+
+Scopecat records only the files or context references the user explicitly
+selects. It does not treat every file under the selected folder as part of the
+code version, and it does not scan unselected files to create extra warnings.
+
+Internal Git state is not inspected in this fixture.
+
 ## Selected Context
 
 - Selected root: `external-code-root-braid-redacted`
 - Entrypoint: `Braid_cali_new.ipynb`
 - Entrypoint kind: notebook
-- Selection basis: user-declared code context, not notebook execution or
-  import-time inspection.
+- Recorded form: source without notebook outputs
 
-The selected context includes helper roots for experiment helpers,
-pulse/gate helpers, and plotting/analysis helpers. Checkpoints and caches are
-excluded by policy. The visible backup notebook remains ambiguity evidence,
-not proof that it is wrong or should be selected.
+The selected context records three whitelisted files:
 
-## Version Evidence
+- `Braid_cali_new.ipynb`
+- `Experiment_header.ipynb`
+- `my_scripts/xw_h.py`
 
-Git is observed evidence only. The external code root has dirty Git state, and
-the included `mqplot` helper root has its own dirty nested repository state.
-
-Scopecat should preserve this as selected-code context and attention metadata.
-It should not require the user to understand branch, merge, push, pull, or
-submodule workflows before the selection can be useful.
-
-## Generated Companions
-
-The selected context links generated companions such as line info and circuit
-JSON as observed or optional artifacts.
-
-The fixture does not regenerate these companions and does not validate the
-project build pipeline.
+Notebook outputs are stripped before recording. Checkpoints, caches, backups,
+and other unlisted files are not recorded unless the user explicitly adds them
+to the whitelist.
 
 ## Runtime And Mutation Attention
 
-The selected code carries environment hints for a local Python environment,
-LabRAD/Data Vault service assumptions, and MMCS/VISA-style hardware-stack
-assumptions.
+This fixture does not import, execute, or statically analyze selected code.
+Mutation capability is therefore recorded as not analyzed.
 
-The selected entrypoint context is marked hardware-active and
-parameter-mutating. This is an attention state. It does not grant execution
-permission.
+Selection and capture do not grant execution permission.
 
 ## Captured Version Candidate
 
 `code-version-candidate-0001` is a candidate for future Scopecat-managed code
-versioning. It records the selected root, entrypoint, included helper roots,
-excluded classifications, and visible non-selected variants.
+versioning. It records the selected root, entrypoint, whitelist, notebook
+output-stripping policy, and declared environment profile reference.
 
 This fixture does not decide managed workspace storage, Git replacement
-implementation, package management, environment ownership, execution, workflow
-DAGs, component-level versioning, generated artifact regeneration, or GUI
-design.
+implementation, internal Git analysis, default record-all file tracking,
+package management, environment ownership, execution, workflow DAGs,
+component-level versioning, generated artifact regeneration, or GUI design.

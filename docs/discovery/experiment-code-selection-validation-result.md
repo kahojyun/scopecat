@@ -14,19 +14,19 @@ where the boundary remains intentionally narrow.
 The fixture validates a first selected-code boundary:
 
 - a messy external code folder can be represented as selected code context;
-- Git state can be recorded as observed evidence without becoming product
-  authority;
-- dirty roots, dirty nested helper repositories, backups, checkpoints, and
-  caches can be surfaced as attention or classification state;
-- a selected entrypoint can be recorded separately from helper scope;
+- early adoption can use minimal whitelist capture rather than record-all
+  folder tracking;
+- internal Git state can be ignored rather than analyzed;
+- unselected files, backups, checkpoints, caches, and generated files do not
+  need to become noisy warnings;
+- whitelisted notebooks can be recorded as source without outputs;
+- a selected entrypoint can be recorded separately from whitelisted files;
 - a calibration step can reference code context, parameter state, and setup
   binding as separate named inputs;
-- generated companions can be linked as observed artifacts without
-  regeneration;
-- environment and local-service assumptions can be recorded as hints rather
-  than environment management;
-- mutation-capable or hardware-active code can be marked without granting
-  execution permission;
+- declared context references, such as environment profile hints, can be linked
+  without dependency discovery;
+- mutation capability can remain not analyzed, and selection still does not
+  grant execution permission;
 - a captured-version candidate can describe what Scopecat may later manage
   without accepting storage, merge, or workflow semantics.
 
@@ -39,19 +39,19 @@ The useful first boundary is not "trust Git" or "force a workflow DAG." It is:
 
 - the user-selected external root;
 - the user-selected entrypoint;
-- included helper scope;
-- excluded or classified files;
-- observed version evidence;
-- generated companions;
-- environment hints;
-- mutation and hardware-active attention;
+- the user-whitelisted file list;
+- notebook-output stripping before capture;
+- broad non-recording policy for unwhitelisted files;
+- declared context references;
+- no internal Git inspection;
+- no dependency discovery, import, execution, or mutation analysis;
 - the candidate capture scope for a future Scopecat-managed code version.
 
 This validates the product posture in
 [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md):
 Scopecat may eventually provide Git-like managed experiment-code versions
 behind lab-native actions, but the first fixture is selected context and a
-captured-version candidate.
+captured-version candidate with minimal whitelist capture.
 
 ## Relationship To Prior Slices
 
@@ -72,7 +72,9 @@ not earn a shared run-context, step-context, or snapshot framework.
 - the final managed workspace store is still undecided;
 - the first content-integrity record is still undecided: archive, checksums,
   file snapshot, content-addressed store, or Git-backed implementation;
-- ignore/classification policy may need user-editable rules;
+- whitelist helper UX and user-editable capture policy remain undecided;
+- internal Git diagnostics may become useful later, but they are intentionally
+  absent from the first adoption boundary;
 - environment readiness may need a later active validation slice;
 - generated companion handling may need a separate transformation or build
   pipeline slice;
@@ -85,6 +87,6 @@ not earn a shared run-context, step-context, or snapshot framework.
 Use this fixture as the first boundary for experiment-code selection. The next
 implementation-shaped step, if needed, should be a pure summary candidate that
 turns selected code context into expected review output. Do not design managed
-workspace storage, Git replacement, environment management, execution, or
-workflow/DAG contracts until another slice creates concrete implementation
-pressure.
+workspace storage, Git replacement, internal Git analysis, record-all file
+tracking, environment management, execution, or workflow/DAG contracts until
+another slice creates concrete implementation pressure.

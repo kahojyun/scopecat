@@ -30,18 +30,29 @@ record useful code context.
 
 ## Current Posture
 
-Git and directory structure are import evidence, not user-facing authority.
+Git and directory structure should not be early-adoption authority.
 
 Many existing lab folders may have stale commits, dirty working trees, nested
 repositories, backup folders, notebook checkpoints, copied helper packages,
 generated files, and unclear entrypoints. Scopecat should be able to capture
-that messy state without pretending it is well managed.
+useful selected code context without pretending the folder is well managed.
+
+The earliest adoption path should be deliberately minimal:
+
+- record only files or references the user explicitly whitelists;
+- do not inspect internal Git state;
+- do not recursively analyze every file in the selected folder;
+- do not turn unselected backup, cache, checkpoint, or generated files into
+  noisy warnings;
+- strip notebook outputs before recording `.ipynb` files;
+- avoid dependency discovery, import-time inspection, and mutation-capability
+  inference unless a later validation earns them.
 
 The near-term product boundary is:
 
 - selected code context from a messy external folder;
 - a candidate captured version that Scopecat could later manage;
-- visible ambiguity and readiness information;
+- explicit whitelist and notebook recording policy;
 - explicit links from measurements or calibration steps to selected code
   context.
 
@@ -56,22 +67,18 @@ The long-term direction is:
 
 ## First Boundary
 
-The first supported path should be whole selected workspace or selected root
-plus named entrypoints.
+The first supported path should be selected root plus a user whitelist.
 
 This means the first record can say:
 
 - which root or folder was selected;
 - which notebook, script, function, or template is the intended entrypoint;
-- which helper roots or generated companions are included;
-- which files are excluded or classified as checkpoints, caches, backups,
-  archives, generated artifacts, or external references;
-- what observed version state exists, such as Git commit, dirty state, file
-  checksums, or snapshot timestamp;
-- what environment, service, private package, local path, and hardware-active
-  assumptions are visible;
-- whether the entrypoint is analysis-only, parameter-mutating,
-  hardware-active, or unknown.
+- which specific files or declared references the user whitelisted;
+- whether whitelisted notebooks were recorded as source without outputs;
+- which broad non-recording policy applies to unwhitelisted files;
+- which environment profile or setup context the user linked explicitly;
+- that execution, dependency discovery, Git inspection, and mutation analysis
+  were not performed.
 
 This boundary does not require users to divide the codebase into independently
 versioned workflow nodes.
@@ -96,8 +103,8 @@ It is too early to require DAG structure because:
 
 The safer intermediate model is:
 
-- version the selected workspace first;
-- name important entrypoints inside that version;
+- version the user-whitelisted capture scope first;
+- name important entrypoints inside that capture;
 - let measurements and calibration steps reference those entrypoints;
 - promote repeated, stable entrypoints into workflow steps only when a later
   validation slice earns input/output contracts.
@@ -122,7 +129,8 @@ at run start. That does not make them one shared version-control model.
 ## Generated Artifacts
 
 Generated code-derived artifacts can be important context, but the first
-boundary should record them as observed or selected companions.
+boundary should record them only when the user explicitly whitelists or links
+them.
 
 Scopecat should not silently regenerate circuit JSON, chip/line info, registry
 views, waveform-adjacent state, or derived analysis arrays as part of selected
@@ -131,16 +139,16 @@ later questions.
 
 ## Current Questions
 
-- Is whole selected workspace plus named entrypoints enough for the first
-  managed-code version boundary?
+- Is selected root plus explicit whitelist enough for the first managed-code
+  version boundary?
 - What should Scopecat store for a captured version first: file contents,
-  checksums, Git identity when present, an archive, or a content-addressed
-  snapshot?
-- Which ignore/classification rules are product policy, and which should be
-  user-editable?
-- How should users see dirty Git state when Git is not the product authority?
+  checksums, stripped notebooks, an archive, or a content-addressed snapshot?
+- Which whitelist helpers should exist for common notebook/script workflows
+  without defaulting to record-all behavior?
+- When, if ever, should Git state become an optional diagnostic rather than
+  ignored early-adoption noise?
 - When should environment readiness become active validation rather than
-  recorded hints?
+  user-declared references?
 - What conditions would earn workflow/DAG nodes as first-class records?
 
 ## Current Recommendation
@@ -148,8 +156,9 @@ later questions.
 Validate a first selected-code context fixture before designing a managed
 workspace store or workflow/DAG model.
 
-The first fixture should represent a messy external folder being selected and
-captured into a Scopecat-managed version candidate. It should make code
-selection, entrypoint choice, helper scope, observed version state, exclusions,
-mutation capability, generated companions, and environment assumptions visible
-without executing or importing user code.
+The first fixture should represent a messy external folder being selected with
+a small explicit whitelist and captured into a Scopecat-managed version
+candidate. It should make the selected root, entrypoint, whitelisted files,
+notebook-output stripping, declared context references, and non-recording
+policy visible without inspecting Git, scanning unselected files, executing
+code, importing code, or inferring dependencies.

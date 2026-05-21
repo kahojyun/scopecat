@@ -1,35 +1,25 @@
 {
-  "fixture_id": "experiment-code-selection-messy-external-capture",
+  "fixture_id": "experiment-code-selection-minimal-whitelist-capture",
   "fixture_status": "synthetic_public_safe",
   "fixture_layer": "experiment_code_selection_fixture",
-  "user_job": "Select the experiment code context that should be restored, handed off, or used for a calibration step without requiring the user to operate Git.",
+  "user_job": "Capture the minimum experiment-code context needed to restore, hand off, or associate a calibration step with code, without making users operate Git or adding noisy folder analysis.",
   "source_research_notes": [
     "<sample>/_research/experiment-code-selection-sample-review-2026-05-21.md"
   ],
+  "capture_policy": {
+    "mode": "minimal_whitelist_capture",
+    "internal_git_inspection": "not_performed",
+    "default_file_inclusion": "not_recorded_unless_whitelisted",
+    "notebook_output_policy": "strip_outputs_before_recording",
+    "directory_scan_policy": "do_not_surface_unselected_files_as_warnings",
+    "dependency_discovery": "not_performed"
+  },
   "external_code_roots": [
     {
       "root_id": "external-code-root-braid-redacted",
       "root_label": "redacted braid experiment folder",
       "mode": "external_folder_import",
-      "authority": "user_selected_external_folder",
-      "git_observation": {
-        "git_present": true,
-        "branch": "sample-branch-redacted",
-        "commit_id": "git-commit-observed-redacted",
-        "working_tree_state": "dirty",
-        "untracked_count": 7,
-        "modified_count": 12,
-        "deleted_count": 2,
-        "authority": "observed_version_evidence_not_product_authority"
-      },
-      "nested_repository_observations": [
-        {
-          "path": "mqplot",
-          "git_present": true,
-          "working_tree_state": "dirty",
-          "selection_status": "included_helper_with_version_warning"
-        }
-      ]
+      "authority": "user_selected_external_folder"
     }
   ],
   "selected_code_contexts": [
@@ -40,90 +30,51 @@
       "entrypoint": {
         "path": "Braid_cali_new.ipynb",
         "kind": "notebook",
-        "selected_cell_range": "declared_by_user_not_parsed",
+        "recorded_form": "source_without_outputs",
+        "output_policy_applied": "strip_outputs_before_recording",
         "execution_claim": "not_executed_by_fixture"
       },
-      "included_helper_roots": [
+      "whitelisted_files": [
         {
-          "path": "my_scripts",
-          "role": "experiment_helpers"
+          "path": "Braid_cali_new.ipynb",
+          "role": "entrypoint",
+          "recorded_form": "source_without_outputs"
         },
         {
-          "path": "GateBased_PG",
-          "role": "pulse_and_gate_helpers"
+          "path": "Experiment_header.ipynb",
+          "role": "declared_helper_notebook",
+          "recorded_form": "source_without_outputs"
         },
         {
-          "path": "mqplot",
-          "role": "plotting_and_analysis_helpers",
-          "nested_repository_state": "dirty"
+          "path": "my_scripts/xw_h.py",
+          "role": "declared_helper_module",
+          "recorded_form": "source_file"
         }
       ],
-      "classified_paths": [
+      "declared_context_refs": [
         {
-          "path": ".ipynb_checkpoints/Braid_cali_new-checkpoint.ipynb",
-          "classification": "checkpoint",
-          "selection_status": "excluded_by_policy"
-        },
-        {
-          "path": "cali_new(backup).ipynb",
-          "classification": "backup_variant",
-          "selection_status": "visible_ambiguity_not_selected"
-        },
-        {
-          "path": "__pycache__/xw_h.cpython-redacted.pyc",
-          "classification": "cache",
-          "selection_status": "excluded_by_policy"
+          "ref_id": "env-profile-control-pc-redacted",
+          "ref_kind": "environment_profile_hint",
+          "authority": "user_declared"
         }
       ],
-      "config_references": [
+      "not_recorded_policy": [
         {
-          "path": "my_scripts/config.py",
-          "role": "import_time_setting_and_data_root_config",
-          "path_redaction": "contains_local_paths_redacted"
-        }
-      ],
-      "generated_companions": [
-        {
-          "artifact_id": "generated-line-info-0001",
-          "path": "setting/temp/line_info.json",
-          "artifact_kind": "generated_runtime_view",
-          "source_relation": "generated_from_parameter_and_binding_context",
-          "selection_status": "linked_observed_companion",
-          "regeneration_claim": "not_regenerated_by_fixture"
+          "path_pattern": ".ipynb_checkpoints/**",
+          "reason": "not_whitelisted_and_notebook_outputs_are_stripped"
         },
         {
-          "artifact_id": "generated-circuit-json-0001",
-          "path": "my_scripts/generated_circuit_H.json",
-          "artifact_kind": "generated_circuit_description",
-          "source_relation": "generated_by_project_code",
-          "selection_status": "visible_optional_companion",
-          "regeneration_claim": "not_regenerated_by_fixture"
-        }
-      ],
-      "environment_hints": [
-        {
-          "hint_kind": "python_environment",
-          "value": "conda-lab-redacted",
-          "authority": "runbook_or_local_config_observed"
+          "path_pattern": "__pycache__/**",
+          "reason": "not_whitelisted_cache"
         },
         {
-          "hint_kind": "local_service",
-          "value": "labrad_data_vault",
-          "authority": "import_or_runbook_observed"
-        },
-        {
-          "hint_kind": "hardware_stack",
-          "value": "mmcs_or_visa_style_driver_stack",
-          "authority": "import_observed"
+          "path_pattern": "backup/**",
+          "reason": "not_whitelisted_external_folder_content"
         }
       ],
       "mutation_capability": {
-        "classification": "hardware_active_and_parameter_mutating",
-        "basis": [
-          "selected notebook imports experiment header and runner helpers",
-          "helper modules can read or write parameter files",
-          "driver helpers can initialize or clear hardware resources"
-        ],
+        "classification": "not_analyzed",
+        "reason": "early capture does not inspect or import selected code",
         "execution_permission": "not_granted_by_selection_record"
       }
     }
@@ -136,7 +87,7 @@
         {
           "name": "code_context",
           "snapshot_id": "code-context-readout-cali-0001",
-          "role": "selected_entrypoint_and_helper_scope"
+          "role": "selected_entrypoint_and_whitelisted_files"
         },
         {
           "name": "parameter_state",
@@ -158,30 +109,22 @@
       "candidate_status": "candidate_not_committed_contract",
       "capture_scope": {
         "root_id": "external-code-root-braid-redacted",
-        "entrypoint_path": "Braid_cali_new.ipynb",
-        "included_helper_roots": [
-          "my_scripts",
-          "GateBased_PG",
-          "mqplot"
+        "whitelisted_files": [
+          "Braid_cali_new.ipynb",
+          "Experiment_header.ipynb",
+          "my_scripts/xw_h.py"
         ],
-        "excluded_classifications": [
-          "checkpoint",
-          "cache"
-        ],
-        "visible_not_selected_classifications": [
-          "backup_variant"
-        ]
+        "notebook_recording_policy": "source_without_outputs",
+        "default_file_inclusion": "not_recorded_unless_whitelisted"
       },
       "materialization_intent": "future_scopecat_managed_workspace",
       "storage_claim": "not_decided_by_fixture"
     }
   ],
   "attention_expected": [
-    "dirty_git_observed",
-    "nested_repository_dirty",
-    "backup_variant_visible",
-    "local_path_redaction_needed",
-    "hardware_active_code_selected",
-    "generated_companion_not_regenerated"
+    "notebook_outputs_stripped",
+    "unwhitelisted_files_not_recorded",
+    "internal_git_not_inspected",
+    "code_execution_not_granted"
   ]
 }

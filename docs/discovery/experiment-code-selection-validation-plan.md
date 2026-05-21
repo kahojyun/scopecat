@@ -21,14 +21,16 @@ copied helper roots, notebook variants, checkpoint/cache/archive files,
 import-time local config, private packages, LabRAD/Data Vault/MMCS/VISA-style
 service assumptions, mutation-capable notebooks, and generated companions.
 
-This plan should use that evidence for realism without making the sample's
-directory structure the desired product model.
+This plan should use that evidence to justify a smaller early boundary, not a
+larger one. The first fixture should avoid reproducing the sample's noisy
+directory and Git state as product output.
 
 ## Validation Question
 
 Can Scopecat represent a messy external experiment-code folder as explicit
-selected code context and a candidate captured version, without requiring users
-to use Git or forcing a workflow/DAG model?
+selected code context and a candidate captured version, using only a minimal
+user whitelist and stripped notebooks, without requiring users to use Git,
+recording every file, or forcing a workflow/DAG model?
 
 First fixture:
 
@@ -41,18 +43,17 @@ The first boundary distinguishes:
 | Concept | Meaning In This Plan |
 | --- | --- |
 | External code root | A user-selected existing folder that Scopecat does not yet manage. |
-| Selected code context | The explicit root, entrypoint, helper scope, generated companions, exclusions, environment hints, and warnings the user means to carry forward. |
+| Selected code context | The explicit root, entrypoint, whitelisted files, declared context references, and capture policy the user means to carry forward. |
 | Captured version candidate | A proposed Scopecat-managed point-in-time version of the selected context. It may later become a managed version, but storage semantics are not accepted here. |
-| Observed version state | Evidence such as Git commit, dirty/untracked/deleted state, nested repositories, checksums, mtimes, or snapshot time. Git is evidence, not authority. |
+| Whitelist capture | Only user-selected files or references are recorded. Unselected folder contents are not analyzed or surfaced as warnings. |
 | Entrypoint | The notebook, script, function, template, or file/cell selection a user intends to run, inspect, restore, or hand off. |
-| Helper scope | Included helper roots and files needed by the selected entrypoint, as declared or selected. It is not deep static dependency closure. |
-| Generated companion | Observed or selected code-derived artifacts such as circuit JSON, chip/line info, registry views, mapping files, or derived arrays. They are not silently regenerated. |
-| Environment profile hint | Recorded interpreter, package, service, local path, and hardware-stack assumptions. It is not full environment management. |
-| Mutation capability | Whether selected code appears analysis-only, parameter-mutating, hardware-active, or unknown. This is an attention state, not execution permission. |
+| Notebook output stripping | Whitelisted notebooks are recorded as source without outputs. Notebook outputs and execution counts are not trusted capture payloads. |
+| Declared context reference | A user-linked environment profile, setup context, generated companion, or other record reference. It is not discovered by importing code. |
+| Mutation capability | Not analyzed in the first boundary. Selection does not grant execution permission. |
 
-The fixture may use Git-like words such as commit or dirty state when observed,
-but the product concept under validation is a Scopecat selected-code context
-and captured-version candidate.
+Internal Git state is not inspected by the first fixture. Git may become an
+optional diagnostic or implementation detail later, but it should not appear in
+the early-adoption record.
 
 ## First Fixture Shape
 
@@ -60,14 +61,12 @@ The first fixture should stay small:
 
 - one external code root;
 - one selected notebook or script/function entrypoint;
-- two included helper roots;
-- one generated companion linked as observed/selected;
-- one excluded checkpoint/cache path;
-- one backup or dated variant shown as ambiguity, not automatically selected;
-- one observed Git state that is stale or dirty;
-- one nested repository or helper-root version warning;
-- one environment profile hint with redacted local-service assumptions;
-- one mutation-capability classification;
+- a small whitelist of selected files;
+- notebook output stripping for whitelisted notebooks;
+- non-recording policy for unwhitelisted checkpoints, caches, backups, and
+  other folder contents;
+- one declared environment or setup context reference;
+- mutation capability marked as not analyzed;
 - one measurement or calibration step referencing the selected code context;
 - one captured-version candidate summary that states what Scopecat would need
   to materialize later.
@@ -78,21 +77,24 @@ Fixture input may include:
 
 - selected external root ID and public-safe label;
 - selected entrypoint path, kind, role, and optional symbol or cell range;
-- included helper roots and explicit include/exclude/classify rules;
-- observed version state, including Git evidence when present;
-- generated companions with source relation and generation status;
-- environment hints such as interpreter name, package assumptions, services,
-  local path requirements, and hardware-stack assumptions;
-- mutation capability and static attention items;
+- whitelisted files and their recorded forms;
+- notebook output-stripping policy;
+- broad non-recording policy for unwhitelisted files;
+- declared context references such as an environment profile;
+- mutation capability marked as not analyzed;
 - measurement or calibration-step reference to the selected code context;
 - captured-version candidate fields such as candidate ID, capture scope,
-  observed files, excluded files, warnings, and materialization intent.
+  whitelisted files, recording policy, and materialization intent.
 
 Fixture input should not include:
 
 - raw private paths, hostnames, instrument addresses, credentials, or complete
   local service payloads;
 - full code contents;
+- internal Git state, branch names, commits, dirty summaries, or nested
+  repository state;
+- default record-all file listings;
+- warnings derived from unselected files;
 - notebook outputs or execution counts as trusted facts;
 - imported module graphs produced by executing or importing user code;
 - dependency closure through arbitrary Python;
@@ -107,14 +109,13 @@ Expected review output should let a reviewer answer:
 
 - what code root the user selected;
 - which entrypoint the user intends to use;
-- which helper scope is included and which files are excluded or classified;
-- what Git or file-state evidence was observed, and why Git is not treated as
-  product authority;
-- which backup/checkpoint/nested-repository conditions create ambiguity;
-- which generated companions are linked without regeneration;
-- which environment and local-service assumptions affect portability;
-- whether the code appears analysis-only, parameter-mutating, hardware-active,
-  or unknown;
+- which files are whitelisted;
+- that whitelisted notebooks were stripped to source without outputs;
+- that unwhitelisted files were not recorded or analyzed;
+- that internal Git state was not inspected;
+- which declared context references are linked;
+- that mutation capability was not analyzed and execution permission was not
+  granted;
 - which measurement or calibration step references this selected code context;
 - what would be captured as a Scopecat-managed version candidate.
 
@@ -125,6 +126,8 @@ This plan does not earn:
 - final managed workspace storage;
 - final file snapshot or checksum contract;
 - Git replacement implementation;
+- internal Git analysis;
+- default record-all file tracking;
 - branch, merge, conflict, or sync semantics;
 - package management, dependency closure, or virtual environment ownership;
 - code execution, notebook execution, static import execution, or hardware
@@ -138,6 +141,7 @@ This plan does not earn:
 
 Create one fixture and expected output before writing any implementation
 candidate. The first goal is to validate the product posture: Scopecat can be
-opinionated about selected-code records and captured-version candidates without
-requiring users to understand Git or prematurely structuring their code as a
-workflow DAG.
+opinionated about selected-code records and captured-version candidates while
+keeping early adoption minimal. Start with whitelist capture and stripped
+notebooks; defer internal Git analysis, record-all tracking, dependency
+discovery, execution, and workflow DAGs.

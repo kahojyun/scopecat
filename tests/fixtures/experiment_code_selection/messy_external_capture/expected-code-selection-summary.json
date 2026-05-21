@@ -1,24 +1,29 @@
 {
-  "summary_id": "experiment-code-selection-messy-external-capture.expected",
+  "summary_id": "experiment-code-selection-minimal-whitelist-capture.expected",
   "status": "expected_validation_output",
   "source_fixture": "code-selection-input.json",
   "reference_semantics": {
     "status": "fixture_only",
     "contract_guard": "This expected output is not a final managed workspace store, Git replacement, package manager, environment manager, executor, workflow DAG, or GUI contract.",
-    "git_state": "Git observations are useful version evidence, but Scopecat selected-code context is the product record under validation.",
-    "captured_version": "The captured version is a candidate boundary for future Scopecat-managed code versions, not a committed storage contract.",
-    "generated_companions": "Generated companions are linked as observed or selected artifacts; the fixture does not regenerate them."
+    "early_adoption_boundary": "The first capture path is minimal and whitelist-based. Unselected files are not analyzed or surfaced as warnings.",
+    "git_state": "Internal Git state is not inspected in this early-adoption boundary.",
+    "notebook_outputs": "Notebook outputs are stripped before recording so captured code context does not preserve stale output payloads.",
+    "captured_version": "The captured version is a candidate boundary for future Scopecat-managed code versions, not a committed storage contract."
   },
   "candidate_summary": {
+    "capture_policy": {
+      "mode": "minimal_whitelist_capture",
+      "internal_git_inspection": "not_performed",
+      "default_file_inclusion": "not_recorded_unless_whitelisted",
+      "notebook_output_policy": "strip_outputs_before_recording",
+      "directory_scan_policy": "do_not_surface_unselected_files_as_warnings",
+      "dependency_discovery": "not_performed"
+    },
     "external_code_roots": [
       {
         "root_id": "external-code-root-braid-redacted",
         "mode": "external_folder_import",
-        "authority": "user_selected_external_folder",
-        "git_present": true,
-        "git_authority": "observed_version_evidence_not_product_authority",
-        "working_tree_state": "dirty",
-        "nested_repository_count": 1
+        "authority": "user_selected_external_folder"
       }
     ],
     "selected_code_contexts": [
@@ -28,79 +33,52 @@
         "context_role": "calibration_entrypoint_context",
         "entrypoint_path": "Braid_cali_new.ipynb",
         "entrypoint_kind": "notebook",
-        "entrypoint_selection": "declared_by_user_not_parsed",
+        "entrypoint_recorded_form": "source_without_outputs",
         "execution_claim": "not_executed_by_fixture",
-        "helper_root_count": 3,
-        "generated_companion_count": 2,
-        "mutation_capability": "hardware_active_and_parameter_mutating"
+        "whitelisted_file_count": 3,
+        "declared_context_ref_count": 1,
+        "mutation_capability": "not_analyzed"
       }
     ],
-    "helper_scope": [
+    "whitelisted_files": [
       {
         "context_id": "code-context-readout-cali-0001",
-        "path": "my_scripts",
-        "role": "experiment_helpers",
-        "nested_repository_state": null
-      },
-      {
-        "context_id": "code-context-readout-cali-0001",
-        "path": "GateBased_PG",
-        "role": "pulse_and_gate_helpers",
-        "nested_repository_state": null
+        "path": "Braid_cali_new.ipynb",
+        "role": "entrypoint",
+        "recorded_form": "source_without_outputs"
       },
       {
         "context_id": "code-context-readout-cali-0001",
-        "path": "mqplot",
-        "role": "plotting_and_analysis_helpers",
-        "nested_repository_state": "dirty"
+        "path": "Experiment_header.ipynb",
+        "role": "declared_helper_notebook",
+        "recorded_form": "source_without_outputs"
+      },
+      {
+        "context_id": "code-context-readout-cali-0001",
+        "path": "my_scripts/xw_h.py",
+        "role": "declared_helper_module",
+        "recorded_form": "source_file"
       }
     ],
-    "classified_paths": [
+    "declared_context_refs": [
       {
-        "path": ".ipynb_checkpoints/Braid_cali_new-checkpoint.ipynb",
-        "classification": "checkpoint",
-        "selection_status": "excluded_by_policy"
-      },
-      {
-        "path": "cali_new(backup).ipynb",
-        "classification": "backup_variant",
-        "selection_status": "visible_ambiguity_not_selected"
-      },
-      {
-        "path": "__pycache__/xw_h.cpython-redacted.pyc",
-        "classification": "cache",
-        "selection_status": "excluded_by_policy"
+        "ref_id": "env-profile-control-pc-redacted",
+        "ref_kind": "environment_profile_hint",
+        "authority": "user_declared"
       }
     ],
-    "generated_companions": [
+    "not_recorded_policy": [
       {
-        "artifact_id": "generated-line-info-0001",
-        "artifact_kind": "generated_runtime_view",
-        "selection_status": "linked_observed_companion",
-        "regeneration_claim": "not_regenerated_by_fixture"
+        "path_pattern": ".ipynb_checkpoints/**",
+        "reason": "not_whitelisted_and_notebook_outputs_are_stripped"
       },
       {
-        "artifact_id": "generated-circuit-json-0001",
-        "artifact_kind": "generated_circuit_description",
-        "selection_status": "visible_optional_companion",
-        "regeneration_claim": "not_regenerated_by_fixture"
-      }
-    ],
-    "environment_hints": [
-      {
-        "hint_kind": "python_environment",
-        "value": "conda-lab-redacted",
-        "authority": "runbook_or_local_config_observed"
+        "path_pattern": "__pycache__/**",
+        "reason": "not_whitelisted_cache"
       },
       {
-        "hint_kind": "local_service",
-        "value": "labrad_data_vault",
-        "authority": "import_or_runbook_observed"
-      },
-      {
-        "hint_kind": "hardware_stack",
-        "value": "mmcs_or_visa_style_driver_stack",
-        "authority": "import_observed"
+        "path_pattern": "backup/**",
+        "reason": "not_whitelisted_external_folder_content"
       }
     ],
     "calibration_step_references": [
@@ -111,7 +89,7 @@
           {
             "name": "code_context",
             "snapshot_id": "code-context-readout-cali-0001",
-            "role": "selected_entrypoint_and_helper_scope"
+            "role": "selected_entrypoint_and_whitelisted_files"
           },
           {
             "name": "parameter_state",
@@ -133,70 +111,55 @@
         "candidate_status": "candidate_not_committed_contract",
         "materialization_intent": "future_scopecat_managed_workspace",
         "storage_claim": "not_decided_by_fixture",
-        "included_helper_roots": [
-          "my_scripts",
-          "GateBased_PG",
-          "mqplot"
+        "whitelisted_files": [
+          "Braid_cali_new.ipynb",
+          "Experiment_header.ipynb",
+          "my_scripts/xw_h.py"
         ],
-        "excluded_classifications": [
-          "checkpoint",
-          "cache"
-        ],
-        "visible_not_selected_classifications": [
-          "backup_variant"
-        ]
+        "notebook_recording_policy": "source_without_outputs",
+        "default_file_inclusion": "not_recorded_unless_whitelisted"
       }
     ],
     "attention": [
       {
-        "code": "dirty_git_observed",
-        "severity": "review",
-        "basis": "The selected external code root has dirty observed Git state.",
-        "does_not_claim": "git_is_product_authority"
-      },
-      {
-        "code": "nested_repository_dirty",
-        "severity": "review",
-        "basis": "Included helper root mqplot is also an observed dirty repository.",
-        "does_not_claim": "submodule_or_nested_repo_contract"
-      },
-      {
-        "code": "backup_variant_visible",
+        "code": "notebook_outputs_stripped",
         "severity": "info",
-        "basis": "A backup notebook variant is visible but not selected.",
-        "does_not_claim": "backup_is_wrong"
+        "basis": "Whitelisted notebooks are recorded as source without outputs.",
+        "does_not_claim": "notebook_execution_reproduced"
       },
       {
-        "code": "local_path_redaction_needed",
-        "severity": "review",
-        "basis": "Import-time config can contain local paths and service assumptions.",
-        "does_not_claim": "public_shareable_without_policy"
+        "code": "unwhitelisted_files_not_recorded",
+        "severity": "info",
+        "basis": "Early capture records only whitelisted files and declared refs.",
+        "does_not_claim": "folder_fully_analyzed"
       },
       {
-        "code": "hardware_active_code_selected",
+        "code": "internal_git_not_inspected",
+        "severity": "info",
+        "basis": "Git state is ignored in this early-adoption boundary.",
+        "does_not_claim": "git_clean_or_dirty_status"
+      },
+      {
+        "code": "code_execution_not_granted",
         "severity": "review",
-        "basis": "Selected entrypoint context can initialize runners or mutate parameter files through helpers.",
+        "basis": "Selection and capture do not execute, import, or validate code.",
         "does_not_claim": "execution_permission"
-      },
-      {
-        "code": "generated_companion_not_regenerated",
-        "severity": "info",
-        "basis": "Generated companions are linked as observed artifacts.",
-        "does_not_claim": "build_pipeline_validated"
       }
     ]
   },
   "boundary_notes": [
-    "The selected code context is explicit even when the source folder and Git state are messy.",
-    "Git observations help explain the selected state but do not replace the Scopecat selected-code record.",
+    "The early-adoption path captures only explicit whitelist entries.",
+    "Unselected folder contents are not analyzed as warnings.",
+    "Internal Git state is not inspected by this fixture.",
+    "Whitelisted notebooks are stripped to source without outputs before recording.",
     "The captured version candidate shows what Scopecat may later manage, without accepting storage or merge semantics.",
-    "Generated companions are linked without regeneration.",
     "Workflow or DAG nodes are not required for the first code-versioning boundary."
   ],
   "decisions_not_earned": [
     "final managed workspace storage",
     "Git replacement implementation",
-    "branch or merge semantics",
+    "internal Git analysis",
+    "default record-all file tracking",
     "package management",
     "environment ownership",
     "code execution",
