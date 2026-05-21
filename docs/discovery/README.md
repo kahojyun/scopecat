@@ -70,6 +70,14 @@ product contracts too early.
 | [`setup-binding-validation-plan.md`](setup-binding-validation-plan.md) | First fixture-validation boundary for setup-binding snapshots, diffs, and measurement references. |
 | [`setup-binding-validation-result.md`](setup-binding-validation-result.md) | Result of the first setup-binding fixture and measurement-input context review. |
 
+### Selected Reference Comparison
+
+| Document | Use For |
+| --- | --- |
+| [`problem-briefs/selected-reference-comparison.md`](problem-briefs/selected-reference-comparison.md) | Problem framing for selected references, known-good as a narrower subtype, setup reality, comparison findings, and scientific comparability limits. |
+| [`selected-reference-comparison-validation-plan.md`](selected-reference-comparison-validation-plan.md) | First fixture-validation boundary for selected-reference context comparison. |
+| [`selected-reference-comparison-validation-result.md`](selected-reference-comparison-validation-result.md) | Result of the first selected-reference comparison fixture. |
+
 ## Other Problem Briefs
 
 These briefs are framed but do not yet have the same level of validation
@@ -78,7 +86,6 @@ artifacts in this branch:
 | Brief | Use For |
 | --- | --- |
 | [`problem-briefs/experiment-code-selection.md`](problem-briefs/experiment-code-selection.md) | Copied folders, entrypoint ambiguity, code snapshots, environment validation, and code-version selection. |
-| [`problem-briefs/selected-reference-comparison.md`](problem-briefs/selected-reference-comparison.md) | Selected references, known-good as a narrower subtype, setup reality, comparison findings, and scientific comparability limits. |
 
 ## Promotion Discipline
 

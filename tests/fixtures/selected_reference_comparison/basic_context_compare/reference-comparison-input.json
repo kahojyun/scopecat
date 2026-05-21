@@ -1,0 +1,185 @@
+{
+  "fixture_id": "selected-reference-basic-context-compare",
+  "fixture_status": "synthetic_public_safe",
+  "fixture_layer": "selected_reference_comparison_fixture",
+  "user_job": "Compare a current measurement against a user-selected reference and see changed, same-observed, missing, redacted, unverified, unlinked, and not-compared context without claiming the reference is known-good or scientifically comparable.",
+  "source_problem_briefs": [
+    "docs/discovery/problem-briefs/selected-reference-comparison.md",
+    "docs/discovery/problem-briefs/parameter-state-management.md",
+    "docs/discovery/problem-briefs/setup-binding.md"
+  ],
+  "comparison_request": {
+    "comparison_id": "reference-compare-0001",
+    "current_measurement_id": "measurement-05002",
+    "reference_measurement_id": "measurement-04001",
+    "reference_selection": {
+      "selected_by": "experimenter",
+      "reason_label": "last_working_reference",
+      "known_good_claim": "not_claimed",
+      "scientific_comparability_claim": "not_claimed"
+    },
+    "comparison_scope": [
+      "measurement_identity",
+      "declared_preview_metadata",
+      "named_input_snapshots",
+      "selected_context_artifacts"
+    ],
+    "not_compared_scope": [
+      "fit_quality",
+      "scientific_equivalence",
+      "raw_waveforms",
+      "hardware_runtime_state"
+    ]
+  },
+  "measurements": [
+    {
+      "measurement_id": "measurement-04001",
+      "side": "reference",
+      "experiment_label": "qA chevron check",
+      "sample_id": "sample-alpha",
+      "cooldown_id": "cooldown-2026-05",
+      "run_start_time": "2026-05-20T09:30:00",
+      "source_identity": "managed-record-04001",
+      "primary_data_reference": "source/session-alpha/04001_qA_chevron.csv",
+      "inputs": [
+        {
+          "name": "parameter_state",
+          "snapshot_id": "param-state-0002",
+          "role": "calibrated_values"
+        },
+        {
+          "name": "setup_binding",
+          "snapshot_id": "setup-binding-0002",
+          "role": "logical_to_physical_mapping"
+        },
+        {
+          "name": "station_registry",
+          "snapshot_id": "station-registry-mmcs2-redacted",
+          "role": "station_context"
+        }
+      ],
+      "declared_preview_metadata": {
+        "shape_kind": "rectangular_2d_grid_table",
+        "axis_order": [
+          "coupler_bias_v",
+          "drive_duration_ns"
+        ],
+        "signal": "excited_state_probability",
+        "plot_candidates": [
+          "heatmap"
+        ]
+      },
+      "selected_context_artifacts": [
+        {
+          "artifact_id": "fit-summary-04001",
+          "relation": "fit_summary",
+          "availability": "available",
+          "source_relation": "linked"
+        },
+        {
+          "artifact_id": "notebook-note-04001",
+          "relation": "analysis_note",
+          "availability": "available",
+          "source_relation": "unlinked"
+        }
+      ]
+    },
+    {
+      "measurement_id": "measurement-05002",
+      "side": "current",
+      "experiment_label": "qA chevron check",
+      "sample_id": "sample-alpha",
+      "cooldown_id": "cooldown-2026-05",
+      "run_start_time": "2026-05-21T11:15:00",
+      "source_identity": "managed-record-05002",
+      "primary_data_reference": "source/session-beta/05002_qA_chevron.csv",
+      "inputs": [
+        {
+          "name": "parameter_state",
+          "snapshot_id": "param-state-0003",
+          "role": "calibrated_values"
+        },
+        {
+          "name": "setup_binding",
+          "snapshot_id": "setup-binding-0002",
+          "role": "logical_to_physical_mapping"
+        },
+        {
+          "name": "station_registry",
+          "snapshot_id": "station-registry-mmcs2-redacted",
+          "role": "station_context"
+        }
+      ],
+      "declared_preview_metadata": {
+        "shape_kind": "rectangular_2d_grid_table",
+        "axis_order": [
+          "coupler_bias_v",
+          "drive_duration_ns"
+        ],
+        "signal": "excited_state_probability",
+        "plot_candidates": [
+          "heatmap"
+        ]
+      },
+      "selected_context_artifacts": [
+        {
+          "artifact_id": "fit-summary-05002",
+          "relation": "fit_summary",
+          "availability": "missing",
+          "source_relation": "not_available"
+        }
+      ]
+    }
+  ],
+  "snapshot_summaries": [
+    {
+      "snapshot_id": "param-state-0002",
+      "snapshot_family": "parameter_state",
+      "label": "qA default bias after first chevron review",
+      "readiness": "trusted_for_declared_scope"
+    },
+    {
+      "snapshot_id": "param-state-0003",
+      "snapshot_family": "parameter_state",
+      "label": "qA default bias after overnight retune",
+      "readiness": "trusted_for_declared_scope"
+    },
+    {
+      "snapshot_id": "setup-binding-0002",
+      "snapshot_family": "setup_binding",
+      "label": "qA default binding after bias-line move",
+      "readiness": "declared_binding"
+    },
+    {
+      "snapshot_id": "station-registry-mmcs2-redacted",
+      "snapshot_family": "station_registry",
+      "label": "redacted MMCS2 station registry",
+      "readiness": "redacted_context"
+    }
+  ],
+  "declared_facts": [
+    {
+      "fact_id": "mounted-sample-identity",
+      "label": "mounted sample identity",
+      "value": "sample-alpha",
+      "verification": "declared_not_software_verified"
+    },
+    {
+      "fact_id": "station-connection-detail",
+      "label": "station connection details",
+      "value": "redacted",
+      "verification": "redacted_for_public_fixture"
+    }
+  ],
+  "expected_finding_codes": [
+    "reference_not_known_good",
+    "same_observed_preview_shape",
+    "same_observed_setup_binding",
+    "changed_parameter_state",
+    "missing_current_fit_summary",
+    "unlinked_reference_analysis_note",
+    "unverified_mounted_sample_identity",
+    "redacted_station_connection_details",
+    "not_compared_scientific_equivalence"
+  ]
+}

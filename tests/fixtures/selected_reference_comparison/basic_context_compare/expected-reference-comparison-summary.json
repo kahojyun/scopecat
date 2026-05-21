@@ -1,0 +1,148 @@
+{
+  "summary_id": "selected-reference-basic-context-compare.expected",
+  "status": "expected_validation_output",
+  "source_fixture": "reference-comparison-input.json",
+  "reference_semantics": {
+    "status": "fixture_only",
+    "contract_guard": "This expected output is not a final comparison engine, equivalence score, known-good contract, setup truth contract, scientific-validity claim, or GUI design.",
+    "selected_reference": "The reference is user-selected comparison context. Known-good and scientific comparability are not claimed.",
+    "named_inputs": "The comparison reads named measurement inputs as context, but does not define a shared run-context framework.",
+    "finding_vocabulary": "Findings use specific labels instead of a generic gap category."
+  },
+  "candidate_summary": {
+    "comparison": {
+      "comparison_id": "reference-compare-0001",
+      "current_measurement_id": "measurement-05002",
+      "reference_measurement_id": "measurement-04001",
+      "reference_reason_label": "last_working_reference",
+      "known_good_claim": "not_claimed",
+      "scientific_comparability_claim": "not_claimed"
+    },
+    "measurement_pair": [
+      {
+        "side": "reference",
+        "measurement_id": "measurement-04001",
+        "experiment_label": "qA chevron check",
+        "sample_id": "sample-alpha",
+        "cooldown_id": "cooldown-2026-05",
+        "run_start_time": "2026-05-20T09:30:00"
+      },
+      {
+        "side": "current",
+        "measurement_id": "measurement-05002",
+        "experiment_label": "qA chevron check",
+        "sample_id": "sample-alpha",
+        "cooldown_id": "cooldown-2026-05",
+        "run_start_time": "2026-05-21T11:15:00"
+      }
+    ],
+    "input_comparison": [
+      {
+        "name": "parameter_state",
+        "reference_snapshot_id": "param-state-0002",
+        "current_snapshot_id": "param-state-0003",
+        "finding": "changed"
+      },
+      {
+        "name": "setup_binding",
+        "reference_snapshot_id": "setup-binding-0002",
+        "current_snapshot_id": "setup-binding-0002",
+        "finding": "same_observed"
+      },
+      {
+        "name": "station_registry",
+        "reference_snapshot_id": "station-registry-mmcs2-redacted",
+        "current_snapshot_id": "station-registry-mmcs2-redacted",
+        "finding": "same_observed_redacted"
+      }
+    ],
+    "preview_comparison": {
+      "finding": "same_observed",
+      "shape_kind": "rectangular_2d_grid_table",
+      "axis_order": [
+        "coupler_bias_v",
+        "drive_duration_ns"
+      ],
+      "signal": "excited_state_probability",
+      "plot_candidates": [
+        "heatmap"
+      ]
+    },
+    "findings": [
+      {
+        "code": "reference_not_known_good",
+        "kind": "not_compared",
+        "subject": "reference_selection",
+        "message": "Reference was selected as last-working context; this does not claim known-good status."
+      },
+      {
+        "code": "same_observed_preview_shape",
+        "kind": "same_observed",
+        "subject": "declared_preview_metadata",
+        "message": "Both measurements declare the same rectangular 2D heatmap preview shape."
+      },
+      {
+        "code": "same_observed_setup_binding",
+        "kind": "same_observed",
+        "subject": "setup_binding",
+        "message": "Both measurements reference setup-binding-0002."
+      },
+      {
+        "code": "changed_parameter_state",
+        "kind": "changed",
+        "subject": "parameter_state",
+        "message": "Reference used param-state-0002; current used param-state-0003."
+      },
+      {
+        "code": "missing_current_fit_summary",
+        "kind": "missing",
+        "subject": "fit_summary",
+        "message": "Current measurement has no linked fit summary in this fixture."
+      },
+      {
+        "code": "unlinked_reference_analysis_note",
+        "kind": "unlinked",
+        "subject": "analysis_note",
+        "message": "Reference-side analysis note exists but its source relation is uncertain."
+      },
+      {
+        "code": "unverified_mounted_sample_identity",
+        "kind": "unverified",
+        "subject": "mounted_sample_identity",
+        "message": "Mounted sample identity is declared but not verified from software evidence."
+      },
+      {
+        "code": "redacted_station_connection_details",
+        "kind": "redacted",
+        "subject": "station_connection_details",
+        "message": "Station connection details exist but are hidden in this public-safe fixture."
+      },
+      {
+        "code": "not_compared_scientific_equivalence",
+        "kind": "not_compared",
+        "subject": "scientific_equivalence",
+        "message": "The fixture does not compare fit quality, equivalence, raw waveforms, or hardware runtime state."
+      }
+    ],
+    "warnings": []
+  },
+  "boundary_notes": [
+    "Selected reference means user-chosen comparison context, not known-good proof.",
+    "Same observed setup binding and preview metadata can make comparison easier, but do not prove scientific comparability.",
+    "Changed parameter state is a finding, not an automatic explanation of data differences.",
+    "Unverified and redacted findings should remain distinct from missing data.",
+    "The fixture compares declared context only and does not inspect raw data, run code, hardware state, or fit quality."
+  ],
+  "decisions_not_earned": [
+    "comparison engine",
+    "known-good reference contract",
+    "scientific comparability",
+    "equivalence score",
+    "setup truth",
+    "automatic cause attribution",
+    "raw data comparison",
+    "fit quality comparison",
+    "shared run-context framework",
+    "GUI design"
+  ]
+}

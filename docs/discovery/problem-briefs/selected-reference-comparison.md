@@ -42,6 +42,9 @@ equivalence, goodness, or trust.
 - A useful first comparison output may be a comparison findings report against a
   selected reference, not a claim that the reference is known-good or that two
   setups are equivalent.
+- The first validated fixture should compare declared context around a current
+  measurement and selected reference: named input snapshots, declared preview
+  metadata, selected artifacts, and redaction/verification state.
 - Comparison findings should distinguish changed, missing, unverified,
   redacted, unlinked, same-observed, and not-compared facts instead of using
   "gap" as a catch-all.

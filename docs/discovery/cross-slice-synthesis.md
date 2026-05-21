@@ -22,6 +22,7 @@ executor design, relation graph, or warning taxonomy.
 - [`problem-briefs/setup-binding.md`](problem-briefs/setup-binding.md)
 - [`setup-binding-validation-plan.md`](setup-binding-validation-plan.md)
 - [`setup-binding-validation-result.md`](setup-binding-validation-result.md)
+- [`selected-reference-comparison-validation-result.md`](selected-reference-comparison-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
 - [`adoption-hypotheses.md`](adoption-hypotheses.md)
 
@@ -79,6 +80,14 @@ grid table, and sidecar-declared weak-table pressure. Harder shapes such as
 ragged scans, trace-per-point data, and array-valued responses remain known
 risks, not current requirements.
 
+Selected reference comparison has fixture-level validation for comparing a
+current measurement against a user-selected reference without treating the
+reference as known-good or proving scientific comparability. It reuses selected
+measurement IDs, declared preview metadata, named input snapshots, parameter
+state references, setup-binding references, selected artifacts, and precise
+finding vocabulary. It has not earned a comparison engine, equivalence score,
+fit-quality comparison, raw-data comparison, setup truth, or GUI design.
+
 ## Recurring Candidate Concepts
 
 These concepts recur across more than one slice and are becoming useful
@@ -101,6 +110,8 @@ schema.
 | Setup binding | Parameter state, selected reference, future measurement reference pressure | The sample/cooldown/session-specific mapping from logical experiment entities to physical wiring, channels, instruments, generated line/readout state, and selected registry context. |
 | Named input snapshot | Parameter state, setup binding, measurement reference pressure | A measurement run-start context entry that references a specific snapshot family by name, such as parameter state, setup binding, or station registry, without making those families share lifecycle or diff semantics. |
 | Outer envelope with opaque payload | Setup binding, export, external-file pressure | A Scopecat-owned record boundary around identity, provenance, references, declared summaries, and attention state while leaving user/project-defined internal payloads opaque until a later slice earns deeper interpretation. |
+| Selected reference | Selected reference comparison, export, parameter state, setup binding | A user-chosen comparison anchor, such as last-working, best-observed, known-good, or simply relevant. Known-good is a narrower trust-qualified subtype, not the default meaning. |
+| Comparison finding | Selected reference comparison, export, running inspection | A precise context-comparison result such as changed, missing, unverified, redacted, unlinked, same-observed, or not-compared. It is not automatic cause attribution. |
 
 ## Stable Separations
 
@@ -148,6 +159,10 @@ Several separations now appear repeatedly enough to keep carrying forward:
 - User/project-defined inner payloads can remain opaque by default. Scopecat
   can still own the outer envelope and declared summary fields needed for
   review, export, and measurement context.
+- Selected references are explicit user-chosen anchors, not automatically
+  known-good runs. Same-observed setup context, matching preview metadata, and
+  changed parameter state are comparison findings, not scientific equivalence
+  or cause attribution.
 
 ## Design Pressure
 
@@ -202,6 +217,8 @@ The cross-slice comparison still does not earn:
   configuration model;
 - shared input-snapshot or run-context framework;
 - deep interpretation of user/project-defined setup-binding payloads;
+- selected-reference comparison engine, known-good contract, equivalence
+  score, raw-data comparison, or automatic cause attribution;
 - fit quality, uncertainty, reproducibility, or scientific-validity claims.
 
 ## Recommended Next Step
