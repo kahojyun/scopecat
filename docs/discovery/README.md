@@ -87,6 +87,7 @@ product contracts too early.
 | [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md) | Direction for messy external-folder import, Scopecat-managed captured versions, named entrypoints, and workflow/DAG deferral. |
 | [`experiment-code-selection-validation-plan.md`](experiment-code-selection-validation-plan.md) | First fixture-validation boundary for selected code context and captured-version candidates. |
 | [`experiment-code-selection-validation-result.md`](experiment-code-selection-validation-result.md) | Result of the first selected-code context fixture. |
+| [`experiment-code-selection-next-boundary.md`](experiment-code-selection-next-boundary.md) | What the code-selection slice has earned, what remains deferred, and what should trigger managed-workspace or environment-restore validation. |
 
 ## Promotion Discipline
 

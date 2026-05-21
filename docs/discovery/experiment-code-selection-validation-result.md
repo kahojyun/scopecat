@@ -106,8 +106,9 @@ not earn a shared run-context, step-context, or snapshot framework.
 ## Current Recommendation
 
 Use this fixture as the first boundary for experiment-code selection. The next
-implementation-shaped step, if needed, should be a pure summary candidate that
-turns selected code context into expected review output. Do not design managed
-workspace storage, Git replacement, internal Git analysis, record-all file
-tracking, environment management, execution, or workflow/DAG contracts until
-another slice creates concrete implementation pressure.
+implementation-shaped step should follow
+[`experiment-code-selection-next-boundary.md`](experiment-code-selection-next-boundary.md):
+do not design managed workspace storage, Git replacement, internal Git
+analysis, record-all file tracking, environment management, execution, or
+workflow/DAG contracts until another slice creates concrete implementation
+pressure.
