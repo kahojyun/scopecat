@@ -81,7 +81,7 @@ The review process removed several category errors:
 - warning output is reserved for degraded, missing, uncertain, or risky states;
 - normal source transform policy, visible-excluded include status, and
   non-recursive traversal policy are summary state rather than warnings;
-- scientific-validation and analysis-lineage disclaimers are reviewer boundary
+- user/domain conclusion and analysis-lineage disclaimers are reviewer boundary
   notes rather than product summary warnings.
 
 ## Still Not Earned

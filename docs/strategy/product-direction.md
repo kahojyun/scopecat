@@ -97,7 +97,7 @@ Export/import should eventually support quick measurement preview on both
 sides: export preview helps choose which measurements to package, while import
 preview helps confirm what is being accepted or organized. This is an
 orientation and trust boundary, not a commitment to rendered plots, report
-generation, or scientific validation in the first slice.
+generation, or user/domain conclusions in the first slice.
 
 Recording should be explicit. Experiment code, helper libraries, or lab-owned
 bridges should deliberately send data, sweep semantics, lifecycle/status

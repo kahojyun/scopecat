@@ -55,7 +55,6 @@ publication-grade plots or user interpretation.
 
 | Kind | Code | Subject |
 | --- | --- | --- |
-| same observed | `reference_mark_user_context` | reference selection |
 | same observed | `same_observed_preview_shape` | declared preview metadata |
 | same observed | `same_observed_setup_binding` | setup binding |
 | changed | `changed_parameter_state` | parameter state |
@@ -65,6 +64,16 @@ publication-grade plots or user interpretation.
 | redacted | `redacted_station_connection_details` | station connection details |
 
 These labels avoid using `gap` as a catch-all.
+
+### Not Compared
+
+- fit quality
+- user interpretation
+- raw waveforms
+- hardware runtime state
+- experiment code/version
+
+These are explicit fixture boundaries, not missing facts.
 
 ## Boundary Notes
 

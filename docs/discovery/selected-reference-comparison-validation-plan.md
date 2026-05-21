@@ -92,7 +92,7 @@ Expected review output should let a reviewer answer:
 - whether compatible preview metadata could support quick browsing or overlay;
 - what is missing, unlinked, unverified, redacted, same-observed, changed, or
   not compared;
-- that findings are context comparison results, not cause attribution.
+- that findings are context comparison results, not cause attribution;
 - that interpretation belongs to users or user-provided analysis code.
 
 ## Out Of Scope

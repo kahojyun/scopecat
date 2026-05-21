@@ -75,7 +75,7 @@ The first export/review output should show:
 - preview-unavailable or preview-incomplete warnings when declared metadata is
   missing;
 - reviewer boundary notes that preview is not rendered plotting, analysis
-  lineage, or scientific validation.
+  lineage, fit/uncertainty assessment, or user/domain conclusions.
 
 The output may include plot-candidate metadata, but should not include rendered
 plots as part of this slice.

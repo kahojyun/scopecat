@@ -28,7 +28,8 @@
       "fit_quality",
       "user_interpretation",
       "raw_waveforms",
-      "hardware_runtime_state"
+      "hardware_runtime_state",
+      "experiment_code_version"
     ]
   },
   "measurements": [
@@ -172,7 +173,6 @@
     }
   ],
   "expected_finding_codes": [
-    "reference_mark_user_context",
     "same_observed_preview_shape",
     "same_observed_setup_binding",
     "changed_parameter_state",

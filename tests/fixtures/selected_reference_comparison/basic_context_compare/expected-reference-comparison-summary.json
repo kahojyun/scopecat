@@ -18,6 +18,13 @@
       "reference_selection_source": "user_measurement_mark",
       "reference_mark_label": "last_working_reference"
     },
+    "not_compared_scope": [
+      "fit_quality",
+      "user_interpretation",
+      "raw_waveforms",
+      "hardware_runtime_state",
+      "experiment_code_version"
+    ],
     "measurement_pair": [
       {
         "side": "reference",
@@ -70,12 +77,6 @@
       "future_preview_use": "quick_multi_measurement_browsing"
     },
     "findings": [
-      {
-        "code": "reference_mark_user_context",
-        "kind": "same_observed",
-        "subject": "reference_selection",
-        "message": "Reference came from a user measurement mark; Scopecat treats the mark as selection context."
-      },
       {
         "code": "same_observed_preview_shape",
         "kind": "same_observed",
@@ -137,6 +138,7 @@
     "raw data comparison",
     "fit quality comparison",
     "user-provided analysis conclusion model",
+    "experiment-code or code-version comparison",
     "shared run-context framework",
     "GUI design"
   ]

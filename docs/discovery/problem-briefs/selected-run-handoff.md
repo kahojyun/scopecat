@@ -56,8 +56,8 @@ analysis workspace.
   the exporting user previews measurements before choosing what to export, and
   the importing user previews measurements before accepting or organizing the
   imported package. This preview is for orientation, selection, and confirmation;
-  it is not scientific validation, report generation, or a requirement to bundle
-  rendered plots.
+  it is not user/domain conclusion support, report generation, or a requirement
+  to bundle rendered plots.
 
 ## Derived Hypotheses
 
@@ -75,7 +75,7 @@ analysis workspace.
   understand what could be shown in a group-meeting figure: experiment label,
   target, measured columns, units, relevant setup or parameter context, and
   candidate plot axes, while still marking missing fit results, calibration
-  notes, uncertainty, or scientific validation.
+  notes, uncertainty, or user/domain interpretation.
 - Early preview should prefer declared measurement roles over inferred schema:
   validate declared column names against source headers first, carry roles and
   units as declared metadata, and treat semantic validation, inference, and

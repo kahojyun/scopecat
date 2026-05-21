@@ -24,7 +24,7 @@ The fixture validates a first selected-reference comparison boundary:
   overlay of compatible measurements without committing to publication-grade
   plotting;
 - missing, unlinked, unverified, redacted, changed, same-observed, and
-  not-compared findings can stay distinct;
+  not-compared scope can stay distinct;
 - the report can avoid using `gap` as a catch-all.
 
 It intentionally does not include experiment code/version context. That is a
@@ -43,7 +43,7 @@ what changed and what is unavailable. It does not:
 - inspect raw waveforms;
 - compare fit quality;
 - prove physical setup truth;
-- interpret user-provided analysis conclusions.
+- interpret user-provided analysis conclusions;
 - compare experiment code or code versions.
 
 The reference-selection model can start from ordinary measurement marks. A
