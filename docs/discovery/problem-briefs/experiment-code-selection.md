@@ -60,6 +60,15 @@ package manager, or general managed execution platform.
 - Generated artifacts are useful context when they were actually selected or
   observed, but Scopecat should not infer a complete transformation pipeline
   from arbitrary user Python.
+- Long term, Scopecat should manage experiment-code workspaces with Git-like
+  versioning hidden behind lab-native actions such as save version, restore
+  version, compare changes, mark useful, and use this version for a
+  measurement. Users should not need to learn Git operations before Scopecat
+  can manage code versions.
+- Workflow or DAG structure may later help stable calibration routines, but it
+  should not be the first code-versioning boundary. Start with whole selected
+  workspace or selected root plus named entrypoints; promote repeated stable
+  entrypoints into workflow steps only after their inputs and outputs are clear.
 
 ## Derived Hypotheses
 
@@ -78,6 +87,9 @@ package manager, or general managed execution platform.
 - Generated code-derived companions should be recorded as observed or selected
   artifacts with source/generator references, not recomputed automatically as
   part of the selected-code boundary.
+- A first selected-code fixture should model the transition from messy external
+  folder to selected code context to captured-version candidate, without
+  deciding the final managed workspace store.
 
 ## Out Of Scope For This Brief
 
@@ -90,6 +102,7 @@ package manager, or general managed execution platform.
   regenerating derived artifacts, or validating physical hardware state.
 - Deep static dependency closure through arbitrary Python, notebook output,
   execution counts, or local service state.
+- Required workflow/DAG structure or independently versioned function nodes.
 
 ## Possible Validation Questions
 

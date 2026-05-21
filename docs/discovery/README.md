@@ -20,6 +20,7 @@ product contracts too early.
 | [`cross-slice-synthesis.md`](cross-slice-synthesis.md) | See recurring candidate concepts across validated slices. |
 | [`shared-model-extraction-deferral.md`](shared-model-extraction-deferral.md) | Understand why shared domain models are intentionally deferred. |
 | [`external-file-reference-policy.md`](external-file-reference-policy.md) | Candidate policy vocabulary for external files, latest state, observed file state, and non-backup boundaries. |
+| [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md) | Product posture for Git-like managed experiment-code versions without requiring users to operate Git. |
 
 ## Validation Slices
 
@@ -78,14 +79,14 @@ product contracts too early.
 | [`selected-reference-comparison-validation-plan.md`](selected-reference-comparison-validation-plan.md) | First fixture-validation boundary for selected-reference context comparison. |
 | [`selected-reference-comparison-validation-result.md`](selected-reference-comparison-validation-result.md) | Result of the first selected-reference comparison fixture. |
 
-## Other Problem Briefs
+### Experiment Code Selection
 
-These briefs are framed but do not yet have the same level of validation
-artifacts in this branch:
-
-| Brief | Use For |
+| Document | Use For |
 | --- | --- |
 | [`problem-briefs/experiment-code-selection.md`](problem-briefs/experiment-code-selection.md) | Copied folders, entrypoint/helper ambiguity, selected code context, environment readiness, and code-version selection. |
+| [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md) | Direction for messy external-folder import, Scopecat-managed captured versions, named entrypoints, and workflow/DAG deferral. |
+| [`experiment-code-selection-validation-plan.md`](experiment-code-selection-validation-plan.md) | First fixture-validation boundary for selected code context and captured-version candidates. |
+| [`experiment-code-selection-validation-result.md`](experiment-code-selection-validation-result.md) | Result of the first selected-code context fixture. |
 
 ## Promotion Discipline
 

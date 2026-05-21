@@ -88,6 +88,15 @@ records, context, lifecycle events, selected code references, parameter
 snapshots, declared parameter-write records, generated artifacts, selected
 references, analysis choices, quality notes, annotations, and handoff packages.
 
+Scopecat may eventually manage experiment-code workspaces with Git-like
+versioning hidden behind lab-native actions such as save version, restore
+version, compare changes, mark useful, and use this version for a measurement.
+That future path should serve experiment workflow needs rather than teach users
+Git. It should start from selected code context and captured-version
+candidates, while keeping package management, sync, merge semantics,
+environment ownership, execution, and workflow/DAG contracts behind narrower
+validation and decision records.
+
 Cross-machine value should start from portable records, explicit export/import,
 handoff packages, existing shared-storage discovery or references, and
 openability checks. This makes Scopecat record-aware across machines, not a

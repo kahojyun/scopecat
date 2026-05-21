@@ -1,0 +1,187 @@
+{
+  "fixture_id": "experiment-code-selection-messy-external-capture",
+  "fixture_status": "synthetic_public_safe",
+  "fixture_layer": "experiment_code_selection_fixture",
+  "user_job": "Select the experiment code context that should be restored, handed off, or used for a calibration step without requiring the user to operate Git.",
+  "source_research_notes": [
+    "<sample>/_research/experiment-code-selection-sample-review-2026-05-21.md"
+  ],
+  "external_code_roots": [
+    {
+      "root_id": "external-code-root-braid-redacted",
+      "root_label": "redacted braid experiment folder",
+      "mode": "external_folder_import",
+      "authority": "user_selected_external_folder",
+      "git_observation": {
+        "git_present": true,
+        "branch": "sample-branch-redacted",
+        "commit_id": "git-commit-observed-redacted",
+        "working_tree_state": "dirty",
+        "untracked_count": 7,
+        "modified_count": 12,
+        "deleted_count": 2,
+        "authority": "observed_version_evidence_not_product_authority"
+      },
+      "nested_repository_observations": [
+        {
+          "path": "mqplot",
+          "git_present": true,
+          "working_tree_state": "dirty",
+          "selection_status": "included_helper_with_version_warning"
+        }
+      ]
+    }
+  ],
+  "selected_code_contexts": [
+    {
+      "context_id": "code-context-readout-cali-0001",
+      "external_root_id": "external-code-root-braid-redacted",
+      "context_role": "calibration_entrypoint_context",
+      "entrypoint": {
+        "path": "Braid_cali_new.ipynb",
+        "kind": "notebook",
+        "selected_cell_range": "declared_by_user_not_parsed",
+        "execution_claim": "not_executed_by_fixture"
+      },
+      "included_helper_roots": [
+        {
+          "path": "my_scripts",
+          "role": "experiment_helpers"
+        },
+        {
+          "path": "GateBased_PG",
+          "role": "pulse_and_gate_helpers"
+        },
+        {
+          "path": "mqplot",
+          "role": "plotting_and_analysis_helpers",
+          "nested_repository_state": "dirty"
+        }
+      ],
+      "classified_paths": [
+        {
+          "path": ".ipynb_checkpoints/Braid_cali_new-checkpoint.ipynb",
+          "classification": "checkpoint",
+          "selection_status": "excluded_by_policy"
+        },
+        {
+          "path": "cali_new(backup).ipynb",
+          "classification": "backup_variant",
+          "selection_status": "visible_ambiguity_not_selected"
+        },
+        {
+          "path": "__pycache__/xw_h.cpython-redacted.pyc",
+          "classification": "cache",
+          "selection_status": "excluded_by_policy"
+        }
+      ],
+      "config_references": [
+        {
+          "path": "my_scripts/config.py",
+          "role": "import_time_setting_and_data_root_config",
+          "path_redaction": "contains_local_paths_redacted"
+        }
+      ],
+      "generated_companions": [
+        {
+          "artifact_id": "generated-line-info-0001",
+          "path": "setting/temp/line_info.json",
+          "artifact_kind": "generated_runtime_view",
+          "source_relation": "generated_from_parameter_and_binding_context",
+          "selection_status": "linked_observed_companion",
+          "regeneration_claim": "not_regenerated_by_fixture"
+        },
+        {
+          "artifact_id": "generated-circuit-json-0001",
+          "path": "my_scripts/generated_circuit_H.json",
+          "artifact_kind": "generated_circuit_description",
+          "source_relation": "generated_by_project_code",
+          "selection_status": "visible_optional_companion",
+          "regeneration_claim": "not_regenerated_by_fixture"
+        }
+      ],
+      "environment_hints": [
+        {
+          "hint_kind": "python_environment",
+          "value": "conda-lab-redacted",
+          "authority": "runbook_or_local_config_observed"
+        },
+        {
+          "hint_kind": "local_service",
+          "value": "labrad_data_vault",
+          "authority": "import_or_runbook_observed"
+        },
+        {
+          "hint_kind": "hardware_stack",
+          "value": "mmcs_or_visa_style_driver_stack",
+          "authority": "import_observed"
+        }
+      ],
+      "mutation_capability": {
+        "classification": "hardware_active_and_parameter_mutating",
+        "basis": [
+          "selected notebook imports experiment header and runner helpers",
+          "helper modules can read or write parameter files",
+          "driver helpers can initialize or clear hardware resources"
+        ],
+        "execution_permission": "not_granted_by_selection_record"
+      }
+    }
+  ],
+  "calibration_steps": [
+    {
+      "step_id": "calibration-step-readout-0001",
+      "step_label": "readout calibration check",
+      "inputs": [
+        {
+          "name": "code_context",
+          "snapshot_id": "code-context-readout-cali-0001",
+          "role": "selected_entrypoint_and_helper_scope"
+        },
+        {
+          "name": "parameter_state",
+          "snapshot_id": "param-state-0002",
+          "role": "selected_calibration_values"
+        },
+        {
+          "name": "setup_binding",
+          "snapshot_id": "setup-binding-0002",
+          "role": "logical_to_physical_mapping"
+        }
+      ]
+    }
+  ],
+  "captured_version_candidates": [
+    {
+      "candidate_id": "code-version-candidate-0001",
+      "source_context_id": "code-context-readout-cali-0001",
+      "candidate_status": "candidate_not_committed_contract",
+      "capture_scope": {
+        "root_id": "external-code-root-braid-redacted",
+        "entrypoint_path": "Braid_cali_new.ipynb",
+        "included_helper_roots": [
+          "my_scripts",
+          "GateBased_PG",
+          "mqplot"
+        ],
+        "excluded_classifications": [
+          "checkpoint",
+          "cache"
+        ],
+        "visible_not_selected_classifications": [
+          "backup_variant"
+        ]
+      },
+      "materialization_intent": "future_scopecat_managed_workspace",
+      "storage_claim": "not_decided_by_fixture"
+    }
+  ],
+  "attention_expected": [
+    "dirty_git_observed",
+    "nested_repository_dirty",
+    "backup_variant_visible",
+    "local_path_redaction_needed",
+    "hardware_active_code_selected",
+    "generated_companion_not_regenerated"
+  ]
+}
