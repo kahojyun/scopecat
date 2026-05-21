@@ -71,7 +71,8 @@ Future export/import UX should be able to use the same declared metadata for
 quick preview in both directions: exporters preview candidate measurements
 before selecting a package, and importers preview incoming measurements before
 accepting or organizing them. That expectation does not make rendered plots,
-GUI design, report generation, or scientific validation part of this spike.
+GUI design, report generation, or user/domain scientific conclusions part of
+this spike.
 
 ## Not Earned
 
@@ -90,7 +91,8 @@ These spikes do not earn:
 - plotting or rendered preview output;
 - 2D scans, ragged scans, traces, complex arrays, NPZ/HDF5, or backend readers;
 - report generation or reanalysis;
-- fit quality, uncertainty, scientific validity, or reproducibility claims.
+- fit quality, uncertainty, user/domain scientific conclusions, or
+  reproducibility claims.
 
 ## Validation Result
 

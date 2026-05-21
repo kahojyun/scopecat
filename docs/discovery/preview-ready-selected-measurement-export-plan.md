@@ -149,7 +149,8 @@ summary and Markdown review exactly against the expected fixture outputs.
 - selected source data is marked against silent compression, conversion,
   filtering, or replacement by derived copies;
 - reviewer notes say what is not validated: rendered plot, fit quality,
-  uncertainty, scientific validity, reproducibility, and full analysis lineage.
+  uncertainty, user/domain scientific conclusions, reproducibility, and full
+  analysis lineage.
 
 ## Fixture Pressure Coverage
 

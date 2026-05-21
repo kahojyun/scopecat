@@ -4,10 +4,10 @@
   "source_fixture": "reference-comparison-input.json",
   "reference_semantics": {
     "status": "fixture_only",
-    "contract_guard": "This expected output is not a final comparison engine, equivalence score, known-good contract, setup truth contract, scientific-validity claim, or GUI design.",
-    "selected_reference": "The reference is selected through ordinary user measurement marks. Mark labels such as last-working or known-good are user-provided context, not special Scopecat proof.",
+    "contract_guard": "This expected output is not a final comparison engine, user-judgment engine, setup truth contract, raw-data comparison contract, or GUI design.",
+    "selected_reference": "The reference is selected through ordinary user measurement marks. Mark labels such as last-working or notable are user-provided context, not special Scopecat semantics.",
     "named_inputs": "The comparison reads named measurement inputs as context, but does not define a shared run-context framework.",
-    "preview": "Matching declared preview metadata may later support quick multi-measurement browsing or overlay, not publication-grade plotting.",
+    "preview": "Matching declared preview metadata may later support quick multi-measurement browsing or overlay, not publication-grade plotting or user interpretation.",
     "finding_vocabulary": "Findings use specific labels instead of a generic gap category."
   },
   "candidate_summary": {
@@ -16,9 +16,7 @@
       "current_measurement_id": "measurement-05002",
       "reference_measurement_id": "measurement-04001",
       "reference_selection_source": "user_measurement_mark",
-      "reference_mark_label": "last_working_reference",
-      "known_good_claim": "not_claimed",
-      "scientific_comparability_claim": "not_claimed"
+      "reference_mark_label": "last_working_reference"
     },
     "measurement_pair": [
       {
@@ -73,10 +71,10 @@
     },
     "findings": [
       {
-        "code": "reference_mark_not_known_good_claim",
-        "kind": "not_compared",
+        "code": "reference_mark_user_context",
+        "kind": "same_observed",
         "subject": "reference_selection",
-        "message": "Reference came from a user measurement mark; the mark does not make a Scopecat known-good claim."
+        "message": "Reference came from a user measurement mark; Scopecat treats the mark as selection context."
       },
       {
         "code": "same_observed_preview_shape",
@@ -119,33 +117,26 @@
         "kind": "redacted",
         "subject": "station_connection_details",
         "message": "Station connection details exist but are hidden in this public-safe fixture."
-      },
-      {
-        "code": "not_compared_scientific_equivalence",
-        "kind": "not_compared",
-        "subject": "scientific_equivalence",
-        "message": "The fixture does not compare fit quality, equivalence, raw waveforms, or hardware runtime state."
       }
     ],
     "warnings": []
   },
   "boundary_notes": [
     "Selected reference means user-chosen comparison context, usually from ordinary measurement marks or labels.",
-    "Mark labels such as last-working or known-good are user context; Scopecat does not need special reference handling to compare them.",
-    "Matching preview metadata can support quick browsing or overlay of compatible measurements, but not publication-grade plotting or scientific comparability.",
+    "Mark labels are user context; Scopecat does not need special reference handling to compare marked records.",
+    "Matching preview metadata can support quick browsing or overlay of compatible measurements, but not publication-grade plotting or user interpretation.",
     "Changed parameter state is an objective comparison finding.",
     "Unverified and redacted findings should remain distinct from missing data.",
-    "The fixture compares declared context only and does not inspect raw data, run code, hardware state, or fit quality."
+    "The fixture compares declared context only and does not inspect raw data, run code, hardware state, fit quality, or user-provided analysis conclusions."
   ],
   "decisions_not_earned": [
     "comparison engine",
-    "known-good reference contract",
-    "scientific comparability",
-    "equivalence score",
+    "user-judgment engine",
     "setup truth",
     "automatic cause attribution",
     "raw data comparison",
     "fit quality comparison",
+    "user-provided analysis conclusion model",
     "shared run-context framework",
     "GUI design"
   ]

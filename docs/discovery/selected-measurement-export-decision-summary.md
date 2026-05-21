@@ -47,7 +47,7 @@ That means:
   blocking export of otherwise valid selected measurements;
 - preview readiness supports future export selection and import confirmation;
 - preview does not mean rendered plots, report generation, fit validation,
-  uncertainty, reproducibility, or scientific validity.
+  uncertainty, reproducibility, or user/domain scientific conclusions.
 
 ## Why This Is Enough For A Next Slice
 
@@ -81,8 +81,8 @@ The current fixtures and spikes cover the main product boundary:
 - Rendered plot preview, interactive slicing, or plotting dependency choice.
 - Ragged/adaptive scans, trace-per-point data, array-valued responses, or
   backend-specific binary containers.
-- Unit semantic validation, fit quality, uncertainty, scientific validity, or
-  reproducibility.
+- Unit semantic validation, fit quality, uncertainty, user/domain scientific
+  conclusions, or reproducibility.
 
 ## Later Questions
 

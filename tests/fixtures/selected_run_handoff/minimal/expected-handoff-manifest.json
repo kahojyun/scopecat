@@ -107,7 +107,7 @@
       "fit result",
       "uncertainty estimate"
     ],
-    "boundary_note": "Enough to draft a figure candidate, not enough to claim scientific validity."
+    "boundary_note": "Enough to draft a figure candidate, not enough for user/domain conclusions."
   },
   "warnings": [
     {
@@ -124,7 +124,7 @@
     {
       "code": "figure_readiness_partial",
       "subject": "legacy_data_id:42",
-      "message": "The handoff includes experiment label, measured columns, context, and plot candidates, but calibration notes, fit results, uncertainty, and scientific selection rationale are missing."
+      "message": "The handoff includes experiment label, measured columns, context, and plot candidates, but calibration notes, fit results, uncertainty, and user selection rationale are missing."
     }
   ],
   "boundary_notes": [
@@ -132,7 +132,7 @@
     "The handoff preserves where the selected data was exported from using a public-safe source reference.",
     "Source data, copied parameter context, companion artifact, and derived artifact are represented as different kinds of handoff material.",
     "Derived artifact relations are linked by fixture declaration; this fixture does not recompute analysis.",
-    "Selection indicates handoff intent only, not run quality, reference goodness, or reproducibility."
+    "Selection indicates handoff intent only, not run quality or reproducibility."
   ],
   "openability_summary": {
     "present": [
@@ -154,7 +154,7 @@
     "central storage or sync",
     "report generation",
     "complete reanalysis",
-    "scientific validity or reproducibility",
+    "user/domain conclusions or reproducibility",
     "related-but-not-exported run context"
   ]
 }

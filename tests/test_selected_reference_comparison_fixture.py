@@ -27,7 +27,7 @@ class SelectedReferenceComparisonFixtureTest(unittest.TestCase):
             with self.subTest(path=path):
                 json.loads(path.read_text(encoding="utf-8"))
 
-    def test_reference_is_selected_context_not_known_good(self) -> None:
+    def test_reference_mark_is_selection_context(self) -> None:
         source = _input_fixture()
         summary = _expected_summary()["candidate_summary"]
         selection = source["comparison_request"]["reference_selection"]
@@ -38,8 +38,6 @@ class SelectedReferenceComparisonFixtureTest(unittest.TestCase):
             comparison["reference_selection_source"],
         )
         self.assertEqual(selection["mark_label"], comparison["reference_mark_label"])
-        self.assertEqual(comparison["known_good_claim"], "not_claimed")
-        self.assertEqual(comparison["scientific_comparability_claim"], "not_claimed")
         self.assertIn("ordinary measurement marks", _expected_summary()["boundary_notes"][0])
 
     def test_named_input_comparison_keeps_context_families_separate(self) -> None:
@@ -59,7 +57,7 @@ class SelectedReferenceComparisonFixtureTest(unittest.TestCase):
             "param-state-0003",
         )
 
-    def test_declared_preview_metadata_matches_for_inspection_not_equivalence(self) -> None:
+    def test_declared_preview_metadata_matches_for_quick_browsing(self) -> None:
         source = _input_fixture()
         summary = _expected_summary()["candidate_summary"]
         preview = summary["preview_comparison"]
@@ -72,7 +70,7 @@ class SelectedReferenceComparisonFixtureTest(unittest.TestCase):
             measurements["current"]["declared_preview_metadata"],
         )
         self.assertEqual(preview["axis_order"], ["coupler_bias_v", "drive_duration_ns"])
-        self.assertIn("publication-grade plotting", _expected_summary()["boundary_notes"][2])
+        self.assertIn("user interpretation", _expected_summary()["boundary_notes"][2])
 
     def test_findings_use_precise_vocabulary_not_gap(self) -> None:
         source = _input_fixture()
@@ -85,7 +83,6 @@ class SelectedReferenceComparisonFixtureTest(unittest.TestCase):
             {
                 "changed",
                 "missing",
-                "not_compared",
                 "redacted",
                 "same_observed",
                 "unlinked",
@@ -103,16 +100,16 @@ class SelectedReferenceComparisonFixtureTest(unittest.TestCase):
         self.assertEqual(findings["unverified_mounted_sample_identity"]["kind"], "unverified")
         self.assertEqual(findings["unlinked_reference_analysis_note"]["kind"], "unlinked")
 
-    def test_scientific_equivalence_is_not_compared(self) -> None:
+    def test_user_interpretation_is_outside_comparison_fixture(self) -> None:
         summary = _expected_summary()
         candidate = summary["candidate_summary"]
-        finding = {item["code"]: item for item in candidate["findings"]}[
-            "not_compared_scientific_equivalence"
-        ]
 
-        self.assertEqual(finding["kind"], "not_compared")
-        self.assertIn("scientific comparability", summary["decisions_not_earned"])
+        self.assertIn("user-judgment engine", summary["decisions_not_earned"])
         self.assertIn("fit quality comparison", summary["decisions_not_earned"])
+        self.assertIn(
+            "user-provided analysis conclusion model",
+            summary["decisions_not_earned"],
+        )
         self.assertEqual(candidate["warnings"], [])
 
     def test_review_markdown_states_fixture_boundary(self) -> None:
@@ -120,6 +117,7 @@ class SelectedReferenceComparisonFixtureTest(unittest.TestCase):
 
         self.assertIn("Selected Reference", review)
         self.assertIn("ordinary measurement mark", review)
+        self.assertIn("not a special", review)
         self.assertIn("Named Input Comparison", review)
         self.assertIn("changed parameter state", review)
         self.assertIn("same_observed_setup_binding", review)

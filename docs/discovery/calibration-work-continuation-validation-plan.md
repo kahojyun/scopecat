@@ -184,7 +184,7 @@ Do not include these in the first slice:
 - Scopecat-decided parameter write-back;
 - rollback semantics;
 - universal parameter schema;
-- final fit-quality or scientific-validity model;
+- final fit-quality or user/domain scientific conclusion model;
 - GUI implementation;
 - durable package/export/import behavior;
 - final runner API.

@@ -13,14 +13,13 @@ the boundary remains intentionally narrow.
 
 The fixture validates a first selected-reference comparison boundary:
 
-- a reference can be user-selected without being treated as known-good;
+- a reference can be user-selected through an ordinary mark;
 - user marks can supply reference labels such as last-working without special
   Scopecat reference semantics;
 - current and reference measurements can be paired by explicit IDs;
 - named input snapshots can be compared as context;
 - setup binding can be same-observed while parameter state changes;
-- matching declared preview metadata can be shown without proving scientific
-  comparability;
+- matching declared preview metadata can be shown as objective context;
 - matching declared preview metadata can pressure future quick browsing or
   overlay of compatible measurements without committing to publication-grade
   plotting;
@@ -31,21 +30,20 @@ The fixture validates a first selected-reference comparison boundary:
 ## Boundary Confirmed
 
 Selected-reference comparison is a context comparison report. It is not a
-scientific-validity claim.
+user-judgment engine.
 
 The useful first output is a compact findings summary that helps a reviewer see
 what changed and what is unavailable. It does not:
 
-- prove the reference is good;
 - explain why data changed;
 - inspect raw waveforms;
 - compare fit quality;
 - prove physical setup truth;
-- score scientific equivalence.
+- interpret user-provided analysis conclusions.
 
 The reference-selection model can start from ordinary measurement marks. A
-user may mark a run as last-working, known-good, best-observed, or simply
-relevant, and selected-reference comparison can compare against that marked run
+user may mark a run as last-working, notable, best-observed, or simply
+relevant. Selected-reference comparison can compare against that marked run
 without Scopecat needing special semantics for each label.
 
 ## Relationship To Prior Slices
@@ -65,11 +63,12 @@ not earn a shared run-context framework.
 
 - the finding vocabulary may need more examples before it becomes a product
   warning taxonomy;
-- known-good references may need a separate trust-qualified subtype later;
 - reference selection UX is still undecided;
 - quick plot preview comparison is future GUI pressure, not a plotting-quality
   contract;
 - raw-data and fit-quality comparison remain separate future slices;
+- user scripts or humans may still make higher-level judgments from Scopecat
+  records, but that is outside this fixture;
 - recipient-aware redaction remains broader than this fixture.
 
 ## Current Recommendation

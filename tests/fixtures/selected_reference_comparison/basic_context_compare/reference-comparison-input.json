@@ -2,7 +2,7 @@
   "fixture_id": "selected-reference-basic-context-compare",
   "fixture_status": "synthetic_public_safe",
   "fixture_layer": "selected_reference_comparison_fixture",
-  "user_job": "Compare a current measurement against a user-selected reference and see changed, same-observed, missing, redacted, unverified, unlinked, and not-compared context without claiming the reference is known-good or scientifically comparable.",
+  "user_job": "Compare a current measurement against a user-selected reference and see changed, same-observed, missing, redacted, unverified, unlinked, and not-compared recorded context while leaving interpretation to users or user-provided analysis code.",
   "source_problem_briefs": [
     "docs/discovery/problem-briefs/selected-reference-comparison.md",
     "docs/discovery/problem-briefs/parameter-state-management.md",
@@ -15,9 +15,7 @@
     "reference_selection": {
       "selected_by": "experimenter",
       "selection_source": "user_measurement_mark",
-      "mark_label": "last_working_reference",
-      "known_good_claim": "not_claimed",
-      "scientific_comparability_claim": "not_claimed"
+      "mark_label": "last_working_reference"
     },
     "comparison_scope": [
       "measurement_identity",
@@ -28,7 +26,7 @@
     ],
     "not_compared_scope": [
       "fit_quality",
-      "scientific_equivalence",
+      "user_interpretation",
       "raw_waveforms",
       "hardware_runtime_state"
     ]
@@ -174,14 +172,13 @@
     }
   ],
   "expected_finding_codes": [
-    "reference_mark_not_known_good_claim",
+    "reference_mark_user_context",
     "same_observed_preview_shape",
     "same_observed_setup_binding",
     "changed_parameter_state",
     "missing_current_fit_summary",
     "unlinked_reference_analysis_note",
     "unverified_mounted_sample_identity",
-    "redacted_station_connection_details",
-    "not_compared_scientific_equivalence"
+    "redacted_station_connection_details"
   ]
 }

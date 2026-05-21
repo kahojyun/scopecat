@@ -5,9 +5,9 @@
 - expected output id: `selected-reference-basic-context-compare.expected`
 - status: `expected_validation_output`
 - source fixture: `reference-comparison-input.json`
-- guard: This expected output is not a final comparison engine, equivalence
-  score, known-good contract, setup truth contract, scientific-validity claim,
-  or GUI design.
+- guard: This expected output is not a final comparison engine,
+  user-judgment engine, setup truth contract, raw-data comparison contract, or
+  GUI design.
 
 ## Candidate Summary Review
 
@@ -18,12 +18,10 @@
 - reference measurement: `measurement-04001`
 - reference selection source: `user_measurement_mark`
 - reference mark: `last_working_reference`
-- known-good claim: `not_claimed`
-- scientific comparability claim: `not_claimed`
 
 The selected reference is user-chosen comparison context, supplied through an
-ordinary measurement mark. Labels such as last-working or known-good are user
-context; they do not require special Scopecat proof.
+ordinary measurement mark. The mark is selection context, not a special
+Scopecat judgment.
 
 ### Measurement Pair
 
@@ -51,13 +49,13 @@ The changed parameter state is an objective comparison finding.
 
 Both measurements declare the same preview shape. A later GUI could use this
 to quickly browse or overlay compatible measurements, without trying to produce
-publication-grade plots.
+publication-grade plots or user interpretation.
 
 ### Findings
 
 | Kind | Code | Subject |
 | --- | --- | --- |
-| not compared | `reference_mark_not_known_good_claim` | reference selection |
+| same observed | `reference_mark_user_context` | reference selection |
 | same observed | `same_observed_preview_shape` | declared preview metadata |
 | same observed | `same_observed_setup_binding` | setup binding |
 | changed | `changed_parameter_state` | parameter state |
@@ -65,15 +63,14 @@ publication-grade plots.
 | unlinked | `unlinked_reference_analysis_note` | analysis note |
 | unverified | `unverified_mounted_sample_identity` | mounted sample identity |
 | redacted | `redacted_station_connection_details` | station connection details |
-| not compared | `not_compared_scientific_equivalence` | scientific equivalence |
 
 These labels avoid using `gap` as a catch-all.
 
 ## Boundary Notes
 
-- selected reference does not mean known-good;
-- last-working and known-good can be ordinary user marks, not special Scopecat
-  reference types;
+- selected reference means user-selected comparison context;
+- last-working and similar labels can be ordinary user marks, not special
+  Scopecat reference types;
 - comparison findings do not imply cause attribution;
 - preview compatibility supports quick browsing and comparison, not
   publication-grade plotting;
@@ -81,14 +78,14 @@ These labels avoid using `gap` as a catch-all.
   not-compared facts remain distinct;
 - the fixture compares declared context only;
 - raw data, fit quality, hardware runtime state, setup truth, equivalence
-  scoring, and GUI behavior remain out of scope.
+  scoring, user-provided analysis conclusions, and GUI behavior remain out of
+  scope.
 
 ## Reviewer Questions
 
 A reviewer should be able to answer:
 
 - why the reference was selected;
-- whether known-good or scientific comparability is claimed;
 - which named input snapshots changed or matched;
 - whether preview metadata looks comparable enough for inspection;
 - which supporting artifacts are missing or unlinked;
