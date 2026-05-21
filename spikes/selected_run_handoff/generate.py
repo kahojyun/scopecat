@@ -144,6 +144,33 @@ def generate_manifest(fixture_root: Path) -> dict[str, Any]:
     missing_paths = [
         path for path in openability_paths if openability(fixture_root, path) == "missing"
     ]
+    missing_companion_paths = [
+        item["path"] for item in companions if item["openability"] == "missing"
+    ]
+
+    warnings = [
+        {
+            "code": "local_only_path",
+            "subject": "legacy_source_location.local_path",
+            "message": "Original local path is redaction-sensitive and not portable.",
+            "public_safe_value": legacy_location["display_path"],
+        }
+    ]
+    if missing_companion_paths:
+        warnings.append(
+            {
+                "code": "missing_companion",
+                "subject": missing_companion_paths[0],
+                "message": "Referenced companion is absent from the handoff fixture.",
+            }
+        )
+    warnings.append(
+        {
+            "code": "figure_readiness_partial",
+            "subject": f"legacy_data_id:{selected['legacy_data_id']}",
+            "message": "The handoff includes experiment label, measured columns, context, and plot candidates, but calibration notes, fit results, uncertainty, and user selection rationale are missing.",
+        }
+    )
 
     return {
         "manifest_id": f"{source['fixture_id']}.expected",
@@ -151,24 +178,7 @@ def generate_manifest(fixture_root: Path) -> dict[str, Any]:
         "source_fixture": "handoff-input.json",
         "selected_runs": [selected_run],
         "figure_readiness": figure_readiness,
-        "warnings": [
-            {
-                "code": "local_only_path",
-                "subject": "legacy_source_location.local_path",
-                "message": "Original local path is redaction-sensitive and not portable.",
-                "public_safe_value": legacy_location["display_path"],
-            },
-            {
-                "code": "missing_companion",
-                "subject": "companions/run-00042-calibration-notes.md",
-                "message": "Referenced companion is absent from the handoff fixture.",
-            },
-            {
-                "code": "figure_readiness_partial",
-                "subject": f"legacy_data_id:{selected['legacy_data_id']}",
-                "message": "The handoff includes experiment label, measured columns, context, and plot candidates, but calibration notes, fit results, uncertainty, and user selection rationale are missing.",
-            },
-        ],
+        "warnings": warnings,
         "boundary_notes": [
             "Selected source data should not be silently compressed, converted, filtered, or otherwise transformed during export. This fixture does not define a final checksum or package contract.",
             "The handoff preserves where the selected data was exported from using a public-safe source reference.",

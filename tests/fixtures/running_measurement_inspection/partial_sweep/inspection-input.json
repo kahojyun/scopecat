@@ -13,7 +13,7 @@
     "label": "qA resonator live frequency sweep",
     "experiment_type": "resonator_frequency_sweep",
     "target": "qA",
-    "source_identity": "LAB_LOCAL:/redacted/datavault/session-beta/02001_qA_resonator_live.csv",
+    "source_identity": "LAB_LOCAL:/redacted/datavault/live-sweep-demo/resonator-live-source.csv",
     "local_path_public_safe": false
   },
   "lifecycle": {
@@ -49,7 +49,7 @@
     "source": "fixture_declared"
   },
   "latest_data_reference": {
-    "path": "source/session-beta/02001_qA_resonator_live_partial.csv",
+    "path": "source/live-sweep-demo/resonator-live-partial-source.csv",
     "kind": "partial_recorded_table",
     "latest_completed_filter": {
       "column": "sweep_index",
@@ -98,12 +98,12 @@
       {
         "x": "drive_freq_ghz",
         "y": "response_i",
-        "source": "source/session-beta/02001_qA_resonator_live_partial.csv"
+        "source": "source/live-sweep-demo/resonator-live-partial-source.csv"
       },
       {
         "x": "drive_freq_ghz",
         "y": "response_q",
-        "source": "source/session-beta/02001_qA_resonator_live_partial.csv"
+        "source": "source/live-sweep-demo/resonator-live-partial-source.csv"
       }
     ]
   },

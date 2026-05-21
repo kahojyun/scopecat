@@ -80,7 +80,9 @@ class SelectedMeasurementExportSummaryCandidateTest(unittest.TestCase):
 
     def test_primary_data_path_must_match_source_file(self) -> None:
         source = _load_input()
-        source["measurements"][0]["default_bundle"][0]["path"] = "source/session-alpha/wrong.csv"
+        source["measurements"][0]["default_bundle"][0]["path"] = (
+            "source/export-demo-session/wrong-source.csv"
+        )
 
         with self.assertRaisesRegex(ValueError, "primary_data path"):
             build_selected_measurement_export_summary(source)
@@ -88,7 +90,7 @@ class SelectedMeasurementExportSummaryCandidateTest(unittest.TestCase):
     def test_plot_candidate_source_must_match_source_file(self) -> None:
         source = _load_input()
         source["measurements"][0]["preview_metadata"]["plot_candidates"][0]["source"] = (
-            "source/session-alpha/wrong.csv"
+            "source/export-demo-session/wrong-source.csv"
         )
 
         with self.assertRaisesRegex(ValueError, "plot candidate source"):
@@ -109,7 +111,7 @@ class SelectedMeasurementExportSummaryCandidateTest(unittest.TestCase):
         source = _load_input()
         duplicate = copy.deepcopy(source["linked_context"][2])
         duplicate["label"] = "Run 1001 missing setup note"
-        duplicate["path"] = "attachments/run-01001-missing-setup.md"
+        duplicate["path"] = "attachments/measurement-1001-missing-setup-note.md"
         duplicate["linked_legacy_data_ids"] = [1001]
         source["linked_context"].append(duplicate)
 
@@ -122,8 +124,8 @@ class SelectedMeasurementExportSummaryCandidateTest(unittest.TestCase):
                 if warning["code"] == "missing_companion"
             ],
             [
-                "attachments/run-01002-fit-note.md",
-                "attachments/run-01001-missing-setup.md",
+                "attachments/measurement-1002-fit-note.md",
+                "attachments/measurement-1001-missing-setup-note.md",
             ],
         )
 

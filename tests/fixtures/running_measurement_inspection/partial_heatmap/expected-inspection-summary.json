@@ -15,7 +15,7 @@
       "label": "qA live flux spectroscopy map",
       "experiment_type": "flux_spectroscopy_map",
       "target": "qA",
-      "source_identity": "LAB_LOCAL:/redacted/datavault/session-gamma/03001_qA_flux_spectroscopy_live.csv"
+      "source_identity": "LAB_LOCAL:/redacted/datavault/live-heatmap-demo/flux-spectroscopy-live-source.csv"
     },
     "lifecycle": {
       "state": "recording",
@@ -104,19 +104,19 @@
           "y": "bias_v",
           "z": "signal_db",
           "kind": "heatmap",
-          "source": "source/session-gamma/03001_qA_flux_spectroscopy_live_partial.csv"
+          "source": "source/live-heatmap-demo/flux-spectroscopy-live-partial-source.csv"
         },
         {
           "x": "drive_freq_ghz",
           "y": "bias_v",
           "z": "phase_deg",
           "kind": "heatmap",
-          "source": "source/session-gamma/03001_qA_flux_spectroscopy_live_partial.csv"
+          "source": "source/live-heatmap-demo/flux-spectroscopy-live-partial-source.csv"
         }
       ]
     },
     "latest_data_reference": {
-      "path": "source/session-gamma/03001_qA_flux_spectroscopy_live_partial.csv",
+      "path": "source/live-heatmap-demo/flux-spectroscopy-live-partial-source.csv",
       "kind": "partial_recorded_table",
       "latest_completed_filter": {
         "column": "bias_v",

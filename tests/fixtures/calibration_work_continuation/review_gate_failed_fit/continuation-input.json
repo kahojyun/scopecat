@@ -51,7 +51,7 @@
         "measurement_id": "run-04001",
         "legacy_data_id": 4001,
         "label": "qA resonator response check",
-        "path": "source/session-delta/04001_qA_resonator_response.csv",
+        "path": "source/calibration-review-demo/resonator-response-source.csv",
         "status": "completed",
         "authority": "fixture_observed_record"
       },
@@ -61,7 +61,7 @@
         "measurement_id": "run-04002",
         "legacy_data_id": 4002,
         "label": "qA Rabi amplitude scan",
-        "path": "source/session-delta/04002_qA_rabi_amplitude.csv",
+        "path": "source/calibration-review-demo/rabi-amplitude-source.csv",
         "status": "completed",
         "authority": "fixture_observed_record"
       }
@@ -86,11 +86,11 @@
     ],
     "fit_previews": [
       {
-        "record_id": "fit-preview:fit-rabi-04002",
+        "record_id": "fit-preview:rabi-fit-preview-failed-quality",
         "related_step": "step-2-rabi-amplitude",
         "source_measurement": "run-04002",
         "label": "Rabi amplitude fit preview",
-        "path": "artifacts/fit-rabi-04002.json",
+        "path": "artifacts/rabi-fit-preview-failed-quality.json",
         "status": "failed_quality_review",
         "durable_analysis_result": false,
         "quality_score": 0.58,
@@ -108,7 +108,7 @@
         "current_value": 0.42,
         "current_value_source": "snapshot:params-before-step-2",
         "proposed_value": 0.49,
-        "proposed_value_source": "fit-preview:fit-rabi-04002",
+        "proposed_value_source": "fit-preview:rabi-fit-preview-failed-quality",
         "unit": "arb",
         "authority": "user_authored_step_output"
       }
@@ -128,7 +128,7 @@
       "review_id": "review-rabi-04002",
       "related_step": "step-2-rabi-amplitude",
       "status": "needs_user_review",
-      "reason_source": "fit-preview:fit-rabi-04002",
+      "reason_source": "fit-preview:rabi-fit-preview-failed-quality",
       "missing_or_unverified": [
         "user acceptance for proposed pulse amplitude"
       ],

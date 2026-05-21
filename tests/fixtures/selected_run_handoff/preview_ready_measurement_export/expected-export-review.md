@@ -27,23 +27,23 @@ traversed.
 
 | Measurement | Experiment | Included items |
 | --- | --- | --- |
-| `1001` | qA Rabi amplitude sweep | Run 1001 Rabi source data (`source/session-alpha/01001_qA_rabi_20260518_101500.csv`); Run 1001 parameter snapshot (`snapshots/run-01001-parameters.json`) |
-| `1002` | qA T1 decay | Run 1002 T1 source data (`source/session-alpha/01002_qA_t1_20260518_104500.csv`); Run 1002 parameter snapshot (`snapshots/run-01002-parameters.json`) |
+| `1001` | qA Rabi amplitude sweep | Run 1001 Rabi source data (`source/export-demo-session/measurement-1001-rabi-source.csv`); Run 1001 parameter snapshot (`snapshots/measurement-1001-parameter-snapshot.json`) |
+| `1002` | qA T1 decay | Run 1002 T1 source data (`source/export-demo-session/measurement-1002-t1-source.csv`); Run 1002 parameter snapshot (`snapshots/measurement-1002-parameter-snapshot.json`) |
 
 ### User-Included Optional Context
 
-- Session wiring note (`attachments/session-alpha-wiring-note.md`): `attachment`; relation `documents`; authority `user_declared`; linked measurements `1001`, `1002`.
+- Session wiring note (`attachments/export-session-wiring-note.md`): `attachment`; relation `documents`; authority `user_declared`; linked measurements `1001`, `1002`.
 
 ### Visible But Excluded Optional Context
 
-- qA summary candidate (`artifacts/qA-summary-candidate.csv`): `artifact`; relation `summarizes`; authority `user_declared`; linked measurements `1001`, `1002`.
+- qA summary candidate (`artifacts/optional-two-measurement-summary.csv`): `artifact`; relation `summarizes`; authority `user_declared`; linked measurements `1001`, `1002`.
 
 The excluded artifact is visible so a user can decide whether to include it in
 a later export. This fixture does not treat it as proof of analysis lineage.
 
 ### Missing Context
 
-- Run 1002 fit note (`attachments/run-01002-fit-note.md`): `attachment`; relation `documents`; authority `user_declared`; linked measurements `1002`.
+- Measurement 1002 fit note (`attachments/measurement-1002-fit-note.md`): `attachment`; relation `documents`; authority `user_declared`; linked measurements `1002`.
 
 ### Preview Readiness
 
@@ -63,13 +63,13 @@ CSV headers.
 
 ### Source Recovery And Data Handling
 
-- public-safe source location: `LAB_LOCAL:/redacted/datavault/session-alpha`
+- public-safe source location: `LAB_LOCAL:/redacted/datavault/export-demo-session`
 - local source path is redaction-sensitive and not portable.
 - selected source data should not be silently compressed, converted, filtered,
   or replaced by a derived copy during export.
 - source provenance:
-  - `1001`: `LAB_LOCAL:/redacted/datavault/session-alpha/01001_qA_rabi_20260518_101500.csv`; data handling `no_silent_transform`.
-  - `1002`: `LAB_LOCAL:/redacted/datavault/session-alpha/01002_qA_t1_20260518_104500.csv`; data handling `no_silent_transform`.
+  - `1001`: `LAB_LOCAL:/redacted/datavault/export-demo-session/measurement-1001-rabi-source.csv`; data handling `no_silent_transform`.
+  - `1002`: `LAB_LOCAL:/redacted/datavault/export-demo-session/measurement-1002-t1-source.csv`; data handling `no_silent_transform`.
 
 ### Warnings
 

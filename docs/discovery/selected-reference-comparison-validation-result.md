@@ -27,9 +27,10 @@ The fixture validates a first selected-reference comparison boundary:
   not-compared scope can stay distinct;
 - the report can avoid using `gap` as a catch-all.
 
-It intentionally does not include experiment code/version context. That is a
-known comparison dimension, but it should wait for the experiment-code-selection
-slice to define the minimum code reference boundary.
+It intentionally does not include experiment code/version context. That remains
+a known comparison dimension; the experiment-code-selection slice now defines a
+minimum selected-code reference shape, while comparison behavior still needs a
+later selected-reference update.
 
 ## Boundary Confirmed
 
@@ -74,9 +75,9 @@ not earn a shared run-context framework.
 - raw-data and fit-quality comparison remain separate future slices;
 - user scripts or humans may still make higher-level judgments from Scopecat
   records, but that is outside this fixture;
-- experiment code/version mismatch can be a major comparison dimension, but it
-  is deferred until the experiment-code-selection slice validates code
-  references;
+- experiment code/version mismatch can be a major comparison dimension. The
+  experiment-code-selection slice now validates a selected code reference
+  shape, while comparison behavior remains a later selected-reference update;
 - recipient-aware redaction remains broader than this fixture.
 
 ## Current Recommendation
@@ -84,5 +85,9 @@ not earn a shared run-context framework.
 Stop this slice at fixture validation unless a near-term task needs a
 production-shaped summary candidate. Use the fixture as comparison pressure
 when designing measurement run context, selected references, and future
-review/report surfaces. Revisit this fixture after experiment-code-selection
-has a validated code reference shape.
+review/report surfaces. Use
+[`experiment-code-selection-validation-result.md`](experiment-code-selection-validation-result.md)
+and
+[`experiment-code-selection-next-boundary.md`](experiment-code-selection-next-boundary.md)
+as input when a later selected-reference update adds code/version comparison
+behavior.

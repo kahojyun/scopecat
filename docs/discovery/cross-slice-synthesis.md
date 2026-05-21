@@ -23,6 +23,8 @@ executor design, relation graph, or warning taxonomy.
 - [`setup-binding-validation-plan.md`](setup-binding-validation-plan.md)
 - [`setup-binding-validation-result.md`](setup-binding-validation-result.md)
 - [`selected-reference-comparison-validation-result.md`](selected-reference-comparison-validation-result.md)
+- [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md)
+- [`experiment-code-selection-validation-result.md`](experiment-code-selection-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
 - [`adoption-hypotheses.md`](adoption-hypotheses.md)
 
@@ -90,6 +92,16 @@ setup truth, publication-grade plotting, user-provided analysis conclusion
 model, experiment-code comparison, or GUI design. The first reference-selection
 model can start from ordinary user marks on measurement records.
 
+Experiment code selection has fixture-level validation for selected code
+context from a messy external folder and a candidate captured version. It
+uses minimal whitelist capture, strips notebook outputs before recording, and
+does not inspect internal Git state or analyze unselected files. It has not
+earned managed workspace storage, Git replacement implementation, internal Git
+analysis, default record-all tracking, package management, environment
+ownership, environment restoration, selected-version loading, execution,
+workflow/DAG nodes, component-level versioning, generated artifact
+regeneration, or GUI design.
+
 ## Recurring Candidate Concepts
 
 These concepts recur across more than one slice and are becoming useful
@@ -115,6 +127,8 @@ schema.
 | Selected reference | Selected reference comparison | A user-chosen comparison anchor, such as last-working, notable, best-observed, or simply relevant. These can start as ordinary user marks on measurement records; export, parameter state, and setup binding provide supporting context for comparison. |
 | Comparison finding | Selected reference comparison, export, running inspection | A precise context-comparison result such as changed, missing, unverified, redacted, unlinked, same-observed, or not-compared. It is not automatic cause attribution. |
 | Preview compatibility | Selected reference comparison, export, running inspection, scan/data-shape | Declared preview metadata that suggests compatible quick browsing or overlay across measurements. It does not imply publication-grade plotting or user interpretation. |
+| Selected code context | Experiment code, calibration continuation, selected reference | The explicit code root, entrypoint, whitelisted files, notebook recording policy, and declared context refs that a user means to use, restore, compare, or hand off. |
+| Captured version candidate | Experiment code, export/handoff | A proposed point-in-time boundary for future Scopecat-managed code versions. It can describe whitelist capture scope without accepting storage, restore, sync, environment, loading, execution, merge, Git inspection, or managed workspace semantics. |
 
 ## Stable Separations
 
@@ -169,8 +183,17 @@ Several separations now appear repeatedly enough to keep carrying forward:
   as user marks on measurement records. Scopecat does not need special
   semantics for each label before it can provide objective comparison.
 - Experiment code/version mismatch is a real selected-reference comparison
-  dimension, but it should stay deferred until experiment-code-selection
-  validates the minimum code reference shape.
+  dimension. The first experiment-code fixture now validates selected code
+  context as the minimum reference shape, while comparison behavior remains a
+  later selected-reference update.
+- Early selected-code capture is whitelist-based. Internal Git state,
+  directory-name heuristics, unselected backups, caches, checkpoints, and
+  generated files are not analyzed or surfaced as warnings unless the user
+  selects them or a later slice earns that behavior.
+- Selected root plus whitelisted files and named entrypoints is the first
+  code-versioning boundary. Workflow/DAG nodes, component-level versioning,
+  and compatibility contracts remain deferred until repeated stable experiment
+  functions earn inputs and outputs.
 
 ## Design Pressure
 
@@ -226,8 +249,13 @@ The cross-slice comparison still does not earn:
 - shared input-snapshot or run-context framework;
 - deep interpretation of user/project-defined setup-binding payloads;
 - selected-reference comparison engine, user-judgment engine, raw-data
-  comparison, user-provided analysis conclusion model, experiment-code
-  comparison, or automatic cause attribution;
+  comparison, user-provided analysis conclusion model, code-version comparison
+  behavior, or automatic cause attribution;
+- managed experiment-code workspace storage, Git replacement implementation,
+  branch/merge/sync semantics, package management, environment ownership,
+  environment restoration, selected-version loading, code execution,
+  workflow/DAG nodes, component-level code versioning, or generated artifact
+  regeneration;
 - publication-grade plotting or multi-run plotting GUI;
 - fit quality, uncertainty, reproducibility, or user/domain scientific
   conclusions.

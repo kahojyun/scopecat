@@ -26,15 +26,15 @@
         "experiment_label": "qA Rabi amplitude sweep",
         "experiment_type": "rabi_amplitude_sweep",
         "target": "qA",
-        "source_file": "source/session-alpha/01001_qA_rabi_20260518_101500.csv",
-        "export_source": "LAB_LOCAL:/redacted/datavault/session-alpha/01001_qA_rabi_20260518_101500.csv",
+        "source_file": "source/export-demo-session/measurement-1001-rabi-source.csv",
+        "export_source": "LAB_LOCAL:/redacted/datavault/export-demo-session/measurement-1001-rabi-source.csv",
         "primary_data_authority": "source_metadata",
         "source_transform_policy": "no_silent_transform",
         "default_bundle": [
           {
             "kind": "primary_data",
             "label": "Run 1001 Rabi source data",
-            "path": "source/session-alpha/01001_qA_rabi_20260518_101500.csv",
+            "path": "source/export-demo-session/measurement-1001-rabi-source.csv",
             "include_status": "included_by_default",
             "relation": "selected_measurement_source",
             "authority": "source_metadata"
@@ -42,7 +42,7 @@
           {
             "kind": "copied_metadata",
             "label": "Run 1001 parameter snapshot",
-            "path": "snapshots/run-01001-parameters.json",
+            "path": "snapshots/measurement-1001-parameter-snapshot.json",
             "include_status": "included_by_default",
             "relation": "copied_parameter_snapshot",
             "authority": "tool_recorded"
@@ -85,12 +85,12 @@
             {
               "x": "drive_amp",
               "y": "iq_i",
-              "source": "source/session-alpha/01001_qA_rabi_20260518_101500.csv"
+              "source": "source/export-demo-session/measurement-1001-rabi-source.csv"
             },
             {
               "x": "drive_amp",
               "y": "iq_q",
-              "source": "source/session-alpha/01001_qA_rabi_20260518_101500.csv"
+              "source": "source/export-demo-session/measurement-1001-rabi-source.csv"
             }
           ],
           "warnings": []
@@ -102,15 +102,15 @@
         "experiment_label": "qA T1 decay",
         "experiment_type": "t1_decay",
         "target": "qA",
-        "source_file": "source/session-alpha/01002_qA_t1_20260518_104500.csv",
-        "export_source": "LAB_LOCAL:/redacted/datavault/session-alpha/01002_qA_t1_20260518_104500.csv",
+        "source_file": "source/export-demo-session/measurement-1002-t1-source.csv",
+        "export_source": "LAB_LOCAL:/redacted/datavault/export-demo-session/measurement-1002-t1-source.csv",
         "primary_data_authority": "source_metadata",
         "source_transform_policy": "no_silent_transform",
         "default_bundle": [
           {
             "kind": "primary_data",
             "label": "Run 1002 T1 source data",
-            "path": "source/session-alpha/01002_qA_t1_20260518_104500.csv",
+            "path": "source/export-demo-session/measurement-1002-t1-source.csv",
             "include_status": "included_by_default",
             "relation": "selected_measurement_source",
             "authority": "source_metadata"
@@ -118,7 +118,7 @@
           {
             "kind": "copied_metadata",
             "label": "Run 1002 parameter snapshot",
-            "path": "snapshots/run-01002-parameters.json",
+            "path": "snapshots/measurement-1002-parameter-snapshot.json",
             "include_status": "included_by_default",
             "relation": "copied_parameter_snapshot",
             "authority": "tool_recorded"
@@ -144,7 +144,7 @@
       {
         "kind": "attachment",
         "label": "Session wiring note",
-        "path": "attachments/session-alpha-wiring-note.md",
+        "path": "attachments/export-session-wiring-note.md",
         "include_status": "included_by_user",
         "relation": "documents",
         "authority": "user_declared",
@@ -156,7 +156,7 @@
       {
         "kind": "artifact",
         "label": "qA summary candidate",
-        "path": "artifacts/qA-summary-candidate.csv",
+        "path": "artifacts/optional-two-measurement-summary.csv",
         "include_status": "visible_excluded",
         "relation": "summarizes",
         "authority": "user_declared",
@@ -167,8 +167,8 @@
       },
       {
         "kind": "attachment",
-        "label": "Run 1002 fit note",
-        "path": "attachments/run-01002-fit-note.md",
+        "label": "Measurement 1002 fit note",
+        "path": "attachments/measurement-1002-fit-note.md",
         "include_status": "missing",
         "relation": "documents",
         "authority": "user_declared",
@@ -182,7 +182,7 @@
         "code": "local_only_path",
         "subject": "legacy_source_location.local_path",
         "message": "Original local path is redaction-sensitive and not portable.",
-        "public_safe_value": "LAB_LOCAL:/redacted/datavault/session-alpha"
+        "public_safe_value": "LAB_LOCAL:/redacted/datavault/export-demo-session"
       },
       {
         "code": "preview_metadata_missing",
@@ -191,7 +191,7 @@
       },
       {
         "code": "missing_companion",
-        "subject": "attachments/run-01002-fit-note.md",
+        "subject": "attachments/measurement-1002-fit-note.md",
         "message": "A user-declared companion for measurement 1002 is absent from the fixture."
       }
     ]

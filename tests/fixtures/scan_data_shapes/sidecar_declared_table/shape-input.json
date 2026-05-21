@@ -7,7 +7,7 @@
     "label": "qA sidecar-declared Rabi scan",
     "target": "qA",
     "source_kind": "imported_legacy_source",
-    "source_table": "source/qA_sidecar_declared_rabi.csv",
+    "source_table": "source/sidecar-declared-rabi-table.csv",
     "metadata_source": "sidecar_declaration"
   },
   "data_shape": {

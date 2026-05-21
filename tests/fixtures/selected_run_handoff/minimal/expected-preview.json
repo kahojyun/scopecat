@@ -7,7 +7,7 @@
     "experiment_label": "qA Rabi amplitude sweep",
     "experiment_type": "rabi_amplitude_sweep",
     "target": "qA",
-    "source_file": "source/session-alpha/00042_qA_rabi_20260518_101500.csv"
+    "source_file": "source/selected-rabi-demo/selected-rabi-source.csv"
   },
   "column_validation": {
     "status": "pass",
@@ -71,7 +71,7 @@
   },
   "plot_spec": {
     "title": "qA Rabi amplitude sweep preview: iq_i",
-    "source": "source/session-alpha/00042_qA_rabi_20260518_101500.csv",
+    "source": "source/selected-rabi-demo/selected-rabi-source.csv",
     "x": {
       "column": "drive_amp",
       "unit": "arb",
@@ -95,7 +95,7 @@
   "plot_candidates": [
     {
       "title": "qA Rabi amplitude sweep preview: iq_i",
-      "source": "source/session-alpha/00042_qA_rabi_20260518_101500.csv",
+      "source": "source/selected-rabi-demo/selected-rabi-source.csv",
       "x": {
         "column": "drive_amp",
         "unit": "arb",
@@ -118,7 +118,7 @@
     },
     {
       "title": "qA Rabi amplitude sweep preview: iq_q",
-      "source": "source/session-alpha/00042_qA_rabi_20260518_101500.csv",
+      "source": "source/selected-rabi-demo/selected-rabi-source.csv",
       "x": {
         "column": "drive_amp",
         "unit": "arb",

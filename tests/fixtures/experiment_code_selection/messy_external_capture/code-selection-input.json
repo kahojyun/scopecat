@@ -1,0 +1,130 @@
+{
+  "fixture_id": "experiment-code-selection-minimal-whitelist-capture",
+  "fixture_status": "synthetic_public_safe",
+  "fixture_layer": "experiment_code_selection_fixture",
+  "user_job": "Capture the minimum experiment-code context needed to restore, hand off, or associate a calibration step with code, without making users operate Git or adding noisy folder analysis.",
+  "source_research_notes": [
+    "<sample>/_research/experiment-code-selection-sample-review-2026-05-21.md"
+  ],
+  "capture_policy": {
+    "mode": "minimal_whitelist_capture",
+    "internal_git_inspection": "not_performed",
+    "default_file_inclusion": "not_recorded_unless_whitelisted",
+    "notebook_output_policy": "strip_outputs_before_recording",
+    "directory_scan_policy": "do_not_surface_unselected_files_as_warnings",
+    "dependency_discovery": "not_performed"
+  },
+  "external_code_roots": [
+    {
+      "root_id": "external-code-root-readout-demo",
+      "root_label": "fictional readout calibration code folder",
+      "mode": "external_folder_import",
+      "authority": "user_selected_external_folder"
+    }
+  ],
+  "selected_code_contexts": [
+    {
+      "context_id": "code-context-readout-cali-0001",
+      "external_root_id": "external-code-root-readout-demo",
+      "context_role": "calibration_entrypoint_context",
+      "entrypoint": {
+        "path": "readout_calibration_entrypoint.ipynb",
+        "kind": "notebook",
+        "recorded_form": "source_without_outputs",
+        "output_policy_applied": "strip_outputs_before_recording",
+        "execution_claim": "not_executed_by_fixture"
+      },
+      "whitelisted_files": [
+        {
+          "path": "readout_calibration_entrypoint.ipynb",
+          "role": "entrypoint",
+          "recorded_form": "source_without_outputs"
+        },
+        {
+          "path": "experiment_session_setup.ipynb",
+          "role": "declared_helper_notebook",
+          "recorded_form": "source_without_outputs"
+        },
+        {
+          "path": "helpers/record_measurement_context.py",
+          "role": "declared_helper_module",
+          "recorded_form": "source_file"
+        }
+      ],
+      "declared_context_refs": [
+        {
+          "ref_id": "env-profile-control-pc-redacted",
+          "ref_kind": "environment_profile_hint",
+          "authority": "user_declared"
+        }
+      ],
+      "not_recorded_policy": [
+        {
+          "path_pattern": ".ipynb_checkpoints/**",
+          "reason": "not_whitelisted_and_notebook_outputs_are_stripped"
+        },
+        {
+          "path_pattern": "__pycache__/**",
+          "reason": "not_whitelisted_cache"
+        },
+        {
+          "path_pattern": "backup/**",
+          "reason": "not_whitelisted_external_folder_content"
+        }
+      ],
+      "mutation_capability": {
+        "classification": "not_analyzed",
+        "reason": "early capture does not inspect or import selected code",
+        "execution_permission": "not_granted_by_selection_record"
+      }
+    }
+  ],
+  "calibration_steps": [
+    {
+      "step_id": "calibration-step-readout-0001",
+      "step_label": "readout calibration check",
+      "inputs": [
+        {
+          "name": "code_context",
+          "snapshot_id": "code-context-readout-cali-0001",
+          "role": "selected_entrypoint_and_whitelisted_files"
+        },
+        {
+          "name": "parameter_state",
+          "snapshot_id": "param-state-0002",
+          "role": "selected_calibration_values"
+        },
+        {
+          "name": "setup_binding",
+          "snapshot_id": "setup-binding-0002",
+          "role": "logical_to_physical_mapping"
+        }
+      ]
+    }
+  ],
+  "captured_version_candidates": [
+    {
+      "candidate_id": "code-version-candidate-0001",
+      "source_context_id": "code-context-readout-cali-0001",
+      "candidate_status": "candidate_not_committed_contract",
+      "capture_scope": {
+        "root_id": "external-code-root-readout-demo",
+        "whitelisted_files": [
+          "readout_calibration_entrypoint.ipynb",
+          "experiment_session_setup.ipynb",
+          "helpers/record_measurement_context.py"
+        ],
+        "notebook_recording_policy": "source_without_outputs",
+        "default_file_inclusion": "not_recorded_unless_whitelisted"
+      },
+      "materialization_intent": "future_scopecat_managed_workspace",
+      "storage_claim": "not_decided_by_fixture"
+    }
+  ],
+  "attention_expected": [
+    "notebook_outputs_stripped",
+    "unwhitelisted_files_not_recorded",
+    "internal_git_not_inspected",
+    "code_execution_not_granted"
+  ]
+}

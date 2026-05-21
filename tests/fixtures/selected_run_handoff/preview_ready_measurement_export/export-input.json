@@ -3,9 +3,9 @@
   "fixture_status": "synthetic_public_safe",
   "user_job": "Export selected measurement records with enough declared metadata for later preview, while still allowing export when preview metadata is incomplete.",
   "legacy_source_location": {
-    "session": "session-alpha",
-    "display_path": "LAB_LOCAL:/redacted/datavault/session-alpha",
-    "local_path": "/Users/example/lab/private/datavault/session-alpha",
+    "session": "export-demo-session",
+    "display_path": "LAB_LOCAL:/redacted/datavault/export-demo-session",
+    "local_path": "/Users/example/lab/private/datavault/export-demo-session",
     "local_path_public_safe": false
   },
   "selected_export_set": {
@@ -24,8 +24,8 @@
       "experiment_type": "rabi_amplitude_sweep",
       "target": "qA",
       "run_started_at": "2026-05-18T10:15:00",
-      "source_file": "source/session-alpha/01001_qA_rabi_20260518_101500.csv",
-      "export_source": "LAB_LOCAL:/redacted/datavault/session-alpha/01001_qA_rabi_20260518_101500.csv",
+      "source_file": "source/export-demo-session/measurement-1001-rabi-source.csv",
+      "export_source": "LAB_LOCAL:/redacted/datavault/export-demo-session/measurement-1001-rabi-source.csv",
       "source_transform_expectation": {
         "policy": "no_silent_transform",
         "message": "Selected source data should not be silently compressed, converted, filtered, or replaced by a derived copy during export."
@@ -69,13 +69,13 @@
           {
             "x": "drive_amp",
             "y": "iq_i",
-            "source": "source/session-alpha/01001_qA_rabi_20260518_101500.csv",
+            "source": "source/export-demo-session/measurement-1001-rabi-source.csv",
             "claim_guard": "Preview candidate only; no rendered plot, fit, uncertainty, or scientific validation."
           },
           {
             "x": "drive_amp",
             "y": "iq_q",
-            "source": "source/session-alpha/01001_qA_rabi_20260518_101500.csv",
+            "source": "source/export-demo-session/measurement-1001-rabi-source.csv",
             "claim_guard": "Preview candidate only; no rendered plot, fit, uncertainty, or scientific validation."
           }
         ]
@@ -84,7 +84,7 @@
         {
           "kind": "primary_data",
           "label": "Run 1001 Rabi source data",
-          "path": "source/session-alpha/01001_qA_rabi_20260518_101500.csv",
+          "path": "source/export-demo-session/measurement-1001-rabi-source.csv",
           "include_status": "included_by_default",
           "relation": "selected_measurement_source",
           "authority": "source_metadata"
@@ -92,7 +92,7 @@
         {
           "kind": "copied_metadata",
           "label": "Run 1001 parameter snapshot",
-          "path": "snapshots/run-01001-parameters.json",
+          "path": "snapshots/measurement-1001-parameter-snapshot.json",
           "include_status": "included_by_default",
           "relation": "copied_parameter_snapshot",
           "authority": "tool_recorded"
@@ -105,8 +105,8 @@
       "experiment_type": "t1_decay",
       "target": "qA",
       "run_started_at": "2026-05-18T10:45:00",
-      "source_file": "source/session-alpha/01002_qA_t1_20260518_104500.csv",
-      "export_source": "LAB_LOCAL:/redacted/datavault/session-alpha/01002_qA_t1_20260518_104500.csv",
+      "source_file": "source/export-demo-session/measurement-1002-t1-source.csv",
+      "export_source": "LAB_LOCAL:/redacted/datavault/export-demo-session/measurement-1002-t1-source.csv",
       "source_transform_expectation": {
         "policy": "no_silent_transform",
         "message": "Selected source data should not be silently compressed, converted, filtered, or replaced by a derived copy during export."
@@ -121,7 +121,7 @@
         {
           "kind": "primary_data",
           "label": "Run 1002 T1 source data",
-          "path": "source/session-alpha/01002_qA_t1_20260518_104500.csv",
+          "path": "source/export-demo-session/measurement-1002-t1-source.csv",
           "include_status": "included_by_default",
           "relation": "selected_measurement_source",
           "authority": "source_metadata"
@@ -129,7 +129,7 @@
         {
           "kind": "copied_metadata",
           "label": "Run 1002 parameter snapshot",
-          "path": "snapshots/run-01002-parameters.json",
+          "path": "snapshots/measurement-1002-parameter-snapshot.json",
           "include_status": "included_by_default",
           "relation": "copied_parameter_snapshot",
           "authority": "tool_recorded"
@@ -141,7 +141,7 @@
     {
       "kind": "attachment",
       "label": "Session wiring note",
-      "path": "attachments/session-alpha-wiring-note.md",
+      "path": "attachments/export-session-wiring-note.md",
       "include_status": "included_by_user",
       "relation": "documents",
       "authority": "user_declared",
@@ -154,7 +154,7 @@
     {
       "kind": "artifact",
       "label": "qA summary candidate",
-      "path": "artifacts/qA-summary-candidate.csv",
+      "path": "artifacts/optional-two-measurement-summary.csv",
       "include_status": "visible_excluded",
       "relation": "summarizes",
       "authority": "user_declared",
@@ -166,8 +166,8 @@
     },
     {
       "kind": "attachment",
-      "label": "Run 1002 fit note",
-      "path": "attachments/run-01002-fit-note.md",
+      "label": "Measurement 1002 fit note",
+      "path": "attachments/measurement-1002-fit-note.md",
       "include_status": "missing",
       "relation": "documents",
       "authority": "user_declared",

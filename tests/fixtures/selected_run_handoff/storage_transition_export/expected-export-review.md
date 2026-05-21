@@ -31,8 +31,8 @@ traversed.
 
 | Measurement | Source identity | Current reference | Package materialization | Availability |
 | --- | --- | --- | --- | --- |
-| `measurement-02001` | Scopecat-managed record | `scopecat://measurements/measurement-02001/primary-data` | `source/managed/02001_qB_rabi_20260519_092000.csv` | `available` |
-| `measurement-02002` | lab-managed network reference | `LAB_SHARE:/redacted/datavault/session-beta/02002_qB_ramsey_20260519_095500.csv` | `source/external_materialized/02002_qB_ramsey_20260519_095500.csv` | `available_for_export` |
+| `measurement-02001` | Scopecat-managed record | `scopecat://measurements/measurement-02001/primary-data` | `source/managed/managed-rabi-source.csv` | `available` |
+| `measurement-02002` | lab-managed network reference | `LAB_SHARE:/redacted/datavault/network-storage-demo/external-ramsey-source.csv` | `source/external_materialized/external-ramsey-source.csv` | `available_for_export` |
 
 Managed storage, lab-managed network source identity, and package
 materialization are separate concepts. A managed record does not need to expose
@@ -43,12 +43,12 @@ an export package when available.
 
 | Measurement | Experiment | Included items |
 | --- | --- | --- |
-| `measurement-02001` | qB Rabi amplitude sweep | qB Rabi source data (`source/managed/02001_qB_rabi_20260519_092000.csv`); qB Rabi parameter snapshot (`snapshots/run-02001-parameters.json`) |
-| `measurement-02002` | qB Ramsey detuning scan | qB Ramsey source data (`source/external_materialized/02002_qB_ramsey_20260519_095500.csv`); qB Ramsey parameter snapshot (`snapshots/run-02002-parameters.json`) |
+| `measurement-02001` | qB Rabi amplitude sweep | qB Rabi source data (`source/managed/managed-rabi-source.csv`); qB Rabi parameter snapshot (`snapshots/managed-rabi-parameter-snapshot.json`) |
+| `measurement-02002` | qB Ramsey detuning scan | qB Ramsey source data (`source/external_materialized/external-ramsey-source.csv`); qB Ramsey parameter snapshot (`snapshots/external-ramsey-parameter-snapshot.json`) |
 
 ### Linked Context
 
-- Session beta cooldown note (`attachments/session-beta-cooldown-note.md`):
+- Network session cooldown note (`attachments/network-session-cooldown-note.md`):
   managed attachment, included by user, linked to both selected measurements.
 - Local fit scratchpad: user-declared network artifact linked to
   `measurement-02002`, but missing or moved.

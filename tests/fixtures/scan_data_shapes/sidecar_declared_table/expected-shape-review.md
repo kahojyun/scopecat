@@ -12,7 +12,7 @@ product contract.
 - label: `qA sidecar-declared Rabi scan`
 - target: `qA`
 - source kind: `imported_legacy_source`
-- source table: `source/qA_sidecar_declared_rabi.csv`
+- source table: `source/sidecar-declared-rabi-table.csv`
 - metadata source: `sidecar_declaration`
 
 ## Declared Shape
@@ -47,7 +47,7 @@ Held condition:
 
 | X | Y | Source | Metadata source | Boundary note |
 | --- | --- | --- | --- | --- |
-| `drive_amp` | `p_excited` | `source/qA_sidecar_declared_rabi.csv` | sidecar_declaration | Plot candidates use sidecar-declared column meaning; no source-header inference, fit, uncertainty, or scientific validation is provided. |
+| `drive_amp` | `p_excited` | `source/sidecar-declared-rabi-table.csv` | sidecar_declaration | Plot candidates use sidecar-declared column meaning; no source-header inference, fit, uncertainty, or scientific validation is provided. |
 
 ## Warnings
 

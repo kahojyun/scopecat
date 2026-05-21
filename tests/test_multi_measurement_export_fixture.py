@@ -13,8 +13,8 @@ class MultiMeasurementExportFixtureTest(unittest.TestCase):
         for path in [
             FIXTURE / "export-input.json",
             FIXTURE / "expected-export-summary.json",
-            FIXTURE / "snapshots" / "run-01001-parameters.json",
-            FIXTURE / "snapshots" / "run-01002-parameters.json",
+            FIXTURE / "snapshots" / "measurement-1001-parameter-snapshot.json",
+            FIXTURE / "snapshots" / "measurement-1002-parameter-snapshot.json",
         ]:
             with self.subTest(path=path):
                 json.loads(path.read_text(encoding="utf-8"))
@@ -45,7 +45,7 @@ class MultiMeasurementExportFixtureTest(unittest.TestCase):
         summary = json.loads((FIXTURE / "expected-export-summary.json").read_text())
         export_set = summary["selected_export_set"]
         linked_context = {item["path"]: item for item in summary["linked_context"]}
-        artifact_path = "artifacts/qA-summary-candidate.csv"
+        artifact_path = "artifacts/optional-two-measurement-summary.csv"
 
         self.assertIn(artifact_path, export_set["optional_paths"])
         self.assertNotIn(artifact_path, export_set["default_included_paths"])

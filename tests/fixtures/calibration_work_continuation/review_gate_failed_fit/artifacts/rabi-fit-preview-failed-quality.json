@@ -1,5 +1,5 @@
 {
-  "fit_id": "fit-rabi-04002",
+  "fit_id": "rabi-fit-preview-failed-quality",
   "source_measurement": "run-04002",
   "kind": "rabi_amplitude_fit_preview",
   "status": "failed_quality_review",

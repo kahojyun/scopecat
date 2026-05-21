@@ -52,8 +52,8 @@ scripts or humans interpret those findings.
   measurement and selected reference: named input snapshots, declared preview
   metadata, selected artifacts, and redaction/verification state.
 - Experiment code/version mismatch is an important comparison dimension, but
-  it should be added after the experiment-code-selection slice defines the
-  minimum code reference boundary.
+  it should be added as a later selected-reference update using the minimum
+  selected-code reference shape validated by experiment-code-selection.
 - Compatible declared preview metadata may later support quick multi-measurement
   browsing or overlay for comparison. This is an inspection aid, not a
   publication-grade plotting or interpretation goal.

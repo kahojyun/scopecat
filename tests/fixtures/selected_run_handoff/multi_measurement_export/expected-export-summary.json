@@ -10,10 +10,10 @@
     ],
     "traversal_policy": "non_recursive",
     "default_included_paths": [
-      "source/session-alpha/01001_qA_rabi_20260518_101500.csv",
-      "snapshots/run-01001-parameters.json",
-      "source/session-alpha/01002_qA_t1_20260518_104500.csv",
-      "snapshots/run-01002-parameters.json"
+      "source/export-demo-session/measurement-1001-rabi-source.csv",
+      "snapshots/measurement-1001-parameter-snapshot.json",
+      "source/export-demo-session/measurement-1002-t1-source.csv",
+      "snapshots/measurement-1002-parameter-snapshot.json"
     ],
     "default_included_labels": [
       "Run 1001 Rabi source data",
@@ -22,22 +22,22 @@
       "Run 1002 parameter snapshot"
     ],
     "included_linked_context_paths": [
-      "attachments/session-alpha-wiring-note.md"
+      "attachments/export-session-wiring-note.md"
     ],
     "included_linked_context_labels": [
       "Session wiring note"
     ],
     "optional_paths": [
-      "artifacts/qA-summary-candidate.csv"
+      "artifacts/optional-two-measurement-summary.csv"
     ],
     "optional_labels": [
       "qA summary candidate"
     ],
     "missing_paths": [
-      "attachments/run-01002-fit-note.md"
+      "attachments/measurement-1002-fit-note.md"
     ],
     "missing_labels": [
-      "Run 1002 fit note"
+      "Measurement 1002 fit note"
     ]
   },
   "measurements": [
@@ -47,7 +47,7 @@
       "experiment_label": "qA Rabi amplitude sweep",
       "experiment_type": "rabi_amplitude_sweep",
       "target": "qA",
-      "source_file": "source/session-alpha/01001_qA_rabi_20260518_101500.csv",
+      "source_file": "source/export-demo-session/measurement-1001-rabi-source.csv",
       "default_bundle_kinds": [
         "primary_data",
         "copied_metadata"
@@ -59,7 +59,7 @@
       "experiment_label": "qA T1 decay",
       "experiment_type": "t1_decay",
       "target": "qA",
-      "source_file": "source/session-alpha/01002_qA_t1_20260518_104500.csv",
+      "source_file": "source/export-demo-session/measurement-1002-t1-source.csv",
       "default_bundle_kinds": [
         "primary_data",
         "copied_metadata",
@@ -71,7 +71,7 @@
     {
       "kind": "attachment",
       "label": "Session wiring note",
-      "path": "attachments/session-alpha-wiring-note.md",
+      "path": "attachments/export-session-wiring-note.md",
       "include_status": "included",
       "relation": "documents",
       "authority": "user_declared",
@@ -83,7 +83,7 @@
     {
       "kind": "artifact",
       "label": "qA summary candidate",
-      "path": "artifacts/qA-summary-candidate.csv",
+      "path": "artifacts/optional-two-measurement-summary.csv",
       "include_status": "optional",
       "relation": "summarizes",
       "authority": "user_declared",
@@ -99,11 +99,11 @@
       "code": "local_only_path",
       "subject": "legacy_source_location.local_path",
       "message": "Original local path is redaction-sensitive and not portable.",
-      "public_safe_value": "LAB_LOCAL:/redacted/datavault/session-alpha"
+      "public_safe_value": "LAB_LOCAL:/redacted/datavault/export-demo-session"
     },
     {
       "code": "missing_companion",
-      "subject": "attachments/run-01002-fit-note.md",
+      "subject": "attachments/measurement-1002-fit-note.md",
       "message": "A user-declared companion for measurement 1002 is absent from the fixture."
     }
   ],

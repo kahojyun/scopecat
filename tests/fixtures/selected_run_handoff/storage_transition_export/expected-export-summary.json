@@ -40,14 +40,14 @@
           "availability": "available"
         },
         "export_materialization": {
-          "package_materialized_path": "source/managed/02001_qB_rabi_20260519_092000.csv",
+          "package_materialized_path": "source/managed/managed-rabi-source.csv",
           "status": "materialized"
         },
         "default_bundle": [
           {
             "kind": "primary_data",
             "label": "qB Rabi source data",
-            "path": "source/managed/02001_qB_rabi_20260519_092000.csv",
+            "path": "source/managed/managed-rabi-source.csv",
             "include_status": "included_by_default",
             "relation": "selected_measurement_source",
             "authority": "scopecat_managed"
@@ -55,7 +55,7 @@
           {
             "kind": "copied_metadata",
             "label": "qB Rabi parameter snapshot",
-            "path": "snapshots/run-02001-parameters.json",
+            "path": "snapshots/managed-rabi-parameter-snapshot.json",
             "include_status": "included_by_default",
             "relation": "copied_parameter_snapshot",
             "authority": "tool_recorded"
@@ -71,23 +71,23 @@
         "target": "qB",
         "source_identity": {
           "kind": "lab_managed_network_reference",
-          "display": "LAB_SHARE:/redacted/datavault/session-beta/02002_qB_ramsey_20260519_095500.csv",
+          "display": "LAB_SHARE:/redacted/datavault/network-storage-demo/external-ramsey-source.csv",
           "recoverable": true
         },
         "storage_reference": {
           "mode": "lab_managed_network_reference",
-          "current_reference": "LAB_SHARE:/redacted/datavault/session-beta/02002_qB_ramsey_20260519_095500.csv",
+          "current_reference": "LAB_SHARE:/redacted/datavault/network-storage-demo/external-ramsey-source.csv",
           "availability": "available_for_export"
         },
         "export_materialization": {
-          "package_materialized_path": "source/external_materialized/02002_qB_ramsey_20260519_095500.csv",
+          "package_materialized_path": "source/external_materialized/external-ramsey-source.csv",
           "status": "materialized"
         },
         "default_bundle": [
           {
             "kind": "primary_data",
             "label": "qB Ramsey source data",
-            "path": "source/external_materialized/02002_qB_ramsey_20260519_095500.csv",
+            "path": "source/external_materialized/external-ramsey-source.csv",
             "include_status": "included_by_default",
             "relation": "selected_measurement_source",
             "authority": "lab_managed_source_metadata"
@@ -95,7 +95,7 @@
           {
             "kind": "copied_metadata",
             "label": "qB Ramsey parameter snapshot",
-            "path": "snapshots/run-02002-parameters.json",
+            "path": "snapshots/external-ramsey-parameter-snapshot.json",
             "include_status": "included_by_default",
             "relation": "copied_parameter_snapshot",
             "authority": "tool_recorded"
@@ -106,8 +106,8 @@
     "linked_context": [
       {
         "kind": "attachment",
-        "label": "Session beta cooldown note",
-        "path": "attachments/session-beta-cooldown-note.md",
+        "label": "Network session cooldown note",
+        "path": "attachments/network-session-cooldown-note.md",
         "include_status": "included_by_user",
         "relation": "documents_setup_context",
         "authority": "user_declared",
@@ -117,11 +117,11 @@
         ],
         "storage_reference": {
           "mode": "managed_attachment",
-          "current_reference": "scopecat://attachments/attachment-session-beta-cooldown-note",
+          "current_reference": "scopecat://attachments/attachment-network-session-cooldown-note",
           "availability": "available"
         },
         "export_materialization": {
-          "package_materialized_path": "attachments/session-beta-cooldown-note.md",
+          "package_materialized_path": "attachments/network-session-cooldown-note.md",
           "status": "materialized"
         }
       },
@@ -137,7 +137,7 @@
         ],
         "storage_reference": {
           "mode": "lab_managed_network_reference",
-          "current_reference": "LAB_SHARE:/redacted/notebooks/session-beta/local-fit-scratchpad.ipynb",
+          "current_reference": "LAB_SHARE:/redacted/notebooks/network-storage-demo/local-fit-scratchpad.ipynb",
           "availability": "missing_or_moved"
         },
         "export_materialization": {
@@ -149,7 +149,7 @@
     "warnings": [
       {
         "code": "missing_external_reference",
-        "subject": "LAB_SHARE:/redacted/notebooks/session-beta/local-fit-scratchpad.ipynb",
+        "subject": "LAB_SHARE:/redacted/notebooks/network-storage-demo/local-fit-scratchpad.ipynb",
         "message": "A user-declared external artifact for measurement-02002 is missing or moved and cannot be materialized into the export package."
       }
     ]

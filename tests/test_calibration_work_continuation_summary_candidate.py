@@ -107,7 +107,7 @@ class CalibrationWorkContinuationSummaryCandidateTest(unittest.TestCase):
         fit_output = next(
             output
             for output in summary["outputs"]
-            if output["output_id"] == "fit-preview:fit-rabi-04002"
+            if output["output_id"] == "fit-preview:rabi-fit-preview-failed-quality"
         )
         self.assertEqual(fit_output["quality_score"], 0.58)
 

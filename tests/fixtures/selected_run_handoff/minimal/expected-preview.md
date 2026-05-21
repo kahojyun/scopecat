@@ -10,7 +10,7 @@ plotting UI, data schema contract, or report.
 - selected run: `42`
 - experiment: `qA Rabi amplitude sweep`
 - target: `qA`
-- source file: `source/session-alpha/00042_qA_rabi_20260518_101500.csv`
+- source file: `source/selected-rabi-demo/selected-rabi-source.csv`
 
 ## Column Validation
 
@@ -46,8 +46,8 @@ Rows: `3` of `3`.
 
 | X | Y | Source | Boundary note |
 | --- | --- | --- | --- |
-| `drive_amp` | `iq_i` | `source/session-alpha/00042_qA_rabi_20260518_101500.csv` | Plot-spec-ready display preview only; source export remains separate; no fit, uncertainty, or scientific validation. |
-| `drive_amp` | `iq_q` | `source/session-alpha/00042_qA_rabi_20260518_101500.csv` | Plot-spec-ready display preview only; source export remains separate; no fit, uncertainty, or scientific validation. |
+| `drive_amp` | `iq_i` | `source/selected-rabi-demo/selected-rabi-source.csv` | Plot-spec-ready display preview only; source export remains separate; no fit, uncertainty, or scientific validation. |
+| `drive_amp` | `iq_q` | `source/selected-rabi-demo/selected-rabi-source.csv` | Plot-spec-ready display preview only; source export remains separate; no fit, uncertainty, or scientific validation. |
 
 ## Caption Stub
 

@@ -11,7 +11,7 @@ is not a storage schema, plotting API, file importer, or product contract.
 - label: `qA frequency response map`
 - target: `qA`
 - source kind: `primary_measurement`
-- source table: `source/qA_frequency_response_map.csv`
+- source table: `source/declared-2d-frequency-response-grid.csv`
 
 ## Declared Shape
 
@@ -47,8 +47,8 @@ Held condition:
 
 | X | Y | Z | Source | Boundary note |
 | --- | --- | --- | --- | --- |
-| `drive_frequency_ghz` | `bias_v` | `signal_db` | `source/qA_frequency_response_map.csv` | Plot candidates are declared 2D grid plot candidates only; no rendering, fit, uncertainty, or scientific validation is provided. |
-| `drive_frequency_ghz` | `bias_v` | `phase_deg` | `source/qA_frequency_response_map.csv` | Plot candidates are declared 2D grid plot candidates only; no rendering, fit, uncertainty, or scientific validation is provided. |
+| `drive_frequency_ghz` | `bias_v` | `signal_db` | `source/declared-2d-frequency-response-grid.csv` | Plot candidates are declared 2D grid plot candidates only; no rendering, fit, uncertainty, or scientific validation is provided. |
+| `drive_frequency_ghz` | `bias_v` | `phase_deg` | `source/declared-2d-frequency-response-grid.csv` | Plot candidates are declared 2D grid plot candidates only; no rendering, fit, uncertainty, or scientific validation is provided. |
 
 ## Warnings
 

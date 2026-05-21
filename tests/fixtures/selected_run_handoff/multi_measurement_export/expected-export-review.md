@@ -20,33 +20,33 @@ reports, or workbooks.
 
 | Measurement | Experiment | Included items |
 | --- | --- | --- |
-| `1001` | `qA Rabi amplitude sweep` | Run 1001 Rabi source data (`source/session-alpha/01001_qA_rabi_20260518_101500.csv`); Run 1001 parameter snapshot (`snapshots/run-01001-parameters.json`) |
-| `1002` | `qA T1 decay` | Run 1002 T1 source data (`source/session-alpha/01002_qA_t1_20260518_104500.csv`); Run 1002 parameter snapshot (`snapshots/run-01002-parameters.json`) |
+| `1001` | `qA Rabi amplitude sweep` | Run 1001 Rabi source data (`source/export-demo-session/measurement-1001-rabi-source.csv`); Run 1001 parameter snapshot (`snapshots/measurement-1001-parameter-snapshot.json`) |
+| `1002` | `qA T1 decay` | Run 1002 T1 source data (`source/export-demo-session/measurement-1002-t1-source.csv`); Run 1002 parameter snapshot (`snapshots/measurement-1002-parameter-snapshot.json`) |
 
 Shared included context:
 
-- Session wiring note (`attachments/session-alpha-wiring-note.md`):
+- Session wiring note (`attachments/export-session-wiring-note.md`):
   user-declared attachment linked to measurements `1001` and `1002`.
 
 ## Optional Linked Context
 
 | Label | Kind | Path | Relation | Authority | Linked measurements | Include status |
 | --- | --- | --- | --- | --- | --- | --- |
-| qA summary candidate | artifact | `artifacts/qA-summary-candidate.csv` | summarizes | user_declared | `1001`, `1002` | optional |
+| qA summary candidate | artifact | `artifacts/optional-two-measurement-summary.csv` | summarizes | user_declared | `1001`, `1002` | optional |
 
 The optional artifact is visible so a user can decide whether to include it
 later. This fixture does not treat it as proof of analysis lineage.
 
 ## Missing Context
 
-- Run 1002 fit note (`attachments/run-01002-fit-note.md`): user-declared
+- Measurement 1002 fit note (`attachments/measurement-1002-fit-note.md`): user-declared
   companion for measurement `1002` is absent from the fixture.
 
 ## Source Recovery
 
-- legacy session: `session-alpha`
+- legacy session: `export-demo-session`
 - public-safe source location:
-  `LAB_LOCAL:/redacted/datavault/session-alpha`
+  `LAB_LOCAL:/redacted/datavault/export-demo-session`
 - local source path is redaction-sensitive and not portable.
 
 ## Warnings
