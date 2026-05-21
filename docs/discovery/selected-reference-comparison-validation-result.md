@@ -27,6 +27,10 @@ The fixture validates a first selected-reference comparison boundary:
   not-compared findings can stay distinct;
 - the report can avoid using `gap` as a catch-all.
 
+It intentionally does not include experiment code/version context. That is a
+known comparison dimension, but it should wait for the experiment-code-selection
+slice to define the minimum code reference boundary.
+
 ## Boundary Confirmed
 
 Selected-reference comparison is a context comparison report. It is not a
@@ -40,6 +44,7 @@ what changed and what is unavailable. It does not:
 - compare fit quality;
 - prove physical setup truth;
 - interpret user-provided analysis conclusions.
+- compare experiment code or code versions.
 
 The reference-selection model can start from ordinary measurement marks. A
 user may mark a run as last-working, notable, best-observed, or simply
@@ -69,6 +74,9 @@ not earn a shared run-context framework.
 - raw-data and fit-quality comparison remain separate future slices;
 - user scripts or humans may still make higher-level judgments from Scopecat
   records, but that is outside this fixture;
+- experiment code/version mismatch can be a major comparison dimension, but it
+  is deferred until the experiment-code-selection slice validates code
+  references;
 - recipient-aware redaction remains broader than this fixture.
 
 ## Current Recommendation
@@ -76,4 +84,5 @@ not earn a shared run-context framework.
 Stop this slice at fixture validation unless a near-term task needs a
 production-shaped summary candidate. Use the fixture as comparison pressure
 when designing measurement run context, selected references, and future
-review/report surfaces.
+review/report surfaces. Revisit this fixture after experiment-code-selection
+has a validated code reference shape.

@@ -20,6 +20,12 @@ The first fixture should build on already validated discovery pressure:
 - the selected-reference problem brief for finding vocabulary and
   user-interpretation boundaries.
 
+Experiment code/version context is also an important selected-reference
+comparison dimension because code differences can explain why one run can be
+reproduced, inspected, or executed while another cannot. This first fixture
+intentionally omits code comparison until the experiment-code-selection slice
+defines the minimum code reference boundary.
+
 ## Validation Question
 
 Can Scopecat show useful context differences between a current measurement and
@@ -50,6 +56,9 @@ The fixture compares declared context. It should not inspect raw data, execute
 code, score user judgment, interpret user analysis conclusions, or infer
 physical setup truth.
 
+It also should not compare experiment code yet. Adding code-version fields here
+would invent a code-reference model before that slice is validated.
+
 ## First Fixture Shape
 
 The first fixture should stay small:
@@ -69,6 +78,8 @@ The first fixture should stay small:
 - one unlinked reference analysis note;
 - one unverified declared sample fact;
 - one redacted station connection fact;
+
+The fixture intentionally excludes experiment code/version references.
 
 ## Expected Output
 
@@ -96,6 +107,7 @@ This plan does not earn:
 - publication-grade plotting;
 - fit-quality comparison;
 - user-provided analysis conclusion model;
+- experiment-code or code-version comparison;
 - shared run-context framework;
 - GUI design.
 

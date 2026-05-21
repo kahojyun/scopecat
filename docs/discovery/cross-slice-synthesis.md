@@ -87,8 +87,8 @@ snapshots, parameter state references, setup-binding references, selected
 artifacts, and precise finding vocabulary. It has not earned a comparison
 engine, user-judgment engine, fit-quality comparison, raw-data comparison,
 setup truth, publication-grade plotting, user-provided analysis conclusion
-model, or GUI design. The first reference-selection model can start from
-ordinary user marks on measurement records.
+model, experiment-code comparison, or GUI design. The first reference-selection
+model can start from ordinary user marks on measurement records.
 
 ## Recurring Candidate Concepts
 
@@ -168,6 +168,9 @@ Several separations now appear repeatedly enough to keep carrying forward:
 - Last-working, notable, best-observed, or similar reference labels can start
   as user marks on measurement records. Scopecat does not need special
   semantics for each label before it can provide objective comparison.
+- Experiment code/version mismatch is a real selected-reference comparison
+  dimension, but it should stay deferred until experiment-code-selection
+  validates the minimum code reference shape.
 
 ## Design Pressure
 
@@ -223,8 +226,8 @@ The cross-slice comparison still does not earn:
 - shared input-snapshot or run-context framework;
 - deep interpretation of user/project-defined setup-binding payloads;
 - selected-reference comparison engine, user-judgment engine, raw-data
-  comparison, user-provided analysis conclusion model, or automatic cause
-  attribution;
+  comparison, user-provided analysis conclusion model, experiment-code
+  comparison, or automatic cause attribution;
 - publication-grade plotting or multi-run plotting GUI;
 - fit quality, uncertainty, reproducibility, or user/domain scientific
   conclusions.
