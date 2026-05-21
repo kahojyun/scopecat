@@ -22,9 +22,9 @@ The first fixture should build on already validated discovery pressure:
 
 Experiment code/version context is also an important selected-reference
 comparison dimension because code differences can explain why one run can be
-reproduced, inspected, or executed while another cannot. This first fixture
-intentionally omits code comparison until the experiment-code-selection slice
-defines the minimum code reference boundary.
+inspected or restored while another cannot. The experiment-code-selection
+slice now defines a minimum selected-code reference shape, but this first
+selected-reference fixture intentionally omits code comparison behavior.
 
 ## Validation Question
 
@@ -56,8 +56,9 @@ The fixture compares declared context. It should not inspect raw data, execute
 code, score user judgment, interpret user analysis conclusions, or infer
 physical setup truth.
 
-It also should not compare experiment code yet. Adding code-version fields here
-would invent a code-reference model before that slice is validated.
+It also should not compare experiment code yet. Code-version comparison should
+be added as a later selected-reference update using the validated
+selected-code reference shape.
 
 ## First Fixture Shape
 
