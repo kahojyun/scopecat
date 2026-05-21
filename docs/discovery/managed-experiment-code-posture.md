@@ -56,6 +56,12 @@ The near-term product boundary is:
 - explicit links from measurements or calibration steps to selected code
   context.
 
+This is an adoption route, not a retreat from managed code. The first useful
+step is to let users name the experiment code that matters most to the run:
+entrypoints, notebooks, helper files, declared context references, and selected
+generated companions. That already covers the code most directly tied to
+experiment workflow and intent while avoiding legacy-codebase analysis.
+
 The long-term direction is:
 
 - Scopecat-managed code workspaces that can be expanded into editable folders;
@@ -64,6 +70,9 @@ The long-term direction is:
 - measurements reference the selected code version at run start;
 - selected code versions can be materialized on another machine or environment
   when storage and environment support are earned.
+- environment restoration may later include loading a selected code version and
+  running a declared environment sync, such as a `uv` lockfile workflow, but
+  only after managed workspace storage and environment authority are earned.
 
 ## First Boundary
 
@@ -82,6 +91,29 @@ This means the first record can say:
 
 This boundary does not require users to divide the codebase into independently
 versioned workflow nodes.
+
+It also does not require Scopecat to analyze a legacy repository before it can
+be useful. File selection remains user-owned in the first slice; Scopecat
+records the selection, makes its limits visible, strips notebook outputs when
+recording notebooks, and links the selected code context to measurements or
+calibration steps.
+
+## Adoption Route
+
+The intended route is:
+
+- start with whitelist-based records for the files and references the user
+  considers experiment-relevant;
+- use those records to connect measurements, calibration steps, handoff
+  packages, and comparison workflows to the code context users actually meant;
+- let users gradually move from external folders into Scopecat-managed
+  workspaces when they want restore, compare, and version-selection behavior;
+- only then consider loading selected code versions, environment restoration,
+  lockfile-driven dependency sync, execution readiness checks, or managed
+  runners.
+
+This route keeps early adoption practical for messy labs while preserving the
+later path toward structured code management.
 
 ## Workflow And DAG Deferral
 

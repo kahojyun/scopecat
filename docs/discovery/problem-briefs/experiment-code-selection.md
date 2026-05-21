@@ -55,6 +55,10 @@ package manager, or general managed execution platform.
   previous version may be the clearer workflow payoff.
 - Early adoption should use minimal whitelist capture before dependency
   closure, registry semantics, or broad folder analysis.
+- This is a staged adoption route: first record the code files and references
+  users explicitly select as experiment-relevant, then let users migrate toward
+  Scopecat-managed code workspaces when restore, compare, and version-selection
+  behavior becomes valuable.
 - A selected code reference should be usable by later run, handoff, or
   calibration-batch workflows; otherwise users may still have to manually
   reconstruct which code should run.

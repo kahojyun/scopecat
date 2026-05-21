@@ -53,6 +53,27 @@ Scopecat may eventually provide Git-like managed experiment-code versions
 behind lab-native actions, but the first fixture is selected context and a
 captured-version candidate with minimal whitelist capture.
 
+## Adoption Route Covered
+
+The fixture covers the first adoption stage for code selection:
+
+- users choose the files and references that matter to the experiment instead
+  of asking Scopecat to understand the whole legacy codebase;
+- Scopecat records those choices as experiment code context connected to
+  calibration and measurement intent;
+- notebook capture is useful immediately because outputs can be stripped while
+  preserving source;
+- unselected files remain outside the record unless the user adds them;
+- the captured-version candidate leaves room for later Scopecat-managed
+  workspaces without pretending that storage, restore, or execution contracts
+  already exist.
+
+The next stages are intentionally deferred: moving users into managed
+workspaces, restoring a selected code version, comparing managed versions,
+loading code for a run, and syncing a declared environment such as a `uv`
+lockfile workflow. Those are plausible long-term capabilities, not conclusions
+earned by this fixture.
+
 ## Relationship To Prior Slices
 
 The fixture reuses validated pressure without promoting shared architecture:
