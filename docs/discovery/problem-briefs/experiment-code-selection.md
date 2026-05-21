@@ -51,8 +51,9 @@ package manager, or general managed execution platform.
 
 - The most important explicit record is likely the selected entrypoint or
   template/version used for a run.
-- Snapshot-only capture may be too retrospective; selection or loading of a
-  previous version may be the clearer workflow payoff.
+- Snapshot-only capture may be too retrospective; preserving selected code
+  references for later restore or version-selection validation may be the
+  clearer workflow payoff.
 - Early adoption should use minimal whitelist capture before dependency
   closure, registry semantics, or broad folder analysis.
 - This is a staged adoption route: first record the code files and references
@@ -81,8 +82,9 @@ package manager, or general managed execution platform.
 - Start with explicit selected root, entrypoint path and kind, whitelisted
   files, stripped notebook output policy, declared context references, and a
   broad non-recording policy for unwhitelisted files.
-- Code-version selection should include a thin selected-version handoff for
-  later local execution or review, not only retrospective tracking.
+- Code-version selection should include a thin selected-version reference for
+  future restore, version-selection, or review workflows, not only
+  retrospective tracking.
 - Environment validation should start as user-declared context references, not
   active readiness diagnostics or a general managed execution platform.
 - Selected code context should be able to feed selected measurement export,
@@ -112,10 +114,11 @@ package manager, or general managed execution platform.
 
 ## Possible Validation Questions
 
-- Is explicit entrypoint plus selected-folder snapshot enough to improve code
-  selection, recovery, and explanation?
-- Can selected code references feed later local run or calibration-batch steps
-  without Scopecat becoming a deployment or managed-runner system?
+- Is selected root plus explicit entrypoint, whitelist, stripped notebook
+  source, and captured-version candidate enough to improve code selection,
+  recovery, and explanation?
+- Can selected code references feed future restore or calibration-batch
+  planning without Scopecat becoming a deployment or managed-runner system?
 - Is selected root plus entrypoint plus explicit whitelist enough for a user to
   tell which code context should be restored or handed off?
 - What captured state is useful first: stripped notebook source, file

@@ -106,7 +106,7 @@
     "linked_context": [
       {
         "kind": "attachment",
-        "label": "Session beta cooldown note",
+        "label": "Network session cooldown note",
         "path": "attachments/network-session-cooldown-note.md",
         "include_status": "included_by_user",
         "relation": "documents_setup_context",

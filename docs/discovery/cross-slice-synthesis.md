@@ -98,8 +98,9 @@ uses minimal whitelist capture, strips notebook outputs before recording, and
 does not inspect internal Git state or analyze unselected files. It has not
 earned managed workspace storage, Git replacement implementation, internal Git
 analysis, default record-all tracking, package management, environment
-ownership, execution, workflow/DAG nodes, component-level versioning, generated
-artifact regeneration, or GUI design.
+ownership, environment restoration, selected-version loading, execution,
+workflow/DAG nodes, component-level versioning, generated artifact
+regeneration, or GUI design.
 
 ## Recurring Candidate Concepts
 
@@ -127,7 +128,7 @@ schema.
 | Comparison finding | Selected reference comparison, export, running inspection | A precise context-comparison result such as changed, missing, unverified, redacted, unlinked, same-observed, or not-compared. It is not automatic cause attribution. |
 | Preview compatibility | Selected reference comparison, export, running inspection, scan/data-shape | Declared preview metadata that suggests compatible quick browsing or overlay across measurements. It does not imply publication-grade plotting or user interpretation. |
 | Selected code context | Experiment code, calibration continuation, selected reference | The explicit code root, entrypoint, whitelisted files, notebook recording policy, and declared context refs that a user means to use, restore, compare, or hand off. |
-| Captured version candidate | Experiment code, export/handoff | A proposed point-in-time boundary for future Scopecat-managed code versions. It can describe whitelist capture scope without accepting storage, merge, sync, Git inspection, or managed workspace semantics. |
+| Captured version candidate | Experiment code, export/handoff | A proposed point-in-time boundary for future Scopecat-managed code versions. It can describe whitelist capture scope without accepting storage, restore, sync, environment, loading, execution, merge, Git inspection, or managed workspace semantics. |
 
 ## Stable Separations
 
@@ -251,9 +252,10 @@ The cross-slice comparison still does not earn:
   comparison, user-provided analysis conclusion model, code-version comparison
   behavior, or automatic cause attribution;
 - managed experiment-code workspace storage, Git replacement implementation,
-  branch/merge/sync semantics, package management, environment ownership, code
-  execution, workflow/DAG nodes, component-level code versioning, or generated
-  artifact regeneration;
+  branch/merge/sync semantics, package management, environment ownership,
+  environment restoration, selected-version loading, code execution,
+  workflow/DAG nodes, component-level code versioning, or generated artifact
+  regeneration;
 - publication-grade plotting or multi-run plotting GUI;
 - fit quality, uncertainty, reproducibility, or user/domain scientific
   conclusions.

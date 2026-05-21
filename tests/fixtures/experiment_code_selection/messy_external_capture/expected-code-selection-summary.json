@@ -152,7 +152,7 @@
     "Unselected folder contents are not analyzed as warnings.",
     "Internal Git state is not inspected by this fixture.",
     "Whitelisted notebooks are stripped to source without outputs before recording.",
-    "The captured version candidate shows what Scopecat may later manage, without accepting storage or merge semantics.",
+    "The captured version candidate shows what Scopecat may later manage, without accepting storage, restore, sync, environment, loading, execution, merge, or workflow semantics.",
     "Workflow or DAG nodes are not required for the first code-versioning boundary."
   ],
   "decisions_not_earned": [
@@ -162,6 +162,8 @@
     "default record-all file tracking",
     "package management",
     "environment ownership",
+    "environment restoration",
+    "selected-version loading",
     "code execution",
     "workflow DAG",
     "component-level versioning",

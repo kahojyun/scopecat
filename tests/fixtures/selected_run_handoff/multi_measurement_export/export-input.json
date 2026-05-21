@@ -3,7 +3,7 @@
   "fixture_status": "synthetic_public_safe",
   "user_job": "Export two selected measurement records and their default bundles to another computer for later analysis.",
   "legacy_source_location": {
-    "session": "selected-rabi-demo-session",
+    "session": "export-demo-session",
     "display_path": "LAB_LOCAL:/redacted/datavault/export-demo-session",
     "local_path": "/Users/example/lab/private/datavault/export-demo-session",
     "local_path_public_safe": false

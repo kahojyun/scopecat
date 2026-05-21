@@ -48,7 +48,7 @@ an export package when available.
 
 ### Linked Context
 
-- Session beta cooldown note (`attachments/network-session-cooldown-note.md`):
+- Network session cooldown note (`attachments/network-session-cooldown-note.md`):
   managed attachment, included by user, linked to both selected measurements.
 - Local fit scratchpad: user-declared network artifact linked to
   `measurement-02002`, but missing or moved.

@@ -28,7 +28,8 @@ The fixture validates a first selected-code boundary:
 - mutation capability can remain not analyzed, and selection still does not
   grant execution permission;
 - a captured-version candidate can describe what Scopecat may later manage
-  without accepting storage, merge, or workflow semantics.
+  without accepting storage, restore, sync, environment, loading, execution,
+  merge, or workflow semantics.
 
 ## Boundary Confirmed
 

@@ -42,5 +42,6 @@ output-stripping policy, and declared environment profile reference.
 
 This fixture does not decide managed workspace storage, Git replacement
 implementation, internal Git analysis, default record-all file tracking,
-package management, environment ownership, execution, workflow DAGs,
-component-level versioning, generated artifact regeneration, or GUI design.
+package management, environment ownership, environment restoration,
+selected-version loading, execution, workflow DAGs, component-level versioning,
+generated artifact regeneration, or GUI design.

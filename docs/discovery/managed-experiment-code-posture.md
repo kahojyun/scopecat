@@ -8,6 +8,9 @@ This note records the intended product direction for experiment-code
 management. It does not accept a final storage backend, Git replacement,
 workspace layout, package manager, environment manager, execution service,
 workflow/DAG model, merge model, sync protocol, GUI design, or code registry.
+The durable product direction lives in
+[`product-direction.md`](../strategy/product-direction.md); this note owns the
+slice-specific discovery boundary.
 
 ## Direction
 
@@ -171,8 +174,8 @@ later questions.
 
 ## Current Questions
 
-- Is selected root plus explicit whitelist enough for the first managed-code
-  version boundary?
+- Is selected root plus explicit whitelist enough for the first selected-code
+  and captured-version-candidate boundary?
 - What should Scopecat store for a captured version first: file contents,
   checksums, stripped notebooks, an archive, or a content-addressed snapshot?
 - Which whitelist helpers should exist for common notebook/script workflows
@@ -185,12 +188,16 @@ later questions.
 
 ## Current Recommendation
 
-Validate a first selected-code context fixture before designing a managed
-workspace store or workflow/DAG model.
+Use the validated selected-code fixture and
+[`experiment-code-selection-next-boundary.md`](experiment-code-selection-next-boundary.md)
+as the stop point for this slice.
 
-The first fixture should represent a messy external folder being selected with
-a small explicit whitelist and captured into a Scopecat-managed version
-candidate. It should make the selected root, entrypoint, whitelisted files,
-notebook-output stripping, declared context references, and non-recording
-policy visible without inspecting Git, scanning unselected files, executing
-code, importing code, or inferring dependencies.
+The validated boundary represents a messy external folder being selected with a
+small explicit whitelist and captured as a candidate for a future
+Scopecat-managed version. It makes the selected root, entrypoint, whitelisted
+files, notebook-output stripping, declared context references, and
+non-recording policy visible without inspecting Git, scanning unselected files,
+executing code, importing code, or inferring dependencies. Start a later
+managed-workspace slice only when restore, compare, materialization, or
+selected-version-at-run-start behavior creates concrete implementation
+pressure.
