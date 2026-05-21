@@ -48,7 +48,7 @@ class ExperimentCodeSelectionFixtureTest(unittest.TestCase):
         context = summary["selected_code_contexts"][0]
         source_context = source["selected_code_contexts"][0]
 
-        self.assertEqual(context["entrypoint_path"], "Braid_cali_new.ipynb")
+        self.assertEqual(context["entrypoint_path"], "readout_calibration_entrypoint.ipynb")
         self.assertEqual(context["entrypoint_kind"], "notebook")
         self.assertEqual(context["entrypoint_recorded_form"], "source_without_outputs")
         self.assertEqual(context["execution_claim"], "not_executed_by_fixture")

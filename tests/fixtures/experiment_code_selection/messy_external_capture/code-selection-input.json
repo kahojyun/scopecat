@@ -16,8 +16,8 @@
   },
   "external_code_roots": [
     {
-      "root_id": "external-code-root-braid-redacted",
-      "root_label": "redacted braid experiment folder",
+      "root_id": "external-code-root-readout-demo",
+      "root_label": "fictional readout calibration code folder",
       "mode": "external_folder_import",
       "authority": "user_selected_external_folder"
     }
@@ -25,10 +25,10 @@
   "selected_code_contexts": [
     {
       "context_id": "code-context-readout-cali-0001",
-      "external_root_id": "external-code-root-braid-redacted",
+      "external_root_id": "external-code-root-readout-demo",
       "context_role": "calibration_entrypoint_context",
       "entrypoint": {
-        "path": "Braid_cali_new.ipynb",
+        "path": "readout_calibration_entrypoint.ipynb",
         "kind": "notebook",
         "recorded_form": "source_without_outputs",
         "output_policy_applied": "strip_outputs_before_recording",
@@ -36,17 +36,17 @@
       },
       "whitelisted_files": [
         {
-          "path": "Braid_cali_new.ipynb",
+          "path": "readout_calibration_entrypoint.ipynb",
           "role": "entrypoint",
           "recorded_form": "source_without_outputs"
         },
         {
-          "path": "Experiment_header.ipynb",
+          "path": "experiment_session_setup.ipynb",
           "role": "declared_helper_notebook",
           "recorded_form": "source_without_outputs"
         },
         {
-          "path": "my_scripts/xw_h.py",
+          "path": "helpers/record_measurement_context.py",
           "role": "declared_helper_module",
           "recorded_form": "source_file"
         }
@@ -108,11 +108,11 @@
       "source_context_id": "code-context-readout-cali-0001",
       "candidate_status": "candidate_not_committed_contract",
       "capture_scope": {
-        "root_id": "external-code-root-braid-redacted",
+        "root_id": "external-code-root-readout-demo",
         "whitelisted_files": [
-          "Braid_cali_new.ipynb",
-          "Experiment_header.ipynb",
-          "my_scripts/xw_h.py"
+          "readout_calibration_entrypoint.ipynb",
+          "experiment_session_setup.ipynb",
+          "helpers/record_measurement_context.py"
         ],
         "notebook_recording_policy": "source_without_outputs",
         "default_file_inclusion": "not_recorded_unless_whitelisted"

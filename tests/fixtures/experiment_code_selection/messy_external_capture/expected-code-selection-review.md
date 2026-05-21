@@ -12,16 +12,16 @@ Internal Git state is not inspected in this fixture.
 
 ## Selected Context
 
-- Selected root: `external-code-root-braid-redacted`
-- Entrypoint: `Braid_cali_new.ipynb`
+- Selected root: `external-code-root-readout-demo`
+- Entrypoint: `readout_calibration_entrypoint.ipynb`
 - Entrypoint kind: notebook
 - Recorded form: source without notebook outputs
 
 The selected context records three whitelisted files:
 
-- `Braid_cali_new.ipynb`
-- `Experiment_header.ipynb`
-- `my_scripts/xw_h.py`
+- `readout_calibration_entrypoint.ipynb`
+- `experiment_session_setup.ipynb`
+- `helpers/record_measurement_context.py`
 
 Notebook outputs are stripped before recording. Checkpoints, caches, backups,
 and other unlisted files are not recorded unless the user explicitly adds them
