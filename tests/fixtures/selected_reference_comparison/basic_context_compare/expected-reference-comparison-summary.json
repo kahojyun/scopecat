@@ -5,8 +5,9 @@
   "reference_semantics": {
     "status": "fixture_only",
     "contract_guard": "This expected output is not a final comparison engine, equivalence score, known-good contract, setup truth contract, scientific-validity claim, or GUI design.",
-    "selected_reference": "The reference is user-selected comparison context. Known-good and scientific comparability are not claimed.",
+    "selected_reference": "The reference is selected through ordinary user measurement marks. Mark labels such as last-working or known-good are user-provided context, not special Scopecat proof.",
     "named_inputs": "The comparison reads named measurement inputs as context, but does not define a shared run-context framework.",
+    "preview": "Matching declared preview metadata may later support quick multi-measurement browsing or overlay, not publication-grade plotting.",
     "finding_vocabulary": "Findings use specific labels instead of a generic gap category."
   },
   "candidate_summary": {
@@ -14,7 +15,8 @@
       "comparison_id": "reference-compare-0001",
       "current_measurement_id": "measurement-05002",
       "reference_measurement_id": "measurement-04001",
-      "reference_reason_label": "last_working_reference",
+      "reference_selection_source": "user_measurement_mark",
+      "reference_mark_label": "last_working_reference",
       "known_good_claim": "not_claimed",
       "scientific_comparability_claim": "not_claimed"
     },
@@ -66,14 +68,15 @@
       "signal": "excited_state_probability",
       "plot_candidates": [
         "heatmap"
-      ]
+      ],
+      "future_preview_use": "quick_multi_measurement_browsing"
     },
     "findings": [
       {
-        "code": "reference_not_known_good",
+        "code": "reference_mark_not_known_good_claim",
         "kind": "not_compared",
         "subject": "reference_selection",
-        "message": "Reference was selected as last-working context; this does not claim known-good status."
+        "message": "Reference came from a user measurement mark; the mark does not make a Scopecat known-good claim."
       },
       {
         "code": "same_observed_preview_shape",
@@ -127,9 +130,10 @@
     "warnings": []
   },
   "boundary_notes": [
-    "Selected reference means user-chosen comparison context, not known-good proof.",
-    "Same observed setup binding and preview metadata can make comparison easier, but do not prove scientific comparability.",
-    "Changed parameter state is a finding, not an automatic explanation of data differences.",
+    "Selected reference means user-chosen comparison context, usually from ordinary measurement marks or labels.",
+    "Mark labels such as last-working or known-good are user context; Scopecat does not need special reference handling to compare them.",
+    "Matching preview metadata can support quick browsing or overlay of compatible measurements, but not publication-grade plotting or scientific comparability.",
+    "Changed parameter state is an objective comparison finding.",
     "Unverified and redacted findings should remain distinct from missing data.",
     "The fixture compares declared context only and does not inspect raw data, run code, hardware state, or fit quality."
   ],

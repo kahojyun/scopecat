@@ -26,6 +26,10 @@ Can Scopecat show useful context differences between a current measurement and
 a user-selected reference without claiming the reference is known-good,
 explaining the data difference, or proving scientific comparability?
 
+The first fixture treats the selected reference as coming from an ordinary user
+mark on a measurement record. Labels such as last-working or known-good are
+user-provided context, not special Scopecat proof.
+
 First fixture:
 
 - `tests/fixtures/selected_reference_comparison/basic_context_compare/`
@@ -52,7 +56,8 @@ The first fixture should stay small:
 
 - one current measurement;
 - one selected reference measurement;
-- a reference reason such as `last_working_reference`;
+- a reference selected through a generic user mark such as
+  `last_working_reference`;
 - explicit `known_good_claim: not_claimed`;
 - matching experiment/sample/cooldown labels;
 - named input snapshots for parameter state, setup binding, and station
@@ -60,6 +65,7 @@ The first fixture should stay small:
 - same-observed setup binding;
 - changed parameter state;
 - same declared preview metadata;
+- quick preview compatibility as future browsing or overlay pressure;
 - one missing current fit artifact;
 - one unlinked reference analysis note;
 - one unverified declared sample fact;
@@ -74,6 +80,7 @@ Expected review output should let a reviewer answer:
 - whether known-good or scientific comparability is claimed;
 - which named input snapshots changed or matched;
 - whether declared preview metadata matches;
+- whether compatible preview metadata could support quick browsing or overlay;
 - what is missing, unlinked, unverified, redacted, same-observed, changed, or
   not compared;
 - that findings are context comparison results, not cause attribution.
@@ -88,6 +95,7 @@ This plan does not earn:
 - setup truth;
 - automatic cause attribution;
 - raw-data or waveform comparison;
+- publication-grade plotting;
 - fit-quality comparison;
 - shared run-context framework;
 - GUI design.

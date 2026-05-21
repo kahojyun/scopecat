@@ -86,7 +86,9 @@ reference as known-good or proving scientific comparability. It reuses selected
 measurement IDs, declared preview metadata, named input snapshots, parameter
 state references, setup-binding references, selected artifacts, and precise
 finding vocabulary. It has not earned a comparison engine, equivalence score,
-fit-quality comparison, raw-data comparison, setup truth, or GUI design.
+fit-quality comparison, raw-data comparison, setup truth, publication-grade
+plotting, or GUI design. The first reference-selection model can start from
+ordinary user marks on measurement records.
 
 ## Recurring Candidate Concepts
 
@@ -110,8 +112,9 @@ schema.
 | Setup binding | Parameter state, selected reference, future measurement reference pressure | The sample/cooldown/session-specific mapping from logical experiment entities to physical wiring, channels, instruments, generated line/readout state, and selected registry context. |
 | Named input snapshot | Parameter state, setup binding, measurement reference pressure | A measurement run-start context entry that references a specific snapshot family by name, such as parameter state, setup binding, or station registry, without making those families share lifecycle or diff semantics. |
 | Outer envelope with opaque payload | Setup binding, export, external-file pressure | A Scopecat-owned record boundary around identity, provenance, references, declared summaries, and attention state while leaving user/project-defined internal payloads opaque until a later slice earns deeper interpretation. |
-| Selected reference | Selected reference comparison, export, parameter state, setup binding | A user-chosen comparison anchor, such as last-working, best-observed, known-good, or simply relevant. Known-good is a narrower trust-qualified subtype, not the default meaning. |
+| Selected reference | Selected reference comparison, export, parameter state, setup binding | A user-chosen comparison anchor, such as last-working, best-observed, known-good, or simply relevant. These can start as ordinary user marks on measurement records; known-good is a narrower trust-qualified subtype, not the default meaning. |
 | Comparison finding | Selected reference comparison, export, running inspection | A precise context-comparison result such as changed, missing, unverified, redacted, unlinked, same-observed, or not-compared. It is not automatic cause attribution. |
+| Preview compatibility | Selected reference comparison, export, running inspection, scan/data-shape | Declared preview metadata that suggests compatible quick browsing or overlay across measurements. It does not imply publication-grade plotting or scientific comparability. |
 
 ## Stable Separations
 
@@ -163,6 +166,9 @@ Several separations now appear repeatedly enough to keep carrying forward:
   known-good runs. Same-observed setup context, matching preview metadata, and
   changed parameter state are comparison findings, not scientific equivalence
   or cause attribution.
+- Last-working, known-good, best-observed, or similar reference labels can
+  start as user marks on measurement records. Scopecat does not need special
+  semantics for each label before it can provide objective comparison.
 
 ## Design Pressure
 
@@ -219,6 +225,7 @@ The cross-slice comparison still does not earn:
 - deep interpretation of user/project-defined setup-binding payloads;
 - selected-reference comparison engine, known-good contract, equivalence
   score, raw-data comparison, or automatic cause attribution;
+- publication-grade plotting or multi-run plotting GUI;
 - fit quality, uncertainty, reproducibility, or scientific-validity claims.
 
 ## Recommended Next Step

@@ -5,13 +5,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURE = (
-    ROOT
-    / "tests"
-    / "fixtures"
-    / "selected_reference_comparison"
-    / "basic_context_compare"
-)
+FIXTURE = ROOT / "tests" / "fixtures" / "selected_reference_comparison" / "basic_context_compare"
 
 
 def _input_fixture() -> dict:
@@ -39,10 +33,14 @@ class SelectedReferenceComparisonFixtureTest(unittest.TestCase):
         selection = source["comparison_request"]["reference_selection"]
         comparison = summary["comparison"]
 
-        self.assertEqual(selection["reason_label"], comparison["reference_reason_label"])
+        self.assertEqual(
+            selection["selection_source"],
+            comparison["reference_selection_source"],
+        )
+        self.assertEqual(selection["mark_label"], comparison["reference_mark_label"])
         self.assertEqual(comparison["known_good_claim"], "not_claimed")
         self.assertEqual(comparison["scientific_comparability_claim"], "not_claimed")
-        self.assertIn("known-good proof", _expected_summary()["boundary_notes"][0])
+        self.assertIn("ordinary measurement marks", _expected_summary()["boundary_notes"][0])
 
     def test_named_input_comparison_keeps_context_families_separate(self) -> None:
         summary = _expected_summary()["candidate_summary"]
@@ -68,12 +66,13 @@ class SelectedReferenceComparisonFixtureTest(unittest.TestCase):
         measurements = {item["side"]: item for item in source["measurements"]}
 
         self.assertEqual(preview["finding"], "same_observed")
+        self.assertEqual(preview["future_preview_use"], "quick_multi_measurement_browsing")
         self.assertEqual(
             measurements["reference"]["declared_preview_metadata"],
             measurements["current"]["declared_preview_metadata"],
         )
         self.assertEqual(preview["axis_order"], ["coupler_bias_v", "drive_duration_ns"])
-        self.assertIn("scientific comparability", _expected_summary()["boundary_notes"][1])
+        self.assertIn("publication-grade plotting", _expected_summary()["boundary_notes"][2])
 
     def test_findings_use_precise_vocabulary_not_gap(self) -> None:
         source = _input_fixture()
@@ -107,9 +106,9 @@ class SelectedReferenceComparisonFixtureTest(unittest.TestCase):
     def test_scientific_equivalence_is_not_compared(self) -> None:
         summary = _expected_summary()
         candidate = summary["candidate_summary"]
-        finding = {
-            item["code"]: item for item in candidate["findings"]
-        }["not_compared_scientific_equivalence"]
+        finding = {item["code"]: item for item in candidate["findings"]}[
+            "not_compared_scientific_equivalence"
+        ]
 
         self.assertEqual(finding["kind"], "not_compared")
         self.assertIn("scientific comparability", summary["decisions_not_earned"])
@@ -117,15 +116,14 @@ class SelectedReferenceComparisonFixtureTest(unittest.TestCase):
         self.assertEqual(candidate["warnings"], [])
 
     def test_review_markdown_states_fixture_boundary(self) -> None:
-        review = (FIXTURE / "expected-reference-comparison-review.md").read_text(
-            encoding="utf-8"
-        )
+        review = (FIXTURE / "expected-reference-comparison-review.md").read_text(encoding="utf-8")
 
         self.assertIn("Selected Reference", review)
-        self.assertIn("not treated as", review)
+        self.assertIn("ordinary measurement mark", review)
         self.assertIn("Named Input Comparison", review)
         self.assertIn("changed parameter state", review)
-        self.assertIn("same-observed setup binding", review)
+        self.assertIn("same_observed_setup_binding", review)
+        self.assertIn("quickly browse or overlay compatible measurements", review)
         self.assertIn("avoid using `gap`", review)
         self.assertIn("raw data, fit quality, hardware runtime state", review)
 

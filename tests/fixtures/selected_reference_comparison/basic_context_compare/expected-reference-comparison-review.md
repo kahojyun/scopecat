@@ -16,12 +16,14 @@
 - comparison: `reference-compare-0001`
 - current measurement: `measurement-05002`
 - reference measurement: `measurement-04001`
-- reference reason: `last_working_reference`
+- reference selection source: `user_measurement_mark`
+- reference mark: `last_working_reference`
 - known-good claim: `not_claimed`
 - scientific comparability claim: `not_claimed`
 
-The selected reference is user-chosen comparison context. It is not treated as
-known-good proof.
+The selected reference is user-chosen comparison context, supplied through an
+ordinary measurement mark. Labels such as last-working or known-good are user
+context; they do not require special Scopecat proof.
 
 ### Measurement Pair
 
@@ -38,9 +40,7 @@ known-good proof.
 | `setup_binding` | `setup-binding-0002` | `setup-binding-0002` | same observed |
 | `station_registry` | `station-registry-mmcs2-redacted` | `station-registry-mmcs2-redacted` | same observed, redacted |
 
-The changed parameter state is a comparison finding, not an automatic
-explanation. The same-observed setup binding does not prove scientific
-comparability.
+The changed parameter state is an objective comparison finding.
 
 ### Preview Metadata
 
@@ -49,13 +49,15 @@ comparability.
 - signal: `excited_state_probability`
 - plot candidate: heatmap
 
-Both measurements declare the same preview shape.
+Both measurements declare the same preview shape. A later GUI could use this
+to quickly browse or overlay compatible measurements, without trying to produce
+publication-grade plots.
 
 ### Findings
 
 | Kind | Code | Subject |
 | --- | --- | --- |
-| not compared | `reference_not_known_good` | reference selection |
+| not compared | `reference_mark_not_known_good_claim` | reference selection |
 | same observed | `same_observed_preview_shape` | declared preview metadata |
 | same observed | `same_observed_setup_binding` | setup binding |
 | changed | `changed_parameter_state` | parameter state |
@@ -70,7 +72,11 @@ These labels avoid using `gap` as a catch-all.
 ## Boundary Notes
 
 - selected reference does not mean known-good;
+- last-working and known-good can be ordinary user marks, not special Scopecat
+  reference types;
 - comparison findings do not imply cause attribution;
+- preview compatibility supports quick browsing and comparison, not
+  publication-grade plotting;
 - unverified, redacted, missing, unlinked, same-observed, changed, and
   not-compared facts remain distinct;
 - the fixture compares declared context only;

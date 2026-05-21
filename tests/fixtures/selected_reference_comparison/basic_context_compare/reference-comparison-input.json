@@ -14,13 +14,15 @@
     "reference_measurement_id": "measurement-04001",
     "reference_selection": {
       "selected_by": "experimenter",
-      "reason_label": "last_working_reference",
+      "selection_source": "user_measurement_mark",
+      "mark_label": "last_working_reference",
       "known_good_claim": "not_claimed",
       "scientific_comparability_claim": "not_claimed"
     },
     "comparison_scope": [
       "measurement_identity",
       "declared_preview_metadata",
+      "quick_preview_compatibility",
       "named_input_snapshots",
       "selected_context_artifacts"
     ],
@@ -172,7 +174,7 @@
     }
   ],
   "expected_finding_codes": [
-    "reference_not_known_good",
+    "reference_mark_not_known_good_claim",
     "same_observed_preview_shape",
     "same_observed_setup_binding",
     "changed_parameter_state",

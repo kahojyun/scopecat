@@ -27,6 +27,10 @@ equivalence, goodness, or trust.
 
 ## Project-Owner Clarification
 
+- References such as last-working or known-good can often be represented as
+  ordinary user marks or labels on measurement records. Scopecat does not need
+  special reference handling before it can compare records selected through
+  those marks.
 - Routine same-sample work usually stays on one setup; cross-setup value is
   more plausible for screening, setup comparison, handoff, or exceptional
   protocol-transfer cases.
@@ -42,9 +46,15 @@ equivalence, goodness, or trust.
 - A useful first comparison output may be a comparison findings report against a
   selected reference, not a claim that the reference is known-good or that two
   setups are equivalent.
+- The first reference-selection model can start from generic user marks on
+  measurement records. Last-working and known-good are useful labels, not
+  necessarily dedicated Scopecat concepts.
 - The first validated fixture should compare declared context around a current
   measurement and selected reference: named input snapshots, declared preview
   metadata, selected artifacts, and redaction/verification state.
+- Compatible declared preview metadata may later support quick multi-measurement
+  browsing or overlay for comparison. This is an inspection aid, not a
+  publication-grade plotting goal.
 - Comparison findings should distinguish changed, missing, unverified,
   redacted, unlinked, same-observed, and not-compared facts instead of using
   "gap" as a catch-all.
