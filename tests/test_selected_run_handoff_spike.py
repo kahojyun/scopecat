@@ -53,7 +53,9 @@ class SelectedRunHandoffSpikeTest(unittest.TestCase):
         self.assertTrue(
             any("does not recompute analysis" in note for note in manifest["boundary_notes"])
         )
-        self.assertIn("scientific validity or reproducibility", manifest["decisions_not_earned"])
+        self.assertIn(
+            "user/domain conclusions or reproducibility", manifest["decisions_not_earned"]
+        )
 
     def test_reports_missing_selected_source_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -136,7 +136,7 @@ measurement context.
 - Deep interpretation of user/project-defined inner binding payloads.
 - Automatic parameter invalidation after binding changes.
 - GUI design for switching bindings.
-- Scientific comparability claims.
+- User/domain conclusions from setup comparisons.
 
 ## Possible Validation Questions
 

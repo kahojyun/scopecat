@@ -227,7 +227,7 @@ The first implementation is done when:
 - selected source data is not silently replaced by derived artifacts;
 - visible-excluded context is not treated as selected or included;
 - the implementation still does not infer schema, traverse relation graphs, or
-  claim scientific validation.
+  claim user/domain conclusions.
 
 ## Stop Conditions
 

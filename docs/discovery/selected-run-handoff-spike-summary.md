@@ -29,7 +29,8 @@ produce a reviewer-facing handoff summary with:
 - source data, copied parameter context, companion artifacts, and derived
   artifacts kept distinct;
 - a source transform policy for selected source data;
-- missing-context warnings and explicit scientific-validation boundary notes;
+- missing-context warnings and explicit fit/uncertainty/user-conclusion
+  boundary notes;
 - figure-readiness context without turning the output into a report.
 
 The selected-run preview spike showed that declared column names and roles are
@@ -42,7 +43,7 @@ enough to produce a small plot-spec-ready display preview for one 1D CSV case:
 - a small preview table;
 - multiple plot candidates from the same selected source table;
 - a caption stub that remains explicit about missing fit, uncertainty, and
-  scientific validation.
+  user/domain conclusion boundaries.
 
 ## Earned Working Direction
 
@@ -64,14 +65,15 @@ later UX question.
 For preview, declared measurement roles remain the current candidate first path.
 The spike validates declared column names against the source header and carries
 roles/units as declared metadata. It does not validate role semantics, unit
-correctness, held-condition constancy, numeric suitability, or scientific
-validity.
+correctness, held-condition constancy, numeric suitability, or user/domain
+conclusions.
 
 Future export/import UX should be able to use the same declared metadata for
 quick preview in both directions: exporters preview candidate measurements
 before selecting a package, and importers preview incoming measurements before
 accepting or organizing them. That expectation does not make rendered plots,
-GUI design, report generation, or scientific validation part of this spike.
+GUI design, report generation, or user/domain scientific conclusions part of
+this spike.
 
 ## Not Earned
 
@@ -90,7 +92,8 @@ These spikes do not earn:
 - plotting or rendered preview output;
 - 2D scans, ragged scans, traces, complex arrays, NPZ/HDF5, or backend readers;
 - report generation or reanalysis;
-- fit quality, uncertainty, scientific validity, or reproducibility claims.
+- fit quality, uncertainty, user/domain scientific conclusions, or
+  reproducibility claims.
 
 ## Validation Result
 

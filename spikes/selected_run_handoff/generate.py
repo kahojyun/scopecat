@@ -15,7 +15,7 @@ DECISIONS_NOT_EARNED = [
     "central storage or sync",
     "report generation",
     "complete reanalysis",
-    "scientific validity or reproducibility",
+    "user/domain conclusions or reproducibility",
     "related-but-not-exported run context",
 ]
 
@@ -129,7 +129,7 @@ def generate_manifest(fixture_root: Path) -> dict[str, Any]:
         "source_columns": source_columns,
         "candidate_plots": candidate_plots,
         "missing_for_group_meeting": figure["missing_for_group_meeting"],
-        "boundary_note": "Enough to draft a figure candidate, not enough to claim scientific validity.",
+        "boundary_note": "Enough to draft a figure candidate, not enough for user/domain conclusions.",
     }
 
     openability_paths = [
@@ -166,7 +166,7 @@ def generate_manifest(fixture_root: Path) -> dict[str, Any]:
             {
                 "code": "figure_readiness_partial",
                 "subject": f"legacy_data_id:{selected['legacy_data_id']}",
-                "message": "The handoff includes experiment label, measured columns, context, and plot candidates, but calibration notes, fit results, uncertainty, and scientific selection rationale are missing.",
+                "message": "The handoff includes experiment label, measured columns, context, and plot candidates, but calibration notes, fit results, uncertainty, and user selection rationale are missing.",
             },
         ],
         "boundary_notes": [
@@ -174,7 +174,7 @@ def generate_manifest(fixture_root: Path) -> dict[str, Any]:
             "The handoff preserves where the selected data was exported from using a public-safe source reference.",
             "Source data, copied parameter context, companion artifact, and derived artifact are represented as different kinds of handoff material.",
             "Derived artifact relations are linked by fixture declaration; this fixture does not recompute analysis.",
-            "Selection indicates handoff intent only, not run quality, reference goodness, or reproducibility.",
+            "Selection indicates handoff intent only, not run quality or reproducibility.",
         ],
         "openability_summary": {
             "present": present_paths,

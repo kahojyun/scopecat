@@ -94,7 +94,7 @@ This validation does not earn:
 - plotting dependency or plotting API;
 - ndarray-style indexing or slice-selection API;
 - analysis-readiness taxonomy;
-- fit quality validation or scientific-validity claims;
+- fit quality validation or user/domain scientific conclusions;
 - storage authority, reader authority, or source-of-truth decision;
 - package/export/import behavior;
 - hardware control, scan-plan mutation, automatic retune, or parameter

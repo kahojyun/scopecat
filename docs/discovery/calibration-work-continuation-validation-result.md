@@ -162,7 +162,7 @@ This validation does not earn:
 - Scopecat-decided parameter mutation or write-back;
 - rollback semantics;
 - final parameter schema;
-- fit quality validation or scientific-validity claims;
+- fit quality validation or user/domain scientific conclusions;
 - GUI implementation;
 - generic episode/step/review model;
 - hardware control or resource arbitration.
