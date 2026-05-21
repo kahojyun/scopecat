@@ -85,7 +85,7 @@ artifacts in this branch:
 
 | Brief | Use For |
 | --- | --- |
-| [`problem-briefs/experiment-code-selection.md`](problem-briefs/experiment-code-selection.md) | Copied folders, entrypoint ambiguity, code snapshots, environment validation, and code-version selection. |
+| [`problem-briefs/experiment-code-selection.md`](problem-briefs/experiment-code-selection.md) | Copied folders, entrypoint/helper ambiguity, selected code context, environment readiness, and code-version selection. |
 
 ## Promotion Discipline
 
