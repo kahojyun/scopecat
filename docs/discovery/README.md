@@ -111,13 +111,15 @@ Candidate next slices in this route should stay separate:
 | [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md) | Direction for messy external-folder recording, Scopecat-managed code versions, named entrypoints, and workflow/DAG deferral. |
 | [`experiment-code-recording-validation-plan.md`](experiment-code-recording-validation-plan.md) | First fixture-validation boundary for recorded code context that defines code snapshot records. |
 | [`experiment-code-recording-validation-result.md`](experiment-code-recording-validation-result.md) | Result of the first code snapshot fixture and summary candidate. |
-| [`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md) | What the code-recording slice has earned, what remains deferred, and what should trigger managed-workspace or environment-restore validation. |
+| [`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md) | What the code-recording slice has earned, what remains deferred, the user adoption route, and the candidate validation-slice backlog. |
 | [`managed-code-version-validation-plan.md`](managed-code-version-validation-plan.md) | First fixture-validation boundary for turning a code snapshot record into a managed code version record. |
 | [`managed-code-version-validation-result.md`](managed-code-version-validation-result.md) | Result of the first managed code version fixture and summary candidate. |
 
-Validation slice candidates for Experiment Code Context should be ordered by
-authority level. This order is not the user adoption route; it is the order in
-which Scopecat should earn stronger claims:
+The canonical Experiment Code Context candidate-slice backlog lives in
+[`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md).
+In compact form, the validation slices should be ordered by authority level.
+This order is not the user adoption route; it is the order in which Scopecat
+should earn stronger claims:
 
 1. comparable code surface: compare two authority-explicit code fact sets over
    known captured, reference-only, missing, redacted, or excluded surfaces,
