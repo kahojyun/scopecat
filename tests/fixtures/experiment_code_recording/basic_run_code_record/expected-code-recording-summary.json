@@ -1,32 +1,32 @@
 {
-  "summary_id": "experiment-code-selection-minimal-whitelist-capture.expected",
+  "summary_id": "experiment-code-recording-basic-run-code-record.expected",
   "status": "expected_validation_output",
-  "source_fixture": "code-selection-input.json",
+  "source_fixture": "code-recording-input.json",
   "reference_semantics": {
     "status": "fixture_only",
     "contract_guard": "This expected output is not a final managed workspace store, Git replacement, package manager, environment manager, executor, workflow DAG, or GUI contract.",
-    "early_adoption_boundary": "The first capture path is minimal and whitelist-based. Unselected files are not analyzed or surfaced as warnings.",
+    "early_adoption_boundary": "The first recording path is minimal and explicit-include-based. Unrecorded files are not analyzed or surfaced as warnings.",
     "git_state": "Internal Git state is not inspected in this early-adoption boundary.",
     "notebook_outputs": "Notebook outputs are stripped before recording so captured code context does not preserve stale output payloads.",
     "captured_version": "The captured version is a candidate point-in-time code snapshot for future Scopecat-managed code versions, not a committed storage contract."
   },
   "candidate_summary": {
-    "capture_policy": {
-      "mode": "minimal_whitelist_capture",
+    "recording_policy": {
+      "mode": "minimal_explicit_include_recording",
       "internal_git_inspection": "not_performed",
-      "default_file_inclusion": "not_recorded_unless_whitelisted",
+      "default_file_inclusion": "not_recorded_unless_included",
       "notebook_output_policy": "strip_outputs_before_recording",
-      "directory_scan_policy": "do_not_surface_unselected_files_as_warnings",
+      "directory_scan_policy": "do_not_surface_unrecorded_files_as_warnings",
       "dependency_discovery": "not_performed"
     },
     "external_code_roots": [
       {
         "root_id": "external-code-root-readout-demo",
         "mode": "external_folder_import",
-        "authority": "user_selected_external_folder"
+        "authority": "user_recorded_external_folder"
       }
     ],
-    "selected_code_contexts": [
+    "recorded_code_contexts": [
       {
         "context_id": "code-context-readout-cali-0001",
         "external_root_id": "external-code-root-readout-demo",
@@ -35,12 +35,12 @@
         "entrypoint_kind": "notebook",
         "entrypoint_recorded_form": "source_without_outputs",
         "execution_claim": "not_executed_by_fixture",
-        "whitelisted_file_count": 3,
+        "included_file_count": 3,
         "declared_context_ref_count": 1,
         "mutation_capability": "not_analyzed"
       }
     ],
-    "whitelisted_files": [
+    "included_files": [
       {
         "context_id": "code-context-readout-cali-0001",
         "path": "readout_calibration_entrypoint.ipynb",
@@ -70,15 +70,15 @@
     "not_recorded_policy": [
       {
         "path_pattern": ".ipynb_checkpoints/**",
-        "reason": "not_whitelisted_and_notebook_outputs_are_stripped"
+        "reason": "not_included_and_notebook_outputs_are_stripped"
       },
       {
         "path_pattern": "__pycache__/**",
-        "reason": "not_whitelisted_cache"
+        "reason": "not_included_cache"
       },
       {
         "path_pattern": "backup/**",
-        "reason": "not_whitelisted_external_folder_content"
+        "reason": "not_included_external_folder_content"
       }
     ],
     "calibration_step_references": [
@@ -89,7 +89,7 @@
           {
             "name": "code_context",
             "snapshot_id": "code-context-readout-cali-0001",
-            "role": "selected_entrypoint_and_whitelisted_files"
+            "role": "recorded_entrypoint_and_included_files"
           },
           {
             "name": "parameter_state",
@@ -111,26 +111,26 @@
         "candidate_status": "candidate_not_committed_contract",
         "materialization_intent": "future_scopecat_managed_workspace",
         "storage_claim": "not_decided_by_fixture",
-        "whitelisted_files": [
+        "included_files": [
           "readout_calibration_entrypoint.ipynb",
           "experiment_session_setup.ipynb",
           "helpers/record_measurement_context.py"
         ],
         "notebook_recording_policy": "source_without_outputs",
-        "default_file_inclusion": "not_recorded_unless_whitelisted"
+        "default_file_inclusion": "not_recorded_unless_included"
       }
     ],
     "attention": [
       {
         "code": "notebook_outputs_stripped",
         "severity": "info",
-        "basis": "Whitelisted notebooks are recorded as source without outputs.",
+        "basis": "Included notebooks are recorded as source without outputs.",
         "does_not_claim": "notebook_execution_reproduced"
       },
       {
-        "code": "unwhitelisted_files_not_recorded",
+        "code": "unrecorded_files_not_recorded",
         "severity": "info",
-        "basis": "Code version capture records only whitelisted files and declared refs.",
+        "basis": "Code recording records only explicitly included files and declared refs.",
         "does_not_claim": "folder_fully_analyzed"
       },
       {
@@ -142,16 +142,16 @@
       {
         "code": "code_execution_not_granted",
         "severity": "review",
-        "basis": "Selection and capture do not execute, import, or validate code.",
+        "basis": "Recording does not execute, import, or validate code.",
         "does_not_claim": "execution_permission"
       }
     ]
   },
   "boundary_notes": [
-    "The early-adoption path captures only explicit whitelist entries.",
-    "Unselected folder contents are not analyzed as warnings.",
+    "The early-adoption path records only explicit include entries.",
+    "Unrecorded folder contents are not analyzed as warnings.",
     "Internal Git state is not inspected by this fixture.",
-    "Whitelisted notebooks are stripped to source without outputs before recording.",
+    "Included notebooks are stripped to source without outputs before recording.",
     "The captured version candidate shows the point-in-time code snapshot Scopecat may later manage, without accepting storage, restore, sync, environment, loading, execution, merge, or workflow semantics.",
     "Workflow or DAG nodes are not required for the first code-versioning boundary."
   ],

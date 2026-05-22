@@ -1,32 +1,33 @@
-# Experiment Code Selection Validation Result
+# Experiment Code Recording Validation Result
 
 ## Status
 
-Fixture validation result with selected-code summary candidate, not an ADR.
+Fixture validation result with code recording summary candidate, not an ADR.
 
-This result records what the first experiment-code selection fixture proved and
+This result records what the first experiment-code recording fixture proved and
 where the boundary remains intentionally narrow.
 
 ## Fixture
 
-- `tests/fixtures/experiment_code_selection/messy_external_capture/`
-- `implementation_candidates/experiment_code_selection/`
+- `tests/fixtures/experiment_code_recording/basic_run_code_record/`
+- `implementation_candidates/experiment_code_recording/`
 
-The fixture validates a first selected-code boundary:
+The fixture validates a first code-recording boundary:
 
-- a messy external code folder can be represented as selected code context;
-- early adoption can use minimal whitelist capture rather than record-all
-  folder tracking;
+- a messy external code folder can be represented as recorded run/step code
+  context;
+- early adoption can use minimal explicit include recording rather than
+  record-all folder tracking;
 - internal Git state can be ignored rather than analyzed;
-- unselected files, backups, checkpoints, caches, and generated files do not
+- unrecorded files, backups, checkpoints, caches, and generated files do not
   need to become noisy warnings;
-- whitelisted notebooks can be recorded as source without outputs;
-- a selected entrypoint can be recorded separately from whitelisted files;
+- included notebooks can be recorded as source without outputs;
+- a recorded entrypoint can be represented separately from included files;
 - a calibration step can reference code context, parameter state, and setup
   binding as separate named inputs;
 - declared context references, such as environment profile hints, can be linked
   without dependency discovery;
-- mutation capability can remain not analyzed, and selection still does not
+- mutation capability can remain not analyzed, and recording still does not
   grant execution permission;
 - a captured code-version candidate can describe what Scopecat may later manage
   without accepting storage, restore, sync, environment, loading, execution,
@@ -37,48 +38,50 @@ The fixture validates a first selected-code boundary:
 Scopecat can be opinionated about code version/snapshot records before it is
 opinionated about user code organization.
 
-The useful first boundary is not "trust Git" or "force a workflow DAG." It is
-a point-in-time code version/snapshot defined by:
+The useful first boundary is not "trust Git," "force a workflow DAG," or "ask
+the user to curate the authoritative code selection first." It is a
+point-in-time code version/snapshot defined by:
 
-- the user-selected external root;
-- the user-selected entrypoint;
-- the user-whitelisted file list;
+- the recorded external root or source reference;
+- the recorded entrypoint;
+- the explicit include list or recorded source observations;
 - notebook-output stripping before capture;
-- broad non-recording policy for unwhitelisted files;
+- broad non-recording policy for unrecorded files;
 - declared context references;
 - no internal Git inspection;
 - no dependency discovery, import, execution, or mutation analysis;
 - the candidate capture scope for a future Scopecat-managed code version.
 
-Selection is the action that chooses the root, entrypoint, files, and declared
-refs. The durable product pressure is the resulting code version/snapshot
-record, which should be comparable to parameter-state and setup-binding
-snapshots while still keeping code-specific storage, restore, and execution
-semantics separate.
+Recording is the first adoption action. Selection can later choose, promote, or
+restore one of these records, but the durable product pressure starts with the
+code version/snapshot record associated with a run or step. That record should
+be comparable to parameter-state and setup-binding snapshots while still
+keeping code-specific storage, restore, and execution semantics separate.
 
 This validates the product posture in
 [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md):
 Scopecat may eventually provide Git-like managed experiment-code versions
-behind lab-native actions, but the first fixture is a selected code context
-that defines a captured code-version candidate with minimal whitelist capture.
+behind lab-native actions, but the first fixture is a recorded code context
+that defines a captured code-version candidate with minimal explicit include
+recording.
 
 ## Adoption Route Covered
 
-The fixture covers the first adoption stage for code version capture:
+The fixture covers the first adoption stage for code recording:
 
-- users choose the files and references that matter to the experiment instead
+- users record the files and references associated with a run or step instead
   of asking Scopecat to understand the whole legacy codebase;
-- Scopecat records those choices as the scope of a point-in-time code
+- Scopecat records that context as the scope of a point-in-time code
   version/snapshot connected to calibration and measurement intent;
 - notebook capture is useful immediately because outputs can be stripped while
   preserving source;
-- unselected files remain outside the record unless the user adds them;
+- unrecorded files remain outside the record unless the user adds them;
 - the captured code-version candidate leaves room for later Scopecat-managed
   workspaces without pretending that storage, restore, or execution contracts
   already exist.
 
 The next stages are intentionally deferred: moving users into managed
-workspaces, restoring a selected code version, comparing managed versions,
+workspaces, restoring a recorded code version, comparing managed versions,
 loading code for a run, and syncing a declared environment such as a `uv`
 lockfile workflow. Those are plausible long-term capabilities, not conclusions
 earned by this fixture.
@@ -89,7 +92,7 @@ The fixture reuses validated pressure without promoting shared architecture:
 
 - parameter-state management contributes selected parameter-state context;
 - setup binding contributes selected setup-binding context;
-- selected-reference comparison contributes declared selected-code context
+- selected-reference comparison contributes declared recorded-code context
   comparison pressure;
 - selected measurement export contributes handoff and materialization pressure;
 - calibration continuation contributes step-level context references.
@@ -105,23 +108,23 @@ folder, Git, dependency, environment, or execution authority.
 
 It assembles and validates:
 
-- selected external roots;
-- selected code contexts with entrypoint, whitelist, declared refs, and
+- recorded external roots;
+- recorded code contexts with entrypoint, include list, declared refs, and
   mutation-capability classification;
-- whitelisted file summaries;
-- non-recording policy for unselected files;
-- calibration-step references to selected code context;
+- included file summaries;
+- non-recording policy for unrecorded files;
+- calibration-step references to recorded code context;
 - captured code-version candidate scope;
-- attention items for stripped notebooks, unrecorded unwhitelisted files,
+- attention items for stripped notebooks, unrecorded explicitly excluded files,
   ignored Git state, and no execution permission.
 
 The builder remains side-effect free. It does not read source files, inspect
-Git state, scan unselected folders, discover dependencies, import code,
+Git state, scan unrecorded folders, discover dependencies, import code,
 execute code, restore environments, materialize workspaces, or define
 workflow/DAG contracts.
 
 The candidate does not prove product usefulness by itself. It shows that the
-fixture's selected-code context can define a coherent code version/snapshot
+fixture's recorded code context can define a coherent code version/snapshot
 summary with basic referential integrity checks while keeping managed
 workspace storage and environment restoration deferred.
 
@@ -130,7 +133,7 @@ workspace storage and environment restoration deferred.
 - the final managed workspace store is still undecided;
 - the first content-integrity record is still undecided: archive, checksums,
   file snapshot, content-addressed store, or Git-backed implementation;
-- whitelist helper UX and user-editable capture policy remain undecided;
+- include-list helper UX and user-editable recording policy remain undecided;
 - internal Git diagnostics may become useful later, but they are intentionally
   absent from the first adoption boundary;
 - environment readiness may need a later active validation slice;
@@ -143,9 +146,9 @@ workspace storage and environment restoration deferred.
 ## Current Recommendation
 
 Use this fixture and summary candidate as the first boundary for
-experiment-code version capture. The next implementation-shaped step should
+experiment-code recording. The next implementation-shaped step should
 follow
-[`experiment-code-selection-next-boundary.md`](experiment-code-selection-next-boundary.md):
+[`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md):
 do not design managed workspace storage, Git replacement, internal Git
 analysis, record-all file tracking, environment management, execution, or
 workflow/DAG contracts until another slice creates concrete implementation

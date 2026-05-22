@@ -1,23 +1,23 @@
-# Experiment Code Selection Review
+# Experiment Code Recording Review
 
-## Capture Policy
+## Recording Policy
 
-The early-adoption capture path is minimal and whitelist-based.
+The early-adoption recording path is minimal and explicit-include-based.
 
 Scopecat records only the files or context references the user explicitly
-selects. It does not treat every file under the selected folder as part of the
-code version, and it does not scan unselected files to create extra warnings.
+includes. It does not treat every file under the recorded folder as part of the
+code version, and it does not scan unrecorded files to create extra warnings.
 
 Internal Git state is not inspected in this fixture.
 
-## Selected Context
+## Recorded Context
 
-- Selected root: `external-code-root-readout-demo`
+- Recorded root: `external-code-root-readout-demo`
 - Entrypoint: `readout_calibration_entrypoint.ipynb`
 - Entrypoint kind: notebook
 - Recorded form: source without notebook outputs
 
-The selected context records three whitelisted files:
+The recorded context includes three files:
 
 - `readout_calibration_entrypoint.ipynb`
 - `experiment_session_setup.ipynb`
@@ -25,20 +25,20 @@ The selected context records three whitelisted files:
 
 Notebook outputs are stripped before recording. Checkpoints, caches, backups,
 and other unlisted files are not recorded unless the user explicitly adds them
-to the whitelist.
+to the include list.
 
 ## Runtime And Mutation Attention
 
-This fixture does not import, execute, or statically analyze selected code.
+This fixture does not import, execute, or statically analyze recorded code.
 Mutation capability is therefore recorded as not analyzed.
 
-Selection and capture do not grant execution permission.
+Recording does not grant execution permission.
 
 ## Captured Code Version Candidate
 
 `code-version-candidate-0001` is a candidate point-in-time code snapshot for
-future Scopecat-managed code versioning. Selection defines its root,
-entrypoint, whitelist, notebook output-stripping policy, and declared
+future Scopecat-managed code versioning. The run/step record defines its root,
+entrypoint, include list, notebook output-stripping policy, and declared
 environment profile reference.
 
 This fixture does not decide managed workspace storage, Git replacement

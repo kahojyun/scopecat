@@ -10,7 +10,7 @@ from implementation_candidates.managed_code_version import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURE = ROOT / "tests" / "fixtures" / "experiment_code_selection" / "managed_captured_version"
+FIXTURE = ROOT / "tests" / "fixtures" / "managed_code_version" / "basic_record"
 
 
 def _load_input() -> dict:
@@ -101,11 +101,11 @@ class ManagedCodeVersionSummaryCandidateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "references missing candidate"):
             build_managed_code_version_summary(source)
 
-    def test_file_records_must_match_candidate_whitelist(self) -> None:
+    def test_file_records_must_match_candidate_inclusion(self) -> None:
         source = _load_input()
         source["managed_code_versions"][0]["file_records"][0]["path"] = "different.py"
 
-        with self.assertRaisesRegex(ValueError, "must match candidate whitelist"):
+        with self.assertRaisesRegex(ValueError, "must match candidate include list"):
             build_managed_code_version_summary(source)
 
     def test_duplicate_file_paths_are_rejected(self) -> None:
@@ -207,7 +207,7 @@ class ManagedCodeVersionSummaryCandidateTest(unittest.TestCase):
             "code_execution_not_granted",
             "internal_git_not_inspected",
             "no environment is synced or checked",
-            "selected code is not loaded, imported, or executed",
+            "recorded code is not loaded, imported, or executed",
             "Git state remains out of scope",
         ]:
             self.assertIn(expected, review)

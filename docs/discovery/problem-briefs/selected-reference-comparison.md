@@ -52,8 +52,8 @@ scripts or humans interpret those findings.
   measurement and selected reference: named input snapshots, declared preview
   metadata, selected artifacts, and redaction/verification state.
 - Experiment code/version mismatch is an important comparison dimension. It
-  can be compared first as declared selected-code context using the minimum
-  selected-code reference shape validated by experiment-code-selection, without
+  can be compared first as declared recorded-code context using the minimum
+  recorded-code reference shape validated by experiment-code-recording, without
   inspecting Git state, restoring environments, or executing code.
 - Compatible declared preview metadata may later support quick multi-measurement
   browsing or overlay for comparison. This is an inspection aid, not a

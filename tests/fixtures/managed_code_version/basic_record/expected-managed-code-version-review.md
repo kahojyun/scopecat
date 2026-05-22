@@ -3,7 +3,7 @@
 ## Fixture
 
 - Source: `managed-code-version-input.json`
-- Boundary: managed captured code-version storage candidate
+- Boundary: managed code-version record candidate
 - Status: fixture output, not product contract
 
 ## Managed Version
@@ -29,7 +29,7 @@
 - `integrity_hints_not_storage_contract`: checksums and sizes are not an archive or content-addressed store contract.
 - `materialization_not_performed`: no editable workspace is created.
 - `environment_not_restored`: no environment is synced or checked.
-- `code_execution_not_granted`: selected code is not loaded, imported, or executed.
+- `code_execution_not_granted`: recorded code is not loaded, imported, or executed.
 - `internal_git_not_inspected`: Git state remains out of scope.
 
 ## Out Of Scope

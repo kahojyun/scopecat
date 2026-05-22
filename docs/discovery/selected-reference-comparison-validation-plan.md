@@ -24,8 +24,8 @@ The fixtures should build on already validated discovery pressure:
 Experiment code/version context is also an important selected-reference
 comparison dimension because code differences can be reviewed as declared
 context between a current measurement and a selected reference. The
-experiment-code-selection slice defines a minimum selected-code reference
-shape that can feed the declared code-version comparison fixture.
+experiment-code-recording slice defines a minimum recorded-code context shape
+that can feed the declared code-version comparison fixture.
 
 ## Validation Question
 
@@ -53,7 +53,7 @@ The selected-reference fixtures should distinguish:
 | Named input snapshot | Run-start context such as parameter state, setup binding, or station registry reference. |
 | Declared preview metadata | Shape and role metadata sufficient to say whether a quick visual comparison is plausible. |
 | Comparison finding | A precise finding label: changed, missing, unverified, redacted, unlinked, same-observed, or not-compared. |
-| Selected code context | Declared selected root, entrypoint, whitelisted files, notebook recording policy, and declared refs that define a code version/snapshot scope. |
+| Recorded code context | Declared root, entrypoint, included files or source observations, notebook recording policy, and declared refs that define a code version/snapshot scope. |
 | Captured version candidate | Fixture-local point-in-time code snapshot reference that can be compared without accepting managed workspace storage. |
 | Recorded source observation | Fixture-local token for comparing recorded source observations, not a checksum or integrity contract. |
 
@@ -61,7 +61,7 @@ The fixtures compare declared context. They should not inspect raw data,
 execute code, score user judgment, interpret user analysis conclusions, or infer
 physical setup truth.
 
-The code-version fixture compares declared selected-code context. It should
+The code-version fixture compares declared recorded-code context. It should
 not inspect internal Git state, scan live files, resolve dependencies, restore
 managed workspaces, load selected versions, execute code, or define workflow
 contracts.
@@ -92,9 +92,9 @@ The code-version fixture should stay small:
 
 - one current measurement;
 - one selected reference measurement;
-- both measurements reference selected code context as a named input;
+- both measurements reference recorded code context as a named input;
 - one matching notebook entrypoint path and recording policy;
-- changed selected-code context and captured code-version candidate IDs;
+- changed recorded-code context and captured code-version candidate IDs;
 - one changed entrypoint source observation;
 - one same-observed helper source observation;
 - one helper missing from current and one helper missing from reference;
@@ -115,7 +115,7 @@ Expected review output should let a reviewer answer:
 - whether compatible preview metadata could support quick browsing or overlay;
 - what is missing, unlinked, unverified, redacted, same-observed, changed, or
   not compared;
-- what selected-code context changed, matched, or is missing;
+- what recorded-code context changed, matched, or is missing;
 - that findings are context comparison results, not cause attribution;
 - that interpretation belongs to users or user-provided analysis code.
 

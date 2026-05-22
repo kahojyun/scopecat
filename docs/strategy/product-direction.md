@@ -84,7 +84,7 @@ scheduler behavior, retry policy, and write-back behavior still require
 narrower validation and explicit decisions.
 
 Scopecat can own records and explanations around those systems: measurement
-records, context, lifecycle events, selected code references, parameter
+records, context, lifecycle events, recorded code references, parameter
 snapshots, declared parameter-write records, generated artifacts, selected
 references, analysis choices, quality notes, annotations, and handoff packages.
 
@@ -92,12 +92,12 @@ Scopecat may eventually manage experiment-code workspaces with Git-like
 versioning hidden behind lab-native actions such as save version, restore
 version, compare changes, mark useful, and use this version for a measurement.
 That future path should serve experiment workflow needs rather than teach users
-Git. It should start from selected code context that defines point-in-time
-captured code-version candidates with minimal whitelist capture and stripped
-notebook outputs, while keeping internal Git analysis, default record-all
-tracking, package management, sync, merge semantics, environment ownership,
-execution, and workflow/DAG contracts behind narrower validation and decision
-records.
+Git. It should start from recorded run/step code context that defines
+point-in-time captured code-version candidates with explicit include policy and
+stripped notebook outputs, while keeping internal Git analysis, default
+record-all tracking, package management, sync, merge semantics, environment
+ownership, execution, and workflow/DAG contracts behind narrower validation and
+decision records.
 
 Cross-machine value should start from portable records, explicit export/import,
 handoff packages, existing shared-storage discovery or references, and

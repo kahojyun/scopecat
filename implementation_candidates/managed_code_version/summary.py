@@ -21,7 +21,7 @@ _EXPECTED_POLICY = {
     "environment_restoration": "not_performed",
     "code_execution": "not_performed",
     "internal_git_inspection": "not_performed",
-    "default_file_inclusion": "not_recorded_unless_whitelisted",
+    "default_file_inclusion": "not_recorded_unless_included",
 }
 _SHA256_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 
@@ -110,12 +110,12 @@ def _validate_references(source: dict[str, Any]) -> None:
             _validate_file_record(version_id, file_record)
 
         candidate = candidates[source_candidate_id]
-        expected_paths = candidate["capture_scope"]["whitelisted_files"]
+        expected_paths = candidate["capture_scope"]["included_files"]
         actual_paths = _file_paths(version)
         if len(set(actual_paths)) != len(actual_paths):
             raise ValueError(f"managed code version {version_id} contains duplicate file paths")
         if actual_paths != expected_paths:
-            raise ValueError("managed code version file records must match candidate whitelist")
+            raise ValueError("managed code version file records must match candidate include list")
 
         notebook_recording_policy = candidate["capture_scope"]["notebook_recording_policy"]
         for file_record in version["file_records"]:
@@ -141,7 +141,7 @@ def _captured_version_candidate_summary(candidate: dict[str, Any]) -> dict[str, 
         "source_context_id": candidate["source_context_id"],
         "candidate_status": candidate["candidate_status"],
         "root_id": scope["root_id"],
-        "whitelisted_files": list(scope["whitelisted_files"]),
+        "included_files": list(scope["included_files"]),
         "notebook_recording_policy": scope["notebook_recording_policy"],
         "default_file_inclusion": scope["default_file_inclusion"],
     }
@@ -237,7 +237,7 @@ def _attention(source: dict[str, Any]) -> list[dict[str, Any]]:
             {
                 "code": "code_execution_not_granted",
                 "severity": "review",
-                "basis": "Managed version records do not import, load, or execute selected code.",
+                "basis": "Managed version records do not import, load, or execute recorded code.",
                 "does_not_claim": "execution_permission",
             }
         )

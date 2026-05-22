@@ -1,4 +1,4 @@
-# Experiment Code Selection
+# Experiment Code Recording
 
 ## Status
 
@@ -9,9 +9,12 @@ Evidence-backed problem brief.
 Experiment code, notebooks, helpers, generated companions, and local runtime
 assumptions fragment into copied folders, backup variants, path hacks,
 ambiguous notebooks, dirty working trees, nested helper copies, and weak
-canonical identity. Users need to choose, restore, explain, or migrate the code
-context that matters without adopting a full code registry, deployment system,
-package manager, or general managed execution platform.
+canonical identity. Users first need a low-friction record of which code
+context was associated with a run, calibration step, handoff,
+or comparison. They should not have to curate the correct code selection up
+front, migrate into a managed workspace, or adopt a full code registry,
+deployment system, package manager, or general managed execution platform
+before Scopecat can preserve useful code context.
 
 ## Observed Sample Evidence
 
@@ -24,9 +27,9 @@ package manager, or general managed execution platform.
   not reliable canonical-status rules.
 - At least one sample code root is a dirty Git repository, and a helper library
   root is a nested dirty Git repository. This is evidence against relying on
-  internal Git state for early adoption; it does not mean the first selected
-  code record should inspect Git.
-- Calibration and experiment entrypoints are usually notebooks, selected files,
+  internal Git state for early adoption; it does not mean the first recorded
+  code context should inspect Git.
+- Calibration and experiment entrypoints are usually notebooks, explicit files,
   or module functions rather than a project-level command. Some notebooks call
   a shared experiment header; others import broad helper sets and reload local
   modules.
@@ -35,8 +38,8 @@ package manager, or general managed execution platform.
   VISA-style instrument access, and private lab packages.
 - Some notebook and helper entrypoints can mutate parameter files, initialize
   hardware runners, clear or reset devices, or connect to local services. A
-  static selected-code record should mark mutation capability and must not
-  execute sample code.
+  static code version/snapshot record should mark mutation capability and must
+  not execute sample code.
 - Parameter, wiring, circuit, and pulse helpers generate derived companions
   such as parameter snapshots, chip or line info, registry-like setup maps,
   circuit JSON, and waveform-adjacent compile state. These artifacts need
@@ -49,20 +52,27 @@ package manager, or general managed execution platform.
 
 ## Project-Owner Clarification
 
-- The most important explicit record is likely the selected entrypoint or
-  template/version used for a run.
-- Snapshot-only capture may be too retrospective; preserving selected code
-  references for later restore or version-selection validation may be the
-  clearer workflow payoff.
-- Early adoption should use minimal whitelist capture before dependency
-  closure, registry semantics, or broad folder analysis.
-- This is a staged adoption route: first record the code files and references
-  users explicitly select as experiment-relevant, then let users migrate toward
-  Scopecat-managed code workspaces when restore, compare, and version-selection
+- The first adoption step should be recording, not selection. Scopecat should
+  capture explicit code context associated with a run or calibration step
+  before asking users to curate a durable "right" selection.
+- The most important explicit record is likely the entrypoint, template, or
+  code version associated with a run, plus enough surrounding context to know
+  how that association was made.
+- Snapshot-only capture may be too retrospective if it is disconnected from
+  run/step intent. The first useful record should preserve both the
+  point-in-time code snapshot candidate and the run, step, handoff, or
+  comparison context that made it relevant.
+- Early adoption should use minimal explicit recording before dependency
+  closure, registry semantics, broad folder analysis, or restore UX. An
+  explicit include list can be one recording policy, but it should not make
+  manual selection the product's first adoption gate.
+- This is a staged adoption route: first record code context as ordinary
+  experiment context, then let users promote, compare, restore, or migrate
+  those records toward Scopecat-managed code workspaces when version-selection
   behavior becomes valuable.
-- A selected code reference should be usable by later run, handoff, or
+- Recorded code context should be usable by later run, handoff, or
   calibration-batch workflows; otherwise users may still have to manually
-  reconstruct which code should run.
+  reconstruct which code was used or should be restored.
 - Generated artifacts are useful context when they were actually selected or
   observed, but Scopecat should not infer a complete transformation pipeline
   from arbitrary user Python.
@@ -72,30 +82,33 @@ package manager, or general managed execution platform.
   measurement. Users should not need to learn Git operations before Scopecat
   can manage code versions.
 - Workflow or DAG structure may later help stable calibration routines, but it
-  should not be the first code-versioning boundary. Start with selected root,
-  explicit whitelist, stripped notebook sources, and named entrypoints; promote
-  repeated stable entrypoints into workflow steps only after their inputs and
-  outputs are clear.
+  should not be the first code-versioning boundary. Start with recorded root or
+  source reference, entrypoint, explicit include policy, stripped notebook
+  sources when captured, and named run/step context; promote repeated stable
+  entrypoints into workflow steps only after their inputs and outputs are
+  clear.
 
 ## Derived Hypotheses
 
-- Start with explicit selected root, entrypoint path and kind, whitelisted
-  files, stripped notebook output policy, declared context references, and a
-  broad non-recording policy for unwhitelisted files.
-- Code-version selection should include a thin selected-version reference for
+- Start with explicit code records: root or source reference, entrypoint path
+  and kind, include policy, recorded files or source observations, stripped
+  notebook output policy when notebooks are captured, declared context
+  references, and a broad non-recording policy for unrecorded files.
+- Code-version records should include enough run/step relevance to support
   future restore, version-selection, or review workflows, not only
-  retrospective tracking.
+  retrospective file tracking.
 - Environment validation should start as user-declared context references, not
   active readiness diagnostics or a general managed execution platform.
-- Selected code context should be able to feed selected measurement export,
+- Recorded code context should be able to feed selected measurement export,
   selected-reference comparison, setup-binding review, and calibration
   continuation without making Scopecat own the user code or its runtime.
-- Generated code-derived companions should be recorded as observed or selected
-  artifacts only when explicitly whitelisted or linked, not recomputed
-  automatically as part of the selected-code boundary.
-- A first selected-code fixture should model the transition from messy external
-  folder to selected code context to captured code-version candidate, without
-  inspecting internal Git or deciding the final managed workspace store.
+- Generated code-derived companions should be recorded as observed, referenced,
+  or explicitly included artifacts only when linked by the run/step record, not
+  recomputed automatically as part of the code-recording boundary.
+- A first code-recording fixture should model the transition from messy
+  external folder to recorded run/step code context to captured code-version
+  candidate, without inspecting internal Git or deciding the final managed
+  workspace store.
 
 ## Out Of Scope For This Brief
 
@@ -106,7 +119,9 @@ package manager, or general managed execution platform.
   `copy`, dated suffixes, person suffixes, or `temp`.
 - Internal Git analysis, dirty-state warnings, nested-repository warnings, or
   default record-all file tracking in the first validation slice.
-- Executing selected code, importing hardware-active modules, running notebooks,
+- Requiring users to decide the authoritative code selection before Scopecat
+  can record useful run/step code context.
+- Executing recorded code, importing hardware-active modules, running notebooks,
   regenerating derived artifacts, or validating physical hardware state.
 - Deep static dependency closure through arbitrary Python, notebook output,
   execution counts, or local service state.
@@ -114,18 +129,19 @@ package manager, or general managed execution platform.
 
 ## Possible Validation Questions
 
-- Is selected root plus explicit entrypoint, whitelist, stripped notebook
-  source, and captured code-version candidate enough to improve code version
-  capture, recovery, and explanation?
-- Can selected code references feed future restore or calibration-batch
+- Is recorded root/source reference plus explicit entrypoint, include policy,
+  stripped notebook source, and captured code-version candidate enough to
+  improve code recording, recovery, and explanation?
+- Can recorded code references feed future restore or calibration-batch
   planning without Scopecat becoming a deployment or managed-runner system?
-- Is selected root plus entrypoint plus explicit whitelist enough for a user to
-  tell which code context should be restored or handed off?
+- Is recorded root/source reference plus entrypoint plus explicit include
+  policy enough for a user to tell which code context was used, should be
+  restored, or should be handed off?
 - What captured state is useful first: stripped notebook source, file
-  checksums, timestamped snapshot, archive, or user-selected bundle?
+  checksums, timestamped snapshot, archive, or run/step-linked bundle?
 - Should the first fixture center a measurement/calibration entrypoint, or a
   role-labeled figure/analysis input set whose code explains how selected runs
   were assembled?
-- Which generated companions should be merely linked as selected/observed
+- Which generated companions should be merely linked as recorded/observed
   artifacts, and which should be deferred until a later transformation or
   build-pipeline slice?

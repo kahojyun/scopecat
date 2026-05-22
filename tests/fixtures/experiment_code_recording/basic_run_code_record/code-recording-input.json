@@ -1,28 +1,28 @@
 {
-  "fixture_id": "experiment-code-selection-minimal-whitelist-capture",
+  "fixture_id": "experiment-code-recording-basic-run-code-record",
   "fixture_status": "synthetic_public_safe",
-  "fixture_layer": "experiment_code_selection_fixture",
-  "user_job": "Capture the minimum experiment-code context needed to restore, hand off, or associate a calibration step with code, without making users operate Git or adding noisy folder analysis.",
+  "fixture_layer": "experiment_code_recording_fixture",
+  "user_job": "Record the minimum experiment-code context associated with a calibration step before asking users to curate an authoritative code selection, operate Git, or accept noisy folder analysis.",
   "source_research_notes": [
     "<sample>/_research/experiment-code-selection-sample-review-2026-05-21.md"
   ],
-  "capture_policy": {
-    "mode": "minimal_whitelist_capture",
+  "recording_policy": {
+    "mode": "minimal_explicit_include_recording",
     "internal_git_inspection": "not_performed",
-    "default_file_inclusion": "not_recorded_unless_whitelisted",
+    "default_file_inclusion": "not_recorded_unless_included",
     "notebook_output_policy": "strip_outputs_before_recording",
-    "directory_scan_policy": "do_not_surface_unselected_files_as_warnings",
+    "directory_scan_policy": "do_not_surface_unrecorded_files_as_warnings",
     "dependency_discovery": "not_performed"
   },
   "external_code_roots": [
     {
       "root_id": "external-code-root-readout-demo",
-      "root_label": "fictional readout calibration code folder",
+      "root_label": "fictional readout calibration code folder observed for a run",
       "mode": "external_folder_import",
-      "authority": "user_selected_external_folder"
+      "authority": "user_recorded_external_folder"
     }
   ],
-  "selected_code_contexts": [
+  "recorded_code_contexts": [
     {
       "context_id": "code-context-readout-cali-0001",
       "external_root_id": "external-code-root-readout-demo",
@@ -34,7 +34,7 @@
         "output_policy_applied": "strip_outputs_before_recording",
         "execution_claim": "not_executed_by_fixture"
       },
-      "whitelisted_files": [
+      "included_files": [
         {
           "path": "readout_calibration_entrypoint.ipynb",
           "role": "entrypoint",
@@ -61,21 +61,21 @@
       "not_recorded_policy": [
         {
           "path_pattern": ".ipynb_checkpoints/**",
-          "reason": "not_whitelisted_and_notebook_outputs_are_stripped"
+          "reason": "not_included_and_notebook_outputs_are_stripped"
         },
         {
           "path_pattern": "__pycache__/**",
-          "reason": "not_whitelisted_cache"
+          "reason": "not_included_cache"
         },
         {
           "path_pattern": "backup/**",
-          "reason": "not_whitelisted_external_folder_content"
+          "reason": "not_included_external_folder_content"
         }
       ],
       "mutation_capability": {
         "classification": "not_analyzed",
-        "reason": "early capture does not inspect or import selected code",
-        "execution_permission": "not_granted_by_selection_record"
+        "reason": "early recording does not inspect or import recorded code",
+        "execution_permission": "not_granted_by_recording_record"
       }
     }
   ],
@@ -87,7 +87,7 @@
         {
           "name": "code_context",
           "snapshot_id": "code-context-readout-cali-0001",
-          "role": "selected_entrypoint_and_whitelisted_files"
+          "role": "recorded_entrypoint_and_included_files"
         },
         {
           "name": "parameter_state",
@@ -109,13 +109,13 @@
       "candidate_status": "candidate_not_committed_contract",
       "capture_scope": {
         "root_id": "external-code-root-readout-demo",
-        "whitelisted_files": [
+        "included_files": [
           "readout_calibration_entrypoint.ipynb",
           "experiment_session_setup.ipynb",
           "helpers/record_measurement_context.py"
         ],
         "notebook_recording_policy": "source_without_outputs",
-        "default_file_inclusion": "not_recorded_unless_whitelisted"
+        "default_file_inclusion": "not_recorded_unless_included"
       },
       "materialization_intent": "future_scopecat_managed_workspace",
       "storage_claim": "not_decided_by_fixture"
@@ -123,7 +123,7 @@
   ],
   "attention_expected": [
     "notebook_outputs_stripped",
-    "unwhitelisted_files_not_recorded",
+    "unrecorded_files_not_recorded",
     "internal_git_not_inspected",
     "code_execution_not_granted"
   ]

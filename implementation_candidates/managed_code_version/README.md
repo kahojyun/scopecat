@@ -3,13 +3,13 @@
 This package is an implementation candidate, not accepted Scopecat
 architecture.
 
-It holds a production-shaped experiment for the first managed captured
-code-version storage slice:
+It holds a production-shaped experiment for the first managed code-version
+record slice:
 
 - build a structured managed-code-version summary from explicit fixture input;
 - keep the builder side-effect free;
 - validate that managed-version file records match a captured code-version
-  candidate whitelist;
+  candidate include list;
 - record stable identity, file inventory, content-integrity hints, and
   materialization intent;
 - avoid reading source files, inspecting Git state, creating archives,

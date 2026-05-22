@@ -1,27 +1,28 @@
-# Experiment Code Selection Next Boundary
+# Experiment Code Recording Next Boundary
 
 ## Status
 
 Discovery boundary note, not an ADR.
 
-This note closes the current experiment-code selection slice by separating what
+This note closes the current experiment-code recording slice by separating what
 the first adoption path has earned from what should trigger a later managed
 workspace or environment-restoration slice.
 
 ## Earned Now
 
-The current slice earns a user-owned whitelist capture path for experiment
-code version/snapshot records:
+The current slice earns a recording-first path for experiment code
+version/snapshot records:
 
-- users can select the external code root, entrypoint, whitelisted files, and
-  declared context references that matter to a measurement or calibration step;
-- Scopecat can record that selected context without inspecting internal Git
-  state, scanning unselected files, or analyzing the whole legacy codebase;
-- whitelisted notebooks can be recorded as source without outputs;
-- unselected files, backups, caches, checkpoints, generated files, and copied
-  helper folders remain outside the record unless the user selects or links
+- users can record the external code root, entrypoint, explicitly included
+  files, and declared context references associated with a measurement or
+  calibration step;
+- Scopecat can record that context without inspecting internal Git state,
+  scanning unrecorded files, or analyzing the whole legacy codebase;
+- included notebooks can be recorded as source without outputs;
+- unrecorded files, backups, caches, checkpoints, generated files, and copied
+  helper folders remain outside the record unless the user records or links
   them;
-- the selected code context can be referenced by measurement export,
+- the recorded code context can be referenced by measurement export,
   selected-reference comparison, setup-binding review, and calibration
   continuation;
 - a captured code-version candidate can name the future Scopecat-managed
@@ -30,8 +31,8 @@ code version/snapshot records:
 
 This is enough to cover the first adoption value: record the code most directly
 tied to experiment workflow and intent while avoiding legacy-codebase analysis.
-Selection is the action that chooses the capture scope; the durable pressure is
-the resulting point-in-time code version/snapshot.
+Selection can later choose, promote, or restore one of those records; it should
+not be the first adoption gate.
 
 ## Not Earned Yet
 
@@ -44,7 +45,7 @@ The current slice does not earn:
 - default record-all file tracking;
 - branch, merge, conflict, push, pull, sync, or collaboration semantics;
 - package or environment ownership;
-- loading a selected code version for execution;
+- loading a recorded code version for execution;
 - `uv sync` or lockfile-driven environment restoration;
 - notebook execution, code import, dependency discovery, or hardware readiness
   checks;
@@ -54,17 +55,18 @@ The current slice does not earn:
 - GUI design.
 
 These remain plausible future capabilities. They are not required for the
-first selected code version/snapshot record to be useful.
+first recorded code version/snapshot record to be useful.
 
 ## Adoption Route
 
 The intended product route is staged:
 
-1. Start with explicit whitelist code version/snapshot records over messy
+1. Start with explicit run/step code version/snapshot records over messy
    external folders.
 2. Let those records connect measurements, calibration steps, handoff packages,
-   and comparison workflows to the code users meant.
-3. Let users move selected code into Scopecat-managed workspaces when restore,
+   and comparison workflows to the code context users actually used or
+   observed.
+3. Let users move recorded code into Scopecat-managed workspaces when restore,
    compare, and version selection become valuable.
 4. After managed workspace storage is earned, evaluate selected-version loading
    and declared environment restoration.
@@ -79,7 +81,7 @@ managed-workspace stages.
 A managed-workspace slice is worth starting when the first adoption path needs
 one of these user-visible behaviors:
 
-- restore this selected code context on the same or another machine;
+- restore this recorded code context on the same or another machine;
 - compare the current editable code with a previously captured version;
 - choose a saved code version at measurement start;
 - materialize a selected version into an editable workspace;
@@ -91,8 +93,8 @@ An environment-restoration slice is worth starting only after managed
 workspace storage has a candidate boundary and the user-visible question is
 about runnable context rather than record context. Useful triggers include:
 
-- users need to know whether a selected code version can be loaded;
-- the selected code version declares an environment file or lockfile;
+- users need to know whether a recorded code version can be loaded;
+- the recorded code version declares an environment file or lockfile;
 - restoring a code version without its environment is not enough to resume the
   experiment workflow;
 - `uv sync` or another declared environment operation becomes part of the
@@ -104,7 +106,7 @@ about runnable context rather than record context. Useful triggers include:
 
 Potential managed-workspace fixture:
 
-- input: a captured code-version candidate with whitelisted files and stripped
+- input: a captured code-version candidate with included files and stripped
   notebooks;
 - output: a managed code version summary with stable identity, file inventory,
   content-integrity hints, and materialization intent;

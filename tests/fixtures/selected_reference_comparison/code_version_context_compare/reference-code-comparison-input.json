@@ -2,10 +2,10 @@
   "fixture_id": "selected-reference-code-version-context-compare",
   "fixture_status": "synthetic_public_safe",
   "fixture_layer": "selected_reference_comparison_fixture",
-  "user_job": "Compare the selected experiment code context for a current measurement against a user-selected reference without inspecting Git state, restoring workspaces, resolving dependencies, or executing code.",
+  "user_job": "Compare the recorded experiment-code context for a current measurement against a user-selected reference without inspecting Git state, restoring workspaces, resolving dependencies, or executing code.",
   "source_problem_briefs": [
     "docs/discovery/problem-briefs/selected-reference-comparison.md",
-    "docs/discovery/problem-briefs/experiment-code-selection.md"
+    "docs/discovery/problem-briefs/experiment-code-recording.md"
   ],
   "comparison_request": {
     "comparison_id": "reference-code-compare-0001",
@@ -18,9 +18,9 @@
     },
     "comparison_scope": [
       "measurement_identity",
-      "selected_code_context",
+      "recorded_code_context",
       "captured_version_candidate",
-      "selected_code_file_inventory",
+      "recorded_code_file_inventory",
       "declared_context_refs"
     ],
     "not_compared_scope": [
@@ -45,7 +45,7 @@
         {
           "name": "code_context",
           "snapshot_id": "code-context-readout-cali-0001",
-          "role": "selected_entrypoint_and_whitelisted_files"
+          "role": "recorded_entrypoint_and_included_files"
         },
         {
           "name": "parameter_state",
@@ -66,7 +66,7 @@
         {
           "name": "code_context",
           "snapshot_id": "code-context-readout-cali-0002",
-          "role": "selected_entrypoint_and_whitelisted_files"
+          "role": "recorded_entrypoint_and_included_files"
         },
         {
           "name": "parameter_state",
@@ -76,7 +76,7 @@
       ]
     }
   ],
-  "selected_code_contexts": [
+  "recorded_code_contexts": [
     {
       "side": "reference",
       "context_id": "code-context-readout-cali-0001",
@@ -88,14 +88,14 @@
       "entrypoint_kind": "notebook",
       "entrypoint_recorded_form": "source_without_outputs",
       "execution_claim": "not_executed_by_fixture",
-      "capture_policy": {
-        "mode": "minimal_whitelist_capture",
+      "recording_policy": {
+        "mode": "minimal_explicit_include_recording",
         "internal_git_inspection": "not_performed",
-        "default_file_inclusion": "not_recorded_unless_whitelisted",
+        "default_file_inclusion": "not_recorded_unless_included",
         "notebook_output_policy": "strip_outputs_before_recording",
         "dependency_discovery": "not_performed"
       },
-      "whitelisted_files": [
+      "included_files": [
         {
           "path": "readout_calibration_entrypoint.ipynb",
           "role": "entrypoint",
@@ -134,14 +134,14 @@
       "entrypoint_kind": "notebook",
       "entrypoint_recorded_form": "source_without_outputs",
       "execution_claim": "not_executed_by_fixture",
-      "capture_policy": {
-        "mode": "minimal_whitelist_capture",
+      "recording_policy": {
+        "mode": "minimal_explicit_include_recording",
         "internal_git_inspection": "not_performed",
-        "default_file_inclusion": "not_recorded_unless_whitelisted",
+        "default_file_inclusion": "not_recorded_unless_included",
         "notebook_output_policy": "strip_outputs_before_recording",
         "dependency_discovery": "not_performed"
       },
-      "whitelisted_files": [
+      "included_files": [
         {
           "path": "readout_calibration_entrypoint.ipynb",
           "role": "entrypoint",
@@ -171,7 +171,7 @@
     }
   ],
   "expected_finding_codes": [
-    "changed_selected_code_context",
+    "changed_recorded_code_context",
     "changed_captured_version_candidate",
     "same_observed_code_entrypoint",
     "same_observed_notebook_recording_policy",

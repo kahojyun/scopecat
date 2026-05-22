@@ -1,8 +1,8 @@
 {
-  "fixture_id": "experiment-code-selection-managed-captured-version",
+  "fixture_id": "managed-code-version-basic-record",
   "fixture_status": "synthetic_public_safe",
   "fixture_layer": "managed_code_version_fixture",
-  "user_job": "Turn a captured code-version candidate selected for management into a first Scopecat-managed code-version record without restoring, loading, or executing the code.",
+  "user_job": "Turn a captured code-version candidate into a first Scopecat-managed code-version record without restoring, loading, or executing the code.",
   "source_research_notes": [
     "<sample>/_research/experiment-code-selection-sample-review-2026-05-21.md"
   ],
@@ -14,22 +14,22 @@
     "environment_restoration": "not_performed",
     "code_execution": "not_performed",
     "internal_git_inspection": "not_performed",
-    "default_file_inclusion": "not_recorded_unless_whitelisted"
+    "default_file_inclusion": "not_recorded_unless_included"
   },
   "captured_version_candidates": [
     {
       "candidate_id": "code-version-candidate-0001",
       "source_context_id": "code-context-readout-cali-0001",
-      "candidate_status": "selected_for_managed_record_candidate",
+      "candidate_status": "ready_for_managed_record_candidate",
       "capture_scope": {
         "root_id": "external-code-root-readout-demo",
-        "whitelisted_files": [
+        "included_files": [
           "readout_calibration_entrypoint.ipynb",
           "experiment_session_setup.ipynb",
           "helpers/record_measurement_context.py"
         ],
         "notebook_recording_policy": "source_without_outputs",
-        "default_file_inclusion": "not_recorded_unless_whitelisted"
+        "default_file_inclusion": "not_recorded_unless_included"
       }
     }
   ],
@@ -84,7 +84,7 @@
       ],
       "materialization_intent": {
         "mode": "editable_workspace_candidate",
-        "default_action": "materialize_selected_version_only",
+        "default_action": "materialize_managed_version_only",
         "target_hint": "future_scopecat_workspace"
       },
       "restore_claim": "not_restored_by_fixture",
