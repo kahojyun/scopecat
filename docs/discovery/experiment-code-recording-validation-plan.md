@@ -28,8 +28,8 @@ Scopecat can already choose or load a saved code version for a step.
 
 ## Validation Question
 
-Can Scopecat record the experiment-code context associated with a run or calibration
-step as an explicit point-in-time code version/snapshot record, using only
+Can Scopecat record the experiment-code context associated with a run or
+calibration step as an explicit point-in-time code snapshot record, using only
 declared roots, entrypoints, include policy, and stripped notebooks, without
 requiring users to curate the authoritative selection up front, use Git, record
 every file, or accept a workflow/DAG model?
@@ -49,8 +49,10 @@ The first boundary distinguishes:
 | Concept | Meaning In This Plan |
 | --- | --- |
 | External code root | An existing folder or source reference that Scopecat does not yet manage. |
-| Recorded code context | The explicit root, entrypoint, included files or source observations, declared context references, and recording policy associated with a run or calibration step. It can later be promoted into a selected version, but selection is not required for the first record. |
-| Captured code-version record | A point-in-time code snapshot record for future Scopecat-managed versions. It may later become a managed version, but storage semantics are not accepted here. |
+| Code context | The root or workspace reference, entrypoint, included files or source observations, declared context references, and policy associated with a run or calibration step. |
+| Recorded code context | The audit/provenance state of a code context after Scopecat records it. It is not the active workspace that a future managed execution path may load. |
+| Code snapshot record | A point-in-time code snapshot scope derived from a code context. It may later become a managed code version, but storage semantics are not accepted here. |
+| Materialized code workspace | A future concrete folder expanded from a selected code snapshot or managed code version. Out of scope for this slice. |
 | Include policy | Only explicitly included files, references, or source observations are recorded. Unrecorded folder contents are not analyzed or surfaced as warnings. |
 | Entrypoint | The notebook, script, function, template, or file/cell reference associated with the run or step. |
 | Notebook output stripping | Included notebooks are recorded as source without outputs. Notebook outputs and execution counts are not trusted capture payloads. |
@@ -74,8 +76,8 @@ The first fixture should stay small:
 - one declared environment or setup context reference;
 - mutation capability marked as not analyzed;
 - one calibration step referencing the recorded code context;
-- one captured code-version record summary that states what Scopecat would
-  need to materialize later.
+- one code snapshot record summary that states what Scopecat would need to
+  materialize later.
 
 ## Input Boundary
 
@@ -89,7 +91,7 @@ Fixture input may include:
 - declared context references such as an environment profile;
 - mutation capability marked as not analyzed;
 - calibration-step reference to the recorded code context;
-- captured code-version record fields such as record ID, capture scope,
+- code snapshot record fields such as record ID, snapshot scope,
   included files, recording policy, and materialization intent.
 
 Fixture input should not include:
@@ -123,8 +125,7 @@ Expected review output should let a reviewer answer:
 - that mutation capability was not analyzed and execution permission was not
   granted;
 - which calibration step references this recorded code context;
-- what point-in-time code snapshot would be captured as a code-version record
-  that Scopecat may manage later.
+- what point-in-time code snapshot record Scopecat may manage later.
 
 ## Out Of Scope
 

@@ -28,12 +28,12 @@ The first fixture validates a selected-reference comparison boundary:
   not-compared scope can stay distinct;
 - the report can avoid using `gap` as a catch-all.
 
-It intentionally does not include experiment code/version context.
+It intentionally does not include experiment code context.
 
-The code-version fixture adds the next narrow comparison dimension:
+The code-context fixture adds the next narrow comparison dimension:
 
 - measurements can reference recorded code context as a named input;
-- recorded code context IDs and captured code-version record identities can be
+- recorded code context IDs and code snapshot record identities can be
   compared as declared context;
 - matching entrypoint paths and notebook recording policy can be shown as
   same-observed findings;
@@ -63,7 +63,7 @@ what changed and what is unavailable. It does not:
 - interpret user-provided analysis conclusions;
 - inspect internal Git state or live files;
 - resolve dependency closure or environment readiness;
-- restore, load, import, or execute recorded code;
+- restore, load, import, or execute selected code snapshots;
 - compare source semantics beyond declared recorded-code observations.
 
 The reference-selection model can start from ordinary measurement marks. A
@@ -82,10 +82,10 @@ These fixtures reuse validated pressure without promoting shared architecture:
   context.
 - experiment code recording contributes recorded-code context, include-list
   recording policy, stripped notebook source posture, declared refs, and
-  captured code-version record identity shape.
+  code snapshot record identity shape.
 
 The fixtures use named inputs because that vocabulary is useful, but they do
-not earn a shared run-context framework. The code-version fixture also uses
+not earn a shared run-context framework. The code-context fixture also uses
 recorded source observation IDs as fixture-level comparison tokens; it does
 not earn a checksum, archive, content-addressed storage, or final integrity
 contract.
@@ -100,7 +100,7 @@ contract.
 - raw-data and fit-quality comparison remain separate future slices;
 - user scripts or humans may still make higher-level judgments from Scopecat
   records, but that is outside this fixture;
-- experiment code/version mismatch can be compared as declared recorded-code
+- experiment code-context mismatch can be compared as declared recorded-code
   context, but source semantics, restore readiness, environment readiness,
   dependency closure, Git state, and code execution remain separate risks;
 - recipient-aware redaction remains broader than this fixture.
@@ -110,8 +110,8 @@ contract.
 Stop this slice at fixture validation unless a near-term task needs a
 production-shaped summary candidate. Use the fixture as comparison pressure
 when designing measurement run context, selected references, and future
-review/report surfaces. Treat code-version comparison as declared context
-comparison only: recorded code context, captured code-version record identity,
+review/report surfaces. Treat code-context comparison as declared context
+comparison only: recorded code context, code snapshot record identity,
 include-list inventory, recorded source observations, and declared refs. Do not
 promote it into managed workspace storage, Git analysis, environment restore,
 selected-version loading, code execution, semantic source diff, or workflow

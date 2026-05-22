@@ -2,10 +2,10 @@
 
 ## Status
 
-Fixture validation result with managed-code-version summary candidate, not an
+Fixture validation result with managed code version summary candidate, not an
 ADR.
 
-This result records what the first managed code-version fixture proved and
+This result records what the first managed code version fixture proved and
 where the boundary remains intentionally narrow.
 
 ## Fixture
@@ -15,7 +15,7 @@ where the boundary remains intentionally narrow.
 
 The fixture validates a first managed-version boundary:
 
-- a captured code-version record can become a Scopecat-managed record;
+- a code snapshot record can become a Scopecat-managed record;
 - managed identity can be assigned without deciding final object ID or backend
   layout;
 - file inventory can stay exactly aligned with the source record include list;
@@ -29,12 +29,12 @@ The fixture validates a first managed-version boundary:
 
 ## Boundary Confirmed
 
-Scopecat can represent a recorded code version before it can restore or run
-that version.
+Scopecat can represent a code snapshot record as a managed code version before
+it can restore or run that version.
 
 The useful first managed boundary is:
 
-- source captured code-version record;
+- source code snapshot record;
 - assigned stable managed-version identity;
 - included file inventory;
 - recorded form for each file;
@@ -56,7 +56,7 @@ Git, environment, or execution authority.
 
 It assembles and validates:
 
-- captured code-version record summaries;
+- code snapshot record summaries;
 - managed code versions with stable identity, status, storage authority, file
   counts, integrity hint counts, and materialization intent;
 - file inventory records with relative source and materialization paths;
@@ -73,9 +73,9 @@ import code, execute code, or define workflow/DAG contracts.
 
 ## Relationship To Prior Slices
 
-The fixture depends on the code-recording slice for captured code-version record
-vocabulary. In that vocabulary, the run/step code record defines the capture
-scope for a point-in-time code version/snapshot; later selection can choose,
+The fixture depends on the code-recording slice for code snapshot record
+vocabulary. In that vocabulary, the run/step code context defines the snapshot
+scope for a point-in-time code snapshot; later selection can choose,
 promote, or restore that record. The fixture also keeps selected measurement
 export pressure in view by using package- or workspace-relative
 materialization paths, but it does not accept export package writer behavior.

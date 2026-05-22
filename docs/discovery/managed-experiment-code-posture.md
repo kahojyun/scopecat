@@ -53,11 +53,15 @@ The earliest adoption path should be deliberately minimal:
 
 The near-term product boundary is:
 
-- recorded code context from a messy external folder;
-- a captured code-version/snapshot record that Scopecat could later manage;
+- code context recorded from a messy external folder;
+- a code snapshot record that Scopecat could later manage;
 - explicit include policy and notebook recording policy;
 - explicit links from measurements or calibration steps to recorded code
   context.
+
+This keeps `recorded` on the audit side. A future active path can choose a
+code snapshot or managed code version, materialize it into a workspace, and
+then record which code context was actually associated with the run or step.
 
 This is an adoption route, not a retreat from managed code. The first useful
 step is to record the experiment code context associated with the run:
@@ -66,9 +70,9 @@ generated companions. That already covers the code most directly tied to
 experiment workflow and intent while avoiding legacy-codebase analysis.
 
 Selection can later choose, promote, or restore one of these records. The
-record Scopecat is trying to earn first is a point-in-time code
-version/snapshot, analogous to parameter-state or setup-binding snapshots at
-the measurement-context level while retaining code-specific storage, restore,
+record Scopecat is trying to earn first is a point-in-time code snapshot,
+analogous to parameter-state or setup-binding snapshots at the
+measurement-context level while retaining code-specific storage, restore,
 environment, and execution boundaries.
 
 The long-term direction is:
@@ -76,18 +80,19 @@ The long-term direction is:
 - Scopecat-managed code workspaces that can be expanded into editable folders;
 - user edits happen in ordinary files and notebooks;
 - Scopecat records saved versions and diffs;
-- measurements reference the recorded code version at run start;
-- recorded code versions can be materialized on another machine or environment
+- measurements reference the selected code snapshot or run-start code snapshot
+  record;
+- code snapshot records can be materialized on another machine or environment
   when storage and environment support are earned.
-- environment restoration may later include loading a recorded code version and
+- environment restoration may later include loading a selected code snapshot and
   running a declared environment sync, such as a `uv` lockfile workflow, but
   only after managed workspace storage and environment authority are earned.
 
 ## First Boundary
 
-The first supported path should be recorded root plus an explicit include
-policy. That record defines the capture scope for a code version/snapshot;
-choosing a managed version can come later.
+The first supported path should be code context recording: root or source
+reference plus an explicit include policy. That context defines the code
+snapshot scope; choosing a managed version can come later.
 
 This means the first record can say:
 
@@ -113,14 +118,14 @@ those records for restore, comparison, or managed workspace migration.
 
 The intended route is:
 
-- start with explicit-include code version/snapshot records for the files and
-  references associated with a run or step;
+- start with explicit-include code contexts and code snapshot records for the
+  files and references associated with a run or step;
 - use those records to connect measurements, calibration steps, handoff
   packages, and comparison workflows to the code context users actually used
   or observed;
 - let users gradually move from external folders into Scopecat-managed
   workspaces when they want restore, compare, and version-selection behavior;
-- only then consider loading recorded code versions, environment restoration,
+- only then consider loading selected code snapshots, environment restoration,
   lockfile-driven dependency sync, execution readiness checks, or managed
   runners.
 
@@ -147,7 +152,7 @@ It is too early to require DAG structure because:
 
 The safer intermediate model is:
 
-- version the user-included capture scope first;
+- record the user-included code snapshot scope first;
 - name important entrypoints inside that capture;
 - let measurements and calibration steps reference those entrypoints;
 - promote repeated, stable entrypoints into workflow steps only when a later
@@ -184,8 +189,8 @@ later questions.
 ## Current Questions
 
 - Is recorded root plus explicit include policy enough for the first
-  code-recording and captured-version-candidate boundary?
-- What should Scopecat store for a captured code-version record first: file contents,
+  code-recording and code snapshot record boundary?
+- What should Scopecat store for a code snapshot record first: file contents,
   checksums, stripped notebooks, an archive, or a content-addressed snapshot?
 - Which include-list helpers should exist for common notebook/script workflows
   without defaulting to record-all behavior?

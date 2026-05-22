@@ -51,7 +51,7 @@ scripts or humans interpret those findings.
 - The first validated fixture should compare declared context around a current
   measurement and selected reference: named input snapshots, declared preview
   metadata, selected artifacts, and redaction/verification state.
-- Experiment code/version mismatch is an important comparison dimension. It
+- Experiment code-context mismatch is an important comparison dimension. It
   can be compared first as declared recorded-code context using the minimum
   recorded-code reference shape validated by experiment-code-recording, without
   inspecting Git state, restoring environments, or executing code.

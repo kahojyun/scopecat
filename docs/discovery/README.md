@@ -68,11 +68,11 @@ selected parameter states.
 | --- | --- |
 | [`problem-briefs/experiment-code-recording.md`](problem-briefs/experiment-code-recording.md) | Copied folders, entrypoint/helper ambiguity, recorded run/step code context, environment readiness, and future code-version selection. |
 | [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md) | Direction for messy external-folder recording, Scopecat-managed code versions, named entrypoints, and workflow/DAG deferral. |
-| [`experiment-code-recording-validation-plan.md`](experiment-code-recording-validation-plan.md) | First fixture-validation boundary for recorded code context that defines captured code-version records. |
-| [`experiment-code-recording-validation-result.md`](experiment-code-recording-validation-result.md) | Result of the first code version/snapshot fixture and summary candidate. |
+| [`experiment-code-recording-validation-plan.md`](experiment-code-recording-validation-plan.md) | First fixture-validation boundary for recorded code context that defines code snapshot records. |
+| [`experiment-code-recording-validation-result.md`](experiment-code-recording-validation-result.md) | Result of the first code snapshot fixture and summary candidate. |
 | [`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md) | What the code-recording slice has earned, what remains deferred, and what should trigger managed-workspace or environment-restore validation. |
-| [`managed-code-version-validation-plan.md`](managed-code-version-validation-plan.md) | First fixture-validation boundary for turning a captured code-version record into a managed code-version record. |
-| [`managed-code-version-validation-result.md`](managed-code-version-validation-result.md) | Result of the first managed code-version fixture and summary candidate. |
+| [`managed-code-version-validation-plan.md`](managed-code-version-validation-plan.md) | First fixture-validation boundary for turning a code snapshot record into a managed code version record. |
+| [`managed-code-version-validation-result.md`](managed-code-version-validation-result.md) | Result of the first managed code version fixture and summary candidate. |
 
 Candidate next slices in this route include selected-version comparison,
 workspace materialization intent, environment-readiness records, and later

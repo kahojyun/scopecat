@@ -92,9 +92,9 @@ Scopecat may eventually manage experiment-code workspaces with Git-like
 versioning hidden behind lab-native actions such as save version, restore
 version, compare changes, mark useful, and use this version for a measurement.
 That future path should serve experiment workflow needs rather than teach users
-Git. It should start from recorded run/step code context that defines
-point-in-time captured code-version records with explicit include policy and
-stripped notebook outputs, while keeping internal Git analysis, default
+Git. It should start from run/step code context that defines point-in-time
+code snapshot records with explicit include policy and stripped notebook
+outputs, while keeping internal Git analysis, default
 record-all tracking, package management, sync, merge semantics, environment
 ownership, execution, and workflow/DAG contracts behind narrower validation and
 decision records.

@@ -29,18 +29,18 @@ The fixture validates a first code-recording boundary:
   without dependency discovery;
 - mutation capability can remain not analyzed, and recording still does not
   grant execution permission;
-- a captured code-version record can describe what Scopecat may later manage
+- a code snapshot record can describe what Scopecat may later manage
   without accepting storage, restore, sync, environment, saved-version
   selection or loading, execution, merge, or workflow semantics.
 
 ## Boundary Confirmed
 
-Scopecat can be opinionated about code version/snapshot records before it is
-opinionated about user code organization.
+Scopecat can be opinionated about code snapshot records before it is opinionated
+about user code organization.
 
 The useful first boundary is not "trust Git," "force a workflow DAG," or "ask
 the user to curate the authoritative code selection first." It is a
-point-in-time code version/snapshot defined by:
+point-in-time code snapshot defined by:
 
 - the recorded external root or source reference;
 - the recorded entrypoint;
@@ -50,11 +50,11 @@ point-in-time code version/snapshot defined by:
 - declared context references;
 - no internal Git inspection;
 - no dependency discovery, import, execution, or mutation analysis;
-- the record capture scope for a future Scopecat-managed code version.
+- the code snapshot record scope for a future Scopecat-managed code version.
 
 Recording is the first adoption action. Selection can later choose, promote, or
 restore one of these records, but the durable product pressure starts with the
-code version/snapshot record associated with a run or step. That record should
+code snapshot record associated with a run or step. That record should
 be comparable to parameter-state and setup-binding snapshots while still
 keeping code-specific storage, restore, and execution semantics separate.
 
@@ -62,8 +62,7 @@ This validates the product posture in
 [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md):
 Scopecat may eventually provide Git-like managed experiment-code versions
 behind lab-native actions, but the first fixture is a recorded code context
-that defines a captured code-version record with minimal explicit include
-recording.
+that defines a code snapshot record with minimal explicit include recording.
 
 ## Adoption Route Covered
 
@@ -71,20 +70,20 @@ The fixture covers the first adoption stage for code recording:
 
 - users record the files and references associated with a calibration step
   instead of asking Scopecat to understand the whole legacy codebase;
-- Scopecat records that context as the scope of a point-in-time code
-  version/snapshot connected to calibration intent;
+- Scopecat records that context as the scope of a point-in-time code snapshot
+  connected to calibration intent;
 - notebook capture is useful immediately because outputs can be stripped while
   preserving source;
 - unrecorded files remain outside the record unless the user adds them;
-- the captured code-version record leaves room for later Scopecat-managed
+- the code snapshot record leaves room for later Scopecat-managed
   workspaces without pretending that storage, restore, or execution contracts
   already exist.
 
 The next stages are intentionally deferred: moving users into managed
-workspaces, restoring a recorded code version, comparing managed versions,
-choosing or loading a saved code version for a step, and syncing a declared
-environment such as a `uv` lockfile workflow. Those are plausible long-term
-capabilities, not conclusions earned by this fixture.
+workspaces, restoring a selected code snapshot or managed code version,
+comparing managed versions, choosing or loading a saved code version for a step,
+and syncing a declared environment such as a `uv` lockfile workflow. Those are
+plausible long-term capabilities, not conclusions earned by this fixture.
 
 ## Relationship To Prior Slices
 
@@ -102,8 +101,8 @@ not earn a shared run-context, step-context, or snapshot framework.
 
 ## Summary Candidate
 
-The implementation candidate checks that the current code version/snapshot
-record can be produced mechanically from explicit fixture input without adding
+The implementation candidate checks that the current code snapshot record can be
+produced mechanically from explicit fixture input without adding
 folder, Git, dependency, environment, or execution authority.
 
 It assembles and validates:
@@ -114,7 +113,7 @@ It assembles and validates:
 - included file summaries;
 - non-recording policy for unrecorded files;
 - calibration-step references to recorded code context;
-- captured code-version record scope;
+- code snapshot record scope;
 - attention items for stripped notebooks, unrecorded explicitly excluded files,
   ignored Git state, and no execution permission.
 
@@ -124,9 +123,9 @@ execute code, restore environments, materialize workspaces, or define
 workflow/DAG contracts.
 
 The candidate does not prove product usefulness by itself. It shows that the
-fixture's recorded code context can define a coherent code version/snapshot
-summary with basic referential integrity checks while keeping managed
-workspace storage and environment restoration deferred.
+fixture's recorded code context can define a coherent code snapshot summary
+with basic referential integrity checks while keeping managed workspace storage
+and environment restoration deferred.
 
 ## Remaining Risks
 

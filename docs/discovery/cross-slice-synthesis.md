@@ -87,35 +87,36 @@ Selected reference comparison has fixture-level validation for comparing a
 current measurement against a user-selected reference as recorded context. It
 reuses selected measurement IDs, declared preview metadata, named input
 snapshots, parameter state references, setup-binding references, selected
-artifacts, recorded code context, captured code-version record identities, include-list
-file inventory, and precise finding vocabulary. It has not earned a comparison
-engine, user-judgment engine, fit-quality comparison, raw-data comparison,
-setup truth, publication-grade plotting, user-provided analysis conclusion
-model, Git-state comparison, dependency discovery, environment readiness,
-selected-version loading, code execution, semantic source diff, or GUI design.
+artifacts, recorded code context, code snapshot record identities,
+include-list file inventory, and precise finding vocabulary. It has not earned
+a comparison engine, user-judgment engine, fit-quality comparison, raw-data
+comparison, setup truth, publication-grade plotting, user-provided analysis
+conclusion model, Git-state comparison, dependency discovery, environment
+readiness, selected-version loading, code execution, semantic source diff, or
+GUI design.
 The first reference-selection model can start from ordinary user marks on
 measurement records.
 
-Experiment code recording has a slice-local summary candidate for recorded
-run/step code context from a messy external folder and a captured code-version
-record. The product concept is a point-in-time code version/snapshot for
-a declared recording scope; later selection can choose, promote, or restore
+Experiment code recording has a slice-local summary candidate for a run/step
+code context from a messy external folder and a code snapshot record. The
+product concept is a point-in-time code snapshot for a declared recording
+scope; later selection can choose, promote, or restore
 one of those records. It uses minimal explicit include recording, strips
 notebook outputs before recording, validates recorded-root, step-input, and
-captured-version references, and does not inspect internal Git state or analyze
-unrecorded files. It has not earned Git replacement implementation, internal
-Git analysis, default record-all tracking, package management, environment
+code snapshot record references, and does not inspect internal Git state or
+analyze unrecorded files. It has not earned Git replacement implementation,
+internal Git analysis, default record-all tracking, package management, environment
 ownership, environment restoration, selected-version loading, execution,
 workflow/DAG nodes, component-level versioning, generated artifact
 regeneration, or GUI design.
 
-Managed code version has a slice-local summary candidate for turning a
-captured code-version record into a Scopecat-managed record with
-stable identity, exact inclusion-aligned file inventory, content-integrity
-hints, and materialization intent. It does not read source files, inspect Git
-state, create archives, restore environments, materialize workspaces, import
-code, execute code, or accept final storage, archive, content-addressed store,
-restore, sync, selected-version loading, workflow/DAG, or GUI semantics.
+Managed code version has a slice-local summary candidate for turning a code
+snapshot record into a Scopecat-managed record with stable identity, exact
+inclusion-aligned file inventory, content-integrity hints, and materialization
+intent. It does not read source files, inspect Git state, create archives,
+restore environments, materialize workspaces, import code, execute code, or
+accept final storage, archive, content-addressed store, restore, sync,
+selected-version loading, workflow/DAG, or GUI semantics.
 
 ## Version Terminology
 
@@ -170,8 +171,9 @@ schema.
 | Selected reference | Selected reference comparison | A user-chosen comparison anchor, such as last-working, notable, best-observed, or simply relevant. These can start as ordinary user marks on measurement records; export, parameter state, and setup binding provide supporting context for comparison. |
 | Comparison finding | Selected reference comparison, export, running inspection | A precise context-comparison result such as changed, missing, unverified, redacted, unlinked, same-observed, or not-compared. It is not automatic cause attribution. |
 | Preview compatibility | Selected reference comparison, export, running inspection, scan/data-shape | Declared preview metadata that suggests compatible quick browsing or overlay across measurements. It does not imply publication-grade plotting or user interpretation. |
-| Recorded code context | Experiment code, calibration continuation, selected reference | The explicit code root, entrypoint, included files or source observations, notebook recording policy, and declared context refs associated with a run or step. In selected-reference comparison it is declared context, not Git diff, source semantics, or execution readiness. |
-| Captured code-version record | Experiment code, export/handoff, selected reference | A point-in-time code snapshot record that Scopecat may later manage. It can describe recording/capture scope and support declared context comparison without accepting storage, restore, sync, environment, loading, execution, merge, Git inspection, or managed workspace semantics. |
+| Code context | Experiment code, calibration continuation, selected reference | The root or workspace reference, entrypoint, included files or source observations, notebook recording policy, and declared context refs associated with a run or step. `Recorded code context` is the audit state of this context, not a future active workspace. |
+| Code snapshot record | Experiment code, export/handoff, selected reference | A point-in-time code snapshot record that Scopecat may later manage. It can describe recording/snapshot scope and support declared context comparison without accepting storage, restore, sync, environment, loading, execution, merge, Git inspection, or managed workspace semantics. |
+| Materialized code workspace | Experiment code future pressure | A concrete folder expanded from a selected code snapshot or managed code version. This is deliberately separate from recorded code context and is not earned by the current slice. |
 
 ## Stable Separations
 
@@ -225,9 +227,9 @@ Several separations now appear repeatedly enough to keep carrying forward:
 - Last-working, notable, best-observed, or similar reference labels can start
   as user marks on measurement records. Scopecat does not need special
   semantics for each label before it can provide objective comparison.
-- Experiment code/version mismatch is a real selected-reference comparison
+- Experiment code-context mismatch is a real selected-reference comparison
   dimension. Selected-reference comparison can compare declared recorded code
-  context, captured code-version record identities, include-list inventory, recorded
+  context, code snapshot record identities, include-list inventory, recorded
   source observations, and declared refs without claiming Git diff, semantic
   source comparison, environment readiness, restore, loading, or execution.
 - Early code recording is explicit-include-based. Internal Git state,

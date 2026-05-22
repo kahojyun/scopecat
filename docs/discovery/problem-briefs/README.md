@@ -43,7 +43,7 @@ Each brief should separate:
 | [`calibration-work-continuation.md`](calibration-work-continuation.md) | Sequential scans, calibration work, interruption, review gates, continuation, and thin local execution questions. |
 | [`parameter-state-management.md`](parameter-state-management.md) | First-class calibrated parameter state, named state lineages, purpose labels, trusted versus incomplete snapshots, reviewable diffs, run links, and write-back boundaries. |
 | [`setup-binding.md`](setup-binding.md) | Sample/cooldown setup bindings between logical experiment entities and physical wiring, channels, instruments, generated line state, and measurement references. |
-| [`experiment-code-recording.md`](experiment-code-recording.md) | Copied folders, entrypoint/helper ambiguity, recorded run/step code context, environment readiness, and future code-version selection. |
+| [`experiment-code-recording.md`](experiment-code-recording.md) | Copied folders, entrypoint/helper ambiguity, run/step code context, environment readiness, and future code-version selection. |
 | [`measurement-record-boundary.md`](measurement-record-boundary.md) | Measurement rows, companion artifacts, primary-data boundaries, and linked artifacts. |
 | [`running-measurement-inspection.md`](running-measurement-inspection.md) | Partial recorded data, progress/readiness, stop/interruption, and monitor boundaries. |
 | [`selected-run-handoff.md`](selected-run-handoff.md) | Selected-run handoff, derived analysis packages, reports, source links, and same-station access constraints. |

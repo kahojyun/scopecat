@@ -38,8 +38,8 @@ before Scopecat can preserve useful code context.
   VISA-style instrument access, and private lab packages.
 - Some notebook and helper entrypoints can mutate parameter files, initialize
   hardware runners, clear or reset devices, or connect to local services. A
-  static code version/snapshot record should mark mutation capability and must
-  not execute sample code.
+  static code snapshot record should mark mutation capability and must not
+  execute sample code.
 - Parameter, wiring, circuit, and pulse helpers generate derived companions
   such as parameter snapshots, chip or line info, registry-like setup maps,
   circuit JSON, and waveform-adjacent compile state. These artifacts need
@@ -60,8 +60,16 @@ before Scopecat can preserve useful code context.
   how that association was made.
 - Snapshot-only capture may be too retrospective if it is disconnected from
   run/step intent. The first useful record should preserve both the
-  point-in-time code snapshot candidate and the run, step, handoff, or
+  point-in-time code snapshot record and the run, step, handoff, or
   comparison context that made it relevant.
+- The base product concept should be `code_context`: the code root or
+  workspace, entrypoint, included source observations or snapshot reference,
+  and declared context references associated with a run or step. `Recorded`
+  is the audit/provenance state of that context, not the name of every future
+  active code workspace.
+- A future active path should distinguish a selected or managed code snapshot
+  from a concrete `materialized_code_workspace`. The first fixture does not
+  load or expand a saved code version; it only records the current context.
 - Early adoption should use minimal explicit recording before dependency
   closure, registry semantics, broad folder analysis, or restore UX. An
   explicit include list can be one recording policy, but it should not make
@@ -94,7 +102,7 @@ before Scopecat can preserve useful code context.
   and kind, include policy, recorded files or source observations, stripped
   notebook output policy when notebooks are captured, declared context
   references, and a broad non-recording policy for unrecorded files.
-- Code-version records should include enough run/step relevance to support
+- Code snapshot records should include enough run/step relevance to support
   future restore, version-selection, or review workflows, not only
   retrospective file tracking.
 - Environment validation should start as user-declared context references, not
@@ -106,9 +114,9 @@ before Scopecat can preserve useful code context.
   or explicitly included artifacts only when linked by the run/step record, not
   recomputed automatically as part of the code-recording boundary.
 - A first code-recording fixture should model the transition from messy
-  external folder to recorded run/step code context to captured code-version
-  candidate, without inspecting internal Git or deciding the final managed
-  workspace store.
+  external folder to recorded run/step code context to code snapshot record,
+  without inspecting internal Git or deciding the final managed workspace
+  store.
 
 ## Out Of Scope For This Brief
 
@@ -130,14 +138,14 @@ before Scopecat can preserve useful code context.
 ## Possible Validation Questions
 
 - Is recorded root/source reference plus explicit entrypoint, include policy,
-  stripped notebook source, and captured code-version record enough to
+  stripped notebook source, and code snapshot record enough to
   improve code recording, recovery, and explanation?
 - Can recorded code references feed future restore or calibration-batch
   planning without Scopecat becoming a deployment or managed-runner system?
 - Is recorded root/source reference plus entrypoint plus explicit include
   policy enough for a user to tell which code context was used, should be
   restored, or should be handed off?
-- What captured state is useful first: stripped notebook source, file
+- What snapshot payload is useful first: stripped notebook source, file
   checksums, timestamped snapshot, archive, or run/step-linked bundle?
 - Should the first fixture center a measurement/calibration entrypoint, or a
   role-labeled figure/analysis input set whose code explains how selected runs
