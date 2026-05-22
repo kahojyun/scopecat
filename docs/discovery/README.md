@@ -44,6 +44,7 @@ supporting policy notes. The current validated slice inventory is:
 | Setup binding | Setup binding | Fixture validated | Setup-binding snapshots, simple diffs, station-registry references, generated line/readout views, and measurement input references while keeping parameter state and hardware control separate. |
 | Calibration work continuation | Calibration continuation | Assembler candidate validated | Continuation-state assembly for planned steps, observed outputs, review gates, proposed writes, blocked steps, and interventions without executor, scheduler, write-back, or GUI ownership. |
 | Selected reference comparison | Selected reference comparison | Fixtures validated | Context-comparison findings against a user-selected reference without user judgment, raw-data comparison, fit-quality comparison, setup truth, restore, execution, semantic source diff, or cause attribution. |
+| Named run-start input set | Measurement context support | Implementation candidate validated | Side-effect-free run-preparation summary for selected parameter state, setup binding, station registry, managed code version, measurement intent, and missing declared environment context without shared schema, hardware control, write-back, environment sync, code import, execution, restore, or GUI ownership. |
 
 Future slice candidates should each answer one primary validation question. Do
 not combine import/export, storage, GUI, execution, redaction, write-back,
@@ -89,6 +90,7 @@ storage model, diff engine, write-back contract, or execution framework.
 | [`preview-ready-selected-measurement-export-plan.md`](preview-ready-selected-measurement-export-plan.md) | Planning boundary for the source/metadata-first export slice. |
 | [`preview-ready-selected-measurement-export-implementation-plan.md`](preview-ready-selected-measurement-export-implementation-plan.md) | Code-facing plan for the pure selected measurement export summary builder. |
 | [`preview-ready-selected-measurement-export-validation-result.md`](preview-ready-selected-measurement-export-validation-result.md) | Result of the first implementation-shaped export candidate. |
+| [`named-run-start-input-set-validation-result.md`](named-run-start-input-set-validation-result.md) | Result of the first cross-family named run-start input set implementation candidate. |
 | [`storage-transition-export-fixture.md`](storage-transition-export-fixture.md) | Fixture note for managed storage, external references, source identity, and export materialization pressure. |
 | [`storage-transition-export-validation-result.md`](storage-transition-export-validation-result.md) | Result of the storage-transition fixture and domain review. |
 | [`external-file-reference-policy.md`](external-file-reference-policy.md) | Candidate external-file policy modes that affect export, import, inspection, and provenance. |
