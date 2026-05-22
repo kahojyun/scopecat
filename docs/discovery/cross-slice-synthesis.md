@@ -26,6 +26,8 @@ executor design, relation graph, or warning taxonomy.
 - [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md)
 - [`experiment-code-recording-validation-result.md`](experiment-code-recording-validation-result.md)
 - [`managed-code-version-validation-result.md`](managed-code-version-validation-result.md)
+- [`comparable-code-surface-validation-result.md`](comparable-code-surface-validation-result.md)
+- [`workspace-materialization-intent-validation-result.md`](workspace-materialization-intent-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
 - [`adoption-routes.md`](adoption-routes.md)
 - [`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md)
@@ -125,6 +127,23 @@ restore environments, materialize workspaces, import code, execute code, or
 accept final storage, archive, content-addressed store, restore, sync,
 selected-version loading, workflow/DAG, or GUI semantics.
 
+Comparable code surface has a slice-local summary candidate for comparing
+authority-explicit recorded and managed code fact sets without reading source
+files. It uses declared capture states and integrity hints to report
+same-observed, changed, missing, unverified, redacted, and not-compared
+findings. It does not accept a universal diff engine, semantic source review,
+Git diagnostics, environment readiness, restore, workspace materialization,
+code import, code execution, or workflow/DAG semantics.
+
+Workspace materialization intent has a slice-local summary candidate for
+planning where a selected managed code version would be materialized before
+writing files. It preserves selected-version identity, destination path plans,
+provenance labels, declared collision findings, redacted-file skips, and
+unavailable-file findings. It does not inspect the filesystem, create
+directories, write files, overwrite or merge destinations, restore
+environments, import code, execute code, or accept final managed-workspace or
+GUI semantics.
+
 ## Version Terminology
 
 The slices are converging on a shared distinction without yet earning a shared
@@ -190,7 +209,7 @@ schema.
 | Code context | Experiment code, calibration continuation, selected reference | The root or workspace reference, entrypoint, included files or source observations, notebook recording policy, and declared context refs associated with a run or step. `Recorded code context` is the audit state of this context, not a future active workspace. |
 | Code snapshot record | Experiment code, export/handoff, selected reference | A point-in-time code snapshot record that Scopecat may later manage. It can describe recording/snapshot scope and capture state, supporting declared context or manifest comparison only for facts actually captured or observed, without accepting storage, restore, sync, environment, loading, execution, merge, Git inspection, or managed workspace semantics. |
 | Code capture state | Experiment code, selected reference, future managed-version comparison | Whether a code item is content-captured, reference-only, missing, redacted, or excluded. This should drive same-observed, changed, missing, unverified, redacted, or not-compared findings instead of implying one universal diff. |
-| Materialized code workspace | Experiment code future pressure | A concrete folder expanded from a selected code snapshot or managed code version. This is deliberately separate from recorded code context and is not earned by the current slice. |
+| Materialized code workspace | Experiment code future pressure | A concrete folder expanded from a selected code snapshot or managed code version. This is deliberately separate from recorded code context and is not earned by the materialization-intent slice. |
 
 ## Stable Separations
 

@@ -42,6 +42,7 @@ supporting policy notes. The current validated slice inventory is:
 | Experiment code recording | Experiment code context | Summary candidate validated | Recorded run/step code context and code snapshot record from explicit include policy and capture-state posture without Git inspection, dependency discovery, environment restore, loading, execution, or workflow/DAG semantics. |
 | Managed code version | Experiment code context | Summary candidate validated | Managed record shape for a code snapshot record, including stable identity, inclusion-aligned file inventory, integrity hints, and materialization intent without workspace creation or environment restore. |
 | Comparable code surface | Experiment code context | Implementation candidate validated | Declared-fact comparison between a recorded code context and managed code version, including same-observed, changed, missing, unverified, redacted, and not-compared findings without Git inspection, semantic source diff, import, execution, environment readiness, or workspace materialization. |
+| Workspace materialization intent | Experiment code context | Implementation candidate validated | Side-effect-free destination planning for a selected managed code version, including planned, collision, redacted, and unavailable findings without filesystem inspection, file writes, overwrite, merge, environment restoration, import, execution, or GUI behavior. |
 | Setup binding | Setup binding | Fixture validated | Setup-binding snapshots, simple diffs, station-registry references, generated line/readout views, and measurement input references while keeping parameter state and hardware control separate. |
 | Calibration work continuation | Calibration continuation | Assembler candidate validated | Continuation-state assembly for planned steps, observed outputs, review gates, proposed writes, blocked steps, and interventions without executor, scheduler, write-back, or GUI ownership. |
 | Selected reference comparison | Selected reference comparison | Fixtures validated | Context-comparison findings against a user-selected reference without user judgment, raw-data comparison, fit-quality comparison, setup truth, restore, execution, semantic source diff, or cause attribution. |
@@ -149,6 +150,7 @@ hardware.
 | [`managed-code-version-validation-plan.md`](managed-code-version-validation-plan.md) | First fixture-validation boundary for turning a code snapshot record into a managed code version record. |
 | [`managed-code-version-validation-result.md`](managed-code-version-validation-result.md) | Result of the first managed code version fixture and summary candidate. |
 | [`comparable-code-surface-validation-result.md`](comparable-code-surface-validation-result.md) | Result of the first recorded-to-managed declared-fact comparison candidate. |
+| [`workspace-materialization-intent-validation-result.md`](workspace-materialization-intent-validation-result.md) | Result of the first side-effect-free workspace materialization intent candidate. |
 
 The canonical Experiment Code Context candidate-slice backlog lives in
 [`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md).
@@ -187,6 +189,11 @@ Future fixtures should add one authority case at a time: managed-version
 inventory comparison and only later editable-folder observation. Add
 materialized-directory comparison or semantic source diff only when a separate
 validation question needs that stronger authority.
+
+The first workspace materialization intent candidate is validated in
+[`workspace-materialization-intent-validation-result.md`](workspace-materialization-intent-validation-result.md).
+It plans destination paths and review findings for a selected managed version
+without inspecting the filesystem or writing files.
 
 Do not validate "select a code version at run start" by itself. Selection
 becomes useful only when it prepares a run context, supports a reference-based

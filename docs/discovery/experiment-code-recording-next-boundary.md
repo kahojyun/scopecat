@@ -170,6 +170,12 @@ policy, producing a materialization plan with destination paths, collision or
 overwrite findings, provenance labels, and skipped, redacted, or unavailable
 file findings.
 
+First result:
+[`workspace-materialization-intent-validation-result.md`](workspace-materialization-intent-validation-result.md)
+validates one selected managed-version plan with declared destination facts,
+planned, collision, redacted, and unavailable findings, and no filesystem
+inspection or file writes.
+
 Boundary: no file writes, Git UI, merge model, dependency install, import, or
 execution.
 

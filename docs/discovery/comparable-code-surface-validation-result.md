@@ -80,7 +80,8 @@ Likely follow-up slices should stay separate:
 
 - managed-version inventory comparison;
 - capture-state edge cases that need a second fixture;
-- workspace materialization intent, still without writing files;
+- workspace materialization, after intent planning and only with approved
+  writes;
 - editable-folder observation, after materialization authority is clearer;
 - declared environment inventory, still without dependency sync or runnable
   readiness claims.
