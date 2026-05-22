@@ -15,7 +15,8 @@ where the boundary remains intentionally narrow.
 
 The fixture validates a first managed-version boundary:
 
-- a captured-version candidate can become a Scopecat-managed candidate record;
+- a captured code-version candidate can become a Scopecat-managed candidate
+  record;
 - managed identity can be assigned without deciding final object ID or backend
   layout;
 - file inventory can stay exactly aligned with the candidate whitelist;
@@ -34,7 +35,7 @@ that version.
 
 The useful first managed boundary is:
 
-- source captured-version candidate;
+- source captured code-version candidate;
 - assigned stable managed-version identity;
 - whitelisted file inventory;
 - recorded form for each file;
@@ -56,7 +57,7 @@ Git, environment, or execution authority.
 
 It assembles and validates:
 
-- captured-version candidate summaries;
+- captured code-version candidate summaries;
 - managed code versions with stable identity, status, storage authority, file
   counts, integrity hint counts, and materialization intent;
 - file inventory records with relative source and materialization paths;
@@ -74,9 +75,11 @@ import code, execute code, or define workflow/DAG contracts.
 ## Relationship To Prior Slices
 
 The fixture depends on the selected-code context slice for captured-version
-candidate vocabulary. It also keeps selected measurement export pressure in
-view by using package- or workspace-relative materialization paths, but it does
-not accept export package writer behavior.
+candidate vocabulary. In that vocabulary, selection defines the capture scope
+for a point-in-time code version/snapshot; it is not a separate durable concept
+from the managed version record. The fixture also keeps selected measurement
+export pressure in view by using package- or workspace-relative
+materialization paths, but it does not accept export package writer behavior.
 
 The fixture uses integrity-hint vocabulary that resembles external-file
 observed state. That resemblance is design pressure only; it does not earn a

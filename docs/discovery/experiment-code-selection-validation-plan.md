@@ -27,10 +27,11 @@ directory and Git state as product output.
 
 ## Validation Question
 
-Can Scopecat represent a messy external experiment-code folder as explicit
-selected code context and a candidate captured version, using only a minimal
-user whitelist and stripped notebooks, without requiring users to use Git,
-recording every file, or forcing a workflow/DAG model?
+Can Scopecat represent a messy external experiment-code folder as an explicit
+point-in-time code version/snapshot candidate, defined by selected code
+context, using only a minimal user whitelist and stripped notebooks, without
+requiring users to use Git, recording every file, or forcing a workflow/DAG
+model?
 
 First fixture:
 
@@ -43,8 +44,8 @@ The first boundary distinguishes:
 | Concept | Meaning In This Plan |
 | --- | --- |
 | External code root | A user-selected existing folder that Scopecat does not yet manage. |
-| Selected code context | The explicit root, entrypoint, whitelisted files, declared context references, and capture policy the user means to carry forward. |
-| Captured version candidate | A proposed Scopecat-managed point-in-time version of the selected context. It may later become a managed version, but storage semantics are not accepted here. |
+| Selected code context | The explicit root, entrypoint, whitelisted files, declared context references, and capture policy that define the scope of a code version/snapshot. Selection is the action that chooses the scope, not the durable concept by itself. |
+| Captured version candidate | A proposed point-in-time code snapshot for future Scopecat-managed versions. It may later become a managed version, but storage semantics are not accepted here. |
 | Whitelist capture | Only user-selected files or references are recorded. Unselected folder contents are not analyzed or surfaced as warnings. |
 | Entrypoint | The notebook, script, function, template, or file/cell selection a user intends to run, inspect, restore, or hand off. |
 | Notebook output stripping | Whitelisted notebooks are recorded as source without outputs. Notebook outputs and execution counts are not trusted capture payloads. |
@@ -68,8 +69,8 @@ The first fixture should stay small:
 - one declared environment or setup context reference;
 - mutation capability marked as not analyzed;
 - one measurement or calibration step referencing the selected code context;
-- one captured-version candidate summary that states what Scopecat would need
-  to materialize later.
+- one captured code-version candidate summary that states what Scopecat would
+  need to materialize later.
 
 ## Input Boundary
 
@@ -83,7 +84,7 @@ Fixture input may include:
 - declared context references such as an environment profile;
 - mutation capability marked as not analyzed;
 - measurement or calibration-step reference to the selected code context;
-- captured-version candidate fields such as candidate ID, capture scope,
+- captured code-version candidate fields such as candidate ID, capture scope,
   whitelisted files, recording policy, and materialization intent.
 
 Fixture input should not include:
@@ -117,7 +118,8 @@ Expected review output should let a reviewer answer:
 - that mutation capability was not analyzed and execution permission was not
   granted;
 - which measurement or calibration step references this selected code context;
-- what would be captured as a Scopecat-managed version candidate.
+- what point-in-time code snapshot would be captured as a Scopecat-managed
+  version candidate.
 
 ## Out Of Scope
 
@@ -141,7 +143,7 @@ This plan does not earn:
 
 Create one fixture and expected output before writing any implementation
 candidate. The first goal is to validate the product posture: Scopecat can be
-opinionated about selected-code records and captured-version candidates while
-keeping early adoption minimal. Start with whitelist capture and stripped
+opinionated about point-in-time code version records and captured-version
+candidates while keeping early adoption minimal. Start with whitelist capture and stripped
 notebooks; defer internal Git analysis, record-all tracking, dependency
 discovery, execution, and workflow DAGs.

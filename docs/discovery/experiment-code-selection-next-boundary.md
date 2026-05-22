@@ -10,8 +10,8 @@ workspace or environment-restoration slice.
 
 ## Earned Now
 
-The current slice earns a user-owned whitelist capture path for experiment code
-selection:
+The current slice earns a user-owned whitelist capture path for experiment
+code version/snapshot records:
 
 - users can select the external code root, entrypoint, whitelisted files, and
   declared context references that matter to a measurement or calibration step;
@@ -24,12 +24,14 @@ selection:
 - the selected code context can be referenced by measurement export,
   selected-reference comparison, setup-binding review, and calibration
   continuation;
-- a captured-version candidate can name the future Scopecat-managed capture
-  scope without accepting storage, restore, merge, sync, or execution
+- a captured code-version candidate can name the future Scopecat-managed
+  capture scope without accepting storage, restore, merge, sync, or execution
   contracts.
 
 This is enough to cover the first adoption value: record the code most directly
 tied to experiment workflow and intent while avoiding legacy-codebase analysis.
+Selection is the action that chooses the capture scope; the durable pressure is
+the resulting point-in-time code version/snapshot.
 
 ## Not Earned Yet
 
@@ -52,13 +54,14 @@ The current slice does not earn:
 - GUI design.
 
 These remain plausible future capabilities. They are not required for the
-first selected-code record to be useful.
+first selected code version/snapshot record to be useful.
 
 ## Adoption Route
 
 The intended product route is staged:
 
-1. Start with explicit whitelist records over messy external folders.
+1. Start with explicit whitelist code version/snapshot records over messy
+   external folders.
 2. Let those records connect measurements, calibration steps, handoff packages,
    and comparison workflows to the code users meant.
 3. Let users move selected code into Scopecat-managed workspaces when restore,
@@ -101,7 +104,7 @@ about runnable context rather than record context. Useful triggers include:
 
 Potential managed-workspace fixture:
 
-- input: a captured-version candidate with whitelisted files and stripped
+- input: a captured code-version candidate with whitelisted files and stripped
   notebooks;
 - output: a managed code version summary with stable identity, file inventory,
   content-integrity hints, and materialization intent;

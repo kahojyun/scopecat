@@ -5,7 +5,7 @@
   "reference_semantics": {
     "status": "fixture_only",
     "contract_guard": "This expected output is not a final storage backend, archive format, content-addressed store, Git replacement, package manager, environment manager, executor, workflow DAG, or GUI contract.",
-    "managed_version": "The managed code version records stable identity, file inventory, integrity hints, and materialization intent for a selected captured-version candidate.",
+    "managed_version": "The managed code version records stable identity, file inventory, integrity hints, and materialization intent for a captured code-version candidate selected for management.",
     "integrity": "Checksums, sizes, and observation times are content-integrity hints, not a complete storage or restore contract.",
     "materialization": "Materialization intent is recorded, but no workspace is created by this fixture.",
     "environment_and_execution": "Environment restoration, code loading, importing, and execution remain out of scope."
@@ -135,7 +135,7 @@
     ]
   },
   "boundary_notes": [
-    "The managed code version starts from a selected captured-version candidate.",
+    "The managed code version starts from a captured code-version candidate selected for management.",
     "File records must match the candidate whitelist.",
     "Stable identity is assigned for the managed record without deciding final object ID or backend layout.",
     "Integrity hints are recorded, but no archive or content-addressed store is accepted.",

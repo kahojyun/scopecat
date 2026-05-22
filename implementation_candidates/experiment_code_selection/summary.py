@@ -1,4 +1,4 @@
-"""Structured summary builder for experiment code selection.
+"""Structured summary builder for experiment code version capture.
 
 This module is an experimental production-shaped boundary. It is deliberately
 side-effect free: it does not read source files, inspect Git state, scan
@@ -172,7 +172,7 @@ def _attention(source: dict[str, Any]) -> list[dict[str, Any]]:
             {
                 "code": "unwhitelisted_files_not_recorded",
                 "severity": "info",
-                "basis": "Early capture records only whitelisted files and declared refs.",
+                "basis": ("Code version capture records only whitelisted files and declared refs."),
                 "does_not_claim": "folder_fully_analyzed",
             }
         )

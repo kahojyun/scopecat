@@ -14,14 +14,17 @@ semantics, workflow/DAG contracts, or GUI design.
 
 This slice follows
 [`experiment-code-selection-next-boundary.md`](experiment-code-selection-next-boundary.md).
-The prior selected-code slice earned a captured-version candidate with an
+The prior selected-code slice earned a captured code-version candidate with an
 external root, whitelisted files, notebook-output stripping policy, and
-materialization intent. It did not earn storage or restore behavior.
+materialization intent. Selection defined the capture scope; the durable
+pressure is a point-in-time code version/snapshot. It did not earn storage or
+restore behavior.
 
 ## Validation Question
 
-Can Scopecat represent a first managed code-version record for a selected
-captured-version candidate while preserving a narrow non-execution boundary?
+Can Scopecat represent a first managed code-version record for a captured
+code-version candidate selected for management while preserving a narrow
+non-execution boundary?
 
 First fixture:
 
@@ -33,7 +36,7 @@ The first managed-version boundary should distinguish:
 
 | Concept | Meaning In This Plan |
 | --- | --- |
-| Captured-version candidate | The selected-code capture scope already earned by the prior slice. |
+| Captured-version candidate | The point-in-time code snapshot scope already earned by the prior slice. |
 | Managed code version | A Scopecat-assigned candidate record with stable identity, file inventory, integrity hints, and materialization intent. |
 | File inventory | The exact whitelisted files included in the managed record, with recorded form and public-safe metadata. |
 | Integrity hint | Lightweight checksum, size, and observation metadata for each file record. This is not a storage backend or restore guarantee. |
@@ -45,7 +48,7 @@ The first managed-version boundary should distinguish:
 
 The first fixture should stay small:
 
-- one captured-version candidate from a selected external code context;
+- one captured code-version candidate from a selected external code context;
 - one managed code version derived from that candidate;
 - three whitelisted file records, including two notebooks recorded without
   outputs and one helper module;
@@ -60,7 +63,7 @@ The first fixture should stay small:
 
 Fixture input may include:
 
-- captured-version candidate ID, selected context ID, root ID, whitelist, and
+- captured code-version candidate ID, selected context ID, root ID, whitelist, and
   notebook recording policy;
 - managed code version ID, stable identity, status, storage authority, and
   source candidate reference;
@@ -83,7 +86,7 @@ Fixture input should not include:
 
 Expected output should let a reviewer answer:
 
-- which captured-version candidate became the source;
+- which captured code-version candidate became the source;
 - which stable managed-version identity was assigned;
 - which files are in the managed version;
 - which content-integrity hints were recorded;

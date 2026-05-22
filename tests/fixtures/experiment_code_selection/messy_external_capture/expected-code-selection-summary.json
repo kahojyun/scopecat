@@ -8,7 +8,7 @@
     "early_adoption_boundary": "The first capture path is minimal and whitelist-based. Unselected files are not analyzed or surfaced as warnings.",
     "git_state": "Internal Git state is not inspected in this early-adoption boundary.",
     "notebook_outputs": "Notebook outputs are stripped before recording so captured code context does not preserve stale output payloads.",
-    "captured_version": "The captured version is a candidate boundary for future Scopecat-managed code versions, not a committed storage contract."
+    "captured_version": "The captured version is a candidate point-in-time code snapshot for future Scopecat-managed code versions, not a committed storage contract."
   },
   "candidate_summary": {
     "capture_policy": {
@@ -130,7 +130,7 @@
       {
         "code": "unwhitelisted_files_not_recorded",
         "severity": "info",
-        "basis": "Early capture records only whitelisted files and declared refs.",
+        "basis": "Code version capture records only whitelisted files and declared refs.",
         "does_not_claim": "folder_fully_analyzed"
       },
       {
@@ -152,7 +152,7 @@
     "Unselected folder contents are not analyzed as warnings.",
     "Internal Git state is not inspected by this fixture.",
     "Whitelisted notebooks are stripped to source without outputs before recording.",
-    "The captured version candidate shows what Scopecat may later manage, without accepting storage, restore, sync, environment, loading, execution, merge, or workflow semantics.",
+    "The captured version candidate shows the point-in-time code snapshot Scopecat may later manage, without accepting storage, restore, sync, environment, loading, execution, merge, or workflow semantics.",
     "Workflow or DAG nodes are not required for the first code-versioning boundary."
   ],
   "decisions_not_earned": [

@@ -63,12 +63,12 @@ ownership.
 Parameter state management has fixture-level validation for first-class
 parameter state lineages, purpose labels, seeded versus trusted states,
 reviewable diffs, committed states, and measurement references to selected
-parameter state. It has not earned final branch/tag/commit semantics, schema
-migration, drift plotting, setup binding, hardware write-back, or an
+parameter state versions. It has not earned final branch/tag/commit semantics,
+schema migration, drift plotting, setup binding, hardware write-back, or an
 implementation candidate.
 
 Setup binding has fixture-level validation for sample/cooldown binding
-snapshots, simple binding diffs, station-registry references, generated
+snapshot versions, simple binding diffs, station-registry references, generated
 line/readout views, and measurement references while keeping parameter state
 and hardware control separate. User/project transformation code is black-box
 provenance for this slice: Scopecat records declared or generated binding
@@ -87,8 +87,8 @@ Selected reference comparison has fixture-level validation for comparing a
 current measurement against a user-selected reference as recorded context. It
 reuses selected measurement IDs, declared preview metadata, named input
 snapshots, parameter state references, setup-binding references, selected
-artifacts, selected code context, captured-version candidates, whitelist file
-inventory, and precise finding vocabulary. It has not earned a comparison
+artifacts, selected code context, captured code-version candidates, whitelist
+file inventory, and precise finding vocabulary. It has not earned a comparison
 engine, user-judgment engine, fit-quality comparison, raw-data comparison,
 setup truth, publication-grade plotting, user-provided analysis conclusion
 model, Git-state comparison, dependency discovery, environment readiness,
@@ -96,23 +96,53 @@ selected-version loading, code execution, semantic source diff, or GUI design.
 The first reference-selection model can start from ordinary user marks on
 measurement records.
 
-Experiment code selection has a slice-local summary candidate for selected
-code context from a messy external folder and a candidate captured version. It
-uses minimal whitelist capture, strips notebook outputs before recording,
-validates selected-root, step-input, and captured-version references, and does
-not inspect internal Git state or analyze unselected files. It has not earned
-Git replacement implementation, internal Git analysis, default record-all
-tracking, package management, environment ownership, environment restoration,
-selected-version loading, execution, workflow/DAG nodes, component-level
-versioning, generated artifact regeneration, or GUI design.
+Experiment code selection has a slice-local summary candidate for a selected
+code context from a messy external folder and a candidate captured code
+version. The product concept is a point-in-time code version/snapshot for a
+declared capture scope; selection is the user action that chooses the root,
+entrypoint, and files for that version. It uses minimal whitelist capture,
+strips notebook outputs before recording, validates selected-root, step-input,
+and captured-version references, and does not inspect internal Git state or
+analyze unselected files. It has not earned Git replacement implementation,
+internal Git analysis, default record-all tracking, package management,
+environment ownership, environment restoration, selected-version loading,
+execution, workflow/DAG nodes, component-level versioning, generated artifact
+regeneration, or GUI design.
 
 Managed code version has a slice-local summary candidate for turning a
-captured-version candidate into a Scopecat-managed candidate record with stable
-identity, exact whitelist-aligned file inventory, content-integrity hints, and
-materialization intent. It does not read source files, inspect Git state,
-create archives, restore environments, materialize workspaces, import code,
-execute code, or accept final storage, archive, content-addressed store,
+captured code-version candidate into a Scopecat-managed candidate record with
+stable identity, exact whitelist-aligned file inventory, content-integrity
+hints, and materialization intent. It does not read source files, inspect Git
+state, create archives, restore environments, materialize workspaces, import
+code, execute code, or accept final storage, archive, content-addressed store,
 restore, sync, selected-version loading, workflow/DAG, or GUI semantics.
+
+## Version Terminology
+
+The slices are converging on a shared distinction without yet earning a shared
+snapshot framework:
+
+- A version or snapshot is a point-in-time record inside a family of context
+  records, such as parameter state, setup binding, station registry context, or
+  experiment code.
+- Selection is the user or workflow action that chooses one such record for a
+  measurement, calibration step, comparison, restore, or handoff.
+- Candidate means the validation or storage contract is still provisional. It
+  should not make experiment code conceptually different from parameter state
+  or setup binding.
+
+Parameter state currently emphasizes management because it validates lineage,
+review, and committed state. Setup binding currently emphasizes run-start
+snapshots because it validates measurement context. Experiment code currently
+emphasizes selection because the first slice starts from messy external
+folders. These are different entry points into the same broader pressure:
+Scopecat needs named, point-in-time context records that can be selected,
+compared, restored, exported, or later managed according to each family's own
+semantics.
+
+This shared vocabulary does not accept common lifecycle, diff, storage,
+restore, or integrity semantics across the families. Each family still owns its
+own boundary until implementation pressure earns extraction.
 
 ## Recurring Candidate Concepts
 
@@ -134,13 +164,13 @@ schema.
 | Warning or attention state | Export, running inspection, calibration continuation | A degraded, missing, stale, uncertain, risky, or review-needed condition. Normal policy and boundary disclaimers should not become warnings. |
 | Authority/provenance | All validated slices | A way to separate fixture-declared, observed, user-authored, external, materialized, and Scopecat-managed facts without settling final ownership. |
 | Setup binding | Parameter state, selected reference, future measurement reference pressure | The sample/cooldown/session-specific mapping from logical experiment entities to physical wiring, channels, instruments, generated line/readout state, and selected registry context. |
-| Named input snapshot | Parameter state, setup binding, measurement reference pressure | A measurement run-start context entry that references a specific snapshot family by name, such as parameter state, setup binding, or station registry, without making those families share lifecycle or diff semantics. |
+| Named input snapshot | Parameter state, setup binding, experiment code, measurement reference pressure | A measurement or step context entry that references a selected point-in-time context record by family name, such as parameter state, setup binding, station registry, or code context, without making those families share lifecycle, diff, storage, or restore semantics. |
 | Outer envelope with opaque payload | Setup binding, export, external-file pressure | A Scopecat-owned record boundary around identity, provenance, references, declared summaries, and attention state while leaving user/project-defined internal payloads opaque until a later slice earns deeper interpretation. |
 | Selected reference | Selected reference comparison | A user-chosen comparison anchor, such as last-working, notable, best-observed, or simply relevant. These can start as ordinary user marks on measurement records; export, parameter state, and setup binding provide supporting context for comparison. |
 | Comparison finding | Selected reference comparison, export, running inspection | A precise context-comparison result such as changed, missing, unverified, redacted, unlinked, same-observed, or not-compared. It is not automatic cause attribution. |
 | Preview compatibility | Selected reference comparison, export, running inspection, scan/data-shape | Declared preview metadata that suggests compatible quick browsing or overlay across measurements. It does not imply publication-grade plotting or user interpretation. |
-| Selected code context | Experiment code, calibration continuation, selected reference | The explicit code root, entrypoint, whitelisted files, notebook recording policy, and declared context refs that a user means to use, restore, compare, or hand off. In selected-reference comparison it is declared context, not Git diff, source semantics, or execution readiness. |
-| Captured version candidate | Experiment code, export/handoff, selected reference | A proposed point-in-time boundary for future Scopecat-managed code versions. It can describe whitelist capture scope and support declared context comparison without accepting storage, restore, sync, environment, loading, execution, merge, Git inspection, or managed workspace semantics. |
+| Selected code context | Experiment code, calibration continuation, selected reference | The explicit code root, entrypoint, whitelisted files, notebook recording policy, and declared context refs that define the capture scope for a code version/snapshot. In selected-reference comparison it is declared context, not Git diff, source semantics, or execution readiness. |
+| Captured code-version candidate | Experiment code, export/handoff, selected reference | A proposed point-in-time code snapshot for future Scopecat-managed code versions. It can describe whitelist capture scope and support declared context comparison without accepting storage, restore, sync, environment, loading, execution, merge, Git inspection, or managed workspace semantics. |
 
 ## Stable Separations
 
@@ -169,7 +199,7 @@ Several separations now appear repeatedly enough to keep carrying forward:
   change sets and committed states rather than assuming unapplied proposals are
   durable history.
 - Parameter snapshots can be first-class lab state, not just measurement
-  metadata. A measurement may reference the parameter state selected at
+  metadata. A measurement may reference the parameter state version selected at
   measurement start, while the parameter state may also carry lineage,
   domain-purpose, readiness, trust, review, and committed-state meaning
   independently. Branch, tag, and commit remain analogies, not accepted
@@ -196,9 +226,9 @@ Several separations now appear repeatedly enough to keep carrying forward:
   semantics for each label before it can provide objective comparison.
 - Experiment code/version mismatch is a real selected-reference comparison
   dimension. Selected-reference comparison can compare declared selected-code
-  context, captured-version candidates, whitelist inventory, recorded source
-  observations, and declared refs without claiming Git diff, semantic source
-  comparison, environment readiness, restore, loading, or execution.
+  context, captured code-version candidates, whitelist inventory, recorded
+  source observations, and declared refs without claiming Git diff, semantic
+  source comparison, environment readiness, restore, loading, or execution.
 - Early selected-code capture is whitelist-based. Internal Git state,
   directory-name heuristics, unselected backups, caches, checkpoints, and
   generated files are not analyzed or surfaced as warnings unless the user

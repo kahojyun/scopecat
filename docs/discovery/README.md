@@ -67,11 +67,11 @@ selected parameter states.
 | Document | Use For |
 | --- | --- |
 | [`problem-briefs/experiment-code-selection.md`](problem-briefs/experiment-code-selection.md) | Copied folders, entrypoint/helper ambiguity, selected code context, environment readiness, and code-version selection. |
-| [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md) | Direction for messy external-folder import, Scopecat-managed captured versions, named entrypoints, and workflow/DAG deferral. |
-| [`experiment-code-selection-validation-plan.md`](experiment-code-selection-validation-plan.md) | First fixture-validation boundary for selected code context and captured-version candidates. |
-| [`experiment-code-selection-validation-result.md`](experiment-code-selection-validation-result.md) | Result of the first selected-code context fixture and summary candidate. |
+| [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md) | Direction for messy external-folder import, Scopecat-managed captured code versions, named entrypoints, and workflow/DAG deferral. |
+| [`experiment-code-selection-validation-plan.md`](experiment-code-selection-validation-plan.md) | First fixture-validation boundary for selected code context that defines captured code-version candidates. |
+| [`experiment-code-selection-validation-result.md`](experiment-code-selection-validation-result.md) | Result of the first code version/snapshot fixture and summary candidate. |
 | [`experiment-code-selection-next-boundary.md`](experiment-code-selection-next-boundary.md) | What the code-selection slice has earned, what remains deferred, and what should trigger managed-workspace or environment-restore validation. |
-| [`managed-code-version-validation-plan.md`](managed-code-version-validation-plan.md) | First fixture-validation boundary for turning a captured-version candidate into a managed code-version record. |
+| [`managed-code-version-validation-plan.md`](managed-code-version-validation-plan.md) | First fixture-validation boundary for turning a captured code-version candidate into a managed code-version record. |
 | [`managed-code-version-validation-result.md`](managed-code-version-validation-result.md) | Result of the first managed code-version fixture and summary candidate. |
 
 Candidate next slices in this route include selected-version comparison,

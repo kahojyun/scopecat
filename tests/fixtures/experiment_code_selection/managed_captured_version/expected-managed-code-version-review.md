@@ -3,7 +3,7 @@
 ## Fixture
 
 - Source: `managed-code-version-input.json`
-- Boundary: managed captured-version storage candidate
+- Boundary: managed captured code-version storage candidate
 - Status: fixture output, not product contract
 
 ## Managed Version

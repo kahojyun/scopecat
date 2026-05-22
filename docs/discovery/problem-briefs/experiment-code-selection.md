@@ -94,7 +94,7 @@ package manager, or general managed execution platform.
   artifacts only when explicitly whitelisted or linked, not recomputed
   automatically as part of the selected-code boundary.
 - A first selected-code fixture should model the transition from messy external
-  folder to selected code context to captured-version candidate, without
+  folder to selected code context to captured code-version candidate, without
   inspecting internal Git or deciding the final managed workspace store.
 
 ## Out Of Scope For This Brief
@@ -115,8 +115,8 @@ package manager, or general managed execution platform.
 ## Possible Validation Questions
 
 - Is selected root plus explicit entrypoint, whitelist, stripped notebook
-  source, and captured-version candidate enough to improve code selection,
-  recovery, and explanation?
+  source, and captured code-version candidate enough to improve code version
+  capture, recovery, and explanation?
 - Can selected code references feed future restore or calibration-batch
   planning without Scopecat becoming a deployment or managed-runner system?
 - Is selected root plus entrypoint plus explicit whitelist enough for a user to

@@ -34,11 +34,12 @@ Mutation capability is therefore recorded as not analyzed.
 
 Selection and capture do not grant execution permission.
 
-## Captured Version Candidate
+## Captured Code Version Candidate
 
-`code-version-candidate-0001` is a candidate for future Scopecat-managed code
-versioning. It records the selected root, entrypoint, whitelist, notebook
-output-stripping policy, and declared environment profile reference.
+`code-version-candidate-0001` is a candidate point-in-time code snapshot for
+future Scopecat-managed code versioning. Selection defines its root,
+entrypoint, whitelist, notebook output-stripping policy, and declared
+environment profile reference.
 
 This fixture does not decide managed workspace storage, Git replacement
 implementation, internal Git analysis, default record-all file tracking,

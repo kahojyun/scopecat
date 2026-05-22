@@ -34,7 +34,7 @@ The external code root display value is redacted for the public-safe fixture.
 
 ## Boundary
 
-This fixture compares declared selected-code records only. It does not inspect
+This fixture compares declared code version/snapshot records only. It does not inspect
 internal Git state, scan live files, resolve dependency closure, restore a
 managed workspace, import code, execute notebooks, analyze hardware readiness,
 or define a workflow DAG.

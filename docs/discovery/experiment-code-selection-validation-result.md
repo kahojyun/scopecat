@@ -28,16 +28,17 @@ The fixture validates a first selected-code boundary:
   without dependency discovery;
 - mutation capability can remain not analyzed, and selection still does not
   grant execution permission;
-- a captured-version candidate can describe what Scopecat may later manage
+- a captured code-version candidate can describe what Scopecat may later manage
   without accepting storage, restore, sync, environment, loading, execution,
   merge, or workflow semantics.
 
 ## Boundary Confirmed
 
-Scopecat can be opinionated about selected-code records before it is
+Scopecat can be opinionated about code version/snapshot records before it is
 opinionated about user code organization.
 
-The useful first boundary is not "trust Git" or "force a workflow DAG." It is:
+The useful first boundary is not "trust Git" or "force a workflow DAG." It is
+a point-in-time code version/snapshot defined by:
 
 - the user-selected external root;
 - the user-selected entrypoint;
@@ -49,24 +50,30 @@ The useful first boundary is not "trust Git" or "force a workflow DAG." It is:
 - no dependency discovery, import, execution, or mutation analysis;
 - the candidate capture scope for a future Scopecat-managed code version.
 
+Selection is the action that chooses the root, entrypoint, files, and declared
+refs. The durable product pressure is the resulting code version/snapshot
+record, which should be comparable to parameter-state and setup-binding
+snapshots while still keeping code-specific storage, restore, and execution
+semantics separate.
+
 This validates the product posture in
 [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md):
 Scopecat may eventually provide Git-like managed experiment-code versions
-behind lab-native actions, but the first fixture is selected context and a
-captured-version candidate with minimal whitelist capture.
+behind lab-native actions, but the first fixture is a selected code context
+that defines a captured code-version candidate with minimal whitelist capture.
 
 ## Adoption Route Covered
 
-The fixture covers the first adoption stage for code selection:
+The fixture covers the first adoption stage for code version capture:
 
 - users choose the files and references that matter to the experiment instead
   of asking Scopecat to understand the whole legacy codebase;
-- Scopecat records those choices as experiment code context connected to
-  calibration and measurement intent;
+- Scopecat records those choices as the scope of a point-in-time code
+  version/snapshot connected to calibration and measurement intent;
 - notebook capture is useful immediately because outputs can be stripped while
   preserving source;
 - unselected files remain outside the record unless the user adds them;
-- the captured-version candidate leaves room for later Scopecat-managed
+- the captured code-version candidate leaves room for later Scopecat-managed
   workspaces without pretending that storage, restore, or execution contracts
   already exist.
 
@@ -92,9 +99,9 @@ not earn a shared run-context, step-context, or snapshot framework.
 
 ## Summary Candidate
 
-The implementation candidate checks that the current selected-code record can
-be produced mechanically from explicit fixture input without adding folder,
-Git, dependency, environment, or execution authority.
+The implementation candidate checks that the current code version/snapshot
+record can be produced mechanically from explicit fixture input without adding
+folder, Git, dependency, environment, or execution authority.
 
 It assembles and validates:
 
@@ -104,7 +111,7 @@ It assembles and validates:
 - whitelisted file summaries;
 - non-recording policy for unselected files;
 - calibration-step references to selected code context;
-- captured-version candidate scope;
+- captured code-version candidate scope;
 - attention items for stripped notebooks, unrecorded unwhitelisted files,
   ignored Git state, and no execution permission.
 
@@ -114,9 +121,9 @@ execute code, restore environments, materialize workspaces, or define
 workflow/DAG contracts.
 
 The candidate does not prove product usefulness by itself. It shows that the
-fixture's selected-code context can be reshaped into a coherent summary with
-basic referential integrity checks while keeping managed workspace storage and
-environment restoration deferred.
+fixture's selected-code context can define a coherent code version/snapshot
+summary with basic referential integrity checks while keeping managed
+workspace storage and environment restoration deferred.
 
 ## Remaining Risks
 
@@ -136,7 +143,8 @@ environment restoration deferred.
 ## Current Recommendation
 
 Use this fixture and summary candidate as the first boundary for
-experiment-code selection. The next implementation-shaped step should follow
+experiment-code version capture. The next implementation-shaped step should
+follow
 [`experiment-code-selection-next-boundary.md`](experiment-code-selection-next-boundary.md):
 do not design managed workspace storage, Git replacement, internal Git
 analysis, record-all file tracking, environment management, execution, or

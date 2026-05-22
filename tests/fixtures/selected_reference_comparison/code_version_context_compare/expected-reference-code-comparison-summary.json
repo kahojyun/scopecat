@@ -5,8 +5,8 @@
   "reference_semantics": {
     "status": "fixture_only",
     "contract_guard": "This expected output is not a final comparison engine, managed workspace store, Git replacement, environment manager, dependency resolver, executor, workflow DAG, or GUI design.",
-    "selected_code_context": "The comparison uses the selected-code context shape validated by experiment-code-selection: selected root, entrypoint, whitelisted files, notebook recording policy, declared refs, and captured-version candidate.",
-    "code_version_comparison": "Code-version comparison means objective comparison of declared selected-code records, not Git diff, dependency discovery, source execution, semantic code review, or restore readiness.",
+    "selected_code_context": "The comparison uses the selected-code context shape validated by experiment-code-selection: selected root, entrypoint, whitelisted files, notebook recording policy, declared refs, and captured code-version candidate.",
+    "code_version_comparison": "Code-version comparison means objective comparison of declared code version/snapshot records, not Git diff, dependency discovery, source execution, semantic code review, or restore readiness.",
     "recorded_source_observation": "Recorded source observation IDs are fixture-level comparison tokens. They are not a checksum, archive, content-addressed storage, or final integrity contract."
   },
   "candidate_summary": {
@@ -169,7 +169,7 @@
     "warnings": []
   },
   "boundary_notes": [
-    "This fixture compares declared selected-code records, not Git state or live files.",
+    "This fixture compares declared code version/snapshot records, not Git state or live files.",
     "A changed selected code context is an objective comparison finding, not cause attribution.",
     "Recorded source observation IDs are fixture-level tokens and do not accept a checksum, archive, or content-addressed storage contract.",
     "Matching entrypoint paths do not mean matching source contents or runnable environments.",

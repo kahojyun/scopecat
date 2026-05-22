@@ -2,7 +2,7 @@
   "fixture_id": "experiment-code-selection-managed-captured-version",
   "fixture_status": "synthetic_public_safe",
   "fixture_layer": "managed_code_version_fixture",
-  "user_job": "Turn a selected captured-version candidate into a first Scopecat-managed code-version record without restoring, loading, or executing the code.",
+  "user_job": "Turn a captured code-version candidate selected for management into a first Scopecat-managed code-version record without restoring, loading, or executing the code.",
   "source_research_notes": [
     "<sample>/_research/experiment-code-selection-sample-review-2026-05-21.md"
   ],

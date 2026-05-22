@@ -3,12 +3,12 @@
 This package is an implementation candidate, not accepted Scopecat
 architecture.
 
-It holds a production-shaped experiment for the first managed captured-version
-storage slice:
+It holds a production-shaped experiment for the first managed captured
+code-version storage slice:
 
 - build a structured managed-code-version summary from explicit fixture input;
 - keep the builder side-effect free;
-- validate that managed-version file records match a selected captured-version
+- validate that managed-version file records match a captured code-version
   candidate whitelist;
 - record stable identity, file inventory, content-integrity hints, and
   materialization intent;
@@ -17,7 +17,7 @@ storage slice:
   code, or defining workflow/DAG contracts;
 - keep Markdown review rendering in fixture/test support, not in this package.
 
-The package exists to test whether a captured-version candidate can be shaped
-into a first Scopecat-managed version record without deciding final storage,
-restore, sync, environment, loading, execution, merge, GUI, or workflow
-semantics.
+The package exists to test whether a captured code-version candidate can be
+shaped into a first Scopecat-managed version record without deciding final
+storage, restore, sync, environment, loading, execution, merge, GUI, or
+workflow semantics.

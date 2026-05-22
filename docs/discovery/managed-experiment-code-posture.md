@@ -54,7 +54,7 @@ The earliest adoption path should be deliberately minimal:
 The near-term product boundary is:
 
 - selected code context from a messy external folder;
-- a candidate captured version that Scopecat could later manage;
+- a candidate captured code version/snapshot that Scopecat could later manage;
 - explicit whitelist and notebook recording policy;
 - explicit links from measurements or calibration steps to selected code
   context.
@@ -64,6 +64,11 @@ step is to let users name the experiment code that matters most to the run:
 entrypoints, notebooks, helper files, declared context references, and selected
 generated companions. That already covers the code most directly tied to
 experiment workflow and intent while avoiding legacy-codebase analysis.
+
+Selection is only the initial user action. The record Scopecat is trying to
+earn is a point-in-time code version/snapshot, analogous to parameter-state or
+setup-binding snapshots at the measurement-context level while retaining
+code-specific storage, restore, environment, and execution boundaries.
 
 The long-term direction is:
 
@@ -79,7 +84,9 @@ The long-term direction is:
 
 ## First Boundary
 
-The first supported path should be selected root plus a user whitelist.
+The first supported path should be selected root plus a user whitelist. That
+selection defines the capture scope for a code version/snapshot; it is not the
+whole durable concept by itself.
 
 This means the first record can say:
 
@@ -105,8 +112,8 @@ calibration steps.
 
 The intended route is:
 
-- start with whitelist-based records for the files and references the user
-  considers experiment-relevant;
+- start with whitelist-based code version/snapshot records for the files and
+  references the user considers experiment-relevant;
 - use those records to connect measurements, calibration steps, handoff
   packages, and comparison workflows to the code context users actually meant;
 - let users gradually move from external folders into Scopecat-managed
