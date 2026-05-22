@@ -86,11 +86,14 @@ Selected reference comparison has fixture-level validation for comparing a
 current measurement against a user-selected reference as recorded context. It
 reuses selected measurement IDs, declared preview metadata, named input
 snapshots, parameter state references, setup-binding references, selected
-artifacts, and precise finding vocabulary. It has not earned a comparison
+artifacts, selected code context, captured-version candidates, whitelist file
+inventory, and precise finding vocabulary. It has not earned a comparison
 engine, user-judgment engine, fit-quality comparison, raw-data comparison,
 setup truth, publication-grade plotting, user-provided analysis conclusion
-model, experiment-code comparison, or GUI design. The first reference-selection
-model can start from ordinary user marks on measurement records.
+model, Git-state comparison, dependency discovery, environment readiness,
+selected-version loading, code execution, semantic source diff, or GUI design.
+The first reference-selection model can start from ordinary user marks on
+measurement records.
 
 Experiment code selection has a slice-local summary candidate for selected
 code context from a messy external folder and a candidate captured version. It
@@ -128,8 +131,8 @@ schema.
 | Selected reference | Selected reference comparison | A user-chosen comparison anchor, such as last-working, notable, best-observed, or simply relevant. These can start as ordinary user marks on measurement records; export, parameter state, and setup binding provide supporting context for comparison. |
 | Comparison finding | Selected reference comparison, export, running inspection | A precise context-comparison result such as changed, missing, unverified, redacted, unlinked, same-observed, or not-compared. It is not automatic cause attribution. |
 | Preview compatibility | Selected reference comparison, export, running inspection, scan/data-shape | Declared preview metadata that suggests compatible quick browsing or overlay across measurements. It does not imply publication-grade plotting or user interpretation. |
-| Selected code context | Experiment code, calibration continuation, selected reference | The explicit code root, entrypoint, whitelisted files, notebook recording policy, and declared context refs that a user means to use, restore, compare, or hand off. |
-| Captured version candidate | Experiment code, export/handoff | A proposed point-in-time boundary for future Scopecat-managed code versions. It can describe whitelist capture scope without accepting storage, restore, sync, environment, loading, execution, merge, Git inspection, or managed workspace semantics. |
+| Selected code context | Experiment code, calibration continuation, selected reference | The explicit code root, entrypoint, whitelisted files, notebook recording policy, and declared context refs that a user means to use, restore, compare, or hand off. In selected-reference comparison it is declared context, not Git diff, source semantics, or execution readiness. |
+| Captured version candidate | Experiment code, export/handoff, selected reference | A proposed point-in-time boundary for future Scopecat-managed code versions. It can describe whitelist capture scope and support declared context comparison without accepting storage, restore, sync, environment, loading, execution, merge, Git inspection, or managed workspace semantics. |
 
 ## Stable Separations
 
@@ -184,9 +187,10 @@ Several separations now appear repeatedly enough to keep carrying forward:
   as user marks on measurement records. Scopecat does not need special
   semantics for each label before it can provide objective comparison.
 - Experiment code/version mismatch is a real selected-reference comparison
-  dimension. The first experiment-code fixture now validates selected code
-  context as the minimum reference shape, while comparison behavior remains a
-  later selected-reference update.
+  dimension. Selected-reference comparison can compare declared selected-code
+  context, captured-version candidates, whitelist inventory, recorded source
+  observations, and declared refs without claiming Git diff, semantic source
+  comparison, environment readiness, restore, loading, or execution.
 - Early selected-code capture is whitelist-based. Internal Git state,
   directory-name heuristics, unselected backups, caches, checkpoints, and
   generated files are not analyzed or surfaced as warnings unless the user
@@ -250,8 +254,8 @@ The cross-slice comparison still does not earn:
 - shared input-snapshot or run-context framework;
 - deep interpretation of user/project-defined setup-binding payloads;
 - selected-reference comparison engine, user-judgment engine, raw-data
-  comparison, user-provided analysis conclusion model, code-version comparison
-  behavior, or automatic cause attribution;
+  comparison, user-provided analysis conclusion model, semantic code-version
+  diff behavior, or automatic cause attribution;
 - managed experiment-code workspace storage, Git replacement implementation,
   branch/merge/sync semantics, package management, environment ownership,
   environment restoration, selected-version loading, code execution,

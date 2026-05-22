@@ -82,8 +82,8 @@ The fixture reuses validated pressure without promoting shared architecture:
 
 - parameter-state management contributes selected parameter-state context;
 - setup binding contributes selected setup-binding context;
-- selected-reference comparison contributes the need for future code-version
-  comparison;
+- selected-reference comparison contributes declared selected-code context
+  comparison pressure;
 - selected measurement export contributes handoff and materialization pressure;
 - calibration continuation contributes step-level context references.
 
