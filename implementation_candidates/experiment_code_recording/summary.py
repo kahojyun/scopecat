@@ -92,7 +92,7 @@ def _validate_references(source: dict[str, Any]) -> None:
         if scope["included_files"] != _included_paths(source_context):
             raise ValueError("code snapshot record inclusion must match source context inclusion")
         capture_state_by_file = scope["capture_state_by_file"]
-        if list(capture_state_by_file) != scope["included_files"]:
+        if set(capture_state_by_file) != set(scope["included_files"]):
             raise ValueError("code snapshot record capture states must match included files")
         if capture_state_by_file != _capture_state_by_file(source_context):
             raise ValueError("code snapshot record capture states must match source context")

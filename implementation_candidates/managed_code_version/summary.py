@@ -130,7 +130,7 @@ def _validate_references(source: dict[str, Any]) -> None:
         source_record = code_snapshot_records[source_record_id]
         expected_paths = source_record["snapshot_scope"]["included_files"]
         capture_state_by_file = _capture_state_by_file(source_record)
-        if list(capture_state_by_file) != expected_paths:
+        if set(capture_state_by_file) != set(expected_paths):
             raise ValueError("code snapshot record capture states must match included files")
         for capture_state in capture_state_by_file.values():
             if capture_state not in _CODE_CAPTURE_STATES:

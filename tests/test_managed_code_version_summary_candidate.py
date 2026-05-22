@@ -121,6 +121,20 @@ class ManagedCodeVersionSummaryCandidateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "require content-captured source entries"):
             build_managed_code_version_summary(source)
 
+    def test_capture_state_mapping_order_is_not_semantic(self) -> None:
+        source = _load_input()
+        scope = source["code_snapshot_records"][0]["snapshot_scope"]
+        scope["capture_state_by_file"] = {
+            path: scope["capture_state_by_file"][path] for path in reversed(scope["included_files"])
+        }
+
+        summary = build_managed_code_version_summary(source)
+
+        self.assertEqual(
+            {item["source_capture_state"] for item in summary["file_inventory"]},
+            {"content_captured"},
+        )
+
     def test_duplicate_file_paths_are_rejected(self) -> None:
         source = _load_input()
         source["managed_code_versions"][0]["file_records"][2]["path"] = (

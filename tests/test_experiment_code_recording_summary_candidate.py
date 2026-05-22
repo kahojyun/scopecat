@@ -128,6 +128,20 @@ class ExperimentCodeRecordingSummaryCandidateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "capture states must match source context"):
             build_experiment_code_recording_summary(source)
 
+    def test_code_snapshot_capture_state_mapping_order_is_not_semantic(self) -> None:
+        source = _load_input()
+        scope = source["code_snapshot_records"][0]["snapshot_scope"]
+        scope["capture_state_by_file"] = {
+            path: scope["capture_state_by_file"][path] for path in reversed(scope["included_files"])
+        }
+
+        summary = build_experiment_code_recording_summary(source)
+
+        self.assertEqual(
+            summary["code_snapshot_records"][0]["capture_state_counts"],
+            {"content_captured": 3},
+        )
+
     def test_unknown_code_capture_state_is_rejected(self) -> None:
         source = _load_input()
         source["recorded_code_contexts"][0]["included_files"][0]["code_capture_state"] = (
