@@ -1,3 +1,17 @@
+[project]
+name = "scopecat"
+version = "0.0.0"
+description = "Early workspace for Scopecat scientific measurement workflow research."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[dependency-groups]
+dev = [
+  "prek",
+  "ruff",
+]
+
 [tool.ruff]
 force-exclude = true
 line-length = 100
@@ -11,3 +25,6 @@ select = [
   "F",
   "I",
 ]
+
+[tool.uv]
+package = false

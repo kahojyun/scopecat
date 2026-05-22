@@ -20,3 +20,15 @@ Start with `docs/README.md`.
 The documentation workspace is the long-lived project memory for product
 analysis, research, architecture decisions, and future user documentation.
 It should not be treated as a finalized product specification.
+
+## Development
+
+This repository uses `uv` for local Python environment management. It is
+configured as a non-package project for now; the current code is research,
+fixtures, and implementation candidates rather than a final production package.
+
+```sh
+uv sync
+uv run python -m unittest discover -s tests
+uv run prek run --all-files
+```
