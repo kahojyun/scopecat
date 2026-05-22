@@ -103,10 +103,13 @@ shared integrity model or storage schema.
 - integrity hint freshness, recomputation, and mismatch behavior remain
   undecided;
 - materializing a version into an editable workspace remains unvalidated;
-- comparing current editable code with a managed version remains unvalidated;
-- comparison between recorded context, snapshot capture state, managed-version
-  inventory, and editable-folder observation remains a fixture-family question,
-  not one accepted diff model;
+- comparable code surface remains unvalidated beyond managed-version record
+  inventory;
+- editable-folder observation against a managed version remains unvalidated and
+  should come after workspace materialization authority is clearer;
+- comparison between recorded context, recorded-to-managed facts,
+  managed-version inventory, capture-state edge cases, and editable-folder
+  observation remains a fixture-family question, not one accepted diff model;
 - environment readiness likely needs a later active validation slice;
 - GUI language for save, restore, compare, and use-version actions remains
   undecided.
@@ -116,7 +119,9 @@ shared integrity model or storage schema.
 Use this fixture and summary candidate as the first managed code-version
 record boundary.
 
-The next implementation-shaped step should stay adjacent: either validate
-one code-comparison fixture-family case or validate workspace materialization
-intent. Environment restoration should wait until a managed
-storage/materialization boundary has more implementation pressure.
+The next implementation-shaped step should stay adjacent: validate one
+comparable-code-surface fixture first, then validate workspace materialization
+intent before actual workspace creation. Editable-folder observation, prepared
+run context, reference-based rerun preparation, and environment restoration
+should wait until the earlier authority boundaries have more implementation
+pressure.

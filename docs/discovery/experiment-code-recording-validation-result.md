@@ -84,15 +84,18 @@ The fixture covers the first adoption stage for code recording:
   workspaces without pretending that storage, restore, or execution contracts
   already exist.
 
-The next stages are intentionally deferred: moving users into managed
-workspaces, restoring a selected code snapshot or managed code version,
-comparing managed versions, preparing a run context from selected code and
-other run-start inputs, preparing a manual rerun from selected-reference
-context, checking an editable folder against a managed version, and syncing a
-declared environment such as a `uv` lockfile workflow. Those are plausible
-long-term capabilities, not conclusions earned by this fixture. Selecting a
-saved code snapshot for a step is not useful enough as a standalone validation
-question unless it reduces a concrete run-preparation or rerun risk.
+The next validation stages are intentionally deferred and should be ordered by
+authority: promoting captured snapshots into managed code versions, comparing
+explicit code fact surfaces, planning workspace materialization, creating
+editable workspaces, observing editable folders against selected managed
+versions, preparing run context from selected code and other run-start inputs,
+preparing a manual rerun from selected-reference context, recording declared
+environment inventory, and only later syncing a declared environment such as a
+`uv` lockfile workflow. That validation order is not a required user adoption
+route. These are plausible long-term capabilities, not conclusions earned by
+this fixture. Selecting a saved code snapshot for a step is not useful enough
+as a standalone validation question unless it reduces a concrete
+run-preparation or rerun risk.
 
 ## Relationship To Prior Slices
 

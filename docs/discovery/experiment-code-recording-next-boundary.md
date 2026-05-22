@@ -84,48 +84,111 @@ first code snapshot record to be useful.
 
 ## Adoption Route
 
-The intended product route is staged:
+The intended user adoption route is value-driven, not a strict validation
+dependency chain:
 
 1. Start with explicit run/step code contexts and code snapshot records over
-   messy external folders.
+   messy external folders, without requiring users to move code into Scopecat.
 2. Let those records connect measurements, calibration steps, handoff packages,
    and comparison workflows to the code context users actually used or
    observed.
-3. Let users promote code snapshot records into managed code versions when
-   restore, compare, and version selection become valuable.
-4. After managed workspace storage is earned, evaluate prepared run context,
-   reference-based rerun preparation, and editable-folder readiness against a
-   managed version.
-5. After those preparation workflows prove useful, evaluate declared
-   environment restoration.
-6. After environment authority is earned, evaluate lockfile-driven dependency
-   sync, readiness checks, and managed runners.
+3. Let users promote captured or recaptured code snapshot records into managed
+   code versions when stable identity, inventory, restore, compare, or version
+   selection becomes valuable.
+4. From managed versions, let users branch into the workflows they need:
+   comparison, workspace materialization, editable-folder observation, run
+   preparation, rerun preparation, or environment help.
+5. Treat dependency sync, execution readiness, and managed runners as later
+   adoption only for labs that want Scopecat to help prepare runnable managed
+   contexts.
 
 The first stage should remain useful even if a lab never adopts the later
-managed-workspace stages.
+managed-workspace stages. A lab also does not need to adopt comparison,
+materialization, run preparation, and environment support in one linear product
+journey.
 
-## Triggers For The Next Slice
+## Validation Slice Order
 
-A managed-workspace slice is worth starting when the first adoption path needs
-one of these user-visible behaviors:
+Validation should follow authority boundaries more strictly than user adoption:
 
-- restore this code snapshot record on the same or another machine;
+1. Validate a comparable code surface over explicit code facts before claiming
+   a general diff, editable-folder readiness, or runnable context.
+2. Validate workspace materialization intent before creating editable
+   workspaces.
+3. Validate workspace materialization before treating a current editable folder
+   as a managed-version readiness target.
+4. Validate editable-folder observation against a selected managed version or
+   materialized workspace before preparing a run context.
+5. Validate prepared run context from selected code or workspace, selected
+   parameter state, setup binding, and measurement intent.
+6. Validate reference-based rerun preparation as a convenience workflow over
+   prepared run context, not as a separate reproducibility claim.
+7. Validate declared environment inventory before environment readiness or
+   dependency sync.
+8. Only after those boundaries prove useful, validate environment readiness,
+   dependency sync, and managed runners.
+
+## Triggers And Order For Future Slices
+
+Future validation slices should stay separated by the authority they need. Use
+these triggers to decide which slice to design next, not as a mandatory user
+journey.
+
+A comparable-code-surface slice is worth starting when the user-visible need is:
+
 - compare available recorded or managed code facts without pretending
   reference-only items support content diff;
-- materialize a selected version into an editable workspace;
-- prepare a run context from selected code, parameter state, setup binding, and
-  measurement intent so the user can run existing lab code outside Scopecat;
-- start from a selected reference measurement and prepare the matching managed
-  code version plus context for a manual rerun;
-- check whether the current editable folder matches a selected managed version
-  before the user runs or edits it;
+- explain why two code records are same-observed, changed, missing,
+  reference-only, redacted, excluded, or not-compared;
+- keep comparison useful before any editable workspace exists.
+
+A workspace-materialization-intent slice is worth starting when the need is:
+
+- preview where a selected managed version would be materialized;
+- detect destination naming, collision, overwrite, and provenance-label issues
+  before writing files;
 - protect users from accidentally modifying the only useful copy of selected
-  experiment code;
+  experiment code.
+
+A workspace-materialization slice is worth starting when the need is:
+
+- restore this code snapshot record on the same or another machine;
+- materialize a selected version into an editable workspace;
 - move from external-folder references to Scopecat-owned code storage.
 
-An environment-restoration slice is worth starting only after managed
-workspace storage has a candidate boundary and the user-visible question is
-about runnable context rather than record context. Useful triggers include:
+An editable-folder-observation slice is worth starting after materialization
+or managed storage authority exists and the need is:
+
+- check whether the current editable folder matches a selected managed version
+  before the user runs or edits it;
+- compare observed file facts without accepting Git diff, semantic source diff,
+  dependency readiness, import, or execution.
+
+A prepared-run-context slice is worth starting when the need is:
+
+- prepare a run context from selected code, parameter state, setup binding, and
+  measurement intent so the user can run existing lab code outside Scopecat;
+
+A reference-based rerun-preparation slice is worth starting after prepared run
+context is useful and the need is:
+
+- start from a selected reference measurement and prepare the matching managed
+  code version plus context for a manual rerun;
+- reuse the same run-context assembly without claiming reproducibility or
+  automatic cause attribution.
+
+A declared-environment-inventory slice should come before environment
+readiness. It is worth starting when the user-visible need is:
+
+- record declared environment files, lockfiles, interpreter hints, or
+  package-manager hints next to the selected code context;
+- explain which declared environment facts are present or missing without
+  syncing, importing, or checking runnable readiness.
+
+An environment-readiness or sync slice is worth starting only after managed
+workspace and declared-environment authority have candidate boundaries and the
+user-visible question is about runnable context rather than record context.
+Useful triggers include:
 
 - users need to know whether a selected code snapshot or managed code version
   can be loaded;
@@ -140,26 +203,45 @@ about runnable context rather than record context. Useful triggers include:
 
 ## First Future Fixture Candidates
 
-Potential code-comparison fixture family:
+Potential comparable-code-surface fixture:
 
 - input: two code records or versions with explicit authority and capture-state
   facts;
 - output: findings over the comparable surface, such as same-observed, changed,
   missing, unverified, redacted, or not-compared;
-- first cases: recorded context comparison, snapshot capture-state comparison,
-  managed-version inventory comparison, and later editable-folder observation;
+- first case: one recorded-context comparison or one recorded-to-managed
+  comparison;
+- later cases: managed-version inventory comparison, snapshot capture-state
+  edge cases, editable-folder observation, and materialized-directory
+  comparison;
 - boundary: no universal diff engine, no semantic source diff, no Git analysis,
   no environment readiness, and no execution.
 
-Potential managed-workspace fixture:
+Potential workspace-materialization-intent fixture:
 
-- input: a code snapshot record with included files and stripped
-  notebooks;
-- output: a managed code version summary with stable identity, file inventory,
-  content-integrity hints, and materialization intent;
+- input: a selected managed code version plus candidate destination policy;
+- output: a materialization plan with destination paths, collision or overwrite
+  findings, provenance labels, and skipped, redacted, or unavailable file
+  findings;
+- boundary: no file writes, no Git UI, no merge model, no dependency install,
+  no execution.
+
+Potential workspace-materialization fixture:
+
+- input: a selected managed code version and approved materialization target;
+- output: an editable workspace with provenance back to the managed version and
+  explicit skipped, redacted, or unavailable file findings;
 - boundary: no Git UI, no merge model, no dependency install, no execution.
 
-Potential environment-restore fixture:
+Potential declared-environment-inventory fixture:
+
+- input: a managed code version plus user-declared environment file,
+  lockfile, interpreter, or package-manager references;
+- output: declared environment inventory with present, missing, reference-only,
+  or not-checked findings;
+- boundary: no sync, no import, no hardware readiness, no execution.
+
+Potential environment-readiness fixture:
 
 - input: a managed code version plus a user-declared environment file or
   lockfile reference;
@@ -167,4 +249,4 @@ Potential environment-restore fixture:
 - boundary: no hardware import, no notebook execution, no claim that the
   experiment result is reproducible.
 
-Both fixtures should keep code execution separate from code record integrity.
+All fixtures should keep code execution separate from code record integrity.

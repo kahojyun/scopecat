@@ -117,22 +117,31 @@ those records for restore, comparison, or managed workspace migration.
 
 ## Adoption Route
 
-The intended route is:
+The intended user adoption route is value-driven:
 
 - start with explicit-include code contexts and code snapshot records for the
-  files and references associated with a run or step;
+  files and references associated with a run or step, while code still lives in
+  normal lab folders;
 - use those records to connect measurements, calibration steps, handoff
   packages, and comparison workflows to the code context users actually used
   or observed;
-- let users gradually move from external folders into Scopecat-managed
-  workspaces when they want restore, compare, materialization, or editable-folder
-  readiness behavior;
-- only then consider prepared run context, reference-based rerun preparation,
-  environment restoration, lockfile-driven dependency sync, execution readiness
-  checks, or managed runners.
+- promote captured or recaptured snapshots into managed code versions when
+  stable identity, inventory, restore, compare, or selection becomes valuable;
+- branch from managed versions into comparison, materialization,
+  editable-folder observation, run preparation, rerun preparation, or
+  environment help only when those workflows solve a concrete lab problem;
+- reserve lockfile-driven dependency sync, execution readiness checks, and
+  managed runners for labs that want Scopecat to help prepare runnable managed
+  contexts.
 
 This route keeps early adoption practical for messy labs while preserving the
 later path toward structured code management.
+
+The validation order is stricter than the adoption route. Future validation
+should still earn comparable code surfaces, materialization intent, workspace
+materialization, editable-folder observation, prepared run context,
+reference-based rerun preparation, declared environment inventory, and
+environment readiness as separate authority boundaries.
 
 ## Workflow And DAG Deferral
 

@@ -115,34 +115,38 @@ Candidate next slices in this route should stay separate:
 | [`managed-code-version-validation-plan.md`](managed-code-version-validation-plan.md) | First fixture-validation boundary for turning a code snapshot record into a managed code version record. |
 | [`managed-code-version-validation-result.md`](managed-code-version-validation-result.md) | Result of the first managed code version fixture and summary candidate. |
 
-Candidate next slices in this route should stay separate:
+Validation slice candidates for Experiment Code Context should be ordered by
+authority level. This order is not the user adoption route; it is the order in
+which Scopecat should earn stronger claims:
 
-- code comparison fixture family: add one comparison case at a time across
-  recorded context, snapshot capture state, managed-version inventory, and
-  editable-folder observation, without starting with a universal diff model;
-- workspace materialization intent: plan where a selected version would be
-  materialized, without creating an editable workspace;
-- workspace materialization: create a selected version workspace, without
-  environment sync, code import, or execution;
-- prepared run context: assemble a selected managed code version with selected
-  parameter state, setup binding, and measurement intent so a user can run
-  existing lab code outside Scopecat, without claiming execution or hardware
-  control;
-- reference-based rerun preparation: start from a selected reference
-  measurement and prepare the matching managed code version plus context needed
-  for manual rerun, without claiming reproducibility or automatic cause
-  attribution;
-- editable-folder readiness: compare an observed current folder against a
-  selected managed version before the user runs or edits it, without accepting
-  Git diff, semantic source diff, environment readiness, or execution;
-- environment-readiness records: check declared environment files or lockfiles
-  only after materialization/storage boundaries are clearer, without importing
-  hardware-active modules;
+1. comparable code surface: compare two authority-explicit code fact sets over
+   known captured, reference-only, missing, redacted, or excluded surfaces,
+   without accepting a universal diff model;
+2. workspace materialization intent: plan where a selected managed version
+   would be materialized, without creating an editable workspace;
+3. workspace materialization: create an editable workspace from a selected
+   managed version, without environment sync, code import, Git semantics, or
+   execution;
+4. editable-folder observation: compare an observed editable folder against a
+   selected managed version or materialized workspace, without claiming
+   environment readiness or semantic source correctness;
+5. prepared run context: assemble selected code or workspace, selected
+   parameter state, setup binding, and measurement intent so a user can run
+   existing lab code outside Scopecat, without claiming execution or hardware
+   control;
+6. reference-based rerun preparation: start from a selected reference
+   measurement and prepare the matching run context for manual rerun, without
+   claiming reproducibility or automatic cause attribution;
+7. declared environment inventory: record declared environment files,
+   lockfiles, interpreter hints, or package-manager hints, without syncing,
+   importing, or checking runnable readiness;
+8. environment readiness or sync: only after managed workspace and declared
+   environment authority are clearer.
 
-The code comparison fixture family should start from explicit authority and
-capture state. A useful first case may compare two recorded code contexts or a
-recorded snapshot against a managed code version. Add current editable-folder
-observation, materialized directory comparison, or semantic source diff only
+The comparison work is a fixture family, not one slice. Each fixture should add
+one authority case at a time: recorded-context comparison, recorded-to-managed
+comparison, managed-version inventory comparison, and only later editable-folder
+observation. Add materialized-directory comparison or semantic source diff only
 when a separate validation question needs that stronger authority.
 
 Do not validate "select a code version at run start" by itself. Selection
