@@ -93,9 +93,12 @@ The intended product route is staged:
    observed.
 3. Let users promote code snapshot records into managed code versions when
    restore, compare, and version selection become valuable.
-4. After managed workspace storage is earned, evaluate selected-version loading
-   and declared environment restoration.
-5. After environment authority is earned, evaluate lockfile-driven dependency
+4. After managed workspace storage is earned, evaluate prepared run context,
+   reference-based rerun preparation, and editable-folder readiness against a
+   managed version.
+5. After those preparation workflows prove useful, evaluate declared
+   environment restoration.
+6. After environment authority is earned, evaluate lockfile-driven dependency
    sync, readiness checks, and managed runners.
 
 The first stage should remain useful even if a lab never adopts the later
@@ -109,8 +112,13 @@ one of these user-visible behaviors:
 - restore this code snapshot record on the same or another machine;
 - compare available recorded or managed code facts without pretending
   reference-only items support content diff;
-- choose a saved code snapshot at measurement start;
 - materialize a selected version into an editable workspace;
+- prepare a run context from selected code, parameter state, setup binding, and
+  measurement intent so the user can run existing lab code outside Scopecat;
+- start from a selected reference measurement and prepare the matching managed
+  code version plus context for a manual rerun;
+- check whether the current editable folder matches a selected managed version
+  before the user runs or edits it;
 - protect users from accidentally modifying the only useful copy of selected
   experiment code;
 - move from external-folder references to Scopecat-owned code storage.

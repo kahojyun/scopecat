@@ -80,8 +80,9 @@ The long-term direction is:
 - Scopecat-managed code workspaces that can be expanded into editable folders;
 - user edits happen in ordinary files and notebooks;
 - Scopecat records saved versions and diffs;
-- measurements reference the selected code snapshot or run-start code snapshot
-  record;
+- measurements or calibration steps may reference recorded code context as
+  provenance, while later run-preparation workflows may select managed code
+  versions as intended inputs;
 - code snapshot records can be materialized on another machine or environment
   when storage and environment support are earned.
 - environment restoration may later include loading a selected code snapshot and
@@ -124,10 +125,11 @@ The intended route is:
   packages, and comparison workflows to the code context users actually used
   or observed;
 - let users gradually move from external folders into Scopecat-managed
-  workspaces when they want restore, compare, and version-selection behavior;
-- only then consider loading selected code snapshots, environment restoration,
-  lockfile-driven dependency sync, execution readiness checks, or managed
-  runners.
+  workspaces when they want restore, compare, materialization, or editable-folder
+  readiness behavior;
+- only then consider prepared run context, reference-based rerun preparation,
+  environment restoration, lockfile-driven dependency sync, execution readiness
+  checks, or managed runners.
 
 This route keeps early adoption practical for messy labs while preserving the
 later path toward structured code management.
@@ -213,5 +215,4 @@ notebook-output stripping, declared context references, and non-recording
 policy visible without inspecting Git, scanning unrecorded files, executing
 code, importing code, or inferring dependencies. Start a later
 managed-workspace slice only when restore, compare, materialization, or
-selected-version-at-run-start behavior creates concrete implementation
-pressure.
+prepared-run-context behavior creates concrete implementation pressure.

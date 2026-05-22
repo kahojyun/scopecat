@@ -124,17 +124,30 @@ Candidate next slices in this route should stay separate:
   materialized, without creating an editable workspace;
 - workspace materialization: create a selected version workspace, without
   environment sync, code import, or execution;
+- prepared run context: assemble a selected managed code version with selected
+  parameter state, setup binding, and measurement intent so a user can run
+  existing lab code outside Scopecat, without claiming execution or hardware
+  control;
+- reference-based rerun preparation: start from a selected reference
+  measurement and prepare the matching managed code version plus context needed
+  for manual rerun, without claiming reproducibility or automatic cause
+  attribution;
+- editable-folder readiness: compare an observed current folder against a
+  selected managed version before the user runs or edits it, without accepting
+  Git diff, semantic source diff, environment readiness, or execution;
 - environment-readiness records: check declared environment files or lockfiles
   only after materialization/storage boundaries are clearer, without importing
   hardware-active modules;
-- selected-version loading: load or select a version for a workflow only after
-  materialization and readiness are validated separately.
 
 The code comparison fixture family should start from explicit authority and
 capture state. A useful first case may compare two recorded code contexts or a
 recorded snapshot against a managed code version. Add current editable-folder
 observation, materialized directory comparison, or semantic source diff only
 when a separate validation question needs that stronger authority.
+
+Do not validate "select a code version at run start" by itself. Selection
+becomes useful only when it prepares a run context, supports a reference-based
+rerun, or checks an editable folder against the selected version.
 
 ### Setup Binding
 

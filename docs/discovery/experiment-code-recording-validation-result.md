@@ -86,9 +86,13 @@ The fixture covers the first adoption stage for code recording:
 
 The next stages are intentionally deferred: moving users into managed
 workspaces, restoring a selected code snapshot or managed code version,
-comparing managed versions, choosing or loading a saved code snapshot for a step,
-and syncing a declared environment such as a `uv` lockfile workflow. Those are
-plausible long-term capabilities, not conclusions earned by this fixture.
+comparing managed versions, preparing a run context from selected code and
+other run-start inputs, preparing a manual rerun from selected-reference
+context, checking an editable folder against a managed version, and syncing a
+declared environment such as a `uv` lockfile workflow. Those are plausible
+long-term capabilities, not conclusions earned by this fixture. Selecting a
+saved code snapshot for a step is not useful enough as a standalone validation
+question unless it reduces a concrete run-preparation or rerun risk.
 
 ## Relationship To Prior Slices
 
