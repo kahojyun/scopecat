@@ -198,18 +198,22 @@ class CalibrationWorkContinuationFixtureTest(unittest.TestCase):
             ["review:review-rabi-04002"],
         )
 
-    def test_review_states_calibration_specific_boundary(self) -> None:
-        review = (FIXTURE / "expected-continuation-review.md").read_text(encoding="utf-8")
+    def test_structured_summary_states_calibration_specific_boundary(self) -> None:
+        summary = _load_json(FIXTURE / "expected-continuation-summary.json")
+        candidate = summary["candidate_summary"]
+        steps = {step["step_id"]: step for step in candidate["steps"]}
 
-        self.assertIn("Fixture Wrapper", review)
-        self.assertIn("Candidate Summary Review", review)
-        self.assertIn("calibration-specific step state", review)
-        self.assertIn("not a Scopecat-decided mutation", review)
-        self.assertIn("state-only; it does not execute fixture code", review)
-        self.assertIn("scattered continuation", review)
-        self.assertIn("authoring model or executor input contract", review)
-        self.assertIn("episode/step/review model is not earned", review)
-        self.assertIn("ordinary calibration-continuation state", review)
+        self.assertEqual(summary["source_fixture"], "continuation-input.json")
+        self.assertIn("final runner framework", summary["reference_semantics"]["contract_guard"])
+        self.assertEqual(steps["step-2-rabi-amplitude"]["lifecycle_state"], "review_needed")
+        self.assertEqual(steps["step-3-t1-check"]["lifecycle_state"], "blocked")
+        self.assertEqual(candidate["declared_writes"][0]["status"], "proposed_not_applied")
+        self.assertEqual(candidate["applied_writes"], [])
+        self.assertIn("Scattered continuation context", summary["boundary_notes"][0])
+        self.assertIn("ordinary calibration-continuation state", summary["boundary_notes"][1])
+        self.assertIn("not applied by Scopecat", summary["boundary_notes"][2])
+        self.assertIn("executor input contract", summary["boundary_notes"][3])
+        self.assertIn("episode/step/review model", summary["decisions_not_earned"])
 
 
 if __name__ == "__main__":

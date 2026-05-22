@@ -142,19 +142,25 @@ class SetupBindingFixtureTest(unittest.TestCase):
             summary["reference_semantics"]["generated_views"],
         )
 
-    def test_review_markdown_states_fixture_boundary(self) -> None:
-        review = (FIXTURE / "expected-setup-binding-review.md").read_text(encoding="utf-8")
+    def test_structured_summary_states_fixture_boundary(self) -> None:
+        summary = _expected_summary()
+        semantics = summary["reference_semantics"]
+        candidate = summary["candidate_summary"]
 
-        self.assertIn("Measurement Inputs", review)
-        self.assertIn("parameter_state", review)
-        self.assertIn("setup_binding", review)
-        self.assertIn("station_registry", review)
-        self.assertIn("Generated Views", review)
-        self.assertIn("black-box provenance", review)
-        self.assertIn("user/project-defined inner payloads", review)
-        self.assertIn("outer envelope", review)
-        self.assertIn("does not claim that the selected parameter", review)
-        self.assertIn("claim current hardware state", review)
+        self.assertIn("parameter state", semantics["measurement_inputs"])
+        self.assertIn("setup binding", semantics["measurement_inputs"])
+        self.assertIn("station registry", semantics["measurement_inputs"])
+        self.assertIn("separate referenced context summary", semantics["station_registry"])
+        self.assertIn("black-box provenance", semantics["generated_views"])
+        selected_binding = {item["snapshot_id"]: item for item in candidate["setup_bindings"]}[
+            "setup-binding-0002"
+        ]
+        self.assertEqual(
+            selected_binding["inner_payload_handling"],
+            "opaque_payload_with_declared_summary_fields",
+        )
+        self.assertIn("current hardware state", summary["boundary_notes"][4])
+        self.assertIn("generator or converter execution", summary["decisions_not_earned"])
 
 
 if __name__ == "__main__":

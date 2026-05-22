@@ -137,18 +137,22 @@ class SelectedReferenceComparisonFixtureTest(unittest.TestCase):
         )
         self.assertEqual(candidate["warnings"], [])
 
-    def test_review_markdown_states_fixture_boundary(self) -> None:
-        review = (FIXTURE / "expected-reference-comparison-review.md").read_text(encoding="utf-8")
+    def test_structured_summary_states_fixture_boundary(self) -> None:
+        summary = _expected_summary()
+        semantics = summary["reference_semantics"]
+        candidate = summary["candidate_summary"]
+        findings = {item["code"]: item for item in candidate["findings"]}
 
-        self.assertIn("Selected Reference", review)
-        self.assertIn("ordinary measurement mark", review)
-        self.assertIn("not a special", review)
-        self.assertIn("Named Input Comparison", review)
-        self.assertIn("changed parameter state", review)
-        self.assertIn("same_observed_setup_binding", review)
-        self.assertIn("quickly browse or overlay compatible measurements", review)
-        self.assertIn("avoid using `gap`", review)
-        self.assertIn("raw data, fit quality, hardware runtime state", review)
+        self.assertIn("ordinary user measurement marks", semantics["selected_reference"])
+        self.assertIn("not special Scopecat semantics", semantics["selected_reference"])
+        self.assertIn("named measurement inputs", semantics["named_inputs"])
+        self.assertEqual(findings["changed_parameter_state"]["kind"], "changed")
+        self.assertEqual(findings["same_observed_setup_binding"]["kind"], "same_observed")
+        self.assertIn("quick multi-measurement browsing or overlay", semantics["preview"])
+        self.assertIn("instead of a generic gap category", semantics["finding_vocabulary"])
+        self.assertIn("raw data", summary["boundary_notes"][5])
+        self.assertIn("fit quality", summary["boundary_notes"][5])
+        self.assertIn("hardware state", summary["boundary_notes"][5])
 
 
 if __name__ == "__main__":

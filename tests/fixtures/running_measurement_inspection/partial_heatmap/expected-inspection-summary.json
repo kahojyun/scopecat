@@ -8,6 +8,19 @@
     "path_fields": "latest_data_reference.path is a package-relative fixture file for openability and row-count checks.",
     "authority": "source fields identify fixture-declared or recorded-file facts only; they do not settle final runtime, file, adapter, or storage authority."
   },
+  "boundary_notes": [
+    "Completed rectangular prefixes can be used as default preview candidates while current partial rows remain incomplete state, not warnings.",
+    "Ephemeral monitor selections and preview features are not durable measurement records.",
+    "Partial heatmap inspection represents an incomplete row without defining a general ragged/adaptive scan model.",
+    "Running inspection is observational; it does not control instruments or define final live-service behavior."
+  ],
+  "decisions_not_earned": [
+    "final lifecycle schema",
+    "live service contract",
+    "plot rendering or plotting API",
+    "hardware-control behavior",
+    "ragged/adaptive scan model"
+  ],
   "candidate_summary": {
     "measurement": {
       "measurement_id": "run-live-03001",

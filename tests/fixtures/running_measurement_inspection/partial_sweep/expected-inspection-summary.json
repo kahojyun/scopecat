@@ -8,6 +8,18 @@
     "path_fields": "latest_data_reference.path is a package-relative fixture file for openability and row-count checks.",
     "authority": "source fields identify fixture-declared or recorded-file facts only; they do not settle final runtime, file, adapter, or storage authority."
   },
+  "boundary_notes": [
+    "Completed units can be used as default preview candidates while current partial units remain incomplete state, not warnings.",
+    "Ephemeral monitor selections and preview fits are not durable measurement records.",
+    "Running inspection is observational; it does not control instruments or define final live-service behavior."
+  ],
+  "decisions_not_earned": [
+    "final lifecycle schema",
+    "live service contract",
+    "plot rendering or plotting API",
+    "hardware-control behavior",
+    "ragged/adaptive scan model"
+  ],
   "candidate_summary": {
     "measurement": {
       "measurement_id": "run-live-02001",

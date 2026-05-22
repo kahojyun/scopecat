@@ -204,17 +204,26 @@ class SelectedReferenceCodeContextComparisonFixtureTest(unittest.TestCase):
         self.assertIn("selected-version loading", summary["decisions_not_earned"])
         self.assertIn("code execution", summary["decisions_not_earned"])
 
-    def test_review_markdown_states_fixture_boundary(self) -> None:
-        review = (FIXTURE / "expected-reference-code-comparison-review.md").read_text(
-            encoding="utf-8"
-        )
+    def test_structured_summary_states_fixture_boundary(self) -> None:
+        summary = _expected_summary()
+        semantics = summary["reference_semantics"]
+        candidate = summary["candidate_summary"]
 
-        self.assertIn("changed recorded-code-context finding", review)
-        self.assertIn("record notebooks as source without outputs", review)
-        self.assertIn("Environment readiness is not compared", review)
-        self.assertIn("does not inspect", review)
-        self.assertIn("internal Git state", review)
-        self.assertIn("Recorded source observation IDs are fixture-level", review)
+        self.assertIn("recorded-code context shape", semantics["recorded_code_context"])
+        self.assertIn("not Git diff", semantics["code_context_comparison"])
+        self.assertIn("source execution", semantics["code_context_comparison"])
+        self.assertIn(
+            "Recorded source observation IDs are fixture-level comparison tokens",
+            semantics["recorded_source_observation"],
+        )
+        self.assertEqual(
+            candidate["code_context_comparison"]["context_id_finding"],
+            "changed",
+        )
+        self.assertIn("environment_readiness", candidate["not_compared_scope"])
+        self.assertIn("not Git state or live files", summary["boundary_notes"][0])
+        self.assertIn("not compared", summary["boundary_notes"][4])
+        self.assertIn("internal Git analysis", summary["decisions_not_earned"])
 
 
 if __name__ == "__main__":

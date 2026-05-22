@@ -99,17 +99,21 @@ class StorageTransitionExportFixtureTest(unittest.TestCase):
         warning_text = json.dumps(warnings)
         self.assertNotIn("external-ramsey-source.csv", warning_text)
 
-    def test_review_states_storage_transition_boundary(self) -> None:
-        review = (FIXTURE / "expected-export-review.md").read_text(encoding="utf-8")
+    def test_structured_summary_states_storage_transition_boundary(self) -> None:
+        summary = json.loads((FIXTURE / "expected-export-summary.json").read_text(encoding="utf-8"))
+        semantics = summary["reference_semantics"]
 
-        self.assertIn("Managed storage, lab-managed network source identity", review)
-        self.assertIn("expected export output, not known source input", review)
-        self.assertIn("package paths are not durable identity", review)
-        self.assertIn("temporary", review)
-        self.assertIn("lab policy support", review)
-        self.assertIn("normal long-term workflow", review)
-        self.assertIn("does not add an importer, package writer, checksum contract", review)
-        self.assertIn("does not encourage recording arbitrary mutable local files", review)
+        self.assertIn("pre-export record/reference state", semantics["input_layer"])
+        self.assertIn("expected export materialization output", semantics["package_paths"])
+        self.assertIn("distinct from package materialization paths", semantics["source_identity"])
+        self.assertIn("temporary or long-term product mode", semantics["external_reference_mode"])
+        self.assertIn("not expose internal filesystem paths", semantics["managed_identity"])
+        self.assertIn("package materialization are separate concepts", summary["boundary_notes"][0])
+        self.assertIn("normal long-term workflow", summary["boundary_notes"][1])
+        self.assertIn(
+            "without making those paths durable record identity", summary["boundary_notes"][2]
+        )
+        self.assertIn("arbitrary mutable local files", summary["boundary_notes"][4])
 
     def test_decisions_not_earned_include_storage_and_package_contracts(self) -> None:
         summary = json.loads((FIXTURE / "expected-export-summary.json").read_text(encoding="utf-8"))

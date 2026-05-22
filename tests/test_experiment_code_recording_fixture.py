@@ -153,17 +153,25 @@ class ExperimentCodeRecordingFixtureTest(unittest.TestCase):
         self.assertIn("workflow DAG", summary["decisions_not_earned"])
         self.assertIn("default record-all file tracking", summary["decisions_not_earned"])
 
-    def test_review_markdown_states_fixture_boundary(self) -> None:
-        review = (FIXTURE / "expected-code-recording-review.md").read_text(encoding="utf-8")
+    def test_structured_summary_states_fixture_boundary(self) -> None:
+        summary = _expected_summary()
+        semantics = summary["reference_semantics"]
+        candidate = summary["candidate_summary"]
+        attention = {item["code"]: item for item in candidate["attention"]}
 
-        self.assertIn("minimal and explicit-include-based", review)
-        self.assertIn("does not scan unrecorded files", review)
-        self.assertIn("Internal Git state is not inspected", review)
-        self.assertIn("Notebook outputs are stripped", review)
-        self.assertIn("code capture state is explicit", review)
-        self.assertIn("content_captured", review)
-        self.assertIn("does not grant execution permission", review)
-        self.assertIn("default record-all file tracking", review)
+        self.assertIn("minimal and explicit-include-based", semantics["early_adoption_boundary"])
+        self.assertIn("Unrecorded files are not analyzed", semantics["early_adoption_boundary"])
+        self.assertIn("Internal Git state is not inspected", semantics["git_state"])
+        self.assertIn("Notebook outputs are stripped", semantics["notebook_outputs"])
+        self.assertEqual(
+            candidate["code_snapshot_records"][0]["capture_state_counts"],
+            {"content_captured": 3},
+        )
+        self.assertEqual(
+            attention["code_execution_not_granted"]["does_not_claim"],
+            "execution_permission",
+        )
+        self.assertIn("default record-all file tracking", summary["decisions_not_earned"])
 
 
 if __name__ == "__main__":
