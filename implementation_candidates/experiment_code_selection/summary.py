@@ -153,9 +153,10 @@ def _attention(source: dict[str, Any]) -> list[dict[str, Any]]:
         for item in context["whitelisted_files"]
         if item["path"].endswith(".ipynb")
     ]
-    if (
-        source["capture_policy"]["notebook_output_policy"] == "strip_outputs_before_recording"
-        and any(item["recorded_form"] == "source_without_outputs" for item in notebook_files)
+    if source["capture_policy"][
+        "notebook_output_policy"
+    ] == "strip_outputs_before_recording" and any(
+        item["recorded_form"] == "source_without_outputs" for item in notebook_files
     ):
         attention.append(
             {
@@ -187,8 +188,7 @@ def _attention(source: dict[str, Any]) -> list[dict[str, Any]]:
         )
 
     if any(
-        context["mutation_capability"]["execution_permission"]
-        == "not_granted_by_selection_record"
+        context["mutation_capability"]["execution_permission"] == "not_granted_by_selection_record"
         for context in source["selected_code_contexts"]
     ):
         attention.append(
