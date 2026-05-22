@@ -149,7 +149,7 @@ This plan does not earn:
 - GUI design;
 - shared domain model extraction.
 
-## Current Recommendation
+## Slice Recommendation
 
 Review the first fixture before writing any implementation candidate. The first
 goal is to validate terminology, trust/readiness state, lineage purpose, and

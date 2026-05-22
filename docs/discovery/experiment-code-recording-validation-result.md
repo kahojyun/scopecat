@@ -93,14 +93,13 @@ other run-start inputs, preparing a manual rerun from selected-reference
 context, recording declared environment inventory, and only later syncing a
 declared environment such as a `uv` lockfile workflow.
 
-That sequence is historical to this first fixture, not the current next-step
-recommendation after later managed-code-version validation. Once the managed
-code-version record boundary is validated, the next implementation-shaped
-question should move to comparable code surface. The validation order is also
-not a required user adoption route. These are plausible long-term
-capabilities, not conclusions earned by this fixture. Selecting a saved code
-snapshot for a step is not useful enough as a standalone validation question
-unless it reduces a concrete run-preparation or rerun risk.
+That sequence is historical to this first fixture, not an active sequencing
+recommendation. Active sequencing should live in the implementation or PR
+plan. The validation order is also not a required user adoption route.
+These are plausible long-term capabilities, not conclusions earned by this
+fixture. Selecting a saved code snapshot for a step is not useful enough as a
+standalone validation question unless it reduces a concrete run-preparation or
+rerun risk.
 
 ## Relationship To Prior Slices
 
@@ -161,11 +160,10 @@ and environment restoration deferred.
   their inputs, outputs, compatibility, and review contracts are not earned;
 - GUI language for save/restore/compare/use-version actions remains undecided.
 
-## Current Recommendation
+## Slice Recommendation
 
 Use this fixture and summary candidate as the first boundary for
-experiment-code recording. The next implementation-shaped step should
-follow
+experiment-code recording. It supports the deferred route described in
 [`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md):
 do not design managed workspace storage, Git replacement, internal Git
 analysis, record-all file tracking, environment management, execution, or

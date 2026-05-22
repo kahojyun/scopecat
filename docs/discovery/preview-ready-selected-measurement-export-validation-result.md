@@ -113,7 +113,7 @@ This validation does not earn:
 - When a package writer is eventually considered, what integrity and
   materialization guarantees are needed beyond this structured summary?
 
-## Current Recommendation
+## Slice Recommendation
 
 Pause this slice at the structured-summary boundary unless another concrete
 task needs it.

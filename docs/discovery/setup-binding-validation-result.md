@@ -87,7 +87,7 @@ and attention metadata.
 - many-snapshot measurement context may become useful, but shared extraction
   is still deferred until implementation pressure justifies it.
 
-## Current Recommendation
+## Slice Recommendation
 
 Stop setup binding at fixture validation for now unless the next design step
 needs a production-shaped summary candidate. Use the fixture when evaluating

@@ -112,7 +112,7 @@ This plan does not earn:
 - GUI design;
 - shared domain model extraction.
 
-## Current Recommendation
+## Slice Recommendation
 
 Create one fixture and summary candidate before designing a store. The first
 goal is to validate the record shape for a managed code version, not to build

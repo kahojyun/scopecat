@@ -50,6 +50,11 @@ not combine import/export, storage, GUI, execution, redaction, write-back,
 restore, or shared-framework decisions just because the same fixture mentions
 more than one of them.
 
+Validation result and plan documents may include slice-local recommendations
+for what their fixture earned or deferred. They should not be treated as the
+owner of active sequencing. Sequencing belongs in the implementation or PR
+plan, using these discovery docs as supporting context.
+
 ### Measurement Context Backlog
 
 The canonical shared backlog for context records attached to or selected for

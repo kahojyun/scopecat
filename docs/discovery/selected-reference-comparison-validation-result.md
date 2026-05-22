@@ -111,7 +111,7 @@ authority and capture-state behavior match.
   dependency closure, Git state, and code execution remain separate risks;
 - recipient-aware redaction remains broader than this fixture.
 
-## Current Recommendation
+## Slice Recommendation
 
 Stop this slice at fixture validation unless a near-term task needs a
 production-shaped summary candidate. Use the fixture as comparison pressure

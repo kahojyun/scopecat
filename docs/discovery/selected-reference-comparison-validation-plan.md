@@ -158,7 +158,7 @@ This plan does not earn:
 - shared run-context framework;
 - GUI design.
 
-## Current Recommendation
+## Slice Recommendation
 
 Keep fixtures and expected output ahead of implementation candidates unless a
 near-term workflow needs production-shaped code. The goal is to validate the

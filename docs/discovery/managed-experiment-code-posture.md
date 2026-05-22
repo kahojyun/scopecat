@@ -211,7 +211,7 @@ later questions.
   user-declared references?
 - What conditions would earn workflow/DAG nodes as first-class records?
 
-## Current Recommendation
+## Slice Recommendation
 
 Use the validated code-recording fixture and
 [`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md)

@@ -92,7 +92,7 @@ This result does not earn:
 - recursive relation traversal;
 - shared domain model extraction.
 
-## Current Recommendation
+## Slice Recommendation
 
 Stop this slice at fixture validation.
 

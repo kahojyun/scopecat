@@ -54,17 +54,21 @@ Out of scope:
 - hardware write-back, dependency sync, code import, code execution, notebook
   execution, managed runners, or GUI ownership.
 
-## Current Next Validation Recommendation
+## Choosing A Validation Slice
 
-If the next slice is meant to validate this shared backlog rather than a
-domain-specific backlog, start with **Named Run-Start Input Set**.
+Do not treat this backlog as the owner of active sequencing. The slice under
+active work should be chosen in the implementation or PR plan. This backlog
+only helps classify the slice once that plan chooses a concrete user pressure.
 
-That fixture should assemble existing selected context references, such as
+When the goal is to test whether the shared context vocabulary is useful,
+**Named Run-Start Input Set** is usually the smallest cross-family validation
+slice because it assembles existing selected context references, such as
 parameter state, setup binding, code context or managed code version, and
-measurement intent, into one run-preparation summary. It should stop at
-selection, labels, provenance, and missing-context findings. It should not
-introduce a universal context schema, hardware control, code import,
-environment sync, runnable-readiness claims, or execution.
+measurement intent, into one run-preparation summary.
+
+That fixture should stop at selection, labels, provenance, and missing-context
+findings. It should not introduce a universal context schema, hardware control,
+code import, environment sync, runnable-readiness claims, or execution.
 
 Use the experiment-code backlog instead when the next question is about code
 capture state, comparable code surfaces, workspace materialization, editable

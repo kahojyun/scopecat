@@ -170,7 +170,7 @@ This plan does not earn:
 - GUI design;
 - shared domain model extraction.
 
-## Current Recommendation
+## Slice Recommendation
 
 Create one fixture and expected output before writing any implementation
 candidate. The first goal is to validate the product posture: Scopecat can

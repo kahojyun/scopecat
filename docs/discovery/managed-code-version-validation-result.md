@@ -114,14 +114,14 @@ shared integrity model or storage schema.
 - GUI language for save, restore, compare, and use-version actions remains
   undecided.
 
-## Current Recommendation
+## Slice Recommendation
 
 Use this fixture and summary candidate as the first managed code-version
 record boundary.
 
-The next implementation-shaped step should stay adjacent: validate one
-comparable-code-surface fixture first, then validate workspace materialization
-intent before actual workspace creation. Editable-folder observation, prepared
-run context, reference-based rerun preparation, and environment restoration
-should wait until the earlier authority boundaries have more implementation
-pressure.
+It supports the deferred route described in
+[`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md):
+comparable code surface should be validated before workspace materialization
+intent, actual workspace creation, editable-folder observation, prepared run
+context, reference-based rerun preparation, or environment restoration. The
+active implementation or PR plan should own sequencing.
