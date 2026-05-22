@@ -277,4 +277,4 @@ This implementation plan does not earn:
 - an importer;
 - an artifact inclusion UX;
 - an analysis-lineage DAG;
-- a guarantee that this slice covers all adoption hypotheses.
+- a guarantee that this slice covers all adoption routes.

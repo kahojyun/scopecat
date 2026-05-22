@@ -13,7 +13,7 @@ Decision-ready consolidation:
 ## Inputs
 
 - [`problem-briefs/selected-run-handoff.md`](problem-briefs/selected-run-handoff.md)
-- [`adoption-hypotheses.md`](adoption-hypotheses.md)
+- [`adoption-routes.md`](adoption-routes.md)
 - `spikes/selected_run_handoff/`
 - `spikes/selected_run_preview/`
 - `tests/fixtures/selected_run_handoff/minimal/`

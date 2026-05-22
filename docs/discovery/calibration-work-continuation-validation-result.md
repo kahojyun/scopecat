@@ -197,7 +197,7 @@ for real use, nor does it earn runner, scheduler, authoring, retry, or
 write-back scope.
 
 If the goal is broader product comparison, stop this slice at fixture
-validation and compare another adoption hypothesis before promoting shared
+validation and compare another adoption route before promoting shared
 step, review, write, or continuation concepts.
 
 If this slice continues, the next validation should either use an

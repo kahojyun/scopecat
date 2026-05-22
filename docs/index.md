@@ -9,7 +9,7 @@ Navigation map for current Scopecat docs.
 ```text
 docs/
   strategy/   product direction and boundaries
-  discovery/  problem briefs, adoption hypotheses, validation, and synthesis
+  discovery/  problem briefs, adoption routes, validation, and synthesis
   evidence/   evidence register, method, research, external baseline
 ```
 
@@ -19,7 +19,7 @@ docs/
 | [`AGENTS.md`](AGENTS.md) | AI-session rules for work inside `docs/`. |
 | [`strategy/product-direction.md`](strategy/product-direction.md) | Current product direction, default ownership boundaries, and non-goals. |
 | [`discovery/README.md`](discovery/README.md) | Discovery navigation for problem briefs, validation slices, synthesis, and deferrals. |
-| [`discovery/adoption-hypotheses.md`](discovery/adoption-hypotheses.md) | Product-value hypotheses grouped by user-visible behavior change. |
+| [`discovery/adoption-routes.md`](discovery/adoption-routes.md) | Evidence-backed adoption routes grouped by durable user workflow. |
 | [`discovery/cross-slice-synthesis.md`](discovery/cross-slice-synthesis.md) | Current synthesis across validated discovery slices. |
 | [`discovery/shared-model-extraction-deferral.md`](discovery/shared-model-extraction-deferral.md) | Current deferral of shared domain model extraction. |
 | [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md) | Evidence-backed problem briefs. |

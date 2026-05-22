@@ -18,7 +18,7 @@ Use neighboring documents for other layers:
 - interpretation rules and source hygiene: [`method.md`](method.md)
 - problem framing: [`../discovery/problem-briefs/`](../discovery/problem-briefs/)
 - product direction: [`../strategy/product-direction.md`](../strategy/product-direction.md)
-- adoption hypotheses: [`../discovery/adoption-hypotheses.md`](../discovery/adoption-hypotheses.md)
+- adoption routes: [`../discovery/adoption-routes.md`](../discovery/adoption-routes.md)
 - external system baseline: [`external-baseline.md`](external-baseline.md)
 
 ## Source Families

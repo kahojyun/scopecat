@@ -26,7 +26,7 @@ executor design, relation graph, or warning taxonomy.
 - [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md)
 - [`experiment-code-selection-validation-result.md`](experiment-code-selection-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
-- [`adoption-hypotheses.md`](adoption-hypotheses.md)
+- [`adoption-routes.md`](adoption-routes.md)
 
 ## Current Slice Positions
 

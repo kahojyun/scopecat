@@ -119,7 +119,7 @@ task needs it.
 
 The next design move should be either:
 
-- compare another adoption hypothesis with a similarly narrow implementation
+- compare another adoption route with a similarly narrow implementation
   candidate; or
 - use this result as input to a later architecture decision only after another
   slice pressures the same measurement, linked-context, preview, and warning

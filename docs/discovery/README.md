@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Discovery owns current problem framing, adoption hypotheses, validation
+Discovery owns current problem framing, adoption routes, validation
 artifacts, implementation-shaped exploration results, synthesis, and explicit
 deferrals.
 
@@ -15,7 +15,7 @@ product contracts too early.
 
 | Document | Use For |
 | --- | --- |
-| [`adoption-hypotheses.md`](adoption-hypotheses.md) | Compare current product-value hypotheses by user-visible behavior change. |
+| [`adoption-routes.md`](adoption-routes.md) | Compare current evidence-backed adoption routes by durable user workflow. |
 | [`problem-briefs/README.md`](problem-briefs/README.md) | Start from evidence-backed problem framing before choosing a validation question. |
 | [`cross-slice-synthesis.md`](cross-slice-synthesis.md) | See recurring candidate concepts across validated slices. |
 | [`shared-model-extraction-deferral.md`](shared-model-extraction-deferral.md) | Understand why shared domain models are intentionally deferred. |
