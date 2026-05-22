@@ -1,0 +1,217 @@
+from __future__ import annotations
+
+import copy
+import json
+import unittest
+from pathlib import Path
+
+from implementation_candidates.managed_code_version import (
+    build_managed_code_version_summary,
+)
+
+ROOT = Path(__file__).resolve().parents[1]
+FIXTURE = ROOT / "tests" / "fixtures" / "experiment_code_selection" / "managed_captured_version"
+
+
+def _load_input() -> dict:
+    return json.loads((FIXTURE / "managed-code-version-input.json").read_text(encoding="utf-8"))
+
+
+class ManagedCodeVersionSummaryCandidateTest(unittest.TestCase):
+    def test_builds_expected_structured_summary(self) -> None:
+        summary = build_managed_code_version_summary(_load_input())
+        expected = json.loads(
+            (FIXTURE / "expected-managed-code-version-summary.json").read_text(encoding="utf-8")
+        )["candidate_summary"]
+
+        self.assertEqual(summary, expected)
+        self.assertNotIn("reference_semantics", summary)
+        self.assertNotIn("source_fixture", summary)
+        self.assertNotIn("status", summary)
+
+    def test_managed_version_summarizes_identity_without_materializing_workspace(self) -> None:
+        summary = build_managed_code_version_summary(_load_input())
+        version = summary["managed_code_versions"][0]
+
+        self.assertEqual(version["stable_identity"]["stable_id"], "sc-codever-readout-0001")
+        self.assertEqual(version["file_count"], 3)
+        self.assertEqual(version["integrity_hint_count"], 3)
+        self.assertEqual(
+            version["materialization_intent"]["mode"],
+            "editable_workspace_candidate",
+        )
+        self.assertEqual(version["restore_claim"], "not_restored_by_fixture")
+        self.assertEqual(version["execution_claim"], "not_imported_loaded_or_executed")
+
+    def test_attention_records_all_boundary_deferrals(self) -> None:
+        summary = build_managed_code_version_summary(_load_input())
+
+        self.assertEqual(
+            [item["code"] for item in summary["attention"]],
+            [
+                "managed_storage_candidate_only",
+                "integrity_hints_not_storage_contract",
+                "materialization_not_performed",
+                "environment_not_restored",
+                "code_execution_not_granted",
+                "internal_git_not_inspected",
+            ],
+        )
+
+    def test_positive_policy_claims_are_rejected(self) -> None:
+        source = _load_input()
+        source["managed_version_policy"]["environment_restoration"] = "performed_elsewhere"
+
+        with self.assertRaisesRegex(ValueError, "environment_restoration"):
+            build_managed_code_version_summary(source)
+
+    def test_output_does_not_alias_input_nested_objects(self) -> None:
+        source = _load_input()
+        summary = build_managed_code_version_summary(source)
+
+        source["managed_version_policy"]["storage_contract"] = "mutated"
+        source["managed_code_versions"][0]["stable_identity"]["stable_id"] = "mutated"
+        source["managed_code_versions"][0]["materialization_intent"]["mode"] = "mutated"
+
+        self.assertEqual(
+            summary["managed_version_policy"]["storage_contract"],
+            "candidate_record_only",
+        )
+        self.assertEqual(
+            summary["managed_code_versions"][0]["stable_identity"]["stable_id"],
+            "sc-codever-readout-0001",
+        )
+        self.assertEqual(
+            summary["managed_code_versions"][0]["materialization_intent"]["mode"],
+            "editable_workspace_candidate",
+        )
+
+    def test_duplicate_version_ids_are_rejected(self) -> None:
+        source = _load_input()
+        duplicate = copy.deepcopy(source["managed_code_versions"][0])
+        source["managed_code_versions"].append(duplicate)
+
+        with self.assertRaisesRegex(ValueError, "duplicate version_id"):
+            build_managed_code_version_summary(source)
+
+    def test_version_must_reference_known_candidate(self) -> None:
+        source = _load_input()
+        source["managed_code_versions"][0]["source_candidate_id"] = "missing-candidate"
+
+        with self.assertRaisesRegex(ValueError, "references missing candidate"):
+            build_managed_code_version_summary(source)
+
+    def test_file_records_must_match_candidate_whitelist(self) -> None:
+        source = _load_input()
+        source["managed_code_versions"][0]["file_records"][0]["path"] = "different.py"
+
+        with self.assertRaisesRegex(ValueError, "must match candidate whitelist"):
+            build_managed_code_version_summary(source)
+
+    def test_duplicate_file_paths_are_rejected(self) -> None:
+        source = _load_input()
+        source["managed_code_versions"][0]["file_records"][2]["path"] = (
+            "readout_calibration_entrypoint.ipynb"
+        )
+
+        with self.assertRaisesRegex(ValueError, "duplicate file paths"):
+            build_managed_code_version_summary(source)
+
+    def test_file_paths_must_be_relative(self) -> None:
+        source = _load_input()
+        source["managed_code_versions"][0]["file_records"][0]["path"] = "/private/path.py"
+
+        with self.assertRaisesRegex(ValueError, "non-relative file path"):
+            build_managed_code_version_summary(source)
+
+    def test_backslash_paths_are_rejected(self) -> None:
+        source = _load_input()
+        source["managed_code_versions"][0]["file_records"][0]["materialization_path"] = (
+            "redacted\\fixture.py"
+        )
+
+        with self.assertRaisesRegex(ValueError, "non-relative materialization path"):
+            build_managed_code_version_summary(source)
+
+    def test_materialization_paths_must_be_relative(self) -> None:
+        source = _load_input()
+        source["managed_code_versions"][0]["file_records"][0]["materialization_path"] = (
+            "../outside.py"
+        )
+
+        with self.assertRaisesRegex(ValueError, "non-relative materialization path"):
+            build_managed_code_version_summary(source)
+
+    def test_duplicate_materialization_paths_are_rejected(self) -> None:
+        source = _load_input()
+        source["managed_code_versions"][0]["file_records"][2]["materialization_path"] = (
+            "code/readout_calibration_entrypoint.ipynb"
+        )
+
+        with self.assertRaisesRegex(ValueError, "duplicate materialization paths"):
+            build_managed_code_version_summary(source)
+
+    def test_boundary_claims_must_remain_non_execution_claims(self) -> None:
+        source = _load_input()
+        source["managed_code_versions"][0]["execution_claim"] = "executed_by_fixture"
+
+        with self.assertRaisesRegex(ValueError, "execution claim"):
+            build_managed_code_version_summary(source)
+
+    def test_notebook_files_must_match_candidate_recording_policy(self) -> None:
+        source = _load_input()
+        source["managed_code_versions"][0]["file_records"][0]["recorded_form"] = (
+            "source_with_outputs"
+        )
+
+        with self.assertRaisesRegex(ValueError, "notebook files"):
+            build_managed_code_version_summary(source)
+
+    def test_digest_algorithm_must_be_sha256(self) -> None:
+        source = _load_input()
+        source["managed_code_versions"][0]["file_records"][0]["content_state"][
+            "digest_algorithm"
+        ] = "md5"
+
+        with self.assertRaisesRegex(ValueError, "must use sha256"):
+            build_managed_code_version_summary(source)
+
+    def test_integrity_hints_must_use_sha256_prefix(self) -> None:
+        source = _load_input()
+        source["managed_code_versions"][0]["file_records"][0]["content_state"]["digest"] = "1111"
+
+        with self.assertRaisesRegex(ValueError, "sha256-prefixed hex digest"):
+            build_managed_code_version_summary(source)
+
+    def test_integrity_hints_must_use_sha256_hex_digest(self) -> None:
+        source = _load_input()
+        source["managed_code_versions"][0]["file_records"][0]["content_state"]["digest"] = (
+            "sha256:not-a-real-digest"
+        )
+
+        with self.assertRaisesRegex(ValueError, "sha256-prefixed hex digest"):
+            build_managed_code_version_summary(source)
+
+    def test_expected_markdown_review_covers_boundary_output(self) -> None:
+        review = (FIXTURE / "expected-managed-code-version-review.md").read_text(encoding="utf-8")
+
+        for expected in [
+            "managed-code-version-input.json",
+            "managed-code-version-readout-0001",
+            "Files: 3",
+            "Notebook files: 2",
+            "managed_storage_candidate_only",
+            "integrity_hints_not_storage_contract",
+            "materialization_not_performed",
+            "environment_not_restored",
+            "code_execution_not_granted",
+            "internal_git_not_inspected",
+            "no environment is synced or checked",
+            "selected code is not loaded, imported, or executed",
+            "Git state remains out of scope",
+        ]:
+            self.assertIn(expected, review)
+
+
+if __name__ == "__main__":
+    unittest.main()
