@@ -24,7 +24,11 @@ product contracts too early.
 
 ## Validation Slices
 
-### Selected Measurement Export
+Validation slices are grouped by adoption route. A route can contain several
+slices at different maturity levels; a slice should stay narrow even when it
+tests part of a broader route.
+
+### Measurement Records
 
 | Document | Use For |
 | --- | --- |
@@ -38,30 +42,39 @@ product contracts too early.
 | [`storage-transition-export-fixture.md`](storage-transition-export-fixture.md) | Fixture note for managed storage, external references, source identity, and export materialization pressure. |
 | [`storage-transition-export-validation-result.md`](storage-transition-export-validation-result.md) | Result of the storage-transition fixture and domain review. |
 | [`external-file-reference-policy.md`](external-file-reference-policy.md) | Candidate external-file policy modes that affect export, import, inspection, and provenance. |
-
-### Running Measurement Inspection
-
-| Document | Use For |
-| --- | --- |
 | [`problem-briefs/running-measurement-inspection.md`](problem-briefs/running-measurement-inspection.md) | Problem framing for inspecting already-recorded data from a still-running measurement. |
 | [`running-measurement-inspection-validation-plan.md`](running-measurement-inspection-validation-plan.md) | First fixture-validation boundary for running inspection. |
 | [`running-measurement-inspection-validation-result.md`](running-measurement-inspection-validation-result.md) | Result of running-inspection fixture validation. |
 
-### Calibration Work Continuation
+Candidate next slices in this route include import preview, offline legacy-record
+import, derived-analysis trace to source measurements and recorded analysis
+choices, and new-run measurement writer semantics.
 
-| Document | Use For |
-| --- | --- |
-| [`problem-briefs/calibration-work-continuation.md`](problem-briefs/calibration-work-continuation.md) | Problem framing for calibration continuation, review gates, and executor pressure. |
-| [`calibration-work-continuation-validation-plan.md`](calibration-work-continuation-validation-plan.md) | First fixture-validation boundary for continuation-state assembly. |
-| [`calibration-work-continuation-validation-result.md`](calibration-work-continuation-validation-result.md) | Result of the continuation assembler candidate and domain review. |
-
-### Parameter State Management
+### Parameter State
 
 | Document | Use For |
 | --- | --- |
 | [`problem-briefs/parameter-state-management.md`](problem-briefs/parameter-state-management.md) | Problem framing for first-class calibrated parameter state, lineages, trust/readiness state, reviewable diffs, and write-back boundaries. |
 | [`parameter-state-management-validation-plan.md`](parameter-state-management-validation-plan.md) | First fixture-validation boundary and fixture pointer for parameter state lineage, purpose labels, reviewable diffs, and committed states. |
 | [`parameter-state-management-validation-result.md`](parameter-state-management-validation-result.md) | Result of the first parameter-state fixture and domain review. |
+
+Candidate next slices in this route include reviewable parameter-write records,
+compatibility JSON writer behavior, drift views, and calibration-step links to
+selected parameter states.
+
+### Experiment Code Context
+
+| Document | Use For |
+| --- | --- |
+| [`problem-briefs/experiment-code-selection.md`](problem-briefs/experiment-code-selection.md) | Copied folders, entrypoint/helper ambiguity, selected code context, environment readiness, and code-version selection. |
+| [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md) | Direction for messy external-folder import, Scopecat-managed captured versions, named entrypoints, and workflow/DAG deferral. |
+| [`experiment-code-selection-validation-plan.md`](experiment-code-selection-validation-plan.md) | First fixture-validation boundary for selected code context and captured-version candidates. |
+| [`experiment-code-selection-validation-result.md`](experiment-code-selection-validation-result.md) | Result of the first selected-code context fixture. |
+| [`experiment-code-selection-next-boundary.md`](experiment-code-selection-next-boundary.md) | What the code-selection slice has earned, what remains deferred, and what should trigger managed-workspace or environment-restore validation. |
+
+Candidate next slices in this route include managed captured-version storage,
+selected-version comparison, environment-readiness records, and later
+materialization or loading of selected versions.
 
 ### Setup Binding
 
@@ -71,6 +84,22 @@ product contracts too early.
 | [`setup-binding-validation-plan.md`](setup-binding-validation-plan.md) | First fixture-validation boundary for setup-binding snapshots, diffs, and measurement references. |
 | [`setup-binding-validation-result.md`](setup-binding-validation-result.md) | Result of the first setup-binding fixture and measurement-input context review. |
 
+Candidate next slices in this route include setup-binding comparison,
+setup-import validation reports, run-start named input snapshots, and
+selected-reference setup findings.
+
+### Calibration Continuation
+
+| Document | Use For |
+| --- | --- |
+| [`problem-briefs/calibration-work-continuation.md`](problem-briefs/calibration-work-continuation.md) | Problem framing for calibration continuation, review gates, and executor pressure. |
+| [`calibration-work-continuation-validation-plan.md`](calibration-work-continuation-validation-plan.md) | First fixture-validation boundary for continuation-state assembly. |
+| [`calibration-work-continuation-validation-result.md`](calibration-work-continuation-validation-result.md) | Result of the continuation assembler candidate and domain review. |
+
+Candidate next slices in this route include a local sequential executor
+boundary, review/resume UX, calibration-write review, selected-group
+remeasurement, and links to parameter states and measurement records.
+
 ### Selected Reference Comparison
 
 | Document | Use For |
@@ -79,15 +108,9 @@ product contracts too early.
 | [`selected-reference-comparison-validation-plan.md`](selected-reference-comparison-validation-plan.md) | First fixture-validation boundary for selected-reference context comparison. |
 | [`selected-reference-comparison-validation-result.md`](selected-reference-comparison-validation-result.md) | Result of the first selected-reference comparison fixture. |
 
-### Experiment Code Selection
-
-| Document | Use For |
-| --- | --- |
-| [`problem-briefs/experiment-code-selection.md`](problem-briefs/experiment-code-selection.md) | Copied folders, entrypoint/helper ambiguity, selected code context, environment readiness, and code-version selection. |
-| [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md) | Direction for messy external-folder import, Scopecat-managed captured versions, named entrypoints, and workflow/DAG deferral. |
-| [`experiment-code-selection-validation-plan.md`](experiment-code-selection-validation-plan.md) | First fixture-validation boundary for selected code context and captured-version candidates. |
-| [`experiment-code-selection-validation-result.md`](experiment-code-selection-validation-result.md) | Result of the first selected-code context fixture. |
-| [`experiment-code-selection-next-boundary.md`](experiment-code-selection-next-boundary.md) | What the code-selection slice has earned, what remains deferred, and what should trigger managed-workspace or environment-restore validation. |
+Candidate next slices in this route include code-version comparison,
+setup-binding findings, parameter-state drift findings, import/export
+comparison preview, and support-package review boundaries.
 
 ## Promotion Discipline
 
