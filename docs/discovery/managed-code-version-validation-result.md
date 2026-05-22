@@ -103,13 +103,13 @@ shared integrity model or storage schema.
 - integrity hint freshness, recomputation, and mismatch behavior remain
   undecided;
 - materializing a version into an editable workspace remains unvalidated;
-- comparable code surface remains unvalidated beyond managed-version record
-  inventory;
+- comparable code surface has one recorded-to-managed declared-fact comparison
+  validated, while managed-version inventory comparison remains unvalidated;
 - editable-folder observation against a managed version remains unvalidated and
   should come after workspace materialization authority is clearer;
-- comparison between recorded context, recorded-to-managed facts,
-  managed-version inventory, capture-state edge cases, and editable-folder
-  observation remains a fixture-family question, not one accepted diff model;
+- comparison between managed-version inventory, capture-state edge cases, and
+  editable-folder observation remains a fixture-family question, not one
+  accepted diff model;
 - environment readiness likely needs a later active validation slice;
 - GUI language for save, restore, compare, and use-version actions remains
   undecided.

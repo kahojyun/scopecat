@@ -1,0 +1,322 @@
+{
+  "status": "expected_validation_output",
+  "source_fixture": "code-surface-comparison-input.json",
+  "candidate_summary": {
+    "comparison_policy": {
+      "fact_source": "declared_fixture_code_facts",
+      "comparison_scope": "explicit_code_surface_files",
+      "content_comparison": "digest_and_capture_state_only",
+      "semantic_source_diff": "not_performed",
+      "internal_git_inspection": "not_performed",
+      "environment_readiness": "not_performed",
+      "code_import": "not_performed",
+      "code_execution": "not_performed",
+      "workspace_materialization": "not_performed"
+    },
+    "code_surfaces": [
+      {
+        "surface_id": "recorded-code-context-chevron-0001",
+        "surface_kind": "recorded_code_context",
+        "authority": "recorded_external_folder_context",
+        "record_status": "recorded_not_restore_contract",
+        "file_count": 7,
+        "content_captured_count": 3,
+        "non_content_comparable_count": 4,
+        "capture_state_counts": {
+          "content_captured": 3,
+          "excluded": 1,
+          "missing": 1,
+          "redacted": 1,
+          "reference_only": 1
+        }
+      },
+      {
+        "surface_id": "managed-code-version-chevron-0002",
+        "surface_kind": "managed_code_version",
+        "authority": "scopecat_managed_record",
+        "record_status": "recorded_not_restore_contract",
+        "file_count": 7,
+        "content_captured_count": 5,
+        "non_content_comparable_count": 2,
+        "capture_state_counts": {
+          "content_captured": 5,
+          "excluded": 1,
+          "redacted": 1
+        }
+      }
+    ],
+    "file_facts": [
+      {
+        "surface_id": "recorded-code-context-chevron-0001",
+        "path": "analysis/run_chevron.py",
+        "role": "entrypoint",
+        "recorded_form": "source_file",
+        "capture_state": "content_captured",
+        "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "observed_at": "2026-05-21T11:00:00Z"
+      },
+      {
+        "surface_id": "recorded-code-context-chevron-0001",
+        "path": "helpers/pulse_shapes.py",
+        "role": "declared_helper_module",
+        "recorded_form": "source_file",
+        "capture_state": "content_captured",
+        "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "observed_at": "2026-05-21T11:00:00Z"
+      },
+      {
+        "surface_id": "recorded-code-context-chevron-0001",
+        "path": "helpers/transient_marker.py",
+        "role": "declared_helper_module",
+        "recorded_form": "source_file",
+        "capture_state": "missing"
+      },
+      {
+        "surface_id": "recorded-code-context-chevron-0001",
+        "path": "notebooks/session_setup.ipynb",
+        "role": "declared_helper_notebook",
+        "recorded_form": "source_without_outputs",
+        "capture_state": "reference_only"
+      },
+      {
+        "surface_id": "recorded-code-context-chevron-0001",
+        "path": "secrets/device_config.py",
+        "role": "local_secret_config",
+        "recorded_form": "source_file",
+        "capture_state": "redacted"
+      },
+      {
+        "surface_id": "recorded-code-context-chevron-0001",
+        "path": "legacy/manual_patch.py",
+        "role": "out_of_scope_helper",
+        "recorded_form": "source_file",
+        "capture_state": "excluded"
+      },
+      {
+        "surface_id": "recorded-code-context-chevron-0001",
+        "path": "scripts/old_calibration.py",
+        "role": "previous_helper",
+        "recorded_form": "source_file",
+        "capture_state": "content_captured",
+        "digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "observed_at": "2026-05-21T11:00:00Z"
+      },
+      {
+        "surface_id": "managed-code-version-chevron-0002",
+        "path": "analysis/run_chevron.py",
+        "role": "entrypoint",
+        "recorded_form": "source_file",
+        "capture_state": "content_captured",
+        "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "observed_at": "2026-05-21T12:05:00Z"
+      },
+      {
+        "surface_id": "managed-code-version-chevron-0002",
+        "path": "helpers/pulse_shapes.py",
+        "role": "declared_helper_module",
+        "recorded_form": "source_file",
+        "capture_state": "content_captured",
+        "digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+        "observed_at": "2026-05-21T12:05:00Z"
+      },
+      {
+        "surface_id": "managed-code-version-chevron-0002",
+        "path": "helpers/transient_marker.py",
+        "role": "declared_helper_module",
+        "recorded_form": "source_file",
+        "capture_state": "content_captured",
+        "digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+        "observed_at": "2026-05-21T12:05:00Z"
+      },
+      {
+        "surface_id": "managed-code-version-chevron-0002",
+        "path": "notebooks/session_setup.ipynb",
+        "role": "declared_helper_notebook",
+        "recorded_form": "source_without_outputs",
+        "capture_state": "content_captured",
+        "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        "observed_at": "2026-05-21T12:05:00Z"
+      },
+      {
+        "surface_id": "managed-code-version-chevron-0002",
+        "path": "secrets/device_config.py",
+        "role": "local_secret_config",
+        "recorded_form": "source_file",
+        "capture_state": "redacted"
+      },
+      {
+        "surface_id": "managed-code-version-chevron-0002",
+        "path": "legacy/manual_patch.py",
+        "role": "out_of_scope_helper",
+        "recorded_form": "source_file",
+        "capture_state": "excluded"
+      },
+      {
+        "surface_id": "managed-code-version-chevron-0002",
+        "path": "scripts/new_calibration.py",
+        "role": "new_helper",
+        "recorded_form": "source_file",
+        "capture_state": "content_captured",
+        "digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+        "observed_at": "2026-05-21T12:05:00Z"
+      }
+    ],
+    "comparison_sets": [
+      {
+        "comparison_id": "code-surface-comparison-chevron-0001",
+        "baseline_surface_id": "recorded-code-context-chevron-0001",
+        "comparison_surface_id": "managed-code-version-chevron-0002",
+        "comparison_purpose": "recorded_to_managed_code_surface_review",
+        "compared_path_count": 8,
+        "finding_counts": {
+          "changed": 1,
+          "missing": 3,
+          "not_compared": 1,
+          "redacted": 1,
+          "same_observed": 1,
+          "unverified": 1
+        }
+      }
+    ],
+    "code_file_findings": [
+      {
+        "comparison_id": "code-surface-comparison-chevron-0001",
+        "path": "analysis/run_chevron.py",
+        "finding": "same_observed",
+        "baseline_surface_id": "recorded-code-context-chevron-0001",
+        "comparison_surface_id": "managed-code-version-chevron-0002",
+        "baseline_capture_state": "content_captured",
+        "comparison_capture_state": "content_captured",
+        "basis": "Both sides are content-captured with the same declared digest.",
+        "does_not_claim": "semantic_equivalence_or_runnable_readiness"
+      },
+      {
+        "comparison_id": "code-surface-comparison-chevron-0001",
+        "path": "helpers/pulse_shapes.py",
+        "finding": "changed",
+        "baseline_surface_id": "recorded-code-context-chevron-0001",
+        "comparison_surface_id": "managed-code-version-chevron-0002",
+        "baseline_capture_state": "content_captured",
+        "comparison_capture_state": "content_captured",
+        "basis": "Both sides are content-captured with different declared digests.",
+        "does_not_claim": "semantic_source_diff_or_cause_attribution"
+      },
+      {
+        "comparison_id": "code-surface-comparison-chevron-0001",
+        "path": "helpers/transient_marker.py",
+        "finding": "missing",
+        "baseline_surface_id": "recorded-code-context-chevron-0001",
+        "comparison_surface_id": "managed-code-version-chevron-0002",
+        "baseline_capture_state": "missing",
+        "comparison_capture_state": "content_captured",
+        "basis": "At least one side is declared missing, so content comparison is unavailable.",
+        "does_not_claim": "content_equality_or_difference"
+      },
+      {
+        "comparison_id": "code-surface-comparison-chevron-0001",
+        "path": "legacy/manual_patch.py",
+        "finding": "not_compared",
+        "baseline_surface_id": "recorded-code-context-chevron-0001",
+        "comparison_surface_id": "managed-code-version-chevron-0002",
+        "baseline_capture_state": "excluded",
+        "comparison_capture_state": "excluded",
+        "basis": "At least one side is declared excluded from content comparison.",
+        "does_not_claim": "content_equality_or_difference"
+      },
+      {
+        "comparison_id": "code-surface-comparison-chevron-0001",
+        "path": "notebooks/session_setup.ipynb",
+        "finding": "unverified",
+        "baseline_surface_id": "recorded-code-context-chevron-0001",
+        "comparison_surface_id": "managed-code-version-chevron-0002",
+        "baseline_capture_state": "reference_only",
+        "comparison_capture_state": "content_captured",
+        "basis": "At least one side lacks captured content for digest comparison.",
+        "does_not_claim": "content_equality_or_difference"
+      },
+      {
+        "comparison_id": "code-surface-comparison-chevron-0001",
+        "path": "scripts/new_calibration.py",
+        "finding": "missing",
+        "baseline_surface_id": "recorded-code-context-chevron-0001",
+        "comparison_surface_id": "managed-code-version-chevron-0002",
+        "baseline_capture_state": "absent",
+        "comparison_capture_state": "content_captured",
+        "basis": "Path is present on only one declared code surface.",
+        "does_not_claim": "deleted_or_added_by_user_intent"
+      },
+      {
+        "comparison_id": "code-surface-comparison-chevron-0001",
+        "path": "scripts/old_calibration.py",
+        "finding": "missing",
+        "baseline_surface_id": "recorded-code-context-chevron-0001",
+        "comparison_surface_id": "managed-code-version-chevron-0002",
+        "baseline_capture_state": "content_captured",
+        "comparison_capture_state": "absent",
+        "basis": "Path is present on only one declared code surface.",
+        "does_not_claim": "deleted_or_added_by_user_intent"
+      },
+      {
+        "comparison_id": "code-surface-comparison-chevron-0001",
+        "path": "secrets/device_config.py",
+        "finding": "redacted",
+        "baseline_surface_id": "recorded-code-context-chevron-0001",
+        "comparison_surface_id": "managed-code-version-chevron-0002",
+        "baseline_capture_state": "redacted",
+        "comparison_capture_state": "redacted",
+        "basis": "At least one side is declared redacted, so content is intentionally hidden.",
+        "does_not_claim": "content_equality_or_difference"
+      }
+    ],
+    "attention": [
+      {
+        "code": "comparison_uses_declared_integrity_hints",
+        "severity": "info",
+        "basis": "Comparison uses declared capture states and digests only.",
+        "does_not_claim": "file_content_was_read_by_builder"
+      },
+      {
+        "code": "semantic_source_diff_not_performed",
+        "severity": "review",
+        "basis": "Changed files are identified by declared digest difference only.",
+        "does_not_claim": "semantic_change_or_cause_attribution"
+      },
+      {
+        "code": "internal_git_not_inspected",
+        "severity": "info",
+        "basis": "Git state remains outside this comparison boundary.",
+        "does_not_claim": "git_clean_or_dirty_status"
+      },
+      {
+        "code": "environment_readiness_not_checked",
+        "severity": "review",
+        "basis": "Environment files, dependency sync, and runnable readiness are not checked.",
+        "does_not_claim": "runnable_environment"
+      },
+      {
+        "code": "code_not_imported_or_executed",
+        "severity": "review",
+        "basis": "Comparison does not import, load, or execute code files.",
+        "does_not_claim": "execution_permission_or_runtime_behavior"
+      },
+      {
+        "code": "workspace_materialization_not_performed",
+        "severity": "info",
+        "basis": "No editable workspace is created by this comparison slice.",
+        "does_not_claim": "restored_or_materialized_workspace"
+      }
+    ]
+  },
+  "reference_semantics": {
+    "comparison_basis": "Declared capture states and sha256 integrity hints are compared without reading source files.",
+    "authority": "Findings preserve whether each side is recorded external-folder context or a managed code version.",
+    "contract_guard": "This fixture does not accept a universal diff model, Git diagnostics, semantic source review, materialization, restore, import, execution, or runnable environment readiness."
+  },
+  "boundary_notes": [
+    "same_observed means the declared digests match; it does not prove semantic equivalence.",
+    "changed means the declared digests differ; it does not identify cause, safety, or scientific impact.",
+    "missing, unverified, redacted, and not_compared findings keep capture-state limits visible.",
+    "No files are read and no workspace is materialized by this candidate.",
+    "Environment readiness, dependency sync, code import, and code execution remain out of scope."
+  ]
+}
