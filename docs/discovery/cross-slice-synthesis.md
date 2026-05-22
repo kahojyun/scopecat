@@ -25,6 +25,7 @@ executor design, relation graph, or warning taxonomy.
 - [`selected-reference-comparison-validation-result.md`](selected-reference-comparison-validation-result.md)
 - [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md)
 - [`experiment-code-selection-validation-result.md`](experiment-code-selection-validation-result.md)
+- [`managed-code-version-validation-result.md`](managed-code-version-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
 - [`adoption-routes.md`](adoption-routes.md)
 
@@ -100,11 +101,18 @@ code context from a messy external folder and a candidate captured version. It
 uses minimal whitelist capture, strips notebook outputs before recording,
 validates selected-root, step-input, and captured-version references, and does
 not inspect internal Git state or analyze unselected files. It has not earned
-managed workspace storage, Git replacement implementation, internal Git
-analysis, default record-all tracking, package management, environment
-ownership, environment restoration, selected-version loading, execution,
-workflow/DAG nodes, component-level versioning, generated artifact
-regeneration, or GUI design.
+Git replacement implementation, internal Git analysis, default record-all
+tracking, package management, environment ownership, environment restoration,
+selected-version loading, execution, workflow/DAG nodes, component-level
+versioning, generated artifact regeneration, or GUI design.
+
+Managed code version has a slice-local summary candidate for turning a
+captured-version candidate into a Scopecat-managed candidate record with stable
+identity, exact whitelist-aligned file inventory, content-integrity hints, and
+materialization intent. It does not read source files, inspect Git state,
+create archives, restore environments, materialize workspaces, import code,
+execute code, or accept final storage, archive, content-addressed store,
+restore, sync, selected-version loading, workflow/DAG, or GUI semantics.
 
 ## Recurring Candidate Concepts
 
@@ -256,7 +264,8 @@ The cross-slice comparison still does not earn:
 - selected-reference comparison engine, user-judgment engine, raw-data
   comparison, user-provided analysis conclusion model, semantic code-version
   diff behavior, or automatic cause attribution;
-- managed experiment-code workspace storage, Git replacement implementation,
+- final managed experiment-code workspace storage, archive or
+  content-addressed store contract, Git replacement implementation,
   branch/merge/sync semantics, package management, environment ownership,
   environment restoration, selected-version loading, code execution,
   workflow/DAG nodes, component-level code versioning, or generated artifact

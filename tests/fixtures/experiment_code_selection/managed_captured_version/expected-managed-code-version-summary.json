@@ -1,0 +1,161 @@
+{
+  "summary_id": "experiment-code-selection-managed-captured-version.expected",
+  "status": "expected_validation_output",
+  "source_fixture": "managed-code-version-input.json",
+  "reference_semantics": {
+    "status": "fixture_only",
+    "contract_guard": "This expected output is not a final storage backend, archive format, content-addressed store, Git replacement, package manager, environment manager, executor, workflow DAG, or GUI contract.",
+    "managed_version": "The managed code version records stable identity, file inventory, integrity hints, and materialization intent for a selected captured-version candidate.",
+    "integrity": "Checksums, sizes, and observation times are content-integrity hints, not a complete storage or restore contract.",
+    "materialization": "Materialization intent is recorded, but no workspace is created by this fixture.",
+    "environment_and_execution": "Environment restoration, code loading, importing, and execution remain out of scope."
+  },
+  "candidate_summary": {
+    "managed_version_policy": {
+      "storage_contract": "candidate_record_only",
+      "file_content_source": "declared_fixture_records",
+      "integrity_contract": "content_integrity_hints_only",
+      "materialization": "intent_recorded_not_performed",
+      "environment_restoration": "not_performed",
+      "code_execution": "not_performed",
+      "internal_git_inspection": "not_performed",
+      "default_file_inclusion": "not_recorded_unless_whitelisted"
+    },
+    "captured_version_candidates": [
+      {
+        "candidate_id": "code-version-candidate-0001",
+        "source_context_id": "code-context-readout-cali-0001",
+        "candidate_status": "selected_for_managed_record_candidate",
+        "root_id": "external-code-root-readout-demo",
+        "whitelisted_files": [
+          "readout_calibration_entrypoint.ipynb",
+          "experiment_session_setup.ipynb",
+          "helpers/record_measurement_context.py"
+        ],
+        "notebook_recording_policy": "source_without_outputs",
+        "default_file_inclusion": "not_recorded_unless_whitelisted"
+      }
+    ],
+    "managed_code_versions": [
+      {
+        "version_id": "managed-code-version-readout-0001",
+        "source_candidate_id": "code-version-candidate-0001",
+        "stable_identity": {
+          "identity_kind": "scopecat_assigned_candidate",
+          "stable_id": "sc-codever-readout-0001",
+          "derivation": "assigned_from_captured_version_candidate"
+        },
+        "storage_authority": "scopecat_managed_candidate_record",
+        "version_status": "recorded_candidate_not_restore_contract",
+        "file_count": 3,
+        "notebook_file_count": 2,
+        "integrity_hint_count": 3,
+        "materialization_intent": {
+          "mode": "editable_workspace_candidate",
+          "default_action": "materialize_selected_version_only",
+          "target_hint": "future_scopecat_workspace"
+        },
+        "restore_claim": "not_restored_by_fixture",
+        "environment_claim": "environment_not_restored_or_checked",
+        "execution_claim": "not_imported_loaded_or_executed"
+      }
+    ],
+    "file_inventory": [
+      {
+        "version_id": "managed-code-version-readout-0001",
+        "path": "readout_calibration_entrypoint.ipynb",
+        "role": "entrypoint",
+        "recorded_form": "source_without_outputs",
+        "digest_algorithm": "sha256",
+        "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "size_bytes": 2840,
+        "observed_at": "2026-05-21T09:30:00Z",
+        "materialization_path": "code/readout_calibration_entrypoint.ipynb"
+      },
+      {
+        "version_id": "managed-code-version-readout-0001",
+        "path": "experiment_session_setup.ipynb",
+        "role": "declared_helper_notebook",
+        "recorded_form": "source_without_outputs",
+        "digest_algorithm": "sha256",
+        "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "size_bytes": 1936,
+        "observed_at": "2026-05-21T09:30:00Z",
+        "materialization_path": "code/experiment_session_setup.ipynb"
+      },
+      {
+        "version_id": "managed-code-version-readout-0001",
+        "path": "helpers/record_measurement_context.py",
+        "role": "declared_helper_module",
+        "recorded_form": "source_file",
+        "digest_algorithm": "sha256",
+        "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        "size_bytes": 712,
+        "observed_at": "2026-05-21T09:30:00Z",
+        "materialization_path": "code/helpers/record_measurement_context.py"
+      }
+    ],
+    "attention": [
+      {
+        "code": "managed_storage_candidate_only",
+        "severity": "info",
+        "basis": "The managed code version is a candidate record, not a final storage backend.",
+        "does_not_claim": "final_storage_architecture"
+      },
+      {
+        "code": "integrity_hints_not_storage_contract",
+        "severity": "info",
+        "basis": "Checksums and file sizes are recorded as integrity hints.",
+        "does_not_claim": "content_addressed_store_or_archive"
+      },
+      {
+        "code": "materialization_not_performed",
+        "severity": "review",
+        "basis": "Workspace materialization intent is recorded but no workspace is created.",
+        "does_not_claim": "editable_workspace_available"
+      },
+      {
+        "code": "environment_not_restored",
+        "severity": "review",
+        "basis": "Environment files or lockfiles are not synced or checked by this slice.",
+        "does_not_claim": "runnable_environment"
+      },
+      {
+        "code": "code_execution_not_granted",
+        "severity": "review",
+        "basis": "Managed version records do not import, load, or execute selected code.",
+        "does_not_claim": "execution_permission"
+      },
+      {
+        "code": "internal_git_not_inspected",
+        "severity": "info",
+        "basis": "Git state remains outside this managed-version boundary.",
+        "does_not_claim": "git_clean_or_dirty_status"
+      }
+    ]
+  },
+  "boundary_notes": [
+    "The managed code version starts from a selected captured-version candidate.",
+    "File records must match the candidate whitelist.",
+    "Stable identity is assigned for the managed record without deciding final object ID or backend layout.",
+    "Integrity hints are recorded, but no archive or content-addressed store is accepted.",
+    "Materialization intent is declared, but no workspace is created.",
+    "Environment restoration, selected-version loading, code import, and execution are out of scope."
+  ],
+  "decisions_not_earned": [
+    "final managed workspace storage",
+    "archive format",
+    "content-addressed store",
+    "Git replacement implementation",
+    "internal Git analysis",
+    "record-all file tracking",
+    "package management",
+    "environment ownership",
+    "environment restoration",
+    "selected-version loading",
+    "code execution",
+    "workflow DAG",
+    "component-level versioning",
+    "GUI design"
+  ]
+}
