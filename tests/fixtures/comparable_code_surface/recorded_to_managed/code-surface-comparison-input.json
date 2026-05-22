@@ -1,0 +1,168 @@
+{
+  "fixture_id": "comparable-code-surface-recorded-to-managed",
+  "fixture_status": "synthetic_public_safe",
+  "fixture_layer": "comparable_code_surface_fixture",
+  "user_job": "Compare a recorded code context against a promoted managed code version without reading files, inspecting Git, importing code, or claiming runnable readiness.",
+  "source_research_notes": [
+    "<sample>/_research/experiment-code-selection-sample-review-2026-05-21.md"
+  ],
+  "comparison_policy": {
+    "fact_source": "declared_fixture_code_facts",
+    "comparison_scope": "explicit_code_surface_files",
+    "content_comparison": "digest_and_capture_state_only",
+    "semantic_source_diff": "not_performed",
+    "internal_git_inspection": "not_performed",
+    "environment_readiness": "not_performed",
+    "code_import": "not_performed",
+    "code_execution": "not_performed",
+    "workspace_materialization": "not_performed"
+  },
+  "code_surfaces": [
+    {
+      "surface_id": "recorded-code-context-chevron-0001",
+      "surface_kind": "recorded_code_context",
+      "authority": "recorded_external_folder_context",
+      "record_status": "recorded_not_restore_contract",
+      "file_facts": [
+        {
+          "path": "analysis/run_chevron.py",
+          "role": "entrypoint",
+          "recorded_form": "source_file",
+          "capture_state": "content_captured",
+          "content_state": {
+            "digest_algorithm": "sha256",
+            "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "size_bytes": 1440,
+            "observed_at": "2026-05-21T11:00:00Z"
+          }
+        },
+        {
+          "path": "helpers/pulse_shapes.py",
+          "role": "declared_helper_module",
+          "recorded_form": "source_file",
+          "capture_state": "content_captured",
+          "content_state": {
+            "digest_algorithm": "sha256",
+            "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            "size_bytes": 920,
+            "observed_at": "2026-05-21T11:00:00Z"
+          }
+        },
+        {
+          "path": "notebooks/session_setup.ipynb",
+          "role": "declared_helper_notebook",
+          "recorded_form": "source_without_outputs",
+          "capture_state": "reference_only"
+        },
+        {
+          "path": "secrets/device_config.py",
+          "role": "local_secret_config",
+          "recorded_form": "source_file",
+          "capture_state": "redacted"
+        },
+        {
+          "path": "legacy/manual_patch.py",
+          "role": "out_of_scope_helper",
+          "recorded_form": "source_file",
+          "capture_state": "excluded"
+        },
+        {
+          "path": "scripts/old_calibration.py",
+          "role": "previous_helper",
+          "recorded_form": "source_file",
+          "capture_state": "content_captured",
+          "content_state": {
+            "digest_algorithm": "sha256",
+            "digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+            "size_bytes": 660,
+            "observed_at": "2026-05-21T11:00:00Z"
+          }
+        }
+      ]
+    },
+    {
+      "surface_id": "managed-code-version-chevron-0002",
+      "surface_kind": "managed_code_version",
+      "authority": "scopecat_managed_record",
+      "record_status": "recorded_not_restore_contract",
+      "file_facts": [
+        {
+          "path": "analysis/run_chevron.py",
+          "role": "entrypoint",
+          "recorded_form": "source_file",
+          "capture_state": "content_captured",
+          "content_state": {
+            "digest_algorithm": "sha256",
+            "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "size_bytes": 1440,
+            "observed_at": "2026-05-21T12:05:00Z"
+          }
+        },
+        {
+          "path": "helpers/pulse_shapes.py",
+          "role": "declared_helper_module",
+          "recorded_form": "source_file",
+          "capture_state": "content_captured",
+          "content_state": {
+            "digest_algorithm": "sha256",
+            "digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+            "size_bytes": 944,
+            "observed_at": "2026-05-21T12:05:00Z"
+          }
+        },
+        {
+          "path": "notebooks/session_setup.ipynb",
+          "role": "declared_helper_notebook",
+          "recorded_form": "source_without_outputs",
+          "capture_state": "content_captured",
+          "content_state": {
+            "digest_algorithm": "sha256",
+            "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+            "size_bytes": 1800,
+            "observed_at": "2026-05-21T12:05:00Z"
+          }
+        },
+        {
+          "path": "secrets/device_config.py",
+          "role": "local_secret_config",
+          "recorded_form": "source_file",
+          "capture_state": "redacted"
+        },
+        {
+          "path": "legacy/manual_patch.py",
+          "role": "out_of_scope_helper",
+          "recorded_form": "source_file",
+          "capture_state": "excluded"
+        },
+        {
+          "path": "scripts/new_calibration.py",
+          "role": "new_helper",
+          "recorded_form": "source_file",
+          "capture_state": "content_captured",
+          "content_state": {
+            "digest_algorithm": "sha256",
+            "digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+            "size_bytes": 704,
+            "observed_at": "2026-05-21T12:05:00Z"
+          }
+        }
+      ]
+    }
+  ],
+  "comparison_sets": [
+    {
+      "comparison_id": "code-surface-comparison-chevron-0001",
+      "baseline_surface_id": "recorded-code-context-chevron-0001",
+      "comparison_surface_id": "managed-code-version-chevron-0002",
+      "comparison_purpose": "recorded_to_managed_code_surface_review"
+    }
+  ],
+  "attention_expected": [
+    "comparison_uses_declared_integrity_hints",
+    "semantic_source_diff_not_performed",
+    "internal_git_not_inspected",
+    "environment_readiness_not_checked",
+    "code_not_imported_or_executed",
+    "workspace_materialization_not_performed"
+  ]
+}

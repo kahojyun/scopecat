@@ -145,14 +145,17 @@ redacted, or not-compared. Capture states such as reference-only and excluded
 should explain why a content comparison is unavailable; they are not comparison
 findings by themselves.
 
-First fixture: one recorded-context comparison or one recorded-to-managed
-comparison with explicit authority and capture-state facts.
+First result:
+[`comparable-code-surface-validation-result.md`](comparable-code-surface-validation-result.md)
+validates one recorded-to-managed comparison with explicit authority and
+capture-state facts.
 
 Boundary: no universal diff engine, semantic source diff, Git analysis,
 environment readiness, import, or execution.
 
 Later fixture cases: managed-version inventory comparison, capture-state edge
-cases, editable-folder observation, and materialized-directory comparison.
+cases that need their own fixture, editable-folder observation, and
+materialized-directory comparison.
 
 ### 2. Workspace Materialization Intent
 
