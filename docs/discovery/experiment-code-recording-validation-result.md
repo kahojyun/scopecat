@@ -9,13 +9,13 @@ where the boundary remains intentionally narrow.
 
 ## Fixture
 
-- `tests/fixtures/experiment_code_recording/basic_run_code_record/`
+- `tests/fixtures/experiment_code_recording/basic_step_code_record/`
 - `implementation_candidates/experiment_code_recording/`
 
 The fixture validates a first code-recording boundary:
 
-- a messy external code folder can be represented as recorded run/step code
-  context;
+- a messy external code folder can be represented as recorded calibration-step
+  code context;
 - early adoption can use minimal explicit include recording rather than
   record-all folder tracking;
 - internal Git state can be ignored rather than analyzed;
@@ -30,8 +30,8 @@ The fixture validates a first code-recording boundary:
 - mutation capability can remain not analyzed, and recording still does not
   grant execution permission;
 - a captured code-version candidate can describe what Scopecat may later manage
-  without accepting storage, restore, sync, environment, loading, execution,
-  merge, or workflow semantics.
+  without accepting storage, restore, sync, environment, saved-version
+  selection or loading, execution, merge, or workflow semantics.
 
 ## Boundary Confirmed
 
@@ -69,10 +69,10 @@ recording.
 
 The fixture covers the first adoption stage for code recording:
 
-- users record the files and references associated with a run or step instead
-  of asking Scopecat to understand the whole legacy codebase;
+- users record the files and references associated with a calibration step
+  instead of asking Scopecat to understand the whole legacy codebase;
 - Scopecat records that context as the scope of a point-in-time code
-  version/snapshot connected to calibration and measurement intent;
+  version/snapshot connected to calibration intent;
 - notebook capture is useful immediately because outputs can be stripped while
   preserving source;
 - unrecorded files remain outside the record unless the user adds them;
@@ -82,9 +82,9 @@ The fixture covers the first adoption stage for code recording:
 
 The next stages are intentionally deferred: moving users into managed
 workspaces, restoring a recorded code version, comparing managed versions,
-loading code for a run, and syncing a declared environment such as a `uv`
-lockfile workflow. Those are plausible long-term capabilities, not conclusions
-earned by this fixture.
+choosing or loading a saved code version for a step, and syncing a declared
+environment such as a `uv` lockfile workflow. Those are plausible long-term
+capabilities, not conclusions earned by this fixture.
 
 ## Relationship To Prior Slices
 

@@ -23,7 +23,8 @@ service assumptions, mutation-capable notebooks, and generated companions.
 
 This plan should use that evidence to justify a smaller early boundary, not a
 larger one. The first fixture should avoid reproducing the sample's noisy
-directory and Git state as product output.
+directory and Git state as product output, and it should not imply that
+Scopecat can already choose or load a saved code version for a step.
 
 ## Validation Question
 
@@ -35,7 +36,11 @@ every file, or accept a workflow/DAG model?
 
 First fixture:
 
-- `tests/fixtures/experiment_code_recording/basic_run_code_record/`
+- `tests/fixtures/experiment_code_recording/basic_step_code_record/`
+
+This fixture is step-centered. It records the current entrypoint and explicit
+code context associated with one calibration step. Per-step saved-version
+selection and system loading are deferred.
 
 ## Concept Boundary
 
@@ -68,7 +73,7 @@ The first fixture should stay small:
   other folder contents;
 - one declared environment or setup context reference;
 - mutation capability marked as not analyzed;
-- one measurement or calibration step referencing the recorded code context;
+- one calibration step referencing the recorded code context;
 - one captured code-version candidate summary that states what Scopecat would
   need to materialize later.
 
@@ -83,7 +88,7 @@ Fixture input may include:
 - broad non-recording policy for unrecorded files;
 - declared context references such as an environment profile;
 - mutation capability marked as not analyzed;
-- measurement or calibration-step reference to the recorded code context;
+- calibration-step reference to the recorded code context;
 - captured code-version candidate fields such as candidate ID, capture scope,
   included files, recording policy, and materialization intent.
 
@@ -117,7 +122,7 @@ Expected review output should let a reviewer answer:
 - which declared context references are linked;
 - that mutation capability was not analyzed and execution permission was not
   granted;
-- which measurement or calibration step references this recorded code context;
+- which calibration step references this recorded code context;
 - what point-in-time code snapshot would be captured as a Scopecat-managed
   version candidate.
 

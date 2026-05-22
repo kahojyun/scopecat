@@ -1,5 +1,5 @@
 {
-  "summary_id": "experiment-code-recording-basic-run-code-record.expected",
+  "summary_id": "experiment-code-recording-basic-step-code-record.expected",
   "status": "expected_validation_output",
   "source_fixture": "code-recording-input.json",
   "reference_semantics": {
@@ -152,7 +152,7 @@
     "Unrecorded folder contents are not analyzed as warnings.",
     "Internal Git state is not inspected by this fixture.",
     "Included notebooks are stripped to source without outputs before recording.",
-    "The captured version candidate shows the point-in-time code snapshot Scopecat may later manage, without accepting storage, restore, sync, environment, loading, execution, merge, or workflow semantics.",
+    "The captured version candidate shows the point-in-time code snapshot Scopecat may later manage, without accepting storage, restore, sync, environment, saved-version loading, execution, merge, or workflow semantics.",
     "Workflow or DAG nodes are not required for the first code-versioning boundary."
   ],
   "decisions_not_earned": [
@@ -163,7 +163,7 @@
     "package management",
     "environment ownership",
     "environment restoration",
-    "selected-version loading",
+    "saved-version selection or loading",
     "code execution",
     "workflow DAG",
     "component-level versioning",

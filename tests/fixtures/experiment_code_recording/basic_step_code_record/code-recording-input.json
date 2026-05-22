@@ -1,8 +1,8 @@
 {
-  "fixture_id": "experiment-code-recording-basic-run-code-record",
+  "fixture_id": "experiment-code-recording-basic-step-code-record",
   "fixture_status": "synthetic_public_safe",
   "fixture_layer": "experiment_code_recording_fixture",
-  "user_job": "Record the minimum experiment-code context associated with a calibration step before asking users to curate an authoritative code selection, operate Git, or accept noisy folder analysis.",
+  "user_job": "Record the current entrypoint and explicit experiment-code context associated with a calibration step before asking users to curate an authoritative code selection, load a saved code version, operate Git, or accept noisy folder analysis.",
   "source_research_notes": [
     "<sample>/_research/experiment-code-selection-sample-review-2026-05-21.md"
   ],
@@ -17,7 +17,7 @@
   "external_code_roots": [
     {
       "root_id": "external-code-root-readout-demo",
-      "root_label": "fictional readout calibration code folder observed for a run",
+      "root_label": "fictional readout calibration code folder observed for a calibration step",
       "mode": "external_folder_import",
       "authority": "user_recorded_external_folder"
     }

@@ -37,12 +37,12 @@ Recording does not grant execution permission.
 ## Captured Code Version Candidate
 
 `code-version-candidate-0001` is a candidate point-in-time code snapshot for
-future Scopecat-managed code versioning. The run/step record defines its root,
-entrypoint, include list, notebook output-stripping policy, and declared
-environment profile reference.
+future Scopecat-managed code versioning. The calibration-step record defines
+its current root, entrypoint, include list, notebook output-stripping policy,
+and declared environment profile reference.
 
 This fixture does not decide managed workspace storage, Git replacement
 implementation, internal Git analysis, default record-all file tracking,
 package management, environment ownership, environment restoration,
-selected-version loading, execution, workflow DAGs, component-level versioning,
-generated artifact regeneration, or GUI design.
+saved-version selection or loading, execution, workflow DAGs, component-level
+versioning, generated artifact regeneration, or GUI design.

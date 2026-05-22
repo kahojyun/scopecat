@@ -10,7 +10,7 @@ from implementation_candidates.experiment_code_recording import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURE = ROOT / "tests" / "fixtures" / "experiment_code_recording" / "basic_run_code_record"
+FIXTURE = ROOT / "tests" / "fixtures" / "experiment_code_recording" / "basic_step_code_record"
 
 
 def _load_input() -> dict:
