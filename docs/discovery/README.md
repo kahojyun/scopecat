@@ -66,7 +66,7 @@ selected parameter states.
 
 | Document | Use For |
 | --- | --- |
-| [`problem-briefs/experiment-code-recording.md`](problem-briefs/experiment-code-recording.md) | Copied folders, entrypoint/helper ambiguity, recorded run/step code context, environment readiness, and future code-version selection. |
+| [`problem-briefs/experiment-code-recording.md`](problem-briefs/experiment-code-recording.md) | Copied folders, entrypoint/helper ambiguity, recorded run/step code context, environment readiness, and future code snapshot selection. |
 | [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md) | Direction for messy external-folder recording, Scopecat-managed code versions, named entrypoints, and workflow/DAG deferral. |
 | [`experiment-code-recording-validation-plan.md`](experiment-code-recording-validation-plan.md) | First fixture-validation boundary for recorded code context that defines code snapshot records. |
 | [`experiment-code-recording-validation-result.md`](experiment-code-recording-validation-result.md) | Result of the first code snapshot fixture and summary candidate. |

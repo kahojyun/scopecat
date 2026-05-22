@@ -5,7 +5,7 @@
   "reference_semantics": {
     "status": "fixture_only",
     "contract_guard": "This expected output is not a final storage backend, archive format, content-addressed store, Git replacement, package manager, environment manager, executor, workflow DAG, or GUI contract.",
-    "managed_version": "The managed code version records stable identity, file inventory, integrity hints, and materialization intent for a captured code-version record.",
+    "managed_version": "The managed code version records stable identity, file inventory, integrity hints, and materialization intent for a code snapshot record.",
     "integrity": "Checksums, sizes, and observation times are content-integrity hints, not a complete storage or restore contract.",
     "materialization": "Materialization intent is recorded, but no workspace is created by this fixture.",
     "environment_and_execution": "Environment restoration, code loading, importing, and execution remain out of scope."
@@ -21,9 +21,9 @@
       "internal_git_inspection": "not_performed",
       "default_file_inclusion": "not_recorded_unless_included"
     },
-    "captured_code_version_records": [
+    "code_snapshot_records": [
       {
-        "record_id": "code-version-record-0001",
+        "record_id": "code-snapshot-record-0001",
         "source_context_id": "code-context-readout-cali-0001",
         "record_status": "ready_for_managed_record",
         "root_id": "external-code-root-readout-demo",
@@ -39,11 +39,11 @@
     "managed_code_versions": [
       {
         "version_id": "managed-code-version-readout-0001",
-        "source_record_id": "code-version-record-0001",
+        "source_record_id": "code-snapshot-record-0001",
         "stable_identity": {
           "identity_kind": "scopecat_assigned_record",
           "stable_id": "sc-codever-readout-0001",
-          "derivation": "assigned_from_captured_code_version_record"
+          "derivation": "assigned_from_code_snapshot_record"
         },
         "storage_authority": "scopecat_managed_record",
         "version_status": "recorded_not_restore_contract",
@@ -123,7 +123,7 @@
       {
         "code": "code_execution_not_granted",
         "severity": "review",
-        "basis": "Managed version records do not import, load, or execute recorded code.",
+        "basis": "Managed version records do not import, load, or execute code files.",
         "does_not_claim": "execution_permission"
       },
       {
@@ -135,7 +135,7 @@
     ]
   },
   "boundary_notes": [
-    "The managed code version starts from a captured code-version record.",
+    "The managed code version starts from a code snapshot record.",
     "File records must match the source record include list.",
     "Stable identity is assigned for the managed record without deciding final object ID or backend layout.",
     "Integrity hints are recorded, but no archive or content-addressed store is accepted.",

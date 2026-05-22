@@ -2,7 +2,7 @@
   "fixture_id": "managed-code-version-basic-record",
   "fixture_status": "synthetic_public_safe",
   "fixture_layer": "managed_code_version_fixture",
-  "user_job": "Turn a captured code-version record into a first Scopecat-managed code-version record without restoring, loading, or executing the code.",
+  "user_job": "Turn a code snapshot record into a first Scopecat-managed code version record without restoring, loading, or executing the code.",
   "source_research_notes": [
     "<sample>/_research/experiment-code-selection-sample-review-2026-05-21.md"
   ],
@@ -16,12 +16,12 @@
     "internal_git_inspection": "not_performed",
     "default_file_inclusion": "not_recorded_unless_included"
   },
-  "captured_code_version_records": [
+  "code_snapshot_records": [
     {
-      "record_id": "code-version-record-0001",
+      "record_id": "code-snapshot-record-0001",
       "source_context_id": "code-context-readout-cali-0001",
       "record_status": "ready_for_managed_record",
-      "capture_scope": {
+      "snapshot_scope": {
         "root_id": "external-code-root-readout-demo",
         "included_files": [
           "readout_calibration_entrypoint.ipynb",
@@ -36,11 +36,11 @@
   "managed_code_versions": [
     {
       "version_id": "managed-code-version-readout-0001",
-      "source_record_id": "code-version-record-0001",
+      "source_record_id": "code-snapshot-record-0001",
       "stable_identity": {
         "identity_kind": "scopecat_assigned_record",
         "stable_id": "sc-codever-readout-0001",
-        "derivation": "assigned_from_captured_code_version_record"
+        "derivation": "assigned_from_code_snapshot_record"
       },
       "storage_authority": "scopecat_managed_record",
       "version_status": "recorded_not_restore_contract",

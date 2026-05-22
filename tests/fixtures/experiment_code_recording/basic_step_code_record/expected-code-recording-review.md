@@ -34,9 +34,9 @@ Mutation capability is therefore recorded as not analyzed.
 
 Recording does not grant execution permission.
 
-## Captured Code Version Record
+## Code Snapshot Record
 
-`code-version-record-0001` is a point-in-time code-version record for
+`code-snapshot-record-0001` is a point-in-time code snapshot record for
 future Scopecat-managed code versioning. The calibration-step record defines
 its current root, entrypoint, include list, notebook output-stripping policy,
 and declared environment profile reference.

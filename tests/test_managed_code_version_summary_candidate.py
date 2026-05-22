@@ -98,7 +98,7 @@ class ManagedCodeVersionSummaryCandidateTest(unittest.TestCase):
         source = _load_input()
         source["managed_code_versions"][0]["source_record_id"] = "missing-record"
 
-        with self.assertRaisesRegex(ValueError, "references missing code version record"):
+        with self.assertRaisesRegex(ValueError, "references missing code snapshot record"):
             build_managed_code_version_summary(source)
 
     def test_file_records_must_match_source_record_inclusion(self) -> None:
@@ -207,7 +207,7 @@ class ManagedCodeVersionSummaryCandidateTest(unittest.TestCase):
             "code_execution_not_granted",
             "internal_git_not_inspected",
             "no environment is synced or checked",
-            "recorded code is not loaded, imported, or executed",
+            "code files are not loaded, imported, or executed",
             "Git state remains out of scope",
         ]:
             self.assertIn(expected, review)

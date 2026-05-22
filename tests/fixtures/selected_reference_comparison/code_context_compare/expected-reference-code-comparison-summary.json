@@ -1,12 +1,12 @@
 {
-  "summary_id": "selected-reference-code-version-context-compare.expected",
+  "summary_id": "selected-reference-code-context-compare.expected",
   "status": "expected_validation_output",
   "source_fixture": "reference-code-comparison-input.json",
   "reference_semantics": {
     "status": "fixture_only",
     "contract_guard": "This expected output is not a final comparison engine, managed workspace store, Git replacement, environment manager, dependency resolver, executor, workflow DAG, or GUI design.",
-    "recorded_code_context": "The comparison uses the recorded-code context shape validated by experiment-code-recording: recorded root, entrypoint, included files, notebook recording policy, declared refs, and captured code-version record identity.",
-    "code_version_comparison": "Code-version comparison means objective comparison of declared code version/snapshot records, not Git diff, dependency discovery, source execution, semantic code review, or restore readiness.",
+    "recorded_code_context": "The comparison uses the recorded-code context shape validated by experiment-code-recording: recorded root, entrypoint, included files, notebook recording policy, declared refs, and code snapshot record identity.",
+    "code_context_comparison": "Code-context comparison means objective comparison of declared code snapshot records, not Git diff, dependency discovery, source execution, semantic code review, or restore readiness.",
     "recorded_source_observation": "Recorded source observation IDs are fixture-level comparison tokens. They are not a checksum, archive, content-addressed storage, or final integrity contract."
   },
   "candidate_summary": {
@@ -47,7 +47,7 @@
       {
         "side": "reference",
         "context_id": "code-context-readout-cali-0001",
-        "captured_code_version_record_id": "code-version-record-0001",
+        "code_snapshot_record_id": "code-snapshot-record-0001",
         "external_root_id": "external-code-root-readout-demo",
         "external_root_display": "redacted_control_pc_path",
         "entrypoint_path": "readout_calibration_entrypoint.ipynb",
@@ -59,7 +59,7 @@
       {
         "side": "current",
         "context_id": "code-context-readout-cali-0002",
-        "captured_code_version_record_id": "code-version-record-0002",
+        "code_snapshot_record_id": "code-snapshot-record-0002",
         "external_root_id": "external-code-root-readout-demo",
         "external_root_display": "redacted_control_pc_path",
         "entrypoint_path": "readout_calibration_entrypoint.ipynb",
@@ -71,7 +71,7 @@
     ],
     "code_context_comparison": {
       "context_id_finding": "changed",
-      "captured_code_version_record_identity_finding": "changed",
+      "code_snapshot_record_identity_finding": "changed",
       "entrypoint_path_finding": "same_observed",
       "entrypoint_recorded_form_finding": "same_observed",
       "recording_policy_finding": "same_observed",
@@ -112,10 +112,10 @@
         "message": "Reference used code-context-readout-cali-0001; current used code-context-readout-cali-0002."
       },
       {
-        "code": "changed_captured_code_version_record_identity",
+        "code": "changed_code_snapshot_record_identity",
         "kind": "changed",
-        "subject": "captured_code_version_record_identity",
-        "message": "Reference used code-version-record-0001; current used code-version-record-0002."
+        "subject": "code_snapshot_record_identity",
+        "message": "Reference used code-snapshot-record-0001; current used code-snapshot-record-0002."
       },
       {
         "code": "same_observed_code_entrypoint",
@@ -169,7 +169,7 @@
     "warnings": []
   },
   "boundary_notes": [
-    "This fixture compares declared code version/snapshot records, not Git state or live files.",
+    "This fixture compares declared code snapshot records, not Git state or live files.",
     "A changed recorded code context is an objective comparison finding, not cause attribution.",
     "Recorded source observation IDs are fixture-level tokens and do not accept a checksum, archive, or content-addressed storage contract.",
     "Matching entrypoint paths do not mean matching source contents or runnable environments.",

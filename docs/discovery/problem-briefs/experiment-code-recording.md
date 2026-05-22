@@ -67,9 +67,10 @@ before Scopecat can preserve useful code context.
   and declared context references associated with a run or step. `Recorded`
   is the audit/provenance state of that context, not the name of every future
   active code workspace.
-- A future active path should distinguish a selected or managed code snapshot
-  from a concrete `materialized_code_workspace`. The first fixture does not
-  load or expand a saved code version; it only records the current context.
+- A future active path should distinguish a selected code snapshot or managed
+  code version from a concrete `materialized_code_workspace`. The first fixture
+  does not load or expand a saved code snapshot; it only records the current
+  context.
 - Early adoption should use minimal explicit recording before dependency
   closure, registry semantics, broad folder analysis, or restore UX. An
   explicit include list can be one recording policy, but it should not make
@@ -90,7 +91,7 @@ before Scopecat can preserve useful code context.
   measurement. Users should not need to learn Git operations before Scopecat
   can manage code versions.
 - Workflow or DAG structure may later help stable calibration routines, but it
-  should not be the first code-versioning boundary. Start with recorded root or
+  should not be the first code-recording boundary. Start with recorded root or
   source reference, entrypoint, explicit include policy, stripped notebook
   sources when captured, and named run/step context; promote repeated stable
   entrypoints into workflow steps only after their inputs and outputs are

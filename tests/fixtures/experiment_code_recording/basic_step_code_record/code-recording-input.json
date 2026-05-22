@@ -2,7 +2,7 @@
   "fixture_id": "experiment-code-recording-basic-step-code-record",
   "fixture_status": "synthetic_public_safe",
   "fixture_layer": "experiment_code_recording_fixture",
-  "user_job": "Record the current entrypoint and explicit experiment-code context associated with a calibration step before asking users to curate an authoritative code selection, load a saved code version, operate Git, or accept noisy folder analysis.",
+  "user_job": "Record the current entrypoint and explicit experiment-code context associated with a calibration step before asking users to curate an authoritative code snapshot selection, load a saved code snapshot, operate Git, or accept noisy folder analysis.",
   "source_research_notes": [
     "<sample>/_research/experiment-code-selection-sample-review-2026-05-21.md"
   ],
@@ -102,12 +102,12 @@
       ]
     }
   ],
-  "captured_code_version_records": [
+  "code_snapshot_records": [
     {
-      "record_id": "code-version-record-0001",
+      "record_id": "code-snapshot-record-0001",
       "source_context_id": "code-context-readout-cali-0001",
       "record_status": "recorded_not_storage_contract",
-      "capture_scope": {
+      "snapshot_scope": {
         "root_id": "external-code-root-readout-demo",
         "included_files": [
           "readout_calibration_entrypoint.ipynb",

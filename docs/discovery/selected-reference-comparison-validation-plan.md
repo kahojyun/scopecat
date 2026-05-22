@@ -40,7 +40,7 @@ best-observed are user-provided context, not special Scopecat semantics.
 Fixtures:
 
 - `tests/fixtures/selected_reference_comparison/basic_context_compare/`
-- `tests/fixtures/selected_reference_comparison/code_version_context_compare/`
+- `tests/fixtures/selected_reference_comparison/code_context_compare/`
 
 ## Concept Boundary
 

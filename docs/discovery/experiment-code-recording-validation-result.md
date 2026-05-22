@@ -39,7 +39,7 @@ Scopecat can be opinionated about code snapshot records before it is opinionated
 about user code organization.
 
 The useful first boundary is not "trust Git," "force a workflow DAG," or "ask
-the user to curate the authoritative code selection first." It is a
+the user to curate the authoritative code snapshot selection first." It is a
 point-in-time code snapshot defined by:
 
 - the recorded external root or source reference;
@@ -81,7 +81,7 @@ The fixture covers the first adoption stage for code recording:
 
 The next stages are intentionally deferred: moving users into managed
 workspaces, restoring a selected code snapshot or managed code version,
-comparing managed versions, choosing or loading a saved code version for a step,
+comparing managed versions, choosing or loading a saved code snapshot for a step,
 and syncing a declared environment such as a `uv` lockfile workflow. Those are
 plausible long-term capabilities, not conclusions earned by this fixture.
 

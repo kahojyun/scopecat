@@ -24,7 +24,7 @@ service assumptions, mutation-capable notebooks, and generated companions.
 This plan should use that evidence to justify a smaller early boundary, not a
 larger one. The first fixture should avoid reproducing the sample's noisy
 directory and Git state as product output, and it should not imply that
-Scopecat can already choose or load a saved code version for a step.
+Scopecat can already choose or load a saved code snapshot for a step.
 
 ## Validation Question
 

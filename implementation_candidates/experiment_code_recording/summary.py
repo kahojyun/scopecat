@@ -57,20 +57,18 @@ def _validate_references(source: dict[str, Any]) -> None:
             if input_ref["name"] == "code_context" and input_ref["snapshot_id"] not in contexts:
                 raise ValueError("calibration step references missing code context")
 
-    for record in source["captured_code_version_records"]:
+    for record in source["code_snapshot_records"]:
         source_context_id = record["source_context_id"]
         if source_context_id not in contexts:
             raise ValueError(
-                f"captured code-version record references missing context: {source_context_id}"
+                f"code snapshot record references missing context: {source_context_id}"
             )
         source_context = contexts[source_context_id]
-        scope = record["capture_scope"]
+        scope = record["snapshot_scope"]
         if scope["root_id"] != source_context["external_root_id"]:
-            raise ValueError("captured code-version record root must match source context root")
+            raise ValueError("code snapshot record root must match source context root")
         if scope["included_files"] != _included_paths(source_context):
-            raise ValueError(
-                "captured code-version record inclusion must match source context inclusion"
-            )
+            raise ValueError("code snapshot record inclusion must match source context inclusion")
 
 
 def _external_code_root_summary(root: dict[str, Any]) -> dict[str, Any]:
@@ -133,8 +131,8 @@ def _calibration_step_reference(step: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _captured_code_version_record_summary(record: dict[str, Any]) -> dict[str, Any]:
-    scope = record["capture_scope"]
+def _code_snapshot_record_summary(record: dict[str, Any]) -> dict[str, Any]:
+    scope = record["snapshot_scope"]
     return {
         "record_id": record["record_id"],
         "source_context_id": record["source_context_id"],
@@ -221,9 +219,8 @@ def build_experiment_code_recording_summary(source: dict[str, Any]) -> dict[str,
         "calibration_step_references": [
             _calibration_step_reference(step) for step in source.get("calibration_steps", [])
         ],
-        "captured_code_version_records": [
-            _captured_code_version_record_summary(record)
-            for record in source["captured_code_version_records"]
+        "code_snapshot_records": [
+            _code_snapshot_record_summary(record) for record in source["code_snapshot_records"]
         ],
         "attention": _attention(source),
     }

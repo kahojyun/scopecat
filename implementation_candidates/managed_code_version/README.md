@@ -8,8 +8,8 @@ record slice:
 
 - build a structured managed-code-version summary from explicit fixture input;
 - keep the builder side-effect free;
-- validate that managed-version file records match a captured code-version
-  source record include list;
+- validate that managed-version file records match a code snapshot record
+  include list;
 - record stable identity, file inventory, content-integrity hints, and
   materialization intent;
 - avoid reading source files, inspecting Git state, creating archives,
@@ -17,7 +17,7 @@ record slice:
   code, or defining workflow/DAG contracts;
 - keep Markdown review rendering in fixture/test support, not in this package.
 
-The package exists to test whether a captured code-version record can be
+The package exists to test whether a code snapshot record can be
 shaped into a first Scopecat-managed version record without deciding final
 storage, restore, sync, environment, loading, execution, merge, GUI, or
 workflow semantics.

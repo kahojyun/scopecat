@@ -7,8 +7,8 @@
     "contract_guard": "This expected output is not a final managed workspace store, Git replacement, package manager, environment manager, executor, workflow DAG, or GUI contract.",
     "early_adoption_boundary": "The first recording path is minimal and explicit-include-based. Unrecorded files are not analyzed or surfaced as warnings.",
     "git_state": "Internal Git state is not inspected in this early-adoption boundary.",
-    "notebook_outputs": "Notebook outputs are stripped before recording so captured code context does not preserve stale output payloads.",
-    "captured_code_version_record": "The captured code-version record is a point-in-time code snapshot for future Scopecat-managed code versions, not a committed storage contract."
+    "notebook_outputs": "Notebook outputs are stripped before recording so recorded code context does not preserve stale output payloads.",
+    "code_snapshot_record": "The code snapshot record is a point-in-time code snapshot for future Scopecat-managed code versions, not a committed storage contract."
   },
   "candidate_summary": {
     "recording_policy": {
@@ -104,9 +104,9 @@
         ]
       }
     ],
-    "captured_code_version_records": [
+    "code_snapshot_records": [
       {
-        "record_id": "code-version-record-0001",
+        "record_id": "code-snapshot-record-0001",
         "source_context_id": "code-context-readout-cali-0001",
         "record_status": "recorded_not_storage_contract",
         "materialization_intent": "future_scopecat_managed_workspace",
@@ -152,8 +152,8 @@
     "Unrecorded folder contents are not analyzed as warnings.",
     "Internal Git state is not inspected by this fixture.",
     "Included notebooks are stripped to source without outputs before recording.",
-    "The captured code-version record shows the point-in-time code snapshot Scopecat may later manage, without accepting storage, restore, sync, environment, saved-version loading, execution, merge, or workflow semantics.",
-    "Workflow or DAG nodes are not required for the first code-versioning boundary."
+    "The code snapshot record shows the point-in-time code snapshot Scopecat may later manage, without accepting storage, restore, sync, environment, saved-version loading, execution, merge, or workflow semantics.",
+    "Workflow or DAG nodes are not required for the first code-recording boundary."
   ],
   "decisions_not_earned": [
     "final managed workspace storage",

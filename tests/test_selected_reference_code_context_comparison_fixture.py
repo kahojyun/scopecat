@@ -5,9 +5,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURE = (
-    ROOT / "tests" / "fixtures" / "selected_reference_comparison" / "code_version_context_compare"
-)
+FIXTURE = ROOT / "tests" / "fixtures" / "selected_reference_comparison" / "code_context_compare"
 
 
 def _input_fixture() -> dict:
@@ -30,7 +28,7 @@ def _files_by_path(context: dict) -> dict:
     return {item["path"]: item for item in context["included_files"]}
 
 
-class SelectedReferenceCodeVersionComparisonFixtureTest(unittest.TestCase):
+class SelectedReferenceCodeContextComparisonFixtureTest(unittest.TestCase):
     def test_fixture_json_files_are_valid(self) -> None:
         for path in [
             FIXTURE / "reference-code-comparison-input.json",
@@ -39,16 +37,16 @@ class SelectedReferenceCodeVersionComparisonFixtureTest(unittest.TestCase):
             with self.subTest(path=path):
                 json.loads(path.read_text(encoding="utf-8"))
 
-    def test_code_version_scope_moves_out_of_not_compared_without_runtime_claims(self) -> None:
+    def test_code_context_scope_moves_out_of_not_compared_without_runtime_claims(self) -> None:
         source = _input_fixture()
         summary = _expected_summary()["candidate_summary"]
 
         self.assertIn("recorded_code_context", source["comparison_request"]["comparison_scope"])
         self.assertIn(
-            "captured_code_version_record_identity",
+            "code_snapshot_record_identity",
             source["comparison_request"]["comparison_scope"],
         )
-        self.assertNotIn("experiment_code_version", summary["not_compared_scope"])
+        self.assertNotIn("experiment_code_context", summary["not_compared_scope"])
         self.assertEqual(
             summary["not_compared_scope"],
             source["comparison_request"]["not_compared_scope"],

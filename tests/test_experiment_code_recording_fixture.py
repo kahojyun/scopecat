@@ -128,17 +128,17 @@ class ExperimentCodeRecordingFixtureTest(unittest.TestCase):
         )
         self.assertEqual(summary["recording_policy"]["dependency_discovery"], "not_performed")
 
-    def test_captured_code_version_record_is_not_storage_or_workflow_contract(self) -> None:
+    def test_code_snapshot_record_is_not_storage_or_workflow_contract(self) -> None:
         source = _input_fixture()
         summary = _expected_summary()
-        record = summary["candidate_summary"]["captured_code_version_records"][0]
-        source_record = source["captured_code_version_records"][0]
+        record = summary["candidate_summary"]["code_snapshot_records"][0]
+        source_record = source["code_snapshot_records"][0]
 
         self.assertEqual(record["record_status"], "recorded_not_storage_contract")
         self.assertEqual(record["storage_claim"], "not_decided_by_fixture")
         self.assertEqual(
             record["included_files"],
-            source_record["capture_scope"]["included_files"],
+            source_record["snapshot_scope"]["included_files"],
         )
         self.assertEqual(record["default_file_inclusion"], "not_recorded_unless_included")
         self.assertIn("workflow DAG", summary["decisions_not_earned"])

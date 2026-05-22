@@ -29,7 +29,7 @@
       "user_interpretation",
       "raw_waveforms",
       "hardware_runtime_state",
-      "experiment_code_version"
+      "experiment_code_context"
     ]
   },
   "measurements": [

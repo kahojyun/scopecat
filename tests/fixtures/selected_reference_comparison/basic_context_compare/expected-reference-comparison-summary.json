@@ -23,7 +23,7 @@
       "user_interpretation",
       "raw_waveforms",
       "hardware_runtime_state",
-      "experiment_code_version"
+      "experiment_code_context"
     ],
     "measurement_pair": [
       {
@@ -138,7 +138,7 @@
     "raw data comparison",
     "fit quality comparison",
     "user-provided analysis conclusion model",
-    "experiment-code or code-version comparison",
+    "experiment-code or code-context comparison",
     "shared run-context framework",
     "GUI design"
   ]

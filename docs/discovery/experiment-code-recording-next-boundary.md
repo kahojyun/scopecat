@@ -70,8 +70,8 @@ The intended product route is staged:
 2. Let those records connect measurements, calibration steps, handoff packages,
    and comparison workflows to the code context users actually used or
    observed.
-3. Let users promote code snapshot records into Scopecat-managed workspaces
-   when restore, compare, and version selection become valuable.
+3. Let users promote code snapshot records into managed code versions when
+   restore, compare, and version selection become valuable.
 4. After managed workspace storage is earned, evaluate selected-version loading
    and declared environment restoration.
 5. After environment authority is earned, evaluate lockfile-driven dependency
@@ -87,7 +87,7 @@ one of these user-visible behaviors:
 
 - restore this code snapshot record on the same or another machine;
 - compare the current editable code with a previous code snapshot record;
-- choose a saved code version at measurement start;
+- choose a saved code snapshot at measurement start;
 - materialize a selected version into an editable workspace;
 - protect users from accidentally modifying the only useful copy of selected
   experiment code;

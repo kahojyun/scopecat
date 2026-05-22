@@ -134,7 +134,7 @@ later path toward structured code management.
 
 ## Workflow And DAG Deferral
 
-Workflow/DAG structure is future pressure, not the first code-versioning
+Workflow/DAG structure is future pressure, not the first code recording
 boundary.
 
 DAG-like structure may become useful when repeated experiment functions have

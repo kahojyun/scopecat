@@ -10,7 +10,7 @@ boundary remains intentionally narrow.
 ## Fixtures
 
 - `tests/fixtures/selected_reference_comparison/basic_context_compare/`
-- `tests/fixtures/selected_reference_comparison/code_version_context_compare/`
+- `tests/fixtures/selected_reference_comparison/code_context_compare/`
 
 The first fixture validates a selected-reference comparison boundary:
 

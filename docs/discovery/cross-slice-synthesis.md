@@ -237,7 +237,7 @@ Several separations now appear repeatedly enough to keep carrying forward:
   generated files are not analyzed or surfaced as warnings unless the user
   records them or a later slice earns that behavior.
 - Recorded root plus included files and named entrypoints is the first
-  code-versioning boundary. Workflow/DAG nodes, component-level versioning,
+  code-recording boundary. Workflow/DAG nodes, component-level versioning,
   and compatibility contracts remain deferred until repeated stable experiment
   functions earn inputs and outputs.
 
@@ -295,8 +295,8 @@ The cross-slice comparison still does not earn:
 - shared input-snapshot or run-context framework;
 - deep interpretation of user/project-defined setup-binding payloads;
 - selected-reference comparison engine, user-judgment engine, raw-data
-  comparison, user-provided analysis conclusion model, semantic code-version
-  diff behavior, or automatic cause attribution;
+  comparison, user-provided analysis conclusion model, semantic source diff
+  behavior, or automatic cause attribution;
 - final managed experiment-code workspace storage, archive or
   content-addressed store contract, Git replacement implementation,
   branch/merge/sync semantics, package management, environment ownership,

@@ -36,8 +36,8 @@ def _records_by_key(records: list[dict[str, Any]], key: str) -> dict[str, dict[s
     return output
 
 
-def _code_version_record_by_id(source: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    return _records_by_key(source["captured_code_version_records"], "record_id")
+def _code_snapshot_record_by_id(source: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return _records_by_key(source["code_snapshot_records"], "record_id")
 
 
 def _version_by_id(source: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -94,23 +94,23 @@ def _validate_boundary_claims(version: dict[str, Any]) -> None:
 
 def _validate_references(source: dict[str, Any]) -> None:
     _validate_policy(source)
-    code_version_records = _code_version_record_by_id(source)
+    code_snapshot_records = _code_snapshot_record_by_id(source)
     _version_by_id(source)
 
     for version in source["managed_code_versions"]:
         version_id = version["version_id"]
         source_record_id = version["source_record_id"]
-        if source_record_id not in code_version_records:
+        if source_record_id not in code_snapshot_records:
             raise ValueError(
-                f"managed code version references missing code version record: {source_record_id}"
+                f"managed code version references missing code snapshot record: {source_record_id}"
             )
         _validate_boundary_claims(version)
 
         for file_record in version["file_records"]:
             _validate_file_record(version_id, file_record)
 
-        source_record = code_version_records[source_record_id]
-        expected_paths = source_record["capture_scope"]["included_files"]
+        source_record = code_snapshot_records[source_record_id]
+        expected_paths = source_record["snapshot_scope"]["included_files"]
         actual_paths = _file_paths(version)
         if len(set(actual_paths)) != len(actual_paths):
             raise ValueError(f"managed code version {version_id} contains duplicate file paths")
@@ -119,7 +119,7 @@ def _validate_references(source: dict[str, Any]) -> None:
                 "managed code version file records must match source record include list"
             )
 
-        notebook_recording_policy = source_record["capture_scope"]["notebook_recording_policy"]
+        notebook_recording_policy = source_record["snapshot_scope"]["notebook_recording_policy"]
         for file_record in version["file_records"]:
             if (
                 file_record["path"].endswith(".ipynb")
@@ -136,8 +136,8 @@ def _validate_references(source: dict[str, Any]) -> None:
             )
 
 
-def _captured_code_version_record_summary(record: dict[str, Any]) -> dict[str, Any]:
-    scope = record["capture_scope"]
+def _code_snapshot_record_summary(record: dict[str, Any]) -> dict[str, Any]:
+    scope = record["snapshot_scope"]
     return {
         "record_id": record["record_id"],
         "source_context_id": record["source_context_id"],
@@ -237,7 +237,7 @@ def _attention(source: dict[str, Any]) -> list[dict[str, Any]]:
             {
                 "code": "code_execution_not_granted",
                 "severity": "review",
-                "basis": "Managed version records do not import, load, or execute recorded code.",
+                "basis": "Managed version records do not import, load, or execute code files.",
                 "does_not_claim": "execution_permission",
             }
         )
@@ -260,9 +260,8 @@ def build_managed_code_version_summary(source: dict[str, Any]) -> dict[str, Any]
     _validate_references(source)
     return {
         "managed_version_policy": copy.deepcopy(source["managed_version_policy"]),
-        "captured_code_version_records": [
-            _captured_code_version_record_summary(record)
-            for record in source["captured_code_version_records"]
+        "code_snapshot_records": [
+            _code_snapshot_record_summary(record) for record in source["code_snapshot_records"]
         ],
         "managed_code_versions": [
             _managed_version_summary(version) for version in source["managed_code_versions"]

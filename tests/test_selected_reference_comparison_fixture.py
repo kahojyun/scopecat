@@ -106,7 +106,7 @@ class SelectedReferenceComparisonFixtureTest(unittest.TestCase):
             source["comparison_request"]["not_compared_scope"],
             summary["not_compared_scope"],
         )
-        self.assertIn("experiment_code_version", summary["not_compared_scope"])
+        self.assertIn("experiment_code_context", summary["not_compared_scope"])
         self.assertNotIn(
             "reference_mark_user_context",
             [item["code"] for item in summary["findings"]],
@@ -132,7 +132,7 @@ class SelectedReferenceComparisonFixtureTest(unittest.TestCase):
             summary["decisions_not_earned"],
         )
         self.assertIn(
-            "experiment-code or code-version comparison",
+            "experiment-code or code-context comparison",
             summary["decisions_not_earned"],
         )
         self.assertEqual(candidate["warnings"], [])
