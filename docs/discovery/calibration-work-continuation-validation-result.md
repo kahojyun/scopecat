@@ -197,8 +197,8 @@ for real use, nor does it earn runner, scheduler, authoring, retry, or
 write-back scope.
 
 If the goal is broader product comparison, stop this slice at fixture
-validation and compare another adoption route before promoting shared
-step, review, write, or continuation concepts.
+validation and compare another validation slice or route before promoting
+shared step, review, write, or continuation concepts.
 
 If this slice continues, the next validation should either use an
 early-adoption fixture where externally managed snapshot/proposal context is
