@@ -26,7 +26,7 @@ executor design, relation graph, or warning taxonomy.
 - [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md)
 - [`experiment-code-selection-validation-result.md`](experiment-code-selection-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
-- [`adoption-hypotheses.md`](adoption-hypotheses.md)
+- [`adoption-routes.md`](adoption-routes.md)
 
 ## Current Slice Positions
 
@@ -270,7 +270,7 @@ Shared model extraction is currently deferred in
 
 The next useful work is one of:
 
-- choose another adoption slice and build a similarly narrow fixture or
+- choose another validation slice and build a similarly narrow fixture or
   implementation candidate;
 - add one early-adoption fixture only where it pressures a recurring concept
   without assuming mature Scopecat ownership;

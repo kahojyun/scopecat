@@ -105,7 +105,7 @@ package manager, or general managed execution platform.
 - Inferring canonical status from folder names such as `old`, `backup`, `_bk`,
   `copy`, dated suffixes, person suffixes, or `temp`.
 - Internal Git analysis, dirty-state warnings, nested-repository warnings, or
-  default record-all file tracking in the first adoption slice.
+  default record-all file tracking in the first validation slice.
 - Executing selected code, importing hardware-active modules, running notebooks,
   regenerating derived artifacts, or validating physical hardware state.
 - Deep static dependency closure through arbitrary Python, notebook output,

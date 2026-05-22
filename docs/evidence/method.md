@@ -79,7 +79,7 @@ IDs.
 
 ## Updating Evidence
 
-- If a new row changes a problem brief or adoption hypothesis, update that
+- If a new row changes a problem brief or adoption route, update that
   owner.
 - If a source is messy, biased, generated, or historical, preserve the useful
   pressure and label its class instead of either deleting it or over-promoting

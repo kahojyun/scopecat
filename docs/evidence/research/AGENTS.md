@@ -23,7 +23,7 @@
   prompt-method rules to `docs/evidence/method.md`; keep
   `docs/evidence/evidence-register.md` focused on rows and stable IDs.
 - Promote problem framing to `docs/discovery/problem-briefs/` and adoption
-  hypotheses to `docs/discovery/adoption-hypotheses.md`.
+  routes to `docs/discovery/adoption-routes.md`.
 - After extraction or supersession, prefer deleting low-value research notes
   over keeping them indefinitely. Before deleting a source that supports active
   `EV`, decision, validation, or architecture work, leave a compact extracted

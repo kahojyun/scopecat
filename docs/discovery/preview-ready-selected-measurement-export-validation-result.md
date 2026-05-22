@@ -107,8 +107,9 @@ This validation does not earn:
   `export_data_handling` once file-copy behavior is designed?
 - Should future transform cases produce operational warnings only when there is
   an actual declared, unknown, lossy, unavailable, or replacement transform?
-- Should the next implementation-shaped candidate be another adoption slice
-  before promoting any shared model concepts?
+- Should the next implementation-shaped candidate be another validation slice,
+  either within the measurement-record route or in a different route, before
+  promoting any shared model concepts?
 - When a package writer is eventually considered, what integrity and
   materialization guarantees are needed beyond this structured summary?
 
@@ -119,8 +120,9 @@ task needs it.
 
 The next design move should be either:
 
-- compare another adoption hypothesis with a similarly narrow implementation
-  candidate; or
+- compare another validation slice with a similarly narrow implementation
+  candidate, either within the measurement-record route or in a different
+  route; or
 - use this result as input to a later architecture decision only after another
   slice pressures the same measurement, linked-context, preview, and warning
   concepts.

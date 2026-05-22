@@ -120,6 +120,6 @@ task needs a generator.
 
 A tiny generator could be useful to keep expected JSON honest, but it is not
 required to answer the current product-boundary question. The better next
-design move is probably to compare another adoption slice before promoting any
-shared lifecycle, preview, completeness, warning, or data-shape concepts into a
-broader implementation contract.
+design move is probably to compare another validation slice before promoting
+any shared lifecycle, preview, completeness, warning, or data-shape concepts
+into a broader implementation contract.
