@@ -44,6 +44,7 @@ supporting policy notes. The current validated slice inventory is:
 | Setup binding | Setup binding | Fixture validated | Setup-binding snapshots, simple diffs, station-registry references, generated line/readout views, and measurement input references while keeping parameter state and hardware control separate. |
 | Calibration work continuation | Calibration continuation | Assembler candidate validated | Continuation-state assembly for planned steps, observed outputs, review gates, proposed writes, blocked steps, and interventions without executor, scheduler, write-back, or GUI ownership. |
 | Selected reference comparison | Selected reference comparison | Fixtures validated | Context-comparison findings against a user-selected reference without user judgment, raw-data comparison, fit-quality comparison, setup truth, restore, execution, semantic source diff, or cause attribution. |
+| Named run-start input set | Measurement context support | Implementation candidate validated | Side-effect-free run-preparation summary for selected parameter state, setup binding, station registry, managed code version, measurement intent, and missing declared environment context without shared schema, hardware control, write-back, environment sync, code import, execution, restore, or GUI ownership. |
 
 Future slice candidates should each answer one primary validation question. Do
 not combine import/export, storage, GUI, execution, redaction, write-back,
@@ -77,6 +78,11 @@ In compact form, the common candidate slices are:
 This backlog is discovery vocabulary only. It should reduce duplicated
 route-local slice lists without accepting a shared context schema, lifecycle,
 storage model, diff engine, write-back contract, or execution framework.
+
+The first cross-family implementation candidate for this backlog is
+[`named-run-start-input-set-validation-result.md`](named-run-start-input-set-validation-result.md).
+It validates a side-effect-free run-preparation summary without making
+Measurement Records the owner of context-support behavior.
 
 ### Measurement Records
 

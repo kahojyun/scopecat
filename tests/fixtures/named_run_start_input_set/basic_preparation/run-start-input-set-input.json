@@ -1,0 +1,141 @@
+{
+  "run_start_input_policy": {
+    "input_set_authority": "preparation_summary_only",
+    "context_source": "declared_fixture_records",
+    "shared_context_schema": "not_defined",
+    "hardware_control": "not_performed",
+    "parameter_write_back": "not_performed",
+    "setup_mutation": "not_performed",
+    "environment_sync": "not_performed",
+    "code_import_execution": "not_performed",
+    "readiness_claim": "selection_completeness_only"
+  },
+  "context_records": [
+    {
+      "context_id": "param-state-0002",
+      "family": "parameter_state",
+      "label": "qA default bias after Rabi review",
+      "record_status": "trusted_for_declared_scope",
+      "authority": "parameter_state_fixture",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "lineage_id": "lineage-qA-default-bias",
+        "trusted_entry_count": 3
+      }
+    },
+    {
+      "context_id": "setup-binding-0002",
+      "family": "setup_binding",
+      "label": "qA default binding after bias-line move",
+      "record_status": "selected_binding_snapshot",
+      "authority": "setup_binding_fixture",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "sample_id": "sample-alpha",
+        "cooldown_id": "cooldown-2026-05",
+        "logical_binding_count": 6
+      }
+    },
+    {
+      "context_id": "station-registry-mmcs2-redacted",
+      "family": "station_registry",
+      "label": "redacted MMCS2 station registry",
+      "record_status": "selected_station_context",
+      "authority": "setup_binding_fixture",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "resource_count": 5,
+        "contains_connection_payloads": false
+      }
+    },
+    {
+      "context_id": "managed-code-version-readout-0001",
+      "family": "managed_code_version",
+      "label": "readout calibration managed code version",
+      "record_status": "recorded_not_restore_contract",
+      "authority": "managed_code_version_fixture",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "source_record_id": "code-snapshot-record-0001",
+        "file_count": 3,
+        "materialization": "intent_recorded_not_performed"
+      }
+    },
+    {
+      "context_id": "measurement-intent-chevron-qA",
+      "family": "measurement_intent",
+      "label": "qA chevron follow-up",
+      "record_status": "declared_user_intent",
+      "authority": "run_preparation_fixture",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "experiment_label": "qA chevron follow-up",
+        "logical_targets": [
+          "qA",
+          "cAB"
+        ]
+      }
+    }
+  ],
+  "run_start_input_sets": [
+    {
+      "input_set_id": "run-start-inputs-chevron-qA-0001",
+      "label": "qA chevron preparation inputs",
+      "run_start_target": {
+        "measurement_id": "measurement-05001",
+        "experiment_label": "qA chevron follow-up",
+        "run_start_time": "2026-05-21T10:15:00",
+        "logical_targets": [
+          "qA",
+          "cAB"
+        ]
+      },
+      "preparation_claim": "selected_context_records_only",
+      "selected_contexts": [
+        {
+          "family": "measurement_intent",
+          "role": "declared_measurement_intent",
+          "required": true,
+          "include_state": "selected",
+          "context_id": "measurement-intent-chevron-qA"
+        },
+        {
+          "family": "parameter_state",
+          "role": "calibrated_values",
+          "required": true,
+          "include_state": "selected",
+          "context_id": "param-state-0002"
+        },
+        {
+          "family": "setup_binding",
+          "role": "logical_to_physical_mapping",
+          "required": true,
+          "include_state": "selected",
+          "context_id": "setup-binding-0002"
+        },
+        {
+          "family": "station_registry",
+          "role": "station_context",
+          "required": true,
+          "include_state": "selected",
+          "context_id": "station-registry-mmcs2-redacted"
+        },
+        {
+          "family": "managed_code_version",
+          "role": "entrypoint_code_version",
+          "required": true,
+          "include_state": "selected",
+          "context_id": "managed-code-version-readout-0001"
+        },
+        {
+          "family": "declared_environment",
+          "role": "runtime_environment_hint",
+          "required": true,
+          "include_state": "unavailable",
+          "context_id": null,
+          "missing_reason": "No reviewed declared environment record exists for this fixture."
+        }
+      ]
+    }
+  ]
+}
