@@ -18,6 +18,7 @@ product contracts too early.
 | [`adoption-routes.md`](adoption-routes.md) | Compare current evidence-backed adoption routes by durable user workflow. |
 | [`problem-briefs/README.md`](problem-briefs/README.md) | Start from evidence-backed problem framing before choosing a validation question. |
 | [`cross-slice-synthesis.md`](cross-slice-synthesis.md) | See recurring candidate concepts across validated slices. |
+| [`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md) | Shared discovery backlog for context records attached to or selected for measurements, without accepting a shared schema. |
 | [`shared-model-extraction-deferral.md`](shared-model-extraction-deferral.md) | Understand why shared domain models are intentionally deferred. |
 | [`external-file-reference-policy.md`](external-file-reference-policy.md) | Candidate policy vocabulary for external files, latest state, observed file state, and non-backup boundaries. |
 | [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md) | Product posture for Git-like managed experiment-code versions without requiring users to operate Git. |
@@ -49,6 +50,29 @@ not combine import/export, storage, GUI, execution, redaction, write-back,
 restore, or shared-framework decisions just because the same fixture mentions
 more than one of them.
 
+### Measurement Context Backlog
+
+The canonical shared backlog for context records attached to or selected for
+measurements lives in
+[`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md).
+Use it for context-shaped work across parameter state, setup binding,
+experiment code context, declared environment context, analysis choices,
+attachments, artifacts, and selected-reference review.
+
+In compact form, the common candidate slices are:
+
+1. context snapshot record;
+2. measurement or step context link;
+3. named run-start input set;
+4. context comparison findings;
+5. reviewable context change;
+6. context readiness or status;
+7. external materialization or compatibility output.
+
+This backlog is discovery vocabulary only. It should reduce duplicated
+route-local slice lists without accepting a shared context schema, lifecycle,
+storage model, diff engine, write-back contract, or execution framework.
+
 ### Measurement Records
 
 | Document | Use For |
@@ -77,11 +101,13 @@ Candidate next slices in this route should stay separate:
   preserve source identity, without deciding export-package acceptance;
 - derived artifact source links: connect a derived artifact to explicit source
   measurements, without recursive analysis-DAG inference;
-- recorded analysis choices: capture user-declared analysis choices or saved
-  decisions, without scientific interpretation or cause attribution;
 - new-run measurement writer semantics: record new measurement data and
   lifecycle events, without taking over instrument control or live-advice
   behavior.
+
+Context-shaped work such as recorded analysis choices, artifact links, and
+handoff context should use the Measurement Context Backlog above unless the
+slice is about primary measurement data.
 
 ### Parameter State
 
@@ -91,17 +117,13 @@ Candidate next slices in this route should stay separate:
 | [`parameter-state-management-validation-plan.md`](parameter-state-management-validation-plan.md) | First fixture-validation boundary and fixture pointer for parameter state lineage, purpose labels, reviewable diffs, and committed states. |
 | [`parameter-state-management-validation-result.md`](parameter-state-management-validation-result.md) | Result of the first parameter-state fixture and domain review. |
 
-Candidate next slices in this route should stay separate:
-
-- reviewable parameter-write records: represent proposed and accepted changes
-  without applying them to hardware;
-- compatibility JSON writer behavior: produce or update an external compatibility
-  file after review, without making that file the product authority;
-- drift views: compare trusted parameter states over time, without accepting a
-  final plotting model or branch/tag/commit semantics;
-- calibration-step links to selected parameter states: reference selected state
-  versions from calibration steps, without merging parameter state into a
-  generic step-context framework.
+Most next parameter-state slices are instances of the Measurement Context
+Backlog: context links, named run-start inputs, comparison findings,
+reviewable changes, readiness or trust state, and external compatibility
+outputs. Parameter-specific validation should stay narrow around lineage
+purposes, trusted versus seeded state, drift views, reviewable parameter-write
+records, and compatibility JSON writer behavior without applying changes to
+hardware.
 
 ### Experiment Code Context
 
@@ -163,16 +185,12 @@ rerun, or checks an editable folder against the selected version.
 | [`setup-binding-validation-plan.md`](setup-binding-validation-plan.md) | First fixture-validation boundary for setup-binding snapshots, diffs, and measurement references. |
 | [`setup-binding-validation-result.md`](setup-binding-validation-result.md) | Result of the first setup-binding fixture and measurement-input context review. |
 
-Candidate next slices in this route should stay separate:
-
-- setup-binding comparison: compare two known binding snapshots, without
-  importing external setup state or deciding parameter invalidation;
-- setup-import validation reports: validate one external/generated setup source,
-  without accepting a final setup schema or station-management model;
-- run-start named input snapshots: pressure the measurement-context shape,
-  without introducing a universal snapshot framework;
-- selected-reference setup findings: surface objective setup-binding comparison
-  facts for selected-reference review, without claiming setup truth.
+Most next setup-binding slices are instances of the Measurement Context
+Backlog: context links, named run-start inputs, comparison findings,
+readiness/status summaries, and selected-reference setup findings.
+Setup-specific validation should stay narrow around station-registry references,
+setup-import validation reports, generated line/readout summaries, opaque
+project-defined payloads, and setup-truth deferral.
 
 ### Calibration Continuation
 
@@ -182,19 +200,12 @@ Candidate next slices in this route should stay separate:
 | [`calibration-work-continuation-validation-plan.md`](calibration-work-continuation-validation-plan.md) | First fixture-validation boundary for continuation-state assembly. |
 | [`calibration-work-continuation-validation-result.md`](calibration-work-continuation-validation-result.md) | Result of the continuation assembler candidate and domain review. |
 
-Candidate next slices in this route should stay separate:
-
-- review/resume usefulness: validate whether assembled continuation state is
-  enough for a user to resume work, without building an executor or GUI;
-- calibration-write review: represent proposed, accepted, rejected, and applied
-  writes, without Scopecat-decided mutation or rollback;
-- selected-group remeasurement: request or record targeted remeasurement
-  intent, without general scan-plan mutation or automatic retune;
-- local sequential executor boundary: run user-authored steps only after the
-  read model proves useful but insufficient, without remote execution, resource
-  arbitration, automatic retry, or write-back authority;
-- links to parameter states and measurement records: record explicit references,
-  without extracting a generic episode/step/context framework.
+Calibration continuation overlaps the Measurement Context Backlog for context
+links, reviewable changes, readiness/status summaries, and selected parameter
+or setup references. Its domain-specific backlog should stay focused on
+review/resume usefulness, calibration-write review, targeted remeasurement
+intent, and a possible local sequential executor boundary after the read model
+proves useful but insufficient.
 
 ### Selected Reference Comparison
 
@@ -204,22 +215,14 @@ Candidate next slices in this route should stay separate:
 | [`selected-reference-comparison-validation-plan.md`](selected-reference-comparison-validation-plan.md) | Fixture-validation boundaries for selected-reference context comparison. |
 | [`selected-reference-comparison-validation-result.md`](selected-reference-comparison-validation-result.md) | Result of selected-reference context comparison fixtures, including the basic named-input fixture and declared code-context comparison fixture. |
 
-Candidate next slices in this route should stay separate:
-
-- deeper source-diff semantics: compare declared recorded-code observations
-  more precisely, without Git analysis, semantic source review, or execution;
-- restore/readiness comparison: compare declared restore or environment-readiness
-  facts only after those facts are validated in the code-version route;
-- setup-binding findings: report objective setup-binding comparison facts,
-  without setup truth or parameter invalidation claims;
-- parameter-state drift findings: report objective parameter-state differences,
-  without making drift plots or causal scientific claims;
-- import/export comparison preview: show preview compatibility across current,
-  reference, imported, or exported records, without package writer or importer
-  behavior;
-- support-package review boundaries: decide recipient-safe review contents,
-  without mixing redaction policy, export packaging, and comparison semantics
-  into one validation slice.
+Most selected-reference work is a cross-family instance of the Measurement
+Context Backlog, especially context comparison findings over parameter state,
+setup binding, code context, environment context, and preview metadata.
+Selected-reference-specific validation should stay narrow around explicit user
+anchors, objective findings, preview compatibility, support-package review
+boundaries, and the continued separation from user judgment, raw-data
+comparison, fit-quality comparison, setup truth, semantic source review,
+restore, execution, or cause attribution.
 
 ## Promotion Discipline
 

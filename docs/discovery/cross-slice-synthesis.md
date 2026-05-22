@@ -28,6 +28,7 @@ executor design, relation graph, or warning taxonomy.
 - [`managed-code-version-validation-result.md`](managed-code-version-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
 - [`adoption-routes.md`](adoption-routes.md)
+- [`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md)
 
 ## Current Slice Positions
 
@@ -151,6 +152,15 @@ semantics.
 This shared vocabulary does not accept common lifecycle, diff, storage,
 restore, or integrity semantics across the families. Each family still owns its
 own boundary until implementation pressure earns extraction.
+
+The measurement-context candidate backlog now gives that shared vocabulary a
+single planning home. It collects recurring validation slices such as context
+snapshot records, measurement or step context links, named run-start input
+sets, context comparison findings, reviewable context changes, readiness or
+status summaries, and external materialization or compatibility outputs. That
+backlog is still discovery vocabulary: it reduces duplicated route-local slice
+lists without accepting shared schema, storage, lifecycle, restore, write-back,
+diff, or execution behavior.
 
 ## Recurring Candidate Concepts
 

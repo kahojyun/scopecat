@@ -38,8 +38,14 @@ measurement/data-shape fixtures:
 Those concepts are real discovery pressure. They are useful for analysis,
 fixture design, validation wording, and future architecture discussions.
 
-They are not yet stable enough to become shared product schema or shared code.
-The slices still differ in their immediate user jobs:
+The measurement-context candidate backlog is part of that discovery pressure.
+It may be used to name common validation questions across parameter state,
+setup binding, experiment code context, declared environment context, analysis
+choices, artifacts, attachments, and selected-reference review.
+
+These concepts and backlog entries are not yet stable enough to become shared
+product schema or shared code. The slices still differ in their immediate user
+jobs:
 
 - export needs selected membership, bundle/include state, provenance, and
   preview readiness;
