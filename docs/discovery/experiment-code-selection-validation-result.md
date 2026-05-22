@@ -2,7 +2,7 @@
 
 ## Status
 
-Fixture-level validation result, not an ADR.
+Fixture validation result with selected-code summary candidate, not an ADR.
 
 This result records what the first experiment-code selection fixture proved and
 where the boundary remains intentionally narrow.
@@ -10,6 +10,7 @@ where the boundary remains intentionally narrow.
 ## Fixture
 
 - `tests/fixtures/experiment_code_selection/messy_external_capture/`
+- `implementation_candidates/experiment_code_selection/`
 
 The fixture validates a first selected-code boundary:
 
@@ -89,6 +90,34 @@ The fixture reuses validated pressure without promoting shared architecture:
 The fixture uses named inputs because that vocabulary is useful, but it does
 not earn a shared run-context, step-context, or snapshot framework.
 
+## Summary Candidate
+
+The implementation candidate checks that the current selected-code record can
+be produced mechanically from explicit fixture input without adding folder,
+Git, dependency, environment, or execution authority.
+
+It assembles and validates:
+
+- selected external roots;
+- selected code contexts with entrypoint, whitelist, declared refs, and
+  mutation-capability classification;
+- whitelisted file summaries;
+- non-recording policy for unselected files;
+- calibration-step references to selected code context;
+- captured-version candidate scope;
+- attention items for stripped notebooks, unrecorded unwhitelisted files,
+  ignored Git state, and no execution permission.
+
+The builder remains side-effect free. It does not read source files, inspect
+Git state, scan unselected folders, discover dependencies, import code,
+execute code, restore environments, materialize workspaces, or define
+workflow/DAG contracts.
+
+The candidate does not prove product usefulness by itself. It shows that the
+fixture's selected-code context can be reshaped into a coherent summary with
+basic referential integrity checks while keeping managed workspace storage and
+environment restoration deferred.
+
 ## Remaining Risks
 
 - the final managed workspace store is still undecided;
@@ -106,8 +135,8 @@ not earn a shared run-context, step-context, or snapshot framework.
 
 ## Current Recommendation
 
-Use this fixture as the first boundary for experiment-code selection. The next
-implementation-shaped step should follow
+Use this fixture and summary candidate as the first boundary for
+experiment-code selection. The next implementation-shaped step should follow
 [`experiment-code-selection-next-boundary.md`](experiment-code-selection-next-boundary.md):
 do not design managed workspace storage, Git replacement, internal Git
 analysis, record-all file tracking, environment management, execution, or
