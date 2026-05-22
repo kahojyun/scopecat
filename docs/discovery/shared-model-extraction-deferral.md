@@ -20,9 +20,10 @@ This defers shared architecture. It does not reject the recurring concepts.
 
 ## Context
 
-The cross-slice synthesis shows repeated vocabulary across selected measurement
-export, running measurement inspection, calibration work continuation, and
-measurement/data-shape fixtures:
+The cross-slice synthesis shows repeated vocabulary across measurement records,
+running inspection, calibration continuation, parameter state, setup binding,
+selected-reference comparison, experiment-code recording, managed code version,
+and measurement/data-shape fixtures:
 
 - measurement record;
 - source identity;
@@ -32,6 +33,7 @@ measurement/data-shape fixtures:
 - lifecycle or progress state;
 - intervention or operation;
 - proposal;
+- reviewable change;
 - warning or attention state;
 - authority and provenance.
 
@@ -55,7 +57,14 @@ jobs:
   proposed writes, and available interventions;
 - parameter state management pressures first-class snapshots, named state
   lineages, purpose labels such as working point or exploration,
-  trust/readiness state, reviewable changes, committed states, and run links.
+  trust/readiness state, reviewable changes, committed states, and run links;
+- setup binding needs setup snapshots, station-registry references, generated
+  line/readout summaries, and opaque project-defined payload boundaries;
+- selected-reference comparison needs objective context findings without user
+  judgment, raw-data comparison, setup truth, or cause attribution;
+- experiment code recording needs explicit include scope, code capture state,
+  managed-version promotion, materialization boundaries, and environment
+  deferral.
 
 The overlap is conceptual before it is architectural.
 

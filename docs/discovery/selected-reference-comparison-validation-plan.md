@@ -56,7 +56,7 @@ The selected-reference fixtures should distinguish:
 | Code context | Declared root, entrypoint, included files or source observations, notebook recording policy, and declared refs that define a code snapshot scope. The fixture compares recorded instances of this context. |
 | Code snapshot record identity | Fixture-local point-in-time code snapshot record ID that can be compared without accepting managed workspace storage or full managed-version comparison. |
 | Recorded source observation | Fixture-local token for comparing recorded source observations, not a checksum or integrity contract. |
-| Code capture state | Whether a code item is content-captured, reference-only, missing, redacted, or excluded. This controls whether comparison can say changed, same-observed, unverified, redacted, or not-compared. |
+| Code capture state | Whether a code item is content-captured, reference-only, missing, redacted, or excluded. This controls whether comparison can say changed, same-observed, missing, unverified, redacted, or not-compared. |
 
 The fixtures compare declared context. They should not inspect raw data,
 execute code, score user judgment, interpret user analysis conclusions, or infer

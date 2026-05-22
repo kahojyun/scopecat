@@ -84,18 +84,23 @@ The fixture covers the first adoption stage for code recording:
   workspaces without pretending that storage, restore, or execution contracts
   already exist.
 
-The next validation stages are intentionally deferred and should be ordered by
-authority: promoting captured snapshots into managed code versions, comparing
-explicit code fact surfaces, planning workspace materialization, creating
-editable workspaces, observing editable folders against selected managed
-versions, preparing run context from selected code and other run-start inputs,
-preparing a manual rerun from selected-reference context, recording declared
-environment inventory, and only later syncing a declared environment such as a
-`uv` lockfile workflow. That validation order is not a required user adoption
-route. These are plausible long-term capabilities, not conclusions earned by
-this fixture. Selecting a saved code snapshot for a step is not useful enough
-as a standalone validation question unless it reduces a concrete
-run-preparation or rerun risk.
+From the perspective of this first code-recording fixture, the deferred
+validation chain starts with promoting captured snapshots into managed code
+versions, then comparing explicit code fact surfaces, planning workspace
+materialization, creating editable workspaces, observing editable folders
+against selected managed versions, preparing run context from selected code and
+other run-start inputs, preparing a manual rerun from selected-reference
+context, recording declared environment inventory, and only later syncing a
+declared environment such as a `uv` lockfile workflow.
+
+That sequence is historical to this first fixture, not the current next-step
+recommendation after later managed-code-version validation. Once the managed
+code-version record boundary is validated, the next implementation-shaped
+question should move to comparable code surface. The validation order is also
+not a required user adoption route. These are plausible long-term
+capabilities, not conclusions earned by this fixture. Selecting a saved code
+snapshot for a step is not useful enough as a standalone validation question
+unless it reduces a concrete run-preparation or rerun risk.
 
 ## Relationship To Prior Slices
 

@@ -140,8 +140,10 @@ Validation question: can Scopecat compare explicit code fact sets without
 pretending every included item is content-comparable?
 
 User pressure: users need to compare recorded or managed code contexts and
-understand why files are same-observed, changed, missing, reference-only,
-redacted, excluded, or not-compared.
+understand findings such as same-observed, changed, missing, unverified,
+redacted, or not-compared. Capture states such as reference-only and excluded
+should explain why a content comparison is unavailable; they are not comparison
+findings by themselves.
 
 First fixture: one recorded-context comparison or one recorded-to-managed
 comparison with explicit authority and capture-state facts.

@@ -54,6 +54,22 @@ Out of scope:
 - hardware write-back, dependency sync, code import, code execution, notebook
   execution, managed runners, or GUI ownership.
 
+## Current Next Validation Recommendation
+
+If the next slice is meant to validate this shared backlog rather than a
+domain-specific backlog, start with **Named Run-Start Input Set**.
+
+That fixture should assemble existing selected context references, such as
+parameter state, setup binding, code context or managed code version, and
+measurement intent, into one run-preparation summary. It should stop at
+selection, labels, provenance, and missing-context findings. It should not
+introduce a universal context schema, hardware control, code import,
+environment sync, runnable-readiness claims, or execution.
+
+Use the experiment-code backlog instead when the next question is about code
+capture state, comparable code surfaces, workspace materialization, editable
+folders, or environment readiness.
+
 ## Candidate Slice Backlog
 
 ### 1. Context Snapshot Record
@@ -137,9 +153,13 @@ Validation question: can Scopecat summarize readiness, trust, freshness,
 validity, or blocked state for a context record without claiming deeper
 execution authority?
 
-Applies to: parameter trust/readiness, setup-binding validity, environment
-inventory, code workspace readiness, running measurement context, and
-calibration continuation state.
+Applies to: parameter trust/readiness, setup-binding validity, declared
+environment inventory, running measurement context, and calibration
+continuation state.
+
+Code workspace readiness belongs to the experiment-code backlog because it
+depends on managed-code, materialization, editable-folder, and environment
+authority that this generic backlog does not earn.
 
 First fixture: one context record with declared or observed readiness facts and
 attention findings.
@@ -153,8 +173,10 @@ Validation question: can Scopecat prepare an external representation of a
 context record after review while keeping Scopecat's authority explicit?
 
 Applies to: compatibility JSON files, setup import or validation reports,
-export package context manifests, handoff bundles, and code workspace
-materialization plans.
+export package context manifests, and handoff bundles.
+
+Code workspace materialization plans belong to the experiment-code backlog
+because they depend on managed-version and workspace authority.
 
 First fixture: one reviewed context record that produces an external output
 plan or materialized review artifact with source identity and skipped,
