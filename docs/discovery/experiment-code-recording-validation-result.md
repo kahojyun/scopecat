@@ -29,7 +29,7 @@ The fixture validates a first code-recording boundary:
   without dependency discovery;
 - mutation capability can remain not analyzed, and recording still does not
   grant execution permission;
-- a captured code-version candidate can describe what Scopecat may later manage
+- a captured code-version record can describe what Scopecat may later manage
   without accepting storage, restore, sync, environment, saved-version
   selection or loading, execution, merge, or workflow semantics.
 
@@ -50,7 +50,7 @@ point-in-time code version/snapshot defined by:
 - declared context references;
 - no internal Git inspection;
 - no dependency discovery, import, execution, or mutation analysis;
-- the candidate capture scope for a future Scopecat-managed code version.
+- the record capture scope for a future Scopecat-managed code version.
 
 Recording is the first adoption action. Selection can later choose, promote, or
 restore one of these records, but the durable product pressure starts with the
@@ -62,7 +62,7 @@ This validates the product posture in
 [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md):
 Scopecat may eventually provide Git-like managed experiment-code versions
 behind lab-native actions, but the first fixture is a recorded code context
-that defines a captured code-version candidate with minimal explicit include
+that defines a captured code-version record with minimal explicit include
 recording.
 
 ## Adoption Route Covered
@@ -76,7 +76,7 @@ The fixture covers the first adoption stage for code recording:
 - notebook capture is useful immediately because outputs can be stripped while
   preserving source;
 - unrecorded files remain outside the record unless the user adds them;
-- the captured code-version candidate leaves room for later Scopecat-managed
+- the captured code-version record leaves room for later Scopecat-managed
   workspaces without pretending that storage, restore, or execution contracts
   already exist.
 
@@ -114,7 +114,7 @@ It assembles and validates:
 - included file summaries;
 - non-recording policy for unrecorded files;
 - calibration-step references to recorded code context;
-- captured code-version candidate scope;
+- captured code-version record scope;
 - attention items for stripped notebooks, unrecorded explicitly excluded files,
   ignored Git state, and no execution permission.
 

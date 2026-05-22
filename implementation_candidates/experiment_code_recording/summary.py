@@ -57,18 +57,20 @@ def _validate_references(source: dict[str, Any]) -> None:
             if input_ref["name"] == "code_context" and input_ref["snapshot_id"] not in contexts:
                 raise ValueError("calibration step references missing code context")
 
-    for candidate in source["captured_version_candidates"]:
-        source_context_id = candidate["source_context_id"]
+    for record in source["captured_code_version_records"]:
+        source_context_id = record["source_context_id"]
         if source_context_id not in contexts:
             raise ValueError(
-                f"captured version candidate references missing context: {source_context_id}"
+                f"captured code-version record references missing context: {source_context_id}"
             )
         source_context = contexts[source_context_id]
-        scope = candidate["capture_scope"]
+        scope = record["capture_scope"]
         if scope["root_id"] != source_context["external_root_id"]:
-            raise ValueError("captured version root must match source context root")
+            raise ValueError("captured code-version record root must match source context root")
         if scope["included_files"] != _included_paths(source_context):
-            raise ValueError("captured version inclusion must match source context inclusion")
+            raise ValueError(
+                "captured code-version record inclusion must match source context inclusion"
+            )
 
 
 def _external_code_root_summary(root: dict[str, Any]) -> dict[str, Any]:
@@ -131,14 +133,14 @@ def _calibration_step_reference(step: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _captured_version_candidate_summary(candidate: dict[str, Any]) -> dict[str, Any]:
-    scope = candidate["capture_scope"]
+def _captured_code_version_record_summary(record: dict[str, Any]) -> dict[str, Any]:
+    scope = record["capture_scope"]
     return {
-        "candidate_id": candidate["candidate_id"],
-        "source_context_id": candidate["source_context_id"],
-        "candidate_status": candidate["candidate_status"],
-        "materialization_intent": candidate["materialization_intent"],
-        "storage_claim": candidate["storage_claim"],
+        "record_id": record["record_id"],
+        "source_context_id": record["source_context_id"],
+        "record_status": record["record_status"],
+        "materialization_intent": record["materialization_intent"],
+        "storage_claim": record["storage_claim"],
         "included_files": list(scope["included_files"]),
         "notebook_recording_policy": scope["notebook_recording_policy"],
         "default_file_inclusion": scope["default_file_inclusion"],
@@ -219,9 +221,9 @@ def build_experiment_code_recording_summary(source: dict[str, Any]) -> dict[str,
         "calibration_step_references": [
             _calibration_step_reference(step) for step in source.get("calibration_steps", [])
         ],
-        "captured_version_candidates": [
-            _captured_version_candidate_summary(candidate)
-            for candidate in source["captured_version_candidates"]
+        "captured_code_version_records": [
+            _captured_code_version_record_summary(record)
+            for record in source["captured_code_version_records"]
         ],
         "attention": _attention(source),
     }

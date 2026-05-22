@@ -128,19 +128,19 @@ class ExperimentCodeRecordingFixtureTest(unittest.TestCase):
         )
         self.assertEqual(summary["recording_policy"]["dependency_discovery"], "not_performed")
 
-    def test_captured_version_candidate_is_not_storage_or_workflow_contract(self) -> None:
+    def test_captured_code_version_record_is_not_storage_or_workflow_contract(self) -> None:
         source = _input_fixture()
         summary = _expected_summary()
-        candidate = summary["candidate_summary"]["captured_version_candidates"][0]
-        source_candidate = source["captured_version_candidates"][0]
+        record = summary["candidate_summary"]["captured_code_version_records"][0]
+        source_record = source["captured_code_version_records"][0]
 
-        self.assertEqual(candidate["candidate_status"], "candidate_not_committed_contract")
-        self.assertEqual(candidate["storage_claim"], "not_decided_by_fixture")
+        self.assertEqual(record["record_status"], "recorded_not_storage_contract")
+        self.assertEqual(record["storage_claim"], "not_decided_by_fixture")
         self.assertEqual(
-            candidate["included_files"],
-            source_candidate["capture_scope"]["included_files"],
+            record["included_files"],
+            source_record["capture_scope"]["included_files"],
         )
-        self.assertEqual(candidate["default_file_inclusion"], "not_recorded_unless_included")
+        self.assertEqual(record["default_file_inclusion"], "not_recorded_unless_included")
         self.assertIn("workflow DAG", summary["decisions_not_earned"])
         self.assertIn("default record-all file tracking", summary["decisions_not_earned"])
 

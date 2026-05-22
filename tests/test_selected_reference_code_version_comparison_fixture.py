@@ -45,7 +45,7 @@ class SelectedReferenceCodeVersionComparisonFixtureTest(unittest.TestCase):
 
         self.assertIn("recorded_code_context", source["comparison_request"]["comparison_scope"])
         self.assertIn(
-            "captured_version_candidate",
+            "captured_code_version_record_identity",
             source["comparison_request"]["comparison_scope"],
         )
         self.assertNotIn("experiment_code_version", summary["not_compared_scope"])

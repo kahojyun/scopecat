@@ -54,7 +54,7 @@ The selected-reference fixtures should distinguish:
 | Declared preview metadata | Shape and role metadata sufficient to say whether a quick visual comparison is plausible. |
 | Comparison finding | A precise finding label: changed, missing, unverified, redacted, unlinked, same-observed, or not-compared. |
 | Recorded code context | Declared root, entrypoint, included files or source observations, notebook recording policy, and declared refs that define a code version/snapshot scope. |
-| Captured version candidate | Fixture-local point-in-time code snapshot reference that can be compared without accepting managed workspace storage. |
+| Captured code-version record identity | Fixture-local point-in-time code snapshot record ID that can be compared without accepting managed workspace storage or full code-version record comparison. |
 | Recorded source observation | Fixture-local token for comparing recorded source observations, not a checksum or integrity contract. |
 
 The fixtures compare declared context. They should not inspect raw data,
@@ -94,7 +94,7 @@ The code-version fixture should stay small:
 - one selected reference measurement;
 - both measurements reference recorded code context as a named input;
 - one matching notebook entrypoint path and recording policy;
-- changed recorded-code context and captured code-version candidate IDs;
+- changed recorded-code context and captured code-version record identities;
 - one changed entrypoint source observation;
 - one same-observed helper source observation;
 - one helper missing from current and one helper missing from reference;

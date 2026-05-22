@@ -19,7 +19,7 @@
     "comparison_scope": [
       "measurement_identity",
       "recorded_code_context",
-      "captured_version_candidate",
+      "captured_code_version_record_identity",
       "recorded_code_file_inventory",
       "declared_context_refs"
     ],
@@ -80,7 +80,7 @@
     {
       "side": "reference",
       "context_id": "code-context-readout-cali-0001",
-      "captured_version_candidate_id": "code-version-candidate-0001",
+      "captured_code_version_record_id": "code-version-record-0001",
       "external_root_id": "external-code-root-readout-demo",
       "external_root_display": "redacted_control_pc_path",
       "context_role": "calibration_entrypoint_context",
@@ -126,7 +126,7 @@
     {
       "side": "current",
       "context_id": "code-context-readout-cali-0002",
-      "captured_version_candidate_id": "code-version-candidate-0002",
+      "captured_code_version_record_id": "code-version-record-0002",
       "external_root_id": "external-code-root-readout-demo",
       "external_root_display": "redacted_control_pc_path",
       "context_role": "calibration_entrypoint_context",
@@ -172,7 +172,7 @@
   ],
   "expected_finding_codes": [
     "changed_recorded_code_context",
-    "changed_captured_version_candidate",
+    "changed_captured_code_version_record_identity",
     "same_observed_code_entrypoint",
     "same_observed_notebook_recording_policy",
     "changed_entrypoint_source_observation",

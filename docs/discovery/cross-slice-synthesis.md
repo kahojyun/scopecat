@@ -87,7 +87,7 @@ Selected reference comparison has fixture-level validation for comparing a
 current measurement against a user-selected reference as recorded context. It
 reuses selected measurement IDs, declared preview metadata, named input
 snapshots, parameter state references, setup-binding references, selected
-artifacts, recorded code context, captured code-version candidates, include-list
+artifacts, recorded code context, captured code-version record identities, include-list
 file inventory, and precise finding vocabulary. It has not earned a comparison
 engine, user-judgment engine, fit-quality comparison, raw-data comparison,
 setup truth, publication-grade plotting, user-provided analysis conclusion
@@ -97,8 +97,8 @@ The first reference-selection model can start from ordinary user marks on
 measurement records.
 
 Experiment code recording has a slice-local summary candidate for recorded
-run/step code context from a messy external folder and a candidate captured
-code version. The product concept is a point-in-time code version/snapshot for
+run/step code context from a messy external folder and a captured code-version
+record. The product concept is a point-in-time code version/snapshot for
 a declared recording scope; later selection can choose, promote, or restore
 one of those records. It uses minimal explicit include recording, strips
 notebook outputs before recording, validates recorded-root, step-input, and
@@ -110,7 +110,7 @@ workflow/DAG nodes, component-level versioning, generated artifact
 regeneration, or GUI design.
 
 Managed code version has a slice-local summary candidate for turning a
-captured code-version candidate into a Scopecat-managed candidate record with
+captured code-version record into a Scopecat-managed record with
 stable identity, exact inclusion-aligned file inventory, content-integrity
 hints, and materialization intent. It does not read source files, inspect Git
 state, create archives, restore environments, materialize workspaces, import
@@ -171,7 +171,7 @@ schema.
 | Comparison finding | Selected reference comparison, export, running inspection | A precise context-comparison result such as changed, missing, unverified, redacted, unlinked, same-observed, or not-compared. It is not automatic cause attribution. |
 | Preview compatibility | Selected reference comparison, export, running inspection, scan/data-shape | Declared preview metadata that suggests compatible quick browsing or overlay across measurements. It does not imply publication-grade plotting or user interpretation. |
 | Recorded code context | Experiment code, calibration continuation, selected reference | The explicit code root, entrypoint, included files or source observations, notebook recording policy, and declared context refs associated with a run or step. In selected-reference comparison it is declared context, not Git diff, source semantics, or execution readiness. |
-| Captured code-version candidate | Experiment code, export/handoff, selected reference | A proposed point-in-time code snapshot for future Scopecat-managed code versions. It can describe recording/capture scope and support declared context comparison without accepting storage, restore, sync, environment, loading, execution, merge, Git inspection, or managed workspace semantics. |
+| Captured code-version record | Experiment code, export/handoff, selected reference | A point-in-time code snapshot record that Scopecat may later manage. It can describe recording/capture scope and support declared context comparison without accepting storage, restore, sync, environment, loading, execution, merge, Git inspection, or managed workspace semantics. |
 
 ## Stable Separations
 
@@ -227,7 +227,7 @@ Several separations now appear repeatedly enough to keep carrying forward:
   semantics for each label before it can provide objective comparison.
 - Experiment code/version mismatch is a real selected-reference comparison
   dimension. Selected-reference comparison can compare declared recorded code
-  context, captured code-version candidates, include-list inventory, recorded
+  context, captured code-version record identities, include-list inventory, recorded
   source observations, and declared refs without claiming Git diff, semantic
   source comparison, environment readiness, restore, loading, or execution.
 - Early code recording is explicit-include-based. Internal Git state,

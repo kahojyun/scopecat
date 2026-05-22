@@ -1,4 +1,4 @@
-"""Structured summary builder for a managed code version candidate.
+"""Structured summary builder for a managed code version record.
 
 This module is an experimental production-shaped boundary. It is deliberately
 side-effect free: it does not read source files, inspect Git state, create
@@ -14,7 +14,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 _EXPECTED_POLICY = {
-    "storage_contract": "candidate_record_only",
+    "storage_contract": "record_only",
     "file_content_source": "declared_fixture_records",
     "integrity_contract": "content_integrity_hints_only",
     "materialization": "intent_recorded_not_performed",
@@ -36,8 +36,8 @@ def _records_by_key(records: list[dict[str, Any]], key: str) -> dict[str, dict[s
     return output
 
 
-def _candidate_by_id(source: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    return _records_by_key(source["captured_version_candidates"], "candidate_id")
+def _code_version_record_by_id(source: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return _records_by_key(source["captured_code_version_records"], "record_id")
 
 
 def _version_by_id(source: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -94,30 +94,32 @@ def _validate_boundary_claims(version: dict[str, Any]) -> None:
 
 def _validate_references(source: dict[str, Any]) -> None:
     _validate_policy(source)
-    candidates = _candidate_by_id(source)
+    code_version_records = _code_version_record_by_id(source)
     _version_by_id(source)
 
     for version in source["managed_code_versions"]:
         version_id = version["version_id"]
-        source_candidate_id = version["source_candidate_id"]
-        if source_candidate_id not in candidates:
+        source_record_id = version["source_record_id"]
+        if source_record_id not in code_version_records:
             raise ValueError(
-                f"managed code version references missing candidate: {source_candidate_id}"
+                f"managed code version references missing code version record: {source_record_id}"
             )
         _validate_boundary_claims(version)
 
         for file_record in version["file_records"]:
             _validate_file_record(version_id, file_record)
 
-        candidate = candidates[source_candidate_id]
-        expected_paths = candidate["capture_scope"]["included_files"]
+        source_record = code_version_records[source_record_id]
+        expected_paths = source_record["capture_scope"]["included_files"]
         actual_paths = _file_paths(version)
         if len(set(actual_paths)) != len(actual_paths):
             raise ValueError(f"managed code version {version_id} contains duplicate file paths")
         if actual_paths != expected_paths:
-            raise ValueError("managed code version file records must match candidate include list")
+            raise ValueError(
+                "managed code version file records must match source record include list"
+            )
 
-        notebook_recording_policy = candidate["capture_scope"]["notebook_recording_policy"]
+        notebook_recording_policy = source_record["capture_scope"]["notebook_recording_policy"]
         for file_record in version["file_records"]:
             if (
                 file_record["path"].endswith(".ipynb")
@@ -134,12 +136,12 @@ def _validate_references(source: dict[str, Any]) -> None:
             )
 
 
-def _captured_version_candidate_summary(candidate: dict[str, Any]) -> dict[str, Any]:
-    scope = candidate["capture_scope"]
+def _captured_code_version_record_summary(record: dict[str, Any]) -> dict[str, Any]:
+    scope = record["capture_scope"]
     return {
-        "candidate_id": candidate["candidate_id"],
-        "source_context_id": candidate["source_context_id"],
-        "candidate_status": candidate["candidate_status"],
+        "record_id": record["record_id"],
+        "source_context_id": record["source_context_id"],
+        "record_status": record["record_status"],
         "root_id": scope["root_id"],
         "included_files": list(scope["included_files"]),
         "notebook_recording_policy": scope["notebook_recording_policy"],
@@ -170,7 +172,7 @@ def _managed_version_summary(version: dict[str, Any]) -> dict[str, Any]:
     )
     return {
         "version_id": version["version_id"],
-        "source_candidate_id": version["source_candidate_id"],
+        "source_record_id": version["source_record_id"],
         "stable_identity": copy.deepcopy(version["stable_identity"]),
         "storage_authority": version["storage_authority"],
         "version_status": version["version_status"],
@@ -188,14 +190,12 @@ def _attention(source: dict[str, Any]) -> list[dict[str, Any]]:
     attention = []
     policy = source["managed_version_policy"]
 
-    if policy["storage_contract"] == "candidate_record_only":
+    if policy["storage_contract"] == "record_only":
         attention.append(
             {
-                "code": "managed_storage_candidate_only",
+                "code": "managed_storage_record_only",
                 "severity": "info",
-                "basis": (
-                    "The managed code version is a candidate record, not a final storage backend."
-                ),
+                "basis": "The managed code version is a record, not a final storage backend.",
                 "does_not_claim": "final_storage_architecture",
             }
         )
@@ -260,9 +260,9 @@ def build_managed_code_version_summary(source: dict[str, Any]) -> dict[str, Any]
     _validate_references(source)
     return {
         "managed_version_policy": copy.deepcopy(source["managed_version_policy"]),
-        "captured_version_candidates": [
-            _captured_version_candidate_summary(candidate)
-            for candidate in source["captured_version_candidates"]
+        "captured_code_version_records": [
+            _captured_code_version_record_summary(record)
+            for record in source["captured_code_version_records"]
         ],
         "managed_code_versions": [
             _managed_version_summary(version) for version in source["managed_code_versions"]

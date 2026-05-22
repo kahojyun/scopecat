@@ -8,7 +8,7 @@
     "early_adoption_boundary": "The first recording path is minimal and explicit-include-based. Unrecorded files are not analyzed or surfaced as warnings.",
     "git_state": "Internal Git state is not inspected in this early-adoption boundary.",
     "notebook_outputs": "Notebook outputs are stripped before recording so captured code context does not preserve stale output payloads.",
-    "captured_version": "The captured version is a candidate point-in-time code snapshot for future Scopecat-managed code versions, not a committed storage contract."
+    "captured_code_version_record": "The captured code-version record is a point-in-time code snapshot for future Scopecat-managed code versions, not a committed storage contract."
   },
   "candidate_summary": {
     "recording_policy": {
@@ -104,11 +104,11 @@
         ]
       }
     ],
-    "captured_version_candidates": [
+    "captured_code_version_records": [
       {
-        "candidate_id": "code-version-candidate-0001",
+        "record_id": "code-version-record-0001",
         "source_context_id": "code-context-readout-cali-0001",
-        "candidate_status": "candidate_not_committed_contract",
+        "record_status": "recorded_not_storage_contract",
         "materialization_intent": "future_scopecat_managed_workspace",
         "storage_claim": "not_decided_by_fixture",
         "included_files": [
@@ -152,7 +152,7 @@
     "Unrecorded folder contents are not analyzed as warnings.",
     "Internal Git state is not inspected by this fixture.",
     "Included notebooks are stripped to source without outputs before recording.",
-    "The captured version candidate shows the point-in-time code snapshot Scopecat may later manage, without accepting storage, restore, sync, environment, saved-version loading, execution, merge, or workflow semantics.",
+    "The captured code-version record shows the point-in-time code snapshot Scopecat may later manage, without accepting storage, restore, sync, environment, saved-version loading, execution, merge, or workflow semantics.",
     "Workflow or DAG nodes are not required for the first code-versioning boundary."
   ],
   "decisions_not_earned": [

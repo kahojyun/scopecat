@@ -54,7 +54,7 @@ The earliest adoption path should be deliberately minimal:
 The near-term product boundary is:
 
 - recorded code context from a messy external folder;
-- a candidate captured code version/snapshot that Scopecat could later manage;
+- a captured code-version/snapshot record that Scopecat could later manage;
 - explicit include policy and notebook recording policy;
 - explicit links from measurements or calibration steps to recorded code
   context.
@@ -185,7 +185,7 @@ later questions.
 
 - Is recorded root plus explicit include policy enough for the first
   code-recording and captured-version-candidate boundary?
-- What should Scopecat store for a captured version first: file contents,
+- What should Scopecat store for a captured code-version record first: file contents,
   checksums, stripped notebooks, an archive, or a content-addressed snapshot?
 - Which include-list helpers should exist for common notebook/script workflows
   without defaulting to record-all behavior?

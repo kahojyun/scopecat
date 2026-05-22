@@ -3,15 +3,15 @@
 ## Fixture
 
 - Source: `managed-code-version-input.json`
-- Boundary: managed code-version record candidate
+- Boundary: managed code-version record
 - Status: fixture output, not product contract
 
 ## Managed Version
 
 - Version: `managed-code-version-readout-0001`
-- Source candidate: `code-version-candidate-0001`
+- Source record: `code-version-record-0001`
 - Stable ID: `sc-codever-readout-0001`
-- Storage authority: `scopecat_managed_candidate_record`
+- Storage authority: `scopecat_managed_record`
 - Files: 3
 - Notebook files: 2
 
@@ -25,7 +25,7 @@
 
 ## Attention
 
-- `managed_storage_candidate_only`: final storage architecture is not decided.
+- `managed_storage_record_only`: final storage architecture is not decided.
 - `integrity_hints_not_storage_contract`: checksums and sizes are not an archive or content-addressed store contract.
 - `materialization_not_performed`: no editable workspace is created.
 - `environment_not_restored`: no environment is synced or checked.

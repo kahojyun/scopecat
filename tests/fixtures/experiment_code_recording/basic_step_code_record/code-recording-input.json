@@ -102,11 +102,11 @@
       ]
     }
   ],
-  "captured_version_candidates": [
+  "captured_code_version_records": [
     {
-      "candidate_id": "code-version-candidate-0001",
+      "record_id": "code-version-record-0001",
       "source_context_id": "code-context-readout-cali-0001",
-      "candidate_status": "candidate_not_committed_contract",
+      "record_status": "recorded_not_storage_contract",
       "capture_scope": {
         "root_id": "external-code-root-readout-demo",
         "included_files": [

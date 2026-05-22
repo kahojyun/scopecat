@@ -15,11 +15,10 @@ where the boundary remains intentionally narrow.
 
 The fixture validates a first managed-version boundary:
 
-- a captured code-version candidate can become a Scopecat-managed candidate
-  record;
+- a captured code-version record can become a Scopecat-managed record;
 - managed identity can be assigned without deciding final object ID or backend
   layout;
-- file inventory can stay exactly aligned with the candidate include list;
+- file inventory can stay exactly aligned with the source record include list;
 - notebook source-without-outputs policy can carry into the managed record;
 - per-file checksum, size, and observation time can be represented as
   integrity hints;
@@ -35,7 +34,7 @@ that version.
 
 The useful first managed boundary is:
 
-- source captured code-version candidate;
+- source captured code-version record;
 - assigned stable managed-version identity;
 - included file inventory;
 - recorded form for each file;
@@ -57,14 +56,14 @@ Git, environment, or execution authority.
 
 It assembles and validates:
 
-- captured code-version candidate summaries;
+- captured code-version record summaries;
 - managed code versions with stable identity, status, storage authority, file
   counts, integrity hint counts, and materialization intent;
 - file inventory records with relative source and materialization paths;
-- referential integrity from managed version to candidate;
-- exact inclusion alignment between candidate scope and file records;
+- referential integrity from managed version to source record;
+- exact inclusion alignment between source-record scope and file records;
 - SHA-256-prefixed integrity hints;
-- attention items for candidate-only storage, integrity hints, deferred
+- attention items for record-only storage, integrity hints, deferred
   materialization, no environment restoration, no code execution, and no Git
   inspection.
 
@@ -74,7 +73,7 @@ import code, execute code, or define workflow/DAG contracts.
 
 ## Relationship To Prior Slices
 
-The fixture depends on the code-recording slice for captured-version candidate
+The fixture depends on the code-recording slice for captured code-version record
 vocabulary. In that vocabulary, the run/step code record defines the capture
 scope for a point-in-time code version/snapshot; later selection can choose,
 promote, or restore that record. The fixture also keeps selected measurement

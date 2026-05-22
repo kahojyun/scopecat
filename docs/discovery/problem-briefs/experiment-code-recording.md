@@ -130,7 +130,7 @@ before Scopecat can preserve useful code context.
 ## Possible Validation Questions
 
 - Is recorded root/source reference plus explicit entrypoint, include policy,
-  stripped notebook source, and captured code-version candidate enough to
+  stripped notebook source, and captured code-version record enough to
   improve code recording, recovery, and explanation?
 - Can recorded code references feed future restore or calibration-batch
   planning without Scopecat becoming a deployment or managed-runner system?

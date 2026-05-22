@@ -34,9 +34,9 @@ Mutation capability is therefore recorded as not analyzed.
 
 Recording does not grant execution permission.
 
-## Captured Code Version Candidate
+## Captured Code Version Record
 
-`code-version-candidate-0001` is a candidate point-in-time code snapshot for
+`code-version-record-0001` is a point-in-time code-version record for
 future Scopecat-managed code versioning. The calibration-step record defines
 its current root, entrypoint, include list, notebook output-stripping policy,
 and declared environment profile reference.

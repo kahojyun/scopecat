@@ -14,7 +14,7 @@ semantics, workflow/DAG contracts, or GUI design.
 
 This slice follows
 [`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md).
-The prior code-recording slice earned a captured code-version candidate with an
+The prior code-recording slice earned a captured code-version record with an
 external root, included files, notebook-output stripping policy, and
 materialization intent. The run/step record defined the capture scope; later
 selection can choose, promote, or restore that record. It did not earn storage
@@ -23,7 +23,7 @@ or restore behavior.
 ## Validation Question
 
 Can Scopecat represent a first managed code-version record for a captured
-code-version candidate while preserving a narrow non-execution boundary?
+code-version record while preserving a narrow non-execution boundary?
 
 First fixture:
 
@@ -35,8 +35,8 @@ The first managed-version boundary should distinguish:
 
 | Concept | Meaning In This Plan |
 | --- | --- |
-| Captured-version candidate | The point-in-time code snapshot scope already earned by the prior slice. |
-| Managed code version | A Scopecat-assigned candidate record with stable identity, file inventory, integrity hints, and materialization intent. |
+| Captured code-version record | The point-in-time code snapshot scope already earned by the prior slice. |
+| Managed code version | A Scopecat-assigned record with stable identity, file inventory, integrity hints, and materialization intent. |
 | File inventory | The exact included files in the managed record, with recorded form and public-safe metadata. |
 | Integrity hint | Lightweight checksum, size, and observation metadata for each file record. This is not a storage backend or restore guarantee. |
 | Materialization intent | A declared future workspace materialization target or action. No workspace is created in this slice. |
@@ -47,14 +47,14 @@ The first managed-version boundary should distinguish:
 
 The first fixture should stay small:
 
-- one captured code-version candidate from a recorded external code context;
-- one managed code version derived from that candidate;
+- one captured code-version record from a recorded external code context;
+- one managed code version derived from that source record;
 - three included file records, including two notebooks recorded without
   outputs and one helper module;
 - one Scopecat-assigned stable identity;
 - SHA-256, size, and observation-time hints for each file;
 - package- or workspace-relative materialization paths;
-- attention items for candidate-only storage, integrity hints, materialization
+- attention items for record-only storage, integrity hints, materialization
   not performed, environment not restored, code not executed, and Git not
   inspected.
 
@@ -62,10 +62,10 @@ The first fixture should stay small:
 
 Fixture input may include:
 
-- captured code-version candidate ID, code context ID, root ID, include list, and
+- captured code-version record ID, code context ID, root ID, include list, and
   notebook recording policy;
 - managed code version ID, stable identity, status, storage authority, and
-  source candidate reference;
+  source record reference;
 - file records for included paths with role, recorded form, content-state
   hints, and materialization path;
 - materialization intent and explicit non-restore, non-environment, and
@@ -85,7 +85,7 @@ Fixture input should not include:
 
 Expected output should let a reviewer answer:
 
-- which captured code-version candidate became the source;
+- which captured code-version record became the source;
 - which stable managed-version identity was assigned;
 - which files are in the managed version;
 - which content-integrity hints were recorded;

@@ -25,7 +25,7 @@ version/snapshot records:
 - the recorded code context can be referenced by measurement export,
   selected-reference comparison, setup-binding review, and calibration
   continuation;
-- a captured code-version candidate can name the future Scopecat-managed
+- a captured code-version record can name the future Scopecat-managed
   capture scope without accepting storage, restore, merge, sync, or execution
   contracts.
 
@@ -82,7 +82,7 @@ A managed-workspace slice is worth starting when the first adoption path needs
 one of these user-visible behaviors:
 
 - restore this recorded code context on the same or another machine;
-- compare the current editable code with a previously captured version;
+- compare the current editable code with a previously captured code-version record;
 - choose a saved code version at measurement start;
 - materialize a selected version into an editable workspace;
 - protect users from accidentally modifying the only useful copy of selected
@@ -106,7 +106,7 @@ about runnable context rather than record context. Useful triggers include:
 
 Potential managed-workspace fixture:
 
-- input: a captured code-version candidate with included files and stripped
+- input: a captured code-version record with included files and stripped
   notebooks;
 - output: a managed code version summary with stable identity, file inventory,
   content-integrity hints, and materialization intent;

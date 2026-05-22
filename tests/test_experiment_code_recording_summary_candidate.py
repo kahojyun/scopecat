@@ -106,9 +106,9 @@ class ExperimentCodeRecordingSummaryCandidateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "missing code context"):
             build_experiment_code_recording_summary(source)
 
-    def test_captured_version_scope_must_match_recorded_context(self) -> None:
+    def test_captured_code_version_record_scope_must_match_recorded_context(self) -> None:
         source = _load_input()
-        source["captured_version_candidates"][0]["capture_scope"]["included_files"] = [
+        source["captured_code_version_records"][0]["capture_scope"]["included_files"] = [
             "readout_calibration_entrypoint.ipynb"
         ]
 

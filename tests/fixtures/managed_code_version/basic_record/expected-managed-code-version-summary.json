@@ -5,14 +5,14 @@
   "reference_semantics": {
     "status": "fixture_only",
     "contract_guard": "This expected output is not a final storage backend, archive format, content-addressed store, Git replacement, package manager, environment manager, executor, workflow DAG, or GUI contract.",
-    "managed_version": "The managed code version records stable identity, file inventory, integrity hints, and materialization intent for a captured code-version candidate.",
+    "managed_version": "The managed code version records stable identity, file inventory, integrity hints, and materialization intent for a captured code-version record.",
     "integrity": "Checksums, sizes, and observation times are content-integrity hints, not a complete storage or restore contract.",
     "materialization": "Materialization intent is recorded, but no workspace is created by this fixture.",
     "environment_and_execution": "Environment restoration, code loading, importing, and execution remain out of scope."
   },
   "candidate_summary": {
     "managed_version_policy": {
-      "storage_contract": "candidate_record_only",
+      "storage_contract": "record_only",
       "file_content_source": "declared_fixture_records",
       "integrity_contract": "content_integrity_hints_only",
       "materialization": "intent_recorded_not_performed",
@@ -21,11 +21,11 @@
       "internal_git_inspection": "not_performed",
       "default_file_inclusion": "not_recorded_unless_included"
     },
-    "captured_version_candidates": [
+    "captured_code_version_records": [
       {
-        "candidate_id": "code-version-candidate-0001",
+        "record_id": "code-version-record-0001",
         "source_context_id": "code-context-readout-cali-0001",
-        "candidate_status": "ready_for_managed_record_candidate",
+        "record_status": "ready_for_managed_record",
         "root_id": "external-code-root-readout-demo",
         "included_files": [
           "readout_calibration_entrypoint.ipynb",
@@ -39,19 +39,19 @@
     "managed_code_versions": [
       {
         "version_id": "managed-code-version-readout-0001",
-        "source_candidate_id": "code-version-candidate-0001",
+        "source_record_id": "code-version-record-0001",
         "stable_identity": {
-          "identity_kind": "scopecat_assigned_candidate",
+          "identity_kind": "scopecat_assigned_record",
           "stable_id": "sc-codever-readout-0001",
-          "derivation": "assigned_from_captured_version_candidate"
+          "derivation": "assigned_from_captured_code_version_record"
         },
-        "storage_authority": "scopecat_managed_candidate_record",
-        "version_status": "recorded_candidate_not_restore_contract",
+        "storage_authority": "scopecat_managed_record",
+        "version_status": "recorded_not_restore_contract",
         "file_count": 3,
         "notebook_file_count": 2,
         "integrity_hint_count": 3,
         "materialization_intent": {
-          "mode": "editable_workspace_candidate",
+          "mode": "editable_workspace_intent",
           "default_action": "materialize_managed_version_only",
           "target_hint": "future_scopecat_workspace"
         },
@@ -97,9 +97,9 @@
     ],
     "attention": [
       {
-        "code": "managed_storage_candidate_only",
+        "code": "managed_storage_record_only",
         "severity": "info",
-        "basis": "The managed code version is a candidate record, not a final storage backend.",
+        "basis": "The managed code version is a record, not a final storage backend.",
         "does_not_claim": "final_storage_architecture"
       },
       {
@@ -135,8 +135,8 @@
     ]
   },
   "boundary_notes": [
-    "The managed code version starts from a captured code-version candidate.",
-    "File records must match the candidate include list.",
+    "The managed code version starts from a captured code-version record.",
+    "File records must match the source record include list.",
     "Stable identity is assigned for the managed record without deciding final object ID or backend layout.",
     "Integrity hints are recorded, but no archive or content-addressed store is accepted.",
     "Materialization intent is declared, but no workspace is created.",

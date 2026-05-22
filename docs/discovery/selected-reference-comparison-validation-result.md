@@ -33,7 +33,7 @@ It intentionally does not include experiment code/version context.
 The code-version fixture adds the next narrow comparison dimension:
 
 - measurements can reference recorded code context as a named input;
-- recorded code context IDs and captured code-version candidate IDs can be
+- recorded code context IDs and captured code-version record identities can be
   compared as declared context;
 - matching entrypoint paths and notebook recording policy can be shown as
   same-observed findings;
@@ -82,7 +82,7 @@ These fixtures reuse validated pressure without promoting shared architecture:
   context.
 - experiment code recording contributes recorded-code context, include-list
   recording policy, stripped notebook source posture, declared refs, and
-  captured code-version candidate shape.
+  captured code-version record identity shape.
 
 The fixtures use named inputs because that vocabulary is useful, but they do
 not earn a shared run-context framework. The code-version fixture also uses
@@ -111,7 +111,7 @@ Stop this slice at fixture validation unless a near-term task needs a
 production-shaped summary candidate. Use the fixture as comparison pressure
 when designing measurement run context, selected references, and future
 review/report surfaces. Treat code-version comparison as declared context
-comparison only: recorded code context, captured code-version candidate,
+comparison only: recorded code context, captured code-version record identity,
 include-list inventory, recorded source observations, and declared refs. Do not
 promote it into managed workspace storage, Git analysis, environment restore,
 selected-version loading, code execution, semantic source diff, or workflow

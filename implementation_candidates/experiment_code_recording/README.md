@@ -1,4 +1,4 @@
-# Experiment Code Recording Candidate
+# Experiment Code Recording Implementation Candidate
 
 This package is an implementation candidate, not accepted Scopecat
 architecture.
