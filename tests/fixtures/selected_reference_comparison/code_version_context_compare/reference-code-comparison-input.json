@@ -1,0 +1,185 @@
+{
+  "fixture_id": "selected-reference-code-version-context-compare",
+  "fixture_status": "synthetic_public_safe",
+  "fixture_layer": "selected_reference_comparison_fixture",
+  "user_job": "Compare the selected experiment code context for a current measurement against a user-selected reference without inspecting Git state, restoring workspaces, resolving dependencies, or executing code.",
+  "source_problem_briefs": [
+    "docs/discovery/problem-briefs/selected-reference-comparison.md",
+    "docs/discovery/problem-briefs/experiment-code-selection.md"
+  ],
+  "comparison_request": {
+    "comparison_id": "reference-code-compare-0001",
+    "current_measurement_id": "measurement-06002",
+    "reference_measurement_id": "measurement-06001",
+    "reference_selection": {
+      "selected_by": "experimenter",
+      "selection_source": "user_measurement_mark",
+      "mark_label": "last_working_reference"
+    },
+    "comparison_scope": [
+      "measurement_identity",
+      "selected_code_context",
+      "captured_version_candidate",
+      "selected_code_file_inventory",
+      "declared_context_refs"
+    ],
+    "not_compared_scope": [
+      "internal_git_state",
+      "dependency_closure",
+      "environment_readiness",
+      "code_execution",
+      "managed_workspace_restore",
+      "workflow_dag"
+    ]
+  },
+  "measurements": [
+    {
+      "measurement_id": "measurement-06001",
+      "side": "reference",
+      "experiment_label": "qA readout calibration",
+      "sample_id": "sample-alpha",
+      "cooldown_id": "cooldown-2026-05",
+      "run_start_time": "2026-05-21T08:10:00",
+      "source_identity": "managed-record-06001",
+      "inputs": [
+        {
+          "name": "code_context",
+          "snapshot_id": "code-context-readout-cali-0001",
+          "role": "selected_entrypoint_and_whitelisted_files"
+        },
+        {
+          "name": "parameter_state",
+          "snapshot_id": "param-state-0003",
+          "role": "selected_calibration_values"
+        }
+      ]
+    },
+    {
+      "measurement_id": "measurement-06002",
+      "side": "current",
+      "experiment_label": "qA readout calibration",
+      "sample_id": "sample-alpha",
+      "cooldown_id": "cooldown-2026-05",
+      "run_start_time": "2026-05-21T16:40:00",
+      "source_identity": "managed-record-06002",
+      "inputs": [
+        {
+          "name": "code_context",
+          "snapshot_id": "code-context-readout-cali-0002",
+          "role": "selected_entrypoint_and_whitelisted_files"
+        },
+        {
+          "name": "parameter_state",
+          "snapshot_id": "param-state-0003",
+          "role": "selected_calibration_values"
+        }
+      ]
+    }
+  ],
+  "selected_code_contexts": [
+    {
+      "side": "reference",
+      "context_id": "code-context-readout-cali-0001",
+      "captured_version_candidate_id": "code-version-candidate-0001",
+      "external_root_id": "external-code-root-readout-demo",
+      "external_root_display": "redacted_control_pc_path",
+      "context_role": "calibration_entrypoint_context",
+      "entrypoint_path": "readout_calibration_entrypoint.ipynb",
+      "entrypoint_kind": "notebook",
+      "entrypoint_recorded_form": "source_without_outputs",
+      "execution_claim": "not_executed_by_fixture",
+      "capture_policy": {
+        "mode": "minimal_whitelist_capture",
+        "internal_git_inspection": "not_performed",
+        "default_file_inclusion": "not_recorded_unless_whitelisted",
+        "notebook_output_policy": "strip_outputs_before_recording",
+        "dependency_discovery": "not_performed"
+      },
+      "whitelisted_files": [
+        {
+          "path": "readout_calibration_entrypoint.ipynb",
+          "role": "entrypoint",
+          "recorded_form": "source_without_outputs",
+          "recorded_source_observation_id": "source-observation-entrypoint-a"
+        },
+        {
+          "path": "helpers/record_measurement_context.py",
+          "role": "declared_helper_module",
+          "recorded_form": "source_file",
+          "recorded_source_observation_id": "source-observation-record-context-a"
+        },
+        {
+          "path": "helpers/readout_correction.py",
+          "role": "declared_helper_module",
+          "recorded_form": "source_file",
+          "recorded_source_observation_id": "source-observation-readout-correction-a"
+        }
+      ],
+      "declared_context_refs": [
+        {
+          "ref_id": "env-profile-control-pc-redacted",
+          "ref_kind": "environment_profile_hint",
+          "authority": "user_declared"
+        }
+      ]
+    },
+    {
+      "side": "current",
+      "context_id": "code-context-readout-cali-0002",
+      "captured_version_candidate_id": "code-version-candidate-0002",
+      "external_root_id": "external-code-root-readout-demo",
+      "external_root_display": "redacted_control_pc_path",
+      "context_role": "calibration_entrypoint_context",
+      "entrypoint_path": "readout_calibration_entrypoint.ipynb",
+      "entrypoint_kind": "notebook",
+      "entrypoint_recorded_form": "source_without_outputs",
+      "execution_claim": "not_executed_by_fixture",
+      "capture_policy": {
+        "mode": "minimal_whitelist_capture",
+        "internal_git_inspection": "not_performed",
+        "default_file_inclusion": "not_recorded_unless_whitelisted",
+        "notebook_output_policy": "strip_outputs_before_recording",
+        "dependency_discovery": "not_performed"
+      },
+      "whitelisted_files": [
+        {
+          "path": "readout_calibration_entrypoint.ipynb",
+          "role": "entrypoint",
+          "recorded_form": "source_without_outputs",
+          "recorded_source_observation_id": "source-observation-entrypoint-b"
+        },
+        {
+          "path": "helpers/record_measurement_context.py",
+          "role": "declared_helper_module",
+          "recorded_form": "source_file",
+          "recorded_source_observation_id": "source-observation-record-context-a"
+        },
+        {
+          "path": "helpers/readout_correction_v2.py",
+          "role": "declared_helper_module",
+          "recorded_form": "source_file",
+          "recorded_source_observation_id": "source-observation-readout-correction-b"
+        }
+      ],
+      "declared_context_refs": [
+        {
+          "ref_id": "env-profile-control-pc-redacted",
+          "ref_kind": "environment_profile_hint",
+          "authority": "user_declared"
+        }
+      ]
+    }
+  ],
+  "expected_finding_codes": [
+    "changed_selected_code_context",
+    "changed_captured_version_candidate",
+    "same_observed_code_entrypoint",
+    "same_observed_notebook_recording_policy",
+    "changed_entrypoint_source_observation",
+    "same_observed_helper_source_observation",
+    "missing_current_readout_correction_helper",
+    "missing_reference_readout_correction_v2_helper",
+    "same_observed_declared_environment_ref",
+    "redacted_external_code_root"
+  ]
+}

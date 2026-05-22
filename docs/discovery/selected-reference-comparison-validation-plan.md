@@ -4,14 +4,15 @@
 
 Validation plan, not an ADR.
 
-This plan defines a first fixture boundary for selected-reference comparison.
-It does not accept a final comparison engine, user-judgment engine, setup truth
+This plan defines fixture boundaries for selected-reference comparison. It
+does not accept a final comparison engine, user-judgment engine, setup truth
 contract, raw-data comparison, fit-quality comparison, user-provided analysis
-conclusion model, or GUI design.
+conclusion model, managed code workspace, Git analysis, environment readiness,
+code execution, or GUI design.
 
 ## Source Material
 
-The first fixture should build on already validated discovery pressure:
+The fixtures should build on already validated discovery pressure:
 
 - selected measurement export for explicit selection and non-recursive context;
 - running measurement inspection for declared preview metadata;
@@ -21,10 +22,10 @@ The first fixture should build on already validated discovery pressure:
   user-interpretation boundaries.
 
 Experiment code/version context is also an important selected-reference
-comparison dimension because code differences can explain why one run can be
-inspected or restored while another cannot. The experiment-code-selection
-slice now defines a minimum selected-code reference shape, but this first
-selected-reference fixture intentionally omits code comparison behavior.
+comparison dimension because code differences can be reviewed as declared
+context between a current measurement and a selected reference. The
+experiment-code-selection slice defines a minimum selected-code reference
+shape that can feed the declared code-version comparison fixture.
 
 ## Validation Question
 
@@ -36,13 +37,14 @@ The first fixture treats the selected reference as coming from an ordinary user
 mark on a measurement record. Labels such as last-working, notable, or
 best-observed are user-provided context, not special Scopecat semantics.
 
-First fixture:
+Fixtures:
 
 - `tests/fixtures/selected_reference_comparison/basic_context_compare/`
+- `tests/fixtures/selected_reference_comparison/code_version_context_compare/`
 
 ## Concept Boundary
 
-The first selected-reference boundary should distinguish:
+The selected-reference fixtures should distinguish:
 
 | Concept | Meaning In This Plan |
 | --- | --- |
@@ -51,18 +53,22 @@ The first selected-reference boundary should distinguish:
 | Named input snapshot | Run-start context such as parameter state, setup binding, or station registry reference. |
 | Declared preview metadata | Shape and role metadata sufficient to say whether a quick visual comparison is plausible. |
 | Comparison finding | A precise finding label: changed, missing, unverified, redacted, unlinked, same-observed, or not-compared. |
+| Selected code context | Declared selected root, entrypoint, whitelisted files, notebook recording policy, and declared refs. |
+| Captured version candidate | Fixture-local code-version reference that can be compared without accepting managed workspace storage. |
+| Recorded source observation | Fixture-local token for comparing recorded source observations, not a checksum or integrity contract. |
 
-The fixture compares declared context. It should not inspect raw data, execute
-code, score user judgment, interpret user analysis conclusions, or infer
+The fixtures compare declared context. They should not inspect raw data,
+execute code, score user judgment, interpret user analysis conclusions, or infer
 physical setup truth.
 
-It also should not compare experiment code yet. Code-version comparison should
-be added as a later selected-reference update using the validated
-selected-code reference shape.
+The code-version fixture compares declared selected-code context. It should
+not inspect internal Git state, scan live files, resolve dependencies, restore
+managed workspaces, load selected versions, execute code, or define workflow
+contracts.
 
 ## First Fixture Shape
 
-The first fixture should stay small:
+The basic fixture should stay small:
 
 - one current measurement;
 - one selected reference measurement;
@@ -80,7 +86,23 @@ The first fixture should stay small:
 - one unverified declared sample fact;
 - one redacted station connection fact;
 
-The fixture intentionally excludes experiment code/version references.
+The basic fixture intentionally excludes experiment code/version references.
+
+The code-version fixture should stay small:
+
+- one current measurement;
+- one selected reference measurement;
+- both measurements reference selected code context as a named input;
+- one matching notebook entrypoint path and recording policy;
+- changed selected-code context and captured-version candidate IDs;
+- one changed entrypoint source observation;
+- one same-observed helper source observation;
+- one helper missing from current and one helper missing from reference;
+- one same-observed declared environment profile hint;
+- one redacted external root display value;
+- explicit not-compared scope for internal Git state, dependency closure,
+  environment readiness, code execution, managed workspace restore, and
+  workflow/DAG behavior.
 
 ## Expected Output
 
@@ -93,6 +115,7 @@ Expected review output should let a reviewer answer:
 - whether compatible preview metadata could support quick browsing or overlay;
 - what is missing, unlinked, unverified, redacted, same-observed, changed, or
   not compared;
+- what selected-code context changed, matched, or is missing;
 - that findings are context comparison results, not cause attribution;
 - that interpretation belongs to users or user-provided analysis code.
 
@@ -108,12 +131,19 @@ This plan does not earn:
 - publication-grade plotting;
 - fit-quality comparison;
 - user-provided analysis conclusion model;
-- experiment-code or code-version comparison;
+- managed code workspace storage;
+- Git analysis;
+- dependency discovery;
+- environment readiness;
+- selected-version loading;
+- code execution;
+- semantic source diff;
 - shared run-context framework;
 - GUI design.
 
 ## Current Recommendation
 
-Create one fixture and expected output before writing any implementation
-candidate. The first goal is to validate the comparison-report boundary and
-finding vocabulary, not to build a comparison engine.
+Keep fixtures and expected output ahead of implementation candidates unless a
+near-term workflow needs production-shaped code. The goal is to validate the
+comparison-report boundary and finding vocabulary, not to build a comparison
+engine.

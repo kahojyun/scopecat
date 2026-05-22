@@ -105,12 +105,13 @@ remeasurement, and links to parameter states and measurement records.
 | Document | Use For |
 | --- | --- |
 | [`problem-briefs/selected-reference-comparison.md`](problem-briefs/selected-reference-comparison.md) | Problem framing for selected references, user marks, setup reality, objective comparison findings, and user-interpretation boundaries. |
-| [`selected-reference-comparison-validation-plan.md`](selected-reference-comparison-validation-plan.md) | First fixture-validation boundary for selected-reference context comparison. |
-| [`selected-reference-comparison-validation-result.md`](selected-reference-comparison-validation-result.md) | Result of the first selected-reference comparison fixture. |
+| [`selected-reference-comparison-validation-plan.md`](selected-reference-comparison-validation-plan.md) | Fixture-validation boundaries for selected-reference context comparison. |
+| [`selected-reference-comparison-validation-result.md`](selected-reference-comparison-validation-result.md) | Result of selected-reference context comparison fixtures, including the basic named-input fixture and the declared selected-code context comparison fixture. |
 
-Candidate next slices in this route include code-version comparison,
-setup-binding findings, parameter-state drift findings, import/export
-comparison preview, and support-package review boundaries.
+Candidate next slices in this route include deeper source-diff semantics,
+restore/readiness comparison, setup-binding findings, parameter-state drift
+findings, import/export comparison preview, and support-package review
+boundaries.
 
 ## Promotion Discipline
 
