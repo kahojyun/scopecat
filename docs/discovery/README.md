@@ -79,6 +79,11 @@ This backlog is discovery vocabulary only. It should reduce duplicated
 route-local slice lists without accepting a shared context schema, lifecycle,
 storage model, diff engine, write-back contract, or execution framework.
 
+The first cross-family implementation candidate for this backlog is
+[`named-run-start-input-set-validation-result.md`](named-run-start-input-set-validation-result.md).
+It validates a side-effect-free run-preparation summary without making
+Measurement Records the owner of context-support behavior.
+
 ### Measurement Records
 
 | Document | Use For |
@@ -90,7 +95,6 @@ storage model, diff engine, write-back contract, or execution framework.
 | [`preview-ready-selected-measurement-export-plan.md`](preview-ready-selected-measurement-export-plan.md) | Planning boundary for the source/metadata-first export slice. |
 | [`preview-ready-selected-measurement-export-implementation-plan.md`](preview-ready-selected-measurement-export-implementation-plan.md) | Code-facing plan for the pure selected measurement export summary builder. |
 | [`preview-ready-selected-measurement-export-validation-result.md`](preview-ready-selected-measurement-export-validation-result.md) | Result of the first implementation-shaped export candidate. |
-| [`named-run-start-input-set-validation-result.md`](named-run-start-input-set-validation-result.md) | Result of the first cross-family named run-start input set implementation candidate. |
 | [`storage-transition-export-fixture.md`](storage-transition-export-fixture.md) | Fixture note for managed storage, external references, source identity, and export materialization pressure. |
 | [`storage-transition-export-validation-result.md`](storage-transition-export-validation-result.md) | Result of the storage-transition fixture and domain review. |
 | [`external-file-reference-policy.md`](external-file-reference-policy.md) | Candidate external-file policy modes that affect export, import, inspection, and provenance. |

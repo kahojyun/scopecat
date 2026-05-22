@@ -77,6 +77,13 @@ class NamedRunStartInputSetSummaryCandidateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "hardware_control"):
             build_named_run_start_input_set_summary(source)
 
+    def test_extra_policy_claims_are_rejected(self) -> None:
+        source = _load_input()
+        source["run_start_input_policy"]["restore_contract"] = "performed"
+
+        with self.assertRaisesRegex(ValueError, "expected policy shape"):
+            build_named_run_start_input_set_summary(source)
+
     def test_output_does_not_alias_input_nested_objects(self) -> None:
         source = _load_input()
         summary = build_named_run_start_input_set_summary(source)
@@ -129,6 +136,15 @@ class NamedRunStartInputSetSummaryCandidateTest(unittest.TestCase):
         source["run_start_input_sets"][0]["selected_contexts"][-1].pop("missing_reason")
 
         with self.assertRaisesRegex(ValueError, "needs a reason"):
+            build_named_run_start_input_set_summary(source)
+
+    def test_non_selected_context_must_not_reference_context_record(self) -> None:
+        source = _load_input()
+        source["run_start_input_sets"][0]["selected_contexts"][-1]["context_id"] = (
+            "managed-code-version-readout-0001"
+        )
+
+        with self.assertRaisesRegex(ValueError, "non-selected context"):
             build_named_run_start_input_set_summary(source)
 
     def test_boundary_output_keeps_execution_out_of_scope(self) -> None:

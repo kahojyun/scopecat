@@ -30,7 +30,7 @@ from explicit context records:
 - declared environment context, intentionally unavailable.
 
 The selected context records stay family-owned. The summary copies only
-declared summary fields and selected-reference metadata.
+declared summary fields and selected context reference metadata.
 
 ## What This Earned
 

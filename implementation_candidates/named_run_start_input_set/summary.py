@@ -59,6 +59,8 @@ def _input_sets_by_id(source: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 def _validate_policy(source: dict[str, Any]) -> None:
     policy = source["run_start_input_policy"]
+    if set(policy) != set(_EXPECTED_POLICY):
+        raise ValueError("run-start input policy must match the expected policy shape")
     for key, expected in _EXPECTED_POLICY.items():
         if policy[key] != expected:
             raise ValueError(f"run-start input policy {key} must be {expected}")
@@ -97,6 +99,11 @@ def _validate_selected_context(
                 f"run-start input set {input_set_id} references context from wrong family"
             )
         return
+
+    if context_id is not None:
+        raise ValueError(
+            f"run-start input set {input_set_id} non-selected context must not carry context_id"
+        )
 
     if selected_context["required"] and not selected_context.get("missing_reason"):
         raise ValueError(
