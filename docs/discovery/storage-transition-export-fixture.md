@@ -90,7 +90,7 @@ This fixture does not earn:
 - recursive relation traversal;
 - shared domain model extraction.
 
-## Current Recommendation
+## Slice Recommendation
 
 Keep this fixture as storage-transition pressure for later design. Do not
 extend the selected measurement export implementation candidate from this case

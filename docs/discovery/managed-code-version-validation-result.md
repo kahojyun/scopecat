@@ -22,6 +22,9 @@ The fixture validates a first managed-version boundary:
 - notebook source-without-outputs policy can carry into the managed record;
 - per-file checksum, size, and observation time can be represented as
   integrity hints;
+- managed inventory can strengthen only the captured or recaptured source
+  surface; reference-only prior history should remain visible as a gap rather
+  than silently becoming content-comparable;
 - materialization intent can be recorded without creating a workspace;
 - environment restoration, selected-version loading, code import, execution,
   Git inspection, archive creation, and workflow/DAG semantics remain out of
@@ -80,6 +83,13 @@ promote, or restore that record. The fixture also keeps selected measurement
 export pressure in view by using package- or workspace-relative
 materialization paths, but it does not accept export package writer behavior.
 
+Promotion from recorded snapshot to managed code version should be explicit.
+Managed history does not need to pretend that all earlier recorded snapshots
+form a continuous managed-version line. A prior reference-only code record can
+remain useful context, but it should not be treated as a file inventory or
+checksum-comparable version unless a later capture or observation provides
+those facts.
+
 The fixture uses integrity-hint vocabulary that resembles external-file
 observed state. That resemblance is design pressure only; it does not earn a
 shared integrity model or storage schema.
@@ -93,17 +103,25 @@ shared integrity model or storage schema.
 - integrity hint freshness, recomputation, and mismatch behavior remain
   undecided;
 - materializing a version into an editable workspace remains unvalidated;
-- comparing current editable code with a managed version remains unvalidated;
+- comparable code surface remains unvalidated beyond managed-version record
+  inventory;
+- editable-folder observation against a managed version remains unvalidated and
+  should come after workspace materialization authority is clearer;
+- comparison between recorded context, recorded-to-managed facts,
+  managed-version inventory, capture-state edge cases, and editable-folder
+  observation remains a fixture-family question, not one accepted diff model;
 - environment readiness likely needs a later active validation slice;
 - GUI language for save, restore, compare, and use-version actions remains
   undecided.
 
-## Current Recommendation
+## Slice Recommendation
 
 Use this fixture and summary candidate as the first managed code-version
 record boundary.
 
-The next implementation-shaped step should stay adjacent: either validate
-selected-version comparison against a current editable folder or validate
-workspace materialization intent. Environment restoration should wait until a
-managed storage/materialization boundary has more implementation pressure.
+It supports the deferred route described in
+[`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md):
+comparable code surface should be validated before workspace materialization
+intent, actual workspace creation, editable-folder observation, prepared run
+context, reference-based rerun preparation, or environment restoration. The
+active implementation or PR plan should own sequencing.

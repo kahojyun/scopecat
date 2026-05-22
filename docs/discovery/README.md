@@ -18,6 +18,7 @@ product contracts too early.
 | [`adoption-routes.md`](adoption-routes.md) | Compare current evidence-backed adoption routes by durable user workflow. |
 | [`problem-briefs/README.md`](problem-briefs/README.md) | Start from evidence-backed problem framing before choosing a validation question. |
 | [`cross-slice-synthesis.md`](cross-slice-synthesis.md) | See recurring candidate concepts across validated slices. |
+| [`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md) | Shared discovery backlog for context records attached to or selected for measurements, without accepting a shared schema. |
 | [`shared-model-extraction-deferral.md`](shared-model-extraction-deferral.md) | Understand why shared domain models are intentionally deferred. |
 | [`external-file-reference-policy.md`](external-file-reference-policy.md) | Candidate policy vocabulary for external files, latest state, observed file state, and non-backup boundaries. |
 | [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md) | Product posture for Git-like managed experiment-code versions without requiring users to operate Git. |
@@ -27,6 +28,55 @@ product contracts too early.
 Validation slices are grouped by adoption route. A route can contain several
 slices at different maturity levels; a slice should stay narrow even when it
 tests part of a broader route.
+
+The route tables below include problem briefs, plans, validation results, and
+supporting policy notes. The current validated slice inventory is:
+
+| Slice | Route | Current maturity | Boundary |
+| --- | --- | --- | --- |
+| Preview-ready selected measurement export | Measurement records | Implementation candidate validated | Pure summary for explicit selected measurement sets, default bundles, linked context, declared preview metadata, degraded-preview warnings, and non-recursive traversal. |
+| Storage-transition export | Measurement records | Fixture validated | Source identity, current reference, package materialization, and external-reference policy pressure without accepting storage, checksum, backup, package writer, importer, or GUI behavior. |
+| Running measurement inspection | Measurement records | Fixture validated | State summary for already-recorded data from still-running measurements, including progress, completeness, freshness, declared preview metadata, and non-durable monitor ergonomics. |
+| Declared scan/data-shape fixtures | Measurement records support | Spike/fixtures validated | Declared 1D table, rectangular 2D grid table, and sidecar-declared weak-table pressure for preview readiness, not a final data-shape schema or importer. |
+| Parameter state management | Parameter state | Fixture validated | Parameter-state lineage, purpose labels, seeded/trusted state, reviewable diffs, committed states, and measurement references without hardware write-back or branch/tag/commit semantics. |
+| Experiment code recording | Experiment code context | Summary candidate validated | Recorded run/step code context and code snapshot record from explicit include policy and capture-state posture without Git inspection, dependency discovery, environment restore, loading, execution, or workflow/DAG semantics. |
+| Managed code version | Experiment code context | Summary candidate validated | Managed record shape for a code snapshot record, including stable identity, inclusion-aligned file inventory, integrity hints, and materialization intent without workspace creation or environment restore. |
+| Setup binding | Setup binding | Fixture validated | Setup-binding snapshots, simple diffs, station-registry references, generated line/readout views, and measurement input references while keeping parameter state and hardware control separate. |
+| Calibration work continuation | Calibration continuation | Assembler candidate validated | Continuation-state assembly for planned steps, observed outputs, review gates, proposed writes, blocked steps, and interventions without executor, scheduler, write-back, or GUI ownership. |
+| Selected reference comparison | Selected reference comparison | Fixtures validated | Context-comparison findings against a user-selected reference without user judgment, raw-data comparison, fit-quality comparison, setup truth, restore, execution, semantic source diff, or cause attribution. |
+
+Future slice candidates should each answer one primary validation question. Do
+not combine import/export, storage, GUI, execution, redaction, write-back,
+restore, or shared-framework decisions just because the same fixture mentions
+more than one of them.
+
+Validation result and plan documents may include slice-local recommendations
+for what their fixture earned or deferred. They should not be treated as the
+owner of active sequencing. Sequencing belongs in the implementation or PR
+plan, using these discovery docs as supporting context.
+
+### Measurement Context Backlog
+
+The canonical shared backlog for context records attached to or selected for
+measurements lives in
+[`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md).
+Use it for context-shaped work across parameter state, setup binding,
+experiment code context, declared environment context, analysis choices,
+attachments, artifacts, and selected-reference review.
+
+In compact form, the common candidate slices are:
+
+1. context snapshot record;
+2. measurement or step context link;
+3. named run-start input set;
+4. context comparison findings;
+5. reviewable context change;
+6. context readiness or status;
+7. external materialization or compatibility output.
+
+This backlog is discovery vocabulary only. It should reduce duplicated
+route-local slice lists without accepting a shared context schema, lifecycle,
+storage model, diff engine, write-back contract, or execution framework.
 
 ### Measurement Records
 
@@ -42,13 +92,27 @@ tests part of a broader route.
 | [`storage-transition-export-fixture.md`](storage-transition-export-fixture.md) | Fixture note for managed storage, external references, source identity, and export materialization pressure. |
 | [`storage-transition-export-validation-result.md`](storage-transition-export-validation-result.md) | Result of the storage-transition fixture and domain review. |
 | [`external-file-reference-policy.md`](external-file-reference-policy.md) | Candidate external-file policy modes that affect export, import, inspection, and provenance. |
+| [`../../spikes/scan_data_shapes/README.md`](../../spikes/scan_data_shapes/README.md) | Spike boundary for declared scan/data-shape fixture generation. |
+| [`../../tests/fixtures/scan_data_shapes/`](../../tests/fixtures/scan_data_shapes/) | Public-safe fixtures for rectangular 2D grid and sidecar-declared weak-table pressure. |
 | [`problem-briefs/running-measurement-inspection.md`](problem-briefs/running-measurement-inspection.md) | Problem framing for inspecting already-recorded data from a still-running measurement. |
 | [`running-measurement-inspection-validation-plan.md`](running-measurement-inspection-validation-plan.md) | First fixture-validation boundary for running inspection. |
 | [`running-measurement-inspection-validation-result.md`](running-measurement-inspection-validation-result.md) | Result of running-inspection fixture validation. |
 
-Candidate next slices in this route include import preview, offline legacy-record
-import, derived-analysis trace to source measurements and recorded analysis
-choices, and new-run measurement writer semantics.
+Candidate next slices in this route should stay separate:
+
+- import preview: preview and classify incoming records before acceptance,
+  without validating a full importer, storage mutation, or GUI workflow;
+- offline legacy-record import: read or declare one legacy source shape and
+  preserve source identity, without deciding export-package acceptance;
+- derived artifact source links: connect a derived artifact to explicit source
+  measurements, without recursive analysis-DAG inference;
+- new-run measurement writer semantics: record new measurement data and
+  lifecycle events, without taking over instrument control or live-advice
+  behavior.
+
+Context-shaped work such as recorded analysis choices, artifact links, and
+handoff context should use the Measurement Context Backlog above unless the
+slice is about primary measurement data.
 
 ### Parameter State
 
@@ -58,9 +122,13 @@ choices, and new-run measurement writer semantics.
 | [`parameter-state-management-validation-plan.md`](parameter-state-management-validation-plan.md) | First fixture-validation boundary and fixture pointer for parameter state lineage, purpose labels, reviewable diffs, and committed states. |
 | [`parameter-state-management-validation-result.md`](parameter-state-management-validation-result.md) | Result of the first parameter-state fixture and domain review. |
 
-Candidate next slices in this route include reviewable parameter-write records,
-compatibility JSON writer behavior, drift views, and calibration-step links to
-selected parameter states.
+Most next parameter-state slices are instances of the Measurement Context
+Backlog: context links, named run-start inputs, comparison findings,
+reviewable changes, readiness or trust state, and external compatibility
+outputs. Parameter-specific validation should stay narrow around lineage
+purposes, trusted versus seeded state, drift views, reviewable parameter-write
+records, and compatibility JSON writer behavior without applying changes to
+hardware.
 
 ### Experiment Code Context
 
@@ -70,13 +138,49 @@ selected parameter states.
 | [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md) | Direction for messy external-folder recording, Scopecat-managed code versions, named entrypoints, and workflow/DAG deferral. |
 | [`experiment-code-recording-validation-plan.md`](experiment-code-recording-validation-plan.md) | First fixture-validation boundary for recorded code context that defines code snapshot records. |
 | [`experiment-code-recording-validation-result.md`](experiment-code-recording-validation-result.md) | Result of the first code snapshot fixture and summary candidate. |
-| [`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md) | What the code-recording slice has earned, what remains deferred, and what should trigger managed-workspace or environment-restore validation. |
+| [`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md) | What the code-recording slice has earned, what remains deferred, the user adoption route, and the candidate validation-slice backlog. |
 | [`managed-code-version-validation-plan.md`](managed-code-version-validation-plan.md) | First fixture-validation boundary for turning a code snapshot record into a managed code version record. |
 | [`managed-code-version-validation-result.md`](managed-code-version-validation-result.md) | Result of the first managed code version fixture and summary candidate. |
 
-Candidate next slices in this route include selected-version comparison,
-workspace materialization intent, environment-readiness records, and later
-loading of selected versions.
+The canonical Experiment Code Context candidate-slice backlog lives in
+[`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md).
+In compact form, the validation slices should be ordered by authority level.
+This order is not the user adoption route; it is the order in which Scopecat
+should earn stronger claims:
+
+1. comparable code surface: compare two authority-explicit code fact sets over
+   known captured, reference-only, missing, redacted, or excluded surfaces,
+   without accepting a universal diff model;
+2. workspace materialization intent: plan where a selected managed version
+   would be materialized, without creating an editable workspace;
+3. workspace materialization: create an editable workspace from a selected
+   managed version, without environment sync, code import, Git semantics, or
+   execution;
+4. editable-folder observation: compare an observed editable folder against a
+   selected managed version or materialized workspace, without claiming
+   environment readiness or semantic source correctness;
+5. prepared run context: assemble selected code or workspace, selected
+   parameter state, setup binding, and measurement intent so a user can run
+   existing lab code outside Scopecat, without claiming execution or hardware
+   control;
+6. reference-based rerun preparation: start from a selected reference
+   measurement and prepare the matching run context for manual rerun, without
+   claiming reproducibility or automatic cause attribution;
+7. declared environment inventory: record declared environment files,
+   lockfiles, interpreter hints, or package-manager hints, without syncing,
+   importing, or checking runnable readiness;
+8. environment readiness or sync: only after managed workspace and declared
+   environment authority are clearer.
+
+The comparison work is a fixture family, not one slice. Each fixture should add
+one authority case at a time: recorded-context comparison, recorded-to-managed
+comparison, managed-version inventory comparison, and only later editable-folder
+observation. Add materialized-directory comparison or semantic source diff only
+when a separate validation question needs that stronger authority.
+
+Do not validate "select a code version at run start" by itself. Selection
+becomes useful only when it prepares a run context, supports a reference-based
+rerun, or checks an editable folder against the selected version.
 
 ### Setup Binding
 
@@ -86,9 +190,12 @@ loading of selected versions.
 | [`setup-binding-validation-plan.md`](setup-binding-validation-plan.md) | First fixture-validation boundary for setup-binding snapshots, diffs, and measurement references. |
 | [`setup-binding-validation-result.md`](setup-binding-validation-result.md) | Result of the first setup-binding fixture and measurement-input context review. |
 
-Candidate next slices in this route include setup-binding comparison,
-setup-import validation reports, run-start named input snapshots, and
-selected-reference setup findings.
+Most next setup-binding slices are instances of the Measurement Context
+Backlog: context links, named run-start inputs, comparison findings,
+readiness/status summaries, and selected-reference setup findings.
+Setup-specific validation should stay narrow around station-registry references,
+setup-import validation reports, generated line/readout summaries, opaque
+project-defined payloads, and setup-truth deferral.
 
 ### Calibration Continuation
 
@@ -98,9 +205,12 @@ selected-reference setup findings.
 | [`calibration-work-continuation-validation-plan.md`](calibration-work-continuation-validation-plan.md) | First fixture-validation boundary for continuation-state assembly. |
 | [`calibration-work-continuation-validation-result.md`](calibration-work-continuation-validation-result.md) | Result of the continuation assembler candidate and domain review. |
 
-Candidate next slices in this route include a local sequential executor
-boundary, review/resume UX, calibration-write review, selected-group
-remeasurement, and links to parameter states and measurement records.
+Calibration continuation overlaps the Measurement Context Backlog for context
+links, reviewable changes, readiness/status summaries, and selected parameter
+or setup references. Its domain-specific backlog should stay focused on
+review/resume usefulness, calibration-write review, targeted remeasurement
+intent, and a possible local sequential executor boundary after the read model
+proves useful but insufficient.
 
 ### Selected Reference Comparison
 
@@ -110,10 +220,14 @@ remeasurement, and links to parameter states and measurement records.
 | [`selected-reference-comparison-validation-plan.md`](selected-reference-comparison-validation-plan.md) | Fixture-validation boundaries for selected-reference context comparison. |
 | [`selected-reference-comparison-validation-result.md`](selected-reference-comparison-validation-result.md) | Result of selected-reference context comparison fixtures, including the basic named-input fixture and declared code-context comparison fixture. |
 
-Candidate next slices in this route include deeper source-diff semantics,
-restore/readiness comparison, setup-binding findings, parameter-state drift
-findings, import/export comparison preview, and support-package review
-boundaries.
+Most selected-reference work is a cross-family instance of the Measurement
+Context Backlog, especially context comparison findings over parameter state,
+setup binding, code context, environment context, and preview metadata.
+Selected-reference-specific validation should stay narrow around explicit user
+anchors, objective findings, preview compatibility, support-package review
+boundaries, and the continued separation from user judgment, raw-data
+comparison, fit-quality comparison, setup truth, semantic source review,
+restore, execution, or cause attribution.
 
 ## Promotion Discipline
 

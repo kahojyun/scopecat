@@ -29,6 +29,7 @@ A route is different from a validation slice:
 | [`problem-briefs/README.md`](problem-briefs/README.md) | Evidence-backed user-facing failure cases. |
 | [`README.md#validation-slices`](README.md#validation-slices) | Current validation slices grouped under these routes. |
 | [`cross-slice-synthesis.md`](cross-slice-synthesis.md) | Recurring candidate concepts across validated slices. |
+| [`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md) | Shared discovery backlog for context-shaped validation work across routes. |
 | [`shared-model-extraction-deferral.md`](shared-model-extraction-deferral.md) | Why shared domain models are still deferred. |
 | [`../strategy/product-direction.md`](../strategy/product-direction.md) | Product direction, ownership assumptions, non-goals, and expansion posture. |
 

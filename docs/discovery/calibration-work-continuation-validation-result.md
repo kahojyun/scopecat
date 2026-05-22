@@ -187,7 +187,7 @@ earned until another slice pressures the same concepts.
 - A user may still need execution help if structured continuation state alone
   does not reduce enough manual queuing and recovery burden.
 
-## Current Recommendation
+## Slice Recommendation
 
 Pause before local-executor work.
 

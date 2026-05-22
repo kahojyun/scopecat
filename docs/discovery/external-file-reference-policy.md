@@ -100,7 +100,7 @@ or backup integration. None of those are accepted by this note.
 - How should users distinguish "latest external state" from "recorded
   point-in-time state" in the GUI?
 
-## Current Recommendation
+## Slice Recommendation
 
 Carry these modes forward as policy vocabulary. Do not implement a checksum
 contract, file watcher, backup feature, or shared storage model until a

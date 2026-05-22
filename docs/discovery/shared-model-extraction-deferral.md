@@ -20,9 +20,10 @@ This defers shared architecture. It does not reject the recurring concepts.
 
 ## Context
 
-The cross-slice synthesis shows repeated vocabulary across selected measurement
-export, running measurement inspection, calibration work continuation, and
-measurement/data-shape fixtures:
+The cross-slice synthesis shows repeated vocabulary across measurement records,
+running inspection, calibration continuation, parameter state, setup binding,
+selected-reference comparison, experiment-code recording, managed code version,
+and measurement/data-shape fixtures:
 
 - measurement record;
 - source identity;
@@ -32,14 +33,21 @@ measurement/data-shape fixtures:
 - lifecycle or progress state;
 - intervention or operation;
 - proposal;
+- reviewable change;
 - warning or attention state;
 - authority and provenance.
 
 Those concepts are real discovery pressure. They are useful for analysis,
 fixture design, validation wording, and future architecture discussions.
 
-They are not yet stable enough to become shared product schema or shared code.
-The slices still differ in their immediate user jobs:
+The measurement-context candidate backlog is part of that discovery pressure.
+It may be used to name common validation questions across parameter state,
+setup binding, experiment code context, declared environment context, analysis
+choices, artifacts, attachments, and selected-reference review.
+
+These concepts and backlog entries are not yet stable enough to become shared
+product schema or shared code. The slices still differ in their immediate user
+jobs:
 
 - export needs selected membership, bundle/include state, provenance, and
   preview readiness;
@@ -49,7 +57,14 @@ The slices still differ in their immediate user jobs:
   proposed writes, and available interventions;
 - parameter state management pressures first-class snapshots, named state
   lineages, purpose labels such as working point or exploration,
-  trust/readiness state, reviewable changes, committed states, and run links.
+  trust/readiness state, reviewable changes, committed states, and run links;
+- setup binding needs setup snapshots, station-registry references, generated
+  line/readout summaries, and opaque project-defined payload boundaries;
+- selected-reference comparison needs objective context findings without user
+  judgment, raw-data comparison, setup truth, or cause attribution;
+- experiment code recording needs explicit include scope, code capture state,
+  managed-version promotion, materialization boundaries, and environment
+  deferral.
 
 The overlap is conceptual before it is architectural.
 

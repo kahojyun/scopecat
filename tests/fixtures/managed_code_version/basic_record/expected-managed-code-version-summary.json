@@ -32,6 +32,14 @@
           "experiment_session_setup.ipynb",
           "helpers/record_measurement_context.py"
         ],
+        "capture_state_by_file": {
+          "readout_calibration_entrypoint.ipynb": "content_captured",
+          "experiment_session_setup.ipynb": "content_captured",
+          "helpers/record_measurement_context.py": "content_captured"
+        },
+        "capture_state_counts": {
+          "content_captured": 3
+        },
         "notebook_recording_policy": "source_without_outputs",
         "default_file_inclusion": "not_recorded_unless_included"
       }
@@ -66,6 +74,7 @@
         "path": "readout_calibration_entrypoint.ipynb",
         "role": "entrypoint",
         "recorded_form": "source_without_outputs",
+        "source_capture_state": "content_captured",
         "digest_algorithm": "sha256",
         "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
         "size_bytes": 2840,
@@ -77,6 +86,7 @@
         "path": "experiment_session_setup.ipynb",
         "role": "declared_helper_notebook",
         "recorded_form": "source_without_outputs",
+        "source_capture_state": "content_captured",
         "digest_algorithm": "sha256",
         "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
         "size_bytes": 1936,
@@ -88,6 +98,7 @@
         "path": "helpers/record_measurement_context.py",
         "role": "declared_helper_module",
         "recorded_form": "source_file",
+        "source_capture_state": "content_captured",
         "digest_algorithm": "sha256",
         "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
         "size_bytes": 712,

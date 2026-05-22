@@ -28,6 +28,7 @@ executor design, relation graph, or warning taxonomy.
 - [`managed-code-version-validation-result.md`](managed-code-version-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
 - [`adoption-routes.md`](adoption-routes.md)
+- [`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md)
 
 ## Current Slice Positions
 
@@ -104,8 +105,11 @@ scope; later selection can choose, promote, or restore
 one of those records. It uses minimal explicit include recording, strips
 notebook outputs before recording, validates recorded-root, step-input, and
 code snapshot record references, and does not inspect internal Git state or
-analyze unrecorded files. It has not earned Git replacement implementation,
-internal Git analysis, default record-all tracking, package management, environment
+analyze unrecorded files. Code records should carry explicit capture-state
+posture for included items, such as content-captured, reference-only, missing,
+redacted, or excluded, before any comparison surface claims content equality or
+difference. It has not earned Git replacement implementation, internal Git
+analysis, default record-all tracking, package management, environment
 ownership, environment restoration, selected-version loading, execution,
 workflow/DAG nodes, component-level versioning, generated artifact
 regeneration, or GUI design.
@@ -113,7 +117,10 @@ regeneration, or GUI design.
 Managed code version has a slice-local summary candidate for turning a code
 snapshot record into a Scopecat-managed record with stable identity, exact
 inclusion-aligned file inventory, content-integrity hints, and materialization
-intent. It does not read source files, inspect Git state, create archives,
+intent. Promotion to managed code version should not pretend that every prior
+recorded snapshot becomes part of one continuous managed-version history;
+reference-only prior records remain context until recaptured or otherwise
+observed. It does not read source files, inspect Git state, create archives,
 restore environments, materialize workspaces, import code, execute code, or
 accept final storage, archive, content-addressed store, restore, sync,
 selected-version loading, workflow/DAG, or GUI semantics.
@@ -146,6 +153,15 @@ This shared vocabulary does not accept common lifecycle, diff, storage,
 restore, or integrity semantics across the families. Each family still owns its
 own boundary until implementation pressure earns extraction.
 
+The measurement-context candidate backlog now gives that shared vocabulary a
+single planning home. It collects recurring validation slices such as context
+snapshot records, measurement or step context links, named run-start input
+sets, context comparison findings, reviewable context changes, readiness or
+status summaries, and external materialization or compatibility outputs. That
+backlog is still discovery vocabulary: it reduces duplicated route-local slice
+lists without accepting shared schema, storage, lifecycle, restore, write-back,
+diff, or execution behavior.
+
 ## Recurring Candidate Concepts
 
 These concepts recur across more than one slice and are becoming useful
@@ -172,7 +188,8 @@ schema.
 | Comparison finding | Selected reference comparison, export, running inspection | A precise context-comparison result such as changed, missing, unverified, redacted, unlinked, same-observed, or not-compared. It is not automatic cause attribution. |
 | Preview compatibility | Selected reference comparison, export, running inspection, scan/data-shape | Declared preview metadata that suggests compatible quick browsing or overlay across measurements. It does not imply publication-grade plotting or user interpretation. |
 | Code context | Experiment code, calibration continuation, selected reference | The root or workspace reference, entrypoint, included files or source observations, notebook recording policy, and declared context refs associated with a run or step. `Recorded code context` is the audit state of this context, not a future active workspace. |
-| Code snapshot record | Experiment code, export/handoff, selected reference | A point-in-time code snapshot record that Scopecat may later manage. It can describe recording/snapshot scope and support declared context comparison without accepting storage, restore, sync, environment, loading, execution, merge, Git inspection, or managed workspace semantics. |
+| Code snapshot record | Experiment code, export/handoff, selected reference | A point-in-time code snapshot record that Scopecat may later manage. It can describe recording/snapshot scope and capture state, supporting declared context or manifest comparison only for facts actually captured or observed, without accepting storage, restore, sync, environment, loading, execution, merge, Git inspection, or managed workspace semantics. |
+| Code capture state | Experiment code, selected reference, future managed-version comparison | Whether a code item is content-captured, reference-only, missing, redacted, or excluded. This should drive same-observed, changed, missing, unverified, redacted, or not-compared findings instead of implying one universal diff. |
 | Materialized code workspace | Experiment code future pressure | A concrete folder expanded from a selected code snapshot or managed code version. This is deliberately separate from recorded code context and is not earned by the current slice. |
 
 ## Stable Separations
@@ -232,6 +249,11 @@ Several separations now appear repeatedly enough to keep carrying forward:
   context, code snapshot record identities, include-list inventory, recorded
   source observations, and declared refs without claiming Git diff, semantic
   source comparison, environment readiness, restore, loading, or execution.
+- Code comparison should grow as a fixture family, not as one catch-all
+  selected-version comparison. Recorded context comparison, snapshot
+  capture-state comparison, managed-version inventory comparison, and
+  editable-folder observation can share finding vocabulary only after their
+  authority and capture-state behavior match.
 - Early code recording is explicit-include-based. Internal Git state,
   directory-name heuristics, unrecorded backups, caches, checkpoints, and
   generated files are not analyzed or surfaced as warnings unless the user

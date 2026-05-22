@@ -24,6 +24,13 @@ _EXPECTED_POLICY = {
     "default_file_inclusion": "not_recorded_unless_included",
 }
 _SHA256_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+_CODE_CAPTURE_STATES = {
+    "content_captured",
+    "reference_only",
+    "missing",
+    "redacted",
+    "excluded",
+}
 
 
 def _records_by_key(records: list[dict[str, Any]], key: str) -> dict[str, dict[str, Any]]:
@@ -56,6 +63,17 @@ def _path_is_relative(path: str) -> bool:
 
 def _file_paths(version: dict[str, Any]) -> list[str]:
     return [file_record["path"] for file_record in version["file_records"]]
+
+
+def _capture_state_by_file(record: dict[str, Any]) -> dict[str, str]:
+    return record["snapshot_scope"]["capture_state_by_file"]
+
+
+def _capture_state_counts(capture_state_by_file: dict[str, str]) -> dict[str, int]:
+    counts = {state: 0 for state in sorted(_CODE_CAPTURE_STATES)}
+    for state in capture_state_by_file.values():
+        counts[state] += 1
+    return {state: count for state, count in counts.items() if count}
 
 
 def _validate_file_record(version_id: str, file_record: dict[str, Any]) -> None:
@@ -111,6 +129,12 @@ def _validate_references(source: dict[str, Any]) -> None:
 
         source_record = code_snapshot_records[source_record_id]
         expected_paths = source_record["snapshot_scope"]["included_files"]
+        capture_state_by_file = _capture_state_by_file(source_record)
+        if set(capture_state_by_file) != set(expected_paths):
+            raise ValueError("code snapshot record capture states must match included files")
+        for capture_state in capture_state_by_file.values():
+            if capture_state not in _CODE_CAPTURE_STATES:
+                raise ValueError("code snapshot record has unsupported code capture state")
         actual_paths = _file_paths(version)
         if len(set(actual_paths)) != len(actual_paths):
             raise ValueError(f"managed code version {version_id} contains duplicate file paths")
@@ -118,6 +142,11 @@ def _validate_references(source: dict[str, Any]) -> None:
             raise ValueError(
                 "managed code version file records must match source record include list"
             )
+        for file_record in version["file_records"]:
+            if capture_state_by_file[file_record["path"]] != "content_captured":
+                raise ValueError(
+                    "managed code version file records require content-captured source entries"
+                )
 
         notebook_recording_policy = source_record["snapshot_scope"]["notebook_recording_policy"]
         for file_record in version["file_records"]:
@@ -138,24 +167,29 @@ def _validate_references(source: dict[str, Any]) -> None:
 
 def _code_snapshot_record_summary(record: dict[str, Any]) -> dict[str, Any]:
     scope = record["snapshot_scope"]
+    capture_state_by_file = copy.deepcopy(scope["capture_state_by_file"])
     return {
         "record_id": record["record_id"],
         "source_context_id": record["source_context_id"],
         "record_status": record["record_status"],
         "root_id": scope["root_id"],
         "included_files": list(scope["included_files"]),
+        "capture_state_by_file": capture_state_by_file,
+        "capture_state_counts": _capture_state_counts(capture_state_by_file),
         "notebook_recording_policy": scope["notebook_recording_policy"],
         "default_file_inclusion": scope["default_file_inclusion"],
     }
 
 
-def _file_inventory(version: dict[str, Any]) -> list[dict[str, Any]]:
+def _file_inventory(version: dict[str, Any], source_record: dict[str, Any]) -> list[dict[str, Any]]:
+    capture_state_by_file = _capture_state_by_file(source_record)
     return [
         {
             "version_id": version["version_id"],
             "path": file_record["path"],
             "role": file_record["role"],
             "recorded_form": file_record["recorded_form"],
+            "source_capture_state": capture_state_by_file[file_record["path"]],
             "digest_algorithm": file_record["content_state"]["digest_algorithm"],
             "digest": file_record["content_state"]["digest"],
             "size_bytes": file_record["content_state"]["size_bytes"],
@@ -258,6 +292,7 @@ def _attention(source: dict[str, Any]) -> list[dict[str, Any]]:
 def build_managed_code_version_summary(source: dict[str, Any]) -> dict[str, Any]:
     """Build a structured managed-code-version summary from explicit fixture input."""
     _validate_references(source)
+    code_snapshot_records = _code_snapshot_record_by_id(source)
     return {
         "managed_version_policy": copy.deepcopy(source["managed_version_policy"]),
         "code_snapshot_records": [
@@ -269,7 +304,9 @@ def build_managed_code_version_summary(source: dict[str, Any]) -> dict[str, Any]
         "file_inventory": [
             file_summary
             for version in source["managed_code_versions"]
-            for file_summary in _file_inventory(version)
+            for file_summary in _file_inventory(
+                version, code_snapshot_records[version["source_record_id"]]
+            )
         ],
         "attention": _attention(source),
     }

@@ -29,9 +29,10 @@ The fixture validates a first code-recording boundary:
   without dependency discovery;
 - mutation capability can remain not analyzed, and recording still does not
   grant execution permission;
-- a code snapshot record can describe what Scopecat may later manage
-  without accepting storage, restore, sync, environment, saved-version
-  selection or loading, execution, merge, or workflow semantics.
+- a code snapshot record can describe the included scope and capture posture
+  that Scopecat may later manage without accepting storage, restore, sync,
+  environment, saved-version selection or loading, execution, merge, or
+  workflow semantics.
 
 ## Boundary Confirmed
 
@@ -45,6 +46,8 @@ point-in-time code snapshot defined by:
 - the recorded external root or source reference;
 - the recorded entrypoint;
 - the explicit include list or recorded source observations;
+- explicit code capture state for included code items, such as content-captured,
+  reference-only, missing, redacted, or excluded;
 - notebook-output stripping before capture;
 - broad non-recording policy for unrecorded files;
 - declared context references;
@@ -75,15 +78,28 @@ The fixture covers the first adoption stage for code recording:
 - notebook capture is useful immediately because outputs can be stripped while
   preserving source;
 - unrecorded files remain outside the record unless the user adds them;
+- included items may still differ in code capture state, and reference-only items
+  should not be presented as content-comparable;
 - the code snapshot record leaves room for later Scopecat-managed
   workspaces without pretending that storage, restore, or execution contracts
   already exist.
 
-The next stages are intentionally deferred: moving users into managed
-workspaces, restoring a selected code snapshot or managed code version,
-comparing managed versions, choosing or loading a saved code snapshot for a step,
-and syncing a declared environment such as a `uv` lockfile workflow. Those are
-plausible long-term capabilities, not conclusions earned by this fixture.
+From the perspective of this first code-recording fixture, the deferred
+validation chain starts with promoting captured snapshots into managed code
+versions, then comparing explicit code fact surfaces, planning workspace
+materialization, creating editable workspaces, observing editable folders
+against selected managed versions, preparing run context from selected code and
+other run-start inputs, preparing a manual rerun from selected-reference
+context, recording declared environment inventory, and only later syncing a
+declared environment such as a `uv` lockfile workflow.
+
+That sequence is historical to this first fixture, not an active sequencing
+recommendation. Active sequencing should live in the implementation or PR
+plan. The validation order is also not a required user adoption route.
+These are plausible long-term capabilities, not conclusions earned by this
+fixture. Selecting a saved code snapshot for a step is not useful enough as a
+standalone validation question unless it reduces a concrete run-preparation or
+rerun risk.
 
 ## Relationship To Prior Slices
 
@@ -130,7 +146,9 @@ and environment restoration deferred.
 ## Remaining Risks
 
 - the final managed workspace store is still undecided;
-- the first content-integrity record is still undecided: archive, checksums,
+- capture-state vocabulary still needs comparison fixtures before becoming a
+  shared contract;
+- the first content-integrity mechanism is still undecided: archive, checksums,
   file snapshot, content-addressed store, or Git-backed implementation;
 - include-list helper UX and user-editable recording policy remain undecided;
 - internal Git diagnostics may become useful later, but they are intentionally
@@ -142,11 +160,10 @@ and environment restoration deferred.
   their inputs, outputs, compatibility, and review contracts are not earned;
 - GUI language for save/restore/compare/use-version actions remains undecided.
 
-## Current Recommendation
+## Slice Recommendation
 
 Use this fixture and summary candidate as the first boundary for
-experiment-code recording. The next implementation-shaped step should
-follow
+experiment-code recording. It supports the deferred route described in
 [`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md):
 do not design managed workspace storage, Git replacement, internal Git
 analysis, record-all file tracking, environment management, execution, or

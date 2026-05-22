@@ -80,8 +80,9 @@ The long-term direction is:
 - Scopecat-managed code workspaces that can be expanded into editable folders;
 - user edits happen in ordinary files and notebooks;
 - Scopecat records saved versions and diffs;
-- measurements reference the selected code snapshot or run-start code snapshot
-  record;
+- measurements or calibration steps may reference recorded code context as
+  provenance, while later run-preparation workflows may select managed code
+  versions as intended inputs;
 - code snapshot records can be materialized on another machine or environment
   when storage and environment support are earned.
 - environment restoration may later include loading a selected code snapshot and
@@ -116,21 +117,31 @@ those records for restore, comparison, or managed workspace migration.
 
 ## Adoption Route
 
-The intended route is:
+The intended user adoption route is value-driven:
 
 - start with explicit-include code contexts and code snapshot records for the
-  files and references associated with a run or step;
+  files and references associated with a run or step, while code still lives in
+  normal lab folders;
 - use those records to connect measurements, calibration steps, handoff
   packages, and comparison workflows to the code context users actually used
   or observed;
-- let users gradually move from external folders into Scopecat-managed
-  workspaces when they want restore, compare, and version-selection behavior;
-- only then consider loading selected code snapshots, environment restoration,
-  lockfile-driven dependency sync, execution readiness checks, or managed
-  runners.
+- promote captured or recaptured snapshots into managed code versions when
+  stable identity, inventory, restore, compare, or selection becomes valuable;
+- branch from managed versions into comparison, materialization,
+  editable-folder observation, run preparation, rerun preparation, or
+  environment help only when those workflows solve a concrete lab problem;
+- reserve lockfile-driven dependency sync, execution readiness checks, and
+  managed runners for labs that want Scopecat to help prepare runnable managed
+  contexts.
 
 This route keeps early adoption practical for messy labs while preserving the
 later path toward structured code management.
+
+The validation order is stricter than the adoption route. Future validation
+should still earn comparable code surfaces, materialization intent, workspace
+materialization, editable-folder observation, prepared run context,
+reference-based rerun preparation, declared environment inventory, and
+environment readiness as separate authority boundaries.
 
 ## Workflow And DAG Deferral
 
@@ -200,7 +211,7 @@ later questions.
   user-declared references?
 - What conditions would earn workflow/DAG nodes as first-class records?
 
-## Current Recommendation
+## Slice Recommendation
 
 Use the validated code-recording fixture and
 [`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md)
@@ -213,5 +224,4 @@ notebook-output stripping, declared context references, and non-recording
 policy visible without inspecting Git, scanning unrecorded files, executing
 code, importing code, or inferring dependencies. Start a later
 managed-workspace slice only when restore, compare, materialization, or
-selected-version-at-run-start behavior creates concrete implementation
-pressure.
+prepared-run-context behavior creates concrete implementation pressure.

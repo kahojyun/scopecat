@@ -113,7 +113,7 @@ This validation does not earn:
 - Paired selected-ID analysis, such as signal/background comparison, is not
   covered by this slice.
 
-## Current Recommendation
+## Slice Recommendation
 
 Pause running-inspection at the fixture-validation boundary unless a concrete
 task needs a generator.

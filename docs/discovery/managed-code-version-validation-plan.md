@@ -15,10 +15,10 @@ semantics, workflow/DAG contracts, or GUI design.
 This slice follows
 [`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md).
 The prior code-recording slice earned a code snapshot record with an
-external root, included files, notebook-output stripping policy, and
-materialization intent. The run/step record defined the snapshot scope; later
-selection can choose, promote, or restore that record. It did not earn storage
-or restore behavior.
+external root, included files, notebook-output stripping policy, capture-state
+posture, and materialization intent. The run/step record defined the snapshot
+scope; later selection can choose, promote, or restore that record. It did not
+earn storage or restore behavior.
 
 ## Validation Question
 
@@ -39,6 +39,7 @@ The first managed-version boundary should distinguish:
 | Managed code version | A Scopecat-assigned record with stable identity, file inventory, integrity hints, and materialization intent. |
 | File inventory | The exact included files in the managed record, with recorded form and public-safe metadata. |
 | Integrity hint | Lightweight checksum, size, and observation metadata for each file record. This is not a storage backend or restore guarantee. |
+| Code capture state | Whether an included source item was content-captured, reference-only, missing, redacted, or excluded before management. Managed versions should not silently upgrade reference-only history into content-comparable inventory. |
 | Materialization intent | A declared future workspace materialization target or action. No workspace is created in this slice. |
 | Environment restoration | Syncing, loading, dependency checks, and runnable-context validation. Out of scope. |
 | Code execution | Importing, loading, running notebooks, or executing recorded files. Out of scope. |
@@ -89,6 +90,7 @@ Expected output should let a reviewer answer:
 - which stable managed-version identity was assigned;
 - which files are in the managed version;
 - which content-integrity hints were recorded;
+- which source-record capture assumptions the managed version depends on;
 - where files would be materialized if a later slice creates a workspace;
 - that storage, archive, restore, environment, loading, execution, and Git
   behavior are not accepted by this fixture.
@@ -110,7 +112,7 @@ This plan does not earn:
 - GUI design;
 - shared domain model extraction.
 
-## Current Recommendation
+## Slice Recommendation
 
 Create one fixture and summary candidate before designing a store. The first
 goal is to validate the record shape for a managed code version, not to build

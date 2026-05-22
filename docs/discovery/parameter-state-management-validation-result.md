@@ -115,7 +115,7 @@ This validation does not earn:
 - implementation candidate;
 - shared domain model extraction.
 
-## Current Recommendation
+## Slice Recommendation
 
 Stop this slice at fixture validation unless the next task needs executable
 behavior around parameter-state summaries.

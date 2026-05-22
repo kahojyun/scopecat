@@ -57,6 +57,10 @@ class ExperimentCodeRecordingFixtureTest(unittest.TestCase):
             [item["path"] for item in summary["included_files"]],
             [item["path"] for item in source_context["included_files"]],
         )
+        self.assertEqual(
+            {item["code_capture_state"] for item in summary["included_files"]},
+            {"content_captured"},
+        )
 
     def test_notebooks_are_stripped_before_recording(self) -> None:
         summary = _expected_summary()["candidate_summary"]
@@ -140,6 +144,11 @@ class ExperimentCodeRecordingFixtureTest(unittest.TestCase):
             record["included_files"],
             source_record["snapshot_scope"]["included_files"],
         )
+        self.assertEqual(
+            record["capture_state_by_file"],
+            source_record["snapshot_scope"]["capture_state_by_file"],
+        )
+        self.assertEqual(record["capture_state_counts"], {"content_captured": 3})
         self.assertEqual(record["default_file_inclusion"], "not_recorded_unless_included")
         self.assertIn("workflow DAG", summary["decisions_not_earned"])
         self.assertIn("default record-all file tracking", summary["decisions_not_earned"])
@@ -151,6 +160,8 @@ class ExperimentCodeRecordingFixtureTest(unittest.TestCase):
         self.assertIn("does not scan unrecorded files", review)
         self.assertIn("Internal Git state is not inspected", review)
         self.assertIn("Notebook outputs are stripped", review)
+        self.assertIn("code capture state is explicit", review)
+        self.assertIn("content_captured", review)
         self.assertIn("does not grant execution permission", review)
         self.assertIn("default record-all file tracking", review)
 

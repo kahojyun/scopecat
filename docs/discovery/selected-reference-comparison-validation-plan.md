@@ -56,6 +56,7 @@ The selected-reference fixtures should distinguish:
 | Code context | Declared root, entrypoint, included files or source observations, notebook recording policy, and declared refs that define a code snapshot scope. The fixture compares recorded instances of this context. |
 | Code snapshot record identity | Fixture-local point-in-time code snapshot record ID that can be compared without accepting managed workspace storage or full managed-version comparison. |
 | Recorded source observation | Fixture-local token for comparing recorded source observations, not a checksum or integrity contract. |
+| Code capture state | Whether a code item is content-captured, reference-only, missing, redacted, or excluded. This controls whether comparison can say changed, same-observed, missing, unverified, redacted, or not-compared. |
 
 The fixtures compare declared context. They should not inspect raw data,
 execute code, score user judgment, interpret user analysis conclusions, or infer
@@ -65,6 +66,22 @@ The code-context fixture compares declared recorded-code context. It should
 not inspect internal Git state, scan live files, resolve dependencies, restore
 managed workspaces, load selected versions, execute code, or define workflow
 contracts.
+
+Future code comparison cases should be added as a fixture family rather than as
+one selected-version comparison engine. Start with the comparable surface that
+the records expose:
+
+- context comparison for entrypoints, include lists, declared refs, and notebook
+  policy;
+- capture-state comparison for content-captured, reference-only, missing,
+  redacted, or excluded items;
+- managed-version inventory comparison only after managed-version records expose
+  inventory and integrity hints;
+- editable-folder observation only after a slice earns safe current-folder
+  observation.
+
+Semantic source diff, Git diff, dependency readiness, environment readiness,
+loading, and execution remain separate validation questions.
 
 ## First Fixture Shape
 
@@ -141,7 +158,7 @@ This plan does not earn:
 - shared run-context framework;
 - GUI design.
 
-## Current Recommendation
+## Slice Recommendation
 
 Keep fixtures and expected output ahead of implementation candidates unless a
 near-term workflow needs production-shaped code. The goal is to validate the

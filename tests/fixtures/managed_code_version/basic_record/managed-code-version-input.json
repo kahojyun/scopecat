@@ -28,6 +28,11 @@
           "experiment_session_setup.ipynb",
           "helpers/record_measurement_context.py"
         ],
+        "capture_state_by_file": {
+          "readout_calibration_entrypoint.ipynb": "content_captured",
+          "experiment_session_setup.ipynb": "content_captured",
+          "helpers/record_measurement_context.py": "content_captured"
+        },
         "notebook_recording_policy": "source_without_outputs",
         "default_file_inclusion": "not_recorded_unless_included"
       }
