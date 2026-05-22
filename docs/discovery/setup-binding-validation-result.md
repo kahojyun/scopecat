@@ -27,6 +27,13 @@ The fixture validates a first setup-binding boundary:
 - a binding diff can mark attention-worthy changes without automatically
   invalidating parameter state.
 
+Here, selection is the run-start action that chooses a setup-binding snapshot
+version. It is not a separate durable concept from the setup-binding snapshot
+itself. This matches the cross-slice vocabulary in
+[`cross-slice-synthesis.md`](cross-slice-synthesis.md): parameter states and
+code versions face similar point-in-time context pressure, even though each
+family keeps its own lifecycle, diff, storage, and restore semantics.
+
 ## What Changed
 
 The fixture makes the measurement-context direction more explicit. Instead of

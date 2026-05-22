@@ -2,23 +2,23 @@
 
 ## Status
 
-Fixture validation result with managed-code-version summary candidate, not an
+Fixture validation result with managed code version summary candidate, not an
 ADR.
 
-This result records what the first managed code-version fixture proved and
+This result records what the first managed code version fixture proved and
 where the boundary remains intentionally narrow.
 
 ## Fixture
 
-- `tests/fixtures/experiment_code_selection/managed_captured_version/`
+- `tests/fixtures/managed_code_version/basic_record/`
 - `implementation_candidates/managed_code_version/`
 
 The fixture validates a first managed-version boundary:
 
-- a captured-version candidate can become a Scopecat-managed candidate record;
+- a code snapshot record can become a Scopecat-managed record;
 - managed identity can be assigned without deciding final object ID or backend
   layout;
-- file inventory can stay exactly aligned with the candidate whitelist;
+- file inventory can stay exactly aligned with the source record include list;
 - notebook source-without-outputs policy can carry into the managed record;
 - per-file checksum, size, and observation time can be represented as
   integrity hints;
@@ -29,21 +29,21 @@ The fixture validates a first managed-version boundary:
 
 ## Boundary Confirmed
 
-Scopecat can represent a selected code version before it can restore or run
-that version.
+Scopecat can represent a code snapshot record as a managed code version before
+it can restore or run that version.
 
 The useful first managed boundary is:
 
-- source captured-version candidate;
+- source code snapshot record;
 - assigned stable managed-version identity;
-- whitelisted file inventory;
+- included file inventory;
 - recorded form for each file;
 - content-integrity hints;
 - declared materialization intent;
 - explicit non-restore, non-environment, and non-execution claims.
 
 This follows
-[`experiment-code-selection-next-boundary.md`](experiment-code-selection-next-boundary.md):
+[`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md):
 managed workspace storage pressure can start with a record-shaped summary while
 storage, restore, sync, environment, loading, execution, merge, and GUI
 behavior remain deferred.
@@ -56,14 +56,14 @@ Git, environment, or execution authority.
 
 It assembles and validates:
 
-- captured-version candidate summaries;
+- code snapshot record summaries;
 - managed code versions with stable identity, status, storage authority, file
   counts, integrity hint counts, and materialization intent;
 - file inventory records with relative source and materialization paths;
-- referential integrity from managed version to candidate;
-- exact whitelist alignment between candidate scope and file records;
+- referential integrity from managed version to source record;
+- exact inclusion alignment between source-record scope and file records;
 - SHA-256-prefixed integrity hints;
-- attention items for candidate-only storage, integrity hints, deferred
+- attention items for record-only storage, integrity hints, deferred
   materialization, no environment restoration, no code execution, and no Git
   inspection.
 
@@ -73,10 +73,12 @@ import code, execute code, or define workflow/DAG contracts.
 
 ## Relationship To Prior Slices
 
-The fixture depends on the selected-code context slice for captured-version
-candidate vocabulary. It also keeps selected measurement export pressure in
-view by using package- or workspace-relative materialization paths, but it does
-not accept export package writer behavior.
+The fixture depends on the code-recording slice for code snapshot record
+vocabulary. In that vocabulary, the run/step code context defines the snapshot
+scope for a point-in-time code snapshot; later selection can choose,
+promote, or restore that record. The fixture also keeps selected measurement
+export pressure in view by using package- or workspace-relative
+materialization paths, but it does not accept export package writer behavior.
 
 The fixture uses integrity-hint vocabulary that resembles external-file
 observed state. That resemblance is design pressure only; it does not earn a

@@ -10,7 +10,7 @@ from implementation_candidates.managed_code_version import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURE = ROOT / "tests" / "fixtures" / "experiment_code_selection" / "managed_captured_version"
+FIXTURE = ROOT / "tests" / "fixtures" / "managed_code_version" / "basic_record"
 
 
 def _load_input() -> dict:
@@ -38,7 +38,7 @@ class ManagedCodeVersionSummaryCandidateTest(unittest.TestCase):
         self.assertEqual(version["integrity_hint_count"], 3)
         self.assertEqual(
             version["materialization_intent"]["mode"],
-            "editable_workspace_candidate",
+            "editable_workspace_intent",
         )
         self.assertEqual(version["restore_claim"], "not_restored_by_fixture")
         self.assertEqual(version["execution_claim"], "not_imported_loaded_or_executed")
@@ -49,7 +49,7 @@ class ManagedCodeVersionSummaryCandidateTest(unittest.TestCase):
         self.assertEqual(
             [item["code"] for item in summary["attention"]],
             [
-                "managed_storage_candidate_only",
+                "managed_storage_record_only",
                 "integrity_hints_not_storage_contract",
                 "materialization_not_performed",
                 "environment_not_restored",
@@ -75,7 +75,7 @@ class ManagedCodeVersionSummaryCandidateTest(unittest.TestCase):
 
         self.assertEqual(
             summary["managed_version_policy"]["storage_contract"],
-            "candidate_record_only",
+            "record_only",
         )
         self.assertEqual(
             summary["managed_code_versions"][0]["stable_identity"]["stable_id"],
@@ -83,7 +83,7 @@ class ManagedCodeVersionSummaryCandidateTest(unittest.TestCase):
         )
         self.assertEqual(
             summary["managed_code_versions"][0]["materialization_intent"]["mode"],
-            "editable_workspace_candidate",
+            "editable_workspace_intent",
         )
 
     def test_duplicate_version_ids_are_rejected(self) -> None:
@@ -94,18 +94,18 @@ class ManagedCodeVersionSummaryCandidateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "duplicate version_id"):
             build_managed_code_version_summary(source)
 
-    def test_version_must_reference_known_candidate(self) -> None:
+    def test_version_must_reference_known_source_record(self) -> None:
         source = _load_input()
-        source["managed_code_versions"][0]["source_candidate_id"] = "missing-candidate"
+        source["managed_code_versions"][0]["source_record_id"] = "missing-record"
 
-        with self.assertRaisesRegex(ValueError, "references missing candidate"):
+        with self.assertRaisesRegex(ValueError, "references missing code snapshot record"):
             build_managed_code_version_summary(source)
 
-    def test_file_records_must_match_candidate_whitelist(self) -> None:
+    def test_file_records_must_match_source_record_inclusion(self) -> None:
         source = _load_input()
         source["managed_code_versions"][0]["file_records"][0]["path"] = "different.py"
 
-        with self.assertRaisesRegex(ValueError, "must match candidate whitelist"):
+        with self.assertRaisesRegex(ValueError, "must match source record include list"):
             build_managed_code_version_summary(source)
 
     def test_duplicate_file_paths_are_rejected(self) -> None:
@@ -158,7 +158,7 @@ class ManagedCodeVersionSummaryCandidateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "execution claim"):
             build_managed_code_version_summary(source)
 
-    def test_notebook_files_must_match_candidate_recording_policy(self) -> None:
+    def test_notebook_files_must_match_source_record_recording_policy(self) -> None:
         source = _load_input()
         source["managed_code_versions"][0]["file_records"][0]["recorded_form"] = (
             "source_with_outputs"
@@ -200,14 +200,14 @@ class ManagedCodeVersionSummaryCandidateTest(unittest.TestCase):
             "managed-code-version-readout-0001",
             "Files: 3",
             "Notebook files: 2",
-            "managed_storage_candidate_only",
+            "managed_storage_record_only",
             "integrity_hints_not_storage_contract",
             "materialization_not_performed",
             "environment_not_restored",
             "code_execution_not_granted",
             "internal_git_not_inspected",
             "no environment is synced or checked",
-            "selected code is not loaded, imported, or executed",
+            "code files are not loaded, imported, or executed",
             "Git state remains out of scope",
         ]:
             self.assertIn(expected, review)

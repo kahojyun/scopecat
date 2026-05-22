@@ -1,49 +1,49 @@
 {
-  "fixture_id": "experiment-code-selection-managed-captured-version",
+  "fixture_id": "managed-code-version-basic-record",
   "fixture_status": "synthetic_public_safe",
   "fixture_layer": "managed_code_version_fixture",
-  "user_job": "Turn a selected captured-version candidate into a first Scopecat-managed code-version record without restoring, loading, or executing the code.",
+  "user_job": "Turn a code snapshot record into a first Scopecat-managed code version record without restoring, loading, or executing the code.",
   "source_research_notes": [
     "<sample>/_research/experiment-code-selection-sample-review-2026-05-21.md"
   ],
   "managed_version_policy": {
-    "storage_contract": "candidate_record_only",
+    "storage_contract": "record_only",
     "file_content_source": "declared_fixture_records",
     "integrity_contract": "content_integrity_hints_only",
     "materialization": "intent_recorded_not_performed",
     "environment_restoration": "not_performed",
     "code_execution": "not_performed",
     "internal_git_inspection": "not_performed",
-    "default_file_inclusion": "not_recorded_unless_whitelisted"
+    "default_file_inclusion": "not_recorded_unless_included"
   },
-  "captured_version_candidates": [
+  "code_snapshot_records": [
     {
-      "candidate_id": "code-version-candidate-0001",
+      "record_id": "code-snapshot-record-0001",
       "source_context_id": "code-context-readout-cali-0001",
-      "candidate_status": "selected_for_managed_record_candidate",
-      "capture_scope": {
+      "record_status": "ready_for_managed_record",
+      "snapshot_scope": {
         "root_id": "external-code-root-readout-demo",
-        "whitelisted_files": [
+        "included_files": [
           "readout_calibration_entrypoint.ipynb",
           "experiment_session_setup.ipynb",
           "helpers/record_measurement_context.py"
         ],
         "notebook_recording_policy": "source_without_outputs",
-        "default_file_inclusion": "not_recorded_unless_whitelisted"
+        "default_file_inclusion": "not_recorded_unless_included"
       }
     }
   ],
   "managed_code_versions": [
     {
       "version_id": "managed-code-version-readout-0001",
-      "source_candidate_id": "code-version-candidate-0001",
+      "source_record_id": "code-snapshot-record-0001",
       "stable_identity": {
-        "identity_kind": "scopecat_assigned_candidate",
+        "identity_kind": "scopecat_assigned_record",
         "stable_id": "sc-codever-readout-0001",
-        "derivation": "assigned_from_captured_version_candidate"
+        "derivation": "assigned_from_code_snapshot_record"
       },
-      "storage_authority": "scopecat_managed_candidate_record",
-      "version_status": "recorded_candidate_not_restore_contract",
+      "storage_authority": "scopecat_managed_record",
+      "version_status": "recorded_not_restore_contract",
       "file_records": [
         {
           "path": "readout_calibration_entrypoint.ipynb",
@@ -83,8 +83,8 @@
         }
       ],
       "materialization_intent": {
-        "mode": "editable_workspace_candidate",
-        "default_action": "materialize_selected_version_only",
+        "mode": "editable_workspace_intent",
+        "default_action": "materialize_managed_version_only",
         "target_hint": "future_scopecat_workspace"
       },
       "restore_claim": "not_restored_by_fixture",
@@ -93,7 +93,7 @@
     }
   ],
   "attention_expected": [
-    "managed_storage_candidate_only",
+    "managed_storage_record_only",
     "integrity_hints_not_storage_contract",
     "materialization_not_performed",
     "environment_not_restored",

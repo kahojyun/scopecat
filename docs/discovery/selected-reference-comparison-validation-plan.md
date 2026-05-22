@@ -21,11 +21,11 @@ The fixtures should build on already validated discovery pressure:
 - the selected-reference problem brief for finding vocabulary and
   user-interpretation boundaries.
 
-Experiment code/version context is also an important selected-reference
+Experiment code context is also an important selected-reference
 comparison dimension because code differences can be reviewed as declared
 context between a current measurement and a selected reference. The
-experiment-code-selection slice defines a minimum selected-code reference
-shape that can feed the declared code-version comparison fixture.
+experiment-code-recording slice defines a minimum recorded-code context shape
+that can feed the declared code-context comparison fixture.
 
 ## Validation Question
 
@@ -40,7 +40,7 @@ best-observed are user-provided context, not special Scopecat semantics.
 Fixtures:
 
 - `tests/fixtures/selected_reference_comparison/basic_context_compare/`
-- `tests/fixtures/selected_reference_comparison/code_version_context_compare/`
+- `tests/fixtures/selected_reference_comparison/code_context_compare/`
 
 ## Concept Boundary
 
@@ -53,15 +53,15 @@ The selected-reference fixtures should distinguish:
 | Named input snapshot | Run-start context such as parameter state, setup binding, or station registry reference. |
 | Declared preview metadata | Shape and role metadata sufficient to say whether a quick visual comparison is plausible. |
 | Comparison finding | A precise finding label: changed, missing, unverified, redacted, unlinked, same-observed, or not-compared. |
-| Selected code context | Declared selected root, entrypoint, whitelisted files, notebook recording policy, and declared refs. |
-| Captured version candidate | Fixture-local code-version reference that can be compared without accepting managed workspace storage. |
+| Code context | Declared root, entrypoint, included files or source observations, notebook recording policy, and declared refs that define a code snapshot scope. The fixture compares recorded instances of this context. |
+| Code snapshot record identity | Fixture-local point-in-time code snapshot record ID that can be compared without accepting managed workspace storage or full managed-version comparison. |
 | Recorded source observation | Fixture-local token for comparing recorded source observations, not a checksum or integrity contract. |
 
 The fixtures compare declared context. They should not inspect raw data,
 execute code, score user judgment, interpret user analysis conclusions, or infer
 physical setup truth.
 
-The code-version fixture compares declared selected-code context. It should
+The code-context fixture compares declared recorded-code context. It should
 not inspect internal Git state, scan live files, resolve dependencies, restore
 managed workspaces, load selected versions, execute code, or define workflow
 contracts.
@@ -86,15 +86,15 @@ The basic fixture should stay small:
 - one unverified declared sample fact;
 - one redacted station connection fact;
 
-The basic fixture intentionally excludes experiment code/version references.
+The basic fixture intentionally excludes experiment code context references.
 
-The code-version fixture should stay small:
+The code-context fixture should stay small:
 
 - one current measurement;
 - one selected reference measurement;
-- both measurements reference selected code context as a named input;
+- both measurements reference recorded code context as a named input;
 - one matching notebook entrypoint path and recording policy;
-- changed selected-code context and captured-version candidate IDs;
+- changed recorded-code context and code snapshot record identities;
 - one changed entrypoint source observation;
 - one same-observed helper source observation;
 - one helper missing from current and one helper missing from reference;
@@ -115,7 +115,7 @@ Expected review output should let a reviewer answer:
 - whether compatible preview metadata could support quick browsing or overlay;
 - what is missing, unlinked, unverified, redacted, same-observed, changed, or
   not compared;
-- what selected-code context changed, matched, or is missing;
+- what recorded-code context changed, matched, or is missing;
 - that findings are context comparison results, not cause attribution;
 - that interpretation belongs to users or user-provided analysis code.
 

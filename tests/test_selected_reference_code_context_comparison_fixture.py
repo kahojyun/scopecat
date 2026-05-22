@@ -5,9 +5,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURE = (
-    ROOT / "tests" / "fixtures" / "selected_reference_comparison" / "code_version_context_compare"
-)
+FIXTURE = ROOT / "tests" / "fixtures" / "selected_reference_comparison" / "code_context_compare"
 
 
 def _input_fixture() -> dict:
@@ -23,14 +21,14 @@ def _expected_summary() -> dict:
 
 
 def _contexts_by_side(source: dict) -> dict:
-    return {item["side"]: item for item in source["selected_code_contexts"]}
+    return {item["side"]: item for item in source["recorded_code_contexts"]}
 
 
 def _files_by_path(context: dict) -> dict:
-    return {item["path"]: item for item in context["whitelisted_files"]}
+    return {item["path"]: item for item in context["included_files"]}
 
 
-class SelectedReferenceCodeVersionComparisonFixtureTest(unittest.TestCase):
+class SelectedReferenceCodeContextComparisonFixtureTest(unittest.TestCase):
     def test_fixture_json_files_are_valid(self) -> None:
         for path in [
             FIXTURE / "reference-code-comparison-input.json",
@@ -39,22 +37,22 @@ class SelectedReferenceCodeVersionComparisonFixtureTest(unittest.TestCase):
             with self.subTest(path=path):
                 json.loads(path.read_text(encoding="utf-8"))
 
-    def test_code_version_scope_moves_out_of_not_compared_without_runtime_claims(self) -> None:
+    def test_code_context_scope_moves_out_of_not_compared_without_runtime_claims(self) -> None:
         source = _input_fixture()
         summary = _expected_summary()["candidate_summary"]
 
-        self.assertIn("selected_code_context", source["comparison_request"]["comparison_scope"])
+        self.assertIn("recorded_code_context", source["comparison_request"]["comparison_scope"])
         self.assertIn(
-            "captured_version_candidate",
+            "code_snapshot_record_identity",
             source["comparison_request"]["comparison_scope"],
         )
-        self.assertNotIn("experiment_code_version", summary["not_compared_scope"])
+        self.assertNotIn("experiment_code_context", summary["not_compared_scope"])
         self.assertEqual(
             summary["not_compared_scope"],
             source["comparison_request"]["not_compared_scope"],
         )
 
-    def test_measurements_reference_selected_code_context_as_named_input(self) -> None:
+    def test_measurements_reference_recorded_code_context_as_named_input(self) -> None:
         source = _input_fixture()
         summary = _expected_summary()["candidate_summary"]
         source_inputs = {
@@ -119,7 +117,7 @@ class SelectedReferenceCodeVersionComparisonFixtureTest(unittest.TestCase):
             "changed",
         )
 
-    def test_whitelist_inventory_distinguishes_same_observed_and_missing_helpers(self) -> None:
+    def test_inclusion_inventory_distinguishes_same_observed_and_missing_helpers(self) -> None:
         source = _input_fixture()
         summary = _expected_summary()["candidate_summary"]
         source_contexts = _contexts_by_side(source)
@@ -192,14 +190,14 @@ class SelectedReferenceCodeVersionComparisonFixtureTest(unittest.TestCase):
     def test_no_execution_restore_or_environment_readiness_is_claimed(self) -> None:
         source = _input_fixture()
         summary = _expected_summary()
-        contexts = source["selected_code_contexts"]
+        contexts = source["recorded_code_contexts"]
 
         self.assertEqual(
             {item["execution_claim"] for item in contexts},
             {"not_executed_by_fixture"},
         )
         self.assertEqual(
-            {item["capture_policy"]["internal_git_inspection"] for item in contexts},
+            {item["recording_policy"]["internal_git_inspection"] for item in contexts},
             {"not_performed"},
         )
         self.assertIn("environment_readiness", summary["candidate_summary"]["not_compared_scope"])
@@ -211,7 +209,7 @@ class SelectedReferenceCodeVersionComparisonFixtureTest(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn("changed selected-code-context finding", review)
+        self.assertIn("changed recorded-code-context finding", review)
         self.assertIn("record notebooks as source without outputs", review)
         self.assertIn("Environment readiness is not compared", review)
         self.assertIn("does not inspect", review)

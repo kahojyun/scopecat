@@ -37,6 +37,14 @@ The first fixture validates a narrow parameter-state management boundary:
 - a measurement can reference the parameter state selected at start without
   claiming current hardware state.
 
+Here, selection is the run-start action that chooses a parameter state version.
+It is not a separate durable concept from the first-class parameter-state
+snapshot. This matches the cross-slice vocabulary in
+[`cross-slice-synthesis.md`](cross-slice-synthesis.md): code versions and
+setup-binding snapshots face similar point-in-time context pressure, even
+though each family keeps its own lifecycle, diff, storage, and restore
+semantics.
+
 ## Domain Review Result
 
 The fixture matches the desired near-term interpretation: it represents the

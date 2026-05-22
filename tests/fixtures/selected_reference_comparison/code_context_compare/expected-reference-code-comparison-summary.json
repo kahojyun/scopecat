@@ -1,12 +1,12 @@
 {
-  "summary_id": "selected-reference-code-version-context-compare.expected",
+  "summary_id": "selected-reference-code-context-compare.expected",
   "status": "expected_validation_output",
   "source_fixture": "reference-code-comparison-input.json",
   "reference_semantics": {
     "status": "fixture_only",
     "contract_guard": "This expected output is not a final comparison engine, managed workspace store, Git replacement, environment manager, dependency resolver, executor, workflow DAG, or GUI design.",
-    "selected_code_context": "The comparison uses the selected-code context shape validated by experiment-code-selection: selected root, entrypoint, whitelisted files, notebook recording policy, declared refs, and captured-version candidate.",
-    "code_version_comparison": "Code-version comparison means objective comparison of declared selected-code records, not Git diff, dependency discovery, source execution, semantic code review, or restore readiness.",
+    "recorded_code_context": "The comparison uses the recorded-code context shape validated by experiment-code-recording: recorded root, entrypoint, included files, notebook recording policy, declared refs, and code snapshot record identity.",
+    "code_context_comparison": "Code-context comparison means objective comparison of declared code snapshot records, not Git diff, dependency discovery, source execution, semantic code review, or restore readiness.",
     "recorded_source_observation": "Recorded source observation IDs are fixture-level comparison tokens. They are not a checksum, archive, content-addressed storage, or final integrity contract."
   },
   "candidate_summary": {
@@ -47,34 +47,34 @@
       {
         "side": "reference",
         "context_id": "code-context-readout-cali-0001",
-        "captured_version_candidate_id": "code-version-candidate-0001",
+        "code_snapshot_record_id": "code-snapshot-record-0001",
         "external_root_id": "external-code-root-readout-demo",
         "external_root_display": "redacted_control_pc_path",
         "entrypoint_path": "readout_calibration_entrypoint.ipynb",
         "entrypoint_kind": "notebook",
         "entrypoint_recorded_form": "source_without_outputs",
-        "whitelisted_file_count": 3,
+        "included_file_count": 3,
         "declared_context_ref_count": 1
       },
       {
         "side": "current",
         "context_id": "code-context-readout-cali-0002",
-        "captured_version_candidate_id": "code-version-candidate-0002",
+        "code_snapshot_record_id": "code-snapshot-record-0002",
         "external_root_id": "external-code-root-readout-demo",
         "external_root_display": "redacted_control_pc_path",
         "entrypoint_path": "readout_calibration_entrypoint.ipynb",
         "entrypoint_kind": "notebook",
         "entrypoint_recorded_form": "source_without_outputs",
-        "whitelisted_file_count": 3,
+        "included_file_count": 3,
         "declared_context_ref_count": 1
       }
     ],
     "code_context_comparison": {
       "context_id_finding": "changed",
-      "captured_version_candidate_finding": "changed",
+      "code_snapshot_record_identity_finding": "changed",
       "entrypoint_path_finding": "same_observed",
       "entrypoint_recorded_form_finding": "same_observed",
-      "capture_policy_finding": "same_observed",
+      "recording_policy_finding": "same_observed",
       "declared_context_ref_finding": "same_observed",
       "execution_finding": "not_compared"
     },
@@ -106,28 +106,28 @@
     ],
     "findings": [
       {
-        "code": "changed_selected_code_context",
+        "code": "changed_recorded_code_context",
         "kind": "changed",
-        "subject": "selected_code_context",
+        "subject": "recorded_code_context",
         "message": "Reference used code-context-readout-cali-0001; current used code-context-readout-cali-0002."
       },
       {
-        "code": "changed_captured_version_candidate",
+        "code": "changed_code_snapshot_record_identity",
         "kind": "changed",
-        "subject": "captured_version_candidate",
-        "message": "Reference used code-version-candidate-0001; current used code-version-candidate-0002."
+        "subject": "code_snapshot_record_identity",
+        "message": "Reference used code-snapshot-record-0001; current used code-snapshot-record-0002."
       },
       {
         "code": "same_observed_code_entrypoint",
         "kind": "same_observed",
-        "subject": "selected_code_entrypoint",
-        "message": "Both selected code contexts use readout_calibration_entrypoint.ipynb as the notebook entrypoint."
+        "subject": "recorded_code_entrypoint",
+        "message": "Both recorded code contexts use readout_calibration_entrypoint.ipynb as the notebook entrypoint."
       },
       {
         "code": "same_observed_notebook_recording_policy",
         "kind": "same_observed",
         "subject": "notebook_recording_policy",
-        "message": "Both selected code contexts record notebooks as source without outputs."
+        "message": "Both recorded code contexts record notebooks as source without outputs."
       },
       {
         "code": "changed_entrypoint_source_observation",
@@ -139,25 +139,25 @@
         "code": "same_observed_helper_source_observation",
         "kind": "same_observed",
         "subject": "helpers/record_measurement_context.py",
-        "message": "Both selected code contexts reference the same recorded helper source observation."
+        "message": "Both recorded code contexts reference the same recorded helper source observation."
       },
       {
         "code": "missing_current_readout_correction_helper",
         "kind": "missing",
         "subject": "helpers/readout_correction.py",
-        "message": "The reference selected this helper, but the current selected code context does not."
+        "message": "The reference recorded this helper, but the current recorded code context does not."
       },
       {
         "code": "missing_reference_readout_correction_v2_helper",
         "kind": "missing",
         "subject": "helpers/readout_correction_v2.py",
-        "message": "The current selected this helper, but the reference selected code context does not."
+        "message": "The current recorded this helper, but the reference recorded code context does not."
       },
       {
         "code": "same_observed_declared_environment_ref",
         "kind": "same_observed",
         "subject": "declared_environment_ref",
-        "message": "Both selected code contexts declare env-profile-control-pc-redacted as an environment profile hint."
+        "message": "Both recorded code contexts declare env-profile-control-pc-redacted as an environment profile hint."
       },
       {
         "code": "redacted_external_code_root",
@@ -169,12 +169,12 @@
     "warnings": []
   },
   "boundary_notes": [
-    "This fixture compares declared selected-code records, not Git state or live files.",
-    "A changed selected code context is an objective comparison finding, not cause attribution.",
+    "This fixture compares declared code snapshot records, not Git state or live files.",
+    "A changed recorded code context is an objective comparison finding, not cause attribution.",
     "Recorded source observation IDs are fixture-level tokens and do not accept a checksum, archive, or content-addressed storage contract.",
     "Matching entrypoint paths do not mean matching source contents or runnable environments.",
     "Declared environment refs can match while environment readiness remains not compared.",
-    "The fixture does not import, execute, restore, or analyze selected code."
+    "The fixture does not import, execute, restore, or analyze recorded code."
   ],
   "decisions_not_earned": [
     "final comparison engine",
