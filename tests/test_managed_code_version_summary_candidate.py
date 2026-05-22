@@ -219,26 +219,34 @@ class ManagedCodeVersionSummaryCandidateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "sha256-prefixed hex digest"):
             build_managed_code_version_summary(source)
 
-    def test_expected_markdown_review_covers_boundary_output(self) -> None:
-        review = (FIXTURE / "expected-managed-code-version-review.md").read_text(encoding="utf-8")
+    def test_expected_summary_covers_boundary_output(self) -> None:
+        summary = json.loads(
+            (FIXTURE / "expected-managed-code-version-summary.json").read_text(encoding="utf-8")
+        )
+        candidate = summary["candidate_summary"]
+        version = candidate["managed_code_versions"][0]
+        attention = {item["code"]: item for item in candidate["attention"]}
 
-        for expected in [
-            "managed-code-version-input.json",
-            "managed-code-version-readout-0001",
-            "Files: 3",
-            "Notebook files: 2",
-            "content_captured",
-            "managed_storage_record_only",
-            "integrity_hints_not_storage_contract",
-            "materialization_not_performed",
-            "environment_not_restored",
-            "code_execution_not_granted",
-            "internal_git_not_inspected",
-            "no environment is synced or checked",
-            "code files are not loaded, imported, or executed",
-            "Git state remains out of scope",
-        ]:
-            self.assertIn(expected, review)
+        self.assertEqual(summary["source_fixture"], "managed-code-version-input.json")
+        self.assertEqual(version["version_id"], "managed-code-version-readout-0001")
+        self.assertEqual(version["file_count"], 3)
+        self.assertEqual(version["notebook_file_count"], 2)
+        self.assertEqual(
+            {item["source_capture_state"] for item in candidate["file_inventory"]},
+            {"content_captured"},
+        )
+        self.assertIn("storage backend", summary["reference_semantics"]["contract_guard"])
+        self.assertIn("integrity hints", summary["reference_semantics"]["integrity"])
+        self.assertIn("no workspace is created", summary["boundary_notes"][4])
+        self.assertEqual(
+            attention["environment_not_restored"]["does_not_claim"],
+            "runnable_environment",
+        )
+        self.assertEqual(
+            attention["code_execution_not_granted"]["does_not_claim"],
+            "execution_permission",
+        )
+        self.assertIn("internal Git analysis", summary["decisions_not_earned"])
 
 
 if __name__ == "__main__":

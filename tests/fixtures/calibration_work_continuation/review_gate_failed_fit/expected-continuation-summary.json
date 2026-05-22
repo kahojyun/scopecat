@@ -8,6 +8,23 @@
     "path_fields": "Output paths are package-relative fixture files for openability checks.",
     "authority": "Source and authority fields identify fixture-declared, user-authored-step, or review-gate facts only; they do not settle final runtime, parameter, storage, or hardware authority."
   },
+  "boundary_notes": [
+    "Scattered continuation context is assembled into read-only calibration-specific step state, not a runner log.",
+    "Review gates and blocked downstream steps are ordinary calibration-continuation state in this fixture, not a final episode/step/review model.",
+    "Proposed writes remain user-authored and not applied by Scopecat.",
+    "Requested next actions are review choices, not autonomous continuation or an executor input contract."
+  ],
+  "decisions_not_earned": [
+    "final runner framework",
+    "authoring model or executor input contract",
+    "scheduler design",
+    "parameter schema",
+    "retry policy",
+    "write-back policy",
+    "remote-execution design",
+    "hardware-control behavior",
+    "episode/step/review model"
+  ],
   "candidate_summary": {
     "episode": {
       "episode_id": "cal-episode-04001",

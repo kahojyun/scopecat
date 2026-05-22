@@ -116,17 +116,22 @@ class ParameterStateManagementFixtureTest(unittest.TestCase):
             reference["hardware_state_claim"], source_reference["hardware_state_claim"]
         )
 
-    def test_review_markdown_states_fixture_boundary(self) -> None:
-        review = (FIXTURE / "expected-parameter-state-review.md").read_text(encoding="utf-8")
+    def test_structured_summary_states_fixture_boundary(self) -> None:
+        summary = _expected_summary()
+        semantics = summary["reference_semantics"]
+        candidate = summary["candidate_summary"]
+        states = {state["state_id"]: state for state in candidate["states"]}
 
-        self.assertIn("working_point` is a purpose label", review)
-        self.assertIn("should not be plotted", review)
-        self.assertIn("trusted calibrated truth", review)
-        self.assertIn("not durable history", review)
-        self.assertIn("by itself", review)
-        self.assertIn("does not", review)
-        self.assertIn("claim that Scopecat knows current instrument state", review)
-        self.assertIn("external JSON overwrite behavior is evidence of current practice", review)
+        self.assertIn("Working point is a purpose label", semantics["lineage"])
+        self.assertEqual(
+            states["param-state-0001"]["history_plot_eligibility"],
+            "exclude_from_trusted_drift_plots",
+        )
+        self.assertIn("trusted calibrated truth", summary["boundary_notes"][0])
+        self.assertIn("not durable history", semantics["draft_history"])
+        self.assertIn("does not claim current hardware state", summary["boundary_notes"][3])
+        self.assertIn("External JSON", summary["boundary_notes"][4])
+        self.assertIn("external JSON authority", summary["decisions_not_earned"])
 
 
 if __name__ == "__main__":

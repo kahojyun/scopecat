@@ -181,28 +181,37 @@ class RunningMeasurementInspectionFixtureTest(unittest.TestCase):
                     )
                 )
 
-    def test_review_states_running_inspection_boundary(self) -> None:
-        review = (FIXTURES["partial_sweep"] / "expected-inspection-review.md").read_text(
-            encoding="utf-8"
+    def test_structured_summary_states_running_inspection_boundary(self) -> None:
+        summary = _load_json(FIXTURES["partial_sweep"] / "expected-inspection-summary.json")
+        candidate = summary["candidate_summary"]
+
+        self.assertEqual(summary["source_fixture"], "inspection-input.json")
+        self.assertIn("live service contract", summary["reference_semantics"]["contract_guard"])
+        self.assertEqual(candidate["progress"]["latest_completed_unit"]["kind"], "sweep")
+        self.assertEqual(candidate["progress"]["latest_completed_unit"]["sweep_index"], 0)
+        self.assertFalse(candidate["ephemeral_monitor_state"]["durable"])
+        self.assertEqual(
+            candidate["ephemeral_monitor_state"]["temporary_fit_preview"]["status"],
+            "preview_only",
         )
+        self.assertIn("not durable measurement records", summary["boundary_notes"][1])
+        self.assertIn("hardware-control behavior", summary["decisions_not_earned"])
 
-        self.assertIn("Fixture Wrapper", review)
-        self.assertIn("Candidate Summary Review", review)
-        self.assertIn("latest completed unit: sweep `0`", review)
-        self.assertIn("Temporary range selection and preview fits", review)
-        self.assertIn("not controlling instruments", review)
+    def test_heatmap_structured_summary_states_shape_boundary(self) -> None:
+        summary = _load_json(FIXTURES["partial_heatmap"] / "expected-inspection-summary.json")
+        candidate = summary["candidate_summary"]
 
-    def test_heatmap_review_states_shape_boundary(self) -> None:
-        review = (FIXTURES["partial_heatmap"] / "expected-inspection-review.md").read_text(
-            encoding="utf-8"
+        self.assertEqual(summary["source_fixture"], "inspection-input.json")
+        self.assertEqual(
+            candidate["progress"]["latest_completed_unit"]["kind"],
+            "rectangular_prefix",
         )
-
-        self.assertIn("Fixture Wrapper", review)
-        self.assertIn("Candidate Summary Review", review)
-        self.assertIn("latest completed unit: rectangular prefix", review)
-        self.assertIn("incomplete row", review)
-        self.assertIn("warning by itself", review)
-        self.assertIn("without defining ragged scan", review)
+        self.assertEqual(candidate["progress"]["current_partial_unit"]["kind"], "grid_row")
+        self.assertFalse(candidate["progress"]["current_partial_unit"]["complete"])
+        self.assertEqual(candidate["preview"]["shape_kind"], "partial_2d_grid_table")
+        self.assertEqual(candidate["attention"], [])
+        self.assertIn("not warnings", summary["boundary_notes"][0])
+        self.assertIn("ragged/adaptive scan model", summary["decisions_not_earned"])
 
 
 if __name__ == "__main__":

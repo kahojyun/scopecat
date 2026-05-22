@@ -74,15 +74,22 @@ class MultiMeasurementExportFixtureTest(unittest.TestCase):
             with self.subTest(rel_path=rel_path):
                 self.assertFalse((FIXTURE / rel_path).exists())
 
-    def test_review_states_non_recursive_boundary(self) -> None:
-        review = (FIXTURE / "expected-export-review.md").read_text(encoding="utf-8")
+    def test_structured_summary_states_non_recursive_boundary(self) -> None:
+        summary = json.loads((FIXTURE / "expected-export-summary.json").read_text())
+        export_set = summary["selected_export_set"]
+        linked_context = {item["label"]: item for item in summary["linked_context"]}
 
-        self.assertIn("selected measurements: `1001`, `1002`", review)
-        self.assertIn("traversal policy: `non_recursive`", review)
-        self.assertIn("Session wiring note", review)
-        self.assertIn("qA summary candidate", review)
-        self.assertIn("optional rather than silently included", review)
-        self.assertIn("not claiming a downstream analysis DAG", review)
+        self.assertEqual(export_set["selected_legacy_data_ids"], [1001, 1002])
+        self.assertEqual(export_set["traversal_policy"], "non_recursive")
+        self.assertEqual(
+            linked_context["Session wiring note"]["include_status"],
+            "included",
+        )
+        self.assertEqual(linked_context["qA summary candidate"]["include_status"], "optional")
+        self.assertIn("not part of the default measurement export", summary["boundary_notes"][0])
+        self.assertIn("does not recursively include", summary["boundary_notes"][1])
+        self.assertIn("analysis lineage", summary["boundary_notes"][2])
+        self.assertIn("automatic analysis-DAG inference", summary["decisions_not_earned"])
 
 
 if __name__ == "__main__":
