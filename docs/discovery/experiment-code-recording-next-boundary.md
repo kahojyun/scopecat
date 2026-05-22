@@ -166,9 +166,9 @@ User pressure: users need preview, naming, collision, overwrite, and provenance
 clarity before restoring or editing code.
 
 First fixture: a selected managed code version plus candidate destination
-policy, producing a materialization plan with destination paths, collision or
-overwrite findings, provenance labels, and skipped, redacted, or unavailable
-file findings.
+policy, producing a materialization plan with destination paths, collision
+findings, provenance labels, and skipped, redacted, or unavailable file
+findings.
 
 First result:
 [`workspace-materialization-intent-validation-result.md`](workspace-materialization-intent-validation-result.md)

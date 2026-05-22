@@ -127,6 +127,20 @@ class WorkspaceMaterializationIntentSummaryCandidateTest(unittest.TestCase):
             "workspaces/readout-rerun-0001",
         )
 
+    def test_unrequested_managed_versions_are_not_reported_as_selected(self) -> None:
+        source = _load_input()
+        extra_version = copy.deepcopy(source["managed_code_versions"][0])
+        extra_version["version_id"] = "managed-code-version-not-selected"
+        extra_version["stable_identity"]["stable_id"] = "sc-codever-not-selected"
+        source["managed_code_versions"].append(extra_version)
+
+        summary = build_workspace_materialization_intent_summary(source)
+
+        self.assertEqual(
+            [item["version_id"] for item in summary["selected_versions"]],
+            ["managed-code-version-readout-0001"],
+        )
+
     def test_duplicate_version_ids_are_rejected(self) -> None:
         source = _load_input()
         duplicate = copy.deepcopy(source["managed_code_versions"][0])
@@ -174,6 +188,43 @@ class WorkspaceMaterializationIntentSummaryCandidateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "existing paths must be relative"):
             build_workspace_materialization_intent_summary(source)
 
+    def test_destination_relative_existing_path_reports_collision(self) -> None:
+        source = _load_input()
+        source["materialization_requests"][0]["existing_destination_entries"][0]["path"] = (
+            "code/readout_calibration_entrypoint.ipynb"
+        )
+
+        summary = build_workspace_materialization_intent_summary(source)
+        findings_by_path = {item["source_path"]: item for item in summary["file_plans"]}
+
+        self.assertEqual(
+            findings_by_path["readout_calibration_entrypoint.ipynb"]["finding"],
+            "collision_requires_review",
+        )
+
+    def test_dot_components_in_existing_paths_are_rejected(self) -> None:
+        source = _load_input()
+        source["materialization_requests"][0]["existing_destination_entries"][0]["path"] = (
+            "workspaces/readout-rerun-0001/code/./readout_calibration_entrypoint.ipynb"
+        )
+
+        with self.assertRaisesRegex(ValueError, "existing paths must be relative"):
+            build_workspace_materialization_intent_summary(source)
+
+    def test_empty_paths_are_rejected(self) -> None:
+        source = _load_input()
+        source["managed_code_versions"][0]["file_inventory"][0]["materialization_path"] = ""
+
+        with self.assertRaisesRegex(ValueError, "non-relative materialization path"):
+            build_workspace_materialization_intent_summary(source)
+
+    def test_current_directory_paths_are_rejected(self) -> None:
+        source = _load_input()
+        source["materialization_requests"][0]["destination"]["root_path"] = "."
+
+        with self.assertRaisesRegex(ValueError, "destination root path must be relative"):
+            build_workspace_materialization_intent_summary(source)
+
     def test_duplicate_destination_paths_are_rejected(self) -> None:
         source = _load_input()
         source["managed_code_versions"][0]["file_inventory"][3]["materialization_path"] = (
@@ -218,6 +269,30 @@ class WorkspaceMaterializationIntentSummaryCandidateTest(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "sha256-prefixed hex digest"):
+            build_workspace_materialization_intent_summary(source)
+
+    def test_boundary_policy_claims_are_rejected(self) -> None:
+        policy_cases = {
+            "filesystem_inspection": "performed_elsewhere",
+            "overwrite_behavior": "overwrite_allowed",
+            "code_import": "performed_elsewhere",
+            "code_execution": "performed_elsewhere",
+        }
+        for key, value in policy_cases.items():
+            with self.subTest(key=key):
+                source = _load_input()
+                source["materialization_policy"][key] = value
+
+                with self.assertRaisesRegex(ValueError, key):
+                    build_workspace_materialization_intent_summary(source)
+
+    def test_destination_path_kind_must_remain_declared_relative_workspace_path(self) -> None:
+        source = _load_input()
+        source["materialization_requests"][0]["destination"]["path_kind"] = (
+            "declared_relative_package_path"
+        )
+
+        with self.assertRaisesRegex(ValueError, "destination path kind"):
             build_workspace_materialization_intent_summary(source)
 
     def test_collision_policy_must_require_review(self) -> None:

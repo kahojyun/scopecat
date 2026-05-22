@@ -37,7 +37,7 @@ workspace.
 The implementation candidate shows that a side-effect-free summary can:
 
 - preserve the selected managed-version identity and storage authority;
-- plan package- or workspace-relative destination paths for each file;
+- plan workspace-relative destination paths for each file;
 - attach selected-version provenance labels to every file plan;
 - report objective findings for planned files, destination collisions,
   redacted files, and unavailable files;

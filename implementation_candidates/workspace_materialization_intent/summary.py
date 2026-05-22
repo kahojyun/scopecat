@@ -54,16 +54,23 @@ def _request_by_id(source: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 def _path_is_relative(path: str) -> bool:
     parsed = PurePosixPath(path)
+    raw_parts = path.split("/")
     return (
-        "\\" not in path
+        bool(path)
+        and path != "."
+        and "\\" not in path
         and not re.match(r"^[A-Za-z]:", path)
         and not parsed.is_absolute()
-        and ".." not in parsed.parts
+        and not any(part in {"", ".", ".."} for part in raw_parts)
     )
 
 
 def _join_relative_path(root_path: str, materialization_path: str) -> str:
     return str(PurePosixPath(root_path) / PurePosixPath(materialization_path))
+
+
+def _is_under_or_equal(root_path: str, path: str) -> bool:
+    return path == root_path or path.startswith(f"{root_path}/")
 
 
 def _validate_policy(source: dict[str, Any]) -> None:
@@ -174,7 +181,15 @@ def _selected_version_summary(version: dict[str, Any]) -> dict[str, Any]:
 
 
 def _existing_destination_paths(request: dict[str, Any]) -> set[str]:
-    return {entry["path"] for entry in request["existing_destination_entries"]}
+    root_path = request["destination"]["root_path"]
+    existing_paths = set()
+    for entry in request["existing_destination_entries"]:
+        path = entry["path"]
+        if _is_under_or_equal(root_path, path):
+            existing_paths.add(path)
+        else:
+            existing_paths.add(_join_relative_path(root_path, path))
+    return existing_paths
 
 
 def _file_plan_for_record(
@@ -331,6 +346,10 @@ def _attention(source: dict[str, Any]) -> list[dict[str, Any]]:
 def build_workspace_materialization_intent_summary(source: dict[str, Any]) -> dict[str, Any]:
     """Build a structured workspace-materialization-intent summary."""
     _validate_references(source)
+    versions = _version_by_id(source)
+    selected_version_ids = {
+        request["selected_version_id"] for request in source["materialization_requests"]
+    }
     file_plans = _all_file_plans(source)
     file_plans_by_request = {
         request["request_id"]: [
@@ -343,7 +362,8 @@ def build_workspace_materialization_intent_summary(source: dict[str, Any]) -> di
     return {
         "materialization_policy": copy.deepcopy(source["materialization_policy"]),
         "selected_versions": [
-            _selected_version_summary(version) for version in source["managed_code_versions"]
+            _selected_version_summary(versions[version_id])
+            for version_id in sorted(selected_version_ids)
         ],
         "materialization_requests": [
             _request_summary(
