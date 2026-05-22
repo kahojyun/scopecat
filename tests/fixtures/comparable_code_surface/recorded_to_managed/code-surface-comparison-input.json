@@ -49,6 +49,12 @@
           }
         },
         {
+          "path": "helpers/transient_marker.py",
+          "role": "declared_helper_module",
+          "recorded_form": "source_file",
+          "capture_state": "missing"
+        },
+        {
           "path": "notebooks/session_setup.ipynb",
           "role": "declared_helper_notebook",
           "recorded_form": "source_without_outputs",
@@ -107,6 +113,18 @@
             "digest_algorithm": "sha256",
             "digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
             "size_bytes": 944,
+            "observed_at": "2026-05-21T12:05:00Z"
+          }
+        },
+        {
+          "path": "helpers/transient_marker.py",
+          "role": "declared_helper_module",
+          "recorded_form": "source_file",
+          "capture_state": "content_captured",
+          "content_state": {
+            "digest_algorithm": "sha256",
+            "digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+            "size_bytes": 224,
             "observed_at": "2026-05-21T12:05:00Z"
           }
         },

@@ -174,6 +174,10 @@ def _finding_for_path(
         finding = "missing"
         basis = "Path is present on only one declared code surface."
         does_not_claim = "deleted_or_added_by_user_intent"
+    elif "missing" in {baseline_state, comparison_state}:
+        finding = "missing"
+        basis = "At least one side is declared missing, so content comparison is unavailable."
+        does_not_claim = "content_equality_or_difference"
     elif "redacted" in {baseline_state, comparison_state}:
         finding = "redacted"
         basis = "At least one side is declared redacted, so content is intentionally hidden."

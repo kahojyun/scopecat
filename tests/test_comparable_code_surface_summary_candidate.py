@@ -35,6 +35,7 @@ class ComparableCodeSurfaceSummaryCandidateTest(unittest.TestCase):
 
         self.assertEqual(findings_by_path["analysis/run_chevron.py"]["finding"], "same_observed")
         self.assertEqual(findings_by_path["helpers/pulse_shapes.py"]["finding"], "changed")
+        self.assertEqual(findings_by_path["helpers/transient_marker.py"]["finding"], "missing")
         self.assertEqual(findings_by_path["notebooks/session_setup.ipynb"]["finding"], "unverified")
         self.assertEqual(findings_by_path["secrets/device_config.py"]["finding"], "redacted")
         self.assertEqual(findings_by_path["legacy/manual_patch.py"]["finding"], "not_compared")
@@ -45,12 +46,12 @@ class ComparableCodeSurfaceSummaryCandidateTest(unittest.TestCase):
         summary = build_comparable_code_surface_summary(_load_input())
         comparison = summary["comparison_sets"][0]
 
-        self.assertEqual(comparison["compared_path_count"], 7)
+        self.assertEqual(comparison["compared_path_count"], 8)
         self.assertEqual(
             comparison["finding_counts"],
             {
                 "changed": 1,
-                "missing": 2,
+                "missing": 3,
                 "not_compared": 1,
                 "redacted": 1,
                 "same_observed": 1,
@@ -60,21 +61,23 @@ class ComparableCodeSurfaceSummaryCandidateTest(unittest.TestCase):
         changed = [item for item in summary["code_file_findings"] if item["finding"] == "changed"][
             0
         ]
+        declared_missing = [
+            item
+            for item in summary["code_file_findings"]
+            if item["path"] == "helpers/transient_marker.py"
+        ][0]
         self.assertEqual(changed["does_not_claim"], "semantic_source_diff_or_cause_attribution")
+        self.assertEqual(declared_missing["baseline_capture_state"], "missing")
+        self.assertEqual(declared_missing["comparison_capture_state"], "content_captured")
+        self.assertEqual(declared_missing["does_not_claim"], "content_equality_or_difference")
 
     def test_attention_records_boundary_deferrals(self) -> None:
         summary = build_comparable_code_surface_summary(_load_input())
+        source = _load_input()
 
         self.assertEqual(
             [item["code"] for item in summary["attention"]],
-            [
-                "comparison_uses_declared_integrity_hints",
-                "semantic_source_diff_not_performed",
-                "internal_git_not_inspected",
-                "environment_readiness_not_checked",
-                "code_not_imported_or_executed",
-                "workspace_materialization_not_performed",
-            ],
+            source["attention_expected"],
         )
 
     def test_positive_policy_claims_are_rejected(self) -> None:
