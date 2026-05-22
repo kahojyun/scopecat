@@ -19,13 +19,18 @@ Internal Git state is not inspected in this fixture.
 
 The recorded context includes three files:
 
-- `readout_calibration_entrypoint.ipynb`
-- `experiment_session_setup.ipynb`
-- `helpers/record_measurement_context.py`
+- `readout_calibration_entrypoint.ipynb` (`content_captured`)
+- `experiment_session_setup.ipynb` (`content_captured`)
+- `helpers/record_measurement_context.py` (`content_captured`)
 
 Notebook outputs are stripped before recording. Checkpoints, caches, backups,
 and other unlisted files are not recorded unless the user explicitly adds them
 to the include list.
+
+The code capture state is explicit for each included file. This fixture uses
+content-captured synthetic/public-safe entries; future fixtures may use
+reference-only, missing, redacted, or excluded entries and should surface those
+as comparison limits rather than content diffs.
 
 ## Runtime And Mutation Attention
 

@@ -51,7 +51,8 @@ The first boundary distinguishes:
 | External code root | An existing folder or source reference that Scopecat does not yet manage. |
 | Code context | The root or workspace reference, entrypoint, included files or source observations, declared context references, and policy associated with a run or calibration step. |
 | Recorded code context | The audit/provenance state of a code context after Scopecat records it. It is not the active workspace that a future managed execution path may load. |
-| Code snapshot record | A point-in-time code snapshot scope derived from a code context. It may later become a managed code version, but storage semantics are not accepted here. |
+| Code snapshot record | A point-in-time code snapshot scope derived from a code context, with explicit code capture state for included items. It may later become a managed code version, but storage semantics are not accepted here. |
+| Code capture state | Whether an included item is content-captured, reference-only, missing, redacted, or excluded. Capture state controls what comparison can honestly say. |
 | Materialized code workspace | A future concrete folder expanded from a selected code snapshot or managed code version. Out of scope for this slice. |
 | Include policy | Only explicitly included files, references, or source observations are recorded. Unrecorded folder contents are not analyzed or surfaced as warnings. |
 | Entrypoint | The notebook, script, function, template, or file/cell reference associated with the run or step. |
@@ -86,6 +87,7 @@ Fixture input may include:
 - recorded external root ID and public-safe label;
 - recorded entrypoint path, kind, role, and optional symbol or cell range;
 - included files and their recorded forms;
+- code capture state for included files or source observations;
 - notebook output-stripping policy;
 - broad non-recording policy for unrecorded files;
 - declared context references such as an environment profile;
@@ -98,7 +100,7 @@ Fixture input should not include:
 
 - raw private paths, hostnames, instrument addresses, credentials, or complete
   local service payloads;
-- full code contents;
+- private full code contents in public-safe fixtures;
 - internal Git state, branch names, commits, dirty summaries, or nested
   repository state;
 - default record-all file listings;
@@ -126,6 +128,29 @@ Expected review output should let a reviewer answer:
   granted;
 - which calibration step references this recorded code context;
 - what point-in-time code snapshot record Scopecat may manage later.
+
+## Capture-State Posture
+
+Code recording can follow the same explicit-boundary posture used for
+measurement attachments and artifacts: Scopecat should record what it captured,
+what it only referenced, and what it cannot compare.
+
+The first public fixture may stay synthetic and avoid private full source
+payloads, but the product concept should not treat every included code item as
+equally comparable. Future code comparison slices should distinguish:
+
+- content-captured files, which can support manifest or checksum comparison
+  once an integrity mechanism is validated;
+- reference-only files or roots, which can support provenance and context
+  comparison but should produce unverified or not-compared findings for content
+  diff;
+- missing or redacted code context, which should remain visible without
+  implying recoverability;
+- excluded or unrecorded files, which should not become noisy warnings unless
+  the user records or links them.
+
+This posture does not accept a final archive, checksum, content-addressed
+store, restore, Git, or semantic source-diff contract.
 
 ## Out Of Scope
 

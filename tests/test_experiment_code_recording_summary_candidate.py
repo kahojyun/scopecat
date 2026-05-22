@@ -37,6 +37,10 @@ class ExperimentCodeRecordingSummaryCandidateTest(unittest.TestCase):
         self.assertEqual(context["entrypoint_recorded_form"], "source_without_outputs")
         self.assertEqual(context["execution_claim"], "not_executed_by_fixture")
         self.assertEqual(context["mutation_capability"], "not_analyzed")
+        self.assertEqual(
+            {item["code_capture_state"] for item in summary["included_files"]},
+            {"content_captured"},
+        )
 
     def test_attention_is_derived_from_boundary_policy(self) -> None:
         source = _load_input()
@@ -113,6 +117,24 @@ class ExperimentCodeRecordingSummaryCandidateTest(unittest.TestCase):
         ]
 
         with self.assertRaisesRegex(ValueError, "inclusion must match"):
+            build_experiment_code_recording_summary(source)
+
+    def test_code_snapshot_capture_states_must_match_recorded_context(self) -> None:
+        source = _load_input()
+        source["code_snapshot_records"][0]["snapshot_scope"]["capture_state_by_file"][
+            "helpers/record_measurement_context.py"
+        ] = "reference_only"
+
+        with self.assertRaisesRegex(ValueError, "capture states must match source context"):
+            build_experiment_code_recording_summary(source)
+
+    def test_unknown_code_capture_state_is_rejected(self) -> None:
+        source = _load_input()
+        source["recorded_code_contexts"][0]["included_files"][0]["code_capture_state"] = (
+            "maybe_captured"
+        )
+
+        with self.assertRaisesRegex(ValueError, "unsupported code capture state"):
             build_experiment_code_recording_summary(source)
 
 

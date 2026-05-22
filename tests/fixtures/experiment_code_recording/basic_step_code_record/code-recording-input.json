@@ -38,17 +38,20 @@
         {
           "path": "readout_calibration_entrypoint.ipynb",
           "role": "entrypoint",
-          "recorded_form": "source_without_outputs"
+          "recorded_form": "source_without_outputs",
+          "code_capture_state": "content_captured"
         },
         {
           "path": "experiment_session_setup.ipynb",
           "role": "declared_helper_notebook",
-          "recorded_form": "source_without_outputs"
+          "recorded_form": "source_without_outputs",
+          "code_capture_state": "content_captured"
         },
         {
           "path": "helpers/record_measurement_context.py",
           "role": "declared_helper_module",
-          "recorded_form": "source_file"
+          "recorded_form": "source_file",
+          "code_capture_state": "content_captured"
         }
       ],
       "declared_context_refs": [
@@ -114,6 +117,11 @@
           "experiment_session_setup.ipynb",
           "helpers/record_measurement_context.py"
         ],
+        "capture_state_by_file": {
+          "readout_calibration_entrypoint.ipynb": "content_captured",
+          "experiment_session_setup.ipynb": "content_captured",
+          "helpers/record_measurement_context.py": "content_captured"
+        },
         "notebook_recording_policy": "source_without_outputs",
         "default_file_inclusion": "not_recorded_unless_included"
       },

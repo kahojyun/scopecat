@@ -11,6 +11,14 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+_CODE_CAPTURE_STATES = {
+    "content_captured",
+    "reference_only",
+    "missing",
+    "redacted",
+    "excluded",
+}
+
 
 def _records_by_key(records: list[dict[str, Any]], key: str) -> dict[str, dict[str, Any]]:
     output = {}
@@ -34,6 +42,17 @@ def _included_paths(context: dict[str, Any]) -> list[str]:
     return [item["path"] for item in context["included_files"]]
 
 
+def _capture_state_by_file(context: dict[str, Any]) -> dict[str, str]:
+    return {item["path"]: item["code_capture_state"] for item in context["included_files"]}
+
+
+def _capture_state_counts(capture_state_by_file: dict[str, str]) -> dict[str, int]:
+    counts = {state: 0 for state in sorted(_CODE_CAPTURE_STATES)}
+    for state in capture_state_by_file.values():
+        counts[state] += 1
+    return {state: count for state, count in counts.items() if count}
+
+
 def _validate_references(source: dict[str, Any]) -> None:
     roots = _root_ids(source)
     contexts = _contexts_by_id(source)
@@ -51,6 +70,9 @@ def _validate_references(source: dict[str, Any]) -> None:
             and entrypoint["recorded_form"] != "source_without_outputs"
         ):
             raise ValueError("notebook entrypoint must be recorded without outputs")
+        for item in context["included_files"]:
+            if item["code_capture_state"] not in _CODE_CAPTURE_STATES:
+                raise ValueError("recorded code context has unsupported code capture state")
 
     for step in source.get("calibration_steps", []):
         for input_ref in step["inputs"]:
@@ -69,6 +91,11 @@ def _validate_references(source: dict[str, Any]) -> None:
             raise ValueError("code snapshot record root must match source context root")
         if scope["included_files"] != _included_paths(source_context):
             raise ValueError("code snapshot record inclusion must match source context inclusion")
+        capture_state_by_file = scope["capture_state_by_file"]
+        if list(capture_state_by_file) != scope["included_files"]:
+            raise ValueError("code snapshot record capture states must match included files")
+        if capture_state_by_file != _capture_state_by_file(source_context):
+            raise ValueError("code snapshot record capture states must match source context")
 
 
 def _external_code_root_summary(root: dict[str, Any]) -> dict[str, Any]:
@@ -102,6 +129,7 @@ def _included_file_summaries(source: dict[str, Any]) -> list[dict[str, Any]]:
             "path": item["path"],
             "role": item["role"],
             "recorded_form": item["recorded_form"],
+            "code_capture_state": item["code_capture_state"],
         }
         for context in source["recorded_code_contexts"]
         for item in context["included_files"]
@@ -133,6 +161,7 @@ def _calibration_step_reference(step: dict[str, Any]) -> dict[str, Any]:
 
 def _code_snapshot_record_summary(record: dict[str, Any]) -> dict[str, Any]:
     scope = record["snapshot_scope"]
+    capture_state_by_file = copy.deepcopy(scope["capture_state_by_file"])
     return {
         "record_id": record["record_id"],
         "source_context_id": record["source_context_id"],
@@ -140,6 +169,8 @@ def _code_snapshot_record_summary(record: dict[str, Any]) -> dict[str, Any]:
         "materialization_intent": record["materialization_intent"],
         "storage_claim": record["storage_claim"],
         "included_files": list(scope["included_files"]),
+        "capture_state_by_file": capture_state_by_file,
+        "capture_state_counts": _capture_state_counts(capture_state_by_file),
         "notebook_recording_policy": scope["notebook_recording_policy"],
         "default_file_inclusion": scope["default_file_inclusion"],
     }

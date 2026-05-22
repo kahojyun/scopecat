@@ -17,11 +17,15 @@
 
 ## File Inventory
 
-| Path | Recorded form | Integrity hint | Materialization path |
-| --- | --- | --- | --- |
-| `readout_calibration_entrypoint.ipynb` | `source_without_outputs` | `sha256`, 2840 bytes | `code/readout_calibration_entrypoint.ipynb` |
-| `experiment_session_setup.ipynb` | `source_without_outputs` | `sha256`, 1936 bytes | `code/experiment_session_setup.ipynb` |
-| `helpers/record_measurement_context.py` | `source_file` | `sha256`, 712 bytes | `code/helpers/record_measurement_context.py` |
+| Path | Source capture | Recorded form | Integrity hint | Materialization path |
+| --- | --- | --- | --- | --- |
+| `readout_calibration_entrypoint.ipynb` | `content_captured` | `source_without_outputs` | `sha256`, 2840 bytes | `code/readout_calibration_entrypoint.ipynb` |
+| `experiment_session_setup.ipynb` | `content_captured` | `source_without_outputs` | `sha256`, 1936 bytes | `code/experiment_session_setup.ipynb` |
+| `helpers/record_measurement_context.py` | `content_captured` | `source_file` | `sha256`, 712 bytes | `code/helpers/record_measurement_context.py` |
+
+The managed inventory depends on content-captured source entries. Reference-only
+or redacted prior code records would remain comparison gaps unless a later
+capture or observation supplies inventory facts.
 
 ## Attention
 

@@ -38,7 +38,7 @@ supporting policy notes. The current validated slice inventory is:
 | Running measurement inspection | Measurement records | Fixture validated | State summary for already-recorded data from still-running measurements, including progress, completeness, freshness, declared preview metadata, and non-durable monitor ergonomics. |
 | Declared scan/data-shape fixtures | Measurement records support | Spike/fixtures validated | Declared 1D table, rectangular 2D grid table, and sidecar-declared weak-table pressure for preview readiness, not a final data-shape schema or importer. |
 | Parameter state management | Parameter state | Fixture validated | Parameter-state lineage, purpose labels, seeded/trusted state, reviewable diffs, committed states, and measurement references without hardware write-back or branch/tag/commit semantics. |
-| Experiment code recording | Experiment code context | Summary candidate validated | Recorded run/step code context and code snapshot record from explicit include policy without Git inspection, dependency discovery, environment restore, loading, execution, or workflow/DAG semantics. |
+| Experiment code recording | Experiment code context | Summary candidate validated | Recorded run/step code context and code snapshot record from explicit include policy and capture-state posture without Git inspection, dependency discovery, environment restore, loading, execution, or workflow/DAG semantics. |
 | Managed code version | Experiment code context | Summary candidate validated | Managed record shape for a code snapshot record, including stable identity, inclusion-aligned file inventory, integrity hints, and materialization intent without workspace creation or environment restore. |
 | Setup binding | Setup binding | Fixture validated | Setup-binding snapshots, simple diffs, station-registry references, generated line/readout views, and measurement input references while keeping parameter state and hardware control separate. |
 | Calibration work continuation | Calibration continuation | Assembler candidate validated | Continuation-state assembly for planned steps, observed outputs, review gates, proposed writes, blocked steps, and interventions without executor, scheduler, write-back, or GUI ownership. |
@@ -117,9 +117,9 @@ Candidate next slices in this route should stay separate:
 
 Candidate next slices in this route should stay separate:
 
-- selected-version comparison: compare a current editable folder or declared
-  code context with a selected code snapshot or managed code version, without
-  semantic source diff or Git workflow semantics;
+- code comparison fixture family: add one comparison case at a time across
+  recorded context, snapshot capture state, managed-version inventory, and
+  editable-folder observation, without starting with a universal diff model;
 - workspace materialization intent: plan where a selected version would be
   materialized, without creating an editable workspace;
 - workspace materialization: create a selected version workspace, without
@@ -129,6 +129,12 @@ Candidate next slices in this route should stay separate:
   hardware-active modules;
 - selected-version loading: load or select a version for a workflow only after
   materialization and readiness are validated separately.
+
+The code comparison fixture family should start from explicit authority and
+capture state. A useful first case may compare two recorded code contexts or a
+recorded snapshot against a managed code version. Add current editable-folder
+observation, materialized directory comparison, or semantic source diff only
+when a separate validation question needs that stronger authority.
 
 ### Setup Binding
 

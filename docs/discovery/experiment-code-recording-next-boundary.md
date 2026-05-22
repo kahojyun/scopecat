@@ -33,10 +33,31 @@ name for a future active workspace that Scopecat materializes. A later managed
 path should distinguish the selected snapshot/version from the concrete
 materialized code workspace.
 
+Code records should also distinguish capture state. Some included items may be
+content-captured, while others may be reference-only, missing, redacted, or
+excluded. That is acceptable for early adoption as long as comparison and
+restore surfaces show the limitation instead of pretending all included items
+are equally recoverable or comparable.
+
 This is enough to cover the first adoption value: record the code most directly
 tied to experiment workflow and intent while avoiding legacy-codebase analysis.
 Selection can later choose, promote, or restore one of those records; it should
 not be the first adoption gate.
+
+The transition into managed code should be explicit rather than pretending that
+recorded history and managed history are one continuous version line:
+
+```text
+recorded code context
+  -> code snapshot record with capture-state facts
+  -> promoted managed code version
+  -> materialized editable workspace
+```
+
+Only captured or recaptured content should become a strong managed-version
+inventory. Reference-only prior records can remain useful evidence, but they
+should carry unverified or not-compared findings when users ask for content
+comparison.
 
 ## Not Earned Yet
 
@@ -86,7 +107,8 @@ A managed-workspace slice is worth starting when the first adoption path needs
 one of these user-visible behaviors:
 
 - restore this code snapshot record on the same or another machine;
-- compare the current editable code with a previous code snapshot record;
+- compare available recorded or managed code facts without pretending
+  reference-only items support content diff;
 - choose a saved code snapshot at measurement start;
 - materialize a selected version into an editable workspace;
 - protect users from accidentally modifying the only useful copy of selected
@@ -109,6 +131,17 @@ about runnable context rather than record context. Useful triggers include:
   modules or executing experiment code.
 
 ## First Future Fixture Candidates
+
+Potential code-comparison fixture family:
+
+- input: two code records or versions with explicit authority and capture-state
+  facts;
+- output: findings over the comparable surface, such as same-observed, changed,
+  missing, unverified, redacted, or not-compared;
+- first cases: recorded context comparison, snapshot capture-state comparison,
+  managed-version inventory comparison, and later editable-folder observation;
+- boundary: no universal diff engine, no semantic source diff, no Git analysis,
+  no environment readiness, and no execution.
 
 Potential managed-workspace fixture:
 

@@ -90,6 +90,12 @@ recorded source observation IDs as fixture-level comparison tokens; it does
 not earn a checksum, archive, content-addressed storage, or final integrity
 contract.
 
+Future code comparison should be treated as a fixture family rather than a
+single selected-version comparison engine. Recorded context comparison,
+snapshot capture-state comparison, managed-version inventory comparison, and
+editable-folder observation may share finding vocabulary only where their
+authority and capture-state behavior match.
+
 ## Remaining Risks
 
 - the finding vocabulary may need more examples before it becomes a product

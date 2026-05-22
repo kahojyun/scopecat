@@ -37,6 +37,10 @@ class ManagedCodeVersionSummaryCandidateTest(unittest.TestCase):
         self.assertEqual(version["file_count"], 3)
         self.assertEqual(version["integrity_hint_count"], 3)
         self.assertEqual(
+            {item["source_capture_state"] for item in summary["file_inventory"]},
+            {"content_captured"},
+        )
+        self.assertEqual(
             version["materialization_intent"]["mode"],
             "editable_workspace_intent",
         )
@@ -106,6 +110,15 @@ class ManagedCodeVersionSummaryCandidateTest(unittest.TestCase):
         source["managed_code_versions"][0]["file_records"][0]["path"] = "different.py"
 
         with self.assertRaisesRegex(ValueError, "must match source record include list"):
+            build_managed_code_version_summary(source)
+
+    def test_reference_only_source_entries_cannot_be_managed_inventory(self) -> None:
+        source = _load_input()
+        source["code_snapshot_records"][0]["snapshot_scope"]["capture_state_by_file"][
+            "helpers/record_measurement_context.py"
+        ] = "reference_only"
+
+        with self.assertRaisesRegex(ValueError, "require content-captured source entries"):
             build_managed_code_version_summary(source)
 
     def test_duplicate_file_paths_are_rejected(self) -> None:
@@ -200,6 +213,7 @@ class ManagedCodeVersionSummaryCandidateTest(unittest.TestCase):
             "managed-code-version-readout-0001",
             "Files: 3",
             "Notebook files: 2",
+            "content_captured",
             "managed_storage_record_only",
             "integrity_hints_not_storage_contract",
             "materialization_not_performed",
