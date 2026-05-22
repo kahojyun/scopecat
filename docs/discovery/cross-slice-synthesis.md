@@ -92,11 +92,12 @@ setup truth, publication-grade plotting, user-provided analysis conclusion
 model, experiment-code comparison, or GUI design. The first reference-selection
 model can start from ordinary user marks on measurement records.
 
-Experiment code selection has fixture-level validation for selected code
-context from a messy external folder and a candidate captured version. It
-uses minimal whitelist capture, strips notebook outputs before recording, and
-does not inspect internal Git state or analyze unselected files. It has not
-earned managed workspace storage, Git replacement implementation, internal Git
+Experiment code selection has a slice-local summary candidate for selected
+code context from a messy external folder and a candidate captured version. It
+uses minimal whitelist capture, strips notebook outputs before recording,
+validates selected-root, step-input, and captured-version references, and does
+not inspect internal Git state or analyze unselected files. It has not earned
+managed workspace storage, Git replacement implementation, internal Git
 analysis, default record-all tracking, package management, environment
 ownership, environment restoration, selected-version loading, execution,
 workflow/DAG nodes, component-level versioning, generated artifact
