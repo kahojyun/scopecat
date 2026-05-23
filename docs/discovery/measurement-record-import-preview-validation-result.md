@@ -88,8 +88,8 @@ legacy-source classification or import acceptance vocabulary.
 
 Likely follow-up slices should stay separate:
 
-- offline legacy-record import for one accepted source shape, with explicit
-  storage mutation and acceptance boundaries;
+- adapter-authored legacy import acceptance for one normalized source shape,
+  with explicit storage mutation boundaries and no core legacy reader;
 - source observation or checksum validation for a declared import package,
   without accepting a full package format;
 - harder data-shape import preview cases, such as ragged scans or
