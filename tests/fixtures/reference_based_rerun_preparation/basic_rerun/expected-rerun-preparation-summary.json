@@ -1,0 +1,363 @@
+{
+  "summary_id": "reference-based-rerun-preparation-basic-rerun.expected",
+  "status": "expected_validation_output",
+  "source_fixture": "rerun-preparation-input.json",
+  "reference_semantics": {
+    "status": "fixture_only",
+    "contract_guard": "This expected output is not a final run lifecycle, reproducibility guarantee, readiness contract, shared context schema, restore contract, hardware-control contract, environment manager, executor, workflow DAG, cause-analysis engine, or GUI design.",
+    "selected_reference": "The selected reference measurement is a user-selected seed for manual rerun preparation, not a claim that the reference is scientifically good or reproducible.",
+    "rerun_preparation": "The rerun preparation copies reference-linked context selections into a proposed manual run context without absorbing family-owned payload schemas.",
+    "finding_boundary": "Workspace and declared environment findings are review facts for rerun preparation, not automatic run blocks, drift correction, runnable-readiness claims, or cause attribution.",
+    "execution_boundary": "Selected code, editable workspace, and declared environment context are references only; no code import, environment sync, hardware control, or execution is performed."
+  },
+  "candidate_summary": {
+    "rerun_preparation_policy": {
+      "rerun_preparation_authority": "selected_reference_seed_summary_only",
+      "reference_source": "declared_selected_reference_measurement",
+      "context_source": "declared_fixture_records",
+      "prepared_context_output": "proposed_manual_run_context_only",
+      "shared_context_schema": "not_defined",
+      "hardware_control": "not_performed",
+      "parameter_write_back": "not_performed",
+      "setup_mutation": "not_performed",
+      "environment_sync": "not_performed",
+      "code_import_execution": "not_performed",
+      "automatic_drift_correction": "not_performed",
+      "cause_attribution": "not_performed",
+      "reproducibility_claim": "not_made"
+    },
+    "selected_reference_measurements": [
+      {
+        "selected_reference_id": "selected-reference-rabi-qA-last-working",
+        "measurement_id": "measurement-04021",
+        "label": "last working qA Rabi amplitude check",
+        "selection_reason": "user_marked_last_working",
+        "recorded_at": "2026-05-20T08:10:00Z",
+        "context_ref_count": 7,
+        "selected_context_count": 7,
+        "unavailable_required_context_count": 0,
+        "reference_claim": "user_selected_reference_only"
+      }
+    ],
+    "context_records": [
+      {
+        "context_id": "measurement-intent-rabi-qA-reference",
+        "family": "measurement_intent",
+        "label": "qA Rabi amplitude check",
+        "record_status": "declared_reference_intent",
+        "authority": "reference_based_rerun_preparation_fixture",
+        "payload_handling": "family_owned_summary_only",
+        "declared_summary": {
+          "experiment_label": "qA Rabi amplitude check",
+          "logical_targets": [
+            "qA"
+          ],
+          "entrypoint_hint": "readout_calibration_entrypoint.py"
+        }
+      },
+      {
+        "context_id": "param-state-qA-rabi-reference",
+        "family": "parameter_state",
+        "label": "qA Rabi last-working parameter state",
+        "record_status": "trusted_for_reference_scope",
+        "authority": "parameter_state_fixture",
+        "payload_handling": "family_owned_summary_only",
+        "declared_summary": {
+          "lineage_id": "lineage-qA-default-bias",
+          "trusted_entry_count": 4,
+          "selected_state_version": "param-state-version-0004"
+        }
+      },
+      {
+        "context_id": "setup-binding-qA-rabi-reference",
+        "family": "setup_binding",
+        "label": "qA Rabi reference setup binding",
+        "record_status": "selected_binding_snapshot",
+        "authority": "setup_binding_fixture",
+        "payload_handling": "family_owned_summary_only",
+        "declared_summary": {
+          "sample_id": "sample-alpha",
+          "cooldown_id": "cooldown-2026-05",
+          "logical_binding_count": 6
+        }
+      },
+      {
+        "context_id": "station-registry-rabi-redacted",
+        "family": "station_registry",
+        "label": "redacted station registry for qA Rabi",
+        "record_status": "selected_station_context",
+        "authority": "setup_binding_fixture",
+        "payload_handling": "family_owned_summary_only",
+        "declared_summary": {
+          "resource_count": 5,
+          "contains_connection_payloads": false
+        }
+      },
+      {
+        "context_id": "managed-code-version-rabi-0002",
+        "family": "managed_code_version",
+        "label": "Rabi calibration managed code version",
+        "record_status": "materialized_workspace_available",
+        "authority": "managed_code_version_fixture",
+        "payload_handling": "family_owned_summary_only",
+        "declared_summary": {
+          "source_record_id": "code-snapshot-record-rabi-0002",
+          "stable_id": "sc-codever-rabi-0002",
+          "file_count": 5,
+          "materialization": "workspace_materialized"
+        }
+      },
+      {
+        "context_id": "editable-observation-rabi-0002",
+        "family": "editable_workspace_observation",
+        "label": "Rabi rerun workspace observation",
+        "record_status": "observed_with_review_findings",
+        "authority": "editable_folder_observation_fixture",
+        "payload_handling": "family_owned_summary_only",
+        "declared_summary": {
+          "selected_version_id": "managed-code-version-rabi-0002",
+          "workspace_id": "workspace-rabi-rerun-0002",
+          "root_label": "rabi-rerun-0002",
+          "finding_counts": {
+            "changed_observed": 1,
+            "extra_observed": 1,
+            "missing_expected": 0,
+            "same_observed": 3,
+            "skipped_redacted": 1,
+            "unavailable_reference": 0
+          }
+        }
+      },
+      {
+        "context_id": "declared-environment-rabi-0002",
+        "family": "declared_environment",
+        "label": "Rabi declared environment inventory",
+        "record_status": "declared_with_review_findings",
+        "authority": "declared_environment_inventory_fixture",
+        "payload_handling": "family_owned_summary_only",
+        "declared_summary": {
+          "managed_code_version_id": "managed-code-version-rabi-0002",
+          "runtime_hint_count": 1,
+          "dependency_source_count": 3,
+          "package_declaration_count": 3,
+          "external_tool_count": 1,
+          "finding_counts": {
+            "dependency_source_unavailable": 1,
+            "external_tool_unverified": 1,
+            "package_pin_unknown": 1,
+            "package_pin_unpinned": 1
+          }
+        }
+      }
+    ],
+    "rerun_preparations": [
+      {
+        "rerun_preparation_id": "rerun-prep-rabi-qA-from-reference-0001",
+        "label": "qA Rabi manual rerun from last-working reference",
+        "selected_reference_id": "selected-reference-rabi-qA-last-working",
+        "reference_measurement_id": "measurement-04021",
+        "proposed_run_target": {
+          "measurement_id": "measurement-05021",
+          "experiment_label": "qA Rabi amplitude check",
+          "prepared_at": "2026-05-22T09:15:00Z",
+          "logical_targets": [
+            "qA"
+          ],
+          "entrypoint_hint": "readout_calibration_entrypoint.py"
+        },
+        "context_ref_count": 7,
+        "required_context_count": 7,
+        "selected_context_count": 7,
+        "unavailable_required_context_count": 0,
+        "preparation_claim": "manual_rerun_seed_summary_only"
+      }
+    ],
+    "selected_context_refs": [
+      {
+        "rerun_preparation_id": "rerun-prep-rabi-qA-from-reference-0001",
+        "family": "measurement_intent",
+        "role": "declared_measurement_intent",
+        "required": true,
+        "include_state": "selected",
+        "context_id": "measurement-intent-rabi-qA-reference",
+        "seeded_from_reference_link": true,
+        "context_label": "qA Rabi amplitude check",
+        "record_status": "declared_reference_intent",
+        "authority": "reference_based_rerun_preparation_fixture"
+      },
+      {
+        "rerun_preparation_id": "rerun-prep-rabi-qA-from-reference-0001",
+        "family": "parameter_state",
+        "role": "calibrated_values",
+        "required": true,
+        "include_state": "selected",
+        "context_id": "param-state-qA-rabi-reference",
+        "seeded_from_reference_link": true,
+        "context_label": "qA Rabi last-working parameter state",
+        "record_status": "trusted_for_reference_scope",
+        "authority": "parameter_state_fixture"
+      },
+      {
+        "rerun_preparation_id": "rerun-prep-rabi-qA-from-reference-0001",
+        "family": "setup_binding",
+        "role": "logical_to_physical_mapping",
+        "required": true,
+        "include_state": "selected",
+        "context_id": "setup-binding-qA-rabi-reference",
+        "seeded_from_reference_link": true,
+        "context_label": "qA Rabi reference setup binding",
+        "record_status": "selected_binding_snapshot",
+        "authority": "setup_binding_fixture"
+      },
+      {
+        "rerun_preparation_id": "rerun-prep-rabi-qA-from-reference-0001",
+        "family": "station_registry",
+        "role": "station_context",
+        "required": true,
+        "include_state": "selected",
+        "context_id": "station-registry-rabi-redacted",
+        "seeded_from_reference_link": true,
+        "context_label": "redacted station registry for qA Rabi",
+        "record_status": "selected_station_context",
+        "authority": "setup_binding_fixture"
+      },
+      {
+        "rerun_preparation_id": "rerun-prep-rabi-qA-from-reference-0001",
+        "family": "managed_code_version",
+        "role": "selected_code_version",
+        "required": true,
+        "include_state": "selected",
+        "context_id": "managed-code-version-rabi-0002",
+        "seeded_from_reference_link": true,
+        "context_label": "Rabi calibration managed code version",
+        "record_status": "materialized_workspace_available",
+        "authority": "managed_code_version_fixture"
+      },
+      {
+        "rerun_preparation_id": "rerun-prep-rabi-qA-from-reference-0001",
+        "family": "editable_workspace_observation",
+        "role": "selected_editable_workspace",
+        "required": true,
+        "include_state": "selected",
+        "context_id": "editable-observation-rabi-0002",
+        "seeded_from_reference_link": true,
+        "context_label": "Rabi rerun workspace observation",
+        "record_status": "observed_with_review_findings",
+        "authority": "editable_folder_observation_fixture"
+      },
+      {
+        "rerun_preparation_id": "rerun-prep-rabi-qA-from-reference-0001",
+        "family": "declared_environment",
+        "role": "runtime_environment_hint",
+        "required": true,
+        "include_state": "selected",
+        "context_id": "declared-environment-rabi-0002",
+        "seeded_from_reference_link": true,
+        "context_label": "Rabi declared environment inventory",
+        "record_status": "declared_with_review_findings",
+        "authority": "declared_environment_inventory_fixture"
+      }
+    ],
+    "missing_context_findings": [],
+    "workspace_context_findings": [
+      {
+        "rerun_preparation_id": "rerun-prep-rabi-qA-from-reference-0001",
+        "context_id": "editable-observation-rabi-0002",
+        "severity": "review",
+        "finding": "workspace_observation_has_review_findings",
+        "basis": {
+          "changed_observed": 1,
+          "extra_observed": 1,
+          "skipped_redacted": 1
+        },
+        "does_not_claim": "run_is_blocked_or_workspace_is_unusable"
+      }
+    ],
+    "environment_context_findings": [
+      {
+        "rerun_preparation_id": "rerun-prep-rabi-qA-from-reference-0001",
+        "context_id": "declared-environment-rabi-0002",
+        "severity": "review",
+        "finding": "declared_environment_has_review_findings",
+        "basis": {
+          "dependency_source_unavailable": 1,
+          "external_tool_unverified": 1,
+          "package_pin_unknown": 1,
+          "package_pin_unpinned": 1
+        },
+        "does_not_claim": "environment_is_synced_runnable_or_reproducible"
+      }
+    ],
+    "attention": [
+      {
+        "code": "selected_reference_reused_as_seed",
+        "severity": "info",
+        "basis": "Rerun preparation starts from a declared selected reference measurement.",
+        "does_not_claim": "reference_is_scientifically_good_or_reproducible"
+      },
+      {
+        "code": "shared_context_schema_not_defined",
+        "severity": "info",
+        "basis": "The rerun preparation groups family-owned context records by reference.",
+        "does_not_claim": "universal_context_payload_schema"
+      },
+      {
+        "code": "hardware_control_not_granted",
+        "severity": "review",
+        "basis": "Reference-based rerun preparation does not configure instruments.",
+        "does_not_claim": "hardware_state_applied"
+      },
+      {
+        "code": "environment_sync_not_performed",
+        "severity": "review",
+        "basis": "Declared environment context is represented by reference state, not a synced runtime.",
+        "does_not_claim": "runnable_environment"
+      },
+      {
+        "code": "code_execution_not_granted",
+        "severity": "review",
+        "basis": "Selected code and workspace context are not imported, loaded, or executed.",
+        "does_not_claim": "execution_permission"
+      },
+      {
+        "code": "automatic_drift_correction_not_performed",
+        "severity": "review",
+        "basis": "Rerun preparation reports context findings without changing files, parameters, or setup bindings.",
+        "does_not_claim": "drift_corrected"
+      },
+      {
+        "code": "cause_attribution_not_performed",
+        "severity": "info",
+        "basis": "Reference context differences are preparation facts, not explanations for future outcomes.",
+        "does_not_claim": "automatic_cause_analysis"
+      },
+      {
+        "code": "reproducibility_not_claimed",
+        "severity": "review",
+        "basis": "A selected reference can seed a manual rerun, but the summary does not guarantee repeatability.",
+        "does_not_claim": "experiment_reproducible"
+      }
+    ]
+  },
+  "boundary_notes": [
+    "Selected reference identity is user-declared selection state, not scientific goodness, reproducibility, or automatic cause attribution.",
+    "Context records remain family-owned summaries; this fixture does not define a shared context payload schema.",
+    "Workspace findings are copied from declared editable-folder observation state and do not perform fresh filesystem inspection.",
+    "Declared environment findings do not resolve, install, sync, import, or check runtime readiness.",
+    "Hardware control, parameter write-back, setup mutation, code import, and code execution are outside this fixture."
+  ],
+  "decisions_not_earned": [
+    "reproducibility guarantee",
+    "automatic cause attribution",
+    "automatic drift correction",
+    "hardware control",
+    "parameter write-back",
+    "setup mutation",
+    "dependency sync",
+    "code execution",
+    "final run lifecycle",
+    "shared context schema",
+    "workflow DAG",
+    "GUI design"
+  ]
+}

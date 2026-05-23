@@ -139,9 +139,9 @@ later path toward structured code management.
 
 The validation order is stricter than the adoption route. Comparable code
 surfaces, materialization intent, workspace materialization, editable-folder
-observation, prepared run context, and declared environment inventory now each
-have first validation results. Reference-based rerun preparation and
-environment readiness should still be earned as separate authority boundaries.
+observation, prepared run context, declared environment inventory, and
+reference-based rerun preparation now each have first validation results.
+Environment readiness should still be earned as a separate authority boundary.
 
 ## Workflow And DAG Deferral
 

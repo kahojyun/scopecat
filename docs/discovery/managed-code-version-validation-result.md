@@ -125,6 +125,6 @@ It supports the deferred route described in
 [`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md):
 comparable code surface, workspace materialization intent, actual workspace
 creation, editable-folder observation, and prepared run context now each have
-first validation results. Reference-based rerun preparation and environment
-restoration remain later slices. The active implementation or PR plan should
-own sequencing.
+first validation results. Reference-based rerun preparation also has a first
+validation result; environment restoration remains a later slice. The active
+implementation or PR plan should own sequencing.

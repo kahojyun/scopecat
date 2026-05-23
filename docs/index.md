@@ -22,7 +22,6 @@ docs/
 | [`discovery/adoption-routes.md`](discovery/adoption-routes.md) | Evidence-backed adoption routes grouped by durable user workflow. |
 | [`discovery/cross-slice-synthesis.md`](discovery/cross-slice-synthesis.md) | Current synthesis across validated discovery slices. |
 | [`discovery/shared-model-extraction-deferral.md`](discovery/shared-model-extraction-deferral.md) | Current deferral of shared domain model extraction. |
-| [`discovery/declared-environment-inventory-validation-result.md`](discovery/declared-environment-inventory-validation-result.md) | Result of the declared environment inventory implementation candidate. |
 | [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md) | Evidence-backed problem briefs. |
 | [`evidence/evidence-register.md`](evidence/evidence-register.md) | Stable `EV-*` evidence claims and source posture. |
 | [`evidence/method.md`](evidence/method.md) | Evidence classes, support rules, source handling, and update rules. |
