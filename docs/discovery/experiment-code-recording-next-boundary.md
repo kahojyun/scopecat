@@ -228,8 +228,9 @@ package-manager hints to be visible with code history before any sync is
 attempted.
 
 First fixture: a managed code version plus user-declared environment file,
-lockfile, interpreter, or package-manager references, producing present,
-missing, reference-only, or not-checked findings.
+lockfile, interpreter, package, and external-tool references, producing
+declared, unavailable, unverified, redacted, unsupported, unpinned, or unknown
+findings.
 
 Result owner:
 [`declared-environment-inventory-validation-result.md`](declared-environment-inventory-validation-result.md)

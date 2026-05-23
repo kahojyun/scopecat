@@ -152,6 +152,20 @@ class DeclaredEnvironmentInventorySummaryCandidateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "path must be relative"):
             build_declared_environment_inventory_summary(source)
 
+    def test_blank_dependency_source_paths_are_rejected(self) -> None:
+        source = _load_input()
+        source["environment_records"][0]["dependency_sources"][0]["path"] = ""
+
+        with self.assertRaisesRegex(ValueError, "path must be relative"):
+            build_declared_environment_inventory_summary(source)
+
+    def test_current_directory_dependency_source_paths_are_rejected(self) -> None:
+        source = _load_input()
+        source["environment_records"][0]["dependency_sources"][0]["path"] = "."
+
+        with self.assertRaisesRegex(ValueError, "path must be relative"):
+            build_declared_environment_inventory_summary(source)
+
     def test_dependency_source_lockfile_ref_must_be_known(self) -> None:
         source = _load_input()
         source["environment_records"][0]["dependency_sources"][0]["lockfile_ref"] = "missing"

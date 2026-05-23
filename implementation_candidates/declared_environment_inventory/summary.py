@@ -79,7 +79,9 @@ def _source_records_by_id(environment: dict[str, Any]) -> dict[str, dict[str, An
 def _path_is_relative(path: str) -> bool:
     parsed = PurePosixPath(path)
     return (
-        "\\" not in path
+        bool(path)
+        and path != "."
+        and "\\" not in path
         and not re.match(r"^[A-Za-z]:", path)
         and not parsed.is_absolute()
         and ".." not in parsed.parts
