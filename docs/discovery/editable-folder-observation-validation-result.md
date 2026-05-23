@@ -81,17 +81,17 @@ manual editing or run preparation. The result keeps the selected managed
 version's include list authoritative for code-surface comparison, while using
 ignore guardrails to avoid noisy or sensitive workspace internals. Observation
 remains separate from semantic diff, Git diagnostics, environment readiness,
-prepared run context, and execution.
+execution, and the separate prepared-run context assembly slice.
 
 ## Follow-Up
 
-Stop this slice at read-only observation unless the next workflow needs a
-prepared run context.
+Stop this slice at read-only observation unless the next workflow needs another
+authority case.
 
 Likely follow-up slices should stay separate:
 
-- prepared run context after selected code or workspace, parameter state, setup
-  binding, and measurement intent need to be assembled together;
+- reference-based rerun preparation after a selected reference measurement
+  needs to seed manual run context;
 - declared environment inventory, still without dependency sync or runnable
   readiness claims;
 - semantic source diff or Git diagnostics only after a narrower workflow

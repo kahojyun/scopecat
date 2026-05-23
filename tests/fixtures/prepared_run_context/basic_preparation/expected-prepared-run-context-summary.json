@@ -1,0 +1,302 @@
+{
+  "summary_id": "prepared-run-context-basic-preparation.expected",
+  "status": "expected_validation_output",
+  "source_fixture": "prepared-run-context-input.json",
+  "reference_semantics": {
+    "status": "fixture_only",
+    "contract_guard": "This expected output is not a final run lifecycle, readiness contract, shared context schema, storage model, restore contract, hardware-control contract, environment manager, executor, workflow DAG, or GUI design.",
+    "prepared_context": "The prepared run context groups selected family-owned context records and a declared editable-workspace observation for manual run preparation without absorbing their payload schemas.",
+    "workspace_observation": "Workspace drift produces a preparation finding, not an automatic run block, source-diff interpretation, or runnable-readiness claim.",
+    "execution_boundary": "Selected code, editable workspace, and declared environment context are references only; no code import, environment sync, hardware control, or execution is performed."
+  },
+  "candidate_summary": {
+    "prepared_run_context_policy": {
+      "run_context_authority": "preparation_summary_only",
+      "context_source": "declared_fixture_records",
+      "workspace_observation_source": "declared_editable_folder_observation_summary",
+      "shared_context_schema": "not_defined",
+      "hardware_control": "not_performed",
+      "parameter_write_back": "not_performed",
+      "setup_mutation": "not_performed",
+      "environment_sync": "not_performed",
+      "code_import_execution": "not_performed",
+      "readiness_claim": "selection_and_workspace_observation_only"
+    },
+    "context_records": [
+      {
+        "context_id": "measurement-intent-chevron-qA",
+        "family": "measurement_intent",
+        "label": "qA chevron follow-up",
+        "record_status": "declared_user_intent",
+        "authority": "prepared_run_context_fixture",
+        "payload_handling": "family_owned_summary_only",
+        "declared_summary": {
+          "experiment_label": "qA chevron follow-up",
+          "logical_targets": [
+            "qA",
+            "cAB"
+          ],
+          "entrypoint_hint": "readout_calibration_entrypoint.py"
+        }
+      },
+      {
+        "context_id": "param-state-0002",
+        "family": "parameter_state",
+        "label": "qA default bias after Rabi review",
+        "record_status": "trusted_for_declared_scope",
+        "authority": "parameter_state_fixture",
+        "payload_handling": "family_owned_summary_only",
+        "declared_summary": {
+          "lineage_id": "lineage-qA-default-bias",
+          "trusted_entry_count": 3
+        }
+      },
+      {
+        "context_id": "setup-binding-0002",
+        "family": "setup_binding",
+        "label": "qA default binding after bias-line move",
+        "record_status": "selected_binding_snapshot",
+        "authority": "setup_binding_fixture",
+        "payload_handling": "family_owned_summary_only",
+        "declared_summary": {
+          "sample_id": "sample-alpha",
+          "cooldown_id": "cooldown-2026-05",
+          "logical_binding_count": 6
+        }
+      },
+      {
+        "context_id": "station-registry-mmcs2-redacted",
+        "family": "station_registry",
+        "label": "redacted MMCS2 station registry",
+        "record_status": "selected_station_context",
+        "authority": "setup_binding_fixture",
+        "payload_handling": "family_owned_summary_only",
+        "declared_summary": {
+          "resource_count": 5,
+          "contains_connection_payloads": false
+        }
+      },
+      {
+        "context_id": "managed-code-version-readout-0001",
+        "family": "managed_code_version",
+        "label": "readout calibration managed code version",
+        "record_status": "materialized_workspace_available",
+        "authority": "managed_code_version_fixture",
+        "payload_handling": "family_owned_summary_only",
+        "declared_summary": {
+          "source_record_id": "code-snapshot-record-0001",
+          "stable_id": "sc-codever-readout-0001",
+          "file_count": 5,
+          "materialization": "workspace_materialized"
+        }
+      },
+      {
+        "context_id": "editable-observation-readout-0001",
+        "family": "editable_workspace_observation",
+        "label": "readout rerun workspace observation",
+        "record_status": "observed_with_review_findings",
+        "authority": "editable_folder_observation_fixture",
+        "payload_handling": "family_owned_summary_only",
+        "declared_summary": {
+          "selected_version_id": "managed-code-version-readout-0001",
+          "workspace_id": "workspace-readout-rerun-0001",
+          "root_label": "readout-rerun-0001",
+          "finding_counts": {
+            "changed_observed": 1,
+            "extra_observed": 1,
+            "missing_expected": 1,
+            "same_observed": 1,
+            "skipped_redacted": 1,
+            "unavailable_reference": 1
+          }
+        }
+      }
+    ],
+    "prepared_run_contexts": [
+      {
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+        "label": "qA chevron manual run context",
+        "manual_run_target": {
+          "measurement_id": "measurement-05001",
+          "experiment_label": "qA chevron follow-up",
+          "prepared_at": "2026-05-21T10:25:00Z",
+          "logical_targets": [
+            "qA",
+            "cAB"
+          ],
+          "entrypoint_hint": "readout_calibration_entrypoint.py"
+        },
+        "context_ref_count": 7,
+        "required_context_count": 7,
+        "selected_context_count": 6,
+        "unavailable_required_context_count": 1,
+        "preparation_claim": "manual_run_context_summary_only"
+      }
+    ],
+    "selected_context_refs": [
+      {
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+        "family": "measurement_intent",
+        "role": "declared_measurement_intent",
+        "required": true,
+        "include_state": "selected",
+        "context_id": "measurement-intent-chevron-qA",
+        "context_label": "qA chevron follow-up",
+        "record_status": "declared_user_intent",
+        "authority": "prepared_run_context_fixture"
+      },
+      {
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+        "family": "parameter_state",
+        "role": "calibrated_values",
+        "required": true,
+        "include_state": "selected",
+        "context_id": "param-state-0002",
+        "context_label": "qA default bias after Rabi review",
+        "record_status": "trusted_for_declared_scope",
+        "authority": "parameter_state_fixture"
+      },
+      {
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+        "family": "setup_binding",
+        "role": "logical_to_physical_mapping",
+        "required": true,
+        "include_state": "selected",
+        "context_id": "setup-binding-0002",
+        "context_label": "qA default binding after bias-line move",
+        "record_status": "selected_binding_snapshot",
+        "authority": "setup_binding_fixture"
+      },
+      {
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+        "family": "station_registry",
+        "role": "station_context",
+        "required": true,
+        "include_state": "selected",
+        "context_id": "station-registry-mmcs2-redacted",
+        "context_label": "redacted MMCS2 station registry",
+        "record_status": "selected_station_context",
+        "authority": "setup_binding_fixture"
+      },
+      {
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+        "family": "managed_code_version",
+        "role": "selected_code_version",
+        "required": true,
+        "include_state": "selected",
+        "context_id": "managed-code-version-readout-0001",
+        "context_label": "readout calibration managed code version",
+        "record_status": "materialized_workspace_available",
+        "authority": "managed_code_version_fixture"
+      },
+      {
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+        "family": "editable_workspace_observation",
+        "role": "selected_editable_workspace",
+        "required": true,
+        "include_state": "selected",
+        "context_id": "editable-observation-readout-0001",
+        "context_label": "readout rerun workspace observation",
+        "record_status": "observed_with_review_findings",
+        "authority": "editable_folder_observation_fixture"
+      },
+      {
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+        "family": "declared_environment",
+        "role": "runtime_environment_hint",
+        "required": true,
+        "include_state": "unavailable",
+        "context_id": null,
+        "missing_reason": "No reviewed declared environment record exists for this fixture."
+      }
+    ],
+    "missing_context_findings": [
+      {
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+        "family": "declared_environment",
+        "role": "runtime_environment_hint",
+        "severity": "review",
+        "finding": "required_context_unavailable",
+        "basis": "No reviewed declared environment record exists for this fixture.",
+        "does_not_claim": "run_is_blocked_or_unsafe"
+      }
+    ],
+    "workspace_context_findings": [
+      {
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+        "context_id": "editable-observation-readout-0001",
+        "severity": "review",
+        "finding": "workspace_observation_has_review_findings",
+        "basis": {
+          "changed_observed": 1,
+          "extra_observed": 1,
+          "missing_expected": 1
+        },
+        "does_not_claim": "run_is_blocked_or_workspace_is_unusable"
+      }
+    ],
+    "attention": [
+      {
+        "code": "required_context_unavailable",
+        "severity": "review",
+        "basis": "At least one required prepared-run context record is unavailable.",
+        "does_not_claim": "automatic_run_blocking"
+      },
+      {
+        "code": "workspace_observation_reused_as_declared_context",
+        "severity": "info",
+        "basis": "Prepared run context uses declared editable-folder observation results.",
+        "does_not_claim": "fresh_filesystem_observation"
+      },
+      {
+        "code": "shared_context_schema_not_defined",
+        "severity": "info",
+        "basis": "The prepared run context groups family-owned context records by reference.",
+        "does_not_claim": "universal_context_payload_schema"
+      },
+      {
+        "code": "hardware_control_not_granted",
+        "severity": "review",
+        "basis": "Prepared run context selection does not configure instruments.",
+        "does_not_claim": "hardware_state_applied"
+      },
+      {
+        "code": "environment_sync_not_performed",
+        "severity": "review",
+        "basis": "Declared environment context is a selected record, not a synced runtime.",
+        "does_not_claim": "runnable_environment"
+      },
+      {
+        "code": "code_execution_not_granted",
+        "severity": "review",
+        "basis": "Selected code and workspace context are not imported, loaded, or executed.",
+        "does_not_claim": "execution_permission"
+      }
+    ]
+  },
+  "boundary_notes": [
+    "The prepared run context groups selected context records and declared editable-workspace observation results for one manual run-preparation surface without defining a universal context schema.",
+    "Parameter state, setup binding, station registry, managed code version, editable workspace observation, declared environment, and measurement intent remain family-owned records.",
+    "Workspace observation findings produce review findings, not semantic source diffs, workspace repair, or runnable-readiness claims.",
+    "Unavailable required context produces a review finding, not an automatic run block or safety decision.",
+    "Hardware control, parameter write-back, setup mutation, environment sync, restore behavior, workflow/DAG behavior, GUI behavior, and code execution remain out of scope."
+  ],
+  "decisions_not_earned": [
+    "final context schema",
+    "shared context lifecycle model",
+    "run lifecycle model",
+    "readiness or safety contract",
+    "storage model",
+    "restore contract",
+    "hardware control",
+    "parameter write-back",
+    "setup mutation",
+    "environment manager",
+    "workspace mutation",
+    "semantic source diff",
+    "code import",
+    "code execution",
+    "workflow DAG",
+    "GUI design"
+  ]
+}

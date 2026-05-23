@@ -137,11 +137,11 @@ The intended user adoption route is value-driven:
 This route keeps early adoption practical for messy labs while preserving the
 later path toward structured code management.
 
-The validation order is stricter than the adoption route. Future validation
-should still earn comparable code surfaces, materialization intent, workspace
-materialization, editable-folder observation, prepared run context,
-reference-based rerun preparation, declared environment inventory, and
-environment readiness as separate authority boundaries.
+The validation order is stricter than the adoption route. Comparable code
+surfaces, materialization intent, workspace materialization, editable-folder
+observation, and prepared run context now each have first validation results.
+Reference-based rerun preparation, declared environment inventory, and
+environment readiness should still be earned as separate authority boundaries.
 
 ## Workflow And DAG Deferral
 

@@ -71,7 +71,8 @@ when the workflow needs actual editable files. The result keeps selected
 managed-code version authority separate from editable-folder observation,
 prepared run context, reference-based rerun preparation, declared environment
 inventory, and environment readiness. Editable-folder observation now has a
-first separate validation result.
+first separate validation result, and prepared run context now has a first
+assembly result.
 
 ## Follow-Up
 
@@ -82,7 +83,7 @@ Likely follow-up slices should stay separate:
 
 - additional editable-folder observation cases against a selected managed
   version or materialized workspace;
-- prepared run context after selected code or workspace, parameter state, setup
-  binding, and measurement intent need to be assembled together;
+- reference-based rerun preparation after a selected reference measurement
+  needs to seed manual run context;
 - declared environment inventory, still without dependency sync or runnable
   readiness claims.

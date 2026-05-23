@@ -30,6 +30,7 @@ executor design, relation graph, or warning taxonomy.
 - [`workspace-materialization-intent-validation-result.md`](workspace-materialization-intent-validation-result.md)
 - [`workspace-materialization-validation-result.md`](workspace-materialization-validation-result.md)
 - [`editable-folder-observation-validation-result.md`](editable-folder-observation-validation-result.md)
+- [`prepared-run-context-validation-result.md`](prepared-run-context-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
 - [`adoption-routes.md`](adoption-routes.md)
 - [`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md)
@@ -167,6 +168,17 @@ not accept semantic source diff, Git diagnostics, workspace mutation,
 dependency sync, environment readiness, code import, code execution, prepared
 run context, or GUI semantics.
 
+Prepared run context has a slice-local implementation candidate for assembling
+selected managed code version, declared editable-workspace observation,
+parameter state, setup binding, station registry, measurement intent, and
+missing declared environment context into one manual run-preparation summary.
+It validates declared alignment between the selected editable workspace
+observation and selected managed code version, and reports workspace drift or
+missing environment context as review findings. It does not accept a shared
+context schema, run lifecycle model, restore behavior, environment readiness,
+hardware control, code import, code execution, executor, workflow/DAG behavior,
+or GUI semantics.
+
 ## Version Terminology
 
 The slices are converging on a shared distinction without yet earning a shared
@@ -234,6 +246,7 @@ schema.
 | Code capture state | Experiment code, selected reference, future managed-version comparison | Whether a code item is content-captured, reference-only, missing, redacted, or excluded. This should drive same-observed, changed, missing, unverified, redacted, or not-compared findings instead of implying one universal diff. |
 | Materialized code workspace | Experiment code, future prepared-run pressure | A concrete folder expanded from a selected managed code version after approval. The first candidate writes declared content into a caller-provided workspace root only; it remains separate from recorded code context, Git checkout behavior, environment readiness, import, execution, and prepared run context. |
 | Editable workspace observation | Experiment code, future prepared-run pressure | A read-only observation of a selected editable folder against a managed code version. The first candidate records size and sha256 facts for observed files and reports drift or non-authoritative extras while using ignored-directory guardrails for workspace internals, without accepting semantic source diff, Git diagnostics, environment readiness, import, execution, or prepared run context. |
+| Prepared run context | Experiment code, measurement context support | A manual run-preparation summary that groups selected managed code/workspace observation, parameter state, setup binding, station registry, and measurement intent while surfacing missing environment context or workspace drift as review findings, without claiming restore, runnable readiness, hardware control, import, or execution. |
 
 ## Stable Separations
 
@@ -305,6 +318,9 @@ Several separations now appear repeatedly enough to keep carrying forward:
   code-recording boundary. Workflow/DAG nodes, component-level versioning,
   and compatibility contracts remain deferred until repeated stable experiment
   functions earn inputs and outputs.
+- Prepared run context can group selected code/workspace, parameter, setup,
+  station, and intent records for manual preparation without becoming a shared
+  run lifecycle, readiness, restore, execution, or hardware-control framework.
 
 ## Design Pressure
 

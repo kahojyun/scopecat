@@ -235,6 +235,13 @@ First fixture: selected managed code version or workspace, selected parameter
 state, setup binding, and measurement intent, producing a run-preparation
 summary.
 
+First result:
+[`prepared-run-context-validation-result.md`](prepared-run-context-validation-result.md)
+validates one manual prepared run context with selected managed code version,
+declared editable-workspace observation, selected parameter state, setup
+binding, station registry, measurement intent, and unavailable declared
+environment context.
+
 Boundary: no execution, hardware control, environment sync, or claim that the
 selected context is runnable.
 

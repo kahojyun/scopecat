@@ -1,0 +1,173 @@
+{
+  "prepared_run_context_policy": {
+    "run_context_authority": "preparation_summary_only",
+    "context_source": "declared_fixture_records",
+    "workspace_observation_source": "declared_editable_folder_observation_summary",
+    "shared_context_schema": "not_defined",
+    "hardware_control": "not_performed",
+    "parameter_write_back": "not_performed",
+    "setup_mutation": "not_performed",
+    "environment_sync": "not_performed",
+    "code_import_execution": "not_performed",
+    "readiness_claim": "selection_and_workspace_observation_only"
+  },
+  "context_records": [
+    {
+      "context_id": "measurement-intent-chevron-qA",
+      "family": "measurement_intent",
+      "label": "qA chevron follow-up",
+      "record_status": "declared_user_intent",
+      "authority": "prepared_run_context_fixture",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "experiment_label": "qA chevron follow-up",
+        "logical_targets": [
+          "qA",
+          "cAB"
+        ],
+        "entrypoint_hint": "readout_calibration_entrypoint.py"
+      }
+    },
+    {
+      "context_id": "param-state-0002",
+      "family": "parameter_state",
+      "label": "qA default bias after Rabi review",
+      "record_status": "trusted_for_declared_scope",
+      "authority": "parameter_state_fixture",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "lineage_id": "lineage-qA-default-bias",
+        "trusted_entry_count": 3
+      }
+    },
+    {
+      "context_id": "setup-binding-0002",
+      "family": "setup_binding",
+      "label": "qA default binding after bias-line move",
+      "record_status": "selected_binding_snapshot",
+      "authority": "setup_binding_fixture",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "sample_id": "sample-alpha",
+        "cooldown_id": "cooldown-2026-05",
+        "logical_binding_count": 6
+      }
+    },
+    {
+      "context_id": "station-registry-mmcs2-redacted",
+      "family": "station_registry",
+      "label": "redacted MMCS2 station registry",
+      "record_status": "selected_station_context",
+      "authority": "setup_binding_fixture",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "resource_count": 5,
+        "contains_connection_payloads": false
+      }
+    },
+    {
+      "context_id": "managed-code-version-readout-0001",
+      "family": "managed_code_version",
+      "label": "readout calibration managed code version",
+      "record_status": "materialized_workspace_available",
+      "authority": "managed_code_version_fixture",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "source_record_id": "code-snapshot-record-0001",
+        "stable_id": "sc-codever-readout-0001",
+        "file_count": 5,
+        "materialization": "workspace_materialized"
+      }
+    },
+    {
+      "context_id": "editable-observation-readout-0001",
+      "family": "editable_workspace_observation",
+      "label": "readout rerun workspace observation",
+      "record_status": "observed_with_review_findings",
+      "authority": "editable_folder_observation_fixture",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "selected_version_id": "managed-code-version-readout-0001",
+        "workspace_id": "workspace-readout-rerun-0001",
+        "root_label": "readout-rerun-0001",
+        "finding_counts": {
+          "changed_observed": 1,
+          "extra_observed": 1,
+          "missing_expected": 1,
+          "same_observed": 1,
+          "skipped_redacted": 1,
+          "unavailable_reference": 1
+        }
+      }
+    }
+  ],
+  "prepared_run_contexts": [
+    {
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+      "label": "qA chevron manual run context",
+      "manual_run_target": {
+        "measurement_id": "measurement-05001",
+        "experiment_label": "qA chevron follow-up",
+        "prepared_at": "2026-05-21T10:25:00Z",
+        "logical_targets": [
+          "qA",
+          "cAB"
+        ],
+        "entrypoint_hint": "readout_calibration_entrypoint.py"
+      },
+      "preparation_claim": "manual_run_context_summary_only",
+      "selected_contexts": [
+        {
+          "family": "measurement_intent",
+          "role": "declared_measurement_intent",
+          "required": true,
+          "include_state": "selected",
+          "context_id": "measurement-intent-chevron-qA"
+        },
+        {
+          "family": "parameter_state",
+          "role": "calibrated_values",
+          "required": true,
+          "include_state": "selected",
+          "context_id": "param-state-0002"
+        },
+        {
+          "family": "setup_binding",
+          "role": "logical_to_physical_mapping",
+          "required": true,
+          "include_state": "selected",
+          "context_id": "setup-binding-0002"
+        },
+        {
+          "family": "station_registry",
+          "role": "station_context",
+          "required": true,
+          "include_state": "selected",
+          "context_id": "station-registry-mmcs2-redacted"
+        },
+        {
+          "family": "managed_code_version",
+          "role": "selected_code_version",
+          "required": true,
+          "include_state": "selected",
+          "context_id": "managed-code-version-readout-0001"
+        },
+        {
+          "family": "editable_workspace_observation",
+          "role": "selected_editable_workspace",
+          "required": true,
+          "include_state": "selected",
+          "context_id": "editable-observation-readout-0001"
+        },
+        {
+          "family": "declared_environment",
+          "role": "runtime_environment_hint",
+          "required": true,
+          "include_state": "unavailable",
+          "context_id": null,
+          "missing_reason": "No reviewed declared environment record exists for this fixture."
+        }
+      ]
+    }
+  ]
+}
