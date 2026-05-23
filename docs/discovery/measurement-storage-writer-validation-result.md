@@ -98,11 +98,12 @@ stronger storage contract.
 
 Likely follow-up slices should stay separate:
 
-- source observation or checksum validation for writer-produced primary data
-  after storage, without schema inference;
 - append or update behavior for existing in-progress records, with explicit
   lock and crash-recovery pressure;
 - harder data-shape writer cases, such as ragged scans, trace-per-point data,
   or array-valued responses, without automatic schema inference;
 - import acceptance or export package writing, without reusing this fixture as
   the final package format.
+
+The first source observation follow-up is now validated separately in
+[`measurement-source-observation-validation-result.md`](measurement-source-observation-validation-result.md).

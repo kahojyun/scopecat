@@ -95,9 +95,10 @@ Likely follow-up slices should stay separate:
 
 - append-only measurement storage writer with explicit filesystem mutation,
   checksum, and no-overwrite or append policy;
-- source observation or checksum validation for writer-produced primary data,
-  without accepting final storage architecture;
 - live running writer or monitor transport for already-recorded events,
   without GUI ownership or hardware-control authority;
 - harder data-shape writer cases, such as ragged scans, trace-per-point data,
   or array-valued responses, without automatic schema inference.
+
+The first source observation follow-up is now validated separately in
+[`measurement-source-observation-validation-result.md`](measurement-source-observation-validation-result.md).
