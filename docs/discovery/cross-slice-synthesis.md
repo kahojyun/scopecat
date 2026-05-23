@@ -68,12 +68,14 @@ gates, user-authored proposed writes, blocked steps, and available
 interventions, but has not earned executor, scheduler, write-back, or GUI
 ownership.
 
-Parameter state management has fixture-level validation for first-class
-parameter state lineages, purpose labels, seeded versus trusted states,
-reviewable diffs, committed states, and measurement references to selected
-parameter state versions. It has not earned final branch/tag/commit semantics,
-schema migration, drift plotting, setup binding, hardware write-back, or an
-implementation candidate.
+Parameter state management has a slice-local implementation candidate for
+first-class parameter state lineages, purpose labels, seeded versus trusted
+states, reviewable diffs, committed states, and measurement references to
+selected parameter state versions. It validates a side-effect-free summary from
+explicit fixture input without writing parameters or inspecting current
+instrument state. It has not earned final branch/tag/commit semantics, schema
+migration, drift plotting, setup binding, hardware write-back, instrument
+state tracking, external JSON authority, rollback automation, or GUI behavior.
 
 Setup binding has fixture-level validation for sample/cooldown binding
 snapshot versions, simple binding diffs, station-registry references, generated

@@ -38,7 +38,7 @@ supporting policy notes. The current validated slice inventory is:
 | Storage-transition export | Measurement records | Fixture validated | Source identity, current reference, package materialization, and external-reference policy pressure without accepting storage, checksum, backup, package writer, importer, or GUI behavior. |
 | Running measurement inspection | Measurement records | Fixture validated | State summary for already-recorded data from still-running measurements, including progress, completeness, freshness, declared preview metadata, and non-durable monitor ergonomics. |
 | Declared scan/data-shape fixtures | Measurement records support | Spike/fixtures validated | Declared 1D table, rectangular 2D grid table, and sidecar-declared weak-table pressure for preview readiness, not a final data-shape schema or importer. |
-| Parameter state management | Parameter state | Fixture validated | Parameter-state lineage, purpose labels, seeded/trusted state, reviewable diffs, committed states, and measurement references without hardware write-back or branch/tag/commit semantics. |
+| Parameter state management | Parameter state | Implementation candidate validated | Side-effect-free summary for parameter-state lineage, purpose labels, seeded/trusted state, reviewable diffs, committed states, and measurement references without hardware write-back, instrument state tracking, external JSON authority, or branch/tag/commit semantics. |
 | Experiment code recording | Experiment code context | Summary candidate validated | Recorded run/step code context and code snapshot record from explicit include policy and capture-state posture without Git inspection, dependency discovery, environment restore, loading, execution, or workflow/DAG semantics. |
 | Managed code version | Experiment code context | Summary candidate validated | Managed record shape for a code snapshot record, including stable identity, inclusion-aligned file inventory, integrity hints, and materialization intent without workspace creation or environment restore. |
 | Comparable code surface | Experiment code context | Implementation candidate validated | Declared-fact comparison between a recorded code context and managed code version, including same-observed, changed, missing, unverified, redacted, and not-compared findings without Git inspection, semantic source diff, import, execution, environment readiness, or workspace materialization. |
@@ -133,7 +133,15 @@ slice is about primary measurement data.
 | --- | --- |
 | [`problem-briefs/parameter-state-management.md`](problem-briefs/parameter-state-management.md) | Problem framing for first-class calibrated parameter state, lineages, trust/readiness state, reviewable diffs, and write-back boundaries. |
 | [`parameter-state-management-validation-plan.md`](parameter-state-management-validation-plan.md) | First fixture-validation boundary and fixture pointer for parameter state lineage, purpose labels, reviewable diffs, and committed states. |
-| [`parameter-state-management-validation-result.md`](parameter-state-management-validation-result.md) | Result of the first parameter-state fixture and domain review. |
+| [`parameter-state-management-validation-result.md`](parameter-state-management-validation-result.md) | Result of the first parameter-state fixture, domain review, and summary candidate. |
+
+The first parameter-state summary candidate is validated in
+[`parameter-state-management-validation-result.md`](parameter-state-management-validation-result.md).
+It summarizes copied seed state, accepted reviewable diff, committed parameter
+state, and run-start measurement selection while leaving hardware write-back,
+instrument state tracking, external JSON authority, branch/tag/commit
+semantics, rollback automation, drift plotting, and shared domain models out
+of scope.
 
 Most next parameter-state slices are instances of the Measurement Context
 Backlog: context links, named run-start inputs, comparison findings,
