@@ -4,7 +4,7 @@
 
 Implementation candidate validated.
 
-This result validates the seventh Experiment Code Context backlog slice:
+This result validates the sixth Experiment Code Context backlog slice:
 **Declared Environment Inventory**.
 
 It does not accept an environment manager, package resolver, dependency sync

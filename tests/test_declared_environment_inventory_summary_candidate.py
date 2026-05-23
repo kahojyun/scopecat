@@ -159,6 +159,35 @@ class DeclaredEnvironmentInventorySummaryCandidateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "lockfile_ref"):
             build_declared_environment_inventory_summary(source)
 
+    def test_runtime_hint_source_ref_must_be_known(self) -> None:
+        source = _load_input()
+        source["environment_records"][0]["runtime_hints"][0]["source_id"] = "missing"
+
+        with self.assertRaisesRegex(ValueError, "runtime hint"):
+            build_declared_environment_inventory_summary(source)
+
+    def test_runtime_hint_findings_are_reported(self) -> None:
+        source = _load_input()
+        source["environment_records"][0]["runtime_hints"][0]["declaration_state"] = "unsupported"
+        source["environment_records"][0]["runtime_hints"][0]["missing_reason"] = (
+            "Interpreter constraint uses a project-specific selector."
+        )
+
+        summary = build_declared_environment_inventory_summary(source)
+
+        self.assertIn(
+            {
+                "environment_id": "declared-environment-chevron-qA-0001",
+                "subject_type": "runtime_hint",
+                "subject_id": "Python runtime",
+                "severity": "review",
+                "finding": "runtime_hint_unsupported",
+                "basis": "Interpreter constraint uses a project-specific selector.",
+                "does_not_claim": "runtime_available_or_compatible",
+            },
+            summary["environment_findings"],
+        )
+
     def test_package_source_ref_must_be_known(self) -> None:
         source = _load_input()
         source["environment_records"][0]["package_declarations"][0]["source_id"] = "missing"
@@ -202,6 +231,20 @@ class DeclaredEnvironmentInventorySummaryCandidateTest(unittest.TestCase):
         source["environment_records"][0]["environment_claims"]["readiness_claim"] = "ready"
 
         with self.assertRaisesRegex(ValueError, "readiness claim"):
+            build_declared_environment_inventory_summary(source)
+
+    def test_environment_authority_must_stay_declared_only(self) -> None:
+        source = _load_input()
+        source["environment_records"][0]["authority"] = "observed_runtime_inventory"
+
+        with self.assertRaisesRegex(ValueError, "authority"):
+            build_declared_environment_inventory_summary(source)
+
+    def test_environment_record_status_must_not_claim_readiness(self) -> None:
+        source = _load_input()
+        source["environment_records"][0]["record_status"] = "ready_and_synced"
+
+        with self.assertRaisesRegex(ValueError, "record_status"):
             build_declared_environment_inventory_summary(source)
 
 

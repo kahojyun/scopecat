@@ -48,6 +48,15 @@ _FINDING_STATES = {
     "unsupported",
 }
 
+_ENVIRONMENT_AUTHORITIES = {
+    "user_declared_inventory",
+}
+
+_ENVIRONMENT_RECORD_STATUSES = {
+    "declared",
+    "declared_with_review_findings",
+}
+
 
 def _records_by_key(records: list[dict[str, Any]], key: str) -> dict[str, dict[str, Any]]:
     output = {}
@@ -111,6 +120,20 @@ def _validate_dependency_source(source_record: dict[str, Any]) -> None:
     )
 
 
+def _validate_runtime_hint(
+    hint: dict[str, Any],
+    source_records: dict[str, dict[str, Any]],
+) -> None:
+    _validate_state(
+        owner=f"runtime hint {hint['label']}",
+        state=hint["declaration_state"],
+        missing_reason=hint.get("missing_reason"),
+    )
+    source_id = hint.get("source_id")
+    if source_id is not None and source_id not in source_records:
+        raise ValueError(f"runtime hint {hint['label']} references missing dependency source")
+
+
 def _validate_package_declaration(
     package: dict[str, Any],
     source_records: dict[str, dict[str, Any]],
@@ -144,6 +167,11 @@ def _validate_external_tool(
 
 
 def _validate_environment_record(environment: dict[str, Any]) -> None:
+    if environment["authority"] not in _ENVIRONMENT_AUTHORITIES:
+        raise ValueError("declared environment authority must stay declared-only")
+    if environment["record_status"] not in _ENVIRONMENT_RECORD_STATUSES:
+        raise ValueError("declared environment record_status must stay declaration-only")
+
     claims = environment["environment_claims"]
     if claims["readiness_claim"] != "not_checked":
         raise ValueError("declared environment readiness claim must stay unchecked")
@@ -158,6 +186,9 @@ def _validate_environment_record(environment: dict[str, Any]) -> None:
         lockfile_ref = source_record.get("lockfile_ref")
         if lockfile_ref is not None and lockfile_ref not in source_records:
             raise ValueError("dependency source lockfile_ref must reference known source")
+
+    for hint in environment["runtime_hints"]:
+        _validate_runtime_hint(hint, source_records)
 
     seen_packages = set()
     for package in environment["package_declarations"]:
@@ -230,6 +261,7 @@ def _runtime_hints(source: dict[str, Any]) -> list[dict[str, Any]]:
             "value": hint["value"],
             "source_id": hint.get("source_id"),
             "declaration_state": hint["declaration_state"],
+            "missing_reason": hint.get("missing_reason"),
         }
         for environment in source["environment_records"]
         for hint in environment["runtime_hints"]
@@ -291,6 +323,20 @@ def _environment_findings(source: dict[str, Any]) -> list[dict[str, Any]]:
     findings = []
     for environment in source["environment_records"]:
         environment_id = environment["environment_id"]
+        for hint in environment["runtime_hints"]:
+            state = hint["declaration_state"]
+            if state in _FINDING_STATES:
+                findings.append(
+                    {
+                        "environment_id": environment_id,
+                        "subject_type": "runtime_hint",
+                        "subject_id": hint["label"],
+                        "severity": "review",
+                        "finding": f"runtime_hint_{state}",
+                        "basis": hint.get("missing_reason"),
+                        "does_not_claim": "runtime_available_or_compatible",
+                    }
+                )
         for source_record in environment["dependency_sources"]:
             state = source_record["declaration_state"]
             if state in _FINDING_STATES:

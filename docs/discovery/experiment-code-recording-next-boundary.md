@@ -218,21 +218,7 @@ Result owner:
 Boundary: no execution, hardware control, environment sync, or claim that the
 selected context is runnable.
 
-### 6. Reference-Based Rerun Preparation
-
-Validation question: can Scopecat start from a selected reference measurement
-and prepare the matching manual rerun context?
-
-User pressure: users want a prior measurement to seed code, parameter, setup,
-and intent selection for a manual rerun.
-
-First fixture: a selected reference measurement with linked code context,
-parameter state, and setup binding, producing a proposed prepared run context.
-
-Boundary: no reproducibility guarantee, cause attribution, execution, hardware
-control, or automatic correction of drift.
-
-### 7. Declared Environment Inventory
+### 6. Declared Environment Inventory
 
 Validation question: can Scopecat record declared environment facts next to the
 selected code context?
@@ -250,6 +236,20 @@ Result owner:
 
 Boundary: no sync, import, dependency resolution, hardware readiness, runnable
 readiness, or execution.
+
+### 7. Reference-Based Rerun Preparation
+
+Validation question: can Scopecat start from a selected reference measurement
+and prepare the matching manual rerun context?
+
+User pressure: users want a prior measurement to seed code, parameter, setup,
+and intent selection for a manual rerun.
+
+First fixture: a selected reference measurement with linked code context,
+parameter state, and setup binding, producing a proposed prepared run context.
+
+Boundary: no reproducibility guarantee, cause attribution, execution, hardware
+control, or automatic correction of drift.
 
 ### 8. Environment Readiness Or Sync
 
