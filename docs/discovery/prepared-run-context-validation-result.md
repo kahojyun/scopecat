@@ -31,26 +31,29 @@ follow-up from explicit context records:
 - editable workspace observation;
 - declared environment context, intentionally unavailable.
 
-The selected context records stay family-owned. The summary copies only
-declared summary fields and selected context reference metadata. The editable
+The selected context records stay family-owned. The generic selected-context
+and missing-context behavior remains owned by
+[`named-run-start-input-set-validation-result.md`](named-run-start-input-set-validation-result.md).
+This slice adds the code/workspace checks needed after managed code version,
+workspace materialization, and editable-folder observation. The editable
 workspace observation is reused as a declared prior observation summary; the
 candidate does not inspect the filesystem again.
 
 ## What This Earned
 
-The implementation candidate shows that a side-effect-free summary can:
+The implementation candidate shows that a side-effect-free summary can add
+code/workspace preparation checks to the named run-start input shape:
 
-- group selected code/workspace context and selected run-start context under
-  one prepared run context;
-- preserve context family, role, authority, include state, and record status;
+- require selected measurement intent, managed code version, and editable
+  workspace observation for this first prepared-run fixture;
 - validate that the selected editable workspace observation points back to the
   same selected managed code version;
-- count selected, required, and unavailable required context references;
-- report missing required context as a review finding;
-- report workspace-observation drift as a review finding without semantic diff
-  or run-blocking claims;
-- keep unavailable declared environment context distinct from code,
-  workspace, hardware, or runnable-readiness claims;
+- validate that the manual run target's declared fields match the selected
+  measurement intent;
+- report workspace-observation drift, redaction, and unavailable references as
+  review findings without semantic diff or run-blocking claims;
+- keep missing declared environment context distinct from code, workspace,
+  hardware, or runnable-readiness claims;
 - reject fixture claims that cross into hardware control, parameter write-back,
   setup mutation, environment sync, code import, or code execution.
 
@@ -81,9 +84,9 @@ to parameter state, setup binding, station registry, and measurement intent for
 manual run preparation while still leaving execution and hardware control to
 existing lab systems.
 
-The result keeps workspace drift and missing declared environment context as
-review findings. Those findings do not become safety, readiness,
-reproducibility, or run-blocking claims.
+The result keeps workspace drift, workspace limitations, and missing declared
+environment context as review findings. Those findings do not become safety,
+readiness, reproducibility, or run-blocking claims.
 
 ## Follow-Up
 

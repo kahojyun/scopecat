@@ -15,7 +15,8 @@ slice:
 - group parameter state, setup binding, station registry, managed code
   version, editable workspace observation, declared environment, and
   measurement intent without sharing their schemas;
-- report workspace drift and missing required context as preparation findings;
+- report workspace drift, workspace limitations, and missing required context
+  as preparation findings;
 - avoid hardware control, parameter write-back, setup mutation, environment
   sync, code import, code execution, workflow/DAG contracts, or GUI behavior.
 

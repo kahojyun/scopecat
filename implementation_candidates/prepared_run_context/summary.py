@@ -48,6 +48,8 @@ _OBSERVATION_FINDINGS_NEEDING_REVIEW = {
     "extra_observed",
     "extra_symlink_not_read",
     "extra_unstable_not_read",
+    "skipped_redacted",
+    "unavailable_reference",
 }
 
 
@@ -102,6 +104,10 @@ def _validate_selected_context(
 
     context_id = selected_context.get("context_id")
     if include_state == "selected":
+        if selected_context.get("missing_reason") is not None:
+            raise ValueError(
+                f"prepared run context {prepared_context_id} selected context must not carry missing_reason"
+            )
         if context_id not in context_records:
             raise ValueError(
                 f"prepared run context {prepared_context_id} references missing selected context"
@@ -115,6 +121,11 @@ def _validate_selected_context(
     if context_id is not None:
         raise ValueError(
             f"prepared run context {prepared_context_id} non-selected context must not carry context_id"
+        )
+
+    if include_state == "optional_not_selected" and selected_context["required"]:
+        raise ValueError(
+            f"prepared run context {prepared_context_id} optional_not_selected context must not be required"
         )
 
     if selected_context["required"] and not selected_context.get("missing_reason"):
@@ -145,8 +156,14 @@ def _validate_workspace_observation_alignment(
     observation_context = _selected_context_for_family(
         prepared_context, "editable_workspace_observation"
     )
-    if managed_context is None or observation_context is None:
-        return
+    if managed_context is None and observation_context is None:
+        raise ValueError(
+            "prepared run context requires selected managed code version and editable workspace observation"
+        )
+    if managed_context is None:
+        raise ValueError("prepared run context requires selected managed code version")
+    if observation_context is None:
+        raise ValueError("prepared run context requires selected editable workspace observation")
 
     managed_id = managed_context["context_id"]
     observation = context_records[observation_context["context_id"]]
@@ -155,6 +172,26 @@ def _validate_workspace_observation_alignment(
         raise ValueError(
             "editable workspace observation must reference the selected managed code version"
         )
+
+
+def _validate_measurement_intent_alignment(
+    prepared_context: dict[str, Any],
+    context_records: dict[str, dict[str, Any]],
+) -> None:
+    measurement_intent_context = _selected_context_for_family(
+        prepared_context, "measurement_intent"
+    )
+    if measurement_intent_context is None:
+        raise ValueError("prepared run context requires selected measurement intent")
+
+    intent = context_records[measurement_intent_context["context_id"]]["declared_summary"]
+    target = prepared_context["manual_run_target"]
+    compared_fields = ("experiment_label", "logical_targets", "entrypoint_hint")
+    for field in compared_fields:
+        if target.get(field) != intent.get(field):
+            raise ValueError(
+                f"manual run target does not match selected measurement intent field: {field}"
+            )
 
 
 def _validate_references(source: dict[str, Any]) -> None:
@@ -176,6 +213,7 @@ def _validate_references(source: dict[str, Any]) -> None:
                 context_records,
             )
         _validate_workspace_observation_alignment(prepared_context, context_records)
+        _validate_measurement_intent_alignment(prepared_context, context_records)
 
 
 def _context_record_summary(context: dict[str, Any]) -> dict[str, Any]:
@@ -344,7 +382,7 @@ def _attention(source: dict[str, Any]) -> list[dict[str, Any]]:
             {
                 "code": "environment_sync_not_performed",
                 "severity": "review",
-                "basis": "Declared environment context is a selected record, not a synced runtime.",
+                "basis": "Declared environment context is represented by run-context reference state, not a synced runtime.",
                 "does_not_claim": "runnable_environment",
             }
         )

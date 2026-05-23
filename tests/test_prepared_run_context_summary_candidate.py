@@ -68,6 +68,8 @@ class PreparedRunContextSummaryCandidateTest(unittest.TestCase):
                 "changed_observed": 1,
                 "extra_observed": 1,
                 "missing_expected": 1,
+                "skipped_redacted": 1,
+                "unavailable_reference": 1,
             },
         )
         self.assertEqual(finding["does_not_claim"], "run_is_blocked_or_workspace_is_unusable")
@@ -158,6 +160,29 @@ class PreparedRunContextSummaryCandidateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "selected managed code version"):
             build_prepared_run_context_summary(source)
 
+    def test_workspace_observation_requires_selected_managed_version(self) -> None:
+        source = _load_input()
+        source["prepared_run_contexts"][0]["selected_contexts"].pop(4)
+
+        with self.assertRaisesRegex(ValueError, "requires selected managed code version"):
+            build_prepared_run_context_summary(source)
+
+    def test_selected_managed_version_requires_workspace_observation(self) -> None:
+        source = _load_input()
+        source["prepared_run_contexts"][0]["selected_contexts"].pop(5)
+
+        with self.assertRaisesRegex(ValueError, "requires selected editable workspace"):
+            build_prepared_run_context_summary(source)
+
+    def test_manual_run_target_must_match_selected_measurement_intent(self) -> None:
+        source = _load_input()
+        source["prepared_run_contexts"][0]["manual_run_target"]["experiment_label"] = (
+            "different experiment"
+        )
+
+        with self.assertRaisesRegex(ValueError, "manual run target"):
+            build_prepared_run_context_summary(source)
+
     def test_unavailable_required_context_needs_reason(self) -> None:
         source = _load_input()
         source["prepared_run_contexts"][0]["selected_contexts"][-1].pop("missing_reason")
@@ -172,6 +197,24 @@ class PreparedRunContextSummaryCandidateTest(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "non-selected context"):
+            build_prepared_run_context_summary(source)
+
+    def test_selected_context_must_not_carry_missing_reason(self) -> None:
+        source = _load_input()
+        source["prepared_run_contexts"][0]["selected_contexts"][0]["missing_reason"] = (
+            "contradictory selected context"
+        )
+
+        with self.assertRaisesRegex(ValueError, "selected context must not carry"):
+            build_prepared_run_context_summary(source)
+
+    def test_optional_not_selected_context_must_not_be_required(self) -> None:
+        source = _load_input()
+        source["prepared_run_contexts"][0]["selected_contexts"][-1]["include_state"] = (
+            "optional_not_selected"
+        )
+
+        with self.assertRaisesRegex(ValueError, "optional_not_selected"):
             build_prepared_run_context_summary(source)
 
     def test_boundary_output_keeps_execution_out_of_scope(self) -> None:

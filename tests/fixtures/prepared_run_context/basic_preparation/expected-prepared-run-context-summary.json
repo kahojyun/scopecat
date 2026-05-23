@@ -6,7 +6,7 @@
     "status": "fixture_only",
     "contract_guard": "This expected output is not a final run lifecycle, readiness contract, shared context schema, storage model, restore contract, hardware-control contract, environment manager, executor, workflow DAG, or GUI design.",
     "prepared_context": "The prepared run context groups selected family-owned context records and a declared editable-workspace observation for manual run preparation without absorbing their payload schemas.",
-    "workspace_observation": "Workspace drift produces a preparation finding, not an automatic run block, source-diff interpretation, or runnable-readiness claim.",
+    "workspace_observation": "Workspace drift or workspace limitations produce preparation findings, not automatic run blocks, source-diff interpretation, or runnable-readiness claims.",
     "execution_boundary": "Selected code, editable workspace, and declared environment context are references only; no code import, environment sync, hardware control, or execution is performed."
   },
   "candidate_summary": {
@@ -230,7 +230,9 @@
         "basis": {
           "changed_observed": 1,
           "extra_observed": 1,
-          "missing_expected": 1
+          "missing_expected": 1,
+          "skipped_redacted": 1,
+          "unavailable_reference": 1
         },
         "does_not_claim": "run_is_blocked_or_workspace_is_unusable"
       }
@@ -263,7 +265,7 @@
       {
         "code": "environment_sync_not_performed",
         "severity": "review",
-        "basis": "Declared environment context is a selected record, not a synced runtime.",
+        "basis": "Declared environment context is represented by run-context reference state, not a synced runtime.",
         "does_not_claim": "runnable_environment"
       },
       {

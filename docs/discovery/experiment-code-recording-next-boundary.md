@@ -128,11 +128,12 @@ Validation should follow authority boundaries more strictly than user adoption:
 8. Only after those boundaries prove useful, validate environment readiness,
    dependency sync, and managed runners.
 
-## Candidate Slice Backlog
+## Validation Slice Inventory And Backlog
 
-The backlog is the canonical list of future validation slices for experiment
-code context. It replaces earlier trigger lists: these slices are expected
-future work, but each must still earn its own authority and fixture boundary.
+This is the canonical list of validation slices for experiment code context,
+including first results that have already been validated and remaining
+candidates. It replaces earlier trigger lists. Each slice must still keep its
+own authority and fixture boundary when extended.
 
 ### 1. Comparable Code Surface
 
