@@ -1,0 +1,162 @@
+{
+  "status": "fixture",
+  "reference_semantics": {
+    "contract_guard": "New-run measurement writer validates explicit event semantics, but is not storage mutation, source observation, schema inference, hardware control, live service, or GUI workflow.",
+    "source_fixture": "new-run-writer-input.json"
+  },
+  "candidate_summary": {
+    "writer_policy": {
+      "event_authority": "explicit_writer_events",
+      "primary_data_write": "declared_reference_only",
+      "storage_mutation": "not_performed",
+      "source_observation": "not_performed",
+      "schema_inference": "not_performed",
+      "hardware_control": "not_performed",
+      "live_service": "not_defined",
+      "gui_workflow": "not_defined",
+      "shared_measurement_schema": "not_defined"
+    },
+    "measurement_record": {
+      "measurement_record_id": "run-3001-rabi",
+      "label": "New Rabi run 3001",
+      "experiment_type": "rabi_amplitude",
+      "target": "q0",
+      "source_kind": "new_run_writer",
+      "lifecycle": {
+        "state": "completed",
+        "started_at": "2026-02-10T14:20:00Z",
+        "ended_at": "2026-02-10T14:20:15Z",
+        "recording_enabled": true,
+        "final_event_id": "evt-3001-completed"
+      },
+      "progress": {
+        "expected_points": 5,
+        "recorded_points": 5,
+        "complete": true,
+        "basis": "explicit_writer_event_counts"
+      },
+      "primary_data": {
+        "path": "source/new-run-demo/run-3001-rabi-source.csv",
+        "kind": "primary_data",
+        "authority": "writer_declared",
+        "format": "csv_table"
+      },
+      "preview": {
+        "status": "preview_ready",
+        "metadata_authority": "writer_declared",
+        "shape_kind": "declared_1d_table",
+        "axis_order": ["drive_amplitude", "excited_state_probability"],
+        "declared_roles": [
+          {
+            "name": "drive_amplitude",
+            "role": "sweep_axis",
+            "label": "Drive amplitude",
+            "unit": "a.u."
+          },
+          {
+            "name": "excited_state_probability",
+            "role": "response",
+            "label": "Excited state probability",
+            "unit": "fraction"
+          }
+        ],
+        "plot_candidates": [
+          {
+            "x": "drive_amplitude",
+            "y": "excited_state_probability",
+            "source": "source/new-run-demo/run-3001-rabi-source.csv"
+          }
+        ],
+        "warnings": []
+      },
+      "event_counts": {
+        "data_recorded": 2,
+        "measurement_completed": 1,
+        "measurement_started": 1
+      },
+      "classification": "recorded_ready_for_review"
+    },
+    "writer_events": [
+      {
+        "event_id": "evt-3001-started",
+        "event_type": "measurement_started",
+        "occurred_at": "2026-02-10T14:20:00Z",
+        "measurement_record_id": "run-3001-rabi",
+        "expected_points": 5,
+        "recording_enabled": true
+      },
+      {
+        "event_id": "evt-3001-data-1",
+        "event_type": "data_recorded",
+        "occurred_at": "2026-02-10T14:20:08Z",
+        "measurement_record_id": "run-3001-rabi",
+        "primary_data_path": "source/new-run-demo/run-3001-rabi-source.csv",
+        "rows_recorded": 3,
+        "total_rows_recorded": 3
+      },
+      {
+        "event_id": "evt-3001-data-2",
+        "event_type": "data_recorded",
+        "occurred_at": "2026-02-10T14:20:13Z",
+        "measurement_record_id": "run-3001-rabi",
+        "primary_data_path": "source/new-run-demo/run-3001-rabi-source.csv",
+        "rows_recorded": 2,
+        "total_rows_recorded": 5
+      },
+      {
+        "event_id": "evt-3001-completed",
+        "event_type": "measurement_completed",
+        "occurred_at": "2026-02-10T14:20:15Z",
+        "measurement_record_id": "run-3001-rabi",
+        "final_recorded_points": 5,
+        "reason": null
+      }
+    ],
+    "writer_findings": [],
+    "attention": [
+      {
+        "code": "writer_events_only",
+        "severity": "info",
+        "basis": "The measurement record is summarized from explicit writer events.",
+        "does_not_claim": "observed_instrument_state"
+      },
+      {
+        "code": "storage_write_not_performed",
+        "severity": "review",
+        "basis": "Primary data persistence is represented as a declared reference only.",
+        "does_not_claim": "record_written_to_store"
+      },
+      {
+        "code": "source_data_not_read",
+        "severity": "review",
+        "basis": "Primary data paths are declared references, not opened or parsed.",
+        "does_not_claim": "file_contents_verified"
+      },
+      {
+        "code": "schema_inference_not_performed",
+        "severity": "review",
+        "basis": "Preview metadata must be declared by the writer events or caller.",
+        "does_not_claim": "automatic_schema_detection"
+      },
+      {
+        "code": "hardware_control_not_performed",
+        "severity": "review",
+        "basis": "Writer events record measurement lifecycle facts without controlling instruments.",
+        "does_not_claim": "instrument_command_or_safety_authority"
+      }
+    ]
+  },
+  "boundary_notes": [
+    "New-run measurement writer events can produce a reviewable measurement-record summary, but this candidate does not write storage.",
+    "Lifecycle, progress, and preview facts come from explicit writer input; primary data files are not opened to infer columns or counts.",
+    "Hardware control, live monitor behavior, source-of-truth storage, and GUI workflow remain separate decisions."
+  ],
+  "decisions_not_earned": [
+    "final measurement-record storage schema",
+    "append-only storage writer or checksum contract",
+    "live event stream, callback, or websocket API",
+    "hardware control or scan execution",
+    "automatic schema inference from recorded files",
+    "measurement writer GUI"
+  ]
+}
