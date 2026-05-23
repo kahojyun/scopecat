@@ -154,8 +154,8 @@ Boundary: no universal diff engine, semantic source diff, Git analysis,
 environment readiness, import, or execution.
 
 Later fixture cases: managed-version inventory comparison, capture-state edge
-cases that need their own fixture, editable-folder observation, and
-materialized-directory comparison.
+cases that need their own fixture, additional editable-folder observation
+cases, and materialized-directory comparison.
 
 ### 2. Workspace Materialization Intent
 
@@ -212,6 +212,12 @@ run still matches the selected managed code surface.
 
 First fixture: an observed editable folder and selected managed version,
 producing comparable file findings over known observed facts.
+
+First result:
+[`editable-folder-observation-validation-result.md`](editable-folder-observation-validation-result.md)
+validates one selected editable workspace observation with same-observed,
+changed-observed, missing-expected, redacted, unavailable, and
+non-authoritative extra-file findings.
 
 Boundary: no Git diff, semantic source diff, dependency readiness, import,
 environment readiness, or execution.

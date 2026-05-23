@@ -68,9 +68,10 @@ It does not:
 
 Workspace materialization is useful as the step after materialization intent
 when the workflow needs actual editable files. The result keeps selected
-managed-code version authority separate from later editable-folder
-observation, prepared run context, reference-based rerun preparation, declared
-environment inventory, and environment readiness.
+managed-code version authority separate from editable-folder observation,
+prepared run context, reference-based rerun preparation, declared environment
+inventory, and environment readiness. Editable-folder observation now has a
+first separate validation result.
 
 ## Follow-Up
 
@@ -79,8 +80,8 @@ observe or prepare the materialized folder.
 
 Likely follow-up slices should stay separate:
 
-- editable-folder observation against a selected managed version or
-  materialized workspace;
+- additional editable-folder observation cases against a selected managed
+  version or materialized workspace;
 - prepared run context after selected code or workspace, parameter state, setup
   binding, and measurement intent need to be assembled together;
 - declared environment inventory, still without dependency sync or runnable

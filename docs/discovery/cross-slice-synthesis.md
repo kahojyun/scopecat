@@ -29,6 +29,7 @@ executor design, relation graph, or warning taxonomy.
 - [`comparable-code-surface-validation-result.md`](comparable-code-surface-validation-result.md)
 - [`workspace-materialization-intent-validation-result.md`](workspace-materialization-intent-validation-result.md)
 - [`workspace-materialization-validation-result.md`](workspace-materialization-validation-result.md)
+- [`editable-folder-observation-validation-result.md`](editable-folder-observation-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
 - [`adoption-routes.md`](adoption-routes.md)
 - [`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md)
@@ -155,6 +156,17 @@ workspace storage, Git checkout or merge semantics, dependency sync,
 environment restoration, code import, code execution, workflow/DAG behavior,
 prepared run context, or GUI semantics.
 
+Editable-folder observation has a slice-local implementation candidate for
+read-only observation of a selected editable workspace against a managed code
+version. It uses observed file size and sha256 facts to report same-observed,
+changed-observed, missing-expected, redacted, unavailable, and extra-file
+findings. The selected managed-version inventory stays the authoritative
+include list; extra workspace files are bounded, non-authoritative
+observations, and declared workspace-internal directories are ignored. It does
+not accept semantic source diff, Git diagnostics, workspace mutation,
+dependency sync, environment readiness, code import, code execution, prepared
+run context, or GUI semantics.
+
 ## Version Terminology
 
 The slices are converging on a shared distinction without yet earning a shared
@@ -221,6 +233,7 @@ schema.
 | Code snapshot record | Experiment code, export/handoff, selected reference | A point-in-time code snapshot record that Scopecat may later manage. It can describe recording/snapshot scope and capture state, supporting declared context or manifest comparison only for facts actually captured or observed, without accepting storage, restore, sync, environment, loading, execution, merge, Git inspection, or managed workspace semantics. |
 | Code capture state | Experiment code, selected reference, future managed-version comparison | Whether a code item is content-captured, reference-only, missing, redacted, or excluded. This should drive same-observed, changed, missing, unverified, redacted, or not-compared findings instead of implying one universal diff. |
 | Materialized code workspace | Experiment code, future prepared-run pressure | A concrete folder expanded from a selected managed code version after approval. The first candidate writes declared content into a caller-provided workspace root only; it remains separate from recorded code context, Git checkout behavior, environment readiness, import, execution, and prepared run context. |
+| Editable workspace observation | Experiment code, future prepared-run pressure | A read-only observation of a selected editable folder against a managed code version. The first candidate records size and sha256 facts for observed files and reports drift or non-authoritative extras while using ignored-directory guardrails for workspace internals, without accepting semantic source diff, Git diagnostics, environment readiness, import, execution, or prepared run context. |
 
 ## Stable Separations
 

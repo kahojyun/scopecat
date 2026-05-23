@@ -1,0 +1,220 @@
+{
+  "candidate_summary": {
+    "observation_policy": {
+      "fact_source": "declared_selected_managed_version_plus_observed_filesystem",
+      "selected_source": "materialized_workspace_reference",
+      "filesystem_inspection": "selected_workspace_root_only",
+      "content_observation": "sha256_and_size_only",
+      "semantic_source_diff": "not_performed",
+      "internal_git_inspection": "not_performed",
+      "environment_readiness": "not_performed",
+      "code_import": "not_performed",
+      "code_execution": "not_performed",
+      "workspace_mutation": "not_performed"
+    },
+    "extra_observation_policy": {
+      "selected_code_surface_authority": "managed_version_file_inventory",
+      "extra_file_authority": "bounded_workspace_observation_only",
+      "ignored_directory_names": [
+        ".git",
+        ".ipynb_checkpoints",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".venv",
+        "__pycache__",
+        "node_modules"
+      ]
+    },
+    "selected_versions": [
+      {
+        "version_id": "managed-code-version-readout-0001",
+        "stable_identity": {
+          "identity_kind": "scopecat_assigned_record",
+          "stable_id": "sc-codever-readout-0001",
+          "derivation": "assigned_from_code_snapshot_record"
+        },
+        "storage_authority": "scopecat_managed_record",
+        "version_status": "materialized_for_editing",
+        "file_count": 5,
+        "content_comparable_file_count": 3,
+        "non_content_comparable_file_count": 2
+      }
+    ],
+    "observation_requests": [
+      {
+        "request_id": "observe-editable-workspace-readout-0001",
+        "selected_version_id": "managed-code-version-readout-0001",
+        "observation_purpose": "post_materialization_edit_review",
+        "workspace_id": "editable-workspace-readout-rerun",
+        "root_label": "readout rerun editable workspace",
+        "root_path": "readout-rerun-0001",
+        "expected_path_count": 5,
+        "extra_path_count": 1,
+        "ignored_path_count": 0,
+        "observed_content_path_count": 3,
+        "finding_counts": {
+          "changed_observed": 1,
+          "extra_observed": 1,
+          "missing_expected": 1,
+          "same_observed": 1,
+          "skipped_redacted": 1,
+          "unavailable_reference": 1
+        }
+      }
+    ],
+    "file_observations": [
+      {
+        "request_id": "observe-editable-workspace-readout-0001",
+        "version_id": "managed-code-version-readout-0001",
+        "source_path": "readout_calibration_entrypoint.py",
+        "workspace_path": "readout-rerun-0001/code/readout_calibration_entrypoint.py",
+        "role": "entrypoint",
+        "recorded_form": "source_file",
+        "materialization_source_state": "content_available",
+        "finding": "same_observed",
+        "provenance_label": "sc-codever-readout-0001:readout_calibration_entrypoint.py",
+        "basis": "Observed editable file size and sha256 match the selected version.",
+        "does_not_claim": "semantic_equivalence_or_runnable_readiness",
+        "observed_content_state": {
+          "digest_algorithm": "sha256",
+          "digest": "sha256:48420a4546f66cf69674be6f834a9cd76ad379ab824e78e345518a8c83cdf604",
+          "size_bytes": 170
+        },
+        "expected_digest": "sha256:48420a4546f66cf69674be6f834a9cd76ad379ab824e78e345518a8c83cdf604"
+      },
+      {
+        "request_id": "observe-editable-workspace-readout-0001",
+        "version_id": "managed-code-version-readout-0001",
+        "source_path": "experiment_session_setup.py",
+        "workspace_path": "readout-rerun-0001/code/experiment_session_setup.py",
+        "role": "declared_helper",
+        "recorded_form": "source_file",
+        "materialization_source_state": "content_available",
+        "finding": "changed_observed",
+        "provenance_label": "sc-codever-readout-0001:experiment_session_setup.py",
+        "basis": "Observed editable file size or sha256 differs from the selected version.",
+        "does_not_claim": "semantic_source_diff_or_change_cause",
+        "observed_content_state": {
+          "digest_algorithm": "sha256",
+          "digest": "sha256:23172ec8fa36c03a1122c0b089e1674e627078714615eff93388e95fc0a2827c",
+          "size_bytes": 180
+        },
+        "expected_digest": "sha256:05511d6039b22fbe86079f84e281a66881d0259387c16d97551452cc37ebc7b1"
+      },
+      {
+        "request_id": "observe-editable-workspace-readout-0001",
+        "version_id": "managed-code-version-readout-0001",
+        "source_path": "helpers/missing_expected_helper.py",
+        "workspace_path": "readout-rerun-0001/code/helpers/missing_expected_helper.py",
+        "role": "declared_helper",
+        "recorded_form": "source_file",
+        "materialization_source_state": "content_available",
+        "finding": "missing_expected",
+        "provenance_label": "sc-codever-readout-0001:helpers/missing_expected_helper.py",
+        "basis": "The selected managed version expected content at this workspace path.",
+        "does_not_claim": "user_deleted_file_or_materialization_failure_cause"
+      },
+      {
+        "request_id": "observe-editable-workspace-readout-0001",
+        "version_id": "managed-code-version-readout-0001",
+        "source_path": "secrets/device_config.py",
+        "workspace_path": "readout-rerun-0001/code/secrets/device_config.py",
+        "role": "redacted_lab_secret",
+        "recorded_form": "source_file",
+        "materialization_source_state": "redacted",
+        "finding": "skipped_redacted",
+        "provenance_label": "sc-codever-readout-0001:secrets/device_config.py",
+        "basis": "The selected managed version declares this file redacted.",
+        "does_not_claim": "file_content_observed_or_available"
+      },
+      {
+        "request_id": "observe-editable-workspace-readout-0001",
+        "version_id": "managed-code-version-readout-0001",
+        "source_path": "helpers/lab_local_driver.py",
+        "workspace_path": "readout-rerun-0001/code/helpers/lab_local_driver.py",
+        "role": "external_lab_driver_reference",
+        "recorded_form": "source_file",
+        "materialization_source_state": "unavailable",
+        "finding": "unavailable_reference",
+        "provenance_label": "sc-codever-readout-0001:helpers/lab_local_driver.py",
+        "basis": "The selected managed version declares this file unavailable.",
+        "does_not_claim": "file_should_exist_in_editable_workspace"
+      },
+      {
+        "request_id": "observe-editable-workspace-readout-0001",
+        "version_id": "managed-code-version-readout-0001",
+        "source_path": null,
+        "workspace_path": "readout-rerun-0001/notes/manual_tuning_note.md",
+        "role": "extra_workspace_file",
+        "recorded_form": "observed_workspace_file",
+        "materialization_source_state": "not_in_selected_version",
+        "finding": "extra_observed",
+        "provenance_label": "observed:readout-rerun-0001/notes/manual_tuning_note.md",
+        "basis": "The editable workspace contains a path not declared by the selected version.",
+        "does_not_claim": "generated_artifact_dependency_or_user_intent",
+        "observed_content_state": {
+          "digest_algorithm": "sha256",
+          "digest": "sha256:7105848e37b673ab460b26d18dbab0b1f5c80350c954f74aca7c4771f8552c92",
+          "size_bytes": 78
+        }
+      }
+    ],
+    "attention": [
+      {
+        "code": "selected_workspace_root_inspected",
+        "severity": "info",
+        "basis": "Observation is limited to the declared editable workspace root.",
+        "does_not_claim": "full_machine_or_storage_scan"
+      },
+      {
+        "code": "content_observed_by_size_and_digest_only",
+        "severity": "review",
+        "basis": "Content observation records size and sha256 facts only.",
+        "does_not_claim": "semantic_source_diff_or_runtime_behavior"
+      },
+      {
+        "code": "extra_files_are_non_authoritative",
+        "severity": "info",
+        "basis": "Extra files are observations around the selected code surface only.",
+        "does_not_claim": "extra_files_belong_to_selected_code_context"
+      },
+      {
+        "code": "workspace_internal_paths_ignored",
+        "severity": "info",
+        "basis": "Declared workspace-internal directory names are skipped during extra-file observation.",
+        "does_not_claim": "ignored_paths_are_absent_or_safe"
+      },
+      {
+        "code": "semantic_source_diff_not_performed",
+        "severity": "review",
+        "basis": "Changed files are identified by observed digest or size difference only.",
+        "does_not_claim": "semantic_change_or_cause_attribution"
+      },
+      {
+        "code": "internal_git_not_inspected",
+        "severity": "info",
+        "basis": "Git state remains outside this observation boundary.",
+        "does_not_claim": "git_clean_dirty_branch_or_commit_status"
+      },
+      {
+        "code": "environment_readiness_not_checked",
+        "severity": "review",
+        "basis": "Environment files, dependency sync, and runnable readiness are not checked.",
+        "does_not_claim": "runnable_environment"
+      },
+      {
+        "code": "code_not_imported_or_executed",
+        "severity": "review",
+        "basis": "Observed code files are not imported, loaded, or executed.",
+        "does_not_claim": "execution_permission_or_runtime_behavior"
+      },
+      {
+        "code": "workspace_not_mutated",
+        "severity": "info",
+        "basis": "Observation does not create, edit, overwrite, or delete workspace files.",
+        "does_not_claim": "repair_or_materialization_performed"
+      }
+    ]
+  }
+}
