@@ -46,6 +46,7 @@ supporting policy notes. The current validated slice inventory is:
 | Workspace materialization | Experiment code context | Implementation candidate validated | Approved file materialization from declared managed content into a caller-provided workspace root, including digest/size preflight, no-overwrite writes, explicit existing-target skips, and redacted/unavailable findings without Git, environment restoration, import, execution, or GUI behavior. |
 | Editable-folder observation | Experiment code context | Implementation candidate validated | Read-only observation of a selected editable workspace against a managed code version, including same-observed, changed-observed, missing-expected, redacted, unavailable, and non-authoritative extra-file findings without Git inspection, semantic source diff, workspace mutation, environment readiness, import, or execution. |
 | Prepared run context | Experiment code context | Implementation candidate validated | Side-effect-free manual run-context summary for selected managed code/workspace observation, parameter state, setup binding, station registry, measurement intent, and missing declared environment context without shared schema, hardware control, restore, environment sync, code import, execution, or readiness claims. |
+| Declared environment inventory | Experiment code context | Implementation candidate validated | Side-effect-free summary for declared runtime hints, dependency-source references, package declarations, and external-tool hints without reading environment files, resolving dependencies, installing packages, checking runtime readiness, importing code, or executing code. |
 | Setup binding | Setup binding | Fixture validated | Setup-binding snapshots, simple diffs, station-registry references, generated line/readout views, and measurement input references while keeping parameter state and hardware control separate. |
 | Calibration work continuation | Calibration continuation | Assembler candidate validated | Continuation-state assembly for planned steps, observed outputs, review gates, proposed writes, blocked steps, and interventions without executor, scheduler, write-back, or GUI ownership. |
 | Selected reference comparison | Selected reference comparison | Fixtures validated | Context-comparison findings against a user-selected reference without user judgment, raw-data comparison, fit-quality comparison, setup truth, restore, execution, semantic source diff, or cause attribution. |
@@ -158,6 +159,7 @@ hardware.
 | [`workspace-materialization-validation-result.md`](workspace-materialization-validation-result.md) | Result of the first approved workspace materialization fixture and implementation candidate. |
 | [`editable-folder-observation-validation-result.md`](editable-folder-observation-validation-result.md) | Result of the first read-only editable-folder observation fixture and implementation candidate. |
 | [`prepared-run-context-validation-result.md`](prepared-run-context-validation-result.md) | Result of the first prepared run context fixture and implementation candidate. |
+| [`declared-environment-inventory-validation-result.md`](declared-environment-inventory-validation-result.md) | Result of the first declared environment inventory fixture and implementation candidate. |
 
 The canonical Experiment Code Context candidate-slice backlog lives in
 [`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md).
@@ -180,12 +182,12 @@ should earn stronger claims:
    parameter state, setup binding, and measurement intent so a user can run
    existing lab code outside Scopecat, without claiming execution or hardware
    control;
-6. reference-based rerun preparation: start from a selected reference
-   measurement and prepare the matching run context for manual rerun, without
-   claiming reproducibility or automatic cause attribution;
-7. declared environment inventory: record declared environment files,
+6. declared environment inventory: record declared environment files,
    lockfiles, interpreter hints, or package-manager hints, without syncing,
    importing, or checking runnable readiness;
+7. reference-based rerun preparation: start from a selected reference
+   measurement and prepare the matching run context for manual rerun, without
+   claiming reproducibility or automatic cause attribution;
 8. environment readiness or sync: only after managed workspace and declared
    environment authority are clearer.
 
@@ -225,6 +227,13 @@ intent, and missing declared environment context for manual run preparation.
 Workspace drift and missing environment context are review findings, not
 runnable-readiness, safety, restore, import, execution, or hardware-control
 claims.
+
+The first declared environment inventory candidate is validated in
+[`declared-environment-inventory-validation-result.md`](declared-environment-inventory-validation-result.md).
+It summarizes explicit runtime hints, dependency-source references, package
+declarations, and external-tool hints without reading files, resolving or
+installing dependencies, checking runtime readiness, importing code, or
+executing code.
 
 Do not validate "select a code version at run start" by itself. Selection
 becomes useful only when it prepares a run context, supports a reference-based

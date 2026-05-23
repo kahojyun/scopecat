@@ -109,10 +109,10 @@ Validation should follow authority boundaries more strictly than user adoption:
 5. Validate prepared run context from selected managed code version, editable
    workspace observation, selected parameter state, setup binding, and
    measurement intent.
-6. Validate reference-based rerun preparation as a convenience workflow over
-   prepared run context, not as a separate reproducibility claim.
-7. Validate declared environment inventory before environment readiness or
+6. Validate declared environment inventory before environment readiness or
    dependency sync.
+7. Validate reference-based rerun preparation as a convenience workflow over
+   prepared run context, not as a separate reproducibility claim.
 8. Only after those boundaries prove useful, validate environment readiness,
    dependency sync, and managed runners.
 
@@ -244,6 +244,9 @@ attempted.
 First fixture: a managed code version plus user-declared environment file,
 lockfile, interpreter, or package-manager references, producing present,
 missing, reference-only, or not-checked findings.
+
+Result owner:
+[`declared-environment-inventory-validation-result.md`](declared-environment-inventory-validation-result.md)
 
 Boundary: no sync, import, dependency resolution, hardware readiness, runnable
 readiness, or execution.
