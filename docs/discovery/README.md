@@ -42,6 +42,7 @@ supporting policy notes. The current validated slice inventory is:
 | New-run measurement writer semantics | Measurement records | Implementation candidate validated | Side-effect-free summary from explicit writer events, including lifecycle, progress, declared primary data reference, and preview metadata without storage mutation, source observation, schema inference, live service, hardware control, scan execution, or GUI behavior. |
 | Append-only measurement storage writer | Measurement records | Implementation candidate validated | Approved filesystem mutation for one new measurement record directory from declared append chunks, including sha256/size preflight, no-overwrite targets, stored primary data, and deterministic manifest without final storage architecture, schema inference, import/export packages, live service, GUI, or hardware-control authority. |
 | Derived artifact source links | Measurement records | Implementation candidate validated | Side-effect-free summary for an explicit derived-artifact manifest, including artifact identity, direct source measurement roles, relation states, and review findings without artifact parsing, source observation, checksum validation, storage mutation, recursive traversal, analysis-DAG inference, scientific validity review, or GUI behavior. |
+| Measurement source observation | Measurement records | Implementation candidate validated | Read-only observation for one declared primary-data file under a caller-provided storage root, including sha256, size, row-count, unavailable, and mismatch findings without schema inference, repair, recursive storage inspection, import/export packages, live service, GUI, or hardware-control authority. |
 | Declared scan/data-shape fixtures | Measurement records support | Spike/fixtures validated | Declared 1D table, rectangular 2D grid table, and sidecar-declared weak-table pressure for preview readiness, not a final data-shape schema or importer. |
 | Parameter state management | Parameter state | Implementation candidate validated | Side-effect-free summary for parameter-state lineage, purpose labels, seeded/trusted state, reviewable diffs, committed states, and measurement references without hardware write-back, instrument state tracking, external JSON authority, or branch/tag/commit semantics. |
 | Parameter write compatibility output | Parameter state | Implementation candidate validated | Side-effect-free compatibility-output plan for accepted committed parameter state, including trusted scalar emits and skipped untrusted or schema-limited entries without file writes, hardware write-back, schema migration, or external JSON authority. |
@@ -121,6 +122,7 @@ Measurement Records the owner of context-support behavior.
 | [`new-run-measurement-writer-validation-result.md`](new-run-measurement-writer-validation-result.md) | Result of the first side-effect-free writer-event implementation candidate. |
 | [`measurement-storage-writer-validation-result.md`](measurement-storage-writer-validation-result.md) | Result of the first approved append-only storage writer implementation candidate. |
 | [`derived-artifact-source-links-validation-result.md`](derived-artifact-source-links-validation-result.md) | Result of the first explicit derived-artifact source-link implementation candidate. |
+| [`measurement-source-observation-validation-result.md`](measurement-source-observation-validation-result.md) | Result of the first read-only source observation implementation candidate. |
 
 Candidate next slices in this route should stay separate:
 
@@ -128,8 +130,6 @@ Candidate next slices in this route should stay separate:
   normalized manifest emitted by a user-owned adapter, then decide explicit
   copy/reference storage mutation without accepting a stable public API,
   export-package acceptance, or legacy readers in Scopecat core;
-- source observation or checksum validation after storage: inspect stored or
-  writer-produced primary data without accepting schema inference;
 - existing-record append or update pressure: validate locks, crash recovery,
   and in-progress record behavior separately from the new-record writer.
 
@@ -148,6 +148,14 @@ roles, relation states, and review findings, while leaving artifact parsing,
 source observation, checksum validation, storage mutation, recursive traversal,
 analysis-DAG inference, scientific validity review, and GUI behavior out of
 scope.
+
+The first source observation candidate is validated in
+[`measurement-source-observation-validation-result.md`](measurement-source-observation-validation-result.md).
+It checks one declared primary-data file under a caller-provided storage root
+against declared sha256, size, and row-count facts, while reporting
+unavailable or mismatched data as review findings and leaving schema
+inference, repair, package validation, import/export behavior, live service,
+GUI, and hardware control out of scope.
 
 Context-shaped work such as recorded analysis choices and handoff context
 should use the Measurement Context Backlog above unless the slice is about
