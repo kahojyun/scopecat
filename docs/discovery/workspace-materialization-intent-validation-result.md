@@ -68,8 +68,8 @@ version records and actual workspace materialization.
 The result supports the sequence in
 [`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md):
 planning destination paths and review findings should happen before workspace
-creation. Workspace creation and editable-folder observation now have first
-validation results; prepared run context, reference-based rerun preparation,
+creation. Workspace creation, editable-folder observation, and prepared run
+context now have first validation results; reference-based rerun preparation,
 declared environment inventory, and environment readiness remain later slices.
 
 ## Follow-Up
@@ -82,7 +82,7 @@ Likely follow-up slices should stay separate:
   sync, code import, execution, Git UI, or merge behavior;
 - additional editable-folder observation cases after the first
   post-materialization observation result;
-- prepared run context after selected code or workspace, parameter state,
-  setup binding, and measurement intent need to be assembled together;
+- reference-based rerun preparation after a selected reference measurement
+  needs to seed manual run context;
 - declared environment inventory, still without dependency sync or runnable
   readiness claims.

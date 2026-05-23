@@ -246,7 +246,7 @@ def _attention(source: dict[str, Any]) -> list[dict[str, Any]]:
             {
                 "code": "environment_sync_not_performed",
                 "severity": "review",
-                "basis": "Declared environment context is a selected record, not a synced runtime.",
+                "basis": "Declared environment context is represented by run-start reference state, not a synced runtime.",
                 "does_not_claim": "runnable_environment",
             }
         )
