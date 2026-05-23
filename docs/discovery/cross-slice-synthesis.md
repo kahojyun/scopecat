@@ -19,6 +19,7 @@ executor design, relation graph, or warning taxonomy.
 - [`running-measurement-inspection-validation-result.md`](running-measurement-inspection-validation-result.md)
 - [`measurement-record-import-preview-validation-result.md`](measurement-record-import-preview-validation-result.md)
 - [`new-run-measurement-writer-validation-result.md`](new-run-measurement-writer-validation-result.md)
+- [`measurement-storage-writer-validation-result.md`](measurement-storage-writer-validation-result.md)
 - [`calibration-work-continuation-validation-result.md`](calibration-work-continuation-validation-result.md)
 - [`parameter-state-management-validation-result.md`](parameter-state-management-validation-result.md)
 - [`parameter-write-compatibility-output-validation-result.md`](parameter-write-compatibility-output-validation-result.md)
@@ -82,6 +83,16 @@ progress counts, declared primary data references, and declared preview
 metadata without writing storage, observing source files, inferring schemas,
 streaming live events, controlling hardware, executing scans, or designing a
 GUI.
+
+Append-only measurement storage writer has a slice-local implementation
+candidate for the first approved filesystem mutation in the Measurement Records
+route. It writes one new measurement record directory under a caller-provided
+storage root from declared append chunks, preflights sha256 and size facts
+before mutation, refuses existing targets, and writes deterministic primary
+data plus manifest files. It does not accept final storage architecture,
+existing-record append or update behavior, import/export package behavior,
+schema inference, live service, GUI behavior, hardware control, or scan
+execution.
 
 Calibration work continuation has a tiny assembler candidate for continuation
 state. It pressures episode context, planned steps, observed outputs, review
@@ -276,10 +287,10 @@ schema.
 
 | Candidate concept | Slice pressure | Current meaning |
 | --- | --- | --- |
-| Measurement record | Export, import preview, running inspection, new-run writer, calibration continuation | The ordinary user-facing unit for primary recorded experiment data, created from writer events, selected for export, previewed before import, inspected while running, or referenced as calibration output. |
+| Measurement record | Export, import preview, running inspection, new-run writer, storage writer, calibration continuation | The ordinary user-facing unit for primary recorded experiment data, created from writer events, written to storage, selected for export, previewed before import, inspected while running, or referenced as calibration output. |
 | Source identity | Export, import preview, running inspection, new-run writer, calibration continuation | Recoverable provenance for where a record came from, distinct from current read path, package-relative fixture path, writer-declared primary data path, or final storage identity. |
-| Primary data reference | Export, import preview, running inspection, new-run writer, measurement boundary | The data item users expect to inspect, preview, export, import, or later plot; may be fixture path-shaped now but should not imply durable path identity. |
-| Declared preview metadata | Export, import preview, running inspection, new-run writer, scan/data-shape | Shape, roles, labels, units, axis order, row order, and plot candidates supplied explicitly enough to support preview without schema inference. |
+| Primary data reference | Export, import preview, running inspection, new-run writer, storage writer, measurement boundary | The data item users expect to inspect, preview, export, import, store, or later plot; may be fixture path-shaped now but should not imply durable path identity. |
+| Declared preview metadata | Export, import preview, running inspection, new-run writer, storage writer, scan/data-shape | Shape, roles, labels, units, axis order, row order, and plot candidates supplied explicitly enough to support preview without schema inference. |
 | Linked context | Export, import preview, calibration continuation, measurement boundary | Snapshots, attachments, artifacts, fit previews, notes, or derived outputs connected to a measurement or step with explicit relation and authority. |
 | Include state | Export, measurement boundary | Whether linked context is default-included, user-included, visible-but-excluded, missing, or local-only; this is not recursive graph traversal. |
 | Lifecycle or progress state | Running inspection, new-run writer, calibration continuation | Current status of a measurement or step, such as running, complete, partial, review-needed, failed, or blocked. |
