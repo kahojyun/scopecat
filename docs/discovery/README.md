@@ -39,6 +39,7 @@ supporting policy notes. The current validated slice inventory is:
 | Running measurement inspection | Measurement records | Implementation candidate validated | Side-effect-free state summary for already-recorded data from still-running measurements, including progress, completeness, freshness, declared preview metadata, and non-durable monitor ergonomics without live-service, GUI, plotting, storage, import/export, or hardware-control authority. |
 | Measurement record import preview | Measurement records | Implementation candidate validated | Side-effect-free preview and classification for explicit incoming-record manifests, including source identity, current-reference state, declared preview metadata, linked context, and review findings without import acceptance, storage mutation, schema inference, package integrity, recursive traversal, or GUI behavior. |
 | New-run measurement writer semantics | Measurement records | Implementation candidate validated | Side-effect-free summary from explicit writer events, including lifecycle, progress, declared primary data reference, and preview metadata without storage mutation, source observation, schema inference, live service, hardware control, scan execution, or GUI behavior. |
+| Append-only measurement storage writer | Measurement records | Implementation candidate validated | Approved filesystem mutation for one new measurement record directory from declared append chunks, including sha256/size preflight, no-overwrite targets, stored primary data, and deterministic manifest without final storage architecture, schema inference, import/export packages, live service, GUI, or hardware-control authority. |
 | Declared scan/data-shape fixtures | Measurement records support | Spike/fixtures validated | Declared 1D table, rectangular 2D grid table, and sidecar-declared weak-table pressure for preview readiness, not a final data-shape schema or importer. |
 | Parameter state management | Parameter state | Implementation candidate validated | Side-effect-free summary for parameter-state lineage, purpose labels, seeded/trusted state, reviewable diffs, committed states, and measurement references without hardware write-back, instrument state tracking, external JSON authority, or branch/tag/commit semantics. |
 | Parameter write compatibility output | Parameter state | Implementation candidate validated | Side-effect-free compatibility-output plan for accepted committed parameter state, including trusted scalar emits and skipped untrusted or schema-limited entries without file writes, hardware write-back, schema migration, or external JSON authority. |
@@ -115,6 +116,7 @@ Measurement Records the owner of context-support behavior.
 | [`running-measurement-inspection-validation-result.md`](running-measurement-inspection-validation-result.md) | Result of the running-inspection implementation candidate. |
 | [`measurement-record-import-preview-validation-result.md`](measurement-record-import-preview-validation-result.md) | Result of the first side-effect-free import preview implementation candidate. |
 | [`new-run-measurement-writer-validation-result.md`](new-run-measurement-writer-validation-result.md) | Result of the first side-effect-free writer-event implementation candidate. |
+| [`measurement-storage-writer-validation-result.md`](measurement-storage-writer-validation-result.md) | Result of the first approved append-only storage writer implementation candidate. |
 
 Candidate next slices in this route should stay separate:
 
@@ -122,9 +124,18 @@ Candidate next slices in this route should stay separate:
   preserve source identity, without deciding export-package acceptance;
 - derived artifact source links: connect a derived artifact to explicit source
   measurements, without recursive analysis-DAG inference;
-- append-only measurement storage writer: persist writer-produced primary data
-  with explicit mutation, checksum, and append policy, without taking over
-  instrument control or live-advice behavior.
+- source observation or checksum validation after storage: inspect stored or
+  writer-produced primary data without accepting schema inference;
+- existing-record append or update pressure: validate locks, crash recovery,
+  and in-progress record behavior separately from the new-record writer.
+
+The first append-only storage writer candidate is validated in
+[`measurement-storage-writer-validation-result.md`](measurement-storage-writer-validation-result.md).
+It writes one new record directory under a caller-provided storage root from
+declared append chunks, after sha256 and size preflight, while refusing
+existing targets and leaving final storage architecture, import/export package
+behavior, schema inference, live service, GUI, and hardware control out of
+scope.
 
 Context-shaped work such as recorded analysis choices, artifact links, and
 handoff context should use the Measurement Context Backlog above unless the
