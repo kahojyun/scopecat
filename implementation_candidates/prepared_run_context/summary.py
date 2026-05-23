@@ -104,7 +104,7 @@ def _validate_selected_context(
 
     context_id = selected_context.get("context_id")
     if include_state == "selected":
-        if selected_context.get("missing_reason") is not None:
+        if "missing_reason" in selected_context:
             raise ValueError(
                 f"prepared run context {prepared_context_id} selected context must not carry missing_reason"
             )
@@ -188,6 +188,10 @@ def _validate_measurement_intent_alignment(
     target = prepared_context["manual_run_target"]
     compared_fields = ("experiment_label", "logical_targets", "entrypoint_hint")
     for field in compared_fields:
+        if field not in target or field not in intent:
+            raise ValueError(
+                f"manual run target and selected measurement intent require field: {field}"
+            )
         if target.get(field) != intent.get(field):
             raise ValueError(
                 f"manual run target does not match selected measurement intent field: {field}"

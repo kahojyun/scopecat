@@ -183,6 +183,14 @@ class PreparedRunContextSummaryCandidateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "manual run target"):
             build_prepared_run_context_summary(source)
 
+    def test_manual_run_target_alignment_fields_are_required(self) -> None:
+        source = _load_input()
+        source["prepared_run_contexts"][0]["manual_run_target"].pop("entrypoint_hint")
+        source["context_records"][0]["declared_summary"].pop("entrypoint_hint")
+
+        with self.assertRaisesRegex(ValueError, "require field: entrypoint_hint"):
+            build_prepared_run_context_summary(source)
+
     def test_unavailable_required_context_needs_reason(self) -> None:
         source = _load_input()
         source["prepared_run_contexts"][0]["selected_contexts"][-1].pop("missing_reason")
@@ -201,9 +209,7 @@ class PreparedRunContextSummaryCandidateTest(unittest.TestCase):
 
     def test_selected_context_must_not_carry_missing_reason(self) -> None:
         source = _load_input()
-        source["prepared_run_contexts"][0]["selected_contexts"][0]["missing_reason"] = (
-            "contradictory selected context"
-        )
+        source["prepared_run_contexts"][0]["selected_contexts"][0]["missing_reason"] = None
 
         with self.assertRaisesRegex(ValueError, "selected context must not carry"):
             build_prepared_run_context_summary(source)

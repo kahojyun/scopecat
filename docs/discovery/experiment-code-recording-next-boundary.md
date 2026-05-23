@@ -82,30 +82,17 @@ The current slice does not earn:
 These remain plausible future capabilities. They are not required for the
 first code snapshot record to be useful.
 
-## Adoption Route
+## Code-Context Adoption Boundary
 
-The intended user adoption route is value-driven, not a strict validation
-dependency chain:
+The route-level adoption path is owned by
+[`adoption-routes.md`](adoption-routes.md). This note only keeps the
+experiment-code boundary implication: recording-first value should remain
+useful before a lab adopts managed code versions, workspace materialization,
+editable-folder observation, prepared run context, rerun preparation, or
+environment help.
 
-1. Start with explicit run/step code contexts and code snapshot records over
-   messy external folders, without requiring users to move code into Scopecat.
-2. Let those records connect measurements, calibration steps, handoff packages,
-   and comparison workflows to the code context users actually used or
-   observed.
-3. Let users promote captured or recaptured code snapshot records into managed
-   code versions when stable identity, inventory, restore, compare, or version
-   selection becomes valuable.
-4. From managed versions, let users branch into the workflows they need:
-   comparison, workspace materialization, editable-folder observation, run
-   preparation, rerun preparation, or environment help.
-5. Treat dependency sync, execution readiness, and managed runners as later
-   adoption only for labs that want Scopecat to help prepare runnable managed
-   contexts.
-
-The first stage should remain useful even if a lab never adopts the later
-managed-workspace stages. A lab also does not need to adopt comparison,
-materialization, run preparation, and environment support in one linear product
-journey.
+Later managed-workspace steps are optional workflow branches, not a single
+linear product journey or prerequisite for useful run/step code recording.
 
 ## Validation Slice Order
 
@@ -119,8 +106,9 @@ Validation should follow authority boundaries more strictly than user adoption:
    as a managed-version readiness target.
 4. Validate editable-folder observation against a selected managed version or
    materialized workspace before preparing a run context.
-5. Validate prepared run context from selected code or workspace, selected
-   parameter state, setup binding, and measurement intent.
+5. Validate prepared run context from selected managed code version, editable
+   workspace observation, selected parameter state, setup binding, and
+   measurement intent.
 6. Validate reference-based rerun preparation as a convenience workflow over
    prepared run context, not as a separate reproducibility claim.
 7. Validate declared environment inventory before environment readiness or
@@ -128,12 +116,12 @@ Validation should follow authority boundaries more strictly than user adoption:
 8. Only after those boundaries prove useful, validate environment readiness,
    dependency sync, and managed runners.
 
-## Validation Slice Inventory And Backlog
+## Validation Slice Backlog
 
-This is the canonical list of validation slices for experiment code context,
-including first results that have already been validated and remaining
-candidates. It replaces earlier trigger lists. Each slice must still keep its
-own authority and fixture boundary when extended.
+This backlog names experiment-code validation questions and links to result
+owners where first results already exist. Individual validation result docs own
+durable result details. Each slice must still keep its own authority and
+fixture boundary when extended.
 
 ### 1. Comparable Code Surface
 
@@ -146,10 +134,8 @@ redacted, or not-compared. Capture states such as reference-only and excluded
 should explain why a content comparison is unavailable; they are not comparison
 findings by themselves.
 
-First result:
+Result owner:
 [`comparable-code-surface-validation-result.md`](comparable-code-surface-validation-result.md)
-validates one recorded-to-managed comparison with explicit authority and
-capture-state facts.
 
 Boundary: no universal diff engine, semantic source diff, Git analysis,
 environment readiness, import, or execution.
@@ -171,11 +157,8 @@ policy, producing a materialization plan with destination paths, collision
 findings, provenance labels, and skipped, redacted, or unavailable file
 findings.
 
-First result:
+Result owner:
 [`workspace-materialization-intent-validation-result.md`](workspace-materialization-intent-validation-result.md)
-validates one selected managed-version plan with declared destination facts,
-planned, collision, redacted, and unavailable findings, and no filesystem
-inspection or file writes.
 
 Boundary: no file writes, Git UI, merge model, dependency install, import, or
 execution.
@@ -193,12 +176,8 @@ First fixture: a selected managed code version and approved materialization
 target, producing an editable workspace with provenance back to the managed
 version and explicit skipped, redacted, or unavailable file findings.
 
-First result:
+Result owner:
 [`workspace-materialization-validation-result.md`](workspace-materialization-validation-result.md)
-validates one approved materialization request that writes declared
-content-available files into a caller-provided workspace root, refuses
-overwrites, and reports redacted or unavailable files without creating
-placeholders.
 
 Boundary: no Git UI, merge model, dependency install, import, environment sync,
 or execution.
@@ -214,34 +193,27 @@ run still matches the selected managed code surface.
 First fixture: an observed editable folder and selected managed version,
 producing comparable file findings over known observed facts.
 
-First result:
+Result owner:
 [`editable-folder-observation-validation-result.md`](editable-folder-observation-validation-result.md)
-validates one selected editable workspace observation with same-observed,
-changed-observed, missing-expected, redacted, unavailable, and
-non-authoritative extra-file findings.
 
 Boundary: no Git diff, semantic source diff, dependency readiness, import,
 environment readiness, or execution.
 
 ### 5. Prepared Run Context
 
-Validation question: can Scopecat assemble selected code or workspace,
-parameter state, setup binding, and measurement intent as a named run-start
-context?
+Validation question: can Scopecat assemble selected managed code version,
+editable workspace observation, parameter state, setup binding, and
+measurement intent as a named run-start context?
 
 User pressure: users want a Labber-like run-preparation experience while still
 running existing lab code outside Scopecat.
 
-First fixture: selected managed code version or workspace, selected parameter
-state, setup binding, and measurement intent, producing a run-preparation
-summary.
+First fixture: selected managed code version, declared editable-workspace
+observation, selected parameter state, setup binding, and measurement intent,
+producing a run-preparation summary.
 
-First result:
+Result owner:
 [`prepared-run-context-validation-result.md`](prepared-run-context-validation-result.md)
-validates one manual prepared run context with selected managed code version,
-declared editable-workspace observation, selected parameter state, setup
-binding, station registry, measurement intent, and unavailable declared
-environment context.
 
 Boundary: no execution, hardware control, environment sync, or claim that the
 selected context is runnable.
