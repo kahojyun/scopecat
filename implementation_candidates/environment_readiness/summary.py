@@ -88,7 +88,7 @@ _NOTE_STATES = {
 _CHECK_RULES = {
     "modern_manifest_review": {
         "subject_type": "modern_python_environment",
-        "does_not_claim": "environment_files_verified_or_synced",
+        "does_not_claim": "environment_files_observed_or_verified",
     },
     "python_version_review": {
         "subject_type": "modern_python_environment",
@@ -96,7 +96,7 @@ _CHECK_RULES = {
     },
     "dependency_group_review": {
         "subject_type": "modern_python_environment",
-        "does_not_claim": "resolved_or_synced_environment",
+        "does_not_claim": "resolved_environment",
     },
     "external_runtime_review": {
         "subject_type": "external_runtime_note",
@@ -449,7 +449,10 @@ def _attention(source: dict[str, Any]) -> list[dict[str, Any]]:
             {
                 "code": "dependency_sync_not_performed",
                 "severity": "review",
-                "basis": "No uv sync operation is invoked.",
+                "basis": (
+                    "No dependency sync operation is invoked; legacy and lab-managed notes "
+                    "remain record-only."
+                ),
                 "does_not_claim": "synchronized_environment",
             }
         )

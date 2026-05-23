@@ -53,7 +53,7 @@
           "package_manager_hint": null,
           "lockfile_ref": null,
           "declaration_state": "unavailable",
-          "missing_reason": "Lab-managed driver manifest was not included in the selected workspace context."
+          "missing_reason": "Lab-managed driver manifest is recorded for review only and is not a dependency sync input."
         }
       ],
       "package_declarations": [
@@ -80,7 +80,7 @@
           "pin_state": "unknown",
           "source_id": "env-src-lab-driver-manifest",
           "declaration_state": "unavailable",
-          "missing_reason": "Driver is managed outside the selected workspace and was not copied into this fixture."
+          "missing_reason": "Driver is lab-managed outside Python package management; fixture records it for review, not as a syncable package."
         }
       ],
       "external_tools": [
@@ -91,7 +91,7 @@
           "version_hint": "declared-by-lab-note: 5.x",
           "source_id": "env-src-lab-driver-manifest",
           "declaration_state": "unverified",
-          "missing_reason": "Fixture records the operator note but does not check the control PC utility."
+          "missing_reason": "Fixture records the operator note only; it does not check the control PC utility or sync external tools."
         }
       ],
       "environment_claims": {

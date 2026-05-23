@@ -86,8 +86,10 @@ The long-term direction is:
 - code snapshot records can be materialized on another machine or environment
   when storage and environment support are earned.
 - environment restoration may later include loading a selected code snapshot and
-  running a declared environment sync, such as a `uv` lockfile workflow, but
-  only after managed workspace storage and environment authority are earned.
+  running an approved modern-manifest sync, such as a `uv` lockfile workflow,
+  but only after managed workspace storage and environment authority are
+  earned; legacy or lab-managed environment facts remain record-only migration
+  evidence, not sync paths.
 
 ## First Boundary
 
@@ -130,9 +132,10 @@ The intended user adoption route is value-driven:
 - branch from managed versions into comparison, materialization,
   editable-folder observation, run preparation, rerun preparation, or
   environment help only when those workflows solve a concrete lab problem;
-- reserve lockfile-driven dependency sync, execution readiness checks, and
-  managed runners for labs that want Scopecat to help prepare runnable managed
-  contexts.
+- reserve lockfile-driven modern-manifest dependency sync, execution readiness
+  checks, and managed runners for labs that want Scopecat to help prepare
+  runnable managed contexts, while legacy/lab-managed facts stay review
+  evidence.
 
 This route keeps early adoption practical for messy labs while preserving the
 later path toward structured code management.
@@ -141,9 +144,9 @@ The validation order is stricter than the adoption route. Comparable code
 surfaces, materialization intent, workspace materialization, editable-folder
 observation, prepared run context, declared environment inventory,
 reference-based rerun preparation, and environment readiness planning now each
-have first validation results. Actual dependency resolution, dependency sync,
-runtime probes, execution readiness, and managed runners still need separate
-authority boundaries.
+have first validation results. Actual dependency resolution,
+modern-manifest dependency sync, runtime probes, execution readiness, and
+managed runners still need separate authority boundaries.
 
 ## Workflow And DAG Deferral
 

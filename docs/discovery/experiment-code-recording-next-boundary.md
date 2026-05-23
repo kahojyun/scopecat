@@ -110,7 +110,8 @@ Validation should follow authority boundaries more strictly than user adoption:
    workspace observation, selected parameter state, setup binding, and
    measurement intent.
 6. Validate declared environment inventory before environment readiness
-   planning, and keep active dependency sync for a later operation slice.
+   planning, and keep any active dependency sync for a later modern-manifest
+   operation slice; legacy/lab-managed environment facts stay record-only.
 7. Validate reference-based rerun preparation as a convenience workflow over
    prepared run context, not as a separate reproducibility claim.
 8. Validate environment readiness planning from declared environment context

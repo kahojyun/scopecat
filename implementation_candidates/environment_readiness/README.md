@@ -12,7 +12,7 @@ slice:
 - treat `uv`, `pyproject.toml`, `uv.lock`, and dependency groups as the first
   supported environment-management path;
 - report lab-managed external runtime items and migration notes as review
-  findings, not as equal dependency declaration sources;
+  findings, not as equal dependency declaration sources or sync inputs;
 - preserve manifest identity without reading dependency files or probing the
   local machine;
 - avoid dependency sync, package installation, runtime checks, code import,
@@ -20,6 +20,7 @@ slice:
   or GUI behavior.
 
 The package exists to test whether declared environment context can support a
-reviewable plan for what would need checking before a future environment
-operation, without accepting an environment manager, package resolver,
-execution framework, hardware-control contract, or shared environment schema.
+reviewable plan for what would need checking before a separately approved
+modern-environment operation, without accepting an environment manager, package
+resolver, legacy environment sync path, execution framework, hardware-control
+contract, or shared environment schema.

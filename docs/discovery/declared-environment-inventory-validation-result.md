@@ -23,15 +23,17 @@ The fixture records one declared environment inventory for a qA chevron
 follow-up from explicit context facts:
 
 - Python runtime hint;
-- dependency-source references for `pyproject.toml`, `uv.lock`, and an
-  unavailable lab driver manifest;
-- package declarations with range-declared, unpinned, and unknown pin state;
+- dependency-source references for `pyproject.toml` and `uv.lock`, plus an
+  unavailable lab-managed driver manifest recorded for review only;
+- package declarations with range-declared, unpinned, and unknown pin state,
+  with the lab-managed driver fact kept as review evidence rather than a sync
+  input;
 - one unverified external instrument utility.
 
-The builder treats source paths as declared references only. It does not read
-or parse dependency files, inspect installed packages, check the control PC,
-resolve dependencies, install packages, import selected code, or execute
-selected code.
+The builder treats source paths and lab-managed driver facts as declared
+references only. It does not read or parse dependency files, inspect installed
+packages, check the control PC, resolve dependencies, sync legacy environment
+facts, install packages, import selected code, or execute selected code.
 
 ## What This Earned
 
@@ -79,8 +81,9 @@ context record while still leaving dependency management, runtime checks, and
 execution to existing lab systems.
 
 Unavailable driver manifests, unknown package pins, unpinned dependencies, and
-unverified external tools remain review findings. Those findings do not become
-runnable-readiness, reproducibility, safety, or run-blocking claims.
+unverified external tools remain record-only review findings. Those findings
+do not become sync inputs, runnable-readiness, reproducibility, safety, or
+run-blocking claims.
 
 ## Follow-Up
 
@@ -94,5 +97,6 @@ Likely follow-up slices should stay separate:
 - declared environment comparison findings, still without package resolution
   or runtime checks;
 - environment readiness planning only after declared environment authority and
-  managed workspace authority are validated separately, with active sync left
-  to a later operation slice.
+  managed workspace authority are validated separately. This slice has no
+  active sync; a separate modern-manifest operation slice would be required,
+  and legacy/lab-managed environment facts would remain record-only.

@@ -46,9 +46,9 @@
       "migration_notes": [
         {
           "note_id": "legacy-qcodes-pin",
-          "label": "Review qcodes pin before environment sync",
+          "label": "Record qcodes pin migration before modern uv use",
           "state": "review_required",
-          "review_reason": "Instrument-control dependency should be pinned in pyproject.toml before a future sync operation."
+          "review_reason": "Legacy pin policy is record-only here and should be migrated into pyproject.toml before any approved modern uv operation."
         }
       ]
     }
@@ -101,7 +101,7 @@
           "subject_type": "migration_note",
           "subject_id": "legacy-qcodes-pin",
           "state": "review_required",
-          "review_reason": "Pin policy should be resolved before a future uv sync operation."
+          "review_reason": "Legacy pin policy is record-only here and should be migrated into pyproject.toml before any approved modern uv operation."
         }
       ],
       "readiness_claims": {

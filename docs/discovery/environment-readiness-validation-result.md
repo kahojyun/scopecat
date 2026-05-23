@@ -28,8 +28,9 @@ from an explicit modern Python environment context:
   and runtime declaration surface;
 - dependency groups for default, lab, and analysis dependencies;
 - one external runtime note for a lab-managed VNA driver and firmware utility;
-- one migration note for pinning an instrument-control dependency before any
-  future sync operation;
+- one record-only migration note for moving a legacy instrument-control pin
+  policy into the modern manifest before any separately approved modern
+  environment operation;
 - planned checks for the modern manifest, Python version source, dependency
   groups, external runtime note, and migration note.
 
@@ -37,7 +38,7 @@ The builder treats check intentions as a plan only. It does not read or parse
 dependency files, inspect installed packages, run `uv`, check the control PC,
 install packages, import selected code, execute selected code, or probe
 hardware. Legacy or lab-managed environment facts are review notes, not equal
-first-class dependency declaration sources in this slice.
+first-class dependency declaration sources or sync inputs in this slice.
 
 ## What This Earned
 
@@ -91,9 +92,10 @@ context?
 
 The answer remains a plan, not an operation. The fixture intentionally favors
 modern `uv` and `pyproject.toml` environment management. External drivers,
-firmware utilities, and legacy pin-policy concerns are review findings or
-migration notes. Those findings do not become runnable-readiness,
-reproducibility, safety, control-PC readiness, or run-blocking claims.
+firmware utilities, and legacy pin-policy concerns are record-only review
+findings or migration notes. Those findings do not become sync inputs,
+runnable-readiness, reproducibility, safety, control-PC readiness, or
+run-blocking claims.
 
 ## Follow-Up
 
@@ -104,7 +106,8 @@ Likely follow-up slices should stay separate:
 
 - environment comparison findings, still without package resolution or runtime
   checks;
-- approved environment file observation, dependency resolution, or dependency
-  sync as separate operation slices;
+- approved modern environment file observation, dependency resolution, or
+  dependency sync as separate operation slices, with legacy or lab-managed
+  environment facts remaining record-only migration/review evidence;
 - execution or managed-runner slices only after environment operation
   authority, hardware boundaries, and run lifecycle are separately validated.

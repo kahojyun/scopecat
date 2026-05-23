@@ -87,7 +87,7 @@
         "package_manager_hint": null,
         "lockfile_ref": null,
         "declaration_state": "unavailable",
-        "missing_reason": "Lab-managed driver manifest was not included in the selected workspace context."
+        "missing_reason": "Lab-managed driver manifest is recorded for review only and is not a dependency sync input."
       }
     ],
     "package_inventory": [
@@ -119,7 +119,7 @@
         "pin_state": "unknown",
         "source_id": "env-src-lab-driver-manifest",
         "declaration_state": "unavailable",
-        "missing_reason": "Driver is managed outside the selected workspace and was not copied into this fixture."
+        "missing_reason": "Driver is lab-managed outside Python package management; fixture records it for review, not as a syncable package."
       }
     ],
     "external_tool_inventory": [
@@ -131,7 +131,7 @@
         "version_hint": "declared-by-lab-note: 5.x",
         "source_id": "env-src-lab-driver-manifest",
         "declaration_state": "unverified",
-        "missing_reason": "Fixture records the operator note but does not check the control PC utility."
+        "missing_reason": "Fixture records the operator note only; it does not check the control PC utility or sync external tools."
       }
     ],
     "environment_findings": [
@@ -141,7 +141,7 @@
         "subject_id": "env-src-lab-driver-manifest",
         "severity": "review",
         "finding": "dependency_source_unavailable",
-        "basis": "Lab-managed driver manifest was not included in the selected workspace context.",
+        "basis": "Lab-managed driver manifest is recorded for review only and is not a dependency sync input.",
         "does_not_claim": "environment_is_unusable_or_runnable"
       },
       {
@@ -159,7 +159,7 @@
         "subject_id": "lab-vna-driver",
         "severity": "review",
         "finding": "package_pin_unknown",
-        "basis": "Driver is managed outside the selected workspace and was not copied into this fixture.",
+        "basis": "Driver is lab-managed outside Python package management; fixture records it for review, not as a syncable package.",
         "does_not_claim": "dependency_resolution_or_runtime_readiness"
       },
       {
@@ -168,7 +168,7 @@
         "subject_id": "lab-vna-driver",
         "severity": "review",
         "finding": "package_unavailable",
-        "basis": "Driver is managed outside the selected workspace and was not copied into this fixture.",
+        "basis": "Driver is lab-managed outside Python package management; fixture records it for review, not as a syncable package.",
         "does_not_claim": "dependency_resolution_or_runtime_readiness"
       },
       {
@@ -177,7 +177,7 @@
         "subject_id": "tool-vna-firmware-utility",
         "severity": "review",
         "finding": "external_tool_unverified",
-        "basis": "Fixture records the operator note but does not check the control PC utility.",
+        "basis": "Fixture records the operator note only; it does not check the control PC utility or sync external tools.",
         "does_not_claim": "external_tool_available_or_compatible"
       }
     ],
@@ -197,7 +197,7 @@
       {
         "code": "dependency_sync_not_performed",
         "severity": "review",
-        "basis": "Declared package facts are not resolved or synchronized.",
+        "basis": "Declared package facts are not resolved, synchronized, or treated as sync inputs for legacy/lab-managed items.",
         "does_not_claim": "resolved_environment"
       },
       {
@@ -228,7 +228,7 @@
   },
   "boundary_notes": [
     "The fixture declares environment context; it does not read pyproject.toml, uv.lock, manifests, or installed-package state.",
-    "Package pins, unknowns, and unavailable driver context are review findings, not dependency-resolution results.",
+    "Package pins, unknowns, and unavailable driver context are record-only review findings, not dependency-resolution results or sync inputs.",
     "The environment record can be selected by a prepared run context, but it does not make the run safe, runnable, reproducible, or synchronized."
   ],
   "decisions_not_earned": [

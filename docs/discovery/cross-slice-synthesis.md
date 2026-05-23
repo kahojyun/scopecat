@@ -424,7 +424,8 @@ Several separations now appear repeatedly enough to keep carrying forward:
   run lifecycle, readiness, restore, execution, or hardware-control framework.
 - Environment readiness can be represented as check planning before dependency
   resolution, sync, runtime probes, code import, execution, or hardware checks
-  are authorized.
+  are authorized, with legacy/lab-managed environment facts kept as record-only
+  review evidence rather than sync inputs.
 
 ## Design Pressure
 

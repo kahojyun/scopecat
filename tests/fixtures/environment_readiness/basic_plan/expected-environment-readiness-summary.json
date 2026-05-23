@@ -80,7 +80,7 @@
         "subject_id": "modern-python-env-chevron-qA-0001",
         "state": "planned",
         "review_reason": null,
-        "does_not_claim": "environment_files_verified_or_synced"
+        "does_not_claim": "environment_files_observed_or_verified"
       },
       {
         "readiness_plan_id": "environment-readiness-chevron-qA-0001",
@@ -100,7 +100,7 @@
         "subject_id": "modern-python-env-chevron-qA-0001",
         "state": "planned",
         "review_reason": null,
-        "does_not_claim": "resolved_or_synced_environment"
+        "does_not_claim": "resolved_environment"
       },
       {
         "readiness_plan_id": "environment-readiness-chevron-qA-0001",
@@ -119,7 +119,7 @@
         "subject_type": "migration_note",
         "subject_id": "legacy-qcodes-pin",
         "state": "review_required",
-        "review_reason": "Pin policy should be resolved before a future uv sync operation.",
+        "review_reason": "Legacy pin policy is record-only here and should be migrated into pyproject.toml before any approved modern uv operation.",
         "does_not_claim": "legacy_environment_migrated"
       }
     ],
@@ -141,7 +141,7 @@
         "subject_id": "legacy-qcodes-pin",
         "severity": "review",
         "finding": "check_review_required",
-        "basis": "Pin policy should be resolved before a future uv sync operation.",
+        "basis": "Legacy pin policy is record-only here and should be migrated into pyproject.toml before any approved modern uv operation.",
         "does_not_claim": "legacy_environment_migrated"
       }
     ],
@@ -167,7 +167,7 @@
       {
         "code": "dependency_sync_not_performed",
         "severity": "review",
-        "basis": "No uv sync operation is invoked.",
+        "basis": "No dependency sync operation is invoked; legacy and lab-managed notes remain record-only.",
         "does_not_claim": "synchronized_environment"
       },
       {
@@ -191,8 +191,8 @@
     ]
   },
   "boundary_notes": [
-    "The fixture uses the modern uv/pyproject path as the supported environment-management direction; legacy or lab-managed items are review notes, not equal dependency-source models.",
-    "The fixture references pyproject.toml and uv.lock but does not read, parse, resolve, or sync them.",
+    "The fixture uses the modern uv/pyproject path as the supported environment-management direction; legacy or lab-managed items are record-only review notes, not syncable dependency-source models.",
+    "The fixture references pyproject.toml and uv.lock but does not read, parse, resolve, or sync them, and it does not treat legacy notes as sync inputs.",
     "External instrument drivers and firmware utilities remain outside Python package management and are review items, not control-PC readiness claims.",
     "The readiness plan can support manual run preparation, but it does not make the run safe, runnable, reproducible, synchronized, or executable."
   ],

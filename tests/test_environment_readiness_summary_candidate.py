@@ -324,7 +324,7 @@ class EnvironmentReadinessSummaryCandidateTest(unittest.TestCase):
 
         self.assertEqual(
             summary["planned_checks"][0]["does_not_claim"],
-            "environment_files_verified_or_synced",
+            "environment_files_observed_or_verified",
         )
 
     def test_positive_readiness_claims_are_rejected(self) -> None:
