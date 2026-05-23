@@ -37,7 +37,8 @@ approved materialization request. It should include:
 The fixture should keep managed content small, explicit, public-safe, and
 stored under the fixture. Required fields must appear in the fixture input,
 including approval state, destination policy, materialization paths, content
-references, content size, and sha256 digest hints.
+references, content size, sha256 digest hints, and any preexisting target paths
+the test creates before materialization.
 
 ## Expected Candidate Behavior
 
@@ -45,9 +46,10 @@ A narrow implementation candidate may:
 
 - accept a caller-provided managed-content root and workspace root;
 - validate the approved selected managed-version request;
-- validate declared content size and sha256 digest before writing;
+- validate all declared content size and sha256 digest facts before writing;
 - create target directories under the caller-provided workspace root;
-- write only content-available files whose target path does not already exist;
+- write only content-available files whose target path does not already exist,
+  using exclusive-create writes;
 - report existing targets without overwriting them;
 - report redacted and unavailable files without creating placeholders;
 - return a structured summary of written, skipped, redacted, and unavailable
@@ -59,6 +61,7 @@ This slice must not:
 
 - write outside the caller-provided workspace root;
 - overwrite, merge, rename, or delete destination entries;
+- follow symlink targets for materialization paths;
 - treat the workspace as a Git checkout, branch, merge target, or sync target;
 - restore dependencies, lockfiles, interpreters, notebooks, or environments;
 - import, load, or execute code;
@@ -71,7 +74,8 @@ Tests should confirm:
 
 - the expected available file is written and the existing target is unchanged;
 - redacted and unavailable files are not created;
-- declared digest and size mismatches fail before writing;
+- declared digest and size mismatches fail before any file is written;
+- symlink targets are reported as existing targets rather than followed;
 - positive claims about execution, dependency sync, or broader authority are
   rejected;
 - unapproved requests are rejected;

@@ -90,7 +90,10 @@
         "root_path": "readout-rerun-0001",
         "path_kind": "relative_workspace_path_under_caller_root",
         "collision_policy": "no_overwrite"
-      }
+      },
+      "preexisting_target_paths": [
+        "readout-rerun-0001/code/experiment_session_setup.py"
+      ]
     }
   ],
   "attention_expected": [

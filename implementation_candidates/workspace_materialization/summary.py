@@ -125,6 +125,15 @@ def _validate_destination(request: dict[str, Any]) -> None:
     if approval["approval_state"] != "approved":
         raise ValueError("workspace materialization request must be approved")
 
+    for path in request["preexisting_target_paths"]:
+        if not _path_is_relative(path):
+            raise ValueError("workspace materialization preexisting target paths must be relative")
+        root_path = destination["root_path"]
+        if path != root_path and not path.startswith(f"{root_path}/"):
+            raise ValueError(
+                "workspace materialization preexisting target paths must stay under root"
+            )
+
 
 def _validate_references(source: dict[str, Any]) -> None:
     _validate_policy(source)
@@ -174,18 +183,44 @@ def _selected_version_summary(version: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _resolve_under(root: Path, relative_path: str) -> Path:
-    root_resolved = root.resolve()
-    resolved = (root_resolved / relative_path).resolve()
-    try:
-        resolved.relative_to(root_resolved)
-    except ValueError as exc:
-        raise ValueError("workspace materialization path escaped allowed root") from exc
-    return resolved
+def _existing_root(root: Path, label: str) -> Path:
+    if root.is_symlink():
+        raise ValueError(f"workspace materialization {label} root must not be a symlink")
+    if not root.is_dir():
+        raise ValueError(f"workspace materialization {label} root must be an existing directory")
+    return root.resolve()
+
+
+def _relative_parts(relative_path: str) -> tuple[str, ...]:
+    return PurePosixPath(relative_path).parts
+
+
+def _path_under(root: Path, relative_path: str) -> Path:
+    return root.joinpath(*_relative_parts(relative_path))
+
+
+def _ensure_no_existing_symlink_parents(root: Path, relative_path: str) -> None:
+    current = root
+    for part in _relative_parts(relative_path)[:-1]:
+        current = current / part
+        if current.is_symlink():
+            raise ValueError("workspace materialization target parent is a symlink")
+        if current.exists() and not current.is_dir():
+            raise ValueError("workspace materialization target parent is not a directory")
+
+
+def _ensure_no_content_symlink(content_root: Path, relative_path: str) -> None:
+    current = content_root
+    for part in _relative_parts(relative_path):
+        current = current / part
+        if current.is_symlink():
+            raise ValueError("workspace materialization managed content path is a symlink")
 
 
 def _read_declared_content(content_root: Path, file_record: dict[str, Any]) -> bytes:
-    content_path = _resolve_under(content_root, file_record["content_ref"])
+    content_ref = file_record["content_ref"]
+    _ensure_no_content_symlink(content_root, content_ref)
+    content_path = _path_under(content_root, content_ref)
     if not content_path.is_file():
         raise ValueError("declared managed content file is unavailable")
 
@@ -202,10 +237,7 @@ def _read_declared_content(content_root: Path, file_record: dict[str, Any]) -> b
 def _target_path(
     workspace_root: Path, request: dict[str, Any], file_record: dict[str, Any]
 ) -> Path:
-    relative_path = str(
-        PurePosixPath(request["destination"]["root_path"]) / file_record["materialization_path"]
-    )
-    return _resolve_under(workspace_root, relative_path)
+    return _path_under(workspace_root, _relative_destination_path(request, file_record))
 
 
 def _relative_destination_path(request: dict[str, Any], file_record: dict[str, Any]) -> str:
@@ -214,27 +246,62 @@ def _relative_destination_path(request: dict[str, Any], file_record: dict[str, A
     )
 
 
-def _write_content(target_path: Path, workspace_root: Path, content: bytes) -> None:
-    workspace_root_resolved = workspace_root.resolve()
-    current = target_path.parent
-    parents_to_check = []
-    while current != workspace_root_resolved and current != current.parent:
-        parents_to_check.append(current)
-        current = current.parent
-    for parent in reversed(parents_to_check):
-        if parent.exists() and parent.is_symlink():
-            raise ValueError("workspace materialization target parent is a symlink")
+def _target_exists(target_path: Path) -> bool:
+    return target_path.exists() or target_path.is_symlink()
 
+
+def _write_content(
+    target_path: Path,
+    workspace_root: Path,
+    destination_path: str,
+    content: bytes,
+) -> bool:
+    _ensure_no_existing_symlink_parents(workspace_root, destination_path)
     target_path.parent.mkdir(parents=True, exist_ok=True)
-    target_path.write_bytes(content)
+    _ensure_no_existing_symlink_parents(workspace_root, destination_path)
+
+    try:
+        with target_path.open("xb") as handle:
+            handle.write(content)
+    except FileExistsError:
+        return False
+    return True
+
+
+def _content_key(
+    request: dict[str, Any], version: dict[str, Any], file_record: dict[str, Any]
+) -> str:
+    return f"{request['request_id']}\0{version['version_id']}\0{file_record['path']}"
+
+
+def _content_by_file(
+    source: dict[str, Any],
+    *,
+    versions: dict[str, dict[str, Any]],
+    content_root: Path,
+    workspace_root: Path,
+) -> dict[str, bytes]:
+    content_by_key = {}
+    for request in source["materialization_requests"]:
+        version = versions[request["selected_version_id"]]
+        for file_record in version["file_inventory"]:
+            if file_record["materialization_source_state"] != "content_available":
+                continue
+
+            destination_path = _relative_destination_path(request, file_record)
+            _ensure_no_existing_symlink_parents(workspace_root, destination_path)
+            content_by_key[_content_key(request, version, file_record)] = _read_declared_content(
+                content_root, file_record
+            )
+    return content_by_key
 
 
 def _file_result_for_record(
     request: dict[str, Any],
     version: dict[str, Any],
     file_record: dict[str, Any],
-    content_root: Path,
     workspace_root: Path,
+    content_by_key: dict[str, bytes],
 ) -> dict[str, Any]:
     destination_path = _relative_destination_path(request, file_record)
     target_path = _target_path(workspace_root, request, file_record)
@@ -249,17 +316,21 @@ def _file_result_for_record(
         result = "unavailable"
         basis = "The selected managed version declares this file unavailable."
         does_not_claim = "file_can_be_restored"
-    elif target_path.exists():
+    elif _target_exists(target_path):
         result = "skipped_existing_target"
         basis = "The target path already exists; no overwrite was performed."
         does_not_claim = "overwrite_or_merge_performed"
     else:
-        content = _read_declared_content(content_root, file_record)
-        _write_content(target_path, workspace_root, content)
-        bytes_written = len(content)
-        result = "written"
-        basis = "Declared managed content was written to a new target path."
-        does_not_claim = "runnable_environment_or_execution"
+        content = content_by_key[_content_key(request, version, file_record)]
+        if _write_content(target_path, workspace_root, destination_path, content):
+            bytes_written = len(content)
+            result = "written"
+            basis = "Declared managed content was written to a new target path."
+            does_not_claim = "runnable_environment_or_execution"
+        else:
+            result = "skipped_existing_target"
+            basis = "The target path already exists; no overwrite was performed."
+            does_not_claim = "overwrite_or_merge_performed"
 
     return {
         "request_id": request["request_id"],
@@ -280,11 +351,11 @@ def _file_result_for_record(
 def _file_results_for_request(
     request: dict[str, Any],
     version: dict[str, Any],
-    content_root: Path,
     workspace_root: Path,
+    content_by_key: dict[str, bytes],
 ) -> list[dict[str, Any]]:
     return [
-        _file_result_for_record(request, version, file_record, content_root, workspace_root)
+        _file_result_for_record(request, version, file_record, workspace_root, content_by_key)
         for file_record in version["file_inventory"]
     ]
 
@@ -391,6 +462,14 @@ def materialize_workspace(
     """Materialize declared managed content into a caller-provided workspace root."""
     _validate_references(source)
     versions = _version_by_id(source)
+    content_root_resolved = _existing_root(content_root, "managed content")
+    workspace_root_resolved = _existing_root(workspace_root, "workspace")
+    content_by_key = _content_by_file(
+        source,
+        versions=versions,
+        content_root=content_root_resolved,
+        workspace_root=workspace_root_resolved,
+    )
     selected_version_ids = {
         request["selected_version_id"] for request in source["materialization_requests"]
     }
@@ -401,8 +480,8 @@ def materialize_workspace(
         for file_result in _file_results_for_request(
             request,
             versions[request["selected_version_id"]],
-            content_root,
-            workspace_root,
+            workspace_root_resolved,
+            content_by_key,
         )
     ]
     file_results_by_request = {

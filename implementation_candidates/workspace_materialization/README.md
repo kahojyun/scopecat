@@ -12,7 +12,8 @@ Boundary:
 - writes only declared content-available files;
 - creates target directories as needed;
 - refuses overwrites by reporting existing target paths;
+- treats symlink targets as existing targets instead of following them;
 - reports redacted and unavailable files without creating placeholders;
-- validates declared content size and sha256 digest before writing;
+- validates all declared content size and sha256 digest facts before writing;
 - does not restore environments, import code, execute code, inspect Git state,
   merge folders, delete files, or define final managed-workspace storage.

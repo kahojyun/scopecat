@@ -19,7 +19,9 @@ Fixture:
 Implementation candidate:
 [`../../implementation_candidates/workspace_materialization/`](../../implementation_candidates/workspace_materialization/)
 
-The fixture starts from one approved selected managed code version. It includes:
+The fixture starts from one approved selected managed code version. It declares
+one preexisting target path that the test creates before materialization. It
+includes:
 
 - one content-available file written to a new target path;
 - one content-available file skipped because the target already exists;
@@ -37,10 +39,11 @@ The implementation candidate shows that a bounded materialization step can:
 
 - preserve selected managed-version identity and storage authority;
 - require an approved materialization request before writing;
-- validate declared content size and sha256 digest before writing;
+- validate all declared content size and sha256 digest facts before writing;
 - create target directories and write available managed content;
 - refuse overwrites by reporting existing target paths and leaving them
   unchanged;
+- treat symlink targets as existing targets rather than following them;
 - report redacted and unavailable files without creating placeholders;
 - return deterministic written, skipped, redacted, unavailable, and attention
   summaries.
@@ -52,6 +55,7 @@ This slice validates approved file materialization only.
 It does not:
 
 - overwrite, merge, rename, or delete destination entries;
+- follow symlink targets for materialization paths;
 - scan the full destination filesystem or watch for staleness;
 - treat the materialized directory as a Git checkout, branch, merge, or sync
   target;

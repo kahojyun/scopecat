@@ -147,10 +147,11 @@ GUI semantics.
 
 Workspace materialization has a slice-local implementation candidate for
 approved writes from declared managed content into a caller-provided workspace
-root. It validates content size and sha256 digest hints, creates target
-directories, writes content-available files, refuses overwrites, and reports
-redacted or unavailable files without placeholders. It does not accept final
-managed workspace storage, Git checkout or merge semantics, dependency sync,
+root. It validates content size and sha256 digest hints before any write,
+creates target directories, writes content-available files with no-overwrite
+behavior, treats symlink targets as existing targets, and reports redacted or
+unavailable files without placeholders. It does not accept final managed
+workspace storage, Git checkout or merge semantics, dependency sync,
 environment restoration, code import, code execution, workflow/DAG behavior,
 prepared run context, or GUI semantics.
 

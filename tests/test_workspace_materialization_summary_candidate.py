@@ -19,21 +19,26 @@ def _load_input() -> dict:
     )
 
 
-def _precreate_collision(workspace_root: Path) -> Path:
-    collision = workspace_root / "readout-rerun-0001" / "code" / "experiment_session_setup.py"
-    collision.parent.mkdir(parents=True, exist_ok=True)
-    collision.write_text("existing session setup\n", encoding="utf-8")
-    return collision
+def _precreate_declared_existing_targets(workspace_root: Path, source: dict) -> list[Path]:
+    paths = []
+    for request in source["materialization_requests"]:
+        for target_path in request["preexisting_target_paths"]:
+            path = workspace_root / target_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("existing session setup\n", encoding="utf-8")
+            paths.append(path)
+    return paths
 
 
 class WorkspaceMaterializationSummaryCandidateTest(unittest.TestCase):
     def test_materializes_expected_workspace_without_overwrite(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             workspace_root = Path(temp_dir)
-            collision = _precreate_collision(workspace_root)
+            source = _load_input()
+            collision = _precreate_declared_existing_targets(workspace_root, source)[0]
 
             summary = materialize_workspace(
-                _load_input(),
+                source,
                 content_root=CONTENT_ROOT,
                 workspace_root=workspace_root,
             )
@@ -70,11 +75,14 @@ class WorkspaceMaterializationSummaryCandidateTest(unittest.TestCase):
             )
 
     def test_without_collision_writes_all_available_content(self) -> None:
+        source = _load_input()
+        source["materialization_requests"][0]["preexisting_target_paths"] = []
+
         with tempfile.TemporaryDirectory() as temp_dir:
             workspace_root = Path(temp_dir)
 
             summary = materialize_workspace(
-                _load_input(),
+                source,
                 content_root=CONTENT_ROOT,
                 workspace_root=workspace_root,
             )
@@ -170,6 +178,63 @@ class WorkspaceMaterializationSummaryCandidateTest(unittest.TestCase):
                 ).exists()
             )
 
+    def test_later_digest_mismatch_fails_before_any_write(self) -> None:
+        source = _load_input()
+        source["materialization_requests"][0]["preexisting_target_paths"] = []
+        source["managed_code_versions"][0]["file_inventory"][1]["content_state"]["digest"] = (
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir)
+
+            with self.assertRaisesRegex(ValueError, "digest does not match"):
+                materialize_workspace(
+                    source,
+                    content_root=CONTENT_ROOT,
+                    workspace_root=workspace_root,
+                )
+
+            self.assertFalse(
+                (
+                    workspace_root
+                    / "readout-rerun-0001"
+                    / "code"
+                    / "readout_calibration_entrypoint.py"
+                ).exists()
+            )
+            self.assertFalse(
+                (
+                    workspace_root / "readout-rerun-0001" / "code" / "experiment_session_setup.py"
+                ).exists()
+            )
+
+    def test_target_symlink_is_skipped_without_following(self) -> None:
+        source = _load_input()
+        source["materialization_requests"][0]["preexisting_target_paths"] = []
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir)
+            target = (
+                workspace_root / "readout-rerun-0001" / "code" / "readout_calibration_entrypoint.py"
+            )
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.symlink_to("redirected.py")
+
+            summary = materialize_workspace(
+                source,
+                content_root=CONTENT_ROOT,
+                workspace_root=workspace_root,
+            )
+            results_by_path = {item["source_path"]: item for item in summary["file_results"]}
+
+            self.assertEqual(
+                results_by_path["readout_calibration_entrypoint.py"]["result"],
+                "skipped_existing_target",
+            )
+            self.assertTrue(target.is_symlink())
+            self.assertFalse((target.parent / "redirected.py").exists())
+
     def test_duplicate_materialization_paths_are_rejected(self) -> None:
         source = _load_input()
         source["managed_code_versions"][0]["file_inventory"][1]["materialization_path"] = (
@@ -202,6 +267,18 @@ class WorkspaceMaterializationSummaryCandidateTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             with self.assertRaisesRegex(ValueError, "destination root path must be relative"):
+                materialize_workspace(
+                    source,
+                    content_root=CONTENT_ROOT,
+                    workspace_root=Path(temp_dir),
+                )
+
+    def test_preexisting_target_paths_must_be_declared_under_destination_root(self) -> None:
+        source = _load_input()
+        source["materialization_requests"][0]["preexisting_target_paths"] = ["other-root/file.py"]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with self.assertRaisesRegex(ValueError, "must stay under root"):
                 materialize_workspace(
                     source,
                     content_root=CONTENT_ROOT,
