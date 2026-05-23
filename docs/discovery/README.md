@@ -151,6 +151,8 @@ hardware.
 | [`managed-code-version-validation-result.md`](managed-code-version-validation-result.md) | Result of the first managed code version fixture and summary candidate. |
 | [`comparable-code-surface-validation-result.md`](comparable-code-surface-validation-result.md) | Result of the first recorded-to-managed declared-fact comparison candidate. |
 | [`workspace-materialization-intent-validation-result.md`](workspace-materialization-intent-validation-result.md) | Result of the first side-effect-free workspace materialization intent candidate. |
+| [`workspace-materialization-validation-plan.md`](workspace-materialization-validation-plan.md) | First write-bounded validation boundary for creating an editable workspace from a selected managed code version. |
+| [`workspace-materialization-validation-result.md`](workspace-materialization-validation-result.md) | Result of the first approved workspace materialization fixture and implementation candidate. |
 
 The canonical Experiment Code Context candidate-slice backlog lives in
 [`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md).
@@ -194,6 +196,12 @@ The first workspace materialization intent candidate is validated in
 [`workspace-materialization-intent-validation-result.md`](workspace-materialization-intent-validation-result.md).
 It plans destination paths and review findings for a selected managed version
 without inspecting the filesystem or writing files.
+
+The first workspace materialization candidate is validated in
+[`workspace-materialization-validation-result.md`](workspace-materialization-validation-result.md).
+It writes declared content-available files into a caller-provided workspace
+root after approval, while refusing overwrites and leaving environment, Git,
+import, execution, and GUI behavior out of scope.
 
 Do not validate "select a code version at run start" by itself. Selection
 becomes useful only when it prepares a run context, supports a reference-based

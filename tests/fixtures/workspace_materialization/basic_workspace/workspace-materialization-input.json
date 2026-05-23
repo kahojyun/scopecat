@@ -1,0 +1,104 @@
+{
+  "fixture_id": "workspace-materialization-basic-workspace",
+  "fixture_status": "synthetic_public_safe",
+  "fixture_layer": "workspace_materialization_fixture",
+  "user_job": "Create an editable workspace from an approved selected managed code version without overwriting existing files or preparing runtime state.",
+  "source_research_notes": [
+    "<sample>/_research/experiment-code-selection-sample-review-2026-05-21.md"
+  ],
+  "materialization_policy": {
+    "fact_source": "declared_fixture_managed_content",
+    "selected_source": "approved_workspace_materialization_intent",
+    "destination_authority": "caller_provided_workspace_root_plus_declared_relative_path",
+    "filesystem_inspection": "target_paths_only",
+    "workspace_creation": "approved_write_to_target_workspace",
+    "overwrite_behavior": "no_overwrite",
+    "environment_restoration": "not_performed",
+    "code_import": "not_performed",
+    "code_execution": "not_performed",
+    "git_behavior": "not_performed"
+  },
+  "managed_code_versions": [
+    {
+      "version_id": "managed-code-version-readout-0001",
+      "stable_identity": {
+        "identity_kind": "scopecat_assigned_record",
+        "stable_id": "sc-codever-readout-0001",
+        "derivation": "assigned_from_code_snapshot_record"
+      },
+      "storage_authority": "scopecat_managed_record",
+      "version_status": "approved_for_workspace_materialization",
+      "file_inventory": [
+        {
+          "path": "readout_calibration_entrypoint.py",
+          "role": "entrypoint",
+          "recorded_form": "source_file",
+          "materialization_source_state": "content_available",
+          "content_ref": "readout_calibration_entrypoint.py",
+          "content_state": {
+            "digest_algorithm": "sha256",
+            "digest": "sha256:48420a4546f66cf69674be6f834a9cd76ad379ab824e78e345518a8c83cdf604",
+            "size_bytes": 170,
+            "observed_at": "2026-05-21T09:30:00Z"
+          },
+          "materialization_path": "code/readout_calibration_entrypoint.py"
+        },
+        {
+          "path": "experiment_session_setup.py",
+          "role": "declared_helper",
+          "recorded_form": "source_file",
+          "materialization_source_state": "content_available",
+          "content_ref": "experiment_session_setup.py",
+          "content_state": {
+            "digest_algorithm": "sha256",
+            "digest": "sha256:05511d6039b22fbe86079f84e281a66881d0259387c16d97551452cc37ebc7b1",
+            "size_bytes": 131,
+            "observed_at": "2026-05-21T09:30:00Z"
+          },
+          "materialization_path": "code/experiment_session_setup.py"
+        },
+        {
+          "path": "secrets/device_config.py",
+          "role": "redacted_lab_secret",
+          "recorded_form": "source_file",
+          "materialization_source_state": "redacted",
+          "materialization_path": "code/secrets/device_config.py"
+        },
+        {
+          "path": "helpers/lab_local_driver.py",
+          "role": "external_lab_driver_reference",
+          "recorded_form": "source_file",
+          "materialization_source_state": "unavailable",
+          "materialization_path": "code/helpers/lab_local_driver.py"
+        }
+      ]
+    }
+  ],
+  "materialization_requests": [
+    {
+      "request_id": "materialize-workspace-readout-0001",
+      "selected_version_id": "managed-code-version-readout-0001",
+      "request_purpose": "manual_rerun_preparation",
+      "approval": {
+        "approval_state": "approved",
+        "approved_by": "fixture_reviewer",
+        "approved_at": "2026-05-21T10:00:00Z"
+      },
+      "destination": {
+        "destination_id": "editable-workspace-readout-rerun",
+        "root_label": "readout rerun editable workspace",
+        "root_path": "readout-rerun-0001",
+        "path_kind": "relative_workspace_path_under_caller_root",
+        "collision_policy": "no_overwrite"
+      }
+    }
+  ],
+  "attention_expected": [
+    "target_paths_inspected",
+    "workspace_created_with_available_files",
+    "overwrite_not_performed",
+    "environment_not_restored",
+    "code_not_imported_or_executed",
+    "git_not_performed"
+  ]
+}
