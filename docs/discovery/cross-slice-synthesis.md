@@ -57,11 +57,12 @@ validation. It carries forward the source/current-reference/materialization
 split and external-file policy vocabulary, while explicitly deferring storage,
 checksum, backup, package writer, importer, and GUI behavior.
 
-Running measurement inspection has fixture-level validation for state summaries
-over already-recorded data from still-running measurements. It pressures
-lifecycle state, progress, completeness, freshness, declared preview metadata,
-and non-durable monitor ergonomics, but has not earned a generator or live
-service.
+Running measurement inspection has a slice-local implementation candidate for
+state summaries over already-recorded data from still-running measurements. It
+pressures lifecycle state, progress, completeness, freshness, declared preview
+metadata, and non-durable monitor ergonomics, but has not earned a live service,
+monitor interaction model, plotting API, durable saved-decision record, or
+harder data-shape model.
 
 Measurement record import preview has a slice-local implementation candidate
 for previewing and classifying incoming records from an explicit manifest

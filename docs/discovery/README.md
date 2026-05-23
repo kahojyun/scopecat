@@ -36,7 +36,7 @@ supporting policy notes. The current validated slice inventory is:
 | --- | --- | --- | --- |
 | Preview-ready selected measurement export | Measurement records | Implementation candidate validated | Pure summary for explicit selected measurement sets, default bundles, linked context, declared preview metadata, degraded-preview warnings, and non-recursive traversal. |
 | Storage-transition export | Measurement records | Fixture validated | Source identity, current reference, package materialization, and external-reference policy pressure without accepting storage, checksum, backup, package writer, importer, or GUI behavior. |
-| Running measurement inspection | Measurement records | Fixture validated | State summary for already-recorded data from still-running measurements, including progress, completeness, freshness, declared preview metadata, and non-durable monitor ergonomics. |
+| Running measurement inspection | Measurement records | Implementation candidate validated | Side-effect-free state summary for already-recorded data from still-running measurements, including progress, completeness, freshness, declared preview metadata, and non-durable monitor ergonomics without live-service, GUI, plotting, storage, import/export, or hardware-control authority. |
 | Measurement record import preview | Measurement records | Implementation candidate validated | Side-effect-free preview and classification for explicit incoming-record manifests, including source identity, current-reference state, declared preview metadata, linked context, and review findings without import acceptance, storage mutation, schema inference, package integrity, recursive traversal, or GUI behavior. |
 | Declared scan/data-shape fixtures | Measurement records support | Spike/fixtures validated | Declared 1D table, rectangular 2D grid table, and sidecar-declared weak-table pressure for preview readiness, not a final data-shape schema or importer. |
 | Parameter state management | Parameter state | Implementation candidate validated | Side-effect-free summary for parameter-state lineage, purpose labels, seeded/trusted state, reviewable diffs, committed states, and measurement references without hardware write-back, instrument state tracking, external JSON authority, or branch/tag/commit semantics. |
@@ -110,7 +110,7 @@ Measurement Records the owner of context-support behavior.
 | [`../../tests/fixtures/scan_data_shapes/`](../../tests/fixtures/scan_data_shapes/) | Public-safe fixtures for rectangular 2D grid and sidecar-declared weak-table pressure. |
 | [`problem-briefs/running-measurement-inspection.md`](problem-briefs/running-measurement-inspection.md) | Problem framing for inspecting already-recorded data from a still-running measurement. |
 | [`running-measurement-inspection-validation-plan.md`](running-measurement-inspection-validation-plan.md) | First fixture-validation boundary for running inspection. |
-| [`running-measurement-inspection-validation-result.md`](running-measurement-inspection-validation-result.md) | Result of running-inspection fixture validation. |
+| [`running-measurement-inspection-validation-result.md`](running-measurement-inspection-validation-result.md) | Result of the running-inspection implementation candidate. |
 | [`measurement-record-import-preview-validation-result.md`](measurement-record-import-preview-validation-result.md) | Result of the first side-effect-free import preview implementation candidate. |
 
 Candidate next slices in this route should stay separate:

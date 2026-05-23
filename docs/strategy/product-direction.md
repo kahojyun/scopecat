@@ -122,6 +122,15 @@ physical setup semantics, and framework-specific bridge behavior should enter
 through explicit adapter or policy surfaces. They should not silently become
 core product scope because one workflow needed them.
 
+Redaction should stay authority-aware. Scopecat-managed references such as
+paths, source identities, package-relative references, relation targets,
+external-root displays, and materialization destinations need strict validation
+when they appear in public-safe fixtures or generated artifacts. User labels,
+display names, notes, and descriptions are free text unless a slice explicitly
+introduces a redaction policy surface. Public fixtures should still be reviewed
+for safe wording, but implementation candidates should not add broad runtime
+redaction or DLP-style scanning for free labels by default.
+
 ## Expansion Posture
 
 Early design should preserve future expansion paths without making them default
