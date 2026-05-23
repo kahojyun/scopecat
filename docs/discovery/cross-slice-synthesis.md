@@ -32,6 +32,7 @@ executor design, relation graph, or warning taxonomy.
 - [`editable-folder-observation-validation-result.md`](editable-folder-observation-validation-result.md)
 - [`prepared-run-context-validation-result.md`](prepared-run-context-validation-result.md)
 - [`declared-environment-inventory-validation-result.md`](declared-environment-inventory-validation-result.md)
+- [`reference-based-rerun-preparation-validation-result.md`](reference-based-rerun-preparation-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
 - [`adoption-routes.md`](adoption-routes.md)
 - [`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md)
@@ -190,6 +191,15 @@ unknown packages, and unverified external tools are review findings, not
 runnable-readiness, reproducibility, safety, compatibility, or run-blocking
 claims.
 
+Reference-based rerun preparation has a slice-local implementation candidate
+for starting from a user-selected reference measurement and seeding a proposed
+manual rerun context from its linked context records. It validates that selected
+rerun context is copied from explicit reference links, aligns editable
+workspace observation to the selected managed code version, and aligns the
+proposed run target to measurement intent. Workspace and declared-environment
+findings remain review facts, not reproducibility, cause-attribution,
+drift-correction, readiness, execution, or hardware-control claims.
+
 ## Version Terminology
 
 The slices are converging on a shared distinction without yet earning a shared
@@ -258,6 +268,7 @@ schema.
 | Materialized code workspace | Experiment code, prepared-run context support | A concrete folder expanded from a selected managed code version after approval. The first candidate writes declared content into a caller-provided workspace root only; it remains separate from recorded code context, Git checkout behavior, environment readiness, import, execution, and prepared run context. |
 | Editable workspace observation | Experiment code, prepared-run context support | A read-only observation of a selected editable folder against a managed code version. The first candidate records size and sha256 facts for observed files and reports drift or non-authoritative extras while using ignored-directory guardrails for workspace internals, without accepting semantic source diff, Git diagnostics, environment readiness, import, execution, or prepared run context. |
 | Prepared run context | Experiment code, measurement context support | A manual run-preparation summary that groups selected managed code/workspace observation, parameter state, setup binding, station registry, and measurement intent while surfacing missing environment context, workspace drift, or workspace limitations as review findings, without claiming restore, runnable readiness, hardware control, import, or execution. |
+| Reference-based rerun preparation | Experiment code, selected reference, measurement context support | A proposed manual rerun context seeded from a user-selected reference measurement and its linked context records. The first candidate validates reference-linked selection and review findings without claiming reference goodness, reproducibility, automatic cause attribution, drift correction, hardware control, environment sync, import, or execution. |
 
 ## Stable Separations
 

@@ -249,6 +249,9 @@ and intent selection for a manual rerun.
 First fixture: a selected reference measurement with linked code context,
 parameter state, and setup binding, producing a proposed prepared run context.
 
+Result owner:
+[`reference-based-rerun-preparation-validation-result.md`](reference-based-rerun-preparation-validation-result.md)
+
 Boundary: no reproducibility guarantee, cause attribution, execution, hardware
 control, or automatic correction of drift.
 
