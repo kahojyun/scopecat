@@ -20,6 +20,7 @@ executor design, relation graph, or warning taxonomy.
 - [`measurement-record-import-preview-validation-result.md`](measurement-record-import-preview-validation-result.md)
 - [`new-run-measurement-writer-validation-result.md`](new-run-measurement-writer-validation-result.md)
 - [`measurement-storage-writer-validation-result.md`](measurement-storage-writer-validation-result.md)
+- [`derived-artifact-source-links-validation-result.md`](derived-artifact-source-links-validation-result.md)
 - [`calibration-work-continuation-validation-result.md`](calibration-work-continuation-validation-result.md)
 - [`parameter-state-management-validation-result.md`](parameter-state-management-validation-result.md)
 - [`parameter-write-compatibility-output-validation-result.md`](parameter-write-compatibility-output-validation-result.md)
@@ -93,6 +94,14 @@ data plus manifest files. It does not accept final storage architecture,
 existing-record append or update behavior, import/export package behavior,
 schema inference, live service, GUI behavior, hardware control, or scan
 execution.
+
+Derived artifact source links has a slice-local implementation candidate for
+connecting one derived artifact to explicitly listed source measurements. It
+preserves artifact identity, direct source roles, relation states, primary-data
+references, and unavailable-source findings without reading artifacts or source
+data, validating checksums, writing storage, inferring schemas, traversing
+relations recursively, inferring analysis DAGs, judging scientific validity, or
+designing a GUI.
 
 Calibration work continuation has a tiny assembler candidate for continuation
 state. It pressures episode context, planned steps, observed outputs, review
@@ -291,7 +300,7 @@ schema.
 | Source identity | Export, import preview, running inspection, new-run writer, calibration continuation | Recoverable provenance for where a record came from, distinct from current read path, package-relative fixture path, writer-declared primary data path, or final storage identity. |
 | Primary data reference | Export, import preview, running inspection, new-run writer, storage writer, measurement boundary | The data item users expect to inspect, preview, export, import, store, or later plot; may be fixture path-shaped now but should not imply durable path identity. |
 | Declared preview metadata | Export, import preview, running inspection, new-run writer, storage writer, scan/data-shape | Shape, roles, labels, units, axis order, row order, and plot candidates supplied explicitly enough to support preview without schema inference. |
-| Linked context | Export, import preview, calibration continuation, measurement boundary | Snapshots, attachments, artifacts, fit previews, notes, or derived outputs connected to a measurement or step with explicit relation and authority. |
+| Linked context | Export, import preview, derived artifact source links, calibration continuation, measurement boundary | Snapshots, attachments, artifacts, fit previews, notes, or derived outputs connected to a measurement or step with explicit relation and authority. |
 | Include state | Export, measurement boundary | Whether linked context is default-included, user-included, visible-but-excluded, missing, or local-only; this is not recursive graph traversal. |
 | Lifecycle or progress state | Running inspection, new-run writer, calibration continuation | Current status of a measurement or step, such as running, complete, partial, review-needed, failed, or blocked. |
 | Intervention or operation | Running inspection, calibration continuation, future GUI pressure | A user-facing item that needs attention or can be acted on, without implying autonomous execution. |

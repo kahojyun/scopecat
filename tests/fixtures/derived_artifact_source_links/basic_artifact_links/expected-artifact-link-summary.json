@@ -1,0 +1,128 @@
+{
+  "status": "fixture",
+  "reference_semantics": {
+    "contract_guard": "Derived artifact source links are not an artifact parser, source observer, checksum contract, storage writer, schema inference engine, recursive relation traversal, analysis-DAG inference engine, scientific validity review, GUI workflow, or shared measurement-record schema.",
+    "source_fixture": "artifact-links-input.json"
+  },
+  "candidate_summary": {
+    "artifact_link_policy": {
+      "link_authority": "explicit_artifact_manifest",
+      "artifact_observation": "not_performed",
+      "source_observation": "not_performed",
+      "storage_mutation": "not_performed",
+      "checksum_validation": "not_performed",
+      "schema_inference": "not_performed",
+      "recursive_relation_traversal": "not_performed",
+      "analysis_dag_inference": "not_performed",
+      "scientific_validity": "not_claimed",
+      "gui_workflow": "not_defined",
+      "shared_measurement_schema": "not_defined"
+    },
+    "artifact": {
+      "artifact_id": "artifact-rabi-fit-summary-9001",
+      "label": "Rabi fit summary",
+      "kind": "analysis_summary",
+      "path": "artifacts/rabi-fit-summary.csv",
+      "authority": "explicit_artifact_manifest",
+      "reference_state": "declared_available",
+      "reason": null
+    },
+    "source_measurement_count": 2,
+    "source_state_counts": {
+      "declared_available": 1,
+      "unavailable": 1
+    },
+    "source_role_counts": {
+      "comparison_reference": 1,
+      "primary_input": 1
+    },
+    "classification": "needs_source_review",
+    "source_links": [
+      {
+        "artifact_id": "artifact-rabi-fit-summary-9001",
+        "measurement_id": "measurement-1001-rabi",
+        "label": "Rabi amplitude sweep",
+        "source_role": "primary_input",
+        "relation": "derived_from_measurement",
+        "authority": "explicit_artifact_manifest",
+        "record_state": "declared_available",
+        "primary_data_reference": {
+          "path": "source/export-demo-session/measurement-1001-rabi-source.csv",
+          "authority": "explicit_artifact_manifest"
+        },
+        "reason": null
+      },
+      {
+        "artifact_id": "artifact-rabi-fit-summary-9001",
+        "measurement_id": "measurement-0998-baseline",
+        "label": "Baseline comparison run",
+        "source_role": "comparison_reference",
+        "relation": "compares_against",
+        "authority": "explicit_artifact_manifest",
+        "record_state": "unavailable",
+        "primary_data_reference": {
+          "path": "source/export-demo-session/measurement-0998-baseline-source.csv",
+          "authority": "explicit_artifact_manifest"
+        },
+        "reason": "The artifact manifest lists this comparison run, but the source measurement record was not included in the public-safe fixture."
+      }
+    ],
+    "link_findings": [
+      {
+        "artifact_id": "artifact-rabi-fit-summary-9001",
+        "subject_type": "source_measurement",
+        "subject_id": "measurement-0998-baseline",
+        "severity": "review",
+        "finding": "source_measurement_unavailable",
+        "basis": "The artifact manifest lists this comparison run, but the source measurement record was not included in the public-safe fixture.",
+        "does_not_claim": "analysis_lineage_invalid_or_complete"
+      }
+    ],
+    "attention": [
+      {
+        "code": "explicit_links_only",
+        "severity": "info",
+        "basis": "Derived artifact source links come from an explicit artifact manifest.",
+        "does_not_claim": "complete_analysis_provenance"
+      },
+      {
+        "code": "artifact_not_read",
+        "severity": "review",
+        "basis": "The artifact path is a declared reference and is not opened or parsed.",
+        "does_not_claim": "artifact_contents_verified"
+      },
+      {
+        "code": "source_measurements_not_observed",
+        "severity": "review",
+        "basis": "Source measurement references are not opened, checksummed, or schema-inferred.",
+        "does_not_claim": "source_file_integrity_verified"
+      },
+      {
+        "code": "analysis_dag_not_inferred",
+        "severity": "review",
+        "basis": "Only directly listed source measurements are summarized.",
+        "does_not_claim": "recursive_analysis_dag"
+      },
+      {
+        "code": "scientific_validity_not_claimed",
+        "severity": "review",
+        "basis": "Links explain declared source relationships but do not judge artifact correctness.",
+        "does_not_claim": "artifact_scientifically_valid"
+      }
+    ]
+  },
+  "boundary_notes": [
+    "Derived artifact source links summarize direct, explicit measurement references only.",
+    "Artifact and source paths are declared references; the builder does not open, parse, checksum, or write them.",
+    "Unavailable source measurements are review findings, not claims that the analysis lineage is invalid or complete."
+  ],
+  "decisions_not_earned": [
+    "final artifact or measurement relation schema",
+    "artifact parser or report renderer",
+    "source observation, checksum, archive, or integrity contract",
+    "storage mutation or package writer behavior",
+    "recursive relation traversal or analysis-DAG inference",
+    "scientific validity or fit-quality review",
+    "artifact review GUI"
+  ]
+}

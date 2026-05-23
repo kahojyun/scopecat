@@ -41,6 +41,7 @@ supporting policy notes. The current validated slice inventory is:
 | Adapter-authored legacy import manifest | Measurement records | Implementation candidate validated | Side-effect-free validation and summary for normalized manifests emitted by user-owned legacy adapters, including adapter identity, external source identity, primary-data reference, declared preview metadata, linked context, and adapter findings without stable public API, LabRAD/DataVault/Labber reader behavior, import acceptance, storage mutation, schema inference, package format, recursive traversal, or GUI behavior. |
 | New-run measurement writer semantics | Measurement records | Implementation candidate validated | Side-effect-free summary from explicit writer events, including lifecycle, progress, declared primary data reference, and preview metadata without storage mutation, source observation, schema inference, live service, hardware control, scan execution, or GUI behavior. |
 | Append-only measurement storage writer | Measurement records | Implementation candidate validated | Approved filesystem mutation for one new measurement record directory from declared append chunks, including sha256/size preflight, no-overwrite targets, stored primary data, and deterministic manifest without final storage architecture, schema inference, import/export packages, live service, GUI, or hardware-control authority. |
+| Derived artifact source links | Measurement records | Implementation candidate validated | Side-effect-free summary for an explicit derived-artifact manifest, including artifact identity, direct source measurement roles, relation states, and review findings without artifact parsing, source observation, checksum validation, storage mutation, recursive traversal, analysis-DAG inference, scientific validity review, or GUI behavior. |
 | Declared scan/data-shape fixtures | Measurement records support | Spike/fixtures validated | Declared 1D table, rectangular 2D grid table, and sidecar-declared weak-table pressure for preview readiness, not a final data-shape schema or importer. |
 | Parameter state management | Parameter state | Implementation candidate validated | Side-effect-free summary for parameter-state lineage, purpose labels, seeded/trusted state, reviewable diffs, committed states, and measurement references without hardware write-back, instrument state tracking, external JSON authority, or branch/tag/commit semantics. |
 | Parameter write compatibility output | Parameter state | Implementation candidate validated | Side-effect-free compatibility-output plan for accepted committed parameter state, including trusted scalar emits and skipped untrusted or schema-limited entries without file writes, hardware write-back, schema migration, or external JSON authority. |
@@ -119,6 +120,7 @@ Measurement Records the owner of context-support behavior.
 | [`adapter-authored-legacy-import-validation-result.md`](adapter-authored-legacy-import-validation-result.md) | Result of the first normalized adapter-authored legacy import manifest candidate. |
 | [`new-run-measurement-writer-validation-result.md`](new-run-measurement-writer-validation-result.md) | Result of the first side-effect-free writer-event implementation candidate. |
 | [`measurement-storage-writer-validation-result.md`](measurement-storage-writer-validation-result.md) | Result of the first approved append-only storage writer implementation candidate. |
+| [`derived-artifact-source-links-validation-result.md`](derived-artifact-source-links-validation-result.md) | Result of the first explicit derived-artifact source-link implementation candidate. |
 
 Candidate next slices in this route should stay separate:
 
@@ -126,8 +128,6 @@ Candidate next slices in this route should stay separate:
   normalized manifest emitted by a user-owned adapter, then decide explicit
   copy/reference storage mutation without accepting a stable public API,
   export-package acceptance, or legacy readers in Scopecat core;
-- derived artifact source links: connect a derived artifact to explicit source
-  measurements, without recursive analysis-DAG inference;
 - source observation or checksum validation after storage: inspect stored or
   writer-produced primary data without accepting schema inference;
 - existing-record append or update pressure: validate locks, crash recovery,
@@ -141,9 +141,18 @@ existing targets and leaving final storage architecture, import/export package
 behavior, schema inference, live service, GUI, and hardware control out of
 scope.
 
-Context-shaped work such as recorded analysis choices, artifact links, and
-handoff context should use the Measurement Context Backlog above unless the
-slice is about primary measurement data.
+The first derived artifact source-link candidate is validated in
+[`derived-artifact-source-links-validation-result.md`](derived-artifact-source-links-validation-result.md).
+It connects one derived artifact to explicit source measurements with source
+roles, relation states, and review findings, while leaving artifact parsing,
+source observation, checksum validation, storage mutation, recursive traversal,
+analysis-DAG inference, scientific validity review, and GUI behavior out of
+scope.
+
+Context-shaped work such as recorded analysis choices and handoff context
+should use the Measurement Context Backlog above unless the slice is about
+primary measurement data or this direct artifact-to-measurement source-link
+boundary.
 
 ### Parameter State
 
