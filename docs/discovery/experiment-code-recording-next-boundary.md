@@ -213,6 +213,11 @@ run still matches the selected managed code surface.
 First fixture: an observed editable folder and selected managed version,
 producing comparable file findings over known observed facts.
 
+First result:
+[`editable-folder-observation-validation-result.md`](editable-folder-observation-validation-result.md)
+validates one selected editable workspace observation with same-observed,
+changed-observed, redacted, unavailable, and extra-file findings.
+
 Boundary: no Git diff, semantic source diff, dependency readiness, import,
 environment readiness, or execution.
 

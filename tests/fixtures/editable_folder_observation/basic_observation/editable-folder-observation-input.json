@@ -1,0 +1,97 @@
+{
+  "fixture_id": "editable-folder-observation-basic-observation",
+  "fixture_status": "synthetic_public_safe",
+  "fixture_layer": "editable_folder_observation_fixture",
+  "user_job": "Observe an editable workspace after materialization and report changed, missing, redacted, unavailable, and extra files without preparing runtime state.",
+  "source_research_notes": [
+    "<sample>/_research/experiment-code-selection-sample-review-2026-05-21.md"
+  ],
+  "observation_policy": {
+    "fact_source": "declared_selected_managed_version_plus_observed_filesystem",
+    "selected_source": "materialized_workspace_reference",
+    "filesystem_inspection": "selected_workspace_root_only",
+    "content_observation": "sha256_and_size_only",
+    "semantic_source_diff": "not_performed",
+    "internal_git_inspection": "not_performed",
+    "environment_readiness": "not_performed",
+    "code_import": "not_performed",
+    "code_execution": "not_performed",
+    "workspace_mutation": "not_performed"
+  },
+  "managed_code_versions": [
+    {
+      "version_id": "managed-code-version-readout-0001",
+      "stable_identity": {
+        "identity_kind": "scopecat_assigned_record",
+        "stable_id": "sc-codever-readout-0001",
+        "derivation": "assigned_from_code_snapshot_record"
+      },
+      "storage_authority": "scopecat_managed_record",
+      "version_status": "materialized_for_editing",
+      "file_inventory": [
+        {
+          "path": "readout_calibration_entrypoint.py",
+          "role": "entrypoint",
+          "recorded_form": "source_file",
+          "materialization_source_state": "content_available",
+          "content_state": {
+            "digest_algorithm": "sha256",
+            "digest": "sha256:48420a4546f66cf69674be6f834a9cd76ad379ab824e78e345518a8c83cdf604",
+            "size_bytes": 170,
+            "observed_at": "2026-05-21T09:30:00Z"
+          },
+          "materialization_path": "code/readout_calibration_entrypoint.py"
+        },
+        {
+          "path": "experiment_session_setup.py",
+          "role": "declared_helper",
+          "recorded_form": "source_file",
+          "materialization_source_state": "content_available",
+          "content_state": {
+            "digest_algorithm": "sha256",
+            "digest": "sha256:05511d6039b22fbe86079f84e281a66881d0259387c16d97551452cc37ebc7b1",
+            "size_bytes": 131,
+            "observed_at": "2026-05-21T09:30:00Z"
+          },
+          "materialization_path": "code/experiment_session_setup.py"
+        },
+        {
+          "path": "secrets/device_config.py",
+          "role": "redacted_lab_secret",
+          "recorded_form": "source_file",
+          "materialization_source_state": "redacted",
+          "materialization_path": "code/secrets/device_config.py"
+        },
+        {
+          "path": "helpers/lab_local_driver.py",
+          "role": "external_lab_driver_reference",
+          "recorded_form": "source_file",
+          "materialization_source_state": "unavailable",
+          "materialization_path": "code/helpers/lab_local_driver.py"
+        }
+      ]
+    }
+  ],
+  "observation_requests": [
+    {
+      "request_id": "observe-editable-workspace-readout-0001",
+      "selected_version_id": "managed-code-version-readout-0001",
+      "observation_purpose": "post_materialization_edit_review",
+      "workspace_reference": {
+        "workspace_id": "editable-workspace-readout-rerun",
+        "root_label": "readout rerun editable workspace",
+        "root_path": "readout-rerun-0001",
+        "path_kind": "relative_workspace_path_under_caller_root"
+      }
+    }
+  ],
+  "attention_expected": [
+    "selected_workspace_root_inspected",
+    "content_observed_by_size_and_digest_only",
+    "semantic_source_diff_not_performed",
+    "internal_git_not_inspected",
+    "environment_readiness_not_checked",
+    "code_not_imported_or_executed",
+    "workspace_not_mutated"
+  ]
+}
