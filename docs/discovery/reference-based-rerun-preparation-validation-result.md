@@ -101,8 +101,8 @@ sharper boundary around environment readiness or execution.
 
 Likely follow-up slices should stay separate:
 
-- environment readiness or sync planning, still without hardware-active import
-  or experiment execution;
+- environment readiness planning, still without dependency sync,
+  hardware-active import, or experiment execution;
 - comparison fixtures that add one reference-context authority case at a time;
 - execution or managed-runner slices only after context selection,
   materialization, observation, and environment authority are separately

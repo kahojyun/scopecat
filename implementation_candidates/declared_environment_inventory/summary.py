@@ -425,7 +425,10 @@ def _attention(source: dict[str, Any]) -> list[dict[str, Any]]:
             {
                 "code": "dependency_sync_not_performed",
                 "severity": "review",
-                "basis": "Declared package facts are not resolved or synchronized.",
+                "basis": (
+                    "Declared package facts are not resolved, synchronized, or treated "
+                    "as sync inputs for legacy/lab-managed items."
+                ),
                 "does_not_claim": "resolved_environment",
             }
         )

@@ -55,6 +55,7 @@ supporting policy notes. The current validated slice inventory is:
 | Prepared run context | Experiment code context | Implementation candidate validated | Side-effect-free manual run-context summary for selected managed code/workspace observation, parameter state, setup binding, station registry, measurement intent, and missing declared environment context without shared schema, hardware control, restore, environment sync, code import, execution, or readiness claims. |
 | Declared environment inventory | Experiment code context | Implementation candidate validated | Side-effect-free summary for declared runtime hints, dependency-source references, package declarations, and external-tool hints without reading environment files, resolving dependencies, installing packages, checking runtime readiness, importing code, or executing code. |
 | Reference-based rerun preparation | Experiment code context | Implementation candidate validated | Side-effect-free manual rerun preparation from a selected reference measurement and its linked context without reproducibility guarantees, cause attribution, automatic drift correction, hardware control, environment sync, code import, or execution. |
+| Environment readiness planning | Experiment code context | Implementation candidate validated | Side-effect-free check plan from a declared modern `uv`/`pyproject.toml` environment context, with lab-managed drivers and legacy dependency concerns as record-only review notes rather than sync inputs, without reading dependency files, resolving or syncing dependencies, installing packages, probing runtime or hardware, importing code, executing code, or claiming runnable readiness. |
 | Setup binding | Setup binding | Implementation candidate validated | Side-effect-free setup-binding summary for explicit setup-binding snapshots, simple diffs, station-registry references, generated line/readout views, and measurement input references while keeping parameter state, station management, generator execution, and hardware control separate. |
 | Calibration work continuation | Calibration continuation | Assembler candidate validated | Continuation-state assembly for planned steps, observed outputs, review gates, proposed writes, blocked steps, and interventions without executor, scheduler, write-back, or GUI ownership. |
 | Selected reference comparison | Selected reference comparison | Fixtures validated | Context-comparison findings against a user-selected reference without user judgment, raw-data comparison, fit-quality comparison, setup truth, restore, execution, semantic source diff, or cause attribution. |
@@ -214,6 +215,7 @@ perform schema migration.
 | [`prepared-run-context-validation-result.md`](prepared-run-context-validation-result.md) | Result of the first prepared run context fixture and implementation candidate. |
 | [`declared-environment-inventory-validation-result.md`](declared-environment-inventory-validation-result.md) | Result of the first declared environment inventory fixture and implementation candidate. |
 | [`reference-based-rerun-preparation-validation-result.md`](reference-based-rerun-preparation-validation-result.md) | Result of the first reference-based rerun preparation fixture and implementation candidate. |
+| [`environment-readiness-validation-result.md`](environment-readiness-validation-result.md) | Result of the first environment readiness planning fixture and implementation candidate. |
 
 The canonical Experiment Code Context candidate-slice backlog lives in
 [`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md).
@@ -242,8 +244,8 @@ should earn stronger claims:
 7. reference-based rerun preparation: start from a selected reference
    measurement and prepare the matching run context for manual rerun, without
    claiming reproducibility or automatic cause attribution;
-8. environment readiness or sync: only after managed workspace and declared
-   environment authority are clearer.
+8. environment readiness planning: plan checks from declared modern Python
+   environment context without running resolution, sync, probes, or execution.
 
 The comparison work is a fixture family, not one slice. The first
 recorded-to-managed declared-fact comparison is validated in
@@ -296,6 +298,14 @@ manual rerun context from explicit reference-linked context records. Workspace
 and declared-environment findings remain review facts, not reproducibility,
 cause-attribution, drift-correction, readiness, execution, or hardware-control
 claims.
+
+The first environment readiness planning candidate is validated in
+[`environment-readiness-validation-result.md`](environment-readiness-validation-result.md).
+It plans checks from a declared modern `uv`/`pyproject.toml` environment
+context, treating lab-managed drivers and legacy dependency concerns as review
+or migration notes rather than equal dependency declaration sources or sync
+inputs. It does not read files, resolve or sync dependencies, install packages,
+import code, execute code, probe hardware, or claim runnable readiness.
 
 Do not validate "select a code version at run start" by itself. Selection
 becomes useful only when it prepares a run context, supports a reference-based

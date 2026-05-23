@@ -11,6 +11,8 @@ inventory slice:
 - keep the builder side-effect free;
 - report unavailable, unverified, redacted, unsupported, unpinned, and unknown
   environment facts as review findings;
+- keep legacy or lab-managed environment facts record-only rather than treating
+  them as dependency sync inputs;
 - preserve source identity for environment files without reading or parsing
   those files;
 - avoid dependency sync, package installation, runtime checks, code import,

@@ -39,6 +39,7 @@ executor design, relation graph, or warning taxonomy.
 - [`prepared-run-context-validation-result.md`](prepared-run-context-validation-result.md)
 - [`declared-environment-inventory-validation-result.md`](declared-environment-inventory-validation-result.md)
 - [`reference-based-rerun-preparation-validation-result.md`](reference-based-rerun-preparation-validation-result.md)
+- [`environment-readiness-validation-result.md`](environment-readiness-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
 - [`adoption-routes.md`](adoption-routes.md)
 - [`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md)
@@ -263,6 +264,15 @@ proposed run target to measurement intent. Workspace and declared-environment
 findings remain review facts, not reproducibility, cause-attribution,
 drift-correction, readiness, execution, or hardware-control claims.
 
+Environment readiness planning has a slice-local implementation candidate for
+turning a declared modern `uv`/`pyproject.toml` environment context and
+explicit check intentions into a reviewable plan. It validates the modern
+manifest fields and paths, lockfile path, dependency groups, external runtime
+notes, migration notes, planned check states, and review findings without
+reading dependency files, resolving or syncing dependencies, installing
+packages, probing runtimes, importing code, executing code, probing hardware,
+or claiming runnable readiness.
+
 ## Version Terminology
 
 The slices are converging on a shared distinction without yet earning a shared
@@ -332,6 +342,7 @@ schema.
 | Editable workspace observation | Experiment code, prepared-run context support | A read-only observation of a selected editable folder against a managed code version. The first candidate records size and sha256 facts for observed files and reports drift or non-authoritative extras while using ignored-directory guardrails for workspace internals, without accepting semantic source diff, Git diagnostics, environment readiness, import, execution, or prepared run context. |
 | Prepared run context | Experiment code, measurement context support | A manual run-preparation summary that groups selected managed code/workspace observation, parameter state, setup binding, station registry, and measurement intent while surfacing missing environment context, workspace drift, or workspace limitations as review findings, without claiming restore, runnable readiness, hardware control, import, or execution. |
 | Reference-based rerun preparation | Experiment code, selected reference, measurement context support | A proposed manual rerun context seeded from a user-selected reference measurement and its linked context records. The first candidate validates reference-linked selection and review findings without claiming reference goodness, reproducibility, automatic cause attribution, drift correction, hardware control, environment sync, import, or execution. |
+| Environment readiness plan | Experiment code, prepared run context support | A reviewable plan for what checks would be needed for a selected declared modern `uv`/`pyproject.toml` environment context. The first candidate treats lab-managed drivers and legacy dependency concerns as review notes while avoiding package-manager runs, code import, code execution, hardware probes, or runnable-readiness claims. |
 
 ## Stable Separations
 
@@ -411,6 +422,10 @@ Several separations now appear repeatedly enough to keep carrying forward:
 - Prepared run context can group selected code/workspace, parameter, setup,
   station, and intent records for manual preparation without becoming a shared
   run lifecycle, readiness, restore, execution, or hardware-control framework.
+- Environment readiness can be represented as check planning before dependency
+  resolution, sync, runtime probes, code import, execution, or hardware checks
+  are authorized, with legacy/lab-managed environment facts kept as record-only
+  review evidence rather than sync inputs.
 
 ## Design Pressure
 
@@ -472,9 +487,9 @@ The cross-slice comparison still does not earn:
 - final managed experiment-code workspace storage, archive or
   content-addressed store contract, Git replacement implementation,
   branch/merge/sync semantics, package management, environment ownership,
-  environment restoration, selected-version loading, code execution,
-  workflow/DAG nodes, component-level code versioning, or generated artifact
-  regeneration;
+  environment restoration, selected-version loading, dependency sync,
+  runtime readiness, managed runners, code execution, workflow/DAG nodes,
+  component-level code versioning, or generated artifact regeneration;
 - publication-grade plotting or multi-run plotting GUI;
 - fit quality, uncertainty, reproducibility, or user/domain scientific
   conclusions.

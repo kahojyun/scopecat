@@ -100,5 +100,7 @@ Likely follow-up slices should stay separate:
 - declared environment inventory, still without environment sync;
 - context readiness or status summaries, if repeated run-preparation fixtures
   need a sharper status vocabulary;
-- environment readiness or sync only after declared environment authority is
-  validated separately.
+- environment readiness planning only after declared environment authority is
+  validated separately. This slice has no active sync; a separate
+  modern-manifest operation slice would be required, and legacy/lab-managed
+  environment facts would remain record-only.

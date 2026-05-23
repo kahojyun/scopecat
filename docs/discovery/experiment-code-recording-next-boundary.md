@@ -109,12 +109,14 @@ Validation should follow authority boundaries more strictly than user adoption:
 5. Validate prepared run context from selected managed code version, editable
    workspace observation, selected parameter state, setup binding, and
    measurement intent.
-6. Validate declared environment inventory before environment readiness or
-   dependency sync.
+6. Validate declared environment inventory before environment readiness
+   planning, and keep any active dependency sync for a later modern-manifest
+   operation slice; legacy/lab-managed environment facts stay record-only.
 7. Validate reference-based rerun preparation as a convenience workflow over
    prepared run context, not as a separate reproducibility claim.
-8. Only after those boundaries prove useful, validate environment readiness,
-   dependency sync, and managed runners.
+8. Validate environment readiness planning from declared environment context
+   before attempting dependency operations, runtime probes, hardware checks, or
+   managed runners.
 
 ## Validation Slice Backlog
 
@@ -255,20 +257,24 @@ Result owner:
 Boundary: no reproducibility guarantee, cause attribution, execution, hardware
 control, or automatic correction of drift.
 
-### 8. Environment Readiness Or Sync
+### 8. Environment Readiness Planning
 
-Validation question: can Scopecat check or prepare declared runnable
-environment state for a selected managed code context?
+Validation question: can Scopecat plan what environment checks would be needed
+for a selected declared modern Python environment context?
 
 User pressure: restored code alone may be insufficient when users need to know
-whether the declared environment can be prepared.
+what would need review before the declared environment can be trusted.
 
-First fixture: a managed code version plus a user-declared environment file or
-lockfile reference, producing a readiness or sync plan that says what would be
-checked or synced.
+First fixture: a declared modern `uv`/`pyproject.toml` environment record plus
+explicit check intentions, producing a readiness plan that says what would be
+checked.
 
-Boundary: no hardware-active import, notebook execution, managed runner, or
-claim that the experiment result is reproducible.
+Result owner:
+[`environment-readiness-validation-result.md`](environment-readiness-validation-result.md)
 
-All slices should keep code execution separate from code record integrity until
-an explicit execution slice earns that authority.
+Boundary: no dependency resolution, dependency sync, package installation,
+runtime probes, hardware-active import, notebook execution, managed runner,
+runnable-readiness claim, or claim that the experiment result is reproducible.
+
+All slices should keep code execution separate from code record integrity and
+environment planning until an explicit execution slice earns that authority.
