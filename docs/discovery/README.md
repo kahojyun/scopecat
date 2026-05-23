@@ -55,7 +55,7 @@ supporting policy notes. The current validated slice inventory is:
 | Prepared run context | Experiment code context | Implementation candidate validated | Side-effect-free manual run-context summary for selected managed code/workspace observation, parameter state, setup binding, station registry, measurement intent, and missing declared environment context without shared schema, hardware control, restore, environment sync, code import, execution, or readiness claims. |
 | Declared environment inventory | Experiment code context | Implementation candidate validated | Side-effect-free summary for declared runtime hints, dependency-source references, package declarations, and external-tool hints without reading environment files, resolving dependencies, installing packages, checking runtime readiness, importing code, or executing code. |
 | Reference-based rerun preparation | Experiment code context | Implementation candidate validated | Side-effect-free manual rerun preparation from a selected reference measurement and its linked context without reproducibility guarantees, cause attribution, automatic drift correction, hardware control, environment sync, code import, or execution. |
-| Setup binding | Setup binding | Fixture validated | Setup-binding snapshots, simple diffs, station-registry references, generated line/readout views, and measurement input references while keeping parameter state and hardware control separate. |
+| Setup binding | Setup binding | Implementation candidate validated | Side-effect-free setup-binding summary for explicit setup-binding snapshots, simple diffs, station-registry references, generated line/readout views, and measurement input references while keeping parameter state, station management, generator execution, and hardware control separate. |
 | Calibration work continuation | Calibration continuation | Assembler candidate validated | Continuation-state assembly for planned steps, observed outputs, review gates, proposed writes, blocked steps, and interventions without executor, scheduler, write-back, or GUI ownership. |
 | Selected reference comparison | Selected reference comparison | Fixtures validated | Context-comparison findings against a user-selected reference without user judgment, raw-data comparison, fit-quality comparison, setup truth, restore, execution, semantic source diff, or cause attribution. |
 | Named run-start input set | Measurement context support | Implementation candidate validated | Side-effect-free run-preparation summary for selected parameter state, setup binding, station registry, managed code version, measurement intent, and missing declared environment context without shared schema, hardware control, write-back, environment sync, code import, execution, restore, or GUI ownership. |
@@ -307,14 +307,24 @@ rerun, or checks an editable folder against the selected version.
 | --- | --- |
 | [`problem-briefs/setup-binding.md`](problem-briefs/setup-binding.md) | Problem framing for sample/cooldown binding between logical entities and physical wiring/device resources. |
 | [`setup-binding-validation-plan.md`](setup-binding-validation-plan.md) | First fixture-validation boundary for setup-binding snapshots, diffs, and measurement references. |
-| [`setup-binding-validation-result.md`](setup-binding-validation-result.md) | Result of the first setup-binding fixture and measurement-input context review. |
+| [`setup-binding-validation-result.md`](setup-binding-validation-result.md) | Result of the first setup-binding fixture, measurement-input context review, and implementation candidate. |
+
+The first setup-binding implementation candidate is validated in
+[`setup-binding-validation-result.md`](setup-binding-validation-result.md).
+It builds a side-effect-free summary from explicit setup-binding fixture input,
+validates selected station-registry references, carries declared generated
+line/readout views, keeps user/project-defined inner payloads opaque, and
+reports binding changes as review attention without claiming parameter
+invalidation. Station management, hardware control, generator/converter
+execution, setup-truth decisions, GUI behavior, shared snapshot framework, and
+payload interpretation remain out of scope.
 
 Most next setup-binding slices are instances of the Measurement Context
 Backlog: context links, named run-start inputs, comparison findings,
 readiness/status summaries, and selected-reference setup findings.
-Setup-specific validation should stay narrow around station-registry references,
-setup-import validation reports, generated line/readout summaries, opaque
-project-defined payloads, and setup-truth deferral.
+Setup-specific validation should stay narrow around station-registry
+references, setup-import validation reports, generated line/readout summaries,
+opaque project-defined payloads, and setup-truth deferral.
 
 ### Calibration Continuation
 

@@ -136,16 +136,18 @@ emits only trusted direct-scalar entries, reports untrusted or schema-limited
 skips as review findings, and does not write files, apply parameters to
 hardware, perform schema migration, or claim external JSON authority.
 
-Setup binding has fixture-level validation for sample/cooldown binding
-snapshot versions, simple binding diffs, station-registry references, generated
-line/readout views, and measurement references while keeping parameter state
-and hardware control separate. User/project transformation code is black-box
-provenance for this slice: Scopecat records declared or generated binding
-artifacts and references, not the render pipeline that produced them. The
+Setup binding has a slice-local implementation candidate for
+sample/cooldown/session-specific binding snapshot versions, simple binding
+diffs, station-registry references, generated line/readout views, and
+measurement references while keeping parameter state, station management,
+generator execution, and hardware control separate. It validates selected
+station-registry references, declared generated-view references, non-executed
+project generator provenance, opaque user/project-defined inner payloads, and
+changed-binding review attention without claiming parameter invalidation. The
 fixture uses a measurement `inputs` list to group named input snapshots, but it
-does not earn a shared snapshot framework. The fixture also allows
-user/project-defined inner binding payloads, treated as opaque by default with
-declared summary fields for review.
+does not earn a shared snapshot framework, final setup-binding schema,
+station-registry schema, setup-truth model, GUI behavior, or payload
+interpreter.
 
 Scan/data-shape fixtures currently support declared 1D table, rectangular 2D
 grid table, and sidecar-declared weak-table pressure. Harder shapes such as
