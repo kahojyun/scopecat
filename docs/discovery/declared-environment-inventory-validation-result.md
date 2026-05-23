@@ -93,5 +93,6 @@ Likely follow-up slices should stay separate:
   without restoring or syncing it;
 - declared environment comparison findings, still without package resolution
   or runtime checks;
-- environment readiness or sync only after declared environment authority and
-  managed workspace authority are validated separately.
+- environment readiness planning only after declared environment authority and
+  managed workspace authority are validated separately, with active sync left
+  to a later operation slice.

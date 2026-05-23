@@ -139,9 +139,11 @@ later path toward structured code management.
 
 The validation order is stricter than the adoption route. Comparable code
 surfaces, materialization intent, workspace materialization, editable-folder
-observation, prepared run context, declared environment inventory, and
-reference-based rerun preparation now each have first validation results.
-Environment readiness should still be earned as a separate authority boundary.
+observation, prepared run context, declared environment inventory,
+reference-based rerun preparation, and environment readiness planning now each
+have first validation results. Actual dependency resolution, dependency sync,
+runtime probes, execution readiness, and managed runners still need separate
+authority boundaries.
 
 ## Workflow And DAG Deferral
 
@@ -207,8 +209,9 @@ later questions.
   without defaulting to record-all behavior?
 - When, if ever, should Git state become an optional diagnostic rather than
   ignored early-adoption noise?
-- When should environment readiness become active validation rather than
-  user-declared references?
+- When should dependency resolution, runtime probes, or active environment
+  readiness operations become validation rather than user-declared references
+  and readiness planning?
 - What conditions would earn workflow/DAG nodes as first-class records?
 
 ## Slice Recommendation

@@ -1,0 +1,115 @@
+{
+  "environment_readiness_policy": {
+    "readiness_authority": "planned_checks_from_declared_context",
+    "environment_file_observation": "not_performed",
+    "dependency_resolution": "not_performed",
+    "dependency_sync": "not_performed",
+    "package_install": "not_performed",
+    "runtime_probe": "not_performed",
+    "code_import_execution": "not_performed",
+    "hardware_probe": "not_performed",
+    "readiness_claim": "not_claimed",
+    "shared_environment_schema": "not_defined"
+  },
+  "declared_environment_records": [
+    {
+      "environment_id": "declared-environment-chevron-qA-0001",
+      "label": "Declared qA chevron follow-up environment",
+      "authority": "user_declared_inventory",
+      "record_status": "declared_with_review_findings",
+      "scope": {
+        "managed_code_version_id": "managed-code-version-chevron-qA-0001",
+        "editable_workspace_id": "editable-workspace-chevron-qA-0001",
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-0001"
+      },
+      "modern_python_environment": {
+        "environment_ref": "modern-python-env-chevron-qA-0001",
+        "manager": "uv",
+        "pyproject_path": "pyproject.toml",
+        "lockfile_path": "uv.lock",
+        "python_version_source": "requires-python",
+        "dependency_groups": [
+          "default",
+          "lab",
+          "analysis"
+        ],
+        "manifest_state": "declared"
+      },
+      "external_runtime_notes": [
+        {
+          "note_id": "external-vna-driver",
+          "label": "VNA driver and firmware utility",
+          "state": "review_required",
+          "review_reason": "Instrument driver and firmware utility remain outside Python package management."
+        }
+      ],
+      "migration_notes": [
+        {
+          "note_id": "legacy-qcodes-pin",
+          "label": "Review qcodes pin before environment sync",
+          "state": "review_required",
+          "review_reason": "Instrument-control dependency should be pinned in pyproject.toml before a future sync operation."
+        }
+      ]
+    }
+  ],
+  "readiness_plans": [
+    {
+      "readiness_plan_id": "environment-readiness-chevron-qA-0001",
+      "label": "qA chevron environment readiness plan",
+      "authority": "planned_checks_from_declared_context",
+      "record_status": "planned_with_review_findings",
+      "declared_environment_id": "declared-environment-chevron-qA-0001",
+      "scope": {
+        "managed_code_version_id": "managed-code-version-chevron-qA-0001",
+        "editable_workspace_id": "editable-workspace-chevron-qA-0001",
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-0001"
+      },
+      "check_intentions": [
+        {
+          "check_id": "check-modern-manifest",
+          "check_type": "modern_manifest_review",
+          "subject_type": "modern_python_environment",
+          "subject_id": "modern-python-env-chevron-qA-0001",
+          "state": "planned"
+        },
+        {
+          "check_id": "check-python-version",
+          "check_type": "python_version_review",
+          "subject_type": "modern_python_environment",
+          "subject_id": "modern-python-env-chevron-qA-0001",
+          "state": "planned"
+        },
+        {
+          "check_id": "check-dependency-groups",
+          "check_type": "dependency_group_review",
+          "subject_type": "modern_python_environment",
+          "subject_id": "modern-python-env-chevron-qA-0001",
+          "state": "planned"
+        },
+        {
+          "check_id": "check-external-vna-driver",
+          "check_type": "external_runtime_review",
+          "subject_type": "external_runtime_note",
+          "subject_id": "external-vna-driver",
+          "state": "review_required",
+          "review_reason": "External driver remains a control-PC review item, not a Python dependency."
+        },
+        {
+          "check_id": "check-legacy-qcodes-pin",
+          "check_type": "migration_review",
+          "subject_type": "migration_note",
+          "subject_id": "legacy-qcodes-pin",
+          "state": "review_required",
+          "review_reason": "Pin policy should be resolved before a future uv sync operation."
+        }
+      ],
+      "readiness_claims": {
+        "readiness_claim": "not_checked",
+        "sync_claim": "not_performed",
+        "execution_claim": "not_imported_loaded_or_executed",
+        "hardware_claim": "not_probed"
+      }
+    }
+  ]
+}
