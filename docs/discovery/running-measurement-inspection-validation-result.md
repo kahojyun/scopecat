@@ -2,7 +2,7 @@
 
 ## Status
 
-Fixture validation result.
+Implementation candidate validated.
 
 This is not an ADR, final lifecycle schema, live service contract, reader API,
 plotting API, GUI design, storage schema, ndarray indexing API, callback
@@ -16,6 +16,7 @@ where the boundary should remain narrow.
 - [`running-measurement-inspection-validation-plan.md`](running-measurement-inspection-validation-plan.md)
 - `tests/fixtures/running_measurement_inspection/partial_sweep/`
 - `tests/fixtures/running_measurement_inspection/partial_heatmap/`
+- [`../../implementation_candidates/running_measurement_inspection/`](../../implementation_candidates/running_measurement_inspection/)
 - private source-code review notes for running-inspection plotting and analysis
   pressure.
 
@@ -45,7 +46,17 @@ The summary can represent:
 - explicit freshness basis for attention warnings;
 - non-durable monitor ergonomics such as selected range, selected region, fit
   preview, or feature marker;
-- saved decisions only when explicitly present.
+- absence of saved decisions for the current fixtures, while durable
+  saved-decision records remain deferred.
+
+The implementation candidate builds this summary from explicit fixture input
+only. It validates the declared source identity, relative latest-data reference,
+progress completeness/default-preview separation, count consistency for the
+two earned fixture shapes, latest-completed filters, preview status/source,
+preview axis and plot-candidate column references, monitor axis references,
+freshness basis, and non-durable monitor state without opening source data or
+polling a live process. It does not validate free labels, units, row-order
+semantics, plot renderability, or scientific meaning.
 
 ## Important Separations
 
@@ -83,6 +94,28 @@ freshness basis, complete slices, and partial tails. Paired selected IDs,
 sidecar metadata files, completed-artifact preference, sparse grids, ragged
 grids, and array-valued measurements remain future pressure cases.
 
+## Implementation Boundary
+
+The candidate intentionally returns only `candidate_summary` content. It does
+not include validation wrapper fields such as `reference_semantics`,
+`source_fixture`, or `status`.
+
+The candidate rejects fixture claims that would blur the boundary:
+
+- private or unredacted source identity;
+- absolute or parent-traversing latest-data paths;
+- plot candidates that do not reference the latest data file or declared
+  columns;
+- silently promoting the current partial unit to the default preview
+  candidate;
+- internally inconsistent progress counts for the two earned fixture shapes;
+- latest-completed filters that do not match declared columns or the latest
+  completed unit;
+- durable monitor state;
+- unknown monitor-state fields that would pass through unreviewed payloads;
+- non-empty saved decisions before a durable saved-decision fixture exists;
+- observation timestamps that predate the latest recorded update.
+
 ## Still Not Earned
 
 This validation does not earn:
@@ -107,7 +140,7 @@ This validation does not earn:
 - The fixtures use declared metadata. They do not validate discovery or
   inference from legacy sidecars, file names, or framework-specific readers.
 - The fixtures show non-durable monitor ergonomics, but do not validate a real
-  monitor interaction model.
+  monitor interaction model or durable saved-decision records.
 - Freshness thresholds are fixture-declared. A real system still needs a
   product decision about who sets those thresholds and how noisy they should be.
 - Paired selected-ID analysis, such as signal/background comparison, is not
@@ -115,11 +148,13 @@ This validation does not earn:
 
 ## Slice Recommendation
 
-Pause running-inspection at the fixture-validation boundary unless a concrete
-task needs a generator.
+Pause running-inspection at this implementation-candidate boundary unless a
+concrete workflow needs a live adapter, a monitor interaction model, or harder
+data-shape pressure.
 
-A tiny generator could be useful to keep expected JSON honest, but it is not
-required to answer the current product-boundary question. The better next
-design move is probably to compare another validation slice before promoting
-any shared lifecycle, preview, completeness, warning, or data-shape concepts
-into a broader implementation contract.
+The implementation candidate is enough to generate the `candidate_summary`
+portion of the two current preview-ready public-safe fixtures. The wrapper
+fields, boundary notes, and decisions-not-earned remain validation
+documentation. The better next design move is still to compare another
+validation slice before promoting any shared lifecycle, preview, completeness,
+warning, or data-shape concepts into a broader implementation contract.

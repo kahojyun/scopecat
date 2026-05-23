@@ -11,6 +11,13 @@
 - When changing public output, sharing boundaries, fixtures, or generated
   artifacts, audit identifiers, labels, relation targets, metadata,
   Markdown/JSON output, and payload/code-derived text.
+- Keep redaction scope explicit. Strictly validate Scopecat-managed references
+  such as paths, source identities, package-relative references, relation
+  targets, external-root displays, and materialization destinations. Treat user
+  labels, display names, notes, and descriptions as free text unless a slice
+  explicitly accepts a redaction policy surface; public fixtures should remain
+  reviewed for safe free text, but discovery candidates should not grow broad
+  runtime redaction or DLP-style scanning for labels by default.
 - Keep prototypes within their stated boundary; static-analysis prototypes must
   not execute analyzed fixture or source code.
 - Do not generalize architecture, ownership, or reusable contracts from one
