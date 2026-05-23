@@ -2,7 +2,7 @@
 
 ## Status
 
-Fixture validation result.
+Implementation candidate validated.
 
 This is not an ADR, final parameter schema, branch/tag/commit model, hardware
 write-back contract, schema migration contract, setup binding model, device
@@ -13,13 +13,15 @@ registry model, GUI design, or shared domain model.
 - [`problem-briefs/parameter-state-management.md`](problem-briefs/parameter-state-management.md)
 - [`parameter-state-management-validation-plan.md`](parameter-state-management-validation-plan.md)
 - `tests/fixtures/parameter_state_management/seed_review_commit/`
+- `implementation_candidates/parameter_state_management/`
 - `<sample>/_research/parameter-files-and-artifacts.md`
 - `<sample>/_research/parameter-mutation-workflows.md`
 - `<sample>/_research/parameter-lineage-schema-pressure.md`
 
 ## Validated Boundary
 
-The first fixture validates a narrow parameter-state management boundary:
+The first fixture and side-effect-free implementation candidate validate a
+narrow parameter-state management boundary:
 
 - parameter state is first-class lab state, not only measurement metadata;
 - a named state lineage can group related parameter states without accepting
@@ -36,6 +38,13 @@ The first fixture validates a narrow parameter-state management boundary:
   schema migration;
 - a measurement can reference the parameter state selected at start without
   claiming current hardware state.
+
+The implementation candidate checks that the current summary can be built from
+explicit fixture input while validating references between lineages, states,
+drafts, accepted reviewable diffs, and measurement selections. It preserves the
+same wrapper/candidate-summary separation as other implementation-shaped
+validation slices: the builder returns only the candidate summary, not fixture
+status, boundary notes, or decisions-not-earned text.
 
 Here, selection is the run-start action that chooses a parameter state version.
 It is not a separate durable concept from the first-class parameter-state
@@ -69,7 +78,7 @@ The setup-binding clarification is important:
 - binding changes may require attention because they can imply parameter
   retuning, but they do not automatically invalidate parameter state.
 
-## What The Fixture Can Answer
+## What The Summary Can Answer
 
 The expected output can answer:
 
@@ -92,8 +101,9 @@ The expected output can answer:
 - How should trusted entries be selected for drift/history plots?
 - When should added/removed parameters become schema migration work rather than
   ordinary reviewable diff entries?
-- Should setup binding become the next adjacent slice, or should parameter
-  state continue toward a small implementation candidate first?
+- Which narrower parameter-specific slice should follow the summary candidate
+  before accepting stronger readiness, drift, write-back, or compatibility
+  claims?
 - How should rollback-like selection work without implying hardware mutation?
 
 ## Not Earned
@@ -112,16 +122,18 @@ This validation does not earn:
 - setup binding schema, snapshots, or diffs;
 - physical wiring model;
 - GUI design;
-- implementation candidate;
 - shared domain model extraction.
 
 ## Slice Recommendation
 
-Stop this slice at fixture validation unless the next task needs executable
-behavior around parameter-state summaries.
+Stop this slice at the summary-candidate boundary unless the next task needs a
+narrower parameter-specific validation.
 
-If continuing parameter state, the next step should be a tiny side-effect-free
-summary candidate for this one fixture only. If comparing broader product
-scope, the next adjacent slice should likely be setup binding, because it
-connects device registry evidence, sample/cooldown wiring, measurement
-references, and parameter retuning pressure.
+Likely follow-up slices should stay separate:
+
+- trusted-state drift or history views from accepted entries only;
+- reviewable parameter-write records and compatibility-file output without
+  applying changes to hardware;
+- rollback-like selection semantics without hardware mutation;
+- setup-binding interaction pressure when wiring changes imply parameter
+  retuning, while keeping setup truth and parameter authority separate.
