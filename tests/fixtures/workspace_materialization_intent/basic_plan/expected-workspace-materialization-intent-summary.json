@@ -1,0 +1,134 @@
+{
+  "candidate_summary": {
+    "materialization_policy": {
+      "fact_source": "declared_fixture_materialization_facts",
+      "planning_scope": "selected_managed_code_version",
+      "destination_authority": "declared_candidate_destination",
+      "filesystem_inspection": "not_performed",
+      "workspace_creation": "not_performed",
+      "overwrite_behavior": "plan_only_requires_review",
+      "environment_restoration": "not_performed",
+      "code_import": "not_performed",
+      "code_execution": "not_performed"
+    },
+    "selected_versions": [
+      {
+        "version_id": "managed-code-version-readout-0001",
+        "stable_identity": {
+          "identity_kind": "scopecat_assigned_record",
+          "stable_id": "sc-codever-readout-0001",
+          "derivation": "assigned_from_code_snapshot_record"
+        },
+        "storage_authority": "scopecat_managed_record",
+        "version_status": "selected_for_materialization_intent",
+        "file_count": 4,
+        "materializable_file_count": 2,
+        "non_materializable_file_count": 2
+      }
+    ],
+    "materialization_requests": [
+      {
+        "request_id": "materialize-intent-readout-0001",
+        "selected_version_id": "managed-code-version-readout-0001",
+        "request_purpose": "manual_rerun_preparation",
+        "destination_id": "candidate-workspace-readout-rerun",
+        "root_label": "candidate readout rerun workspace",
+        "root_path": "workspaces/readout-rerun-0001",
+        "collision_policy": "no_overwrite_without_review",
+        "planned_path_count": 4,
+        "finding_counts": {
+          "collision_requires_review": 1,
+          "planned": 1,
+          "skipped_redacted": 1,
+          "unavailable": 1
+        }
+      }
+    ],
+    "file_plans": [
+      {
+        "request_id": "materialize-intent-readout-0001",
+        "version_id": "managed-code-version-readout-0001",
+        "source_path": "readout_calibration_entrypoint.ipynb",
+        "destination_path": "workspaces/readout-rerun-0001/code/readout_calibration_entrypoint.ipynb",
+        "role": "entrypoint",
+        "recorded_form": "source_without_outputs",
+        "materialization_source_state": "content_available",
+        "finding": "planned",
+        "provenance_label": "sc-codever-readout-0001:readout_calibration_entrypoint.ipynb",
+        "basis": "The file has available managed content and no declared destination collision.",
+        "does_not_claim": "file_written_or_workspace_created"
+      },
+      {
+        "request_id": "materialize-intent-readout-0001",
+        "version_id": "managed-code-version-readout-0001",
+        "source_path": "experiment_session_setup.ipynb",
+        "destination_path": "workspaces/readout-rerun-0001/code/experiment_session_setup.ipynb",
+        "role": "declared_helper_notebook",
+        "recorded_form": "source_without_outputs",
+        "materialization_source_state": "content_available",
+        "finding": "collision_requires_review",
+        "provenance_label": "sc-codever-readout-0001:experiment_session_setup.ipynb",
+        "basis": "The declared destination already has an entry at this path.",
+        "does_not_claim": "overwrite_or_merge_performed"
+      },
+      {
+        "request_id": "materialize-intent-readout-0001",
+        "version_id": "managed-code-version-readout-0001",
+        "source_path": "secrets/device_config.py",
+        "destination_path": "workspaces/readout-rerun-0001/code/secrets/device_config.py",
+        "role": "redacted_lab_secret",
+        "recorded_form": "source_file",
+        "materialization_source_state": "redacted",
+        "finding": "skipped_redacted",
+        "provenance_label": "sc-codever-readout-0001:secrets/device_config.py",
+        "basis": "The selected managed version declares this file redacted.",
+        "does_not_claim": "file_content_available_for_materialization"
+      },
+      {
+        "request_id": "materialize-intent-readout-0001",
+        "version_id": "managed-code-version-readout-0001",
+        "source_path": "helpers/lab_local_driver.py",
+        "destination_path": "workspaces/readout-rerun-0001/code/helpers/lab_local_driver.py",
+        "role": "external_lab_driver_reference",
+        "recorded_form": "source_file",
+        "materialization_source_state": "unavailable",
+        "finding": "unavailable",
+        "provenance_label": "sc-codever-readout-0001:helpers/lab_local_driver.py",
+        "basis": "The selected managed version declares this file unavailable.",
+        "does_not_claim": "file_can_be_restored"
+      }
+    ],
+    "attention": [
+      {
+        "code": "filesystem_not_inspected",
+        "severity": "info",
+        "basis": "Destination state comes from declared fixture facts only.",
+        "does_not_claim": "current_filesystem_state"
+      },
+      {
+        "code": "workspace_not_created",
+        "severity": "review",
+        "basis": "The plan names destination paths but creates no editable workspace.",
+        "does_not_claim": "restored_or_materialized_workspace"
+      },
+      {
+        "code": "overwrite_not_performed",
+        "severity": "review",
+        "basis": "Declared destination collisions require review before any overwrite.",
+        "does_not_claim": "overwrite_or_merge_performed"
+      },
+      {
+        "code": "environment_not_restored",
+        "severity": "review",
+        "basis": "Environment files or lockfiles are not synced or checked by this slice.",
+        "does_not_claim": "runnable_environment"
+      },
+      {
+        "code": "code_not_imported_or_executed",
+        "severity": "review",
+        "basis": "Materialization intent does not import, load, or execute code files.",
+        "does_not_claim": "execution_permission_or_runtime_behavior"
+      }
+    ]
+  }
+}
