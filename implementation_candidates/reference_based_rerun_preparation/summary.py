@@ -63,6 +63,9 @@ _ENVIRONMENT_FINDINGS_NEEDING_REVIEW = {
     "external_tool_unverified",
 }
 
+_EXPECTED_REFERENCE_CLAIM = "user_selected_reference_only"
+_EXPECTED_PREPARATION_CLAIM = "manual_rerun_seed_summary_only"
+
 
 def _records_by_key(records: list[dict[str, Any]], key: str) -> dict[str, dict[str, Any]]:
     output = {}
@@ -163,15 +166,25 @@ def _validate_preparation_seeded_from_reference(
     if len(reference_links) != len(selected_reference["linked_contexts"]):
         raise ValueError("selected reference measurement contains duplicate family role")
 
+    preparation_links = {
+        _reference_context_key(link): link for link in preparation["selected_contexts"]
+    }
+    if set(preparation_links) != set(reference_links):
+        raise ValueError("rerun preparation must carry the selected reference context links")
+
     for selected_context in preparation["selected_contexts"]:
         key = _reference_context_key(selected_context)
         reference_link = reference_links.get(key)
         if reference_link is None:
             raise ValueError("rerun preparation selected context is not linked by reference")
+        if selected_context["required"] != reference_link["required"]:
+            raise ValueError("rerun preparation required flag does not match reference link")
         if selected_context.get("context_id") != reference_link.get("context_id"):
             raise ValueError("rerun preparation selected context does not match reference link")
         if selected_context["include_state"] != reference_link["include_state"]:
             raise ValueError("rerun preparation include_state does not match reference link")
+        if selected_context.get("missing_reason") != reference_link.get("missing_reason"):
+            raise ValueError("rerun preparation missing_reason does not match reference link")
 
 
 def _validate_workspace_observation_alignment(
@@ -196,6 +209,28 @@ def _validate_workspace_observation_alignment(
     if observed_version_id != managed_id:
         raise ValueError(
             "editable workspace observation must reference the selected managed code version"
+        )
+
+
+def _validate_environment_alignment(
+    owner_id: str,
+    context_refs: list[dict[str, Any]],
+    context_records: dict[str, dict[str, Any]],
+) -> None:
+    environment_context = _selected_context_for_family(context_refs, "declared_environment")
+    if environment_context is None:
+        return
+
+    managed_context = _selected_context_for_family(context_refs, "managed_code_version")
+    if managed_context is None:
+        raise ValueError(f"{owner_id} requires selected managed code version")
+
+    managed_id = managed_context["context_id"]
+    environment = context_records[environment_context["context_id"]]
+    environment_version_id = environment["declared_summary"].get("managed_code_version_id")
+    if environment_version_id != managed_id:
+        raise ValueError(
+            "declared environment context must reference the selected managed code version"
         )
 
 
@@ -231,6 +266,8 @@ def _validate_references(source: dict[str, Any]) -> None:
     _preparations_by_id(source)
 
     for selected_reference in source["selected_reference_measurements"]:
+        if selected_reference["reference_claim"] != _EXPECTED_REFERENCE_CLAIM:
+            raise ValueError(f"selected reference claim must be {_EXPECTED_REFERENCE_CLAIM}")
         seen_roles = set()
         for linked_context in selected_reference["linked_contexts"]:
             role_key = _reference_context_key(linked_context)
@@ -245,8 +282,15 @@ def _validate_references(source: dict[str, Any]) -> None:
             selected_reference["linked_contexts"],
             context_records,
         )
+        _validate_environment_alignment(
+            selected_reference["selected_reference_id"],
+            selected_reference["linked_contexts"],
+            context_records,
+        )
 
     for preparation in source["rerun_preparations"]:
+        if preparation["preparation_claim"] != _EXPECTED_PREPARATION_CLAIM:
+            raise ValueError(f"rerun preparation claim must be {_EXPECTED_PREPARATION_CLAIM}")
         selected_reference_id = preparation["selected_reference_id"]
         if selected_reference_id not in references:
             raise ValueError("rerun preparation references missing selected reference")
@@ -265,6 +309,11 @@ def _validate_references(source: dict[str, Any]) -> None:
             )
         _validate_preparation_seeded_from_reference(preparation, selected_reference)
         _validate_workspace_observation_alignment(
+            preparation["rerun_preparation_id"],
+            preparation["selected_contexts"],
+            context_records,
+        )
+        _validate_environment_alignment(
             preparation["rerun_preparation_id"],
             preparation["selected_contexts"],
             context_records,

@@ -85,6 +85,22 @@ class ReferenceBasedRerunPreparationSummaryCandidateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "reproducibility_claim"):
             build_reference_based_rerun_preparation_summary(source)
 
+    def test_positive_reference_claims_are_rejected(self) -> None:
+        source = _load_input()
+        source["selected_reference_measurements"][0]["reference_claim"] = (
+            "scientifically_good_reference"
+        )
+
+        with self.assertRaisesRegex(ValueError, "selected reference claim"):
+            build_reference_based_rerun_preparation_summary(source)
+
+    def test_positive_preparation_claims_are_rejected(self) -> None:
+        source = _load_input()
+        source["rerun_preparations"][0]["preparation_claim"] = "ready_to_execute"
+
+        with self.assertRaisesRegex(ValueError, "rerun preparation claim"):
+            build_reference_based_rerun_preparation_summary(source)
+
     def test_extra_policy_claims_are_rejected(self) -> None:
         source = _load_input()
         source["rerun_preparation_policy"]["executor"] = "available"
@@ -179,7 +195,40 @@ class ReferenceBasedRerunPreparationSummaryCandidateTest(unittest.TestCase):
         source = _load_input()
         source["rerun_preparations"][0]["selected_contexts"][1]["role"] = "alternate_values"
 
-        with self.assertRaisesRegex(ValueError, "not linked by reference"):
+        with self.assertRaisesRegex(ValueError, "must carry"):
+            build_reference_based_rerun_preparation_summary(source)
+
+    def test_rerun_must_carry_reference_context_link_set(self) -> None:
+        source = _load_input()
+        source["rerun_preparations"][0]["selected_contexts"].pop()
+
+        with self.assertRaisesRegex(ValueError, "must carry"):
+            build_reference_based_rerun_preparation_summary(source)
+
+    def test_rerun_required_flags_must_match_reference_links(self) -> None:
+        source = _load_input()
+        source["rerun_preparations"][0]["selected_contexts"][1]["required"] = False
+
+        with self.assertRaisesRegex(ValueError, "required flag"):
+            build_reference_based_rerun_preparation_summary(source)
+
+    def test_rerun_missing_reason_must_match_reference_links(self) -> None:
+        source = _load_input()
+        unavailable_link = {
+            "family": "declared_environment",
+            "role": "runtime_environment_hint",
+            "required": True,
+            "include_state": "unavailable",
+            "context_id": None,
+            "missing_reason": "No reviewed declared environment record exists for reference.",
+        }
+        source["selected_reference_measurements"][0]["linked_contexts"][-1] = unavailable_link
+        source["rerun_preparations"][0]["selected_contexts"][-1] = copy.deepcopy(unavailable_link)
+        source["rerun_preparations"][0]["selected_contexts"][-1]["missing_reason"] = (
+            "Different missing reason."
+        )
+
+        with self.assertRaisesRegex(ValueError, "missing_reason"):
             build_reference_based_rerun_preparation_summary(source)
 
     def test_workspace_observation_must_align_to_selected_managed_version(self) -> None:
@@ -189,6 +238,15 @@ class ReferenceBasedRerunPreparationSummaryCandidateTest(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "selected managed code version"):
+            build_reference_based_rerun_preparation_summary(source)
+
+    def test_declared_environment_must_align_to_selected_managed_version(self) -> None:
+        source = _load_input()
+        source["context_records"][6]["declared_summary"]["managed_code_version_id"] = (
+            "managed-code-version-other"
+        )
+
+        with self.assertRaisesRegex(ValueError, "declared environment context"):
             build_reference_based_rerun_preparation_summary(source)
 
     def test_proposed_target_must_match_selected_measurement_intent(self) -> None:
@@ -213,6 +271,11 @@ class ReferenceBasedRerunPreparationSummaryCandidateTest(unittest.TestCase):
         source["rerun_preparations"][0]["selected_contexts"][-1] = copy.deepcopy(
             source["selected_reference_measurements"][0]["linked_contexts"][-1]
         )
+        source["context_records"] = [
+            context
+            for context in source["context_records"]
+            if context["context_id"] != "declared-environment-rabi-0002"
+        ]
 
         summary = build_reference_based_rerun_preparation_summary(source)
         finding = summary["missing_context_findings"][0]
