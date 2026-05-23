@@ -21,6 +21,7 @@ executor design, relation graph, or warning taxonomy.
 - [`new-run-measurement-writer-validation-result.md`](new-run-measurement-writer-validation-result.md)
 - [`calibration-work-continuation-validation-result.md`](calibration-work-continuation-validation-result.md)
 - [`parameter-state-management-validation-result.md`](parameter-state-management-validation-result.md)
+- [`parameter-write-compatibility-output-validation-result.md`](parameter-write-compatibility-output-validation-result.md)
 - [`problem-briefs/setup-binding.md`](problem-briefs/setup-binding.md)
 - [`setup-binding-validation-plan.md`](setup-binding-validation-plan.md)
 - [`setup-binding-validation-result.md`](setup-binding-validation-result.md)
@@ -95,6 +96,14 @@ explicit fixture input without writing parameters or inspecting current
 instrument state. It has not earned final branch/tag/commit semantics, schema
 migration, drift plotting, setup binding, hardware write-back, instrument
 state tracking, external JSON authority, rollback automation, or GUI behavior.
+
+Parameter write compatibility output has a slice-local implementation
+candidate for planning external compatibility JSON output from an accepted
+committed parameter state. It keeps Scopecat-managed parameter state as the
+authority, derives the plan from the review that created the source state,
+emits only trusted direct-scalar entries, reports untrusted or schema-limited
+skips as review findings, and does not write files, apply parameters to
+hardware, perform schema migration, or claim external JSON authority.
 
 Setup binding has fixture-level validation for sample/cooldown binding
 snapshot versions, simple binding diffs, station-registry references, generated
@@ -324,6 +333,11 @@ Several separations now appear repeatedly enough to keep carrying forward:
   independently. Branch, tag, and commit remain analogies, not accepted
   semantics. Working point is one possible lineage purpose, not the generic
   lineage model.
+- External parameter files can be public-safe relative compatibility targets
+  without becoming the source of parameter authority. Planning a compatibility
+  output from accepted parameter state is still separate from writing files,
+  applying hardware parameters, flattening schema-limited values, or tracking
+  live JSON state.
 - Partial running data can be visible as normal state. Incompleteness is not a
   warning unless it blocks a declared need.
 - Linked artifacts and attachments need labels and relations, but recursive

@@ -41,6 +41,7 @@ supporting policy notes. The current validated slice inventory is:
 | New-run measurement writer semantics | Measurement records | Implementation candidate validated | Side-effect-free summary from explicit writer events, including lifecycle, progress, declared primary data reference, and preview metadata without storage mutation, source observation, schema inference, live service, hardware control, scan execution, or GUI behavior. |
 | Declared scan/data-shape fixtures | Measurement records support | Spike/fixtures validated | Declared 1D table, rectangular 2D grid table, and sidecar-declared weak-table pressure for preview readiness, not a final data-shape schema or importer. |
 | Parameter state management | Parameter state | Implementation candidate validated | Side-effect-free summary for parameter-state lineage, purpose labels, seeded/trusted state, reviewable diffs, committed states, and measurement references without hardware write-back, instrument state tracking, external JSON authority, or branch/tag/commit semantics. |
+| Parameter write compatibility output | Parameter state | Implementation candidate validated | Side-effect-free compatibility-output plan for accepted committed parameter state, including trusted scalar emits and skipped untrusted or schema-limited entries without file writes, hardware write-back, schema migration, or external JSON authority. |
 | Experiment code recording | Experiment code context | Summary candidate validated | Recorded run/step code context and code snapshot record from explicit include policy and capture-state posture without Git inspection, dependency discovery, environment restore, loading, execution, or workflow/DAG semantics. |
 | Managed code version | Experiment code context | Summary candidate validated | Managed record shape for a code snapshot record, including stable identity, inclusion-aligned file inventory, integrity hints, and materialization intent without workspace creation or environment restore. |
 | Comparable code surface | Experiment code context | Implementation candidate validated | Declared-fact comparison between a recorded code context and managed code version, including same-observed, changed, missing, unverified, redacted, and not-compared findings without Git inspection, semantic source diff, import, execution, environment readiness, or workspace materialization. |
@@ -136,6 +137,8 @@ slice is about primary measurement data.
 | [`problem-briefs/parameter-state-management.md`](problem-briefs/parameter-state-management.md) | Problem framing for first-class calibrated parameter state, lineages, trust/readiness state, reviewable diffs, and write-back boundaries. |
 | [`parameter-state-management-validation-plan.md`](parameter-state-management-validation-plan.md) | First fixture-validation boundary and fixture pointer for parameter state lineage, purpose labels, reviewable diffs, and committed states. |
 | [`parameter-state-management-validation-result.md`](parameter-state-management-validation-result.md) | Result of the first parameter-state fixture, domain review, and summary candidate. |
+| [`parameter-write-compatibility-output-validation-plan.md`](parameter-write-compatibility-output-validation-plan.md) | First compatibility-output boundary for accepted committed parameter state without writing files or applying hardware parameters. |
+| [`parameter-write-compatibility-output-validation-result.md`](parameter-write-compatibility-output-validation-result.md) | Result of the first parameter write compatibility-output fixture and summary candidate. |
 
 The first parameter-state summary candidate is validated in
 [`parameter-state-management-validation-result.md`](parameter-state-management-validation-result.md).
@@ -150,8 +153,15 @@ Backlog: context links, named run-start inputs, comparison findings,
 reviewable changes, readiness or trust state, and external compatibility
 outputs. Parameter-specific validation should stay narrow around lineage
 purposes, trusted versus seeded state, drift views, reviewable parameter-write
-records, and compatibility JSON writer behavior without applying changes to
+records, and compatibility output planning without applying changes to
 hardware.
+
+The first parameter write compatibility-output candidate is validated in
+[`parameter-write-compatibility-output-validation-result.md`](parameter-write-compatibility-output-validation-result.md).
+It plans trusted scalar output entries from an accepted committed parameter
+state while reporting skipped untrusted or schema-limited entries. It does not
+write files, apply parameters to hardware, claim external JSON authority, or
+perform schema migration.
 
 ### Experiment Code Context
 
