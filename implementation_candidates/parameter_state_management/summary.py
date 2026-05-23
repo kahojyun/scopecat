@@ -49,6 +49,7 @@ def _validate_state(
     state: dict[str, Any],
     lineages: dict[str, dict[str, Any]],
     states: dict[str, dict[str, Any]],
+    reviews: dict[str, dict[str, Any]],
 ) -> None:
     if state["state_kind"] not in _STATE_ROLES:
         raise ValueError(f"unsupported state_kind: {state['state_kind']}")
@@ -70,6 +71,10 @@ def _validate_state(
     for trusted_path in state.get("trusted_entry_paths", []):
         if trusted_path not in entry_paths:
             raise ValueError(f"state {state['state_id']} trusts missing entry path")
+
+    accepted_review_id = state.get("accepted_review_id")
+    if accepted_review_id is not None and accepted_review_id not in reviews:
+        raise ValueError(f"state {state['state_id']} references missing accepted review")
 
 
 def _validate_draft(
@@ -104,6 +109,8 @@ def _validate_review(
         raise ValueError(f"review {review['review_id']} base state does not match draft")
     if base_state["lineage_id"] != target_state["lineage_id"]:
         raise ValueError(f"review {review['review_id']} crosses parameter lineages")
+    if target_state.get("parent_state_id") != review["base_state_id"]:
+        raise ValueError(f"review {review['review_id']} target state does not descend from base")
 
     target_review_id = target_state.get("accepted_review_id")
     if review["review_status"] == "accepted" and target_review_id != review["review_id"]:
@@ -131,10 +138,10 @@ def _validate_references(source: dict[str, Any]) -> None:
     lineages = _lineages_by_id(source)
     states = _states_by_id(source)
     drafts = _drafts_by_id(source)
-    _reviews_by_id(source)
+    reviews = _reviews_by_id(source)
 
     for state in source["parameter_states"]:
-        _validate_state(state, lineages, states)
+        _validate_state(state, lineages, states, reviews)
     for draft in source["draft_changes"]:
         _validate_draft(draft, lineages, states)
     for review in source["reviewable_diffs"]:
@@ -189,8 +196,8 @@ def _diff_entry_summary(entry: dict[str, Any]) -> dict[str, Any]:
     return {
         "kind": entry["kind"],
         "path": entry["path"],
-        "old_value": entry["old_value"],
-        "new_value": entry["new_value"],
+        "old_value": copy.deepcopy(entry["old_value"]),
+        "new_value": copy.deepcopy(entry["new_value"]),
         "unit": entry["unit"],
     }
 

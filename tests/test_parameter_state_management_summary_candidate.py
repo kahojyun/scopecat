@@ -67,6 +67,7 @@ class ParameterStateManagementSummaryCandidateTest(unittest.TestCase):
 
         source["lineages"][0]["target_scope"].append("mutated")
         source["parameter_states"][1]["trusted_entry_paths"].append("mutated")
+        source["reviewable_diffs"][0]["diff_entries"][0]["old_value"] = {"nested": ["mutated"]}
 
         self.assertEqual(
             summary["lineages"][0]["target_scope"],
@@ -79,6 +80,10 @@ class ParameterStateManagementSummaryCandidateTest(unittest.TestCase):
                 "qubits.qA.pi_amp",
                 "readout.qA.discrimination_threshold",
             ],
+        )
+        self.assertEqual(
+            summary["reviewable_changes"][0]["diff_entries"][0]["old_value"],
+            5010000000,
         )
 
     def test_duplicate_state_ids_are_rejected(self) -> None:
@@ -127,9 +132,26 @@ class ParameterStateManagementSummaryCandidateTest(unittest.TestCase):
 
     def test_accepted_review_must_be_linked_from_target_state(self) -> None:
         source = _load_input()
+        other_review = copy.deepcopy(source["reviewable_diffs"][0])
+        other_review["review_id"] = "other-review"
+        source["reviewable_diffs"].append(other_review)
         source["parameter_states"][1]["accepted_review_id"] = "other-review"
 
         with self.assertRaisesRegex(ValueError, "not linked from target state"):
+            build_parameter_state_summary(source)
+
+    def test_accepted_review_id_must_reference_known_review(self) -> None:
+        source = _load_input()
+        source["reviewable_diffs"] = []
+
+        with self.assertRaisesRegex(ValueError, "references missing accepted review"):
+            build_parameter_state_summary(source)
+
+    def test_review_target_state_must_descend_from_base_state(self) -> None:
+        source = _load_input()
+        source["parameter_states"][1]["parent_state_id"] = None
+
+        with self.assertRaisesRegex(ValueError, "target state does not descend from base"):
             build_parameter_state_summary(source)
 
     def test_measurement_must_reference_known_selected_state(self) -> None:

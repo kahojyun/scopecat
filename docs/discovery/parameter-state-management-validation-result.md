@@ -80,7 +80,7 @@ The setup-binding clarification is important:
 
 ## What The Summary Can Answer
 
-The expected output can answer:
+The candidate summary can answer:
 
 - which lineage a parameter state belongs to;
 - what purpose label that lineage carries;
