@@ -2,16 +2,17 @@
 
 ## Status
 
-Fixture-level validation result, not an ADR.
+Implementation candidate validation result, not an ADR.
 
 This result records what the first setup-binding fixture proved and where the
-boundary remains intentionally narrow.
+production-shaped summary boundary remains intentionally narrow.
 
 ## Fixture
 
 - `tests/fixtures/setup_binding/basic_binding_context/`
 
-The fixture validates a first setup-binding boundary:
+The fixture and implementation candidate validate a first setup-binding
+boundary:
 
 - station registry can be referenced as separate redacted station context;
 - setup binding can be represented as a sample/cooldown/session-specific
@@ -26,6 +27,11 @@ The fixture validates a first setup-binding boundary:
   executing or validating project generator/converter code;
 - a binding diff can mark attention-worthy changes without automatically
   invalidating parameter state.
+
+The implementation candidate lives in
+`implementation_candidates/setup_binding/`. It builds the same structured
+candidate summary from explicit fixture input and validates the fixture-local
+reference boundary before producing output.
 
 Here, selection is the run-start action that chooses a setup-binding snapshot
 version. It is not a separate durable concept from the setup-binding snapshot
@@ -49,6 +55,27 @@ using one-off fields for each selected state, it uses:
 
 This shape is useful future pressure, but it does not earn a universal
 snapshot framework. Each snapshot family still needs its own meaning.
+
+## Implementation Candidate
+
+The candidate builder is side-effect free. It validates and summarizes:
+
+- redacted station-registry context references, resource identity membership,
+  and resource counts;
+- setup-binding snapshots with sample, cooldown, session, selected registry,
+  declared logical bindings, and declared generated views;
+- user/project-defined inner payload policy, kept opaque by default;
+- project generator references only when they explicitly do not claim
+  execution;
+- measurement input references to parameter state, setup binding, and station
+  registry snapshots;
+- measurement runtime context references to declared generated views;
+- simple binding diffs and review attention for changed bindings.
+
+It rejects fixture inputs that claim current hardware state, generator
+execution, station-registry connection payloads, missing registry resources,
+unknown selected snapshots, unknown generated views, or non-opaque inner
+payload handling.
 
 ## Boundary Confirmed
 
@@ -89,7 +116,11 @@ and attention metadata.
 
 ## Slice Recommendation
 
-Stop setup binding at fixture validation for now unless the next design step
-needs a production-shaped summary candidate. Use the fixture when evaluating
-measurement run-context design, parameter-state selection, selected-reference
-comparison, and future station-registry boundaries.
+Keep setup binding at this slice-local implementation candidate until another
+task needs stronger authority. Use the candidate when evaluating measurement
+run-context design, parameter-state selection, selected-reference comparison,
+and future station-registry boundaries.
+
+Do not extract a shared snapshot framework, station registry schema, setup
+truth model, generator contract, hardware-control contract, GUI workflow, or
+payload interpreter from this result.
