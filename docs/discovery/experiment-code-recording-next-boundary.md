@@ -192,6 +192,13 @@ First fixture: a selected managed code version and approved materialization
 target, producing an editable workspace with provenance back to the managed
 version and explicit skipped, redacted, or unavailable file findings.
 
+First result:
+[`workspace-materialization-validation-result.md`](workspace-materialization-validation-result.md)
+validates one approved materialization request that writes declared
+content-available files into a caller-provided workspace root, refuses
+overwrites, and reports redacted or unavailable files without creating
+placeholders.
+
 Boundary: no Git UI, merge model, dependency install, import, environment sync,
 or execution.
 

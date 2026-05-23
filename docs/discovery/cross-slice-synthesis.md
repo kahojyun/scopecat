@@ -28,6 +28,7 @@ executor design, relation graph, or warning taxonomy.
 - [`managed-code-version-validation-result.md`](managed-code-version-validation-result.md)
 - [`comparable-code-surface-validation-result.md`](comparable-code-surface-validation-result.md)
 - [`workspace-materialization-intent-validation-result.md`](workspace-materialization-intent-validation-result.md)
+- [`workspace-materialization-validation-result.md`](workspace-materialization-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
 - [`adoption-routes.md`](adoption-routes.md)
 - [`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md)
@@ -144,6 +145,16 @@ directories, write files, overwrite or merge destinations, restore
 environments, import code, execute code, or accept final managed-workspace or
 GUI semantics.
 
+Workspace materialization has a slice-local implementation candidate for
+approved writes from declared managed content into a caller-provided workspace
+root. It validates content size and sha256 digest hints before any write,
+creates target directories, writes content-available files with no-overwrite
+behavior, treats symlink targets as existing targets, and reports redacted or
+unavailable files without placeholders. It does not accept final managed
+workspace storage, Git checkout or merge semantics, dependency sync,
+environment restoration, code import, code execution, workflow/DAG behavior,
+prepared run context, or GUI semantics.
+
 ## Version Terminology
 
 The slices are converging on a shared distinction without yet earning a shared
@@ -209,7 +220,7 @@ schema.
 | Code context | Experiment code, calibration continuation, selected reference | The root or workspace reference, entrypoint, included files or source observations, notebook recording policy, and declared context refs associated with a run or step. `Recorded code context` is the audit state of this context, not a future active workspace. |
 | Code snapshot record | Experiment code, export/handoff, selected reference | A point-in-time code snapshot record that Scopecat may later manage. It can describe recording/snapshot scope and capture state, supporting declared context or manifest comparison only for facts actually captured or observed, without accepting storage, restore, sync, environment, loading, execution, merge, Git inspection, or managed workspace semantics. |
 | Code capture state | Experiment code, selected reference, future managed-version comparison | Whether a code item is content-captured, reference-only, missing, redacted, or excluded. This should drive same-observed, changed, missing, unverified, redacted, or not-compared findings instead of implying one universal diff. |
-| Materialized code workspace | Experiment code future pressure | A concrete folder expanded from a selected code snapshot or managed code version. This is deliberately separate from recorded code context and is not earned by the materialization-intent slice. |
+| Materialized code workspace | Experiment code, future prepared-run pressure | A concrete folder expanded from a selected managed code version after approval. The first candidate writes declared content into a caller-provided workspace root only; it remains separate from recorded code context, Git checkout behavior, environment readiness, import, execution, and prepared run context. |
 
 ## Stable Separations
 

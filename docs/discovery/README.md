@@ -43,6 +43,7 @@ supporting policy notes. The current validated slice inventory is:
 | Managed code version | Experiment code context | Summary candidate validated | Managed record shape for a code snapshot record, including stable identity, inclusion-aligned file inventory, integrity hints, and materialization intent without workspace creation or environment restore. |
 | Comparable code surface | Experiment code context | Implementation candidate validated | Declared-fact comparison between a recorded code context and managed code version, including same-observed, changed, missing, unverified, redacted, and not-compared findings without Git inspection, semantic source diff, import, execution, environment readiness, or workspace materialization. |
 | Workspace materialization intent | Experiment code context | Implementation candidate validated | Side-effect-free destination planning for a selected managed code version, including planned, collision, redacted, and unavailable findings without filesystem inspection, file writes, overwrite, merge, environment restoration, import, execution, or GUI behavior. |
+| Workspace materialization | Experiment code context | Implementation candidate validated | Approved file materialization from declared managed content into a caller-provided workspace root, including digest/size preflight, no-overwrite writes, explicit existing-target skips, and redacted/unavailable findings without Git, environment restoration, import, execution, or GUI behavior. |
 | Setup binding | Setup binding | Fixture validated | Setup-binding snapshots, simple diffs, station-registry references, generated line/readout views, and measurement input references while keeping parameter state and hardware control separate. |
 | Calibration work continuation | Calibration continuation | Assembler candidate validated | Continuation-state assembly for planned steps, observed outputs, review gates, proposed writes, blocked steps, and interventions without executor, scheduler, write-back, or GUI ownership. |
 | Selected reference comparison | Selected reference comparison | Fixtures validated | Context-comparison findings against a user-selected reference without user judgment, raw-data comparison, fit-quality comparison, setup truth, restore, execution, semantic source diff, or cause attribution. |
@@ -151,6 +152,8 @@ hardware.
 | [`managed-code-version-validation-result.md`](managed-code-version-validation-result.md) | Result of the first managed code version fixture and summary candidate. |
 | [`comparable-code-surface-validation-result.md`](comparable-code-surface-validation-result.md) | Result of the first recorded-to-managed declared-fact comparison candidate. |
 | [`workspace-materialization-intent-validation-result.md`](workspace-materialization-intent-validation-result.md) | Result of the first side-effect-free workspace materialization intent candidate. |
+| [`workspace-materialization-validation-plan.md`](workspace-materialization-validation-plan.md) | First write-bounded validation boundary for creating an editable workspace from a selected managed code version. |
+| [`workspace-materialization-validation-result.md`](workspace-materialization-validation-result.md) | Result of the first approved workspace materialization fixture and implementation candidate. |
 
 The canonical Experiment Code Context candidate-slice backlog lives in
 [`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md).
@@ -194,6 +197,12 @@ The first workspace materialization intent candidate is validated in
 [`workspace-materialization-intent-validation-result.md`](workspace-materialization-intent-validation-result.md).
 It plans destination paths and review findings for a selected managed version
 without inspecting the filesystem or writing files.
+
+The first workspace materialization candidate is validated in
+[`workspace-materialization-validation-result.md`](workspace-materialization-validation-result.md).
+It writes declared content-available files into a caller-provided workspace
+root after approval, while refusing overwrites and leaving environment, Git,
+import, execution, and GUI behavior out of scope.
 
 Do not validate "select a code version at run start" by itself. Selection
 becomes useful only when it prepares a run context, supports a reference-based
