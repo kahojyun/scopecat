@@ -22,6 +22,14 @@ def _load_input() -> dict:
     )
 
 
+def _snapshot_regular_files(root: Path) -> dict[str, bytes]:
+    return {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in sorted(root.rglob("*"))
+        if not path.is_symlink() and path.is_file()
+    }
+
+
 class EditableFolderObservationSummaryCandidateTest(unittest.TestCase):
     def test_builds_expected_structured_summary(self) -> None:
         summary = build_editable_folder_observation_summary(
@@ -58,6 +66,12 @@ class EditableFolderObservationSummaryCandidateTest(unittest.TestCase):
             "changed_observed",
         )
         self.assertEqual(
+            observations_by_path["readout-rerun-0001/code/helpers/missing_expected_helper.py"][
+                "finding"
+            ],
+            "missing_expected",
+        )
+        self.assertEqual(
             observations_by_path["readout-rerun-0001/code/secrets/device_config.py"]["finding"],
             "skipped_redacted",
         )
@@ -83,14 +97,16 @@ class EditableFolderObservationSummaryCandidateTest(unittest.TestCase):
             item for item in summary["file_observations"] if item["finding"] == "extra_observed"
         ][0]
 
-        self.assertEqual(request["expected_path_count"], 4)
+        self.assertEqual(request["expected_path_count"], 5)
         self.assertEqual(request["extra_path_count"], 1)
+        self.assertEqual(request["ignored_path_count"], 0)
         self.assertEqual(request["observed_content_path_count"], 3)
         self.assertEqual(
             request["finding_counts"],
             {
                 "changed_observed": 1,
                 "extra_observed": 1,
+                "missing_expected": 1,
                 "same_observed": 1,
                 "skipped_redacted": 1,
                 "unavailable_reference": 1,
@@ -157,6 +173,15 @@ class EditableFolderObservationSummaryCandidateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "non-relative file path"):
             build_editable_folder_observation_summary(source, workspace_root=WORKSPACE)
 
+    def test_materialization_paths_must_be_relative(self) -> None:
+        source = _load_input()
+        source["managed_code_versions"][0]["file_inventory"][0]["materialization_path"] = (
+            "../outside.py"
+        )
+
+        with self.assertRaisesRegex(ValueError, "non-relative materialization path"):
+            build_editable_folder_observation_summary(source, workspace_root=WORKSPACE)
+
     def test_workspace_root_must_be_relative(self) -> None:
         source = _load_input()
         source["observation_requests"][0]["workspace_reference"]["root_path"] = "/tmp/outside"
@@ -173,7 +198,7 @@ class EditableFolderObservationSummaryCandidateTest(unittest.TestCase):
 
     def test_non_content_available_files_must_not_carry_integrity_hint(self) -> None:
         source = _load_input()
-        source["managed_code_versions"][0]["file_inventory"][2]["content_state"] = {
+        source["managed_code_versions"][0]["file_inventory"][3]["content_state"] = {
             "digest_algorithm": "sha256",
             "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "size_bytes": 1,
@@ -210,6 +235,80 @@ class EditableFolderObservationSummaryCandidateTest(unittest.TestCase):
             )
             self.assertTrue(target.is_symlink())
             self.assertFalse((target.parent / "redirected.py").exists())
+
+    def test_root_symlink_parent_is_rejected(self) -> None:
+        source = _load_input()
+        source["observation_requests"][0]["workspace_reference"]["root_path"] = (
+            "linked-root/readout-rerun-0001"
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir)
+            outside = workspace_root / "outside"
+            outside.mkdir()
+            (workspace_root / "linked-root").symlink_to(outside)
+
+            with self.assertRaisesRegex(ValueError, "parent path is a symlink"):
+                build_editable_folder_observation_summary(
+                    source,
+                    workspace_root=workspace_root,
+                )
+
+    def test_workspace_internal_dirs_are_ignored_for_extra_observation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir)
+            shutil.copytree(WORKSPACE, workspace_root, dirs_exist_ok=True)
+            selected_root = workspace_root / "readout-rerun-0001"
+            git_config = selected_root / ".git" / "config"
+            git_config.parent.mkdir()
+            git_config.write_text("private git config\n", encoding="utf-8")
+            venv_marker = selected_root / ".venv" / "pyvenv.cfg"
+            venv_marker.parent.mkdir()
+            venv_marker.write_text("private env marker\n", encoding="utf-8")
+
+            summary = build_editable_folder_observation_summary(
+                _load_input(),
+                workspace_root=workspace_root,
+            )
+            observed_paths = [item["workspace_path"] for item in summary["file_observations"]]
+
+            self.assertEqual(summary["observation_requests"][0]["ignored_path_count"], 2)
+            self.assertFalse(
+                any("/.git/" in path or path.endswith("/.git") for path in observed_paths)
+            )
+            self.assertFalse(
+                any("/.venv/" in path or path.endswith("/.venv") for path in observed_paths)
+            )
+
+    def test_sibling_paths_outside_selected_root_are_not_observed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir)
+            shutil.copytree(WORKSPACE, workspace_root, dirs_exist_ok=True)
+            (workspace_root / "outside-selected-root.txt").write_text(
+                "outside selected root\n",
+                encoding="utf-8",
+            )
+
+            summary = build_editable_folder_observation_summary(
+                _load_input(),
+                workspace_root=workspace_root,
+            )
+            observed_paths = [item["workspace_path"] for item in summary["file_observations"]]
+
+            self.assertNotIn("outside-selected-root.txt", observed_paths)
+
+    def test_observation_does_not_mutate_workspace_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir)
+            shutil.copytree(WORKSPACE, workspace_root, dirs_exist_ok=True)
+            before = _snapshot_regular_files(workspace_root)
+
+            build_editable_folder_observation_summary(
+                _load_input(),
+                workspace_root=workspace_root,
+            )
+
+            self.assertEqual(_snapshot_regular_files(workspace_root), before)
 
     def test_missing_request_root_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -102,11 +102,13 @@ shared integrity model or storage schema.
 - the first capture mechanism that writes file contents is still unvalidated;
 - integrity hint freshness, recomputation, and mismatch behavior remain
   undecided;
-- materializing a version into an editable workspace remains unvalidated;
+- materializing a version into an editable workspace now has a first bounded
+  validation result, while final managed-workspace storage remains undecided;
 - comparable code surface has one recorded-to-managed declared-fact comparison
   validated, while managed-version inventory comparison remains unvalidated;
-- editable-folder observation against a managed version remains unvalidated and
-  should come after workspace materialization authority is clearer;
+- editable-folder observation against a managed version now has a first
+  post-materialization validation result, while additional authority cases
+  remain separate fixture-family questions;
 - comparison between managed-version inventory, capture-state edge cases, and
   editable-folder observation remains a fixture-family question, not one
   accepted diff model;
@@ -121,7 +123,8 @@ record boundary.
 
 It supports the deferred route described in
 [`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md):
-comparable code surface should be validated before workspace materialization
-intent, actual workspace creation, editable-folder observation, prepared run
-context, reference-based rerun preparation, or environment restoration. The
-active implementation or PR plan should own sequencing.
+comparable code surface, workspace materialization intent, actual workspace
+creation, and editable-folder observation now each have first validation
+results. Prepared run context, reference-based rerun preparation, and
+environment restoration remain later slices. The active implementation or PR
+plan should own sequencing.

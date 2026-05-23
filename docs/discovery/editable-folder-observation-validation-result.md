@@ -24,13 +24,17 @@ workspace root that was previously materialized. It includes:
 
 - one content-available file that still matches the selected version;
 - one content-available file edited after materialization;
+- one content-available file missing from the editable workspace;
 - one redacted file skipped without content observation;
 - one unavailable file reported without requiring it to exist;
 - one extra workspace note not declared by the selected version.
 
 The candidate reads only under a caller-provided workspace root. It records
-size and sha256 facts for observed regular files, treats symlinks as path
-findings without following them, and does not mutate the workspace.
+size and sha256 facts for observed regular files, treats the selected
+managed-version inventory as the strong include list, treats extra files as
+non-authoritative observations, skips declared workspace-internal directories
+such as `.git` and `.venv` during extra-file observation, treats symlinks as
+path findings without following them, and does not mutate the workspace.
 
 ## What This Earned
 
@@ -39,10 +43,14 @@ can:
 
 - preserve selected managed-version identity and storage authority;
 - compare expected content-available files by size and sha256 digest;
-- report same-observed, changed-observed, redacted, unavailable, and extra
-  observed findings;
+- report same-observed, changed-observed, missing-expected, redacted,
+  unavailable, and extra observed findings;
 - include observed content facts for regular files without importing or
   executing code;
+- keep extra files outside the selected code-surface authority until a later
+  explicit promotion or recording step;
+- skip declared workspace-internal directories without reporting their
+  contents;
 - avoid reading redacted or unavailable managed-version paths;
 - treat symlink targets as observable findings without following them;
 - return deterministic request, file-observation, and attention summaries.
@@ -57,6 +65,7 @@ It does not:
 - infer semantic source diffs, user intent, generated-artifact dependencies, or
   change causes;
 - inspect Git state, branches, commits, dirty status, or merge state;
+- treat extra workspace files as included code context;
 - restore dependencies, lockfiles, interpreters, notebooks, or environments;
 - import, load, or execute code;
 - create, edit, overwrite, delete, repair, or rematerialize workspace files;
@@ -68,9 +77,11 @@ It does not:
 
 Editable-folder observation is useful after workspace materialization when the
 workflow needs to review drift from the selected managed code version before
-manual editing or run preparation. The result keeps observation separate from
-semantic diff, Git diagnostics, environment readiness, prepared run context,
-and execution.
+manual editing or run preparation. The result keeps the selected managed
+version's include list authoritative for code-surface comparison, while using
+ignore guardrails to avoid noisy or sensitive workspace internals. Observation
+remains separate from semantic diff, Git diagnostics, environment readiness,
+prepared run context, and execution.
 
 ## Follow-Up
 

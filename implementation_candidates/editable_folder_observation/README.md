@@ -10,6 +10,12 @@ sha256 facts for expected content-available files and extra observed files.
 Boundary:
 
 - inspects only the selected workspace root;
+- treats the selected managed-version inventory as the authoritative include
+  list for strong code-surface findings;
+- treats extra workspace files as bounded, non-authoritative observations;
+- skips declared workspace-internal directory names such as `.git`, `.venv`,
+  caches, notebook checkpoints, and tool output directories during extra-file
+  observation;
 - compares declared content-available files by size and sha256 digest;
 - reports missing, changed, same-observed, redacted, unavailable, and extra
   observed files;

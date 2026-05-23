@@ -18,6 +18,20 @@
     "code_execution": "not_performed",
     "workspace_mutation": "not_performed"
   },
+  "extra_observation_policy": {
+    "selected_code_surface_authority": "managed_version_file_inventory",
+    "extra_file_authority": "bounded_workspace_observation_only",
+    "ignored_directory_names": [
+      ".git",
+      ".ipynb_checkpoints",
+      ".mypy_cache",
+      ".pytest_cache",
+      ".ruff_cache",
+      ".venv",
+      "__pycache__",
+      "node_modules"
+    ]
+  },
   "managed_code_versions": [
     {
       "version_id": "managed-code-version-readout-0001",
@@ -56,6 +70,19 @@
           "materialization_path": "code/experiment_session_setup.py"
         },
         {
+          "path": "helpers/missing_expected_helper.py",
+          "role": "declared_helper",
+          "recorded_form": "source_file",
+          "materialization_source_state": "content_available",
+          "content_state": {
+            "digest_algorithm": "sha256",
+            "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "size_bytes": 42,
+            "observed_at": "2026-05-21T09:30:00Z"
+          },
+          "materialization_path": "code/helpers/missing_expected_helper.py"
+        },
+        {
           "path": "secrets/device_config.py",
           "role": "redacted_lab_secret",
           "recorded_form": "source_file",
@@ -88,6 +115,8 @@
   "attention_expected": [
     "selected_workspace_root_inspected",
     "content_observed_by_size_and_digest_only",
+    "extra_files_are_non_authoritative",
+    "workspace_internal_paths_ignored",
     "semantic_source_diff_not_performed",
     "internal_git_not_inspected",
     "environment_readiness_not_checked",

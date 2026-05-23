@@ -9,9 +9,11 @@ environments, mutating files, or claiming runnable readiness.
 from __future__ import annotations
 
 import copy
+import errno
 import hashlib
 import os
 import re
+import stat
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -31,6 +33,10 @@ _SOURCE_STATES = {
     "content_available",
     "redacted",
     "unavailable",
+}
+_EXPECTED_EXTRA_OBSERVATION_POLICY = {
+    "selected_code_surface_authority": "managed_version_file_inventory",
+    "extra_file_authority": "bounded_workspace_observation_only",
 }
 _SHA256_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 
@@ -69,6 +75,25 @@ def _validate_policy(source: dict[str, Any]) -> None:
     for key, expected in _EXPECTED_POLICY.items():
         if policy[key] != expected:
             raise ValueError(f"editable folder observation policy {key} must be {expected}")
+
+
+def _validate_extra_observation_policy(source: dict[str, Any]) -> None:
+    policy = source["extra_observation_policy"]
+    expected_keys = set(_EXPECTED_EXTRA_OBSERVATION_POLICY) | {"ignored_directory_names"}
+    if set(policy) != expected_keys:
+        raise ValueError("expected editable folder extra-observation policy shape")
+    for key, expected in _EXPECTED_EXTRA_OBSERVATION_POLICY.items():
+        if policy[key] != expected:
+            raise ValueError(f"editable folder extra-observation policy {key} must be {expected}")
+
+    ignored_directory_names = policy["ignored_directory_names"]
+    if not ignored_directory_names:
+        raise ValueError("editable folder observation requires ignored directory names")
+    if len(set(ignored_directory_names)) != len(ignored_directory_names):
+        raise ValueError("editable folder observation ignored directory names must be unique")
+    for name in ignored_directory_names:
+        if "/" in name or "\\" in name or not _path_is_relative(name):
+            raise ValueError("editable folder observation ignored directory names must be names")
 
 
 def _validate_content_state(file_record: dict[str, Any]) -> None:
@@ -112,6 +137,7 @@ def _validate_workspace_reference(request: dict[str, Any]) -> None:
 
 def _validate_references(source: dict[str, Any]) -> None:
     _validate_policy(source)
+    _validate_extra_observation_policy(source)
     versions = _version_by_id(source)
     _records_by_key(source["observation_requests"], "request_id")
 
@@ -168,8 +194,31 @@ def _ensure_no_symlink_parents(root: Path, relative_path: str) -> None:
 
 
 def _read_observed_content(path: Path) -> dict[str, Any]:
-    content = path.read_bytes()
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        file_descriptor = os.open(path, flags)
+    except FileNotFoundError:
+        return {"path_state": "missing"}
+    except NotADirectoryError:
+        return {"path_state": "missing"}
+    except OSError as error:
+        if error.errno == errno.ELOOP:
+            return {"path_state": "symlink"}
+        raise
+
+    try:
+        file_stat = os.fstat(file_descriptor)
+        if not stat.S_ISREG(file_stat.st_mode):
+            return {"path_state": "not_a_file"}
+        with os.fdopen(file_descriptor, "rb") as handle:
+            file_descriptor = -1
+            content = handle.read()
+    finally:
+        if file_descriptor != -1:
+            os.close(file_descriptor)
+
     return {
+        "path_state": "regular_file",
         "digest_algorithm": "sha256",
         "digest": f"sha256:{hashlib.sha256(content).hexdigest()}",
         "size_bytes": len(content),
@@ -221,20 +270,24 @@ def _expected_file_observation(
         does_not_claim = "file_should_exist_in_editable_workspace"
     else:
         _ensure_no_symlink_parents(workspace_root, workspace_path)
-        if target_path.is_symlink():
+        observed_content = _read_observed_content(target_path)
+        path_state = observed_content["path_state"]
+        if path_state == "symlink":
             finding = "target_is_symlink"
             basis = "The editable workspace target is a symlink and was not followed."
             does_not_claim = "target_content_observed"
-        elif not target_path.exists():
+        elif path_state == "missing":
             finding = "missing_expected"
             basis = "The selected managed version expected content at this workspace path."
             does_not_claim = "user_deleted_file_or_materialization_failure_cause"
-        elif not target_path.is_file():
+        elif path_state == "not_a_file":
             finding = "not_a_file"
             basis = "The editable workspace path exists but is not a regular file."
             does_not_claim = "target_content_observed"
         else:
-            observed_state = _read_observed_content(target_path)
+            observed_state = {
+                key: value for key, value in observed_content.items() if key != "path_state"
+            }
             expected_state = file_record["content_state"]
             if (
                 observed_state["digest"] == expected_state["digest"]
@@ -267,21 +320,26 @@ def _expected_file_observation(
     return observation
 
 
-def _scan_regular_and_symlink_files(root: Path) -> dict[str, str]:
+def _scan_regular_and_symlink_files(
+    root: Path, ignored_directory_names: set[str]
+) -> tuple[dict[str, str], int]:
     observed: dict[str, str] = {}
+    ignored_count = 0
     stack = [root]
     while stack:
         current = stack.pop()
         for entry in os.scandir(current):
             entry_path = Path(entry.path)
             relative = entry_path.relative_to(root).as_posix()
-            if entry.is_symlink():
+            if entry.name in ignored_directory_names:
+                ignored_count += 1
+            elif entry.is_symlink():
                 observed[relative] = "symlink"
             elif entry.is_dir(follow_symlinks=False):
                 stack.append(entry_path)
             elif entry.is_file(follow_symlinks=False):
                 observed[relative] = "regular_file"
-    return dict(sorted(observed.items()))
+    return dict(sorted(observed.items())), ignored_count
 
 
 def _extra_file_observations(
@@ -289,8 +347,10 @@ def _extra_file_observations(
     version: dict[str, Any],
     workspace_root: Path,
     expected_paths: set[str],
-) -> list[dict[str, Any]]:
+    ignored_directory_names: set[str],
+) -> tuple[list[dict[str, Any]], int]:
     root_path = request["workspace_reference"]["root_path"]
+    _ensure_no_symlink_parents(workspace_root, root_path)
     request_root = _path_under(workspace_root, root_path)
     if request_root.is_symlink():
         raise ValueError("editable folder observation request root must not be a symlink")
@@ -298,10 +358,18 @@ def _extra_file_observations(
         raise ValueError("editable folder observation request root must be an existing directory")
 
     observations = []
-    for relative_path, path_kind in _scan_regular_and_symlink_files(request_root).items():
+    scanned_paths, ignored_count = _scan_regular_and_symlink_files(
+        request_root, ignored_directory_names
+    )
+    for relative_path, path_kind in scanned_paths.items():
         workspace_path = str(PurePosixPath(root_path) / relative_path)
         if workspace_path in expected_paths:
             continue
+
+        observed_content: dict[str, Any] | None = None
+        if path_kind == "regular_file":
+            observed_content = _read_observed_content(_path_under(workspace_root, workspace_path))
+            path_kind = observed_content["path_state"]
 
         observation = {
             "request_id": request["request_id"],
@@ -311,26 +379,33 @@ def _extra_file_observations(
             "role": "extra_workspace_file",
             "recorded_form": "observed_workspace_file",
             "materialization_source_state": "not_in_selected_version",
-            "finding": (
-                "extra_observed" if path_kind == "regular_file" else "extra_symlink_not_read"
-            ),
+            "finding": _extra_finding_for_path_state(path_kind),
             "provenance_label": f"observed:{workspace_path}",
             "basis": "The editable workspace contains a path not declared by the selected version.",
             "does_not_claim": "generated_artifact_dependency_or_user_intent",
         }
-        if path_kind == "regular_file":
-            observation["observed_content_state"] = _read_observed_content(
-                _path_under(workspace_root, workspace_path)
-            )
+        if path_kind == "regular_file" and observed_content is not None:
+            observation["observed_content_state"] = {
+                key: value for key, value in observed_content.items() if key != "path_state"
+            }
         observations.append(observation)
-    return observations
+    return observations, ignored_count
+
+
+def _extra_finding_for_path_state(path_state: str) -> str:
+    if path_state == "regular_file":
+        return "extra_observed"
+    if path_state == "symlink":
+        return "extra_symlink_not_read"
+    return "extra_unstable_not_read"
 
 
 def _file_observations_for_request(
     request: dict[str, Any],
     version: dict[str, Any],
     workspace_root: Path,
-) -> list[dict[str, Any]]:
+    ignored_directory_names: set[str],
+) -> tuple[list[dict[str, Any]], int]:
     expected_paths = {
         _relative_workspace_path(request, file_record) for file_record in version["file_inventory"]
     }
@@ -338,8 +413,10 @@ def _file_observations_for_request(
         _expected_file_observation(request, version, file_record, workspace_root)
         for file_record in version["file_inventory"]
     ]
-    extras = _extra_file_observations(request, version, workspace_root, expected_paths)
-    return expected + extras
+    extras, ignored_count = _extra_file_observations(
+        request, version, workspace_root, expected_paths, ignored_directory_names
+    )
+    return expected + extras, ignored_count
 
 
 def _finding_counts(file_observations: list[dict[str, Any]]) -> dict[str, int]:
@@ -353,6 +430,7 @@ def _finding_counts(file_observations: list[dict[str, Any]]) -> dict[str, int]:
 def _request_summary(
     request: dict[str, Any],
     file_observations: list[dict[str, Any]],
+    ignored_path_count: int,
 ) -> dict[str, Any]:
     expected_observations = [
         item
@@ -374,6 +452,7 @@ def _request_summary(
         "root_path": reference["root_path"],
         "expected_path_count": len(expected_observations),
         "extra_path_count": len(extra_observations),
+        "ignored_path_count": ignored_path_count,
         "observed_content_path_count": sum(
             1 for item in file_observations if "observed_content_state" in item
         ),
@@ -383,6 +462,7 @@ def _request_summary(
 
 def _attention(source: dict[str, Any]) -> list[dict[str, Any]]:
     policy = source["observation_policy"]
+    extra_policy = source["extra_observation_policy"]
     attention = []
 
     if policy["filesystem_inspection"] == "selected_workspace_root_only":
@@ -402,6 +482,26 @@ def _attention(source: dict[str, Any]) -> list[dict[str, Any]]:
                 "severity": "review",
                 "basis": "Content observation records size and sha256 facts only.",
                 "does_not_claim": "semantic_source_diff_or_runtime_behavior",
+            }
+        )
+
+    if extra_policy["extra_file_authority"] == "bounded_workspace_observation_only":
+        attention.append(
+            {
+                "code": "extra_files_are_non_authoritative",
+                "severity": "info",
+                "basis": "Extra files are observations around the selected code surface only.",
+                "does_not_claim": "extra_files_belong_to_selected_code_context",
+            }
+        )
+
+    if extra_policy["ignored_directory_names"]:
+        attention.append(
+            {
+                "code": "workspace_internal_paths_ignored",
+                "severity": "info",
+                "basis": "Declared workspace-internal directory names are skipped during extra-file observation.",
+                "does_not_claim": "ignored_paths_are_absent_or_safe",
             }
         )
 
@@ -467,18 +567,24 @@ def build_editable_folder_observation_summary(
     _validate_references(source)
     versions = _version_by_id(source)
     workspace_root_resolved = _existing_root(workspace_root, "workspace")
+    ignored_directory_names = set(source["extra_observation_policy"]["ignored_directory_names"])
     selected_version_ids = {
         request["selected_version_id"] for request in source["observation_requests"]
     }
 
-    file_observations = [
-        observation
-        for request in source["observation_requests"]
-        for observation in _file_observations_for_request(
+    observations_and_ignored_counts = {
+        request["request_id"]: _file_observations_for_request(
             request,
             versions[request["selected_version_id"]],
             workspace_root_resolved,
+            ignored_directory_names,
         )
+        for request in source["observation_requests"]
+    }
+    file_observations = [
+        observation
+        for request in source["observation_requests"]
+        for observation in observations_and_ignored_counts[request["request_id"]][0]
     ]
     file_observations_by_request = {
         request["request_id"]: [
@@ -491,12 +597,17 @@ def build_editable_folder_observation_summary(
 
     return {
         "observation_policy": copy.deepcopy(source["observation_policy"]),
+        "extra_observation_policy": copy.deepcopy(source["extra_observation_policy"]),
         "selected_versions": [
             _selected_version_summary(versions[version_id])
             for version_id in sorted(selected_version_ids)
         ],
         "observation_requests": [
-            _request_summary(request, file_observations_by_request[request["request_id"]])
+            _request_summary(
+                request,
+                file_observations_by_request[request["request_id"]],
+                observations_and_ignored_counts[request["request_id"]][1],
+            )
             for request in source["observation_requests"]
         ],
         "file_observations": file_observations,

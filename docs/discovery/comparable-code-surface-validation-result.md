@@ -82,6 +82,7 @@ Likely follow-up slices should stay separate:
 - capture-state edge cases that need a second fixture;
 - workspace materialization, after intent planning and only with approved
   writes;
-- editable-folder observation, after materialization authority is clearer;
+- additional editable-folder observation cases, after the first
+  post-materialization observation result;
 - declared environment inventory, still without dependency sync or runnable
   readiness claims.
