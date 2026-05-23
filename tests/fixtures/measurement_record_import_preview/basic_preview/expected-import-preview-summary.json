@@ -1,0 +1,212 @@
+{
+  "status": "fixture",
+  "reference_semantics": {
+    "contract_guard": "Measurement record import preview is not an importer, storage writer, schema inference engine, checksum contract, package acceptance flow, recursive relation traversal, or GUI workflow.",
+    "source_fixture": "import-preview-input.json"
+  },
+  "candidate_summary": {
+    "import_preview_policy": {
+      "preview_authority": "explicit_manifest_only",
+      "source_observation": "not_performed",
+      "storage_mutation": "not_performed",
+      "import_acceptance": "not_performed",
+      "schema_inference": "not_performed",
+      "package_integrity": "not_claimed",
+      "recursive_relation_traversal": "not_performed",
+      "gui_workflow": "not_defined",
+      "shared_measurement_schema": "not_defined"
+    },
+    "incoming_records": [
+      {
+        "incoming_record_id": "incoming-run-2001-rabi",
+        "label": "Imported Rabi candidate 2001",
+        "source_kind": "legacy_folder_drop",
+        "source_label": "Operator-selected import drop",
+        "display_path": "IMPORT_DROP:/redacted/rabi-import-demo",
+        "current_reference": {
+          "path": "source/import-drop/run-2001-rabi-source.csv",
+          "reference_state": "declared_available",
+          "reason": null
+        },
+        "primary_data": {
+          "path": "source/import-drop/run-2001-rabi-source.csv",
+          "kind": "primary_data",
+          "authority": "incoming_manifest",
+          "format": "csv_table"
+        },
+        "preview": {
+          "status": "preview_ready",
+          "metadata_authority": "incoming_manifest",
+          "shape_kind": "declared_1d_table",
+          "axis_order": ["drive_amplitude", "excited_state_probability"],
+          "declared_roles": [
+            {
+              "name": "drive_amplitude",
+              "role": "sweep_axis",
+              "label": "Drive amplitude",
+              "unit": "a.u."
+            },
+            {
+              "name": "excited_state_probability",
+              "role": "response",
+              "label": "Excited state probability",
+              "unit": "fraction"
+            }
+          ],
+          "plot_candidates": [
+            {
+              "x": "drive_amplitude",
+              "y": "excited_state_probability",
+              "source": "source/import-drop/run-2001-rabi-source.csv"
+            }
+          ],
+          "warnings": []
+        },
+        "linked_context_count": 1,
+        "linked_context_state_counts": {
+          "declared_available": 1
+        },
+        "classification": "preview_ready_for_review",
+        "import_acceptance": "not_accepted",
+        "storage_mutation": "not_performed"
+      },
+      {
+        "incoming_record_id": "incoming-run-2002-t1",
+        "label": "Imported T1 candidate 2002",
+        "source_kind": "legacy_folder_drop",
+        "source_label": "Operator-selected import drop",
+        "display_path": "IMPORT_DROP:/redacted/t1-import-demo",
+        "current_reference": {
+          "path": "source/import-drop/run-2002-t1-source.csv",
+          "reference_state": "unavailable",
+          "reason": "The manifest references a local file that was not present in the public-safe import fixture."
+        },
+        "primary_data": {
+          "path": "source/import-drop/run-2002-t1-source.csv",
+          "kind": "primary_data",
+          "authority": "incoming_manifest",
+          "format": "csv_table"
+        },
+        "preview": {
+          "status": "degraded_preview",
+          "metadata_authority": "incoming_manifest",
+          "shape_kind": null,
+          "axis_order": [],
+          "declared_roles": [],
+          "plot_candidates": [],
+          "warnings": [
+            {
+              "code": "preview_metadata_missing",
+              "message": "Incoming manifest did not declare enough shape or column-role metadata for preview."
+            }
+          ]
+        },
+        "linked_context_count": 1,
+        "linked_context_state_counts": {
+          "unavailable": 1
+        },
+        "classification": "blocked_pending_source_review",
+        "import_acceptance": "not_accepted",
+        "storage_mutation": "not_performed"
+      }
+    ],
+    "linked_context": [
+      {
+        "incoming_record_id": "incoming-run-2001-rabi",
+        "link_id": "incoming-2001-operator-note",
+        "kind": "attachment",
+        "label": "Operator import note",
+        "path": "attachments/run-2001-operator-note.md",
+        "relation": "documents_source",
+        "authority": "incoming_manifest",
+        "link_state": "declared_available",
+        "reason": null
+      },
+      {
+        "incoming_record_id": "incoming-run-2002-t1",
+        "link_id": "incoming-2002-analysis-notebook",
+        "kind": "artifact",
+        "label": "Legacy analysis notebook",
+        "path": "attachments/run-2002-analysis-notebook.ipynb",
+        "relation": "derived_from_source",
+        "authority": "incoming_manifest",
+        "link_state": "unavailable",
+        "reason": "Notebook was listed in the source folder inventory but was not included in the review drop."
+      }
+    ],
+    "preview_findings": [
+      {
+        "incoming_record_id": "incoming-run-2002-t1",
+        "subject_type": "primary_data",
+        "subject_id": "source/import-drop/run-2002-t1-source.csv",
+        "severity": "block_preview",
+        "finding": "source_unavailable",
+        "basis": "The manifest references a local file that was not present in the public-safe import fixture.",
+        "does_not_claim": "source_permanently_missing_or_invalid"
+      },
+      {
+        "incoming_record_id": "incoming-run-2002-t1",
+        "subject_type": "preview_metadata",
+        "subject_id": "incoming_manifest",
+        "severity": "review",
+        "finding": "preview_metadata_missing",
+        "basis": "Incoming manifest did not declare enough shape or column-role metadata for preview.",
+        "does_not_claim": "record_cannot_be_imported_or_plotted_later"
+      },
+      {
+        "incoming_record_id": "incoming-run-2002-t1",
+        "subject_type": "linked_context",
+        "subject_id": "incoming-2002-analysis-notebook",
+        "severity": "review",
+        "finding": "linked_context_unavailable",
+        "basis": "Notebook was listed in the source folder inventory but was not included in the review drop.",
+        "does_not_claim": "relation_graph_or_import_package_invalid"
+      }
+    ],
+    "attention": [
+      {
+        "code": "manifest_only_preview",
+        "severity": "info",
+        "basis": "Import preview uses explicit incoming-record manifest facts only.",
+        "does_not_claim": "observed_source_file_state"
+      },
+      {
+        "code": "source_data_not_read",
+        "severity": "review",
+        "basis": "Primary data paths are declared references, not opened or parsed.",
+        "does_not_claim": "file_contents_verified"
+      },
+      {
+        "code": "import_not_accepted",
+        "severity": "review",
+        "basis": "Incoming records are classified for review before acceptance.",
+        "does_not_claim": "record_written_to_storage"
+      },
+      {
+        "code": "schema_inference_not_performed",
+        "severity": "review",
+        "basis": "Preview metadata must be declared by the incoming manifest.",
+        "does_not_claim": "automatic_schema_detection"
+      },
+      {
+        "code": "recursive_traversal_not_performed",
+        "severity": "review",
+        "basis": "Linked context is summarized only where explicitly listed.",
+        "does_not_claim": "complete_relation_graph"
+      }
+    ]
+  },
+  "boundary_notes": [
+    "Import preview classifies incoming records for review, but does not accept, copy, or write them.",
+    "Declared preview metadata is summarized as supplied by the incoming manifest; source files are not opened to infer shape.",
+    "Unavailable source data and linked context are review findings, not final importer, storage, package, or relation-graph failures."
+  ],
+  "decisions_not_earned": [
+    "final measurement-record import schema",
+    "storage mutation or package writer behavior",
+    "checksum, archive, or package integrity contract",
+    "automatic schema inference from legacy files",
+    "recursive relation traversal or analysis-DAG inference",
+    "import review GUI"
+  ]
+}

@@ -1,0 +1,96 @@
+# Measurement Record Import Preview Validation Result
+
+## Status
+
+Implementation candidate validated.
+
+This result validates a narrow Measurement Records slice: **Measurement Record
+Import Preview**.
+
+It does not accept an importer, storage writer, package format, checksum or
+archive contract, automatic schema inference, recursive relation traversal,
+import review GUI, or shared measurement-record schema.
+
+## Fixture
+
+Fixture:
+[`../../tests/fixtures/measurement_record_import_preview/basic_preview/`](../../tests/fixtures/measurement_record_import_preview/basic_preview/)
+
+Implementation candidate:
+[`../../implementation_candidates/measurement_record_import_preview/`](../../implementation_candidates/measurement_record_import_preview/)
+
+The fixture records two incoming measurement candidates from an explicit
+incoming-record manifest:
+
+- one declared-available Rabi CSV with preview-ready 1D table metadata and an
+  operator note;
+- one T1 candidate with unavailable source data, degraded preview metadata, and
+  unavailable linked notebook context.
+
+The builder treats all source and linked-context paths as declared references.
+It does not read source files, parse CSV headers, copy files, write storage,
+accept imports, infer schemas, checksum content, render plots, or traverse
+relations.
+
+## What This Earned
+
+The implementation candidate shows that a side-effect-free summary can preview
+incoming measurement records before import authority exists:
+
+- preserve incoming record identity, source kind, source label, redacted
+  display path, current-reference state, and primary-data reference;
+- summarize declared preview metadata and degraded-preview warnings from the
+  manifest without source inspection;
+- summarize explicitly listed linked context without recursive traversal;
+- classify records as preview-ready for review, blocked pending source review,
+  or needing metadata or linked-context review;
+- report unavailable source data, missing preview metadata, and unavailable
+  linked context as review findings;
+- keep findings separate from importer validity, storage mutation,
+  package-integrity, plotting, schema-inference, or relation-graph claims;
+- reject fixture claims that cross into source observation, storage mutation,
+  import acceptance, schema inference, package integrity, recursive traversal,
+  GUI workflow, or shared schema.
+
+## Boundary
+
+This slice validates import preview only.
+
+It does not:
+
+- accept, import, copy, move, archive, checksum, or write incoming records;
+- inspect whether referenced files exist outside the public-safe fixture;
+- read source files to infer shape, columns, units, or plot candidates;
+- define a final importer, storage model, package format, or acceptance flow;
+- decide final measurement, attachment, artifact, relation, or data-shape
+  schema;
+- traverse relation graphs or infer analysis DAGs;
+- decide source permanence, scientific validity, reproducibility, or plotting
+  correctness;
+- define GUI behavior.
+
+## Result
+
+Import preview is a useful counterpart to selected measurement export. It
+tests the same source identity, current-reference, declared preview metadata,
+linked-context, and attention-state pressure from the incoming side without
+granting Scopecat import or storage authority.
+
+Unavailable source data blocks preview review for that record, but the finding
+does not claim the source is permanently missing or invalid. Missing preview
+metadata and unavailable linked context stay review findings, not importer,
+package, relation-graph, or plotting failures.
+
+## Follow-Up
+
+Stop this slice at import preview unless the next workflow needs sharper
+legacy-source classification or import acceptance vocabulary.
+
+Likely follow-up slices should stay separate:
+
+- offline legacy-record import for one accepted source shape, with explicit
+  storage mutation and acceptance boundaries;
+- source observation or checksum validation for a declared import package,
+  without accepting a full package format;
+- harder data-shape import preview cases, such as ragged scans or
+  trace-per-point data, without automatic schema inference.

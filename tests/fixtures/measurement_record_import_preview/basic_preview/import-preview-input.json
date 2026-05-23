@@ -1,0 +1,119 @@
+{
+  "import_preview_policy": {
+    "preview_authority": "explicit_manifest_only",
+    "source_observation": "not_performed",
+    "storage_mutation": "not_performed",
+    "import_acceptance": "not_performed",
+    "schema_inference": "not_performed",
+    "package_integrity": "not_claimed",
+    "recursive_relation_traversal": "not_performed",
+    "gui_workflow": "not_defined",
+    "shared_measurement_schema": "not_defined"
+  },
+  "incoming_records": [
+    {
+      "incoming_record_id": "incoming-run-2001-rabi",
+      "label": "Imported Rabi candidate 2001",
+      "source_identity": {
+        "kind": "legacy_folder_drop",
+        "label": "Operator-selected import drop",
+        "display_path": "IMPORT_DROP:/redacted/rabi-import-demo",
+        "local_path_redacted": true
+      },
+      "current_reference": {
+        "path": "source/import-drop/run-2001-rabi-source.csv",
+        "reference_state": "declared_available",
+        "reason": null
+      },
+      "primary_data": {
+        "path": "source/import-drop/run-2001-rabi-source.csv",
+        "kind": "primary_data",
+        "authority": "incoming_manifest",
+        "format": "csv_table"
+      },
+      "declared_preview_metadata": {
+        "status": "preview_ready",
+        "metadata_authority": "incoming_manifest",
+        "data_shape": {
+          "kind": "declared_1d_table",
+          "axis_order": ["drive_amplitude", "excited_state_probability"]
+        },
+        "declared_columns": [
+          {
+            "name": "drive_amplitude",
+            "role": "sweep_axis",
+            "label": "Drive amplitude",
+            "unit": "a.u."
+          },
+          {
+            "name": "excited_state_probability",
+            "role": "response",
+            "label": "Excited state probability",
+            "unit": "fraction"
+          }
+        ],
+        "plot_candidates": [
+          {
+            "x": "drive_amplitude",
+            "y": "excited_state_probability",
+            "source": "source/import-drop/run-2001-rabi-source.csv"
+          }
+        ]
+      },
+      "linked_context": [
+        {
+          "link_id": "incoming-2001-operator-note",
+          "kind": "attachment",
+          "label": "Operator import note",
+          "path": "attachments/run-2001-operator-note.md",
+          "relation": "documents_source",
+          "authority": "incoming_manifest",
+          "link_state": "declared_available",
+          "reason": null
+        }
+      ]
+    },
+    {
+      "incoming_record_id": "incoming-run-2002-t1",
+      "label": "Imported T1 candidate 2002",
+      "source_identity": {
+        "kind": "legacy_folder_drop",
+        "label": "Operator-selected import drop",
+        "display_path": "IMPORT_DROP:/redacted/t1-import-demo",
+        "local_path_redacted": true
+      },
+      "current_reference": {
+        "path": "source/import-drop/run-2002-t1-source.csv",
+        "reference_state": "unavailable",
+        "reason": "The manifest references a local file that was not present in the public-safe import fixture."
+      },
+      "primary_data": {
+        "path": "source/import-drop/run-2002-t1-source.csv",
+        "kind": "primary_data",
+        "authority": "incoming_manifest",
+        "format": "csv_table"
+      },
+      "declared_preview_metadata": {
+        "status": "degraded_preview",
+        "metadata_authority": "incoming_manifest",
+        "data_shape": null,
+        "declared_columns": [],
+        "plot_candidates": [],
+        "warning_code": "preview_metadata_missing",
+        "message": "Incoming manifest did not declare enough shape or column-role metadata for preview."
+      },
+      "linked_context": [
+        {
+          "link_id": "incoming-2002-analysis-notebook",
+          "kind": "artifact",
+          "label": "Legacy analysis notebook",
+          "path": "attachments/run-2002-analysis-notebook.ipynb",
+          "relation": "derived_from_source",
+          "authority": "incoming_manifest",
+          "link_state": "unavailable",
+          "reason": "Notebook was listed in the source folder inventory but was not included in the review drop."
+        }
+      ]
+    }
+  ]
+}
