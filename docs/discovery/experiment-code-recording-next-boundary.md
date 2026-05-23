@@ -109,10 +109,10 @@ Validation should follow authority boundaries more strictly than user adoption:
 5. Validate prepared run context from selected managed code version, editable
    workspace observation, selected parameter state, setup binding, and
    measurement intent.
-6. Validate reference-based rerun preparation as a convenience workflow over
-   prepared run context, not as a separate reproducibility claim.
-7. Validate declared environment inventory before environment readiness or
+6. Validate declared environment inventory before environment readiness or
    dependency sync.
+7. Validate reference-based rerun preparation as a convenience workflow over
+   prepared run context, not as a separate reproducibility claim.
 8. Only after those boundaries prove useful, validate environment readiness,
    dependency sync, and managed runners.
 
@@ -218,7 +218,27 @@ Result owner:
 Boundary: no execution, hardware control, environment sync, or claim that the
 selected context is runnable.
 
-### 6. Reference-Based Rerun Preparation
+### 6. Declared Environment Inventory
+
+Validation question: can Scopecat record declared environment facts next to the
+selected code context?
+
+User pressure: users need environment files, lockfiles, interpreter hints, and
+package-manager hints to be visible with code history before any sync is
+attempted.
+
+First fixture: a managed code version plus user-declared environment file,
+lockfile, interpreter, package, and external-tool references, producing
+declared, unavailable, unverified, redacted, unsupported, unpinned, or unknown
+findings.
+
+Result owner:
+[`declared-environment-inventory-validation-result.md`](declared-environment-inventory-validation-result.md)
+
+Boundary: no sync, import, dependency resolution, hardware readiness, runnable
+readiness, or execution.
+
+### 7. Reference-Based Rerun Preparation
 
 Validation question: can Scopecat start from a selected reference measurement
 and prepare the matching manual rerun context?
@@ -231,22 +251,6 @@ parameter state, and setup binding, producing a proposed prepared run context.
 
 Boundary: no reproducibility guarantee, cause attribution, execution, hardware
 control, or automatic correction of drift.
-
-### 7. Declared Environment Inventory
-
-Validation question: can Scopecat record declared environment facts next to the
-selected code context?
-
-User pressure: users need environment files, lockfiles, interpreter hints, and
-package-manager hints to be visible with code history before any sync is
-attempted.
-
-First fixture: a managed code version plus user-declared environment file,
-lockfile, interpreter, or package-manager references, producing present,
-missing, reference-only, or not-checked findings.
-
-Boundary: no sync, import, dependency resolution, hardware readiness, runnable
-readiness, or execution.
 
 ### 8. Environment Readiness Or Sync
 

@@ -31,6 +31,7 @@ executor design, relation graph, or warning taxonomy.
 - [`workspace-materialization-validation-result.md`](workspace-materialization-validation-result.md)
 - [`editable-folder-observation-validation-result.md`](editable-folder-observation-validation-result.md)
 - [`prepared-run-context-validation-result.md`](prepared-run-context-validation-result.md)
+- [`declared-environment-inventory-validation-result.md`](declared-environment-inventory-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
 - [`adoption-routes.md`](adoption-routes.md)
 - [`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md)
@@ -178,6 +179,16 @@ workspace limitations, or missing environment context as review findings. It
 does not accept a shared context schema, run lifecycle model, restore behavior,
 environment readiness, hardware control, code import, code execution, executor,
 workflow/DAG behavior, or GUI semantics.
+
+Declared environment inventory has a slice-local implementation candidate for
+summarizing explicit runtime hints, dependency-source references, package
+declarations, and external-tool hints as a declared environment context record.
+It validates declared source references and public-safe relative paths without
+reading files, resolving dependencies, installing packages, checking active
+runtimes, importing code, or executing code. Unavailable manifests, unpinned or
+unknown packages, and unverified external tools are review findings, not
+runnable-readiness, reproducibility, safety, compatibility, or run-blocking
+claims.
 
 ## Version Terminology
 
