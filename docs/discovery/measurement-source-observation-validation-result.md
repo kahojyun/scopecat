@@ -82,8 +82,8 @@ storage ownership.
 
 The fixture intentionally uses the same small Rabi primary-data shape as the
 storage writer pressure, but this result is read-only. It should be compared
-with writer, import-preview, adapter-manifest, export, and running-inspection
-work without being promoted into a final storage schema.
+with writer, incoming-record import preview, adapter-manifest, export, and
+running-inspection work without being promoted into a final storage schema.
 
 ## Follow-Up
 

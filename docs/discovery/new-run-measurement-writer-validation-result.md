@@ -75,10 +75,11 @@ It does not:
 
 ## Result
 
-New-run writer semantics are a useful counterpart to export, import preview,
-and running inspection. Those slices assume measurement records exist; this
-candidate tests the smallest event vocabulary needed to produce one reviewable
-measurement-record summary without crossing into storage or runtime ownership.
+New-run writer semantics are a useful counterpart to export, incoming-record
+import preview, and running inspection. Those slices assume measurement records
+exist; this candidate tests the smallest event vocabulary needed to produce one
+reviewable measurement-record summary without crossing into storage or runtime
+ownership.
 
 The fixture keeps source data and preview metadata explicit. A completed record
 must reach the expected point count according to writer events, and each

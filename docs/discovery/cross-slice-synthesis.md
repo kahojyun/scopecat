@@ -72,14 +72,19 @@ metadata, and non-durable monitor ergonomics, but has not earned a live service,
 monitor interaction model, plotting API, durable saved-decision record, or
 harder data-shape model.
 
-Measurement record import preview has a slice-local implementation candidate
-for previewing and classifying incoming records from an explicit manifest
-before import authority exists. It preserves source identity, current-reference
-state, primary-data references, declared preview metadata, and explicitly
-listed linked context while reporting unavailable source data, missing preview
-metadata, and unavailable linked context as review findings. It does not accept
-imports, write storage, inspect source files, infer schemas, checksum content,
+Incoming measurement record import preview has a slice-local implementation
+candidate for previewing and classifying external incoming records from an
+explicit manifest before import authority exists. It preserves source identity,
+current-reference state, primary-data references, declared preview metadata,
+and explicitly listed linked context while reporting unavailable source data,
+missing preview metadata, and unavailable linked context as review findings. It
+does not accept imports, preview Scopecat-authored selected-measurement export
+packages, write storage, inspect source files, infer schemas, checksum content,
 define a package format, traverse relation graphs, or design an import GUI.
+
+The related handoff or export-package contents preview should remain a separate
+future slice because its input authority is selected measurement export output,
+not an external incoming-record manifest.
 
 New-run measurement writer semantics has a slice-local implementation
 candidate for deriving a reviewable measurement-record summary from explicit
@@ -337,16 +342,16 @@ schema.
 
 | Candidate concept | Slice pressure | Current meaning |
 | --- | --- | --- |
-| Measurement record | Export, import preview, running inspection, new-run writer, storage writer, source observation, calibration continuation | The ordinary user-facing unit for primary recorded experiment data, created from writer events, written to storage, observed after storage, selected for export, previewed before import, inspected while running, or referenced as calibration output. |
-| Source identity | Export, import preview, running inspection, new-run writer, calibration continuation | Recoverable provenance for where a record came from, distinct from current read path, package-relative fixture path, writer-declared primary data path, or final storage identity. |
-| Primary data reference | Export, import preview, running inspection, new-run writer, storage writer, source observation, measurement boundary | The data item users expect to inspect, preview, export, import, store, observe, or later plot; may be fixture path-shaped now but should not imply durable path identity. |
-| Declared preview metadata | Export, import preview, running inspection, new-run writer, storage writer, source observation, scan/data-shape | Shape, roles, labels, units, axis order, row order, and plot candidates supplied explicitly enough to support preview without schema inference. |
-| Linked context | Export, import preview, derived artifact source links, calibration continuation, measurement boundary | Snapshots, attachments, artifacts, fit previews, notes, or derived outputs connected to a measurement or step with explicit relation and authority. |
+| Measurement record | Export, incoming-record import preview, running inspection, new-run writer, storage writer, source observation, calibration continuation | The ordinary user-facing unit for primary recorded experiment data, created from writer events, written to storage, observed after storage, selected for export, previewed before import, inspected while running, or referenced as calibration output. |
+| Source identity | Export, incoming-record import preview, running inspection, new-run writer, calibration continuation | Recoverable provenance for where a record came from, distinct from current read path, package-relative fixture path, writer-declared primary data path, or final storage identity. |
+| Primary data reference | Export, incoming-record import preview, running inspection, new-run writer, storage writer, source observation, measurement boundary | The data item users expect to inspect, preview, export, import, store, observe, or later plot; may be fixture path-shaped now but should not imply durable path identity. |
+| Declared preview metadata | Export, incoming-record import preview, running inspection, new-run writer, storage writer, source observation, scan/data-shape | Shape, roles, labels, units, axis order, row order, and plot candidates supplied explicitly enough to support preview without schema inference. |
+| Linked context | Export, incoming-record import preview, derived artifact source links, calibration continuation, measurement boundary | Snapshots, attachments, artifacts, fit previews, notes, or derived outputs connected to a measurement or step with explicit relation and authority. |
 | Include state | Export, measurement boundary | Whether linked context is default-included, user-included, visible-but-excluded, missing, or local-only; this is not recursive graph traversal. |
 | Lifecycle or progress state | Running inspection, new-run writer, calibration continuation | Current status of a measurement or step, such as running, complete, partial, review-needed, failed, or blocked. |
 | Intervention or operation | Running inspection, calibration continuation, future GUI pressure | A user-facing item that needs attention or can be acted on, without implying autonomous execution. |
 | Reviewable change | Calibration continuation, parameter-state pressure | A user-authored or Scopecat-computed diff from a known state that can be reviewed before committing or applying; not durable history unless accepted. |
-| Warning or attention state | Export, import preview, running inspection, new-run writer, source observation, calibration continuation | A degraded, missing, stale, uncertain, risky, unavailable, mismatched, failed, blocked, or review-needed condition. Normal policy and boundary disclaimers should not become warnings. |
+| Warning or attention state | Export, incoming-record import preview, running inspection, new-run writer, source observation, calibration continuation | A degraded, missing, stale, uncertain, risky, unavailable, mismatched, failed, blocked, or review-needed condition. Normal policy and boundary disclaimers should not become warnings. |
 | Authority/provenance | All validated slices | A way to separate fixture-declared, observed, user-authored, external, materialized, and Scopecat-managed facts without settling final ownership. |
 | Setup binding | Parameter state, selected reference, future measurement reference pressure | The sample/cooldown/session-specific mapping from logical experiment entities to physical wiring, channels, instruments, generated line/readout state, and selected registry context. |
 | Named input snapshot | Parameter state, setup binding, experiment code, measurement reference pressure | A measurement or step context entry that references a point-in-time context record by family name, such as parameter state, setup binding, station registry, or code context, without making those families share lifecycle, diff, storage, or restore semantics. |
@@ -462,11 +467,13 @@ This pressure does not yet require a shared domain module. The current
 implementation candidates should remain slice-local until another slice needs
 the same code boundary rather than merely the same words.
 
-The second strongest pressure is preview readiness. Export, import preview, and
-running inspection need explicit shape and role metadata. Calibration
-continuation also references measurements and fit previews that may later
-benefit from the same preview-ready record shape, but that reuse is not yet
-earned.
+The second strongest pressure is preview readiness. Export, incoming-record
+import preview, and running inspection need explicit shape and role metadata.
+Calibration continuation also references measurements and fit previews that may
+later benefit from the same preview-ready record shape, but that reuse is not
+yet earned. Handoff or export-package contents preview is adjacent future
+pressure over selected measurement export output; it should not be treated as
+the same slice as incoming-record import preview.
 
 The third pressure is externally managed context. Early adoption should assume
 users may still own some snapshots, scripts, parameter files, local paths, and
@@ -490,7 +497,8 @@ The cross-slice comparison still does not earn:
 - final storage identity, object ID, external-reference, or package path model;
 - checksum, archive, importer, or package integrity contract;
 - checksum, observed-file-state, file-watcher, backup, or restore contract;
-- export/import GUI, live monitor GUI, or calibration resume GUI;
+- export, handoff-package contents, incoming-record import GUI, live monitor
+  GUI, or calibration resume GUI;
 - rendered plotting, dataframe dependency, or interactive slicing API;
 - automatic schema inference from legacy files or notebooks;
 - recursive relation traversal or analysis-DAG inference;

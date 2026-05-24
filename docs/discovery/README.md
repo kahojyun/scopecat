@@ -37,7 +37,7 @@ supporting policy notes. The current validated slice inventory is:
 | Preview-ready selected measurement export | Measurement records | Implementation candidate validated | Pure summary for explicit selected measurement sets, default bundles, linked context, declared preview metadata, degraded-preview warnings, and non-recursive traversal. |
 | Storage-transition export | Measurement records | Fixture validated | Source identity, current reference, package materialization, and external-reference policy pressure without accepting storage, checksum, backup, package writer, importer, or GUI behavior. |
 | Running measurement inspection | Measurement records | Implementation candidate validated | Side-effect-free state summary for already-recorded data from still-running measurements, including progress, completeness, freshness, declared preview metadata, and non-durable monitor ergonomics without live-service, GUI, plotting, storage, import/export, or hardware-control authority. |
-| Measurement record import preview | Measurement records | Implementation candidate validated | Side-effect-free preview and classification for explicit incoming-record manifests, including source identity, current-reference state, declared preview metadata, linked context, and review findings without import acceptance, storage mutation, schema inference, package integrity, recursive traversal, or GUI behavior. |
+| Incoming measurement record import preview | Measurement records | Implementation candidate validated | Side-effect-free preview and classification for explicit incoming-record manifests, including source identity, current-reference state, declared preview metadata, linked context, and review findings without import acceptance, storage mutation, selected-measurement export package preview, schema inference, package integrity, recursive traversal, or GUI behavior. |
 | Adapter-authored legacy import manifest | Measurement records | Implementation candidate validated | Side-effect-free validation and summary for normalized manifests emitted by user-owned legacy adapters, including adapter identity, external source identity, primary-data reference, declared preview metadata, linked context, and adapter findings without stable public API, LabRAD/DataVault/Labber reader behavior, import acceptance, storage mutation, schema inference, package format, recursive traversal, or GUI behavior. |
 | New-run measurement writer semantics | Measurement records | Implementation candidate validated | Side-effect-free summary from explicit writer events, including lifecycle, progress, declared primary data reference, and preview metadata without storage mutation, source observation, schema inference, live service, hardware control, scan execution, or GUI behavior. |
 | Append-only measurement storage writer | Measurement records | Implementation candidate validated | Approved filesystem mutation for one new measurement record directory from declared append chunks, including sha256/size preflight, no-overwrite targets, stored primary data, and deterministic manifest without final storage architecture, schema inference, import/export packages, live service, GUI, or hardware-control authority. |
@@ -120,7 +120,7 @@ Measurement Records the owner of context-support behavior.
 | [`problem-briefs/running-measurement-inspection.md`](problem-briefs/running-measurement-inspection.md) | Problem framing for inspecting already-recorded data from a still-running measurement. |
 | [`running-measurement-inspection-validation-plan.md`](running-measurement-inspection-validation-plan.md) | First fixture-validation boundary for running inspection. |
 | [`running-measurement-inspection-validation-result.md`](running-measurement-inspection-validation-result.md) | Result of the running-inspection implementation candidate. |
-| [`measurement-record-import-preview-validation-result.md`](measurement-record-import-preview-validation-result.md) | Result of the first side-effect-free import preview implementation candidate. |
+| [`measurement-record-import-preview-validation-result.md`](measurement-record-import-preview-validation-result.md) | Result of the first side-effect-free incoming-record import preview implementation candidate. |
 | [`adapter-authored-legacy-import-validation-result.md`](adapter-authored-legacy-import-validation-result.md) | Result of the first normalized adapter-authored legacy import manifest candidate. |
 | [`new-run-measurement-writer-validation-result.md`](new-run-measurement-writer-validation-result.md) | Result of the first side-effect-free writer-event implementation candidate. |
 | [`measurement-storage-writer-validation-result.md`](measurement-storage-writer-validation-result.md) | Result of the first approved append-only storage writer implementation candidate. |
@@ -129,6 +129,10 @@ Measurement Records the owner of context-support behavior.
 
 Candidate next slices in this route should stay separate:
 
+- handoff or export-package contents preview: start from a Scopecat-authored
+  selected-measurement export package or manifest, then summarize package
+  contents, preview metadata, attachments, artifacts, and degraded or missing
+  context before accepting, opening, or organizing it;
 - adapter-authored legacy import review-to-acceptance boundary: start from a
   normalized manifest emitted by a user-owned adapter, then decide explicit
   copy/reference storage mutation without accepting a stable public API,

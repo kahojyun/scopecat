@@ -118,7 +118,8 @@ This deferral keeps these decisions separate:
 - final storage identity, object ID, external-reference, and package path
   model;
 - checksum, archive, importer, and package integrity contract;
-- export/import GUI, live monitor GUI, and calibration resume GUI;
+- export, handoff-package contents, incoming-record import GUI, live monitor
+  GUI, and calibration resume GUI;
 - plotting dependency, rendered preview, and interactive slicing API;
 - automatic schema inference from legacy files or notebooks;
 - recursive relation traversal and analysis-DAG inference;

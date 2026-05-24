@@ -87,9 +87,9 @@ preflighted digest and size facts, no-overwrite targets, and a deterministic
 manifest.
 
 This earns enough behavior to compare storage mutation against the existing
-writer-event, import-preview, export, and running-inspection candidates. It
-does not make this fixture the final storage architecture or a shared
-measurement-record schema.
+writer-event, incoming-record import preview, export, and running-inspection
+candidates. It does not make this fixture the final storage architecture or a
+shared measurement-record schema.
 
 ## Follow-Up
 

@@ -58,7 +58,7 @@ class MeasurementRecordImportPreviewSummaryCandidateTest(unittest.TestCase):
         )
         self.assertEqual(
             findings["linked_context_unavailable"]["does_not_claim"],
-            "relation_graph_or_import_package_invalid",
+            "relation_graph_or_package_integrity_invalid",
         )
 
     def test_boundary_output_keeps_import_and_schema_inference_out_of_scope(self) -> None:
@@ -77,7 +77,7 @@ class MeasurementRecordImportPreviewSummaryCandidateTest(unittest.TestCase):
             attention["schema_inference_not_performed"]["does_not_claim"],
             "automatic_schema_detection",
         )
-        self.assertIn("Import preview classifies", expected["boundary_notes"][0])
+        self.assertIn("Incoming-record import preview classifies", expected["boundary_notes"][0])
         self.assertIn("import review GUI", expected["decisions_not_earned"])
 
     def test_positive_policy_claims_are_rejected(self) -> None:

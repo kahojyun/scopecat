@@ -87,7 +87,7 @@ This result does not earn:
 - checksum, observed-file-state, file-watcher, or integrity contract;
 - backup, restore, archive, or snapshot behavior;
 - package writer or importer behavior;
-- export/import GUI;
+- export, handoff-package contents, or incoming-record import GUI;
 - automatic repair for moved external paths;
 - recursive relation traversal;
 - shared domain model extraction.

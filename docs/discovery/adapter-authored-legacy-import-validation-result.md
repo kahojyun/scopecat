@@ -79,9 +79,11 @@ It does not:
 
 ## Result
 
-Adapter-authored legacy import is a useful bridge between import preview and
-old lab records without forcing Scopecat to support old storage formats
-directly.
+Adapter-authored legacy import is a useful bridge between incoming-record
+import-preview vocabulary and old lab records without forcing Scopecat to
+support old storage formats directly. It is separate from handoff or
+export-package contents preview, where the input would be a Scopecat-authored
+selected-measurement export package or manifest.
 
 The fixture keeps the engineering boundary simple: legacy-specific knowledge
 lives in a user-owned adapter, and Scopecat consumes a normalized manifest with
