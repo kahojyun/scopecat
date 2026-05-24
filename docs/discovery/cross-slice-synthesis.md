@@ -19,6 +19,8 @@ executor design, relation graph, or warning taxonomy.
 - [`running-measurement-inspection-validation-result.md`](running-measurement-inspection-validation-result.md)
 - [`measurement-record-import-preview-validation-result.md`](measurement-record-import-preview-validation-result.md)
 - [`handoff-package-contents-preview-validation-result.md`](handoff-package-contents-preview-validation-result.md)
+- [`adapter-authored-legacy-import-validation-result.md`](adapter-authored-legacy-import-validation-result.md)
+- [`legacy-import-acceptance-validation-result.md`](legacy-import-acceptance-validation-result.md)
 - [`new-run-measurement-writer-validation-result.md`](new-run-measurement-writer-validation-result.md)
 - [`measurement-storage-writer-validation-result.md`](measurement-storage-writer-validation-result.md)
 - [`derived-artifact-source-links-validation-result.md`](derived-artifact-source-links-validation-result.md)
@@ -94,6 +96,18 @@ files, infer schemas, validate package integrity, define a final package
 format, traverse relation graphs, or design a review GUI. This keeps it
 separate from incoming-record import preview, where the input authority is an
 external incoming-record manifest.
+
+Legacy import acceptance has a slice-local implementation candidate for the
+first approved review-to-acceptance mutation for a normalized adapter-authored
+legacy manifest. It validates the embedded adapter manifest, requires approved
+acceptance, preflights one declared source primary-data file by sha256 and
+size, refuses existing targets, copies primary data into a new record
+directory, writes a deterministic imported-record manifest, preserves external
+source identity, and keeps linked context reference-only. It does not accept a
+stable import API, legacy readers in core, Scopecat export-package acceptance,
+existing-record append or update behavior, schema inference, recursive
+relation traversal, linked-context payload import, package integrity, or GUI
+behavior.
 
 New-run measurement writer semantics has a slice-local implementation
 candidate for deriving a reviewable measurement-record summary from explicit
@@ -351,16 +365,16 @@ schema.
 
 | Candidate concept | Slice pressure | Current meaning |
 | --- | --- | --- |
-| Measurement record | Export, incoming-record import preview, handoff package contents preview, running inspection, new-run writer, storage writer, source observation, calibration continuation | The ordinary user-facing unit for primary recorded experiment data, created from writer events, written to storage, observed after storage, selected for export, previewed before import or package acceptance, inspected while running, or referenced as calibration output. |
-| Source identity | Export, incoming-record import preview, running inspection, new-run writer, calibration continuation | Recoverable provenance for where a record came from, distinct from current read path, package-relative fixture path, writer-declared primary data path, or final storage identity. |
-| Primary data reference | Export, incoming-record import preview, handoff package contents preview, running inspection, new-run writer, storage writer, source observation, measurement boundary | The data item users expect to inspect, preview, export, import, package, store, observe, or later plot; may be fixture path-shaped now but should not imply durable path identity. |
-| Declared preview metadata | Export, incoming-record import preview, handoff package contents preview, running inspection, new-run writer, storage writer, source observation, scan/data-shape | Shape, roles, labels, units, axis order, row order, and plot candidates supplied explicitly enough to support preview without schema inference. |
-| Linked context | Export, incoming-record import preview, handoff package contents preview, derived artifact source links, calibration continuation, measurement boundary | Snapshots, attachments, artifacts, fit previews, notes, or derived outputs connected to a measurement, package, or step with explicit relation and authority. |
+| Measurement record | Export, incoming-record import preview, handoff package contents preview, legacy import acceptance, running inspection, new-run writer, storage writer, source observation, calibration continuation | The ordinary user-facing unit for primary recorded experiment data, created from writer events, written to storage, accepted from reviewed legacy adapter manifests, observed after storage, selected for export, previewed before import or package acceptance, inspected while running, or referenced as calibration output. |
+| Source identity | Export, incoming-record import preview, legacy import acceptance, running inspection, new-run writer, calibration continuation | Recoverable provenance for where a record came from, distinct from current read path, package-relative fixture path, writer-declared primary data path, or final storage identity. |
+| Primary data reference | Export, incoming-record import preview, handoff package contents preview, legacy import acceptance, running inspection, new-run writer, storage writer, source observation, measurement boundary | The data item users expect to inspect, preview, export, import, package, store, observe, or later plot; may be fixture path-shaped now but should not imply durable path identity. |
+| Declared preview metadata | Export, incoming-record import preview, handoff package contents preview, legacy import acceptance, running inspection, new-run writer, storage writer, source observation, scan/data-shape | Shape, roles, labels, units, axis order, row order, and plot candidates supplied explicitly enough to support preview without schema inference. |
+| Linked context | Export, incoming-record import preview, handoff package contents preview, legacy import acceptance, derived artifact source links, calibration continuation, measurement boundary | Snapshots, attachments, artifacts, fit previews, notes, or derived outputs connected to a measurement, package, or step with explicit relation and authority. |
 | Include state | Export, handoff package contents preview, measurement boundary | Whether linked context is default-included, user-included, visible-but-excluded, visible-but-not-packaged, missing, or local-only; this is not recursive graph traversal. |
 | Lifecycle or progress state | Running inspection, new-run writer, calibration continuation | Current status of a measurement or step, such as running, complete, partial, review-needed, failed, or blocked. |
 | Intervention or operation | Running inspection, calibration continuation, future GUI pressure | A user-facing item that needs attention or can be acted on, without implying autonomous execution. |
 | Reviewable change | Calibration continuation, parameter-state pressure | A user-authored or Scopecat-computed diff from a known state that can be reviewed before committing or applying; not durable history unless accepted. |
-| Warning or attention state | Export, incoming-record import preview, handoff package contents preview, running inspection, new-run writer, source observation, calibration continuation | A degraded, missing, stale, uncertain, risky, unavailable, mismatched, failed, blocked, or review-needed condition. Normal policy and boundary disclaimers should not become warnings. |
+| Warning or attention state | Export, incoming-record import preview, handoff package contents preview, legacy import acceptance, running inspection, new-run writer, source observation, calibration continuation | A degraded, missing, stale, uncertain, risky, unavailable, mismatched, failed, blocked, or review-needed condition. Normal policy and boundary disclaimers should not become warnings. |
 | Authority/provenance | All validated slices | A way to separate fixture-declared, observed, user-authored, external, materialized, and Scopecat-managed facts without settling final ownership. |
 | Setup binding | Parameter state, selected reference, future measurement reference pressure | The sample/cooldown/session-specific mapping from logical experiment entities to physical wiring, channels, instruments, generated line/readout state, and selected registry context. |
 | Named input snapshot | Parameter state, setup binding, experiment code, measurement reference pressure | A measurement or step context entry that references a point-in-time context record by family name, such as parameter state, setup binding, station registry, or code context, without making those families share lifecycle, diff, storage, or restore semantics. |
