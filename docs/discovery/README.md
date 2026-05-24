@@ -40,6 +40,7 @@ supporting policy notes. The current validated slice inventory is:
 | Incoming measurement record import preview | Measurement records | Implementation candidate validated | Side-effect-free preview and classification for explicit incoming-record manifests, including source identity, current-reference state, declared preview metadata, linked context, and review findings without import acceptance, storage mutation, selected-measurement export package preview, schema inference, package integrity, recursive traversal, or GUI behavior. |
 | Handoff package contents preview | Measurement records | Implementation candidate validated | Side-effect-free preview and classification for Scopecat-authored selected-measurement export package manifests, including package identity, selected measurements, packaged contents, declared preview metadata, visible-but-not-packaged artifacts, and missing context without import acceptance, storage mutation, archive extraction, package integrity, schema inference, recursive traversal, or GUI behavior. |
 | Adapter-authored legacy import manifest | Measurement records | Implementation candidate validated | Side-effect-free validation and summary for normalized manifests emitted by user-owned legacy adapters, including adapter identity, external source identity, primary-data reference, declared preview metadata, linked context, and adapter findings without stable public API, LabRAD/DataVault/Labber reader behavior, import acceptance, storage mutation, schema inference, package format, recursive traversal, or GUI behavior. |
+| Legacy import acceptance | Measurement records | Implementation candidate validated | Approved copy-into-new-record mutation for one reviewed adapter-authored manifest, including source sha256/size preflight, no-overwrite targets, copied primary data, deterministic imported-record manifest, preserved external source identity, and reference-only linked context without stable import API, legacy readers in core, export-package acceptance, existing-record update, schema inference, recursive traversal, package integrity, or GUI behavior. |
 | New-run measurement writer semantics | Measurement records | Implementation candidate validated | Side-effect-free summary from explicit writer events, including lifecycle, progress, declared primary data reference, and preview metadata without storage mutation, source observation, schema inference, live service, hardware control, scan execution, or GUI behavior. |
 | Append-only measurement storage writer | Measurement records | Implementation candidate validated | Approved filesystem mutation for one new measurement record directory from declared append chunks, including sha256/size preflight, no-overwrite targets, stored primary data, and deterministic manifest without final storage architecture, schema inference, import/export packages, live service, GUI, or hardware-control authority. |
 | Derived artifact source links | Measurement records | Implementation candidate validated | Side-effect-free summary for an explicit derived-artifact manifest, including artifact identity, direct source measurement roles, relation states, and review findings without artifact parsing, source observation, checksum validation, storage mutation, recursive traversal, analysis-DAG inference, scientific validity review, or GUI behavior. |
@@ -124,6 +125,7 @@ Measurement Records the owner of context-support behavior.
 | [`measurement-record-import-preview-validation-result.md`](measurement-record-import-preview-validation-result.md) | Result of the first side-effect-free incoming-record import preview implementation candidate. |
 | [`handoff-package-contents-preview-validation-result.md`](handoff-package-contents-preview-validation-result.md) | Result of the first side-effect-free Scopecat-authored handoff package contents preview implementation candidate. |
 | [`adapter-authored-legacy-import-validation-result.md`](adapter-authored-legacy-import-validation-result.md) | Result of the first normalized adapter-authored legacy import manifest candidate. |
+| [`legacy-import-acceptance-validation-result.md`](legacy-import-acceptance-validation-result.md) | Result of the first approved copy-into-new-record acceptance candidate for a reviewed adapter-authored legacy manifest. |
 | [`new-run-measurement-writer-validation-result.md`](new-run-measurement-writer-validation-result.md) | Result of the first side-effect-free writer-event implementation candidate. |
 | [`measurement-storage-writer-validation-result.md`](measurement-storage-writer-validation-result.md) | Result of the first approved append-only storage writer implementation candidate. |
 | [`derived-artifact-source-links-validation-result.md`](derived-artifact-source-links-validation-result.md) | Result of the first explicit derived-artifact source-link implementation candidate. |
@@ -131,12 +133,19 @@ Measurement Records the owner of context-support behavior.
 
 Candidate next slices in this route should stay separate:
 
-- adapter-authored legacy import review-to-acceptance boundary: start from a
-  normalized manifest emitted by a user-owned adapter, then decide explicit
-  copy/reference storage mutation without accepting a stable public API,
-  export-package acceptance, or legacy readers in Scopecat core;
 - existing-record append or update pressure: validate locks, crash recovery,
-  and in-progress record behavior separately from the new-record writer.
+  and in-progress record behavior separately from the new-record writer and
+  legacy import acceptance;
+- reference-only legacy import acceptance: validate lab-managed shared-storage
+  references without copying primary data or accepting broad package behavior.
+
+The first legacy import acceptance candidate is validated in
+[`legacy-import-acceptance-validation-result.md`](legacy-import-acceptance-validation-result.md).
+It copies one reviewed adapter-authored legacy record into new storage after
+source sha256 and size preflight, preserves external source identity and
+linked context as reference-only facts, and leaves stable import APIs,
+legacy readers in core, export-package acceptance, existing-record update,
+schema inference, package integrity, and GUI behavior out of scope.
 
 The first append-only storage writer candidate is validated in
 [`measurement-storage-writer-validation-result.md`](measurement-storage-writer-validation-result.md).
