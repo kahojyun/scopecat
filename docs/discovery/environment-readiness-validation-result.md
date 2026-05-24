@@ -102,10 +102,13 @@ run-blocking claims.
 Stop this slice at side-effect-free readiness planning unless the next workflow
 needs approved dependency or runtime operations.
 
-Likely follow-up slices should stay separate:
+The first declaration-only comparison follow-up is now validated separately in
+[`environment-comparison-validation-result.md`](environment-comparison-validation-result.md).
 
-- environment comparison findings, still without package resolution or runtime
-  checks;
+Likely further follow-up slices should stay separate:
+
+- additional environment comparison edge cases, still without package
+  resolution or runtime checks;
 - approved modern environment file observation, dependency resolution, or
   dependency sync as separate operation slices, with legacy or lab-managed
   environment facts remaining record-only migration/review evidence;

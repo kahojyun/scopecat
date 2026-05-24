@@ -1,0 +1,189 @@
+{
+  "environment_comparison_policy": {
+    "fact_source": "declared_environment_context_facts",
+    "comparison_scope": "explicit_declared_environment_facts",
+    "environment_file_observation": "not_performed",
+    "dependency_resolution": "not_performed",
+    "dependency_sync": "not_performed",
+    "package_install": "not_performed",
+    "runtime_probe": "not_performed",
+    "code_import_execution": "not_performed",
+    "hardware_probe": "not_performed",
+    "readiness_claim": "not_claimed",
+    "shared_environment_schema": "not_defined"
+  },
+  "environment_records": [
+    {
+      "environment_id": "declared-environment-chevron-qA-reference",
+      "label": "Reference qA chevron declared environment",
+      "authority": "user_declared_inventory",
+      "record_status": "declared_with_review_findings",
+      "scope": {
+        "managed_code_version_id": "managed-code-version-chevron-qA-reference",
+        "editable_workspace_id": "editable-workspace-chevron-qA-reference",
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-reference"
+      },
+      "environment_claims": {
+        "readiness_claim": "not_checked",
+        "sync_claim": "not_synced",
+        "execution_claim": "not_imported_loaded_or_executed",
+        "hardware_claim": "not_probed"
+      },
+      "declared_environment_facts": [
+        {
+          "fact_type": "modern_python_environment",
+          "fact_id": "manager",
+          "label": "Python environment manager",
+          "value": "uv",
+          "declaration_state": "declared"
+        },
+        {
+          "fact_type": "modern_python_environment",
+          "fact_id": "pyproject_path",
+          "label": "Primary Python project manifest",
+          "value": "pyproject.toml",
+          "declaration_state": "declared"
+        },
+        {
+          "fact_type": "modern_python_environment",
+          "fact_id": "lockfile_path",
+          "label": "Python lockfile",
+          "value": "uv.lock",
+          "declaration_state": "declared"
+        },
+        {
+          "fact_type": "modern_python_environment",
+          "fact_id": "python_version_source",
+          "label": "Python version declaration source",
+          "value": "requires-python",
+          "declaration_state": "declared"
+        },
+        {
+          "fact_type": "dependency_group",
+          "fact_id": "default",
+          "label": "Default dependency group",
+          "value": "default",
+          "declaration_state": "declared"
+        },
+        {
+          "fact_type": "dependency_group",
+          "fact_id": "analysis",
+          "label": "Analysis dependency group",
+          "value": "analysis",
+          "declaration_state": "declared"
+        },
+        {
+          "fact_type": "external_runtime_note",
+          "fact_id": "external-vna-driver",
+          "label": "VNA driver and firmware utility",
+          "value": "lab-managed-vna-driver",
+          "declaration_state": "unverified",
+          "review_reason": "Driver remains a control-PC review item and has not been verified by this comparison."
+        },
+        {
+          "fact_type": "migration_note",
+          "fact_id": "legacy-qcodes-pin",
+          "label": "Legacy qcodes pin policy",
+          "value": "record-only-legacy-pin",
+          "declaration_state": "unsupported",
+          "review_reason": "Legacy pin policy is not a supported modern environment comparison source."
+        }
+      ]
+    },
+    {
+      "environment_id": "declared-environment-chevron-qA-current",
+      "label": "Current qA chevron declared environment",
+      "authority": "user_declared_inventory",
+      "record_status": "declared_with_review_findings",
+      "scope": {
+        "managed_code_version_id": "managed-code-version-chevron-qA-current",
+        "editable_workspace_id": "editable-workspace-chevron-qA-current",
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-current"
+      },
+      "environment_claims": {
+        "readiness_claim": "not_checked",
+        "sync_claim": "not_synced",
+        "execution_claim": "not_imported_loaded_or_executed",
+        "hardware_claim": "not_probed"
+      },
+      "declared_environment_facts": [
+        {
+          "fact_type": "modern_python_environment",
+          "fact_id": "manager",
+          "label": "Python environment manager",
+          "value": "uv",
+          "declaration_state": "declared"
+        },
+        {
+          "fact_type": "modern_python_environment",
+          "fact_id": "pyproject_path",
+          "label": "Primary Python project manifest",
+          "value": "pyproject.toml",
+          "declaration_state": "declared"
+        },
+        {
+          "fact_type": "modern_python_environment",
+          "fact_id": "lockfile_path",
+          "label": "Python lockfile",
+          "value": "uv-current.lock",
+          "declaration_state": "declared"
+        },
+        {
+          "fact_type": "modern_python_environment",
+          "fact_id": "python_version_source",
+          "label": "Python version declaration source",
+          "value": "requires-python",
+          "declaration_state": "declared"
+        },
+        {
+          "fact_type": "dependency_group",
+          "fact_id": "default",
+          "label": "Default dependency group",
+          "value": "default",
+          "declaration_state": "declared"
+        },
+        {
+          "fact_type": "dependency_group",
+          "fact_id": "calibration",
+          "label": "Calibration dependency group",
+          "value": "calibration",
+          "declaration_state": "declared"
+        },
+        {
+          "fact_type": "external_runtime_note",
+          "fact_id": "external-vna-driver",
+          "label": "VNA driver and firmware utility",
+          "value": "lab-managed-vna-driver",
+          "declaration_state": "unverified",
+          "review_reason": "Driver remains a control-PC review item and has not been verified by this comparison."
+        },
+        {
+          "fact_type": "migration_note",
+          "fact_id": "legacy-qcodes-pin",
+          "label": "Legacy qcodes pin policy",
+          "value": "record-only-legacy-pin",
+          "declaration_state": "unsupported",
+          "review_reason": "Legacy pin policy is not a supported modern environment comparison source."
+        }
+      ]
+    }
+  ],
+  "comparison_sets": [
+    {
+      "comparison_id": "environment-comparison-chevron-qA-reference-to-current",
+      "baseline_environment_id": "declared-environment-chevron-qA-reference",
+      "comparison_environment_id": "declared-environment-chevron-qA-current",
+      "comparison_purpose": "selected_reference_to_current_manual_rerun_review"
+    }
+  ],
+  "attention_expected": [
+    "comparison_uses_declared_environment_facts",
+    "environment_files_not_read",
+    "dependency_resolution_not_performed",
+    "dependency_sync_not_performed",
+    "runtime_probe_not_performed",
+    "code_execution_not_granted",
+    "hardware_probe_not_performed",
+    "environment_readiness_not_claimed"
+  ]
+}

@@ -40,6 +40,7 @@ executor design, relation graph, or warning taxonomy.
 - [`declared-environment-inventory-validation-result.md`](declared-environment-inventory-validation-result.md)
 - [`reference-based-rerun-preparation-validation-result.md`](reference-based-rerun-preparation-validation-result.md)
 - [`environment-readiness-validation-result.md`](environment-readiness-validation-result.md)
+- [`environment-comparison-validation-result.md`](environment-comparison-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
 - [`adoption-routes.md`](adoption-routes.md)
 - [`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md)
@@ -273,6 +274,13 @@ reading dependency files, resolving or syncing dependencies, installing
 packages, probing runtimes, importing code, executing code, probing hardware,
 or claiming runnable readiness.
 
+Environment comparison has a slice-local implementation candidate for comparing
+selected-reference and current declared environment facts. It reports
+same-declared, changed, missing, unverified, and unsupported findings without
+reading manifests or lockfiles, resolving dependencies, syncing packages,
+probing runtimes, importing code, executing code, probing hardware, or claiming
+runnable readiness.
+
 ## Version Terminology
 
 The slices are converging on a shared distinction without yet earning a shared
@@ -343,6 +351,7 @@ schema.
 | Prepared run context | Experiment code, measurement context support | A manual run-preparation summary that groups selected managed code/workspace observation, parameter state, setup binding, station registry, and measurement intent while surfacing missing environment context, workspace drift, or workspace limitations as review findings, without claiming restore, runnable readiness, hardware control, import, or execution. |
 | Reference-based rerun preparation | Experiment code, selected reference, measurement context support | A proposed manual rerun context seeded from a user-selected reference measurement and its linked context records. The first candidate validates reference-linked selection and review findings without claiming reference goodness, reproducibility, automatic cause attribution, drift correction, hardware control, environment sync, import, or execution. |
 | Environment readiness plan | Experiment code, prepared run context support | A reviewable plan for what checks would be needed for a selected declared modern `uv`/`pyproject.toml` environment context. The first candidate treats lab-managed drivers and legacy dependency concerns as review notes while avoiding package-manager runs, code import, code execution, hardware probes, or runnable-readiness claims. |
+| Environment comparison finding | Experiment code, selected reference, prepared run context support | A declared-fact comparison result such as same-declared, changed, missing, unverified, or unsupported for selected environment context. It is not dependency resolution, runtime compatibility, hardware readiness, runnable readiness, or reproducibility. |
 
 ## Stable Separations
 
