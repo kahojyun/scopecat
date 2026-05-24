@@ -120,6 +120,9 @@ Validation should follow authority boundaries more strictly than user adoption:
 9. Validate environment comparison findings before treating selected-reference
    and current declared environment differences as dependency operations,
    runtime compatibility checks, hardware readiness, or runnable readiness.
+10. Validate environment file observation before treating declared modern
+    manifests or lockfiles as dependency-resolution, sync, runtime,
+    hardware-readiness, or runnable-readiness inputs.
 
 ## Validation Slice Backlog
 
@@ -299,6 +302,30 @@ Result owner:
 Boundary: no file reads, dependency resolution, dependency sync, package
 installation, runtime probes, hardware probes, code import, code execution,
 shared environment schema, or runnable-readiness claim.
+
+### 10. Environment File Observation
+
+Validation question: can Scopecat observe explicitly declared environment files
+under a caller-provided workspace root without discovering workspaces,
+resolving dependencies, syncing packages, probing runtimes, importing code,
+executing code, or claiming runnable readiness?
+
+User pressure: users reviewing a current manual run context need to know
+whether the declared modern environment files are present and match declared
+file facts before any environment operation is approved.
+
+First fixture: a current declared environment context with explicit
+`pyproject.toml` and `uv.lock` relative paths, producing availability, sha256,
+byte-size, mismatch, malformed-manifest review findings, and narrow
+`pyproject.toml` declared manifest summary facts.
+
+Result owner:
+[`environment-file-observation-validation-result.md`](environment-file-observation-validation-result.md)
+
+Boundary: no workspace discovery, lockfile dependency-graph parsing,
+dependency resolution, dependency sync, package installation, runtime probes,
+hardware probes, code import, code execution, shared environment schema, or
+runnable-readiness claim.
 
 All slices should keep code execution separate from code record integrity and
 environment planning until an explicit execution slice earns that authority.
