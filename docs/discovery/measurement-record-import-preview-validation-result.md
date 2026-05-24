@@ -14,8 +14,8 @@ import review GUI, or shared measurement-record schema.
 The slice name is intentionally specific. It previews externally supplied
 incoming measurement candidates from an explicit manifest. It is not the
 offline or receiving-side preview of a Scopecat-created selected-measurement
-handoff package; that package-contents preview should be validated as a
-separate slice because the input authority is different.
+handoff package; that package-contents preview is validated separately because
+the input authority is different.
 
 ## Fixture
 
@@ -84,11 +84,12 @@ export. It tests similar source identity, current-reference, declared preview
 metadata, linked-context, and attention-state pressure from the external
 candidate side without granting Scopecat import or storage authority.
 
-The related receiving-side package preview should start from a Scopecat-authored
-selected-measurement export package or manifest and answer a different
-question: what contents, preview metadata, attachments, artifacts, and degraded
-or missing context are present in this handoff package before it is opened,
-accepted, or organized?
+The related receiving-side package preview is validated in
+[`handoff-package-contents-preview-validation-result.md`](handoff-package-contents-preview-validation-result.md).
+It starts from a Scopecat-authored selected-measurement export package manifest
+and answers a different question: what contents, preview metadata, attachments,
+artifacts, and degraded or missing context are present in this handoff package
+before it is opened, accepted, or organized?
 
 Unavailable source data blocks preview review for that record, but the finding
 does not claim the source is permanently missing or invalid. Missing preview
@@ -104,9 +105,9 @@ Likely follow-up slices should stay separate:
 
 - adapter-authored legacy import acceptance for one normalized source shape,
   with explicit storage mutation boundaries and no core legacy reader;
-- handoff or export-package contents preview, starting from a
-  selected-measurement export package or manifest rather than an external
-  incoming-record manifest;
+- package integrity or handoff package acceptance, starting from the
+  separately validated package contents preview boundary rather than an
+  external incoming-record manifest;
 - source observation or checksum validation for a declared import package,
   without accepting a full package format;
 - harder incoming-record data-shape preview cases, such as ragged scans or
