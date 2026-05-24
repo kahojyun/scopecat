@@ -1,4 +1,4 @@
-"""Structured summary builder for measurement record import preview.
+"""Structured summary builder for incoming measurement record import preview.
 
 This module is an experimental production-shaped boundary. It is deliberately
 side-effect free: it does not read source data, copy files, write storage,
@@ -71,10 +71,10 @@ def _path_is_relative(path: str) -> bool:
 def _validate_policy(source: dict[str, Any]) -> None:
     policy = source["import_preview_policy"]
     if set(policy) != set(_EXPECTED_POLICY):
-        raise ValueError("import preview policy must match expected shape")
+        raise ValueError("incoming-record import preview policy must match expected shape")
     for key, expected in _EXPECTED_POLICY.items():
         if policy[key] != expected:
-            raise ValueError(f"import preview policy {key} must be {expected}")
+            raise ValueError(f"incoming-record import preview policy {key} must be {expected}")
 
 
 def _validate_relative_path(path: str, owner: str) -> None:
@@ -317,7 +317,7 @@ def _findings(source: dict[str, Any]) -> list[dict[str, Any]]:
                         "severity": "review",
                         "finding": f"linked_context_{item['link_state']}",
                         "basis": item["reason"],
-                        "does_not_claim": "relation_graph_or_import_package_invalid",
+                        "does_not_claim": "relation_graph_or_package_integrity_invalid",
                     }
                 )
 
@@ -329,7 +329,9 @@ def _attention() -> list[dict[str, str]]:
         {
             "code": "manifest_only_preview",
             "severity": "info",
-            "basis": "Import preview uses explicit incoming-record manifest facts only.",
+            "basis": (
+                "Incoming-record import preview uses explicit incoming-record manifest facts only."
+            ),
             "does_not_claim": "observed_source_file_state",
         },
         {
@@ -360,7 +362,7 @@ def _attention() -> list[dict[str, str]]:
 
 
 def build_measurement_record_import_preview_summary(source: dict[str, Any]) -> dict[str, Any]:
-    """Build a structured import-preview summary from explicit manifest input."""
+    """Build an incoming-record import-preview summary from explicit manifest input."""
     _validate_references(source)
     return {
         "import_preview_policy": copy.deepcopy(source["import_preview_policy"]),

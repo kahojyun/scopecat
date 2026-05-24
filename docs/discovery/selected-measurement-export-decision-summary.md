@@ -45,7 +45,8 @@ That means:
   measurements preview-ready when that metadata is available;
 - missing preview metadata should produce degraded-preview warnings rather than
   blocking export of otherwise valid selected measurements;
-- preview readiness supports future export selection and import confirmation;
+- preview readiness supports future export selection and handoff-package
+  contents confirmation;
 - preview does not mean rendered plots, report generation, fit validation,
   uncertainty, reproducibility, or user/domain scientific conclusions.
 
@@ -74,7 +75,7 @@ The current fixtures and spikes cover the main product boundary:
 - Final manifest, package, archive, checksum, or integrity contract.
 - Final storage layout, object-ID scheme, or external-reference policy.
 - Final measurement, attachment, artifact, relation, or data-shape schema.
-- Final export/import GUI workflow.
+- Final export and handoff-package contents GUI workflow.
 - Artifact inclusion UX for many-to-many links.
 - Automatic analysis-DAG inference, relation traversal, or ownership.
 - Real LabRAD, Labber, notebook, sidecar, HDF5, NPZ, or dataframe readers.
@@ -88,8 +89,10 @@ The current fixtures and spikes cover the main product boundary:
 
 - What minimal preview surface should export show before users select
   measurements?
-- What minimal preview surface should import show before users accept or
-  organize incoming measurements?
+- What minimal handoff or export-package contents preview should receiving
+  users see before they accept, open, or organize a Scopecat-created package?
+- What minimal incoming-record preview should external import candidates show
+  before users accept or organize them?
 - Which linked files should be default includes versus optional includes?
 - How should users name or label attachments and artifacts without excessive
   friction?

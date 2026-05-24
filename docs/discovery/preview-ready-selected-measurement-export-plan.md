@@ -21,8 +21,12 @@ Preview-ready means exported measurement records carry enough declared metadata
 to avoid blocking later preview surfaces on both sides of a transfer:
 
 - export-side preview helps users choose measurements before packaging;
-- import-side preview helps users confirm incoming measurements before
-  accepting or organizing them;
+- handoff or export-package contents preview helps receiving users confirm
+  what a Scopecat-created package contains before opening, accepting, or
+  organizing it;
+- incoming-record import preview is a related but separate slice for external
+  candidate records whose input shape is not authored by selected measurement
+  export;
 - preview is orientation and selection support, not rendered plotting,
   analysis, fit validation, uncertainty, reproducibility, or scientific
   validation.
@@ -224,8 +228,9 @@ and warning surfaces without becoming broad legacy importer coverage.
 
 These should remain separate decisions unless they block the first slice:
 
-- exact export/import GUI flow;
-- minimal preview UI content before export selection or import acceptance;
+- exact export and handoff-package contents preview GUI flow;
+- minimal preview UI content before export selection or handoff-package
+  acceptance, opening, or organization;
 - default include policy for attachments versus artifacts;
 - artifact naming and labeling UX;
 - many-to-many relation model;

@@ -69,11 +69,13 @@ correctness, held-condition constancy, numeric suitability, or user/domain
 conclusions.
 
 Future export/import UX should be able to use the same declared metadata for
-quick preview in both directions: exporters preview candidate measurements
-before selecting a package, and importers preview incoming measurements before
-accepting or organizing them. That expectation does not make rendered plots,
-GUI design, report generation, or user/domain scientific conclusions part of
-this spike.
+quick orientation in both directions: exporters preview candidate measurements
+before selecting a package, and receiving users preview Scopecat-created
+handoff package contents before opening, accepting, or organizing them.
+Incoming-record import preview is adjacent, but starts from an external
+incoming-record manifest rather than selected measurement export output. That
+expectation does not make rendered plots, GUI design, report generation, or
+user/domain scientific conclusions part of this spike.
 
 ## Not Earned
 
@@ -86,7 +88,7 @@ These spikes do not earn:
 - notebook parsing or automatic discovery from real lab folders;
 - automatic analysis-DAG inference or relation traversal;
 - artifact/source inclusion policy for many-to-many links;
-- final export/import GUI workflow;
+- final export and handoff-package contents GUI workflow;
 - scan declaration design beyond one 1D CSV fixture;
 - automatic schema inference;
 - plotting or rendered preview output;
@@ -114,8 +116,8 @@ consolidation in
 
 - Is the generated preview enough to support first-pass slicing or rough figure
   planning without rendered plots?
-- What minimal preview should export and import GUIs show before selection or
-  acceptance?
+- What minimal preview should export and handoff-package contents GUIs show
+  before selection, opening, acceptance, or organization?
 - Are declared roles acceptable as the first preview path, or does the first
   real workflow need adapter-generated declarations?
 - Should scan declaration become the next validation slice before any durable
@@ -145,7 +147,8 @@ Only fork back into discovery if a specific unresolved question blocks a future
 plan:
 
 - artifact inclusion UX for many-to-many links;
-- the minimal preview needed before export selection or import acceptance;
+- the minimal preview needed before export selection or handoff-package
+  opening, acceptance, or organization;
 - a harder scan shape that is truly blocking the first implementation slice;
 - a stronger package integrity requirement.
 

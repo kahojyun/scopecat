@@ -104,9 +104,13 @@ handoff packages, existing shared-storage discovery or references, and
 openability checks. This makes Scopecat record-aware across machines, not a
 distributed experiment-control system.
 
-Export/import should eventually support quick measurement preview on both
-sides: export preview helps choose which measurements to package, while import
-preview helps confirm what is being accepted or organized. This is an
+Export/import should eventually support quick measurement orientation on both
+sides: export preview helps choose which measurements to package; handoff or
+export-package contents preview helps the receiving user confirm what a
+Scopecat-created package contains before opening, accepting, or organizing it;
+and incoming-record import preview helps classify externally supplied candidate
+records before import authority exists. These are related preview surfaces with
+different input authorities, not one generic import contract. This is an
 orientation and trust boundary, not a commitment to rendered plots, report
 generation, or user/domain conclusions in the first slice.
 

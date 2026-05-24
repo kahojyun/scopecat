@@ -93,7 +93,8 @@ analysis workspace.
 - Full report generation, publication workflow, automatic reanalysis, claim
   correctness scoring, central services, remote execution, mandatory shared
   storage, and multi-user sync services.
-- Final export/import GUI workflow, rendered preview UI, and plot rendering.
+- Final export and handoff-package contents GUI workflow, rendered preview UI,
+  and plot rendering.
 - Treating folder names such as `old`, `backup`, or `copy` as proof of status.
 - Including related-but-not-exported runs in a default handoff unless a group,
   tag, or user note gives them explicit meaning.

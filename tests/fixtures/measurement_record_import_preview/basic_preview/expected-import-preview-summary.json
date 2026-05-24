@@ -1,7 +1,7 @@
 {
   "status": "fixture",
   "reference_semantics": {
-    "contract_guard": "Measurement record import preview is not an importer, storage writer, schema inference engine, checksum contract, package acceptance flow, recursive relation traversal, or GUI workflow.",
+    "contract_guard": "Incoming measurement record import preview is not an importer, storage writer, schema inference engine, selected-measurement export package preview, checksum contract, package acceptance flow, recursive relation traversal, or GUI workflow.",
     "source_fixture": "import-preview-input.json"
   },
   "candidate_summary": {
@@ -160,14 +160,14 @@
         "severity": "review",
         "finding": "linked_context_unavailable",
         "basis": "Notebook was listed in the source folder inventory but was not included in the review drop.",
-        "does_not_claim": "relation_graph_or_import_package_invalid"
+        "does_not_claim": "relation_graph_or_package_integrity_invalid"
       }
     ],
     "attention": [
       {
         "code": "manifest_only_preview",
         "severity": "info",
-        "basis": "Import preview uses explicit incoming-record manifest facts only.",
+        "basis": "Incoming-record import preview uses explicit incoming-record manifest facts only.",
         "does_not_claim": "observed_source_file_state"
       },
       {
@@ -197,7 +197,7 @@
     ]
   },
   "boundary_notes": [
-    "Import preview classifies incoming records for review, but does not accept, copy, or write them.",
+    "Incoming-record import preview classifies external candidate records for review, but does not accept, copy, write, or preview selected-measurement export packages.",
     "Declared preview metadata is summarized as supplied by the incoming manifest; source files are not opened to infer shape.",
     "Unavailable source data and linked context are review findings, not final importer, storage, package, or relation-graph failures."
   ],

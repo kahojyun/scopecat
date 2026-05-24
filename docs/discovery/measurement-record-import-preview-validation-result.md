@@ -1,15 +1,21 @@
-# Measurement Record Import Preview Validation Result
+# Incoming Measurement Record Import Preview Validation Result
 
 ## Status
 
 Implementation candidate validated.
 
-This result validates a narrow Measurement Records slice: **Measurement Record
-Import Preview**.
+This result validates a narrow Measurement Records slice: **Incoming
+Measurement Record Import Preview**.
 
 It does not accept an importer, storage writer, package format, checksum or
 archive contract, automatic schema inference, recursive relation traversal,
 import review GUI, or shared measurement-record schema.
+
+The slice name is intentionally specific. It previews externally supplied
+incoming measurement candidates from an explicit manifest. It is not the
+offline or receiving-side preview of a Scopecat-created selected-measurement
+handoff package; that package-contents preview should be validated as a
+separate slice because the input authority is different.
 
 ## Fixture
 
@@ -54,11 +60,13 @@ incoming measurement records before import authority exists:
 
 ## Boundary
 
-This slice validates import preview only.
+This slice validates incoming-record import preview only.
 
 It does not:
 
 - accept, import, copy, move, archive, checksum, or write incoming records;
+- preview a selected-measurement export package or define offline package
+  viewer behavior;
 - inspect whether referenced files exist outside the public-safe fixture;
 - read source files to infer shape, columns, units, or plot candidates;
 - define a final importer, storage model, package format, or acceptance flow;
@@ -71,10 +79,16 @@ It does not:
 
 ## Result
 
-Import preview is a useful counterpart to selected measurement export. It
-tests the same source identity, current-reference, declared preview metadata,
-linked-context, and attention-state pressure from the incoming side without
-granting Scopecat import or storage authority.
+Incoming-record import preview is a useful counterpart to selected measurement
+export. It tests similar source identity, current-reference, declared preview
+metadata, linked-context, and attention-state pressure from the external
+candidate side without granting Scopecat import or storage authority.
+
+The related receiving-side package preview should start from a Scopecat-authored
+selected-measurement export package or manifest and answer a different
+question: what contents, preview metadata, attachments, artifacts, and degraded
+or missing context are present in this handoff package before it is opened,
+accepted, or organized?
 
 Unavailable source data blocks preview review for that record, but the finding
 does not claim the source is permanently missing or invalid. Missing preview
@@ -83,14 +97,17 @@ package, relation-graph, or plotting failures.
 
 ## Follow-Up
 
-Stop this slice at import preview unless the next workflow needs sharper
-legacy-source classification or import acceptance vocabulary.
+Stop this slice at incoming-record import preview unless the next workflow
+needs sharper legacy-source classification or import acceptance vocabulary.
 
 Likely follow-up slices should stay separate:
 
 - adapter-authored legacy import acceptance for one normalized source shape,
   with explicit storage mutation boundaries and no core legacy reader;
+- handoff or export-package contents preview, starting from a
+  selected-measurement export package or manifest rather than an external
+  incoming-record manifest;
 - source observation or checksum validation for a declared import package,
   without accepting a full package format;
-- harder data-shape import preview cases, such as ragged scans or
+- harder incoming-record data-shape preview cases, such as ragged scans or
   trace-per-point data, without automatic schema inference.
