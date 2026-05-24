@@ -1,0 +1,208 @@
+{
+  "fixture_id": "basic-handoff-package-contents-preview",
+  "fixture_status": "synthetic_public_safe",
+  "user_job": "Preview the contents of a Scopecat-authored selected-measurement handoff package before opening, accepting, or organizing it.",
+  "package_preview_policy": {
+    "preview_authority": "scopecat_export_manifest_only",
+    "archive_extraction": "not_performed",
+    "file_observation": "not_performed",
+    "storage_mutation": "not_performed",
+    "import_acceptance": "not_performed",
+    "package_integrity": "not_claimed",
+    "schema_inference": "not_performed",
+    "recursive_relation_traversal": "not_performed",
+    "gui_workflow": "not_defined",
+    "shared_measurement_schema": "not_defined"
+  },
+  "package_identity": {
+    "package_id": "handoff-package-qA-2026-05",
+    "display_name": "qA selected measurement handoff",
+    "created_by": "scopecat_selected_measurement_export",
+    "source_export_summary_id": "export-summary-preview-ready-measurement-export",
+    "display_path": "HANDOFF_PACKAGE:/redacted/qA-selected-measurements",
+    "local_path_redacted": true
+  },
+  "selected_measurements": [
+    {
+      "measurement_record_id": "measurement-1001",
+      "legacy_data_id": 1001,
+      "label": "qA Rabi amplitude sweep",
+      "experiment_type": "rabi_amplitude_sweep",
+      "target": "qA",
+      "primary_data": {
+        "kind": "primary_data",
+        "label": "Run 1001 Rabi source data",
+        "package_path": "measurements/measurement-1001/primary.csv",
+        "include_status": "included_by_default",
+        "relation": "selected_measurement_source",
+        "authority": "scopecat_export_manifest",
+        "format": "csv_table",
+        "package_state": "packaged",
+        "reason": null
+      },
+      "declared_preview_metadata": {
+        "status": "preview_ready",
+        "metadata_authority": "scopecat_export_manifest",
+        "data_shape": {
+          "kind": "1d_multi_response_table",
+          "axis_order": [
+            "drive_amp"
+          ]
+        },
+        "declared_columns": [
+          {
+            "name": "drive_amp",
+            "label": "Drive amplitude",
+            "role": "sweep_axis",
+            "unit": "arb"
+          },
+          {
+            "name": "iq_i",
+            "label": "I quadrature",
+            "role": "measured_response",
+            "unit": "arb"
+          },
+          {
+            "name": "iq_q",
+            "label": "Q quadrature",
+            "role": "measured_response",
+            "unit": "arb"
+          }
+        ],
+        "plot_candidates": [
+          {
+            "x": "drive_amp",
+            "y": "iq_i",
+            "source": "measurements/measurement-1001/primary.csv"
+          },
+          {
+            "x": "drive_amp",
+            "y": "iq_q",
+            "source": "measurements/measurement-1001/primary.csv"
+          }
+        ]
+      },
+      "default_bundle": [
+        {
+          "item_id": "measurement-1001-primary",
+          "kind": "primary_data",
+          "label": "Run 1001 Rabi source data",
+          "package_path": "measurements/measurement-1001/primary.csv",
+          "include_status": "included_by_default",
+          "relation": "selected_measurement_source",
+          "authority": "scopecat_export_manifest",
+          "package_state": "packaged",
+          "reason": null
+        },
+        {
+          "item_id": "measurement-1001-parameter-snapshot",
+          "kind": "copied_metadata",
+          "label": "Run 1001 parameter snapshot",
+          "package_path": "measurements/measurement-1001/parameter-snapshot.json",
+          "include_status": "included_by_default",
+          "relation": "copied_parameter_snapshot",
+          "authority": "scopecat_export_manifest",
+          "package_state": "packaged",
+          "reason": null
+        }
+      ]
+    },
+    {
+      "measurement_record_id": "measurement-1002",
+      "legacy_data_id": 1002,
+      "label": "qA T1 decay",
+      "experiment_type": "t1_decay",
+      "target": "qA",
+      "primary_data": {
+        "kind": "primary_data",
+        "label": "Run 1002 T1 source data",
+        "package_path": "measurements/measurement-1002/primary.csv",
+        "include_status": "included_by_default",
+        "relation": "selected_measurement_source",
+        "authority": "scopecat_export_manifest",
+        "format": "csv_table",
+        "package_state": "packaged",
+        "reason": null
+      },
+      "declared_preview_metadata": {
+        "status": "degraded_preview",
+        "metadata_authority": "scopecat_export_manifest",
+        "data_shape": null,
+        "declared_columns": [],
+        "plot_candidates": [],
+        "warning_code": "preview_metadata_missing",
+        "message": "Export manifest did not declare enough shape or column-role metadata for package preview."
+      },
+      "default_bundle": [
+        {
+          "item_id": "measurement-1002-primary",
+          "kind": "primary_data",
+          "label": "Run 1002 T1 source data",
+          "package_path": "measurements/measurement-1002/primary.csv",
+          "include_status": "included_by_default",
+          "relation": "selected_measurement_source",
+          "authority": "scopecat_export_manifest",
+          "package_state": "packaged",
+          "reason": null
+        },
+        {
+          "item_id": "measurement-1002-parameter-snapshot",
+          "kind": "copied_metadata",
+          "label": "Run 1002 parameter snapshot",
+          "package_path": "measurements/measurement-1002/parameter-snapshot.json",
+          "include_status": "included_by_default",
+          "relation": "copied_parameter_snapshot",
+          "authority": "scopecat_export_manifest",
+          "package_state": "packaged",
+          "reason": null
+        }
+      ]
+    }
+  ],
+  "linked_context": [
+    {
+      "link_id": "package-session-wiring-note",
+      "kind": "attachment",
+      "label": "Session wiring note",
+      "package_path": "context/session-wiring-note.md",
+      "include_status": "included_by_user",
+      "relation": "documents",
+      "authority": "scopecat_export_manifest",
+      "package_state": "packaged",
+      "reason": null,
+      "linked_measurement_record_ids": [
+        "measurement-1001",
+        "measurement-1002"
+      ]
+    },
+    {
+      "link_id": "package-qA-summary-candidate",
+      "kind": "artifact",
+      "label": "qA summary candidate",
+      "package_path": null,
+      "include_status": "visible_excluded",
+      "relation": "summarizes",
+      "authority": "scopecat_export_manifest",
+      "package_state": "not_packaged_visible_reference",
+      "reason": "The source export marked this artifact as visible related context but did not include it in the package.",
+      "linked_measurement_record_ids": [
+        "measurement-1001",
+        "measurement-1002"
+      ]
+    },
+    {
+      "link_id": "package-measurement-1002-fit-note",
+      "kind": "attachment",
+      "label": "Measurement 1002 fit note",
+      "package_path": null,
+      "include_status": "missing",
+      "relation": "documents",
+      "authority": "scopecat_export_manifest",
+      "package_state": "missing_from_package",
+      "reason": "The selected export manifest preserved the declared missing companion instead of inventing package contents.",
+      "linked_measurement_record_ids": [
+        "measurement-1002"
+      ]
+    }
+  ]
+}
