@@ -156,17 +156,17 @@ grid table, and sidecar-declared weak-table pressure. Harder shapes such as
 ragged scans, trace-per-point data, and array-valued responses remain known
 risks, not current requirements.
 
-Selected reference comparison has fixture-level validation for comparing a
-current measurement against a user-selected reference as recorded context. It
-reuses selected measurement IDs, declared preview metadata, named input
-snapshots, parameter state references, setup-binding references, selected
-artifacts, recorded code context, code snapshot record identities,
-include-list file inventory, and precise finding vocabulary. It has not earned
-a comparison engine, user-judgment engine, fit-quality comparison, raw-data
-comparison, setup truth, publication-grade plotting, user-provided analysis
-conclusion model, Git-state comparison, dependency discovery, environment
-readiness, selected-version loading, code execution, semantic source diff, or
-GUI design.
+Selected reference comparison has a slice-local implementation candidate for
+comparing a current measurement against a user-selected reference as recorded
+context. It reuses selected measurement IDs, declared preview metadata, named
+input snapshots, parameter state references, setup-binding references,
+selected artifacts, declared facts, recorded code context, code snapshot record
+identities, include-list file inventory, and precise finding vocabulary. It
+has not earned a comparison engine, user-judgment engine, fit-quality
+comparison, raw-data comparison, setup truth, publication-grade plotting,
+user-provided analysis conclusion model, Git-state comparison, dependency
+discovery, environment readiness, selected-version loading, code execution,
+semantic source diff, or GUI design.
 The first reference-selection model can start from ordinary user marks on
 measurement records.
 

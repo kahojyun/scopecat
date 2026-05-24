@@ -2,17 +2,25 @@
 
 ## Status
 
-Fixture-level validation result, not an ADR.
+Implementation candidate validated, not an ADR.
 
 This result records what the selected-reference fixtures proved and where the
-boundary remains intentionally narrow.
+side-effect-free implementation candidate keeps the boundary intentionally
+narrow.
 
 ## Fixtures
 
 - `tests/fixtures/selected_reference_comparison/basic_context_compare/`
 - `tests/fixtures/selected_reference_comparison/code_context_compare/`
 
-The first fixture validates a selected-reference comparison boundary:
+Implementation candidate:
+`implementation_candidates/selected_reference_comparison/`
+
+Candidate tests:
+`tests/test_selected_reference_comparison_summary_candidate.py`
+
+The first fixture and summary builder validate a selected-reference comparison
+boundary:
 
 - a reference can be user-selected through an ordinary mark;
 - user marks can supply reference labels such as last-working without special
@@ -30,7 +38,8 @@ The first fixture validates a selected-reference comparison boundary:
 
 It intentionally does not include experiment code context.
 
-The code-context fixture adds the next narrow comparison dimension:
+The code-context fixture and summary builder add the next narrow comparison
+dimension:
 
 - measurements can reference recorded code context as a named input;
 - recorded code context IDs and code snapshot record identities can be
@@ -73,7 +82,8 @@ without Scopecat needing special semantics for each label.
 
 ## Relationship To Prior Slices
 
-These fixtures reuse validated pressure without promoting shared architecture:
+These fixtures and summary builders reuse validated pressure without promoting
+shared architecture:
 
 - selected export contributes explicit measurement selection;
 - running inspection contributes declared preview metadata;
@@ -84,11 +94,11 @@ These fixtures reuse validated pressure without promoting shared architecture:
   recording policy, stripped notebook source posture, declared refs, and
   code snapshot record identity shape.
 
-The fixtures use named inputs because that vocabulary is useful, but they do
-not earn a shared run-context framework. The code-context fixture also uses
-recorded source observation IDs as fixture-level comparison tokens; it does
-not earn a checksum, archive, content-addressed storage, or final integrity
-contract.
+The implementation candidate uses named inputs because that vocabulary is
+useful, but it does not earn a shared run-context framework. The code-context
+builder also uses recorded source observation IDs as fixture-level comparison
+tokens; it does not earn a checksum, archive, content-addressed storage, or
+final integrity contract.
 
 Future code comparison should be treated as a fixture family rather than a
 single selected-version comparison engine. Recorded context comparison,
@@ -113,12 +123,11 @@ authority and capture-state behavior match.
 
 ## Slice Recommendation
 
-Stop this slice at fixture validation unless a near-term task needs a
-production-shaped summary candidate. Use the fixture as comparison pressure
-when designing measurement run context, selected references, and future
-review/report surfaces. Treat code-context comparison as declared context
-comparison only: recorded code context, code snapshot record identity,
-include-list inventory, recorded source observations, and declared refs. Do not
-promote it into managed workspace storage, Git analysis, environment restore,
-selected-version loading, code execution, semantic source diff, or workflow
-contracts.
+Stop this slice at the side-effect-free implementation candidate. Use the
+candidate as comparison pressure when designing measurement run context,
+selected references, and future review/report surfaces. Treat code-context
+comparison as declared context comparison only: recorded code context, code
+snapshot record identity, include-list inventory, recorded source observations,
+and declared refs. Do not promote it into managed workspace storage, Git
+analysis, environment restore, selected-version loading, code execution,
+semantic source diff, or workflow contracts.

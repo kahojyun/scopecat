@@ -46,11 +46,6 @@
           "name": "code_context",
           "snapshot_id": "code-context-readout-cali-0001",
           "role": "recorded_entrypoint_and_included_files"
-        },
-        {
-          "name": "parameter_state",
-          "snapshot_id": "param-state-0003",
-          "role": "selected_calibration_values"
         }
       ]
     },
@@ -67,11 +62,6 @@
           "name": "code_context",
           "snapshot_id": "code-context-readout-cali-0002",
           "role": "recorded_entrypoint_and_included_files"
-        },
-        {
-          "name": "parameter_state",
-          "snapshot_id": "param-state-0003",
-          "role": "selected_calibration_values"
         }
       ]
     }
