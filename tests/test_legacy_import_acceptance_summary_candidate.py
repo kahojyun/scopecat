@@ -175,12 +175,12 @@ class LegacyImportAcceptanceSummaryCandidateTest(unittest.TestCase):
         original_write = legacy_summary._write_new_file
         calls = 0
 
-        def fail_on_manifest(storage_root: Path, relative_path: str, content: bytes) -> None:
+        def fail_on_manifest(storage_root: Path, relative_path: str, content: bytes) -> list[str]:
             nonlocal calls
             calls += 1
             if calls == 2:
                 raise OSError("simulated manifest write failure")
-            original_write(storage_root, relative_path, content)
+            return original_write(storage_root, relative_path, content)
 
         with tempfile.TemporaryDirectory() as storage_dir:
             legacy_summary._write_new_file = fail_on_manifest
@@ -193,6 +193,33 @@ class LegacyImportAcceptanceSummaryCandidateTest(unittest.TestCase):
                 legacy_summary._write_new_file = original_write
 
             self.assertFalse((Path(storage_dir) / "records").exists())
+
+    def test_rollback_preserves_preexisting_empty_parent_dirs(self) -> None:
+        source = _load_input()
+        original_write = legacy_summary._write_new_file
+        calls = 0
+
+        def fail_on_manifest(storage_root: Path, relative_path: str, content: bytes) -> list[str]:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError("simulated manifest write failure")
+            return original_write(storage_root, relative_path, content)
+
+        with tempfile.TemporaryDirectory() as storage_dir:
+            records_dir = Path(storage_dir) / "records"
+            records_dir.mkdir()
+            legacy_summary._write_new_file = fail_on_manifest
+            try:
+                with self.assertRaisesRegex(OSError, "simulated manifest write failure"):
+                    accept_legacy_import(
+                        source, content_root=FIXTURE, storage_root=Path(storage_dir)
+                    )
+            finally:
+                legacy_summary._write_new_file = original_write
+
+            self.assertTrue(records_dir.is_dir())
+            self.assertFalse((records_dir / "legacy-rabi-001").exists())
 
 
 if __name__ == "__main__":

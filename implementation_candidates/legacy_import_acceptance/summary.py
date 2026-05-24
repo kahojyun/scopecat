@@ -80,29 +80,43 @@ def _open_dir_fd(path: Path | str, *, dir_fd: int | None = None) -> int:
     return os.open(path, flags, dir_fd=dir_fd)
 
 
-def _open_parent_dir_fd(root: Path, relative_path: str, *, create: bool) -> int:
+def _remove_created_dirs(storage_root: Path, created_dirs: list[str]) -> None:
+    for relative_path in reversed(created_dirs):
+        try:
+            _path_under(storage_root, relative_path).rmdir()
+        except OSError:
+            pass
+
+
+def _open_parent_dir_fd(root: Path, relative_path: str, *, create: bool) -> tuple[int, list[str]]:
     root_fd = _open_dir_fd(root)
     current_fd = root_fd
-    for part in _relative_parts(relative_path)[:-1]:
-        if create:
-            try:
-                os.mkdir(part, dir_fd=current_fd)
-            except FileExistsError:
-                pass
-        try:
+    current_parts: list[str] = []
+    created_dirs: list[str] = []
+    try:
+        for part in _relative_parts(relative_path)[:-1]:
+            current_parts.append(part)
+            if create:
+                try:
+                    os.mkdir(part, dir_fd=current_fd)
+                    created_dirs.append("/".join(current_parts))
+                except FileExistsError:
+                    pass
             next_fd = _open_dir_fd(part, dir_fd=current_fd)
-        except Exception:
             if current_fd != root_fd:
                 os.close(current_fd)
-            os.close(root_fd)
-            raise
+            current_fd = next_fd
+        if current_fd == root_fd:
+            return root_fd, created_dirs
+        os.close(root_fd)
+        return current_fd, created_dirs
+    except Exception:
         if current_fd != root_fd:
             os.close(current_fd)
-        current_fd = next_fd
-    if current_fd == root_fd:
-        return root_fd
-    os.close(root_fd)
-    return current_fd
+        os.close(root_fd)
+        if create:
+            _remove_created_dirs(root, created_dirs)
+        raise
 
 
 def _existing_root(root: Path, label: str) -> Path:
@@ -217,7 +231,7 @@ def _read_source_primary_data(source: dict[str, Any], content_root: Path) -> byt
     source_primary_data = source["acceptance_request"]["source_primary_data"]
     content_ref = source_primary_data["content_ref"]
     _ensure_no_symlink_parents(content_root, content_ref, "content")
-    parent_fd = _open_parent_dir_fd(content_root, content_ref, create=False)
+    parent_fd, _created_dirs = _open_parent_dir_fd(content_root, content_ref, create=False)
     try:
         try:
             file_fd = os.open(
@@ -282,42 +296,43 @@ def _manifest_bytes(
     return json.dumps(manifest, indent=2, sort_keys=True).encode("utf-8") + b"\n"
 
 
-def _write_new_file(storage_root: Path, relative_path: str, content: bytes) -> None:
+def _write_new_file(storage_root: Path, relative_path: str, content: bytes) -> list[str]:
     _ensure_no_symlink_parents(storage_root, relative_path, "target")
-    parent_fd = _open_parent_dir_fd(storage_root, relative_path, create=True)
+    parent_fd: int | None = None
+    created_dirs: list[str] = []
     try:
+        parent_fd, created_dirs = _open_parent_dir_fd(storage_root, relative_path, create=True)
         file_fd = os.open(
             _relative_parts(relative_path)[-1],
             os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW,
             0o666,
             dir_fd=parent_fd,
         )
-        handle = os.fdopen(file_fd, "wb")
-    finally:
-        os.close(parent_fd)
-    with handle:
-        handle.write(content)
-
-
-def _remove_empty_parents(storage_root: Path, relative_path: str) -> None:
-    root = storage_root.resolve()
-    current = _path_under(root, relative_path).parent
-    while current != root:
+        with os.fdopen(file_fd, "wb") as handle:
+            handle.write(content)
+    except Exception:
         try:
-            current.rmdir()
-        except OSError:
-            return
-        current = current.parent
+            _path_under(storage_root, relative_path).unlink()
+        except FileNotFoundError:
+            pass
+        _remove_created_dirs(storage_root, created_dirs)
+        raise
+    finally:
+        if parent_fd is not None:
+            os.close(parent_fd)
+    return created_dirs
 
 
-def _rollback_written_files(storage_root: Path, written_paths: list[str]) -> None:
+def _rollback_written_files(
+    storage_root: Path, written_paths: list[str], created_dirs: list[str]
+) -> None:
     for relative_path in reversed(written_paths):
         target = _path_under(storage_root, relative_path)
         try:
             target.unlink()
         except FileNotFoundError:
             pass
-        _remove_empty_parents(storage_root, relative_path)
+    _remove_created_dirs(storage_root, created_dirs)
 
 
 def _attention() -> list[dict[str, str]]:
@@ -375,13 +390,18 @@ def accept_legacy_import(
 
     request = source["acceptance_request"]
     written_paths: list[str] = []
+    created_dirs: list[str] = []
     try:
-        _write_new_file(storage_root_resolved, request["primary_data_path"], primary_content)
+        created_dirs.extend(
+            _write_new_file(storage_root_resolved, request["primary_data_path"], primary_content)
+        )
         written_paths.append(request["primary_data_path"])
-        _write_new_file(storage_root_resolved, request["manifest_path"], manifest_content)
+        created_dirs.extend(
+            _write_new_file(storage_root_resolved, request["manifest_path"], manifest_content)
+        )
         written_paths.append(request["manifest_path"])
     except Exception:
-        _rollback_written_files(storage_root_resolved, written_paths)
+        _rollback_written_files(storage_root_resolved, written_paths, created_dirs)
         raise
 
     return {
