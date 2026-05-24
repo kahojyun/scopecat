@@ -41,6 +41,7 @@ supporting policy notes. The current validated slice inventory is:
 | Handoff package contents preview | Measurement records | Implementation candidate validated | Side-effect-free preview and classification for Scopecat-authored selected-measurement export package manifests, including package identity, selected measurements, packaged contents, declared preview metadata, visible-but-not-packaged artifacts, and missing context without import acceptance, storage mutation, archive extraction, package integrity, schema inference, recursive traversal, or GUI behavior. |
 | Adapter-authored legacy import manifest | Measurement records | Implementation candidate validated | Side-effect-free validation and summary for normalized manifests emitted by user-owned legacy adapters, including adapter identity, external source identity, primary-data reference, declared preview metadata, linked context, and adapter findings without stable public API, LabRAD/DataVault/Labber reader behavior, import acceptance, storage mutation, schema inference, package format, recursive traversal, or GUI behavior. |
 | Legacy import acceptance | Measurement records | Implementation candidate validated | Approved copy-into-new-record mutation for one reviewed adapter-authored manifest, including source sha256/size preflight, no-overwrite targets, copied primary data, deterministic imported-record manifest, preserved external source identity, and reference-only linked context without stable import API, legacy readers in core, export-package acceptance, existing-record update, schema inference, recursive traversal, package integrity, or GUI behavior. |
+| Reference-only legacy import | Measurement records | Implementation candidate validated | Side-effect-free reference-only acceptance summary for one reviewed adapter-authored manifest, including lab-managed current-reference facts, public-safe redacted display validation, preserved source identity, unobserved openability/checksum/size state, and reference-only linked context without copying primary data, storage mutation, source observation, repair, stable import API, legacy readers in core, export-package acceptance, schema inference, recursive traversal, package integrity, or GUI behavior. |
 | New-run measurement writer semantics | Measurement records | Implementation candidate validated | Side-effect-free summary from explicit writer events, including lifecycle, progress, declared primary data reference, and preview metadata without storage mutation, source observation, schema inference, live service, hardware control, scan execution, or GUI behavior. |
 | Append-only measurement storage writer | Measurement records | Implementation candidate validated | Approved filesystem mutation for one new measurement record directory from declared append chunks, including sha256/size preflight, no-overwrite targets, stored primary data, and deterministic manifest without final storage architecture, schema inference, import/export packages, live service, GUI, or hardware-control authority. |
 | Derived artifact source links | Measurement records | Implementation candidate validated | Side-effect-free summary for an explicit derived-artifact manifest, including artifact identity, direct source measurement roles, relation states, and review findings without artifact parsing, source observation, checksum validation, storage mutation, recursive traversal, analysis-DAG inference, scientific validity review, or GUI behavior. |
@@ -126,6 +127,7 @@ Measurement Records the owner of context-support behavior.
 | [`handoff-package-contents-preview-validation-result.md`](handoff-package-contents-preview-validation-result.md) | Result of the first side-effect-free Scopecat-authored handoff package contents preview implementation candidate. |
 | [`adapter-authored-legacy-import-validation-result.md`](adapter-authored-legacy-import-validation-result.md) | Result of the first normalized adapter-authored legacy import manifest candidate. |
 | [`legacy-import-acceptance-validation-result.md`](legacy-import-acceptance-validation-result.md) | Result of the first approved copy-into-new-record acceptance candidate for a reviewed adapter-authored legacy manifest. |
+| [`reference-only-legacy-import-validation-result.md`](reference-only-legacy-import-validation-result.md) | Result of the first side-effect-free reference-only acceptance candidate for a reviewed adapter-authored legacy manifest. |
 | [`new-run-measurement-writer-validation-result.md`](new-run-measurement-writer-validation-result.md) | Result of the first side-effect-free writer-event implementation candidate. |
 | [`measurement-storage-writer-validation-result.md`](measurement-storage-writer-validation-result.md) | Result of the first approved append-only storage writer implementation candidate. |
 | [`derived-artifact-source-links-validation-result.md`](derived-artifact-source-links-validation-result.md) | Result of the first explicit derived-artifact source-link implementation candidate. |
@@ -136,8 +138,17 @@ Candidate next slices in this route should stay separate:
 - existing-record append or update pressure: validate locks, crash recovery,
   and in-progress record behavior separately from the new-record writer and
   legacy import acceptance;
-- reference-only legacy import acceptance: validate lab-managed shared-storage
-  references without copying primary data or accepting broad package behavior.
+- source observation for reference-only imported records: validate explicit
+  checks against lab-managed shared-storage references without automatic
+  repair, discovery, or schema inference.
+
+The first reference-only legacy import candidate is validated in
+[`reference-only-legacy-import-validation-result.md`](reference-only-legacy-import-validation-result.md).
+It preserves one reviewed adapter-authored legacy record as an external
+lab-managed primary-data reference, validates public-safe display facts, and
+leaves primary-data copy, storage mutation, source observation, repair,
+export-package acceptance, schema inference, package integrity, and GUI
+behavior out of scope.
 
 The first legacy import acceptance candidate is validated in
 [`legacy-import-acceptance-validation-result.md`](legacy-import-acceptance-validation-result.md).
