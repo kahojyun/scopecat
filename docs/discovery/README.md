@@ -57,6 +57,7 @@ supporting policy notes. The current validated slice inventory is:
 | Reference-based rerun preparation | Experiment code context | Implementation candidate validated | Side-effect-free manual rerun preparation from a selected reference measurement and its linked context without reproducibility guarantees, cause attribution, automatic drift correction, hardware control, environment sync, code import, or execution. |
 | Environment readiness planning | Experiment code context | Implementation candidate validated | Side-effect-free check plan from a declared modern `uv`/`pyproject.toml` environment context, with lab-managed drivers and legacy dependency concerns as record-only review notes rather than sync inputs, without reading dependency files, resolving or syncing dependencies, installing packages, probing runtime or hardware, importing code, executing code, or claiming runnable readiness. |
 | Environment comparison findings | Experiment code context | Implementation candidate validated | Side-effect-free comparison of selected-reference and current declared environment facts, including same-declared, changed, missing, unverified, and unsupported findings without reading manifests or lockfiles, resolving or syncing dependencies, probing runtime or hardware, importing code, executing code, or claiming runnable readiness. |
+| Environment file observation | Experiment code context | Implementation candidate validated | Read-only observation for explicitly declared environment files under a caller-provided workspace root, including sha256, size, unavailable, mismatch, malformed-manifest, and narrow `pyproject.toml` summary facts without workspace discovery, lockfile parsing, dependency resolution or sync, runtime probes, code import or execution, hardware checks, or runnable-readiness claims. |
 | Setup binding | Setup binding | Implementation candidate validated | Side-effect-free setup-binding summary for explicit setup-binding snapshots, simple diffs, station-registry references, generated line/readout views, and measurement input references while keeping parameter state, station management, generator execution, and hardware control separate. |
 | Calibration work continuation | Calibration continuation | Assembler candidate validated | Continuation-state assembly for planned steps, observed outputs, review gates, proposed writes, blocked steps, and interventions without executor, scheduler, write-back, or GUI ownership. |
 | Selected reference comparison | Selected reference comparison | Fixtures validated | Context-comparison findings against a user-selected reference without user judgment, raw-data comparison, fit-quality comparison, setup truth, restore, execution, semantic source diff, or cause attribution. |
@@ -218,6 +219,7 @@ perform schema migration.
 | [`reference-based-rerun-preparation-validation-result.md`](reference-based-rerun-preparation-validation-result.md) | Result of the first reference-based rerun preparation fixture and implementation candidate. |
 | [`environment-readiness-validation-result.md`](environment-readiness-validation-result.md) | Result of the first environment readiness planning fixture and implementation candidate. |
 | [`environment-comparison-validation-result.md`](environment-comparison-validation-result.md) | Result of the first declared environment comparison fixture and implementation candidate. |
+| [`environment-file-observation-validation-result.md`](environment-file-observation-validation-result.md) | Result of the first explicit declared environment file observation fixture and implementation candidate. |
 
 The canonical Experiment Code Context candidate-slice backlog lives in
 [`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md).
@@ -251,7 +253,11 @@ should earn stronger claims:
 9. environment comparison findings: compare selected-reference and current
    declared environment facts without reading manifests or lockfiles, resolving
    dependencies, syncing packages, probing runtimes or hardware, importing
-   code, executing code, or claiming runnable readiness.
+   code, executing code, or claiming runnable readiness;
+10. environment file observation: observe explicitly declared environment files
+    under a caller-provided workspace root without workspace discovery,
+    lockfile parsing, dependency resolution or sync, runtime probes, code
+    import or execution, hardware checks, or runnable-readiness claims.
 
 The comparison work is a fixture family, not one slice. The first
 recorded-to-managed declared-fact comparison is validated in
@@ -319,6 +325,16 @@ It compares selected-reference and current declared environment facts without
 reading manifests or lockfiles, resolving dependencies, syncing packages,
 probing runtimes, importing code, executing code, probing hardware, or claiming
 runnable readiness.
+
+The first environment file observation candidate is validated in
+[`environment-file-observation-validation-result.md`](environment-file-observation-validation-result.md).
+It observes explicitly declared `pyproject.toml` and `uv.lock` files under a
+caller-provided workspace root with sha256 and size facts, while parsing
+`pyproject.toml` only for declared manifest summary fields and reporting
+malformed manifests as review findings without losing observed file facts. It
+does not scan workspaces, parse lockfiles into dependency graphs, resolve or
+sync dependencies, install packages, probe runtimes or hardware, import code,
+execute code, or claim runnable readiness.
 
 Do not validate "select a code version at run start" by itself. Selection
 becomes useful only when it prepares a run context, supports a reference-based

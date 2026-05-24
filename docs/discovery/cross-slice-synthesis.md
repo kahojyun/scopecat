@@ -41,6 +41,7 @@ executor design, relation graph, or warning taxonomy.
 - [`reference-based-rerun-preparation-validation-result.md`](reference-based-rerun-preparation-validation-result.md)
 - [`environment-readiness-validation-result.md`](environment-readiness-validation-result.md)
 - [`environment-comparison-validation-result.md`](environment-comparison-validation-result.md)
+- [`environment-file-observation-validation-result.md`](environment-file-observation-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
 - [`adoption-routes.md`](adoption-routes.md)
 - [`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md)
@@ -281,6 +282,16 @@ reading manifests or lockfiles, resolving dependencies, syncing packages,
 probing runtimes, importing code, executing code, probing hardware, or claiming
 runnable readiness.
 
+Environment file observation has a slice-local implementation candidate for
+reading explicitly declared modern environment files under a caller-provided
+workspace root. It observes availability, sha256, and byte size for declared
+`pyproject.toml` and `uv.lock` files, and parses `pyproject.toml` only for a
+narrow declared manifest summary while skipping unsafe dependency entries and
+reporting malformed manifests as review findings without losing observed file
+facts. It does not scan workspaces, parse lockfiles into dependency graphs,
+resolve or sync dependencies, install packages, probe runtimes, import code,
+execute code, probe hardware, or claim runnable readiness.
+
 ## Version Terminology
 
 The slices are converging on a shared distinction without yet earning a shared
@@ -352,6 +363,7 @@ schema.
 | Reference-based rerun preparation | Experiment code, selected reference, measurement context support | A proposed manual rerun context seeded from a user-selected reference measurement and its linked context records. The first candidate validates reference-linked selection and review findings without claiming reference goodness, reproducibility, automatic cause attribution, drift correction, hardware control, environment sync, import, or execution. |
 | Environment readiness plan | Experiment code, prepared run context support | A reviewable plan for what checks would be needed for a selected declared modern `uv`/`pyproject.toml` environment context. The first candidate treats lab-managed drivers and legacy dependency concerns as review notes while avoiding package-manager runs, code import, code execution, hardware probes, or runnable-readiness claims. |
 | Environment comparison finding | Experiment code, selected reference, prepared run context support | A declared-fact comparison result such as same-declared, changed, missing, unverified, or unsupported for selected environment context. It is not dependency resolution, runtime compatibility, hardware readiness, runnable readiness, or reproducibility. |
+| Environment file observation | Experiment code, prepared run context support | A read-only observation of explicitly declared environment files under a caller-provided workspace root. The first candidate records availability, sha256, byte size, malformed-manifest review findings, and narrow `pyproject.toml` declared summary fields without workspace discovery, lockfile graph parsing, dependency resolution or sync, runtime probes, hardware checks, code import, execution, or runnable-readiness claims. |
 
 ## Stable Separations
 
