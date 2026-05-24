@@ -117,6 +117,9 @@ Validation should follow authority boundaries more strictly than user adoption:
 8. Validate environment readiness planning from declared environment context
    before attempting dependency operations, runtime probes, hardware checks, or
    managed runners.
+9. Validate environment comparison findings before treating selected-reference
+   and current declared environment differences as dependency operations,
+   runtime compatibility checks, hardware readiness, or runnable readiness.
 
 ## Validation Slice Backlog
 
@@ -275,6 +278,27 @@ Result owner:
 Boundary: no dependency resolution, dependency sync, package installation,
 runtime probes, hardware-active import, notebook execution, managed runner,
 runnable-readiness claim, or claim that the experiment result is reproducible.
+
+### 9. Environment Comparison Findings
+
+Validation question: can Scopecat compare two declared environment contexts
+without resolving, syncing, probing, importing, executing, or claiming runnable
+readiness?
+
+User pressure: users reviewing a selected-reference rerun need to see whether
+the declared environment context differs from the current proposed run context
+before any environment operation is approved.
+
+First fixture: a selected-reference declared environment context and current
+declared environment context, producing same-declared, changed, missing,
+unverified, and unsupported findings over explicit environment facts.
+
+Result owner:
+[`environment-comparison-validation-result.md`](environment-comparison-validation-result.md)
+
+Boundary: no file reads, dependency resolution, dependency sync, package
+installation, runtime probes, hardware probes, code import, code execution,
+shared environment schema, or runnable-readiness claim.
 
 All slices should keep code execution separate from code record integrity and
 environment planning until an explicit execution slice earns that authority.
