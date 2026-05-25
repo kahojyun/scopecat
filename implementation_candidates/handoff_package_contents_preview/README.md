@@ -8,16 +8,21 @@ Scopecat-authored handoff package preview slice:
 
 - build a structured summary from an explicit Scopecat export manifest;
 - keep the builder side-effect free;
-- classify package contents for review before opening, accepting, or organizing
-  the package;
+- support the first step of the open-before-import receiving flow by previewing
+  package contents before read-only package use or later acceptance;
 - preserve selected measurements, primary-data references, declared preview
   metadata, attachments, artifacts, and linked context;
 - report degraded preview metadata, missing context, and visible references
-  that are not packaged as review findings;
-- avoid archive extraction, file reads, checksum validation, storage mutation,
-  import acceptance, schema inference, recursive relation traversal, GUI
-  behavior, or shared measurement schema.
+  that are not packaged as review findings.
 
 The package exists to test whether Scopecat can summarize what a
-Scopecat-authored handoff package says it contains before any import or
-storage authority is accepted.
+Scopecat-authored handoff package says it contains before read-only package use
+or local storage import. It keeps package preview manifest-only and separate
+from archive extraction, file reads, checksum validation, storage mutation,
+import acceptance, schema inference, recursive relation traversal, GUI
+behavior, and shared measurement schema.
+
+The intended read-only package opener remains a later slice. That opener should
+let a Python SDK or GUI inspect a standalone package, load declared primary
+data, and use declared preview metadata without requiring local storage import
+first.

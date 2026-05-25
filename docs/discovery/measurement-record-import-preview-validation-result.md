@@ -89,7 +89,7 @@ The related receiving-side package preview is validated in
 It starts from a Scopecat-authored selected-measurement export package manifest
 and answers a different question: what contents, preview metadata, attachments,
 artifacts, and degraded or missing context are present in this handoff package
-before it is opened, accepted, or organized?
+before read-only package use or later acceptance/import/organization?
 
 Unavailable source data blocks preview review for that record, but the finding
 does not claim the source is permanently missing or invalid. Missing preview

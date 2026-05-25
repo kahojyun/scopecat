@@ -71,11 +71,15 @@ conclusions.
 Future export/import UX should be able to use the same declared metadata for
 quick orientation in both directions: exporters preview candidate measurements
 before selecting a package, and receiving users preview Scopecat-created
-handoff package contents before opening, accepting, or organizing them.
+handoff package contents before read-only package use or later
+acceptance/organization. The intended receiving path is open-before-import:
+users should be able to inspect a standalone handoff package, load declared
+primary data, and use declared preview metadata through a future SDK or GUI
+without first importing the package into Scopecat-managed storage.
 Incoming-record import preview is adjacent, but starts from an external
 incoming-record manifest rather than selected measurement export output. That
-expectation does not make rendered plots, GUI design, report generation, or
-user/domain scientific conclusions part of this spike.
+expectation does not make rendered plots, GUI design, report generation,
+storage mutation, or user/domain scientific conclusions part of this spike.
 
 ## Not Earned
 
@@ -117,7 +121,7 @@ consolidation in
 - Is the generated preview enough to support first-pass slicing or rough figure
   planning without rendered plots?
 - What minimal preview should export and handoff-package contents GUIs show
-  before selection, opening, acceptance, or organization?
+  before selection, read-only package use, or later acceptance/organization?
 - Are declared roles acceptable as the first preview path, or does the first
   real workflow need adapter-generated declarations?
 - Should scan declaration become the next validation slice before any durable
@@ -147,8 +151,8 @@ Only fork back into discovery if a specific unresolved question blocks a future
 plan:
 
 - artifact inclusion UX for many-to-many links;
-- the minimal preview needed before export selection or handoff-package
-  opening, acceptance, or organization;
+- the minimal preview needed before export selection, handoff-package read-only
+  use, or later acceptance/organization;
 - a harder scan shape that is truly blocking the first implementation slice;
 - a stronger package integrity requirement.
 

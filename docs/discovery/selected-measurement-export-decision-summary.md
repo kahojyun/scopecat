@@ -90,7 +90,7 @@ The current fixtures and spikes cover the main product boundary:
 - What minimal preview surface should export show before users select
   measurements?
 - What minimal handoff or export-package contents preview should receiving
-  users see before they accept, open, or organize a Scopecat-created package?
+  users see before read-only package use or later acceptance/import/organization?
 - What minimal incoming-record preview should external import candidates show
   before users accept or organize them?
 - Which linked files should be default includes versus optional includes?
