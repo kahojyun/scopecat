@@ -84,7 +84,8 @@ def _validate_package_identity(source: dict[str, Any]) -> None:
         raise ValueError("handoff package must come from selected measurement export")
     if identity["local_path_redacted"] is not True:
         raise ValueError("handoff package local path must stay redacted")
-    _validate_redacted_display_path(identity["display_path"])
+    if "display_path" in identity:
+        _validate_redacted_display_path(identity["display_path"])
 
 
 def _validate_package_item(item: dict[str, Any], owner: str) -> None:
@@ -399,16 +400,18 @@ def build_handoff_package_contents_preview_summary(source: dict[str, Any]) -> di
     """Build a handoff package contents preview from explicit manifest input."""
     _validate_references(source)
     contents = _package_contents(source)
+    package = {
+        "package_id": source["package_identity"]["package_id"],
+        "display_name": source["package_identity"]["display_name"],
+        "created_by": source["package_identity"]["created_by"],
+        "source_export_summary_id": source["package_identity"]["source_export_summary_id"],
+        "classification": _package_classification(source),
+    }
+    if "display_path" in source["package_identity"]:
+        package["display_path"] = source["package_identity"]["display_path"]
     return {
         "package_preview_policy": copy.deepcopy(source["package_preview_policy"]),
-        "package": {
-            "package_id": source["package_identity"]["package_id"],
-            "display_name": source["package_identity"]["display_name"],
-            "created_by": source["package_identity"]["created_by"],
-            "source_export_summary_id": source["package_identity"]["source_export_summary_id"],
-            "display_path": source["package_identity"]["display_path"],
-            "classification": _package_classification(source),
-        },
+        "package": package,
         "selected_measurements": [
             _measurement_summary(record) for record in source["selected_measurements"]
         ],
