@@ -48,7 +48,7 @@ plots, or traverse relations.
 The implementation candidate shows that Scopecat can summarize and classify a
 Scopecat-authored handoff package before acceptance:
 
-- preserve package identity, source export summary identity, selected
+- preserve package identity, package-declared source export summary reference, selected
   measurements, primary-data references, default bundle contents, and linked
   context;
 - summarize declared preview metadata and degraded-preview warnings from the

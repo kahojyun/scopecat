@@ -17,10 +17,11 @@ product contracts too early.
 | --- | --- |
 | [`adoption-routes.md`](adoption-routes.md) | Compare current evidence-backed adoption routes by durable user workflow. |
 | [`problem-briefs/README.md`](problem-briefs/README.md) | Start from evidence-backed problem framing before choosing a validation question. |
-| [`cross-slice-synthesis.md`](cross-slice-synthesis.md) | See recurring candidate concepts across validated slices. |
+| [`cross-slice-synthesis.md`](cross-slice-synthesis.md) | See recurring candidate concepts across validated slices and explicitly marked under-review composition candidates. |
 | [`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md) | Shared discovery backlog for context records attached to or selected for measurements, without accepting a shared schema. |
 | [`shared-model-extraction-deferral.md`](shared-model-extraction-deferral.md) | Understand why shared domain models are intentionally deferred. |
 | [`external-file-reference-policy.md`](external-file-reference-policy.md) | Candidate policy vocabulary for external files, latest state, observed file state, and non-backup boundaries. |
+| [`artifact-boundary-and-redaction-policy.md`](artifact-boundary-and-redaction-policy.md) | Distinguish repository-safe discovery artifacts and local UI/review surfaces from portable/public/export boundaries, and keep runtime redaction scope explicit. |
 | [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md) | Product posture for Git-like managed experiment-code versions without requiring users to operate Git. |
 
 ## Validation Slices
@@ -30,7 +31,7 @@ slices at different maturity levels; a slice should stay narrow even when it
 tests part of a broader route.
 
 The route tables below include problem briefs, plans, validation results, and
-supporting policy notes. The current validated slice inventory is:
+supporting policy notes. The current slice inventory is:
 
 | Slice | Route | Current maturity | Boundary |
 | --- | --- | --- | --- |
@@ -38,7 +39,7 @@ supporting policy notes. The current validated slice inventory is:
 | Storage-transition export | Measurement records | Fixture validated | Source identity, current reference, package materialization, and external-reference policy pressure without accepting storage, checksum, backup, package writer, importer, or GUI behavior. |
 | Running measurement inspection | Measurement records | Implementation candidate validated | Side-effect-free state summary for already-recorded data from still-running measurements, including progress, completeness, freshness, declared preview metadata, and non-durable monitor ergonomics without live-service, GUI, plotting, storage, import/export, or hardware-control authority. |
 | Incoming measurement record import preview | Measurement records | Implementation candidate validated | Side-effect-free preview and classification for explicit incoming-record manifests, including source identity, current-reference state, declared preview metadata, linked context, and review findings without import acceptance, storage mutation, selected-measurement export package preview, schema inference, package integrity, recursive traversal, or GUI behavior. |
-| Handoff package contents preview | Measurement records | Implementation candidate validated | Side-effect-free preview and classification for Scopecat-authored selected-measurement export package manifests, including package identity, selected measurements, packaged contents, declared preview metadata, visible-but-not-packaged artifacts, and missing context without import acceptance, storage mutation, archive extraction, package integrity, schema inference, recursive traversal, or GUI behavior. |
+| Handoff package contents preview | Measurement records | Implementation candidate validated | Side-effect-free preview summary for Scopecat-authored selected-measurement package-manifest inputs, including package identity, selected measurements, packaged contents, declared preview metadata, visible-but-not-packaged artifacts, and missing context without treating the preview as the final export/package boundary, import acceptance, storage mutation, archive extraction, package integrity, schema inference, recursive traversal, or GUI behavior. |
 | Adapter-authored legacy import manifest | Measurement records | Implementation candidate validated | Side-effect-free validation and summary for normalized manifests emitted by user-owned legacy adapters, including adapter identity, external source identity, primary-data reference, declared preview metadata, linked context, and adapter findings without stable public API, LabRAD/DataVault/Labber reader behavior, import acceptance, storage mutation, schema inference, package format, recursive traversal, or GUI behavior. |
 | Legacy import acceptance | Measurement records | Implementation candidate validated | Approved copy-into-new-record mutation for one reviewed adapter-authored manifest, including source sha256/size preflight, no-overwrite targets, copied primary data, deterministic imported-record manifest, preserved external source identity, and reference-only linked context without stable import API, legacy readers in core, export-package acceptance, existing-record update, schema inference, recursive traversal, package integrity, or GUI behavior. |
 | Reference-only legacy import | Measurement records | Implementation candidate validated | Side-effect-free reference-only acceptance summary for one reviewed adapter-authored manifest, including lab-managed current-reference facts, public-safe redacted display validation, preserved source identity, unobserved openability/checksum/size state, and reference-only linked context without copying primary data, storage mutation, source observation, repair, stable import API, legacy readers in core, export-package acceptance, schema inference, recursive traversal, package integrity, or GUI behavior. |
@@ -46,6 +47,7 @@ supporting policy notes. The current validated slice inventory is:
 | Append-only measurement storage writer | Measurement records | Implementation candidate validated | Approved filesystem mutation for one new measurement record directory from declared append chunks, including sha256/size preflight, no-overwrite targets, stored primary data, and deterministic manifest without final storage architecture, schema inference, import/export packages, live service, GUI, or hardware-control authority. |
 | Derived artifact source links | Measurement records | Implementation candidate validated | Side-effect-free summary for an explicit derived-artifact manifest, including artifact identity, direct source measurement roles, relation states, and review findings without artifact parsing, source observation, checksum validation, storage mutation, recursive traversal, analysis-DAG inference, scientific validity review, or GUI behavior. |
 | Measurement source observation | Measurement records | Implementation candidate validated | Read-only observation for one declared primary-data file under a caller-provided storage root, including sha256, size, row-count, unavailable, and mismatch findings without schema inference, repair, recursive storage inspection, import/export packages, live service, GUI, or hardware-control authority. |
+| Measurement record handoff flow | Measurement records | Composition candidate under review | Provisional vertical workflow that consumes selected explicit accepted-record facts, builds a read-only source-observation request for stored source data, carries unavailable or mismatch findings, summarizes selected measurement export, and previews an explicit handoff package manifest while validating accepted-record paths and materialization, public-safe display references, accepted-record/measurement identity continuity, package-declared export-summary reference syntax, candidate-local package/export path topology, preview metadata, linked-context handoff alignment, and slice boundaries. Accepted linked-context `reference` values remain adapter-declared scalar text for local review; topology validation applies to owned package/export fields such as `linked_context_export_refs[].path` and package `package_path`. The flow does not accept storage mutation, a shared measurement schema, package writer, package acceptance, GUI, recursive traversal, schema inference, or final storage/package architecture. |
 | Declared scan/data-shape fixtures | Measurement records support | Spike/fixtures validated | Declared 1D table, rectangular 2D grid table, and sidecar-declared weak-table pressure for preview readiness, not a final data-shape schema or importer. |
 | Parameter state management | Parameter state | Implementation candidate validated | Side-effect-free summary for parameter-state lineage, purpose labels, seeded/trusted state, reviewable diffs, committed states, and measurement references without hardware write-back, instrument state tracking, external JSON authority, or branch/tag/commit semantics. |
 | Parameter write compatibility output | Parameter state | Implementation candidate validated | Side-effect-free compatibility-output plan for accepted committed parameter state, including trusted scalar emits and skipped untrusted or schema-limited entries without file writes, hardware write-back, schema migration, or external JSON authority. |
@@ -70,6 +72,12 @@ Future slice candidates should each answer one primary validation question. Do
 not combine import/export, storage, GUI, execution, redaction, write-back,
 restore, or shared-framework decisions just because the same fixture mentions
 more than one of them.
+
+Discovery fixtures and expected outputs are repository-safe artifacts by
+default, not automatically portable/public/export artifacts. Use
+[`artifact-boundary-and-redaction-policy.md`](artifact-boundary-and-redaction-policy.md)
+when deciding whether a slice needs runtime redaction, managed-reference
+validation, a review-summary projection, or portable/package redaction rules.
 
 Validation result and plan documents may include slice-local recommendations
 for what their fixture earned or deferred. They should not be treated as the
@@ -182,12 +190,26 @@ unavailable or mismatched data as review findings and leaving schema
 inference, repair, package validation, import/export behavior, live service,
 GUI, and hardware control out of scope.
 
+The first measurement record handoff flow candidate lives in
+[`../../implementation_candidates/measurement_record_handoff_flow/`](../../implementation_candidates/measurement_record_handoff_flow/).
+It composes selected explicit candidate facts into one import-to-handoff route
+for a single reviewed adapter-authored legacy record. The flow is side-effect
+free: legacy import acceptance must already be represented as approved
+accepted-record facts, and handoff package contents preview consumes an
+explicit package-preview manifest rather than package layout invented by the
+flow. It validates selected handoff facts from the raw JSON fixture through a
+candidate-local contract module before adapting between slice-local input
+shapes, instead of extracting a shared model. It keeps storage mutation, package
+writing, package acceptance, GUI behavior, recursive traversal, schema
+inference, and final storage/package architecture out of scope.
+
 The first handoff package contents preview candidate is validated in
 [`handoff-package-contents-preview-validation-result.md`](handoff-package-contents-preview-validation-result.md).
-It summarizes a Scopecat-authored selected-measurement export package manifest
-before opening, accepting, or organizing it, while leaving archive extraction,
-package integrity, import acceptance, storage mutation, schema inference,
-recursive traversal, GUI behavior, and final package format out of scope.
+It summarizes a Scopecat-authored package-preview manifest for a future
+selected-measurement export package before opening, accepting, or organizing
+it, while leaving archive extraction, package integrity, import acceptance,
+storage mutation, schema inference, recursive traversal, GUI behavior, and
+final package format out of scope.
 
 Context-shaped work such as recorded analysis choices and handoff context
 should use the Measurement Context Backlog above unless the slice is about

@@ -1,0 +1,239 @@
+{
+  "flow_policy": {
+    "flow_authority": "explicit_measurement_record_handoff_flow_request",
+    "slice_composition": "selected_explicit_candidate_facts",
+    "legacy_import_acceptance": "consumed_as_explicit_accepted_record_facts",
+    "source_observation": "performed_by_measurement_source_observation_candidate",
+    "selected_export_summary": "performed_by_selected_measurement_export_candidate",
+    "handoff_package_preview": "performed_by_handoff_package_contents_preview_candidate",
+    "storage_mutation": "not_performed",
+    "package_writing": "not_performed",
+    "package_acceptance": "not_performed",
+    "shared_measurement_schema": "not_defined",
+    "schema_inference": "not_performed",
+    "recursive_relation_traversal": "not_performed",
+    "gui_workflow": "not_defined"
+  },
+  "flow_request": {
+    "flow_id": "legacy-rabi-001-import-to-handoff",
+    "legacy_data_id": 1001,
+    "target": "qA",
+    "source_observation_request_id": "observe-imported-legacy-rabi-001",
+    "export_source_display": "SCOPECAT_STORAGE:/redacted/records/legacy-rabi-001/primary.csv"
+  },
+  "legacy_source_location": {
+    "session": "legacy-rabi-001",
+    "display_path": "LEGACY_SOURCE:/redacted/2026/05/01/legacy-record-001",
+    "local_path": "/Users/example/lab/private/legacy/legacy-record-001",
+    "local_path_public_safe": false
+  },
+  "source_observation_policy": {
+    "observation_authority": "explicit_observation_request",
+    "storage_root_authority": "caller_provided_storage_root_plus_declared_relative_paths",
+    "source_observation": "explicit_primary_data_file_only",
+    "checksum_algorithm": "sha256",
+    "storage_mutation": "not_performed",
+    "schema_inference": "not_performed",
+    "import_acceptance": "not_performed",
+    "export_package_writing": "not_performed",
+    "hardware_control": "not_performed",
+    "live_service": "not_defined",
+    "gui_workflow": "not_defined",
+    "shared_measurement_schema": "not_defined"
+  },
+  "accepted_record": {
+    "measurement_record": {
+      "measurement_record_id": "legacy-rabi-001",
+      "label": "Rabi calibration follow-up",
+      "experiment_type": "rabi",
+      "source_kind": "adapter_authored_legacy_import",
+      "classification": "imported_ready_for_review"
+    },
+    "source_identity": {
+      "external_record_id": "legacy-record-001",
+      "external_root_label": "redacted-lab-share",
+      "original_path_display": "LEGACY_SOURCE:/redacted/2026/05/01/legacy-record-001",
+      "local_path_redacted": true
+    },
+    "acceptance_request": {
+      "request_id": "accept-legacy-rabi-001",
+      "approval_state": "approved",
+      "reviewed_manifest_classification": "adapter_manifest_ready_for_review",
+      "record_dir": "records/legacy-rabi-001",
+      "primary_data_path": "records/legacy-rabi-001/primary.csv",
+      "manifest_path": "records/legacy-rabi-001/record-manifest.json",
+      "collision_policy": "no_overwrite",
+      "materialization": {
+        "primary_data": "copy_into_storage",
+        "linked_context": "reference_only",
+        "source_identity": "preserve_external_reference"
+      }
+    },
+    "write_results": [
+      {
+        "path": "records/legacy-rabi-001/primary.csv",
+        "kind": "primary_data",
+        "result": "written",
+        "bytes_written": 78,
+        "digest": "sha256:ffbcc9e95e07eb0e638faf7779958065fa2d331a2f8b15442b0bba899b30054d",
+        "does_not_claim": "schema_or_scientific_validity"
+      },
+      {
+        "path": "records/legacy-rabi-001/record-manifest.json",
+        "kind": "imported_record_manifest",
+        "result": "written",
+        "bytes_written": 2481,
+        "digest": "sha256:9110bfb7e75201b429cfb0952592ce610a5aaa920ecf9b600aa0acb5fecaaa02",
+        "does_not_claim": "final_storage_schema_or_package_integrity"
+      }
+    ],
+    "preview": {
+      "status": "preview_ready",
+      "metadata_authority": "adapter_declared",
+      "shape_kind": "declared_1d_table",
+      "axis_order": ["drive_frequency", "signal"],
+      "declared_row_count": 5,
+      "declared_roles": [
+        {
+          "name": "drive_frequency",
+          "role": "sweep_axis",
+          "label": "Drive frequency",
+          "unit": "GHz"
+        },
+        {
+          "name": "signal",
+          "role": "response",
+          "label": "Signal",
+          "unit": "a.u."
+        }
+      ],
+      "plot_candidates": [
+        {
+          "x": "drive_frequency",
+          "y": "signal",
+          "source": "records/legacy-rabi-001/primary.csv"
+        }
+      ],
+      "warnings": []
+    },
+    "linked_context": [
+      {
+        "link_id": "legacy-001-parameter-snapshot",
+        "kind": "parameter_state",
+        "role": "run_start_context",
+        "label": "Run-local parameter snapshot",
+        "reference": "legacy-record-001 parameters",
+        "authority": "adapter_declared",
+        "reference_state": "adapter_declared_available",
+        "reason": null
+      }
+    ]
+  },
+  "linked_context_export_refs": [
+    {
+      "source_link_id": "legacy-001-parameter-snapshot",
+      "path": "context/legacy-001-parameter-snapshot.reference.json",
+      "include_status": "visible_excluded",
+      "relation": "run_start_context",
+      "authority": "adapter_declared"
+    }
+  ],
+  "handoff_package_manifest": {
+    "package_preview_policy": {
+      "preview_authority": "scopecat_export_manifest_only",
+      "archive_extraction": "not_performed",
+      "file_observation": "not_performed",
+      "storage_mutation": "not_performed",
+      "import_acceptance": "not_performed",
+      "package_integrity": "not_claimed",
+      "schema_inference": "not_performed",
+      "recursive_relation_traversal": "not_performed",
+      "gui_workflow": "not_defined",
+      "shared_measurement_schema": "not_defined"
+    },
+    "package_identity": {
+      "package_id": "handoff-package-legacy-rabi-001",
+      "display_name": "Legacy Rabi selected measurement handoff",
+      "created_by": "scopecat_selected_measurement_export",
+      "source_export_summary_id": "export-summary-legacy-rabi-001",
+      "display_path": "HANDOFF_PACKAGE:/redacted/legacy-rabi-001",
+      "local_path_redacted": true
+    },
+    "selected_measurements": [
+      {
+        "measurement_record_id": "legacy-rabi-001",
+        "legacy_data_id": 1001,
+        "label": "Rabi calibration follow-up",
+        "experiment_type": "rabi",
+        "target": "qA",
+        "primary_data": {
+          "kind": "primary_data",
+          "label": "Accepted primary data",
+          "package_path": "measurements/legacy-rabi-001/primary.csv",
+          "include_status": "included_by_default",
+          "relation": "selected_measurement_source",
+          "authority": "scopecat_export_manifest",
+          "format": "csv_table",
+          "package_state": "packaged",
+          "reason": null
+        },
+        "declared_preview_metadata": {
+          "status": "preview_ready",
+          "metadata_authority": "scopecat_export_manifest",
+          "data_shape": {
+            "kind": "declared_1d_table",
+            "axis_order": ["drive_frequency", "signal"]
+          },
+          "declared_columns": [
+            {
+              "name": "drive_frequency",
+              "role": "sweep_axis",
+              "label": "Drive frequency",
+              "unit": "GHz"
+            },
+            {
+              "name": "signal",
+              "role": "response",
+              "label": "Signal",
+              "unit": "a.u."
+            }
+          ],
+          "plot_candidates": [
+            {
+              "x": "drive_frequency",
+              "y": "signal",
+              "source": "measurements/legacy-rabi-001/primary.csv"
+            }
+          ]
+        },
+        "default_bundle": [
+          {
+            "item_id": "legacy-rabi-001-primary",
+            "kind": "primary_data",
+            "label": "Accepted primary data",
+            "package_path": "measurements/legacy-rabi-001/primary.csv",
+            "include_status": "included_by_default",
+            "relation": "selected_measurement_source",
+            "authority": "scopecat_export_manifest",
+            "package_state": "packaged",
+            "reason": null
+          }
+        ]
+      }
+    ],
+    "linked_context": [
+      {
+        "link_id": "package-legacy-001-parameter-snapshot",
+        "kind": "parameter_state",
+        "label": "Run-local parameter snapshot",
+        "package_path": null,
+        "include_status": "visible_excluded",
+        "relation": "run_start_context",
+        "authority": "scopecat_export_manifest",
+        "package_state": "not_packaged_visible_reference",
+        "reason": "The accepted legacy import preserved this linked context as a reference-only fact; the package manifest does not include its payload.",
+        "linked_measurement_record_ids": ["legacy-rabi-001"]
+      }
+    ]
+  }
+}

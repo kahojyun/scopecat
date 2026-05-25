@@ -33,7 +33,7 @@ incoming-record manifest:
 - one T1 candidate with unavailable source data, degraded preview metadata, and
   unavailable linked notebook context.
 
-The builder treats all source and linked-context paths as declared references.
+The builder treats source paths and linked-context references as declared facts.
 It does not read source files, parse CSV headers, copy files, write storage,
 accept imports, infer schemas, checksum content, render plots, or traverse
 relations.
