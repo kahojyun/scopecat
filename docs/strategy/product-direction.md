@@ -99,20 +99,33 @@ record-all tracking, package management, sync, merge semantics, environment
 ownership, execution, and workflow/DAG contracts behind narrower validation and
 decision records.
 
-Cross-machine value should start from portable records, explicit export/import,
-handoff packages, existing shared-storage discovery or references, and
+Cross-machine value should start from portable records, handoff packages,
+explicit export/import, existing shared-storage discovery or references, and
 openability checks. This makes Scopecat record-aware across machines, not a
 distributed experiment-control system.
 
+The target handoff experience is open-before-import. A Scopecat-authored
+handoff package should be useful as a standalone portable artifact: a future
+Python SDK or GUI should be able to open the package read-only, inspect package
+contents, load declared primary data, show package metadata and linked context
+references, and make basic declared-preview plots. Users should not need to
+accept, import, or organize the package into local Scopecat-managed storage
+before quick review or analysis.
+
+Package import, acceptance, and organization are optional later workflows. They
+may copy or register package contents into local storage, so they need stronger
+mutation, destination, and no-overwrite behavior than read-only package use.
+
 Export/import should eventually support quick measurement orientation on both
-sides: export preview helps choose which measurements to package; handoff or
+sides. Export preview helps choose which measurements to package. Handoff or
 export-package contents preview helps the receiving user confirm what a
-Scopecat-created package contains before opening, accepting, or organizing it;
-and incoming-record import preview helps classify externally supplied candidate
-records before import authority exists. These are related preview surfaces with
-different input authorities, not one generic import contract. This is an
-orientation and trust boundary, not a commitment to rendered plots, report
-generation, or user/domain conclusions in the first slice.
+Scopecat-created package contains before read-only package use or later
+acceptance/organization. Incoming-record import preview helps classify
+externally supplied candidate records before import authority exists. These are
+related preview surfaces with different input authorities, not one generic
+import contract. This is an orientation and trust boundary, not a commitment to
+report generation, user/domain conclusions, broad GUI ownership, or full import
+authority in the first slice.
 
 Recording should be explicit. Experiment code, helper libraries, or lab-owned
 bridges should deliberately send data, sweep semantics, lifecycle/status

@@ -92,15 +92,18 @@ define a package format, traverse relation graphs, or design an import GUI.
 
 Handoff package contents preview has a slice-local implementation candidate for
 previewing and classifying a Scopecat-authored selected-measurement export
-package manifest before opening, accepting, or organizing it. It preserves
-package identity, selected measurements, packaged primary data and default
-bundles, declared preview metadata, packaged linked context,
+package manifest for quick receiving-side orientation. The intended package UX
+is open-before-import: preview the manifest, then use a future read-only opener
+to inspect a standalone package, load declared primary data, and use declared
+preview metadata, then optionally accept/import into local storage. The preview
+candidate preserves package identity, selected measurements, packaged primary
+data and default bundles, declared preview metadata, packaged linked context,
 visible-but-not-packaged artifacts, and missing context as review findings. It
-does not accept imports, write storage, extract archives, inspect package
-files, infer schemas, validate package integrity, define a final package
-format, traverse relation graphs, or design a review GUI. This keeps it
-separate from incoming-record import preview, where the input authority is an
-external incoming-record manifest.
+keeps the read-only opener, import acceptance, storage writes, archive
+extraction, package-file inspection, schema inference, package integrity, final
+package format, relation traversal, and review GUI as separate decisions. This
+keeps it separate from incoming-record import preview, where the input authority
+is an external incoming-record manifest.
 
 Legacy import acceptance has a slice-local implementation candidate for the
 first approved review-to-acceptance mutation for a normalized adapter-authored
@@ -431,7 +434,7 @@ schema.
 
 | Candidate concept | Slice pressure | Current meaning |
 | --- | --- | --- |
-| Measurement record | Export, incoming-record import preview, handoff package contents preview, legacy import acceptance, reference-only legacy import, running inspection, new-run writer, storage writer, source observation, calibration continuation | The ordinary user-facing unit for primary recorded experiment data, created from writer events, written to storage, accepted from reviewed legacy adapter manifests, preserved as external references, observed after storage, selected for export, previewed before import or package acceptance, inspected while running, or referenced as calibration output. |
+| Measurement record | Export, incoming-record import preview, handoff package contents preview, legacy import acceptance, reference-only legacy import, running inspection, new-run writer, storage writer, source observation, calibration continuation | The ordinary user-facing unit for primary recorded experiment data, created from writer events, written to storage, accepted from reviewed legacy adapter manifests, preserved as external references, observed after storage, selected for export, previewed before external import, handoff package read-only open, or later package acceptance, inspected while running, or referenced as calibration output. |
 | Source identity | Export, incoming-record import preview, legacy import acceptance, reference-only legacy import, running inspection, new-run writer, calibration continuation | Recoverable provenance for where a record came from, distinct from current read path, package-relative fixture path, writer-declared primary data path, external current reference, or final storage identity. |
 | Primary data reference | Export, incoming-record import preview, handoff package contents preview, legacy import acceptance, reference-only legacy import, running inspection, new-run writer, storage writer, source observation, measurement boundary | The data item users expect to inspect, preview, export, import, package, store, observe, preserve by reference, or later plot; may be fixture path-shaped now but should not imply durable path identity. |
 | Declared preview metadata | Export, incoming-record import preview, handoff package contents preview, legacy import acceptance, reference-only legacy import, running inspection, new-run writer, storage writer, source observation, scan/data-shape | Shape, roles, labels, units, axis order, row order, and plot candidates supplied explicitly enough to support preview without schema inference. |
@@ -619,6 +622,11 @@ The cross-slice comparison still does not earn:
 
 Use this synthesis as the comparison point before promoting shared
 architecture.
+
+For the handoff route, the current UX direction points to a read-only package
+opener before package import/acceptance. A narrower package-integrity or
+archive question should block that sequencing only when it is required for safe
+opening.
 
 Shared model extraction is currently deferred in
 [`shared-model-extraction-deferral.md`](shared-model-extraction-deferral.md).

@@ -54,10 +54,10 @@ analysis workspace.
   Scopecat should not silently infer or export a downstream analysis DAG.
 - Export/import UX should eventually support quick preview on both sides:
   the exporting user previews measurements before choosing what to export, and
-  the importing user previews measurements before accepting or organizing the
-  imported package. This preview is for orientation, selection, and confirmation;
-  it is not user/domain conclusion support, report generation, or a requirement
-  to bundle rendered plots.
+  the receiving user previews package contents before read-only package use or
+  later acceptance/organization. This preview is for orientation, selection, and
+  confirmation; it is not user/domain conclusion support, report generation, or
+  a requirement to bundle rendered plots.
 
 ## Derived Hypotheses
 

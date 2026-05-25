@@ -22,8 +22,11 @@ to avoid blocking later preview surfaces on both sides of a transfer:
 
 - export-side preview helps users choose measurements before packaging;
 - handoff or export-package contents preview helps receiving users confirm
-  what a Scopecat-created package contains before opening, accepting, or
-  organizing it;
+  what a Scopecat-created package contains before read-only package use,
+  package acceptance/import, or organization;
+- a later read-only opener can use the declared metadata for Python SDK or GUI
+  inspection, primary-data loading, and basic plotting without requiring
+  package import first;
 - incoming-record import preview is a related but separate slice for external
   candidate records whose input shape is not authored by selected measurement
   export;
@@ -229,8 +232,8 @@ and warning surfaces without becoming broad legacy importer coverage.
 These should remain separate decisions unless they block the first slice:
 
 - exact export and handoff-package contents preview GUI flow;
-- minimal preview UI content before export selection or handoff-package
-  acceptance, opening, or organization;
+- minimal preview UI content before export selection, handoff-package read-only
+  open, or later package acceptance/organization;
 - default include policy for attachments versus artifacts;
 - artifact naming and labeling UX;
 - many-to-many relation model;
