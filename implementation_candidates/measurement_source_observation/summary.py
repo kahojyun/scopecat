@@ -11,9 +11,21 @@ from __future__ import annotations
 import copy
 import csv
 import hashlib
-import re
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
+
+from implementation_candidates.contract_primitives import (
+    relative_path_parts as _relative_parts,
+)
+from implementation_candidates.contract_primitives import (
+    validate_non_negative_integer as _validate_nonnegative_int,
+)
+from implementation_candidates.contract_primitives import (
+    validate_relative_path as _validate_relative_path,
+)
+from implementation_candidates.contract_primitives import (
+    validate_sha256_digest,
+)
 
 _EXPECTED_POLICY = {
     "observation_authority": "explicit_observation_request",
@@ -30,44 +42,7 @@ _EXPECTED_POLICY = {
     "shared_measurement_schema": "not_defined",
 }
 
-_SHA256_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _PRIMARY_DATA_FORMATS = {"csv_table"}
-
-
-def _path_is_relative(path: str) -> bool:
-    parsed = PurePosixPath(path)
-    raw_parts = path.split("/")
-    return (
-        bool(path)
-        and path != "."
-        and "\\" not in path
-        and not re.match(r"^[A-Za-z]:", path)
-        and not parsed.is_absolute()
-        and not any(part in {"", ".", ".."} for part in raw_parts)
-    )
-
-
-def _validate_relative_path(path: str, owner: str) -> None:
-    if not _path_is_relative(path):
-        raise ValueError(f"{owner} path must be relative")
-
-
-def _validate_positive_int(value: Any, owner: str) -> None:
-    if not isinstance(value, int) or isinstance(value, bool):
-        raise ValueError(f"{owner} must be an integer")
-    if value <= 0:
-        raise ValueError(f"{owner} must be positive")
-
-
-def _validate_nonnegative_int(value: Any, owner: str) -> None:
-    if not isinstance(value, int) or isinstance(value, bool):
-        raise ValueError(f"{owner} must be an integer")
-    if value < 0:
-        raise ValueError(f"{owner} must not be negative")
-
-
-def _relative_parts(relative_path: str) -> tuple[str, ...]:
-    return PurePosixPath(relative_path).parts
 
 
 def _path_under(root: Path, relative_path: str) -> Path:
@@ -129,8 +104,7 @@ def _validate_observation_request(source: dict[str, Any]) -> None:
     if request["primary_data_format"] not in _PRIMARY_DATA_FORMATS:
         raise ValueError("measurement source observation primary data format is unsupported")
     _validate_relative_path(request["primary_data_path"], "observation request primary_data_path")
-    if not _SHA256_DIGEST.fullmatch(request["expected_digest"]):
-        raise ValueError("expected primary data digest must be a sha256-prefixed hex digest")
+    validate_sha256_digest(request["expected_digest"], "expected primary data digest")
     _validate_nonnegative_int(request["expected_size_bytes"], "expected_size_bytes")
     _validate_nonnegative_int(request["expected_rows_recorded"], "expected_rows_recorded")
 

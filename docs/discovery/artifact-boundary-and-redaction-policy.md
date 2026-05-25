@@ -4,15 +4,25 @@
 
 Discovery policy rule, not an ADR.
 
-This note defines how discovery fixtures, summaries, review artifacts, local
-Scopecat UI surfaces, and future portable/export/package outputs should carry
-redaction responsibility. It exists to prevent every validation slice from
-becoming a broad runtime redaction or DLP system.
+This note defines the artifact surfaces that Scopecat discovery work should
+name when deciding redaction and reference-validation responsibility. It keeps
+local review surfaces useful while making portable/export/package boundaries
+explicit.
 
 ## Rule
 
-Discovery fixtures and expected outputs must be **repository-safe** by default,
-not necessarily **portable/export-safe**.
+Discovery work uses three positive artifact postures:
+
+- **local/review surface**: a Scopecat UI, review summary, local receipt, or
+  discovery summary meant for the local user, developer, or reviewer;
+- **repository-safe fixture artifact**: committed fixture input, expected
+  output, or discovery evidence;
+- **portable/public/export artifact**: a generated package, package/export
+  manifest, report, externally published document, or other artifact intended
+  to be carried away or shared.
+
+Discovery fixtures and expected outputs must be **repository-safe** by default.
+They are not automatically **portable/export-safe** product outputs.
 
 Scopecat optimizes for usefulness inside the user's local/lab context. Runtime
 redaction is not required merely because a value appears in a local Scopecat UI,
@@ -39,8 +49,8 @@ surface.
 | --- | --- | --- |
 | Repository-safe fixture artifact | Test input, expected output, or discovery evidence committed to this repository. | Must not contain real secrets, real private paths, real hostnames, real lab/user/customer identifiers, tokens, or accidental local filesystem leaks. Synthetic sensitive-shaped examples may appear only when intentionally testing boundary behavior. Synthetic absolute paths that are not sensitive-shaped should be clearly fake and should not resemble a real user, lab, host, or customer environment. |
 | Internal validation output | Program state or candidate output used to test a slice-local contract. | May preserve synthetic raw facts needed for validation when repository-safe. It should not be documented as portable/public/export output. |
-| Review summary or local UI surface | A structured summary or UI view meant for the local Scopecat user, developer, or reviewer inspecting their own data. | Should be useful and deliberate: avoid dumping unrelated raw nested input, validate managed references it exposes, and preserve the information needed for local inspection. It does not need runtime redaction merely because it is visible in the app. |
-| Portable/public/export artifact | Exported package manifest, package writer output, externally published documentation, externally shared report, or package-writer/generated handoff artifact intended to be carried away or shared. | Must own the portable/export projection, redaction rules, package-relative references, materialization destinations, and integrity expectations for that artifact. |
+| Review summary or local UI surface | A structured summary, receipt, or UI view meant for the local Scopecat user, developer, or reviewer inspecting their own data. | Should be useful and deliberate: avoid dumping unrelated raw nested input, validate managed references it exposes, and preserve the information needed for local inspection. It does not need runtime redaction merely because it is visible in the app. |
+| Portable/public/export artifact | A generated package directory, package manifest, externally published documentation, externally shared report, or generated handoff artifact intended to be carried away or shared. | Must own the portable/export projection, redaction rules, package-relative references, materialization destinations, and integrity expectations for that artifact. Local writer receipts are review summaries, not portable package artifacts. |
 
 ## Managed References
 
@@ -57,9 +67,10 @@ own or transform them:
 
 This is reference validation, not broad text redaction. User-authored labels,
 display names, notes, descriptions, and messages remain free text unless a
-slice explicitly defines a redaction policy surface or generates a portable/
-public/export artifact. Repository fixtures should still be reviewed for safe
-wording.
+slice explicitly defines a redaction policy surface. Portable/public/export
+artifacts that include free text should deliberately project reviewed fields,
+but they should not grow broad runtime DLP scanning merely because they carry
+labels or notes. Repository fixtures should still be reviewed for safe wording.
 
 ## Discovery Summary Posture
 
@@ -83,10 +94,21 @@ deliberate projections for review and export summaries.
 
 ## Package Writer Boundary
 
-The future package writer is the strongest portable/export boundary for
-measurement handoff. It should own final package redaction, package-relative
-paths, manifest public safety, materialization decisions, and package
-integrity.
+For measurement handoff, the package writer boundary should be described in
+positive artifact terms:
+
+- the generated package directory is the portable handoff artifact;
+- `package-manifest.json` is the portable contract/index inside that package;
+- copied primary data and other package members are portable package contents;
+- the function return value, if any, is a local write receipt unless the slice
+  explicitly declares otherwise.
+
+A package writer owns package redaction, package-relative paths, manifest
+public safety, materialization decisions, and the declared integrity checks for
+files it materializes. Full package integrity remains a separate explicit
+contract unless the slice accepts it. A local write receipt may keep review
+facts needed to inspect the operation, but it is not the artifact to carry away
+or share.
 
 Earlier discovery candidates may preview package-shaped facts, but preview
 does not make every upstream slice responsible for final package redaction.

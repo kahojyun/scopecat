@@ -1,0 +1,126 @@
+{
+  "candidate_summary": {
+    "artifact_posture": "local_write_receipt",
+    "attention": [
+      {
+        "basis": "Approved fixture input wrote a directory-shaped handoff package.",
+        "code": "handoff_package_written",
+        "does_not_claim": "package_acceptance_or_import_readiness",
+        "severity": "review"
+      },
+      {
+        "basis": "Declared primary data sha256 and size facts are checked before copying.",
+        "code": "primary_data_copied",
+        "does_not_claim": "schema_or_scientific_validity",
+        "severity": "info"
+      },
+      {
+        "basis": "Linked context remains visible reference-only; payloads are not packaged.",
+        "code": "linked_context_reference_only",
+        "does_not_claim": "recursive_relation_traversal_or_context_capture",
+        "severity": "review"
+      },
+      {
+        "basis": "The writer creates a package directory and manifest but no archive.",
+        "code": "archive_creation_not_performed",
+        "does_not_claim": "zip_or_archive_package_format",
+        "severity": "review"
+      }
+    ],
+    "package": {
+      "classification": "package_written_ready_for_transfer_review",
+      "created_by": "scopecat_selected_measurement_export",
+      "display_name": "Legacy Rabi selected measurement handoff",
+      "display_path": "HANDOFF_PACKAGE:/redacted/legacy-rabi-001",
+      "package_id": "handoff-package-legacy-rabi-001",
+      "source_export_summary_id": "export-summary-legacy-rabi-001"
+    },
+    "package_contents": [
+      {
+        "authority": "scopecat_export_manifest",
+        "include_status": "included_by_default",
+        "item_id": "legacy-rabi-001-primary",
+        "kind": "primary_data",
+        "label": "Accepted primary data",
+        "owner_id": "legacy-rabi-001",
+        "owner_type": "selected_measurement",
+        "package_path": "measurements/legacy-rabi-001/primary.csv",
+        "package_state": "packaged",
+        "reason": null,
+        "relation": "selected_measurement_source"
+      },
+      {
+        "authority": "scopecat_export_manifest",
+        "include_status": "visible_excluded",
+        "item_id": "package-legacy-001-parameter-snapshot",
+        "kind": "parameter_state",
+        "label": "Run-local parameter snapshot",
+        "owner_id": "package-legacy-001-parameter-snapshot",
+        "owner_type": "linked_context",
+        "package_path": null,
+        "package_state": "not_packaged_visible_reference",
+        "reason": "The accepted legacy import preserved this linked context as a reference-only fact; the package writer does not include its payload.",
+        "relation": "run_start_context"
+      }
+    ],
+    "package_write_policy": {
+      "archive_creation": "not_performed",
+      "checksum_algorithm": "sha256",
+      "destination_authority": "caller_provided_package_root_plus_declared_package_paths",
+      "gui_workflow": "not_defined",
+      "linked_context_materialization": "reference_only",
+      "overwrite_behavior": "no_overwrite",
+      "package_acceptance": "not_performed",
+      "package_format": "directory_manifest",
+      "primary_data_materialization": "copy_declared_primary_data",
+      "recursive_relation_traversal": "not_performed",
+      "schema_inference": "not_performed",
+      "shared_measurement_schema": "not_defined",
+      "source_authority": "caller_provided_storage_root_plus_declared_relative_paths",
+      "storage_mutation": "not_performed",
+      "write_authority": "approved_handoff_package_write_request"
+    },
+    "selected_measurements": [
+      {
+        "classification": "primary_data_packaged",
+        "experiment_type": "rabi",
+        "label": "Rabi calibration follow-up",
+        "legacy_data_id": 1001,
+        "measurement_record_id": "legacy-rabi-001",
+        "primary_data": {
+          "digest": "sha256:e7407c74b4bb35e1cc350ae2cc4829981c5b48ac7db4364366f0b30802eab887",
+          "format": "csv_table",
+          "package_path": "measurements/legacy-rabi-001/primary.csv",
+          "size_bytes": 73
+        },
+        "source_path": "records/legacy-rabi-001/primary.csv",
+        "target": "qA"
+      }
+    ],
+    "write_request": {
+      "approval_state": "approved",
+      "collision_policy": "no_overwrite",
+      "manifest_path": "handoff-package-legacy-rabi-001/package-manifest.json",
+      "package_dir": "handoff-package-legacy-rabi-001",
+      "request_id": "write-handoff-package-legacy-rabi-001"
+    },
+    "write_results": [
+      {
+        "bytes_written": 73,
+        "digest": "sha256:e7407c74b4bb35e1cc350ae2cc4829981c5b48ac7db4364366f0b30802eab887",
+        "does_not_claim": "schema_or_scientific_validity",
+        "kind": "primary_data",
+        "path": "handoff-package-legacy-rabi-001/measurements/legacy-rabi-001/primary.csv",
+        "result": "written"
+      },
+      {
+        "bytes_written": 3471,
+        "digest": "sha256:6d494a8edd9b8d4fc122f3c9e4a6ffdefdcf8db2583eefd7310d0b2b568ac5a5",
+        "does_not_claim": "package_acceptance_or_archive_integrity",
+        "kind": "package_manifest",
+        "path": "handoff-package-legacy-rabi-001/package-manifest.json",
+        "result": "written"
+      }
+    ]
+  }
+}

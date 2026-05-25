@@ -20,6 +20,8 @@ relation graph, or warning taxonomy.
 - [`running-measurement-inspection-validation-result.md`](running-measurement-inspection-validation-result.md)
 - [`measurement-record-import-preview-validation-result.md`](measurement-record-import-preview-validation-result.md)
 - [`handoff-package-contents-preview-validation-result.md`](handoff-package-contents-preview-validation-result.md)
+- [`handoff-package-writer-validation-result.md`](handoff-package-writer-validation-result.md)
+- [`contract-primitives-validation-result.md`](contract-primitives-validation-result.md)
 - [`adapter-authored-legacy-import-validation-result.md`](adapter-authored-legacy-import-validation-result.md)
 - [`legacy-import-acceptance-validation-result.md`](legacy-import-acceptance-validation-result.md)
 - [`reference-only-legacy-import-validation-result.md`](reference-only-legacy-import-validation-result.md)
@@ -164,21 +166,49 @@ accepted-record facts from the legacy import acceptance boundary, derives a
 source-observation request from those facts, adapts the accepted record into a
 selected measurement export summary, and previews an explicit handoff package
 manifest. Selected handoff facts in the raw JSON fixture are checked through a
-candidate-local contract module before adaptation. This tests accepted-record
-path/materialization constraints, no-overwrite acceptance, accepted write-result
-kind/result/path/digest/size alignment, public-safe display references,
-accepted-record/measurement identity continuity, package-declared export-summary
-reference syntax, preview-metadata continuity, candidate-local package/export
-path topology, and linked-context handoff alignment across the route without
-accepting storage mutation, a shared measurement schema, final package format,
-package writer, package acceptance, GUI behavior, recursive traversal, schema
-inference, or final storage architecture.
+candidate-local contract module before adaptation. That module now delegates
+identical low-level value-shape checks to the contract-primitives candidate
+while keeping route-specific continuity, display-ref, and package-topology
+semantics local. This tests accepted-record path/materialization constraints,
+no-overwrite acceptance, accepted write-result kind/result/path/digest/size
+alignment, public-safe display references, accepted-record/measurement identity
+continuity, package-declared export-summary reference syntax, preview-metadata
+continuity, candidate-local package/export path topology, and linked-context
+handoff alignment across the route without accepting storage mutation, a shared
+measurement schema, final package format, package writer, package acceptance,
+GUI behavior, recursive traversal, schema inference, or final storage
+architecture.
 
 The handoff flow preserves accepted linked-context `reference` values as
 adapter-declared scalar text for local review. It does not interpret those
 values as Scopecat-managed paths. Topology validation applies only to fields the
 composition owns or transforms, such as `linked_context_export_refs[].path` and
 package `package_path` values.
+
+Handoff package writer has the first package-boundary write candidate in the
+measurement route. It copies declared primary data from caller-provided storage
+into the explicit package-relative
+`measurements/{measurement_record_id}/primary.csv` path and writes a
+deterministic `{package_id}/package-manifest.json` that the handoff package
+contents preview candidate can consume. The generated package directory is the
+portable handoff artifact; `package-manifest.json` is the portable
+contract/index inside that directory; and the function return is only a local
+write receipt. Linked context is preserved as reference-only manifest entries;
+linked-context payloads are not packaged. This is stronger than package preview
+because it performs file writes, owns the portable package projection, and
+rejects empty selected-measurement packages and package roots equal to or inside
+measurement storage, while still leaving arbitrary nested package paths,
+archive creation, package import acceptance, recursive linked-context capture,
+shared measurement schema, schema inference, and GUI behavior out of scope.
+
+Contract primitives now have a narrow support candidate because the writer and
+composition work repeatedly needed the same low-level checks for managed
+identifiers, syntax-only relative path checks, exact generated package paths,
+selected-reference targets, redacted display references, sha256 digests, and
+package-root separation. This is intentionally below a domain model: it reduces
+duplicated validation code without accepting a shared measurement-record
+schema, final package schema, storage architecture, public API, GUI contract,
+or runtime redaction engine.
 
 Calibration work continuation has a tiny assembler candidate for continuation
 state. It pressures episode context, planned steps, observed outputs, review

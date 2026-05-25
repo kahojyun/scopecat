@@ -40,6 +40,8 @@ supporting policy notes. The current slice inventory is:
 | Running measurement inspection | Measurement records | Implementation candidate validated | Side-effect-free state summary for already-recorded data from still-running measurements, including progress, completeness, freshness, declared preview metadata, and non-durable monitor ergonomics without live-service, GUI, plotting, storage, import/export, or hardware-control authority. |
 | Incoming measurement record import preview | Measurement records | Implementation candidate validated | Side-effect-free preview and classification for explicit incoming-record manifests, including source identity, current-reference state, declared preview metadata, linked context, and review findings without import acceptance, storage mutation, selected-measurement export package preview, schema inference, package integrity, recursive traversal, or GUI behavior. |
 | Handoff package contents preview | Measurement records | Implementation candidate validated | Side-effect-free preview summary for Scopecat-authored selected-measurement package-manifest inputs, including package identity, selected measurements, packaged contents, declared preview metadata, visible-but-not-packaged artifacts, and missing context without treating the preview as the final export/package boundary, import acceptance, storage mutation, archive extraction, package integrity, schema inference, recursive traversal, or GUI behavior. |
+| Handoff package writer | Measurement records | Implementation candidate validated | Approved directory-shaped package write for explicit handoff package writer input, including primary-data copy to `measurements/{measurement_record_id}/primary.csv`, deterministic `{package_id}/package-manifest.json` in the shape accepted by package contents preview, generated package topology, rejection of package roots equal to or inside measurement storage, non-empty selected-measurement input, source sha256/size preflight, no-overwrite destinations, best-effort rollback for ordinary write failures, and linked context as reference-only manifest entries whose payloads are not packaged, without archive creation, package import acceptance, arbitrary nested package paths, recursive traversal, schema inference, shared measurement schema, or GUI behavior. |
+| Contract primitives | Cross-slice support | Implementation candidate validated | Narrow shared validation helpers for repeated managed identifiers, syntax-only relative path checks, exact package primary-data paths, reference target lists, redacted display references, sha256 digests, and package-root separation, without accepting a measurement-record domain model, final package schema, storage architecture, public API, GUI contract, or runtime redaction engine. |
 | Adapter-authored legacy import manifest | Measurement records | Implementation candidate validated | Side-effect-free validation and summary for normalized manifests emitted by user-owned legacy adapters, including adapter identity, external source identity, primary-data reference, declared preview metadata, linked context, and adapter findings without stable public API, LabRAD/DataVault/Labber reader behavior, import acceptance, storage mutation, schema inference, package format, recursive traversal, or GUI behavior. |
 | Legacy import acceptance | Measurement records | Implementation candidate validated | Approved copy-into-new-record mutation for one reviewed adapter-authored manifest, including source sha256/size preflight, no-overwrite targets, copied primary data, deterministic imported-record manifest, preserved external source identity, and reference-only linked context without stable import API, legacy readers in core, export-package acceptance, existing-record update, schema inference, recursive traversal, package integrity, or GUI behavior. |
 | Reference-only legacy import | Measurement records | Implementation candidate validated | Side-effect-free reference-only acceptance summary for one reviewed adapter-authored manifest, including lab-managed current-reference facts, public-safe redacted display validation, preserved source identity, unobserved openability/checksum/size state, and reference-only linked context without copying primary data, storage mutation, source observation, repair, stable import API, legacy readers in core, export-package acceptance, schema inference, recursive traversal, package integrity, or GUI behavior. |
@@ -78,6 +80,10 @@ default, not automatically portable/public/export artifacts. Use
 [`artifact-boundary-and-redaction-policy.md`](artifact-boundary-and-redaction-policy.md)
 when deciding whether a slice needs runtime redaction, managed-reference
 validation, a review-summary projection, or portable/package redaction rules.
+For handoff package writers, the generated package directory is the portable
+artifact, `package-manifest.json` is the portable contract/index inside that
+directory, and any function return value is local/review-only unless the slice
+declares otherwise.
 
 Validation result and plan documents may include slice-local recommendations
 for what their fixture earned or deferred. They should not be treated as the
@@ -133,6 +139,8 @@ Measurement Records the owner of context-support behavior.
 | [`running-measurement-inspection-validation-result.md`](running-measurement-inspection-validation-result.md) | Result of the running-inspection implementation candidate. |
 | [`measurement-record-import-preview-validation-result.md`](measurement-record-import-preview-validation-result.md) | Result of the first side-effect-free incoming-record import preview implementation candidate. |
 | [`handoff-package-contents-preview-validation-result.md`](handoff-package-contents-preview-validation-result.md) | Result of the first side-effect-free Scopecat-authored handoff package contents preview implementation candidate. |
+| [`handoff-package-writer-validation-result.md`](handoff-package-writer-validation-result.md) | Result of the first approved directory-shaped handoff package writer implementation candidate. |
+| [`contract-primitives-validation-result.md`](contract-primitives-validation-result.md) | Result of the first narrow shared contract-primitives implementation candidate. |
 | [`adapter-authored-legacy-import-validation-result.md`](adapter-authored-legacy-import-validation-result.md) | Result of the first normalized adapter-authored legacy import manifest candidate. |
 | [`legacy-import-acceptance-validation-result.md`](legacy-import-acceptance-validation-result.md) | Result of the first approved copy-into-new-record acceptance candidate for a reviewed adapter-authored legacy manifest. |
 | [`reference-only-legacy-import-validation-result.md`](reference-only-legacy-import-validation-result.md) | Result of the first side-effect-free reference-only acceptance candidate for a reviewed adapter-authored legacy manifest. |
@@ -199,9 +207,12 @@ accepted-record facts, and handoff package contents preview consumes an
 explicit package-preview manifest rather than package layout invented by the
 flow. It validates selected handoff facts from the raw JSON fixture through a
 candidate-local contract module before adapting between slice-local input
-shapes, instead of extracting a shared model. It keeps storage mutation, package
-writing, package acceptance, GUI behavior, recursive traversal, schema
-inference, and final storage/package architecture out of scope.
+shapes, delegating identical low-level value-shape checks to the
+contract-primitives candidate while keeping route-specific continuity,
+display-ref, and package-topology semantics local. This is not a shared
+measurement model. It keeps storage mutation, package writing, package
+acceptance, GUI behavior, recursive traversal, schema inference, and final
+storage/package architecture out of scope.
 
 The first handoff package contents preview candidate is validated in
 [`handoff-package-contents-preview-validation-result.md`](handoff-package-contents-preview-validation-result.md).
@@ -210,6 +221,30 @@ selected-measurement export package before opening, accepting, or organizing
 it, while leaving archive extraction, package integrity, import acceptance,
 storage mutation, schema inference, recursive traversal, GUI behavior, and
 final package format out of scope.
+
+The first handoff package writer candidate is validated in
+[`handoff-package-writer-validation-result.md`](handoff-package-writer-validation-result.md).
+It writes a minimal directory-shaped package by copying declared primary data
+from caller-provided storage into
+`measurements/{measurement_record_id}/primary.csv` and writing a deterministic
+`{package_id}/package-manifest.json` in the shape accepted by the handoff
+package contents preview candidate. The generated package directory is the
+portable artifact, the manifest is its portable contract/index, and the return
+value is a local write receipt. It requires at least one selected measurement,
+rejects package roots equal to or inside measurement storage, and preserves
+linked context as reference-only manifest entries whose payloads are not
+packaged. It leaves arbitrary nested package paths, archive creation, package
+import acceptance, recursive traversal, schema inference, shared measurement
+schema, and GUI behavior out of scope.
+
+The first contract-primitives candidate is validated in
+[`contract-primitives-validation-result.md`](contract-primitives-validation-result.md).
+It extracts only repeated low-level checks that writer and composition
+candidates were already duplicating: managed identifiers, syntax-only relative
+path checks, exact package primary-data paths, selected-reference target lists,
+redacted display references, sha256 digest strings, and package-root
+separation. It is a support slice, not a shared measurement-record model or
+final package schema.
 
 Context-shaped work such as recorded analysis choices and handoff context
 should use the Measurement Context Backlog above unless the slice is about

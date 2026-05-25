@@ -108,7 +108,12 @@ class HandoffPackageContentsPreviewSummaryCandidateTest(unittest.TestCase):
         source["linked_context"][0]["label"] = "mutated"
 
         measurement = summary["selected_measurements"][0]
-        linked = summary["package_contents"][4]
+        linked = next(
+            item
+            for item in summary["package_contents"]
+            if item["owner_type"] == "linked_context"
+            and item["item_id"] == "package-session-wiring-note"
+        )
         self.assertEqual(measurement["primary_data"]["label"], "Run 1001 Rabi source data")
         self.assertEqual(measurement["preview"]["declared_roles"][0]["label"], "Drive amplitude")
         self.assertEqual(linked["label"], "Session wiring note")
@@ -205,6 +210,19 @@ class HandoffPackageContentsPreviewSummaryCandidateTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "display path"):
             build_handoff_package_contents_preview_summary(source)
+
+    def test_display_path_is_optional_for_portable_writer_manifest(self) -> None:
+        source = _load_input()
+        del source["package_identity"]["display_path"]
+
+        summary = build_handoff_package_contents_preview_summary(source)
+
+        self.assertNotIn("display_path", summary["package"])
+        self.assertEqual(summary["package"]["package_id"], "handoff-package-qA-2026-05")
+        self.assertEqual(summary["package"]["classification"], "needs_review_before_acceptance")
+        findings = {item["finding"] for item in summary["preview_findings"]}
+        self.assertIn("preview_metadata_missing", findings)
+        self.assertIn("linked_context_not_packaged_visible_reference", findings)
 
     def test_non_packaged_context_requires_reason(self) -> None:
         source = _load_input()
