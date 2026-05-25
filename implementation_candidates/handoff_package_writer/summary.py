@@ -37,9 +37,6 @@ from implementation_candidates.contract_primitives import (
     validate_public_identifier as _validate_public_identifier,
 )
 from implementation_candidates.contract_primitives import (
-    validate_redacted_display_ref as _validate_redacted_display_ref,
-)
-from implementation_candidates.contract_primitives import (
     validate_relative_path as _validate_relative_path,
 )
 from implementation_candidates.contract_primitives import (
@@ -50,6 +47,11 @@ from implementation_candidates.contract_primitives import (
 )
 from implementation_candidates.handoff_package_contents_preview import (
     build_handoff_package_contents_preview_summary,
+)
+from implementation_candidates.handoff_package_contracts import (
+    MANIFEST_AUTHORITY,
+    validate_handoff_package_identity,
+    validate_handoff_preview_ready_metadata,
 )
 
 _EXPECTED_POLICY = {
@@ -83,7 +85,6 @@ _EXPECTED_PREVIEW_POLICY = {
     "shared_measurement_schema": "not_defined",
 }
 
-_MANIFEST_AUTHORITY = "scopecat_export_manifest"
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 
 
@@ -201,53 +202,23 @@ def _validate_write_request(source: dict[str, Any]) -> None:
 
 
 def _validate_package_identity(source: dict[str, Any]) -> None:
-    identity = source["package_identity"]
-    _validate_public_identifier(identity["package_id"], "handoff package package_id")
-    _validate_text(identity["display_name"], "handoff package display_name")
-    if identity["created_by"] != "scopecat_selected_measurement_export":
-        raise ValueError("handoff package created_by must be scopecat_selected_measurement_export")
-    _validate_public_identifier(
-        identity["source_export_summary_id"],
-        "handoff package source_export_summary_id",
-    )
-    _validate_redacted_display_ref(
-        identity["display_path"],
-        "handoff package display_path",
-        prefix="HANDOFF_PACKAGE:",
-    )
-    if identity["local_path_redacted"] is not True:
-        raise ValueError("handoff package local path must stay redacted")
+    validate_handoff_package_identity(source["package_identity"], display_path="required")
 
 
 def _validate_preview_metadata(record: dict[str, Any]) -> None:
     preview = record["declared_preview_metadata"]
     primary_path = record["primary_data"]["package_path"]
-    if preview["metadata_authority"] != _MANIFEST_AUTHORITY:
+    if preview["metadata_authority"] != MANIFEST_AUTHORITY:
         raise ValueError("handoff package preview authority must stay manifest declared")
     if preview["status"] != "preview_ready":
         raise ValueError("handoff package writer currently requires preview_ready metadata")
-    _validate_public_identifier(preview["data_shape"]["kind"], "handoff package data_shape kind")
-    declared_names = [column["name"] for column in preview["declared_columns"]]
-    if not declared_names or len(set(declared_names)) != len(declared_names):
-        raise ValueError("handoff package preview declared columns must be present and unique")
-    for column in preview["declared_columns"]:
-        _validate_public_identifier(column["name"], "handoff package column name")
-        _validate_public_identifier(column["role"], "handoff package column role")
-        _validate_text(column["label"], "handoff package column label")
-        _validate_public_identifier(column["unit"], "handoff package column unit")
-    declared_name_set = set(declared_names)
-    axis_order = preview["data_shape"]["axis_order"]
-    for axis in axis_order:
-        _validate_public_identifier(axis, "handoff package axis_order entry")
-    if not axis_order or any(axis not in declared_name_set for axis in axis_order):
-        raise ValueError("handoff package preview axis order must reference declared columns")
-    for candidate in preview["plot_candidates"]:
-        _validate_public_identifier(candidate["x"], "handoff package plot x")
-        _validate_public_identifier(candidate["y"], "handoff package plot y")
-        if candidate["source"] != primary_path:
-            raise ValueError("handoff package plot candidate source must match primary data")
-        if candidate["x"] not in declared_name_set or candidate["y"] not in declared_name_set:
-            raise ValueError("handoff package plot candidate axes must reference declared columns")
+    validate_handoff_preview_ready_metadata(
+        preview,
+        primary_path=primary_path,
+        owner="handoff package preview",
+        shape_kind_owner="handoff package data_shape kind",
+        axis_owner="handoff package axis_order entry",
+    )
 
 
 def _validate_primary_data(record: dict[str, Any]) -> None:
@@ -263,7 +234,7 @@ def _validate_primary_data(record: dict[str, Any]) -> None:
         "kind": "primary_data",
         "include_status": "included_by_default",
         "relation": "selected_measurement_source",
-        "authority": _MANIFEST_AUTHORITY,
+        "authority": MANIFEST_AUTHORITY,
         "format": "csv_table",
         "package_state": "packaged",
         "reason": None,
@@ -301,7 +272,7 @@ def _validate_default_bundle(record: dict[str, Any]) -> None:
         "package_path": primary["package_path"],
         "include_status": "included_by_default",
         "relation": "selected_measurement_source",
-        "authority": _MANIFEST_AUTHORITY,
+        "authority": MANIFEST_AUTHORITY,
         "package_state": "packaged",
         "reason": None,
     }
@@ -347,7 +318,7 @@ def _validate_linked_context(source: dict[str, Any]) -> None:
             raise ValueError(
                 "handoff package linked context include_status must stay visible_excluded"
             )
-        if item["authority"] != _MANIFEST_AUTHORITY:
+        if item["authority"] != MANIFEST_AUTHORITY:
             raise ValueError("handoff package linked context authority must stay manifest declared")
         if item["package_state"] != "not_packaged_visible_reference":
             raise ValueError("handoff package writer keeps linked context reference-only")

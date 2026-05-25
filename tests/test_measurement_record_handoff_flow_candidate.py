@@ -227,7 +227,7 @@ class MeasurementRecordHandoffFlowCandidateTest(unittest.TestCase):
         )
         self.assertRejected(source, "overlapping linked context export path")
 
-    def test_package_manifest_is_explicit_input_not_synthesized(self) -> None:
+    def test_package_manifest_primary_path_uses_route_topology(self) -> None:
         source = _load_input()
         source["handoff_package_manifest"]["selected_measurements"][0]["primary_data"][
             "package_path"
@@ -239,27 +239,9 @@ class MeasurementRecordHandoffFlowCandidateTest(unittest.TestCase):
             "plot_candidates"
         ][0]["source"] = "measurements/legacy-rabi-001/custom-primary.csv"
 
-        summary = build_measurement_record_handoff_flow_summary(
+        self.assertRejected(
             source,
-            storage_root=STORAGE_ROOT,
-        )
-
-        self.assertEqual(
-            summary["identity_trace"]["package_primary_data_path"],
-            "measurements/legacy-rabi-001/custom-primary.csv",
-        )
-        packaged_record = summary["handoff_package_preview"]["selected_measurements"][0]
-        self.assertEqual(
-            packaged_record["primary_data"]["package_path"],
-            "measurements/legacy-rabi-001/custom-primary.csv",
-        )
-        self.assertEqual(
-            packaged_record["preview"]["plot_candidates"][0]["source"],
-            "measurements/legacy-rabi-001/custom-primary.csv",
-        )
-        self.assertEqual(
-            summary["handoff_package_preview"]["package_contents"][0]["package_path"],
-            "measurements/legacy-rabi-001/custom-primary.csv",
+            "primary_data path must be measurements/legacy-rabi-001/primary.csv",
         )
 
     def test_package_manifest_must_match_accepted_record_identity(self) -> None:
@@ -484,10 +466,66 @@ class MeasurementRecordHandoffFlowCandidateTest(unittest.TestCase):
             )
 
         source = _load_input()
+        source["accepted_record"]["preview"]["axis_order"] = "drive_frequencysignal"
+        source["handoff_package_manifest"]["selected_measurements"][0]["declared_preview_metadata"][
+            "data_shape"
+        ]["axis_order"] = "drive_frequencysignal"
+        self.assertRejected(source, "axis order must be a list")
+
+        source = _load_input()
+        source["handoff_package_manifest"]["selected_measurements"][0]["declared_preview_metadata"][
+            "data_shape"
+        ]["axis_order"] = "drive_frequencysignal"
+        self.assertRejected(source, "axis order must be a list")
+
+        source = _load_input()
+        source["accepted_record"]["preview"]["axis_order"][0] = {"name": "drive_frequency"}
+        self.assertRejected(source, "axis_order entry")
+
+        source = _load_input()
+        source["accepted_record"]["preview"]["plot_candidates"][0]["x"] = {
+            "name": "drive_frequency"
+        }
+        self.assertRejected(source, "plot x")
+
+        source = _load_input()
+        source["accepted_record"]["preview"]["plot_candidates"][0]["y"] = {"name": "signal"}
+        self.assertRejected(source, "plot y")
+
+        source = _load_input()
         source["accepted_record"]["preview"]["plot_candidates"][0]["source"] = (
             "records/other-record/primary.csv"
         )
         self.assertRejected(source, "accepted primary_data_path")
+
+    def test_package_manifest_primary_data_preserves_optional_integrity_facts(self) -> None:
+        source = _load_input()
+        primary = source["handoff_package_manifest"]["selected_measurements"][0]["primary_data"]
+        primary["digest"] = "sha256:" + "1" * 64
+        primary["size_bytes"] = 456
+
+        summary = build_measurement_record_handoff_flow_summary(
+            source,
+            storage_root=STORAGE_ROOT,
+        )
+
+        packaged_primary = summary["handoff_package_preview"]["selected_measurements"][0][
+            "primary_data"
+        ]
+        self.assertEqual(packaged_primary["digest"], "sha256:" + "1" * 64)
+        self.assertEqual(packaged_primary["size_bytes"], 456)
+
+        source = _load_input()
+        source["handoff_package_manifest"]["selected_measurements"][0]["primary_data"]["digest"] = (
+            "sha256:" + "1" * 64
+        )
+        self.assertRejected(source, "digest and size_bytes")
+
+        source = _load_input()
+        source["handoff_package_manifest"]["selected_measurements"][0]["primary_data"][
+            "size_bytes"
+        ] = 456
+        self.assertRejected(source, "digest and size_bytes")
 
     def test_accepted_preview_authority_must_match_adapter_contract(self) -> None:
         source = _load_input()
@@ -565,6 +603,19 @@ class MeasurementRecordHandoffFlowCandidateTest(unittest.TestCase):
                         "declared_preview_metadata"
                     ]["data_shape"]["kind"] = value
                 self.assertRejected(source, pattern)
+
+    def test_writer_style_package_manifest_identity_can_omit_display_path(self) -> None:
+        source = _load_input()
+        del source["handoff_package_manifest"]["package_identity"]["display_path"]
+
+        summary = build_measurement_record_handoff_flow_summary(
+            source,
+            storage_root=STORAGE_ROOT,
+        )
+
+        package = summary["handoff_package_preview"]["package"]
+        self.assertNotIn("display_path", package)
+        self.assertEqual(package["package_id"], "handoff-package-legacy-rabi-001")
 
     def test_package_source_export_summary_id_is_package_declared_metadata(self) -> None:
         source = _load_input()
@@ -686,6 +737,12 @@ class MeasurementRecordHandoffFlowCandidateTest(unittest.TestCase):
                 source,
                 storage_root=STORAGE_ROOT,
             )
+
+        source = _load_input()
+        source["handoff_package_manifest"]["package_identity"]["display_path"] = (
+            "HANDOFF_PACKAGE:/redacted/legacy-rabi-001/nested"
+        )
+        self.assertRejected(source, "display_path")
 
     def test_legacy_source_display_must_match_accepted_source_identity(self) -> None:
         source = _load_input()

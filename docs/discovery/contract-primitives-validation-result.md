@@ -19,15 +19,15 @@ composition and writer slices had started to duplicate:
 - sha256 digest strings;
 - package-root separation from measurement storage.
 
-The handoff package writer consumes these helpers for repeated low-level checks
-while retaining its own package-writing behavior, manifest projection, and
-rollback logic. The measurement-record handoff-flow composition candidate also
-uses them for identical value-shape checks while retaining route-specific
-continuity, display-reference, and package-topology wrappers. Child slices
-should consume these helpers only where the value-shape semantics are identical;
-the first follow-up migration does this for measurement source observation and
-legacy import acceptance while leaving their storage, write, and observation
-contracts local.
+The handoff package writer and measurement-record handoff-flow composition
+candidate consume these helpers for repeated low-level value-shape checks while
+retaining their workflow behavior and public-output boundaries. Handoff package
+semantics that are shared above the primitive layer now live in the route-local
+`handoff_package_contracts` support candidate instead of being promoted into a
+global measurement model. Child slices should consume these helpers only where
+the value-shape semantics are identical; the first follow-up migration does
+this for measurement source observation and legacy import acceptance while
+leaving their storage, write, and observation contracts local.
 
 ## Result
 
