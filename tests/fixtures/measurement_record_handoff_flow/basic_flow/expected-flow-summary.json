@@ -1,0 +1,480 @@
+{
+  "candidate_summary": {
+    "accepted_record_summary": {
+      "acceptance_request": {
+        "approval_state": "approved",
+        "collision_policy": "no_overwrite",
+        "manifest_path": "records/legacy-rabi-001/record-manifest.json",
+        "materialization": {
+          "linked_context": "reference_only",
+          "primary_data": "copy_into_storage",
+          "source_identity": "preserve_external_reference"
+        },
+        "primary_data_path": "records/legacy-rabi-001/primary.csv",
+        "record_dir": "records/legacy-rabi-001",
+        "request_id": "accept-legacy-rabi-001",
+        "reviewed_manifest_classification": "adapter_manifest_ready_for_review"
+      },
+      "linked_context": [
+        {
+          "authority": "adapter_declared",
+          "kind": "parameter_state",
+          "label": "Run-local parameter snapshot",
+          "link_id": "legacy-001-parameter-snapshot",
+          "reason": null,
+          "reference": "legacy-record-001 parameters",
+          "reference_state": "adapter_declared_available",
+          "role": "run_start_context"
+        }
+      ],
+      "measurement_record": {
+        "classification": "imported_ready_for_review",
+        "experiment_type": "rabi",
+        "label": "Rabi calibration follow-up",
+        "measurement_record_id": "legacy-rabi-001",
+        "source_kind": "adapter_authored_legacy_import"
+      },
+      "preview": {
+        "axis_order": [
+          "drive_frequency",
+          "signal"
+        ],
+        "declared_roles": [
+          {
+            "label": "Drive frequency",
+            "name": "drive_frequency",
+            "role": "sweep_axis",
+            "unit": "GHz"
+          },
+          {
+            "label": "Signal",
+            "name": "signal",
+            "role": "response",
+            "unit": "a.u."
+          }
+        ],
+        "declared_row_count": 5,
+        "metadata_authority": "adapter_declared",
+        "plot_candidates": [
+          {
+            "source": "records/legacy-rabi-001/primary.csv",
+            "x": "drive_frequency",
+            "y": "signal"
+          }
+        ],
+        "shape_kind": "declared_1d_table",
+        "status": "preview_ready",
+        "warnings": []
+      },
+      "source_identity": {
+        "external_record_id": "legacy-record-001",
+        "external_root_label": "redacted-lab-share",
+        "local_path_redacted": true,
+        "original_path_display": "LEGACY_SOURCE:/redacted/2026/05/01/legacy-record-001"
+      },
+      "write_results": [
+        {
+          "bytes_written": 78,
+          "digest": "sha256:ffbcc9e95e07eb0e638faf7779958065fa2d331a2f8b15442b0bba899b30054d",
+          "does_not_claim": "schema_or_scientific_validity",
+          "kind": "primary_data",
+          "path": "records/legacy-rabi-001/primary.csv",
+          "result": "written"
+        },
+        {
+          "bytes_written": 2481,
+          "digest": "sha256:9110bfb7e75201b429cfb0952592ce610a5aaa920ecf9b600aa0acb5fecaaa02",
+          "does_not_claim": "final_storage_schema_or_package_integrity",
+          "kind": "imported_record_manifest",
+          "path": "records/legacy-rabi-001/record-manifest.json",
+          "result": "written"
+        }
+      ]
+    },
+    "flow": {
+      "classification": "handoff_package_needs_review",
+      "flow_id": "legacy-rabi-001-import-to-handoff",
+      "package_writing": "not_performed",
+      "route": [
+        "legacy_import_acceptance",
+        "measurement_source_observation",
+        "selected_measurement_export",
+        "handoff_package_contents_preview"
+      ],
+      "shared_measurement_schema": "not_defined",
+      "storage_mutation": "not_performed",
+      "summary_posture": "review_summary"
+    },
+    "flow_policy": {
+      "flow_authority": "explicit_measurement_record_handoff_flow_request",
+      "gui_workflow": "not_defined",
+      "handoff_package_preview": "performed_by_handoff_package_contents_preview_candidate",
+      "legacy_import_acceptance": "consumed_as_explicit_accepted_record_facts",
+      "package_acceptance": "not_performed",
+      "package_writing": "not_performed",
+      "recursive_relation_traversal": "not_performed",
+      "schema_inference": "not_performed",
+      "selected_export_summary": "performed_by_selected_measurement_export_candidate",
+      "shared_measurement_schema": "not_defined",
+      "slice_composition": "selected_explicit_candidate_facts",
+      "source_observation": "performed_by_measurement_source_observation_candidate",
+      "storage_mutation": "not_performed"
+    },
+    "handoff_package_preview": {
+      "attention": [
+        {
+          "basis": "Handoff package preview uses explicit Scopecat export manifest facts only.",
+          "code": "manifest_only_package_preview",
+          "does_not_claim": "observed_package_file_state",
+          "severity": "info"
+        },
+        {
+          "basis": "Package paths are declared references, not opened or extracted.",
+          "code": "archive_not_extracted",
+          "does_not_claim": "archive_contents_verified",
+          "severity": "review"
+        },
+        {
+          "basis": "Package contents are classified for review before acceptance.",
+          "code": "import_not_accepted",
+          "does_not_claim": "record_written_to_storage",
+          "severity": "review"
+        },
+        {
+          "basis": "Preview metadata must be declared by the export manifest.",
+          "code": "schema_inference_not_performed",
+          "does_not_claim": "automatic_schema_detection",
+          "severity": "review"
+        },
+        {
+          "basis": "Package context is summarized only where explicitly listed.",
+          "code": "recursive_traversal_not_performed",
+          "does_not_claim": "complete_relation_graph",
+          "severity": "review"
+        }
+      ],
+      "package": {
+        "classification": "needs_review_before_acceptance",
+        "created_by": "scopecat_selected_measurement_export",
+        "display_name": "Legacy Rabi selected measurement handoff",
+        "display_path": "HANDOFF_PACKAGE:/redacted/legacy-rabi-001",
+        "package_id": "handoff-package-legacy-rabi-001",
+        "source_export_summary_id": "export-summary-legacy-rabi-001"
+      },
+      "package_content_state_counts": {
+        "not_packaged_visible_reference": 1,
+        "packaged": 1
+      },
+      "package_contents": [
+        {
+          "authority": "scopecat_export_manifest",
+          "include_status": "included_by_default",
+          "item_id": "legacy-rabi-001-primary",
+          "kind": "primary_data",
+          "label": "Accepted primary data",
+          "owner_id": "legacy-rabi-001",
+          "owner_type": "selected_measurement",
+          "package_path": "measurements/legacy-rabi-001/primary.csv",
+          "package_state": "packaged",
+          "reason": null,
+          "relation": "selected_measurement_source"
+        },
+        {
+          "authority": "scopecat_export_manifest",
+          "include_status": "visible_excluded",
+          "item_id": "package-legacy-001-parameter-snapshot",
+          "kind": "parameter_state",
+          "label": "Run-local parameter snapshot",
+          "owner_id": "package-legacy-001-parameter-snapshot",
+          "owner_type": "linked_context",
+          "package_path": null,
+          "package_state": "not_packaged_visible_reference",
+          "reason": "The accepted legacy import preserved this linked context as a reference-only fact; the package manifest does not include its payload.",
+          "relation": "run_start_context"
+        }
+      ],
+      "package_preview_policy": {
+        "archive_extraction": "not_performed",
+        "file_observation": "not_performed",
+        "gui_workflow": "not_defined",
+        "import_acceptance": "not_performed",
+        "package_integrity": "not_claimed",
+        "preview_authority": "scopecat_export_manifest_only",
+        "recursive_relation_traversal": "not_performed",
+        "schema_inference": "not_performed",
+        "shared_measurement_schema": "not_defined",
+        "storage_mutation": "not_performed"
+      },
+      "preview_findings": [
+        {
+          "basis": "The accepted legacy import preserved this linked context as a reference-only fact; the package manifest does not include its payload.",
+          "does_not_claim": "package_integrity_or_import_acceptance_failure",
+          "finding": "linked_context_not_packaged_visible_reference",
+          "measurement_record_id": "legacy-rabi-001",
+          "severity": "review",
+          "subject_id": "package-legacy-001-parameter-snapshot",
+          "subject_type": "linked_context"
+        }
+      ],
+      "selected_measurements": [
+        {
+          "classification": "preview_ready_for_opening",
+          "default_bundle_count": 1,
+          "default_bundle_state_counts": {
+            "packaged": 1
+          },
+          "experiment_type": "rabi",
+          "import_acceptance": "not_accepted",
+          "label": "Rabi calibration follow-up",
+          "legacy_data_id": 1001,
+          "measurement_record_id": "legacy-rabi-001",
+          "preview": {
+            "axis_order": [
+              "drive_frequency",
+              "signal"
+            ],
+            "declared_roles": [
+              {
+                "label": "Drive frequency",
+                "name": "drive_frequency",
+                "role": "sweep_axis",
+                "unit": "GHz"
+              },
+              {
+                "label": "Signal",
+                "name": "signal",
+                "role": "response",
+                "unit": "a.u."
+              }
+            ],
+            "metadata_authority": "scopecat_export_manifest",
+            "plot_candidates": [
+              {
+                "source": "measurements/legacy-rabi-001/primary.csv",
+                "x": "drive_frequency",
+                "y": "signal"
+              }
+            ],
+            "shape_kind": "declared_1d_table",
+            "status": "preview_ready",
+            "warnings": []
+          },
+          "primary_data": {
+            "authority": "scopecat_export_manifest",
+            "format": "csv_table",
+            "include_status": "included_by_default",
+            "kind": "primary_data",
+            "label": "Accepted primary data",
+            "package_path": "measurements/legacy-rabi-001/primary.csv",
+            "package_state": "packaged",
+            "reason": null,
+            "relation": "selected_measurement_source"
+          },
+          "storage_mutation": "not_performed",
+          "target": "qA"
+        }
+      ]
+    },
+    "identity_trace": {
+      "external_record_id": "legacy-record-001",
+      "legacy_data_id": 1001,
+      "measurement_record_id": "legacy-rabi-001",
+      "package_classification": "needs_review_before_acceptance",
+      "package_primary_data_path": "measurements/legacy-rabi-001/primary.csv",
+      "source_observation_classification": "source_observed_matches_declared_facts",
+      "stored_primary_data_path": "records/legacy-rabi-001/primary.csv"
+    },
+    "selected_measurement_export": {
+      "linked_context": [
+        {
+          "authority": "adapter_declared",
+          "include_status": "visible_excluded",
+          "kind": "parameter_state",
+          "label": "Run-local parameter snapshot",
+          "linked_legacy_data_ids": [
+            1001
+          ],
+          "path": "context/legacy-001-parameter-snapshot.reference.json",
+          "relation": "run_start_context"
+        }
+      ],
+      "measurements": [
+        {
+          "default_bundle": [
+            {
+              "authority": "imported_record_manifest",
+              "include_status": "included_by_default",
+              "kind": "primary_data",
+              "label": "Accepted primary data",
+              "path": "records/legacy-rabi-001/primary.csv",
+              "relation": "selected_measurement_source"
+            }
+          ],
+          "experiment_label": "Rabi calibration follow-up",
+          "experiment_type": "rabi",
+          "export_source": "SCOPECAT_STORAGE:/redacted/records/legacy-rabi-001/primary.csv",
+          "legacy_data_id": 1001,
+          "preview": {
+            "axis_order": [
+              "drive_frequency",
+              "signal"
+            ],
+            "declared_roles": [
+              {
+                "label": "Drive frequency",
+                "name": "drive_frequency",
+                "role": "sweep_axis",
+                "unit": "GHz"
+              },
+              {
+                "label": "Signal",
+                "name": "signal",
+                "role": "response",
+                "unit": "a.u."
+              }
+            ],
+            "metadata_authority": "storage_manifest_declared",
+            "plot_candidates": [
+              {
+                "source": "records/legacy-rabi-001/primary.csv",
+                "x": "drive_frequency",
+                "y": "signal"
+              }
+            ],
+            "shape_kind": "declared_1d_table",
+            "status": "preview_ready",
+            "warnings": []
+          },
+          "primary_data_authority": "imported_record_manifest",
+          "role": "selected_measurement",
+          "source_file": "records/legacy-rabi-001/primary.csv",
+          "source_transform_policy": "no_silent_transform",
+          "target": "qA"
+        }
+      ],
+      "selected_export_set": {
+        "selected_legacy_data_ids": [
+          1001
+        ],
+        "selection_mode": "single_measurement",
+        "traversal_policy": "non_recursive"
+      },
+      "warnings": [
+        {
+          "code": "local_only_path",
+          "message": "Original local path is redaction-sensitive and not portable.",
+          "public_safe_value": "LEGACY_SOURCE:/redacted/2026/05/01/legacy-record-001",
+          "subject": "legacy_source_location.local_path"
+        }
+      ]
+    },
+    "source_observation": {
+      "attention": [
+        {
+          "basis": "Only the explicitly declared primary-data file is observed.",
+          "code": "source_file_observed",
+          "does_not_claim": "storage_root_scan_or_recursive_validation",
+          "severity": "review"
+        },
+        {
+          "basis": "Observed sha256 and size facts are compared with declared facts.",
+          "code": "checksum_validation_performed",
+          "does_not_claim": "package_integrity_contract",
+          "severity": "info"
+        },
+        {
+          "basis": "CSV rows are counted, but columns and scientific semantics are not inferred.",
+          "code": "schema_inference_not_performed",
+          "does_not_claim": "automatic_schema_detection",
+          "severity": "review"
+        },
+        {
+          "basis": "The observer reads declared data and does not write, repair, import, or export.",
+          "code": "storage_mutation_not_performed",
+          "does_not_claim": "storage_writer_or_import_acceptance",
+          "severity": "review"
+        },
+        {
+          "basis": "The observer validates stored file facts without controlling instruments.",
+          "code": "hardware_control_not_performed",
+          "does_not_claim": "instrument_command_or_safety_authority",
+          "severity": "review"
+        }
+      ],
+      "measurement_record": {
+        "classification": "source_observed_matches_declared_facts",
+        "expected_points": 5,
+        "experiment_type": "rabi",
+        "label": "Rabi calibration follow-up",
+        "measurement_record_id": "legacy-rabi-001",
+        "source_kind": "adapter_authored_legacy_import",
+        "target": "qA"
+      },
+      "observation_request": {
+        "expected_digest": "sha256:ffbcc9e95e07eb0e638faf7779958065fa2d331a2f8b15442b0bba899b30054d",
+        "expected_rows_recorded": 5,
+        "expected_size_bytes": 78,
+        "primary_data_format": "csv_table",
+        "primary_data_path": "records/legacy-rabi-001/primary.csv",
+        "request_id": "observe-imported-legacy-rabi-001"
+      },
+      "observed_primary_data": {
+        "expected_digest": "sha256:ffbcc9e95e07eb0e638faf7779958065fa2d331a2f8b15442b0bba899b30054d",
+        "expected_rows_recorded": 5,
+        "expected_size_bytes": 78,
+        "format": "csv_table",
+        "observed_digest": "sha256:ffbcc9e95e07eb0e638faf7779958065fa2d331a2f8b15442b0bba899b30054d",
+        "observed_rows_recorded": 5,
+        "observed_size_bytes": 78,
+        "path": "records/legacy-rabi-001/primary.csv",
+        "status": "observed"
+      },
+      "preview": {
+        "axis_order": [
+          "drive_frequency",
+          "signal"
+        ],
+        "declared_roles": [
+          {
+            "label": "Drive frequency",
+            "name": "drive_frequency",
+            "role": "sweep_axis",
+            "unit": "GHz"
+          },
+          {
+            "label": "Signal",
+            "name": "signal",
+            "role": "response",
+            "unit": "a.u."
+          }
+        ],
+        "metadata_authority": "storage_manifest_declared",
+        "plot_candidates": [
+          {
+            "source": "records/legacy-rabi-001/primary.csv",
+            "x": "drive_frequency",
+            "y": "signal"
+          }
+        ],
+        "shape_kind": "declared_1d_table",
+        "status": "preview_ready",
+        "warnings": []
+      },
+      "review_findings": [],
+      "source_observation_policy": {
+        "checksum_algorithm": "sha256",
+        "export_package_writing": "not_performed",
+        "gui_workflow": "not_defined",
+        "hardware_control": "not_performed",
+        "import_acceptance": "not_performed",
+        "live_service": "not_defined",
+        "observation_authority": "explicit_observation_request",
+        "schema_inference": "not_performed",
+        "shared_measurement_schema": "not_defined",
+        "source_observation": "explicit_primary_data_file_only",
+        "storage_mutation": "not_performed",
+        "storage_root_authority": "caller_provided_storage_root_plus_declared_relative_paths"
+      }
+    }
+  }
+}

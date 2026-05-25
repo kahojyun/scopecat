@@ -23,6 +23,12 @@ Selected measurement export and storage-transition fixtures now distinguish:
 That still does not decide how Scopecat should treat externally referenced
 files over time.
 
+This note should be read with
+[`artifact-boundary-and-redaction-policy.md`](artifact-boundary-and-redaction-policy.md):
+discovery fixtures and expected outputs are repository-safe artifacts by
+default, while portable/public/export artifacts and package writer outputs need
+explicit portable/export redaction and reference rules.
+
 The current product assumption is:
 
 - Scopecat is not a general backup system;

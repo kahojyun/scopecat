@@ -126,14 +126,24 @@ physical setup semantics, and framework-specific bridge behavior should enter
 through explicit adapter or policy surfaces. They should not silently become
 core product scope because one workflow needed them.
 
-Redaction should stay authority-aware. Scopecat-managed references such as
-paths, source identities, package-relative references, relation targets,
-external-root displays, and materialization destinations need strict validation
-when they appear in public-safe fixtures or generated artifacts. User labels,
+Redaction should stay authority-aware and should not make the local tool less
+useful. Scopecat-managed references such as paths, source identities,
+package-relative references, relation targets, external-root displays, and
+materialization destinations need strict validation when a slice claims to own
+or transform them, especially when they appear in the slice-owned projection or
+contract for repository-safe fixtures or generated portable/export artifacts.
+Runtime redaction is required at declared or effective portable/export
+boundaries, not for every discovery fixture, expected output, review summary,
+or local Scopecat UI surface. Effective portable/export boundaries include
+artifacts exported outside the repository or local workspace, externally
+shared, published, materialized as portable handoff artifacts, or otherwise
+generated to be carried away; see
+`docs/discovery/artifact-boundary-and-redaction-policy.md`. User labels,
 display names, notes, and descriptions are free text unless a slice explicitly
-introduces a redaction policy surface. Public fixtures should still be reviewed
-for safe wording, but implementation candidates should not add broad runtime
-redaction or DLP-style scanning for free labels by default.
+introduces a redaction policy surface or generates a portable/export artifact.
+Repository fixtures should still be reviewed for safe wording, but
+implementation candidates should not add broad runtime redaction or DLP-style
+scanning for free labels by default.
 
 ## Expansion Posture
 

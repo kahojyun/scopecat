@@ -4,10 +4,11 @@
 
 Discovery synthesis, not an ADR.
 
-This document compares the currently validated slices to identify recurring
-candidate concepts and remaining design pressure. It does not accept a final
-schema, storage model, workflow model, GUI contract, export package format,
-executor design, relation graph, or warning taxonomy.
+This document compares currently validated slices and explicitly marked
+under-review composition candidates to identify recurring candidate concepts
+and remaining design pressure. It does not accept a final schema, storage
+model, workflow model, GUI contract, export package format, executor design,
+relation graph, or warning taxonomy.
 
 ## Inputs
 
@@ -26,6 +27,7 @@ executor design, relation graph, or warning taxonomy.
 - [`measurement-storage-writer-validation-result.md`](measurement-storage-writer-validation-result.md)
 - [`derived-artifact-source-links-validation-result.md`](derived-artifact-source-links-validation-result.md)
 - [`measurement-source-observation-validation-result.md`](measurement-source-observation-validation-result.md)
+- [`../../implementation_candidates/measurement_record_handoff_flow/README.md`](../../implementation_candidates/measurement_record_handoff_flow/README.md)
 - [`calibration-work-continuation-validation-result.md`](calibration-work-continuation-validation-result.md)
 - [`parameter-state-management-validation-result.md`](parameter-state-management-validation-result.md)
 - [`parameter-write-compatibility-output-validation-result.md`](parameter-write-compatibility-output-validation-result.md)
@@ -155,6 +157,28 @@ findings, and preserves declared preview metadata without schema inference. It
 does not accept storage repair, recursive storage inspection, import/export
 packages, package integrity, live service, GUI behavior, hardware control, or
 scan execution.
+
+Measurement record handoff flow has a first composition candidate under review
+over the existing measurement-record slices. It consumes selected explicit
+accepted-record facts from the legacy import acceptance boundary, derives a
+source-observation request from those facts, adapts the accepted record into a
+selected measurement export summary, and previews an explicit handoff package
+manifest. Selected handoff facts in the raw JSON fixture are checked through a
+candidate-local contract module before adaptation. This tests accepted-record
+path/materialization constraints, no-overwrite acceptance, accepted write-result
+kind/result/path/digest/size alignment, public-safe display references,
+accepted-record/measurement identity continuity, package-declared export-summary
+reference syntax, preview-metadata continuity, candidate-local package/export
+path topology, and linked-context handoff alignment across the route without
+accepting storage mutation, a shared measurement schema, final package format,
+package writer, package acceptance, GUI behavior, recursive traversal, schema
+inference, or final storage architecture.
+
+The handoff flow preserves accepted linked-context `reference` values as
+adapter-declared scalar text for local review. It does not interpret those
+values as Scopecat-managed paths. Topology validation applies only to fields the
+composition owns or transforms, such as `linked_context_export_refs[].path` and
+package `package_path` values.
 
 Calibration work continuation has a tiny assembler candidate for continuation
 state. It pressures episode context, planned steps, observed outputs, review
@@ -501,6 +525,9 @@ can answer three questions before any final architecture decision:
 This pressure does not yet require a shared domain module. The current
 implementation candidates should remain slice-local until another slice needs
 the same code boundary rather than merely the same words.
+The first measurement record handoff flow reinforces that posture: composition
+currently needs narrow, test-local adapters around selected explicit candidate
+facts, not a shared model package.
 
 The second strongest pressure is preview readiness. Export, incoming-record
 import preview, handoff package contents preview, and running inspection need
