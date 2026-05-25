@@ -28,11 +28,15 @@ not a shared measurement model.
 
 Repeated low-level value-shape checks are delegated to the contract-primitives
 candidate where the semantics are identical, such as managed identifiers,
-syntax-only relative path checks, strict child paths, positive integers, text
-values, and sha256 digest strings. Composition-specific wrappers remain local
-when they carry route semantics, such as accepted-record continuity, package
-preview alignment, path-derived storage display refs, and package path topology
-that has not been tightened to the writer's exact generated layout.
+syntax-only relative path checks, exact package primary-data paths, strict child
+paths, positive integers, text values, and sha256 digest strings. Stable
+handoff package route checks, such as package identity and preview column shape,
+are delegated to `../handoff_package_contracts/` where they are already shared
+with writer or preview candidates.
+Composition-specific wrappers remain local when they carry route semantics, such
+as accepted-record continuity, package preview alignment, path-derived storage
+display refs, and handoff alignment across accepted-record and package-preview
+facts.
 
 The composed boundary validates that accepted-record storage paths stay
 relative and inside the accepted record directory, that accepted materialization

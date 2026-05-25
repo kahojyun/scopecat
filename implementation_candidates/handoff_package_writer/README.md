@@ -31,10 +31,12 @@ reference-only linked-context alignment. Human labels and reasons remain
 reviewed free text rather than runtime-redacted fields.
 
 Repeated low-level checks are delegated to the contract-primitives
-implementation candidate. The writer still owns package-writing behavior,
-manifest projection, file preflight, no-overwrite checks, and rollback
-behavior; using those primitives does not accept a shared measurement schema or
-final package format.
+implementation candidate. Shared handoff-route semantics such as package
+identity and preview-ready metadata shape are delegated to
+`../handoff_package_contracts/`. The writer still owns package-writing
+behavior, manifest projection, file preflight, no-overwrite checks, and
+rollback behavior; using those helpers does not accept a shared measurement
+schema or final package format.
 
 This slice does not accept arbitrary nested package member paths. Additional
 package members or package layout categories should be introduced as explicit

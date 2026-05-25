@@ -126,6 +126,34 @@ class HandoffPackageContentsPreviewSummaryCandidateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "duplicate measurement_record_id"):
             build_handoff_package_contents_preview_summary(source)
 
+    def test_managed_measurement_fields_are_validated(self) -> None:
+        invalid_cases = (
+            (("measurement_record_id",), "/Users/lab/private/measurement", "measurement_record_id"),
+            (("experiment_type",), "/Users/lab/private/type", "experiment_type"),
+            (("target",), "/Users/lab/private/qA", "target"),
+            (("default_bundle", 0, "item_id"), "measurement-1001-private\nsecret", "item_id"),
+            (("default_bundle", 0, "kind"), "/Users/lab/private/kind", "kind"),
+            (("default_bundle", 0, "include_status"), "surprise_status", "include_status"),
+            (("default_bundle", 0, "relation"), "/Users/lab/private/relation", "relation"),
+        )
+        for path, value, message in invalid_cases:
+            with self.subTest(path=path):
+                source = _load_input()
+                target = source["selected_measurements"][0]
+                for segment in path[:-1]:
+                    target = target[segment]
+                target[path[-1]] = value
+
+                with self.assertRaisesRegex(ValueError, message):
+                    build_handoff_package_contents_preview_summary(source)
+
+    def test_selected_measurements_must_not_be_empty(self) -> None:
+        source = _load_input()
+        source["selected_measurements"] = []
+
+        with self.assertRaisesRegex(ValueError, "requires selected_measurements"):
+            build_handoff_package_contents_preview_summary(source)
+
     def test_duplicate_link_ids_are_rejected(self) -> None:
         source = _load_input()
         duplicate = copy.deepcopy(source["linked_context"][0])
@@ -134,10 +162,26 @@ class HandoffPackageContentsPreviewSummaryCandidateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "duplicate link_id"):
             build_handoff_package_contents_preview_summary(source)
 
+    def test_managed_linked_context_fields_are_validated(self) -> None:
+        invalid_cases = (
+            ("link_id", "/Users/lab/private/link", "link_id"),
+            ("kind", "/Users/lab/private/kind", "kind"),
+            ("include_status", "/Users/lab/private/include", "include_status"),
+            ("include_status", "surprise_status", "include_status"),
+            ("relation", "/Users/lab/private/relation", "relation"),
+        )
+        for field, value, message in invalid_cases:
+            with self.subTest(field=field):
+                source = _load_input()
+                source["linked_context"][0][field] = value
+
+                with self.assertRaisesRegex(ValueError, message):
+                    build_handoff_package_contents_preview_summary(source)
+
     def test_duplicate_packaged_paths_are_rejected(self) -> None:
         source = _load_input()
-        source["selected_measurements"][1]["default_bundle"][1]["package_path"] = (
-            "measurements/measurement-1001/parameter-snapshot.json"
+        source["selected_measurements"][0]["default_bundle"][1]["package_path"] = (
+            "measurements/measurement-1001/primary.csv"
         )
 
         with self.assertRaisesRegex(ValueError, "duplicate package_path"):
@@ -145,7 +189,10 @@ class HandoffPackageContentsPreviewSummaryCandidateTest(unittest.TestCase):
 
     def test_linked_context_duplicate_packaged_paths_are_rejected(self) -> None:
         source = _load_input()
-        source["linked_context"][0]["package_path"] = "measurements/measurement-1001/primary.csv"
+        source["linked_context"][1]["package_path"] = "context/session-wiring-note.md"
+        source["linked_context"][1]["include_status"] = "included_by_user"
+        source["linked_context"][1]["package_state"] = "packaged"
+        source["linked_context"][1]["reason"] = None
 
         with self.assertRaisesRegex(ValueError, "duplicate package_path"):
             build_handoff_package_contents_preview_summary(source)
@@ -184,6 +231,24 @@ class HandoffPackageContentsPreviewSummaryCandidateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "primary bundle item path"):
             build_handoff_package_contents_preview_summary(source)
 
+    def test_primary_data_package_path_must_use_current_topology(self) -> None:
+        source = _load_input()
+        source["selected_measurements"][0]["primary_data"]["package_path"] = (
+            "measurements/measurement-1001/nested/primary.csv"
+        )
+        source["selected_measurements"][0]["default_bundle"][0]["package_path"] = (
+            "measurements/measurement-1001/nested/primary.csv"
+        )
+        source["selected_measurements"][0]["declared_preview_metadata"]["plot_candidates"][0][
+            "source"
+        ] = "measurements/measurement-1001/nested/primary.csv"
+        source["selected_measurements"][0]["declared_preview_metadata"]["plot_candidates"][1][
+            "source"
+        ] = "measurements/measurement-1001/nested/primary.csv"
+
+        with self.assertRaisesRegex(ValueError, "primary data package_path"):
+            build_handoff_package_contents_preview_summary(source)
+
     def test_plot_candidate_source_must_match_primary_data(self) -> None:
         source = _load_input()
         source["selected_measurements"][0]["declared_preview_metadata"]["plot_candidates"][0][
@@ -202,14 +267,173 @@ class HandoffPackageContentsPreviewSummaryCandidateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "path must be relative"):
             build_handoff_package_contents_preview_summary(source)
 
+        source = _load_input()
+        source["selected_measurements"][0]["default_bundle"][1]["package_path"] = (
+            "measurements/measurement-1001/./parameter-snapshot.json"
+        )
+
+        with self.assertRaisesRegex(ValueError, "path must be relative"):
+            build_handoff_package_contents_preview_summary(source)
+
+    def test_non_primary_packaged_paths_use_declared_topology(self) -> None:
+        source = _load_input()
+        source["selected_measurements"][0]["default_bundle"][1]["package_path"] = (
+            "misc/free-layout.json"
+        )
+
+        with self.assertRaisesRegex(ValueError, "must stay under measurements/measurement-1001"):
+            build_handoff_package_contents_preview_summary(source)
+
+        source = _load_input()
+        source["linked_context"][0]["package_path"] = "misc/free-context.md"
+
+        with self.assertRaisesRegex(ValueError, "must stay under context"):
+            build_handoff_package_contents_preview_summary(source)
+
+    def test_packaged_managed_paths_must_use_public_safe_segments(self) -> None:
+        source = _load_input()
+        source["selected_measurements"][0]["default_bundle"][1]["package_path"] = (
+            "measurements/measurement-1001/Users/lab/private-metadata.json"
+        )
+
+        with self.assertRaisesRegex(ValueError, "path segments"):
+            build_handoff_package_contents_preview_summary(source)
+
+        source = _load_input()
+        source["linked_context"][1]["package_path"] = "context/private/customer-params.md"
+        source["linked_context"][1]["include_status"] = "included_by_user"
+        source["linked_context"][1]["package_state"] = "packaged"
+        source["linked_context"][1]["reason"] = None
+
+        with self.assertRaisesRegex(ValueError, "path segments"):
+            build_handoff_package_contents_preview_summary(source)
+
+    def test_packaged_items_must_not_carry_reason(self) -> None:
+        source = _load_input()
+        source["selected_measurements"][0]["primary_data"]["reason"] = ""
+
+        with self.assertRaisesRegex(ValueError, "must not carry reason"):
+            build_handoff_package_contents_preview_summary(source)
+
+        source = _load_input()
+        source["selected_measurements"][0]["default_bundle"][0]["reason"] = ""
+
+        with self.assertRaisesRegex(ValueError, "must not carry reason"):
+            build_handoff_package_contents_preview_summary(source)
+
+        source = _load_input()
+        del source["selected_measurements"][0]["primary_data"]["reason"]
+
+        with self.assertRaisesRegex(ValueError, "must not carry reason"):
+            build_handoff_package_contents_preview_summary(source)
+
+    def test_primary_data_literals_must_match_route_contract(self) -> None:
+        invalid_cases = (
+            ("kind", "metadata_blob", "primary_data kind"),
+            ("include_status", "included_by_user", "primary_data include_status"),
+            ("relation", "alternate_source", "primary_data relation"),
+            ("authority", "user_declared", "authority"),
+            ("format", "/Users/lab/private/format", "primary_data format"),
+            ("package_state", "missing_from_package", "package_state"),
+        )
+        for field, value, message in invalid_cases:
+            with self.subTest(field=field):
+                source = _load_input()
+                source["selected_measurements"][0]["primary_data"][field] = value
+
+                with self.assertRaisesRegex(ValueError, message):
+                    build_handoff_package_contents_preview_summary(source)
+
+    def test_default_primary_bundle_literals_must_match_primary_data(self) -> None:
+        invalid_cases = (
+            ("label", "Other primary data", "default bundle primary_data label"),
+            ("include_status", "included_by_user", "default bundle primary_data include_status"),
+            ("relation", "alternate_source", "default bundle primary_data relation"),
+            ("authority", "user_declared", "authority"),
+            ("package_state", "redacted", "package_state"),
+        )
+        for field, value, message in invalid_cases:
+            with self.subTest(field=field):
+                source = _load_input()
+                source["selected_measurements"][0]["default_bundle"][0][field] = value
+
+                with self.assertRaisesRegex(ValueError, message):
+                    build_handoff_package_contents_preview_summary(source)
+
+    def test_primary_data_format_must_be_csv_table_for_message_stability(self) -> None:
+        source = _load_input()
+        source["selected_measurements"][0]["primary_data"]["format"] = "/Users/lab/private/format"
+
+        with self.assertRaisesRegex(ValueError, "primary_data format"):
+            build_handoff_package_contents_preview_summary(source)
+
+    def test_declared_digest_and_size_are_validated_when_present(self) -> None:
+        source = _load_input()
+        source["selected_measurements"][0]["primary_data"]["digest"] = "sha256:" + "0" * 64
+        source["selected_measurements"][0]["primary_data"]["size_bytes"] = 123
+
+        summary = build_handoff_package_contents_preview_summary(source)
+
+        self.assertEqual(
+            summary["selected_measurements"][0]["primary_data"]["digest"],
+            "sha256:" + "0" * 64,
+        )
+        self.assertEqual(summary["selected_measurements"][0]["primary_data"]["size_bytes"], 123)
+
+        source = _load_input()
+        source["selected_measurements"][0]["primary_data"]["digest"] = "/Users/lab/private/digest"
+        source["selected_measurements"][0]["primary_data"]["size_bytes"] = 123
+        with self.assertRaisesRegex(ValueError, "primary data digest"):
+            build_handoff_package_contents_preview_summary(source)
+
+        source = _load_input()
+        source["selected_measurements"][0]["primary_data"]["digest"] = "sha256:" + "0" * 64
+        source["selected_measurements"][0]["primary_data"]["size_bytes"] = 0
+        with self.assertRaisesRegex(ValueError, "primary data size_bytes"):
+            build_handoff_package_contents_preview_summary(source)
+
+        source = _load_input()
+        source["selected_measurements"][0]["primary_data"]["digest"] = "sha256:" + "0" * 64
+        with self.assertRaisesRegex(ValueError, "declared together"):
+            build_handoff_package_contents_preview_summary(source)
+
+        source = _load_input()
+        source["selected_measurements"][0]["primary_data"]["size_bytes"] = 123
+        with self.assertRaisesRegex(ValueError, "declared together"):
+            build_handoff_package_contents_preview_summary(source)
+
     def test_display_path_must_stay_public_safe(self) -> None:
         source = _load_input()
         source["package_identity"]["display_path"] = (
             "/" + "Users" + "/example/lab/private/package.zip"
         )
 
-        with self.assertRaisesRegex(ValueError, "display path"):
+        with self.assertRaisesRegex(ValueError, "display_path"):
             build_handoff_package_contents_preview_summary(source)
+
+        source = _load_input()
+        source["package_identity"]["display_path"] = "HANDOFF_PACKAGE:/redacted/C:/lab-package"
+
+        with self.assertRaisesRegex(ValueError, "display_path"):
+            build_handoff_package_contents_preview_summary(source)
+
+    def test_managed_package_identity_fields_are_validated(self) -> None:
+        invalid_cases = (
+            ("package_id", "/Users/lab/private/package", "package_id"),
+            (
+                "source_export_summary_id",
+                "/Users/lab/private/export",
+                "source_export_summary_id",
+            ),
+            ("display_name", {"text": "qA selected measurement handoff"}, "display_name"),
+        )
+        for field, value, message in invalid_cases:
+            with self.subTest(field=field):
+                source = _load_input()
+                source["package_identity"][field] = value
+
+                with self.assertRaisesRegex(ValueError, message):
+                    build_handoff_package_contents_preview_summary(source)
 
     def test_display_path_is_optional_for_portable_writer_manifest(self) -> None:
         source = _load_input()
@@ -229,6 +453,12 @@ class HandoffPackageContentsPreviewSummaryCandidateTest(unittest.TestCase):
         source["linked_context"][1]["reason"] = ""
 
         with self.assertRaisesRegex(ValueError, "requires reason"):
+            build_handoff_package_contents_preview_summary(source)
+
+        source = _load_input()
+        source["linked_context"][1]["reason"] = {"text": "Visible but not packaged"}
+
+        with self.assertRaisesRegex(ValueError, "reason"):
             build_handoff_package_contents_preview_summary(source)
 
     def test_non_packaged_context_must_not_carry_package_path(self) -> None:
@@ -260,6 +490,38 @@ class HandoffPackageContentsPreviewSummaryCandidateTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "declared columns"):
             build_handoff_package_contents_preview_summary(source)
+
+    def test_preview_schema_binding_names_are_public_identifiers(self) -> None:
+        invalid_cases = (
+            (
+                ("declared_columns", 0, "name"),
+                "/Users/lab/private/drive",
+                "preview column name",
+            ),
+            (
+                ("declared_columns", 0, "role"),
+                "/Users/lab/private/role",
+                "preview column role",
+            ),
+            (
+                ("declared_columns", 0, "unit"),
+                "/Users/lab/private/unit",
+                "preview column unit",
+            ),
+            (("data_shape", "kind"), "/Users/lab/private/shape", "preview shape kind"),
+            (("data_shape", "axis_order", 0), "/Users/lab/private/axis", "preview axis"),
+            (("plot_candidates", 0, "x"), "/Users/lab/private/x", "plot x"),
+        )
+        for path, value, message in invalid_cases:
+            with self.subTest(path=path):
+                source = _load_input()
+                target = source["selected_measurements"][0]["declared_preview_metadata"]
+                for segment in path[:-1]:
+                    target = target[segment]
+                target[path[-1]] = value
+
+                with self.assertRaisesRegex(ValueError, message):
+                    build_handoff_package_contents_preview_summary(source)
 
     def test_preview_metadata_authority_must_stay_manifest_only(self) -> None:
         source = _load_input()

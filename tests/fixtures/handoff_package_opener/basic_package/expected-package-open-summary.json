@@ -1,0 +1,179 @@
+{
+  "candidate_summary": {
+    "attention": [
+      {
+        "basis": "Declared package manifest and package-local primary data were opened without storage mutation.",
+        "code": "package_opened_read_only",
+        "does_not_claim": "package_acceptance_or_import",
+        "severity": "info"
+      },
+      {
+        "basis": "Declared digest and size facts remain manifest facts where present; this opener does not compare them.",
+        "code": "package_integrity_not_claimed",
+        "does_not_claim": "package_integrity_verified",
+        "severity": "review"
+      },
+      {
+        "basis": "Preview rows and plot series are derived only from manifest-declared columns.",
+        "code": "schema_inference_not_performed",
+        "does_not_claim": "automatic_schema_detection",
+        "severity": "review"
+      },
+      {
+        "basis": "Linked context remains visible reference-only during read-only package use.",
+        "code": "linked_context_reference_only",
+        "does_not_claim": "recursive_relation_traversal_or_context_capture",
+        "severity": "review"
+      }
+    ],
+    "linked_context": [
+      {
+        "kind": "parameter_state",
+        "label": "Run-local parameter snapshot",
+        "link_id": "package-legacy-001-parameter-snapshot",
+        "linked_measurement_record_ids": [
+          "legacy-rabi-001"
+        ],
+        "materialization": "reference_only",
+        "package_state": "not_packaged_visible_reference"
+      }
+    ],
+    "manifest_preview_findings": [
+      {
+        "basis": "The accepted legacy import preserved this linked context as a reference-only fact; the package writer does not include its payload.",
+        "does_not_claim": "package_integrity_or_import_acceptance_failure",
+        "finding": "linked_context_not_packaged_visible_reference",
+        "measurement_record_id": "legacy-rabi-001",
+        "severity": "review",
+        "subject_id": "package-legacy-001-parameter-snapshot",
+        "subject_type": "linked_context"
+      }
+    ],
+    "open_findings": [],
+    "package": {
+      "classification": "opened_read_only_for_declared_preview",
+      "created_by": "scopecat_selected_measurement_export",
+      "display_name": "Legacy Rabi selected measurement handoff",
+      "manifest_path": "package-manifest.json",
+      "package_id": "handoff-package-legacy-rabi-001",
+      "preview_classification": "needs_review_before_acceptance",
+      "source_export_summary_id": "export-summary-legacy-rabi-001"
+    },
+    "package_open_policy": {
+      "archive_extraction": "not_performed",
+      "checksum_validation": "not_performed",
+      "file_opening": "package_local_declared_primary_data",
+      "gui_workflow": "not_defined",
+      "import_acceptance": "not_performed",
+      "manifest_name": "package-manifest.json",
+      "manifest_preview": "scopecat_export_manifest_contract_reused",
+      "open_authority": "caller_provided_package_directory",
+      "package_integrity": "not_claimed",
+      "primary_data_loading": "declared_csv_preview_rows",
+      "recursive_relation_traversal": "not_performed",
+      "schema_inference": "not_performed",
+      "sdk_object_model": "not_defined",
+      "storage_mutation": "not_performed"
+    },
+    "selected_measurements": [
+      {
+        "classification": "opened_for_declared_preview",
+        "declared_preview": {
+          "declared_columns": [
+            {
+              "label": "Drive frequency",
+              "name": "drive_frequency",
+              "role": "sweep_axis",
+              "unit": "GHz"
+            },
+            {
+              "label": "Signal",
+              "name": "signal",
+              "role": "response",
+              "unit": "a.u."
+            }
+          ],
+          "metadata_authority": "scopecat_export_manifest",
+          "plot_candidates": [
+            {
+              "source": "measurements/legacy-rabi-001/primary.csv",
+              "x": "drive_frequency",
+              "y": "signal"
+            }
+          ],
+          "status": "preview_ready"
+        },
+        "experiment_type": "rabi",
+        "label": "Rabi calibration follow-up",
+        "legacy_data_id": 1001,
+        "measurement_record_id": "legacy-rabi-001",
+        "preview_data": {
+          "plot_series": [
+            {
+              "points": [
+                {
+                  "x": "4.98",
+                  "y": "0.12"
+                },
+                {
+                  "x": "5.00",
+                  "y": "0.44"
+                },
+                {
+                  "x": "5.02",
+                  "y": "0.81"
+                },
+                {
+                  "x": "5.04",
+                  "y": "0.45"
+                },
+                {
+                  "x": "5.06",
+                  "y": "0.13"
+                }
+              ],
+              "source": "measurements/legacy-rabi-001/primary.csv",
+              "x": "drive_frequency",
+              "y": "signal"
+            }
+          ],
+          "preview_rows": [
+            {
+              "drive_frequency": "4.98",
+              "signal": "0.12"
+            },
+            {
+              "drive_frequency": "5.00",
+              "signal": "0.44"
+            },
+            {
+              "drive_frequency": "5.02",
+              "signal": "0.81"
+            },
+            {
+              "drive_frequency": "5.04",
+              "signal": "0.45"
+            },
+            {
+              "drive_frequency": "5.06",
+              "signal": "0.13"
+            }
+          ],
+          "row_count": 5,
+          "schema_inference": "not_performed",
+          "source": "measurements/legacy-rabi-001/primary.csv"
+        },
+        "primary_data": {
+          "declared_digest": "sha256:e7407c74b4bb35e1cc350ae2cc4829981c5b48ac7db4364366f0b30802eab887",
+          "declared_size_bytes": 73,
+          "format": "csv_table",
+          "integrity_check": "not_performed",
+          "observed_size_bytes": 73,
+          "open_state": "opened",
+          "package_path": "measurements/legacy-rabi-001/primary.csv"
+        },
+        "target": "qA"
+      }
+    ]
+  }
+}

@@ -15,6 +15,10 @@ from implementation_candidates.contract_primitives import (
     relative_path_parts as _relative_parts,
 )
 from implementation_candidates.contract_primitives import (
+    validate_package_primary_data_path,
+    validate_sha256_digest,
+)
+from implementation_candidates.contract_primitives import (
     validate_positive_integer as _validate_positive_int,
 )
 from implementation_candidates.contract_primitives import (
@@ -24,13 +28,17 @@ from implementation_candidates.contract_primitives import (
     validate_relative_path as _validate_relative_path,
 )
 from implementation_candidates.contract_primitives import (
-    validate_sha256_digest,
-)
-from implementation_candidates.contract_primitives import (
     validate_strict_child_path as _validate_strict_child_path,
 )
 from implementation_candidates.contract_primitives import (
     validate_text as _validate_text,
+)
+from implementation_candidates.handoff_package_contracts import (
+    HANDOFF_PACKAGE_CREATED_BY,
+    MANIFEST_AUTHORITY,
+    validate_handoff_package_identity,
+    validate_handoff_preview_column,
+    validate_handoff_preview_ready_metadata,
 )
 
 _EXPECTED_POLICY = {
@@ -59,7 +67,7 @@ _EXPECTED_PACKAGE_PRIMARY_DATA = {
     "label": "Accepted primary data",
     "include_status": "included_by_default",
     "relation": "selected_measurement_source",
-    "authority": "scopecat_export_manifest",
+    "authority": MANIFEST_AUTHORITY,
     "format": "csv_table",
     "package_state": "packaged",
     "reason": None,
@@ -69,7 +77,7 @@ _EXPECTED_DEFAULT_PRIMARY_DATA = {
     "label": "Accepted primary data",
     "include_status": "included_by_default",
     "relation": "selected_measurement_source",
-    "authority": "scopecat_export_manifest",
+    "authority": MANIFEST_AUTHORITY,
     "package_state": "packaged",
     "reason": None,
 }
@@ -128,11 +136,10 @@ class PackagePrimaryDataPath:
 
     @classmethod
     def parse(cls, value: Any, *, measurement_record_id: str) -> "PackagePrimaryDataPath":
-        _validate_relative_path(value, "handoff package primary_data")
-        _validate_strict_child_path(
+        validate_package_primary_data_path(
             value,
-            f"measurements/{measurement_record_id}",
-            "handoff package primary_data",
+            measurement_record_id=measurement_record_id,
+            owner="handoff package primary_data",
         )
         return cls(value=value)
 
@@ -210,10 +217,7 @@ class PreviewColumn:
 
     @classmethod
     def parse(cls, value: dict[str, Any], owner: str) -> "PreviewColumn":
-        _validate_public_identifier(value["name"], f"{owner} name")
-        _validate_public_identifier(value["role"], f"{owner} role")
-        _validate_text(value["label"], f"{owner} label")
-        _validate_text(value["unit"], f"{owner} unit")
+        validate_handoff_preview_column(value, owner)
         return cls(
             name=value["name"],
             role=value["role"],
@@ -282,50 +286,42 @@ class PackageIdentity:
     display_name: str
     created_by: str
     source_export_summary_id: PackageDeclaredExportSummaryId
-    display_path: str
+    display_path: str | None
     local_path_redacted: bool
 
     @classmethod
     def parse(cls, value: dict[str, Any]) -> "PackageIdentity":
-        _validate_public_identifier(value["package_id"], "handoff package package_id")
-        _validate_text(value["display_name"], "handoff package display_name")
-        if value["created_by"] != "scopecat_selected_measurement_export":
-            raise ValueError(
-                "handoff package created_by must be scopecat_selected_measurement_export"
-            )
+        validate_handoff_package_identity(value, display_path="optional")
         source_export_summary_id = PackageDeclaredExportSummaryId.parse(
             value["source_export_summary_id"]
         )
-        _validate_redacted_display_ref(
-            value["display_path"],
-            "handoff package display_path",
-            prefix="HANDOFF_PACKAGE:",
-        )
-        if value["local_path_redacted"] is not True:
-            raise ValueError("handoff package local path must stay redacted")
         return cls(
             package_id=value["package_id"],
             display_name=value["display_name"],
-            created_by=value["created_by"],
+            created_by=HANDOFF_PACKAGE_CREATED_BY,
             source_export_summary_id=source_export_summary_id,
-            display_path=value["display_path"],
+            display_path=value.get("display_path"),
             local_path_redacted=value["local_path_redacted"],
         )
 
     def to_child_input(self) -> dict[str, Any]:
-        return {
+        child_input = {
             "package_id": self.package_id,
             "display_name": self.display_name,
             "created_by": self.created_by,
             "source_export_summary_id": self.source_export_summary_id.to_child_input(),
-            "display_path": self.display_path,
             "local_path_redacted": self.local_path_redacted,
         }
+        if self.display_path is not None:
+            child_input["display_path"] = self.display_path
+        return child_input
 
 
 @dataclass(frozen=True)
 class PackagePrimaryData:
     package_path: PackagePrimaryDataPath
+    digest: str | None
+    size_bytes: int | None
 
     @classmethod
     def parse(cls, value: dict[str, Any], *, measurement_record_id: str) -> "PackagePrimaryData":
@@ -336,20 +332,36 @@ class PackagePrimaryData:
             value["package_path"],
             measurement_record_id=measurement_record_id,
         )
-        return cls(package_path=package_path)
+        has_digest = "digest" in value
+        has_size = "size_bytes" in value
+        if has_digest != has_size:
+            raise ValueError("handoff package primary_data digest and size_bytes must match")
+        digest = None
+        size_bytes = None
+        if has_digest:
+            digest = validate_sha256_digest(value["digest"], "handoff package primary_data digest")
+            size_bytes = _validate_positive_int(
+                value["size_bytes"],
+                "handoff package primary_data size_bytes",
+            )
+        return cls(package_path=package_path, digest=digest, size_bytes=size_bytes)
 
     def to_child_input(self) -> dict[str, Any]:
-        return {
+        child_input = {
             "kind": "primary_data",
             "label": "Accepted primary data",
             "package_path": self.package_path.to_child_input(),
             "include_status": "included_by_default",
             "relation": "selected_measurement_source",
-            "authority": "scopecat_export_manifest",
+            "authority": MANIFEST_AUTHORITY,
             "format": "csv_table",
             "package_state": "packaged",
             "reason": None,
         }
+        if self.digest is not None and self.size_bytes is not None:
+            child_input["digest"] = self.digest
+            child_input["size_bytes"] = self.size_bytes
+        return child_input
 
 
 @dataclass(frozen=True)
@@ -386,7 +398,7 @@ class PackageBundleItem:
             "package_path": self.package_path.to_child_input(),
             "include_status": "included_by_default",
             "relation": "selected_measurement_source",
-            "authority": "scopecat_export_manifest",
+            "authority": MANIFEST_AUTHORITY,
             "package_state": "packaged",
             "reason": None,
         }
@@ -674,7 +686,7 @@ class PackageLinkedContext:
             raise ValueError(_REFERENCE_ONLY_CONTEXT_ERROR)
         if value["relation"] != export_ref.relation:
             raise ValueError(_REFERENCE_ONLY_CONTEXT_ERROR)
-        if value["authority"] != "scopecat_export_manifest":
+        if value["authority"] != MANIFEST_AUTHORITY:
             raise ValueError(_REFERENCE_ONLY_CONTEXT_ERROR)
         if value["package_state"] != "not_packaged_visible_reference":
             raise ValueError(_REFERENCE_ONLY_CONTEXT_ERROR)
@@ -823,6 +835,11 @@ def _validate_accepted_preview(
     if preview["warnings"] != []:
         raise ValueError("accepted preview_ready records must not carry warning payloads")
 
+    if not isinstance(preview["declared_roles"], list):
+        raise ValueError("accepted preview declared columns must be a list")
+    for column in preview["declared_roles"]:
+        if not isinstance(column, dict):
+            raise ValueError("accepted preview declared column must be an object")
     declared_columns = tuple(
         PreviewColumn.parse(column, "accepted preview declared column")
         for column in preview["declared_roles"]
@@ -831,12 +848,22 @@ def _validate_accepted_preview(
     if not declared_names or len(set(declared_names)) != len(declared_names):
         raise ValueError("accepted preview declared columns must be present and unique")
     declared_name_set = set(declared_names)
+    if not isinstance(preview["axis_order"], list):
+        raise ValueError("accepted preview axis order must be a list")
+    for axis in preview["axis_order"]:
+        _validate_public_identifier(axis, "accepted preview axis_order entry")
     if not preview["axis_order"] or any(
         axis not in declared_name_set for axis in preview["axis_order"]
     ):
         raise ValueError("accepted preview axis order must reference declared columns")
+    if not isinstance(preview["plot_candidates"], list):
+        raise ValueError("accepted preview plot candidates must be a list")
     for candidate in preview["plot_candidates"]:
+        if not isinstance(candidate, dict):
+            raise ValueError("accepted preview plot candidate must be an object")
         _validate_relative_path(candidate["source"], "accepted preview plot candidate source")
+        _validate_public_identifier(candidate["x"], "accepted preview plot x")
+        _validate_public_identifier(candidate["y"], "accepted preview plot y")
         if candidate["source"] != primary_data_path:
             raise ValueError(
                 "accepted preview plot candidate source must match accepted primary_data_path"
@@ -1001,10 +1028,13 @@ def _validate_package_manifest_alignment(
 
     accepted_preview = accepted_record["preview"]
     package_preview = package_record["declared_preview_metadata"]
-    if package_preview["metadata_authority"] != "scopecat_export_manifest":
-        raise ValueError(
-            "handoff package manifest preview authority must be scopecat_export_manifest"
-        )
+    validate_handoff_preview_ready_metadata(
+        package_preview,
+        primary_path=primary_data.package_path.to_child_input(),
+        owner="handoff package manifest preview",
+    )
+    if package_preview["metadata_authority"] != MANIFEST_AUTHORITY:
+        raise ValueError(f"handoff package manifest preview authority must be {MANIFEST_AUTHORITY}")
     if package_preview["status"] != accepted_preview["status"]:
         raise ValueError("handoff package manifest preview status must match accepted record")
     if package_preview["data_shape"]["kind"] != accepted_preview["shape_kind"]:

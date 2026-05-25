@@ -9,9 +9,23 @@ GUIs, or traverse relation graphs.
 from __future__ import annotations
 
 import copy
-import re
-from pathlib import PurePosixPath
 from typing import Any
+
+from implementation_candidates.contract_primitives import (
+    validate_non_negative_integer,
+    validate_public_identifier,
+    validate_strict_child_path,
+    validate_text,
+    validate_unique_reference_targets,
+)
+from implementation_candidates.handoff_package_contracts import (
+    MANIFEST_AUTHORITY,
+    validate_handoff_package_identity,
+    validate_handoff_preview_ready_metadata,
+    validate_manifest_primary_data,
+    validate_package_item_shape,
+    validate_primary_bundle_item,
+)
 
 _EXPECTED_POLICY = {
     "preview_authority": "scopecat_export_manifest_only",
@@ -26,47 +40,10 @@ _EXPECTED_POLICY = {
     "shared_measurement_schema": "not_defined",
 }
 
-_MANIFEST_AUTHORITY = "scopecat_export_manifest"
 _PREVIEW_STATUSES = {
     "preview_ready",
     "degraded_preview",
 }
-_PACKAGE_STATES = {
-    "packaged",
-    "not_packaged_visible_reference",
-    "missing_from_package",
-    "redacted",
-}
-_PRIVATE_PATH_MARKERS = tuple(f"/{part}/" for part in ("Users", "private"))
-
-
-def _path_is_relative(path: str) -> bool:
-    parsed = PurePosixPath(path)
-    return (
-        bool(path)
-        and path != "."
-        and "\\" not in path
-        and not re.match(r"^[A-Za-z]:", path)
-        and not parsed.is_absolute()
-        and ".." not in parsed.parts
-    )
-
-
-def _validate_relative_path(path: str, owner: str) -> None:
-    if not _path_is_relative(path):
-        raise ValueError(f"{owner} path must be relative")
-
-
-def _validate_redacted_display_path(path: str) -> None:
-    if (
-        not path
-        or path.startswith(("/", "~"))
-        or "\\" in path
-        or re.match(r"^[A-Za-z]:[\\/]", path)
-        or any(marker in path for marker in _PRIVATE_PATH_MARKERS)
-        or "redacted" not in path.lower()
-    ):
-        raise ValueError("handoff package display path must be public-safe and redacted")
 
 
 def _validate_policy(source: dict[str, Any]) -> None:
@@ -79,62 +56,23 @@ def _validate_policy(source: dict[str, Any]) -> None:
 
 
 def _validate_package_identity(source: dict[str, Any]) -> None:
-    identity = source["package_identity"]
-    if identity["created_by"] != "scopecat_selected_measurement_export":
-        raise ValueError("handoff package must come from selected measurement export")
-    if identity["local_path_redacted"] is not True:
-        raise ValueError("handoff package local path must stay redacted")
-    if "display_path" in identity:
-        _validate_redacted_display_path(identity["display_path"])
-
-
-def _validate_package_item(item: dict[str, Any], owner: str) -> None:
-    if item["authority"] != _MANIFEST_AUTHORITY:
-        raise ValueError(f"{owner} authority must stay scopecat_export_manifest")
-    if item["package_state"] not in _PACKAGE_STATES:
-        raise ValueError(f"{owner} has unsupported package_state: {item['package_state']}")
-
-    package_path = item.get("package_path")
-    if item["package_state"] == "packaged":
-        if not package_path:
-            raise ValueError(f"{owner} packaged item requires package_path")
-        _validate_relative_path(package_path, owner)
-        if item.get("reason"):
-            raise ValueError(f"{owner} packaged item must not carry reason")
-        return
-
-    if package_path is not None:
-        raise ValueError(f"{owner} non-packaged item must not carry package_path")
-    if not item.get("reason"):
-        raise ValueError(f"{owner} non-packaged item requires reason")
+    validate_handoff_package_identity(source["package_identity"], display_path="optional")
 
 
 def _validate_preview_metadata(record: dict[str, Any]) -> None:
     preview = record["declared_preview_metadata"]
     record_id = record["measurement_record_id"]
-    if preview["metadata_authority"] != _MANIFEST_AUTHORITY:
+    if preview["metadata_authority"] != MANIFEST_AUTHORITY:
         raise ValueError("preview metadata authority must stay scopecat_export_manifest")
     if preview["status"] not in _PREVIEW_STATUSES:
         raise ValueError(f"measurement {record_id} has unsupported preview status")
 
     if preview["status"] == "preview_ready":
-        if preview["data_shape"] is None:
-            raise ValueError("preview-ready metadata requires data_shape")
-        declared_names = [column["name"] for column in preview["declared_columns"]]
-        if len(set(declared_names)) != len(declared_names):
-            raise ValueError("preview declared columns must have unique names")
-        declared_name_set = set(declared_names)
-        axis_order = preview["data_shape"]["axis_order"]
-        if not declared_names or not axis_order:
-            raise ValueError("preview-ready metadata requires declared columns and axis order")
-        if any(axis not in declared_name_set for axis in axis_order):
-            raise ValueError("preview axis order must reference declared columns")
-        primary_path = record["primary_data"]["package_path"]
-        for candidate in preview["plot_candidates"]:
-            if candidate["source"] != primary_path:
-                raise ValueError("plot candidate source must match primary data package path")
-            if candidate["x"] not in declared_name_set or candidate["y"] not in declared_name_set:
-                raise ValueError("plot candidate axes must reference declared columns")
+        validate_handoff_preview_ready_metadata(
+            preview,
+            primary_path=record["primary_data"]["package_path"],
+            owner=f"measurement {record_id} preview",
+        )
         return
 
     if preview["data_shape"] is not None:
@@ -143,29 +81,58 @@ def _validate_preview_metadata(record: dict[str, Any]) -> None:
         raise ValueError("degraded preview must not carry declared columns or plot candidates")
     if not preview.get("warning_code") or not preview.get("message"):
         raise ValueError("degraded preview requires warning_code and message")
+    validate_public_identifier(
+        preview["warning_code"],
+        f"measurement {record_id} degraded preview warning_code",
+    )
+    validate_text(preview["message"], f"measurement {record_id} degraded preview message")
 
 
 def _validate_measurements(source: dict[str, Any]) -> None:
+    if not source["selected_measurements"]:
+        raise ValueError("handoff package contents preview requires selected_measurements")
+
     seen_ids = set()
     seen_package_paths = set()
     for record in source["selected_measurements"]:
         record_id = record["measurement_record_id"]
+        validate_public_identifier(record_id, "measurement_record_id")
         if record_id in seen_ids:
             raise ValueError(f"duplicate measurement_record_id: {record_id}")
         seen_ids.add(record_id)
+        validate_non_negative_integer(record["legacy_data_id"], "measurement legacy_data_id")
+        validate_text(record["label"], "measurement label")
+        validate_public_identifier(record["experiment_type"], "measurement experiment_type")
+        validate_public_identifier(record["target"], "measurement target")
 
-        _validate_package_item(record["primary_data"], f"primary data {record_id}")
+        validate_manifest_primary_data(
+            record["primary_data"],
+            measurement_record_id=record_id,
+            owner="primary data",
+            digest_size="optional",
+        )
         if record["primary_data"]["package_state"] != "packaged":
             raise ValueError("selected measurement primary data must be packaged or rejected")
         _validate_preview_metadata(record)
 
         primary_bundle_count = 0
         for item in record["default_bundle"]:
-            _validate_package_item(item, f"default bundle item {item['item_id']}")
             if item["kind"] == "primary_data":
+                validate_primary_bundle_item(
+                    item,
+                    measurement_record_id=record_id,
+                    primary=record["primary_data"],
+                    owner=f"default bundle item {item['item_id']}",
+                )
                 primary_bundle_count += 1
-                if item["package_path"] != record["primary_data"]["package_path"]:
-                    raise ValueError("primary bundle item path must match primary data path")
+            else:
+                validate_package_item_shape(item, f"default bundle item {item['item_id']}")
+            if item["kind"] != "primary_data" and item.get("package_path"):
+                validate_strict_child_path(
+                    item["package_path"],
+                    f"measurements/{record_id}",
+                    f"default bundle item {item['item_id']}",
+                )
             package_path = item.get("package_path")
             if package_path and package_path in seen_package_paths:
                 raise ValueError(f"duplicate package_path: {package_path}")
@@ -182,15 +149,22 @@ def _validate_linked_context(source: dict[str, Any]) -> None:
     seen_ids = set()
     for item in source["linked_context"]:
         link_id = item["link_id"]
+        validate_public_identifier(link_id, "linked context link_id")
         if link_id in seen_ids:
             raise ValueError(f"duplicate link_id: {link_id}")
         seen_ids.add(link_id)
-        _validate_package_item(item, f"linked context {link_id}")
-        linked_ids = set(item["linked_measurement_record_ids"])
-        if not linked_ids:
-            raise ValueError(f"linked context {link_id} must reference selected measurements")
-        if not linked_ids.issubset(selected_ids):
-            raise ValueError(f"linked context {link_id} must reference selected measurements")
+        validate_package_item_shape(item, f"linked context {link_id}")
+        if item.get("package_path"):
+            validate_strict_child_path(
+                item["package_path"],
+                "context",
+                f"linked context {link_id}",
+            )
+        validate_unique_reference_targets(
+            item["linked_measurement_record_ids"],
+            selected_ids=selected_ids,
+            owner=f"linked context {link_id}",
+        )
 
 
 def _validate_unique_package_paths(source: dict[str, Any]) -> None:

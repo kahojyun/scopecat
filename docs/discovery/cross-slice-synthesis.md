@@ -20,6 +20,7 @@ relation graph, or warning taxonomy.
 - [`running-measurement-inspection-validation-result.md`](running-measurement-inspection-validation-result.md)
 - [`measurement-record-import-preview-validation-result.md`](measurement-record-import-preview-validation-result.md)
 - [`handoff-package-contents-preview-validation-result.md`](handoff-package-contents-preview-validation-result.md)
+- [`handoff-package-opener-validation-result.md`](handoff-package-opener-validation-result.md)
 - [`handoff-package-writer-validation-result.md`](handoff-package-writer-validation-result.md)
 - [`contract-primitives-validation-result.md`](contract-primitives-validation-result.md)
 - [`adapter-authored-legacy-import-validation-result.md`](adapter-authored-legacy-import-validation-result.md)
@@ -93,17 +94,32 @@ define a package format, traverse relation graphs, or design an import GUI.
 Handoff package contents preview has a slice-local implementation candidate for
 previewing and classifying a Scopecat-authored selected-measurement export
 package manifest for quick receiving-side orientation. The intended package UX
-is open-before-import: preview the manifest, then use a future read-only opener
-to inspect a standalone package, load declared primary data, and use declared
+is open-before-import: preview the manifest, then use a read-only opener to
+inspect a standalone package, load declared primary data, and use declared
 preview metadata, then optionally accept/import into local storage. The preview
 candidate preserves package identity, selected measurements, packaged primary
 data and default bundles, declared preview metadata, packaged linked context,
 visible-but-not-packaged artifacts, and missing context as review findings. It
-keeps the read-only opener, import acceptance, storage writes, archive
-extraction, package-file inspection, schema inference, package integrity, final
-package format, relation traversal, and review GUI as separate decisions. This
-keeps it separate from incoming-record import preview, where the input authority
-is an external incoming-record manifest.
+keeps import acceptance, storage writes, archive extraction, package-file
+inspection, schema inference, package integrity, final package format, relation
+traversal, and review GUI as separate decisions. This keeps it separate from
+incoming-record import preview, where the input authority is an external
+incoming-record manifest.
+
+Handoff package opener has the first read-only package-use candidate for
+Scopecat-authored directory packages. It reads `package-manifest.json`, reuses
+the handoff package contents preview contract for manifest validation, rejects
+empty selected-measurement packages, requires the package directory name to
+match the manifest package id, opens package-local primary CSV files through
+declared package paths, and exposes declared preview rows and plot-ready point
+series from `preview_ready` metadata only. Degraded-preview packages remain
+manifest-previewable but are not opened by this first opener candidate. The
+opener carries manifest-preview findings, applies symlink guardrails to
+package-local file opening, and reports declared digest and size facts when
+present without comparing them or claiming package integrity. It does not
+accept/import packages, mutate storage, extract archives, validate checksums or
+signatures, infer schemas, recursively traverse linked context, or define a GUI
+or stable SDK object model.
 
 Legacy import acceptance has a slice-local implementation candidate for the
 first approved review-to-acceptance mutation for a normalized adapter-authored
@@ -171,16 +187,17 @@ selected measurement export summary, and previews an explicit handoff package
 manifest. Selected handoff facts in the raw JSON fixture are checked through a
 candidate-local contract module before adaptation. That module now delegates
 identical low-level value-shape checks to the contract-primitives candidate
-while keeping route-specific continuity, display-ref, and package-topology
-semantics local. This tests accepted-record path/materialization constraints,
-no-overwrite acceptance, accepted write-result kind/result/path/digest/size
-alignment, public-safe display references, accepted-record/measurement identity
-continuity, package-declared export-summary reference syntax, preview-metadata
-continuity, candidate-local package/export path topology, and linked-context
-handoff alignment across the route without accepting storage mutation, a shared
-measurement schema, final package format, package writer, package acceptance,
-GUI behavior, recursive traversal, schema inference, or final storage
-architecture.
+and identical handoff package route checks to the route-local
+`handoff_package_contracts` support module, while keeping accepted-record
+continuity and storage-display derivation local. This tests accepted-record
+path/materialization constraints, no-overwrite acceptance, accepted write-result
+kind/result/path/digest/size alignment, public-safe display references,
+accepted-record/measurement identity continuity, package-declared export-summary
+reference syntax, preview-metadata continuity, candidate-local package/export
+path topology, and linked-context handoff alignment across the route without
+accepting storage mutation, a shared measurement schema, final package format,
+package writer, package acceptance, GUI behavior, recursive traversal, schema
+inference, or final storage architecture.
 
 The handoff flow preserves accepted linked-context `reference` values as
 adapter-declared scalar text for local review. It does not interpret those
@@ -212,6 +229,13 @@ package-root separation. This is intentionally below a domain model: it reduces
 duplicated validation code without accepting a shared measurement-record
 schema, final package schema, storage architecture, public API, GUI contract,
 or runtime redaction engine.
+
+Handoff package route contracts now have a route-local support module for the
+next layer above primitives: package identity, manifest item state/include
+semantics, selected primary-data topology, canonical primary-data bundle
+entries, and preview-ready metadata binding. It is used where the writer,
+contents preview, opener reuse, and composition slices already share semantics,
+but it is still not a final package schema or SDK object model.
 
 Calibration work continuation has a tiny assembler candidate for continuation
 state. It pressures episode context, planned steps, observed outputs, review
@@ -623,10 +647,13 @@ The cross-slice comparison still does not earn:
 Use this synthesis as the comparison point before promoting shared
 architecture.
 
-For the handoff route, the current UX direction points to a read-only package
-opener before package import/acceptance. A narrower package-integrity or
-archive question should block that sequencing only when it is required for safe
-opening.
+For the handoff route, read-only package use should remain the validated step
+before package import/acceptance. Next work should keep package-integrity or
+archive validation separate unless it is required before safe package use, and
+keep package acceptance/import as an explicit storage-mutation slice. Before
+adding more handoff-package behavior, apply the route-local field-category
+checklist in
+[`handoff-package-route-contract-checklist.md`](handoff-package-route-contract-checklist.md).
 
 Shared model extraction is currently deferred in
 [`shared-model-extraction-deferral.md`](shared-model-extraction-deferral.md).

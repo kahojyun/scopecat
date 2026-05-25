@@ -18,16 +18,17 @@ slice because its input authority is an external candidate record.
 The intended receiving-side experience is open-before-import:
 
 1. Preview package contents from the manifest for quick orientation.
-2. Open the package read-only through a future SDK or GUI to inspect selected
-   measurements, load declared primary data, review metadata and linked context
-   references, and make basic declared-preview plots.
+2. Open the package read-only to inspect selected measurements, load declared
+   primary data, review metadata and linked context references, and make basic
+   declared-preview plots.
 3. Optionally accept, import, or organize the package into local Scopecat
    storage when the user wants mutation.
 
-This slice validates only the first step. It keeps the preview manifest-only so
-the receiving user can understand package contents before file reads, package
-integrity checks, local storage writes, or GUI/package-opener behavior are
-accepted.
+This slice validates only the first step. Read-only package open is validated
+separately; GUI behavior and stable SDK surfaces remain future decisions. This
+slice keeps the preview manifest-only so the receiving user can understand
+package contents before file reads, package integrity checks, local storage
+writes, or opener behavior are accepted.
 
 ## Fixture
 
@@ -61,6 +62,7 @@ Scopecat-authored handoff package before read-only open or later acceptance:
 - preserve package identity, package-declared source export summary reference,
   selected measurements, primary-data references, default bundle contents, and
   linked context;
+- reject empty selected-measurement package manifests;
 - summarize declared preview metadata and degraded-preview warnings from the
   export manifest;
 - summarize packaged, visible-but-not-packaged, and missing package content
@@ -108,16 +110,21 @@ import-acceptance, relation-graph, or plotting failures.
 
 ## Follow-Up
 
-Stop this slice at manifest-only package contents preview. Given the current
-open-before-import UX direction, the natural next receiving-side slice is a
-read-only package opener unless a narrower package-integrity or archive question
-blocks opening.
+Stop this slice at manifest-only package contents preview. The next
+receiving-side step is now validated separately in
+[`handoff-package-opener-validation-result.md`](handoff-package-opener-validation-result.md):
+read-only package use with package-local primary-data loading and declared
+preview rows.
+
+Before changing this route again, apply the route-local field-category checklist
+in
+[`handoff-package-route-contract-checklist.md`](handoff-package-route-contract-checklist.md)
+so managed identifiers, package paths, redacted display references, free text,
+and declared manifest facts are reviewed by category rather than one field at a
+time.
 
 Likely follow-up slices:
 
-- read-only handoff package opener, with package-local file existence,
-  openability preflight, basic primary-data loading, and declared preview
-  plotting without storage mutation;
 - package integrity or archive validation for a declared package, without
   accepting import or storage mutation;
 - source observation or checksum validation for packaged primary data, without
