@@ -207,9 +207,12 @@ accepted-record facts, and handoff package contents preview consumes an
 explicit package-preview manifest rather than package layout invented by the
 flow. It validates selected handoff facts from the raw JSON fixture through a
 candidate-local contract module before adapting between slice-local input
-shapes, instead of extracting a shared model. It keeps storage mutation, package
-writing, package acceptance, GUI behavior, recursive traversal, schema
-inference, and final storage/package architecture out of scope.
+shapes, delegating identical low-level value-shape checks to the
+contract-primitives candidate while keeping route-specific continuity,
+display-ref, and package-topology semantics local. This is not a shared
+measurement model. It keeps storage mutation, package writing, package
+acceptance, GUI behavior, recursive traversal, schema inference, and final
+storage/package architecture out of scope.
 
 The first handoff package contents preview candidate is validated in
 [`handoff-package-contents-preview-validation-result.md`](handoff-package-contents-preview-validation-result.md).

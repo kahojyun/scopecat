@@ -166,15 +166,18 @@ accepted-record facts from the legacy import acceptance boundary, derives a
 source-observation request from those facts, adapts the accepted record into a
 selected measurement export summary, and previews an explicit handoff package
 manifest. Selected handoff facts in the raw JSON fixture are checked through a
-candidate-local contract module before adaptation. This tests accepted-record
-path/materialization constraints, no-overwrite acceptance, accepted write-result
-kind/result/path/digest/size alignment, public-safe display references,
-accepted-record/measurement identity continuity, package-declared export-summary
-reference syntax, preview-metadata continuity, candidate-local package/export
-path topology, and linked-context handoff alignment across the route without
-accepting storage mutation, a shared measurement schema, final package format,
-package writer, package acceptance, GUI behavior, recursive traversal, schema
-inference, or final storage architecture.
+candidate-local contract module before adaptation. That module now delegates
+identical low-level value-shape checks to the contract-primitives candidate
+while keeping route-specific continuity, display-ref, and package-topology
+semantics local. This tests accepted-record path/materialization constraints,
+no-overwrite acceptance, accepted write-result kind/result/path/digest/size
+alignment, public-safe display references, accepted-record/measurement identity
+continuity, package-declared export-summary reference syntax, preview-metadata
+continuity, candidate-local package/export path topology, and linked-context
+handoff alignment across the route without accepting storage mutation, a shared
+measurement schema, final package format, package writer, package acceptance,
+GUI behavior, recursive traversal, schema inference, or final storage
+architecture.
 
 The handoff flow preserves accepted linked-context `reference` values as
 adapter-declared scalar text for local review. It does not interpret those

@@ -110,6 +110,21 @@ class LegacyImportAcceptanceSummaryCandidateTest(unittest.TestCase):
                 accept_legacy_import(source, content_root=FIXTURE, storage_root=Path(storage_dir))
             self.assertFalse((Path(storage_dir) / "records").exists())
 
+    def test_source_primary_data_facts_use_shared_primitive_shapes(self) -> None:
+        source = _load_input()
+        source["acceptance_request"]["source_primary_data"]["declared_digest"] = "8b335"
+
+        with tempfile.TemporaryDirectory() as storage_dir:
+            with self.assertRaisesRegex(ValueError, "sha256-prefixed"):
+                accept_legacy_import(source, content_root=FIXTURE, storage_root=Path(storage_dir))
+
+        source = _load_input()
+        source["acceptance_request"]["source_primary_data"]["size_bytes"] = True
+
+        with tempfile.TemporaryDirectory() as storage_dir:
+            with self.assertRaisesRegex(ValueError, "size_bytes"):
+                accept_legacy_import(source, content_root=FIXTURE, storage_root=Path(storage_dir))
+
     def test_rejects_symlink_content_parent(self) -> None:
         source = _load_input()
 

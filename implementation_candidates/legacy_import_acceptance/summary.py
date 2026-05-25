@@ -14,13 +14,22 @@ import copy
 import hashlib
 import json
 import os
-import re
 import stat
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 
 from implementation_candidates.adapter_authored_legacy_import import (
     build_adapter_authored_legacy_import_summary,
+)
+from implementation_candidates.contract_primitives import (
+    relative_path_parts as _relative_parts,
+)
+from implementation_candidates.contract_primitives import (
+    validate_positive_integer,
+    validate_sha256_digest,
+)
+from implementation_candidates.contract_primitives import (
+    validate_relative_path as _validate_relative_path,
 )
 
 _ACCEPTANCE_SCHEMA = "scopecat.legacy_import_acceptance.v0"
@@ -43,30 +52,7 @@ _EXPECTED_POLICY = {
     "stable_public_api": "not_defined",
 }
 
-_SHA256_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
-
-
-def _path_is_relative(path: str) -> bool:
-    parsed = PurePosixPath(path)
-    raw_parts = path.split("/")
-    return (
-        bool(path)
-        and path != "."
-        and "\\" not in path
-        and not re.match(r"^[A-Za-z]:", path)
-        and not parsed.is_absolute()
-        and not any(part in {"", ".", ".."} for part in raw_parts)
-    )
-
-
-def _validate_relative_path(path: str, owner: str) -> None:
-    if not _path_is_relative(path):
-        raise ValueError(f"{owner} path must be relative")
-
-
-def _relative_parts(relative_path: str) -> tuple[str, ...]:
-    return PurePosixPath(relative_path).parts
 
 
 def _path_under(root: Path, relative_path: str) -> Path:
@@ -194,13 +180,8 @@ def _validate_source_primary_data(
     _validate_relative_path(source_primary_data["content_ref"], "source primary data")
     if source_primary_data["content_ref"] != adapter_manifest["primary_data"]["path"]:
         raise ValueError("source primary data content_ref must match adapter manifest primary path")
-    if not _SHA256_DIGEST.fullmatch(source_primary_data["declared_digest"]):
-        raise ValueError("source primary data digest must be a sha256-prefixed hex digest")
-    if (
-        not isinstance(source_primary_data["size_bytes"], int)
-        or source_primary_data["size_bytes"] <= 0
-    ):
-        raise ValueError("source primary data size_bytes must be positive")
+    validate_sha256_digest(source_primary_data["declared_digest"], "source primary data digest")
+    validate_positive_integer(source_primary_data["size_bytes"], "source primary data size_bytes")
 
 
 def _validate_acceptance_request(source: dict[str, Any], adapter_summary: dict[str, Any]) -> None:

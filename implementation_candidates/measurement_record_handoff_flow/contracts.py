@@ -9,8 +9,29 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from pathlib import PurePosixPath
 from typing import Any
+
+from implementation_candidates.contract_primitives import (
+    relative_path_parts as _relative_parts,
+)
+from implementation_candidates.contract_primitives import (
+    validate_positive_integer as _validate_positive_int,
+)
+from implementation_candidates.contract_primitives import (
+    validate_public_identifier as _validate_public_identifier,
+)
+from implementation_candidates.contract_primitives import (
+    validate_relative_path as _validate_relative_path,
+)
+from implementation_candidates.contract_primitives import (
+    validate_sha256_digest,
+)
+from implementation_candidates.contract_primitives import (
+    validate_strict_child_path as _validate_strict_child_path,
+)
+from implementation_candidates.contract_primitives import (
+    validate_text as _validate_text,
+)
 
 _EXPECTED_POLICY = {
     "flow_authority": "explicit_measurement_record_handoff_flow_request",
@@ -63,7 +84,6 @@ _EXPECTED_WRITE_RESULT_DOES_NOT_CLAIM = {
 _REFERENCE_ONLY_CONTEXT_ERROR = (
     "handoff package linked context must match accepted reference-only context"
 )
-_SHA256_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _PRIVATE_PATH_MARKERS = tuple(f"/{part}/" for part in ("Users", "private"))
 
 
@@ -232,8 +252,7 @@ class WriteResult:
         if value["path"] != expected_path:
             raise ValueError("accepted write result path must match acceptance request")
         _validate_relative_path(value["path"], f"accepted {kind} write")
-        if not _SHA256_DIGEST.fullmatch(value["digest"]):
-            raise ValueError("accepted write result digest must be a sha256-prefixed hex digest")
+        validate_sha256_digest(value["digest"], "accepted write result digest")
         _validate_positive_int(value["bytes_written"], "accepted write result bytes_written")
         if value["does_not_claim"] != _EXPECTED_WRITE_RESULT_DOES_NOT_CLAIM[kind]:
             raise ValueError(f"accepted {kind} write result does_not_claim must match contract")
@@ -711,37 +730,6 @@ class HandoffFlowContract:
     package_default_bundle_item: PackageBundleItem
 
 
-def _path_is_relative(path: str) -> bool:
-    if not isinstance(path, str):
-        return False
-    parsed = PurePosixPath(path)
-    raw_parts = path.split("/")
-    return (
-        bool(path)
-        and path != "."
-        and "\\" not in path
-        and not re.match(r"^[A-Za-z]:", path)
-        and not parsed.is_absolute()
-        and not any(part in {"", ".", ".."} for part in raw_parts)
-    )
-
-
-def _validate_relative_path(path: str, owner: str) -> None:
-    if not _path_is_relative(path):
-        raise ValueError(f"{owner} path must be relative")
-
-
-def _relative_parts(path: str) -> tuple[str, ...]:
-    return PurePosixPath(path).parts
-
-
-def _validate_strict_child_path(path: str, parent: str, owner: str) -> None:
-    path_parts = _relative_parts(path)
-    parent_parts = _relative_parts(parent)
-    if len(path_parts) <= len(parent_parts) or path_parts[: len(parent_parts)] != parent_parts:
-        raise ValueError(f"{owner} must stay under {parent}")
-
-
 def _paths_overlap(left: str, right: str) -> bool:
     left_parts = _relative_parts(left)
     right_parts = _relative_parts(right)
@@ -749,30 +737,6 @@ def _paths_overlap(left: str, right: str) -> bool:
         left_parts[: len(right_parts)] == right_parts
         or right_parts[: len(left_parts)] == left_parts
     )
-
-
-def _validate_positive_int(value: Any, owner: str) -> None:
-    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
-        raise ValueError(f"{owner} must be a positive integer")
-
-
-def _validate_text(value: Any, owner: str) -> None:
-    if not isinstance(value, str):
-        raise ValueError(f"{owner} must be text")
-
-
-def _validate_public_identifier(value: Any, owner: str) -> None:
-    if (
-        not isinstance(value, str)
-        or not value
-        or value in {".", ".."}
-        or value.startswith(("/", "~"))
-        or "/" in value
-        or "\\" in value
-        or re.match(r"^[A-Za-z]:", value)
-        or any(marker in value for marker in _PRIVATE_PATH_MARKERS)
-    ):
-        raise ValueError(f"{owner} must be a public-safe identifier")
 
 
 def _validate_redacted_display_ref(value: Any, owner: str, *, prefix: str) -> None:

@@ -19,9 +19,15 @@ composition and writer slices had started to duplicate:
 - sha256 digest strings;
 - package-root separation from measurement storage.
 
-The handoff package writer now consumes these helpers for the repeated checks
-above while retaining its own package-writing behavior, manifest projection,
-and rollback logic.
+The handoff package writer consumes these helpers for repeated low-level checks
+while retaining its own package-writing behavior, manifest projection, and
+rollback logic. The measurement-record handoff-flow composition candidate also
+uses them for identical value-shape checks while retaining route-specific
+continuity, display-reference, and package-topology wrappers. Child slices
+should consume these helpers only where the value-shape semantics are identical;
+the first follow-up migration does this for measurement source observation and
+legacy import acceptance while leaving their storage, write, and observation
+contracts local.
 
 ## Result
 

@@ -654,6 +654,12 @@ class MeasurementRecordHandoffFlowCandidateTest(unittest.TestCase):
         source["accepted_record"]["source_identity"]["external_root_label"] = "lab-share"
         self.assertRejected(source, "external_root_label")
 
+    def test_managed_identifiers_use_shared_public_identifier_shape(self) -> None:
+        source = _load_input()
+        source["flow_request"]["flow_id"] = "a" * 129
+
+        self.assertRejected(source, "flow_id")
+
     def test_managed_display_refs_must_use_redacted_displays(self) -> None:
         source = _load_input()
         source["flow_request"]["export_source_display"] = (

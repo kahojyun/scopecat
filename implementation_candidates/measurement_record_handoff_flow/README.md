@@ -26,6 +26,14 @@ The candidate-local `contracts.py` module validates the selected handoff facts
 before the summary builder adapts them into other slice-local inputs. This is
 not a shared measurement model.
 
+Repeated low-level value-shape checks are delegated to the contract-primitives
+candidate where the semantics are identical, such as managed identifiers,
+syntax-only relative path checks, strict child paths, positive integers, text
+values, and sha256 digest strings. Composition-specific wrappers remain local
+when they carry route semantics, such as accepted-record continuity, package
+preview alignment, path-derived storage display refs, and package path topology
+that has not been tightened to the writer's exact generated layout.
+
 The composed boundary validates that accepted-record storage paths stay
 relative and inside the accepted record directory, that accepted materialization
 matches the reference-only linked-context handoff boundary, that Scopecat-managed
