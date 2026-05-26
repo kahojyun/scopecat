@@ -129,6 +129,11 @@ package contracts, import acceptance, plotting, and legacy adapter behavior.
 Those slices may reuse the vocabulary only when their authority and artifact
 boundaries match.
 
+The current decision summary is
+[`scan-data-shape-decision-summary.md`](scan-data-shape-decision-summary.md).
+It closes the current shape-expansion phase and recommends moving next to a
+consumer of declared preview metadata rather than adding more shape variants.
+
 ## Follow-Up
 
 Stop this checkpoint at concept validation unless the next workflow needs a

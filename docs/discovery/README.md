@@ -25,6 +25,7 @@ product contracts too early.
 | [`artifact-boundary-and-redaction-policy.md`](artifact-boundary-and-redaction-policy.md) | Distinguish repository-safe discovery artifacts and local UI/review surfaces from portable/public/export boundaries, and keep runtime redaction scope explicit. |
 | [`artifact-preview-boundary.md`](artifact-preview-boundary.md) | Separate arbitrary artifacts from Scopecat-declared previewable data items, without accepting generic visualization, ndarray, dataframe, or matrix heatmap support. |
 | [`complex-response-boundary.md`](complex-response-boundary.md) | Treat complex-valued responses as logical value metadata over declared previewable data items, without accepting primitive complex storage or a transform engine. |
+| [`scan-data-shape-decision-summary.md`](scan-data-shape-decision-summary.md) | Close the current scan/data-shape expansion phase and direct follow-up work toward consumers of declared preview metadata. |
 | [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md) | Product posture for Git-like managed experiment-code versions without requiring users to operate Git. |
 
 ## Validation Slices
@@ -146,6 +147,7 @@ Measurement Records the owner of context-support behavior.
 | [`complex-response-boundary.md`](complex-response-boundary.md) | Boundary for complex-valued response metadata and derived component views. |
 | [`../../spikes/scan_data_shapes/README.md`](../../spikes/scan_data_shapes/README.md) | Spike boundary for declared scan/data-shape fixture generation. |
 | [`scan-data-shape-validation-result.md`](scan-data-shape-validation-result.md) | Checkpoint result for declared scan/data-shape fixture pressure and storage-independent shape semantics. |
+| [`scan-data-shape-decision-summary.md`](scan-data-shape-decision-summary.md) | Decision summary for stopping shape expansion and moving to preview metadata consumers. |
 | [`../../tests/fixtures/scan_data_shapes/`](../../tests/fixtures/scan_data_shapes/) | Repository-safe fixtures for declared grid, ragged, trace, fixed-vector, complex fixed-vector, and sidecar-declared shape pressure. |
 | [`problem-briefs/running-measurement-inspection.md`](problem-briefs/running-measurement-inspection.md) | Problem framing for inspecting already-recorded data from a still-running measurement. |
 | [`running-measurement-inspection-validation-plan.md`](running-measurement-inspection-validation-plan.md) | First fixture-validation boundary for running inspection. |
