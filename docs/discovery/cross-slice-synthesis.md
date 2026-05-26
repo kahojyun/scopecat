@@ -22,6 +22,7 @@ relation graph, or warning taxonomy.
 - [`handoff-package-contents-preview-validation-result.md`](handoff-package-contents-preview-validation-result.md)
 - [`handoff-package-opener-validation-result.md`](handoff-package-opener-validation-result.md)
 - [`handoff-package-read-view-validation-result.md`](handoff-package-read-view-validation-result.md)
+- [`handoff-package-visual-review-validation-result.md`](handoff-package-visual-review-validation-result.md)
 - [`handoff-package-writer-validation-result.md`](handoff-package-writer-validation-result.md)
 - [`handoff-package-round-trip-validation-result.md`](handoff-package-round-trip-validation-result.md)
 - [`contract-primitives-validation-result.md`](contract-primitives-validation-result.md)
@@ -108,6 +109,11 @@ traversal, and review GUI as separate decisions. This keeps it separate from
 incoming-record import preview, where the input authority is an external
 incoming-record manifest.
 
+The current handoff-package route has two validated tracks. Receiving-side use
+is contents preview -> opener -> read view -> visual review. Producer and
+compatibility work is writer -> round trip. Package import or storage
+acceptance remains a separate future mutation workflow.
+
 Handoff package opener has the first read-only package-use candidate for
 Scopecat-authored directory packages. It reads `package-manifest.json`, reuses
 the handoff package contents preview contract for manifest validation, rejects
@@ -132,6 +138,16 @@ keeps linked context and findings visible. It tests SDK/GUI consumption
 pressure without accepting final SDK names, dataframe dependencies, GUI
 components, import acceptance, package integrity, schema inference, storage
 mutation, or a shared measurement model.
+
+Handoff package visual review has the first plot-first view-model candidate
+over the read-only package read view. It projects opened package facts into
+declared XY visual summaries, structured axis label/unit/role facts,
+measurement context, linked-context references, review findings, local plot
+points, and table drilldown summaries. This reflects the experimental-user
+workflow where plots and structured context are often the first review surface.
+It deliberately does not generate caption prose, render plots, define GUI
+components, define dataframe adapters, accept package import, verify package
+integrity, infer schema, or accept final SDK names.
 
 Legacy import acceptance has a slice-local implementation candidate for the
 first approved review-to-acceptance mutation for a normalized adapter-authored

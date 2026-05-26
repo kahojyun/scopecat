@@ -43,6 +43,7 @@ supporting policy notes. The current slice inventory is:
 | Handoff package contents preview | Measurement records | Implementation candidate validated | Manifest-only orientation for non-empty Scopecat-authored selected-measurement packages before read-only package use or later acceptance/import, including package identity, selected measurements, packaged contents, declared preview metadata, visible-but-not-packaged artifacts, missing context, and review findings while leaving file reads, package integrity, storage mutation, schema inference, recursive traversal, and GUI behavior out of scope. |
 | Handoff package opener | Measurement records | Implementation candidate validated | Read-only open for directory-shaped Scopecat-authored packages, including manifest validation through package contents preview, package-local primary CSV loading for `preview_ready` measurements, local string-valued primary table facts, declared preview rows, plot-ready point series, symlink guardrails for package-local file opening, carried manifest-preview findings, and reference-only linked context without import acceptance, storage mutation, archive extraction, package integrity, checksum validation, schema inference, recursive traversal, GUI behavior, or stable SDK object-model commitment. |
 | Handoff package read view | Measurement records | Implementation candidate validated | Reader-facing object view over the read-only opener, including package and measurement lookup, string-valued primary and preview table objects, declared plot series access by column pair, visible findings, and reference-only linked context without stable SDK names, dataframe dependency, GUI component model, import acceptance, storage mutation, package integrity, schema inference, or shared measurement model. |
+| Handoff package visual review | Measurement records | Implementation candidate validated | Plot-first local review view model over the read-only package read view, including declared XY visual summaries, axis labels/units/roles, structured context facts, linked-context references, review findings, local plot points, and table drilldown summaries without plot rendering, caption prose generation, GUI components, dataframe adapters, package import acceptance, archive behavior, package integrity verification, schema inference, final SDK names, or shared measurement model. |
 | Handoff package writer | Measurement records | Implementation candidate validated | Approved directory-shaped package write for explicit handoff package writer input, including primary-data copy to `measurements/{measurement_record_id}/primary.csv`, deterministic `{package_id}/package-manifest.json` in the shape accepted by package contents preview, generated package topology, rejection of package roots equal to or inside measurement storage, non-empty selected-measurement input, source sha256/size preflight, no-overwrite destinations, best-effort rollback for ordinary write failures, and linked context as reference-only manifest entries whose payloads are not packaged, without archive creation, package import acceptance, arbitrary nested package paths, recursive traversal, schema inference, shared measurement schema, or GUI behavior. |
 | Handoff package round trip | Measurement records | Implementation candidate validated | Producer-to-reader compatibility over the current directory package route: writer output is previewed, opened, and consumed through the read-view surface, proving generated packages support identity continuity, primary/preview table access, declared plot series, and linked-context findings. The round-trip review summary also reports the writer receipt posture as local-only review data, without package import acceptance, archive behavior, receiving-side integrity verification, dataframe adapters, GUI, final package format, or shared measurement model. |
 | Contract primitives | Cross-slice support | Implementation candidate validated | Narrow shared validation helpers for repeated managed identifiers, syntax-only relative path checks, exact package primary-data paths, reference target lists, redacted display references, sha256 digests, and package-root separation, without accepting a measurement-record domain model, final package schema, storage architecture, public API, GUI contract, or runtime redaction engine. |
@@ -146,6 +147,7 @@ Measurement Records the owner of context-support behavior.
 | [`handoff-package-contents-preview-validation-result.md`](handoff-package-contents-preview-validation-result.md) | Result of the first side-effect-free Scopecat-authored handoff package contents preview implementation candidate. |
 | [`handoff-package-opener-validation-result.md`](handoff-package-opener-validation-result.md) | Result of the first read-only Scopecat-authored handoff package opener implementation candidate. |
 | [`handoff-package-read-view-validation-result.md`](handoff-package-read-view-validation-result.md) | Result of the first reader-facing object view over the read-only handoff package opener. |
+| [`handoff-package-visual-review-validation-result.md`](handoff-package-visual-review-validation-result.md) | Result of the first plot-first local review view-model candidate over opened handoff packages. |
 | [`handoff-package-writer-validation-result.md`](handoff-package-writer-validation-result.md) | Result of the first approved directory-shaped handoff package writer implementation candidate. |
 | [`handoff-package-round-trip-validation-result.md`](handoff-package-round-trip-validation-result.md) | Result of the first writer-to-reader artifact compatibility implementation candidate. |
 | [`handoff-package-route-contract-checklist.md`](handoff-package-route-contract-checklist.md) | Route-local contract checklist for same-class field audits across handoff package slices. |
@@ -226,6 +228,14 @@ keeps storage mutation, package writing, package acceptance, GUI behavior,
 recursive traversal, schema inference, and final storage/package architecture
 out of scope.
 
+Current handoff-package route map:
+
+- receiving-side use: contents preview -> opener -> read view -> visual
+  review;
+- producer/compatibility: writer -> round trip;
+- package import or storage acceptance remains a separate future mutation
+  workflow.
+
 The first handoff package contents preview candidate is validated in
 [`handoff-package-contents-preview-validation-result.md`](handoff-package-contents-preview-validation-result.md).
 It supports the first step of the receiving-side handoff sequence: preview a
@@ -258,6 +268,16 @@ visible findings, and reference-only linked context. It is a use-case
 prototype for SDK/GUI consumption, not a stable SDK, dataframe adapter, GUI
 contract, import flow, integrity verifier, schema-inference layer, or shared
 measurement model.
+
+The first handoff package visual-review candidate is validated in
+[`handoff-package-visual-review-validation-result.md`](handoff-package-visual-review-validation-result.md).
+It projects the read-only package read view into a plot-first local review
+model: declared XY visual summaries first, structured axis label/unit/role
+facts, measurement context, linked-context references, review findings, local
+plot points, and table drilldown summaries. It deliberately emits
+caption-like structure rather than caption prose, and does not render plots,
+define GUI components, define dataframe adapters, accept package import,
+verify package integrity, infer schema, or define final SDK names.
 
 The first handoff package writer candidate is validated in
 [`handoff-package-writer-validation-result.md`](handoff-package-writer-validation-result.md).
