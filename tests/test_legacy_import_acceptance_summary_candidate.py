@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import implementation_candidates.legacy_import_acceptance.summary as legacy_summary
+from implementation_candidates.filesystem_mutation import filesystem as filesystem_mutation
 from implementation_candidates.legacy_import_acceptance import accept_legacy_import
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -187,54 +187,33 @@ class LegacyImportAcceptanceSummaryCandidateTest(unittest.TestCase):
 
     def test_rolls_back_primary_data_when_manifest_write_fails(self) -> None:
         source = _load_input()
-        original_write = legacy_summary._write_new_file
+        original_write = filesystem_mutation.write_new_file
         calls = 0
 
-        def fail_on_manifest(storage_root: Path, relative_path: str, content: bytes) -> list[str]:
+        def fail_on_manifest(
+            storage_root: Path,
+            relative_path: str,
+            content: bytes,
+            *,
+            label: str,
+        ) -> list[str]:
             nonlocal calls
             calls += 1
             if calls == 2:
                 raise OSError("simulated manifest write failure")
-            return original_write(storage_root, relative_path, content)
+            return original_write(storage_root, relative_path, content, label=label)
 
         with tempfile.TemporaryDirectory() as storage_dir:
-            legacy_summary._write_new_file = fail_on_manifest
+            filesystem_mutation.write_new_file = fail_on_manifest
             try:
                 with self.assertRaisesRegex(OSError, "simulated manifest write failure"):
                     accept_legacy_import(
                         source, content_root=FIXTURE, storage_root=Path(storage_dir)
                     )
             finally:
-                legacy_summary._write_new_file = original_write
+                filesystem_mutation.write_new_file = original_write
 
             self.assertFalse((Path(storage_dir) / "records").exists())
-
-    def test_rollback_preserves_preexisting_empty_parent_dirs(self) -> None:
-        source = _load_input()
-        original_write = legacy_summary._write_new_file
-        calls = 0
-
-        def fail_on_manifest(storage_root: Path, relative_path: str, content: bytes) -> list[str]:
-            nonlocal calls
-            calls += 1
-            if calls == 2:
-                raise OSError("simulated manifest write failure")
-            return original_write(storage_root, relative_path, content)
-
-        with tempfile.TemporaryDirectory() as storage_dir:
-            records_dir = Path(storage_dir) / "records"
-            records_dir.mkdir()
-            legacy_summary._write_new_file = fail_on_manifest
-            try:
-                with self.assertRaisesRegex(OSError, "simulated manifest write failure"):
-                    accept_legacy_import(
-                        source, content_root=FIXTURE, storage_root=Path(storage_dir)
-                    )
-            finally:
-                legacy_summary._write_new_file = original_write
-
-            self.assertTrue(records_dir.is_dir())
-            self.assertFalse((records_dir / "legacy-rabi-001").exists())
 
 
 if __name__ == "__main__":

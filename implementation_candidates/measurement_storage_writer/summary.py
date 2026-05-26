@@ -16,6 +16,14 @@ import re
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from implementation_candidates.filesystem_mutation import (
+    ensure_no_symlink_parents,
+    existing_directory_root,
+    path_under,
+    reject_existing_paths,
+    write_new_files_transaction,
+)
+
 _EXPECTED_POLICY = {
     "write_authority": "approved_storage_write_request",
     "destination_authority": "caller_provided_storage_root_plus_declared_relative_paths",
@@ -71,33 +79,6 @@ def _validate_positive_int(value: Any, owner: str) -> None:
 
 def _relative_parts(relative_path: str) -> tuple[str, ...]:
     return PurePosixPath(relative_path).parts
-
-
-def _path_under(root: Path, relative_path: str) -> Path:
-    return root.joinpath(*_relative_parts(relative_path))
-
-
-def _existing_root(root: Path, label: str) -> Path:
-    if root.is_symlink():
-        raise ValueError(f"measurement storage writer {label} root must not be a symlink")
-    if not root.is_dir():
-        raise ValueError(f"measurement storage writer {label} root must be an existing directory")
-    return root.resolve()
-
-
-def _ensure_no_symlink_parents(root: Path, relative_path: str, label: str) -> None:
-    current = root
-    for part in _relative_parts(relative_path)[:-1]:
-        current = current / part
-        if current.is_symlink():
-            raise ValueError(f"measurement storage writer {label} parent is a symlink")
-        if current.exists() and not current.is_dir():
-            raise ValueError(f"measurement storage writer {label} parent is not a directory")
-
-
-def _target_exists(root: Path, relative_path: str) -> bool:
-    target = _path_under(root, relative_path)
-    return target.exists() or target.is_symlink()
 
 
 def _validate_policy(source: dict[str, Any]) -> None:
@@ -204,8 +185,8 @@ def _validate_references(source: dict[str, Any]) -> None:
 
 def _read_chunk_content(content_root: Path, chunk: dict[str, Any]) -> bytes:
     content_ref = chunk["content_ref"]
-    _ensure_no_symlink_parents(content_root, content_ref, "content")
-    content_path = _path_under(content_root, content_ref)
+    ensure_no_symlink_parents(content_root, content_ref, "measurement storage writer content")
+    content_path = path_under(content_root, content_ref)
     if content_path.is_symlink():
         raise ValueError("measurement storage writer content file is a symlink")
     if not content_path.is_file():
@@ -230,10 +211,11 @@ def _preflight_chunks(
 
 def _ensure_new_targets(source: dict[str, Any], storage_root: Path) -> None:
     request = source["storage_request"]
-    for field in ("record_dir", "primary_data_path", "manifest_path"):
-        if _target_exists(storage_root, request[field]):
-            raise ValueError("measurement storage target already exists")
-        _ensure_no_symlink_parents(storage_root, request[field], "target")
+    reject_existing_paths(
+        storage_root,
+        [request["record_dir"], request["primary_data_path"], request["manifest_path"]],
+        "measurement storage",
+    )
 
 
 def _primary_data_bytes(chunk_content: list[tuple[dict[str, Any], bytes]]) -> bytes:
@@ -276,15 +258,6 @@ def _manifest_bytes(source: dict[str, Any], primary_digest: str, primary_size: i
         ],
     }
     return json.dumps(manifest, indent=2, sort_keys=True).encode("utf-8") + b"\n"
-
-
-def _write_new_file(storage_root: Path, relative_path: str, content: bytes) -> None:
-    _ensure_no_symlink_parents(storage_root, relative_path, "target")
-    target = _path_under(storage_root, relative_path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    _ensure_no_symlink_parents(storage_root, relative_path, "target")
-    with target.open("xb") as handle:
-        handle.write(content)
 
 
 def _preview_summary(source: dict[str, Any]) -> dict[str, Any]:
@@ -343,8 +316,12 @@ def write_measurement_storage(
 ) -> dict[str, Any]:
     """Write one new measurement record under a caller-provided storage root."""
     _validate_references(source)
-    content_root_resolved = _existing_root(content_root, "content")
-    storage_root_resolved = _existing_root(storage_root, "storage")
+    content_root_resolved = existing_directory_root(
+        content_root, "measurement storage writer content"
+    )
+    storage_root_resolved = existing_directory_root(
+        storage_root, "measurement storage writer storage"
+    )
     chunk_content = _preflight_chunks(source, content_root_resolved)
     _ensure_new_targets(source, storage_root_resolved)
 
@@ -355,8 +332,14 @@ def write_measurement_storage(
     manifest_digest = f"sha256:{hashlib.sha256(manifest_content).hexdigest()}"
 
     request = source["storage_request"]
-    _write_new_file(storage_root_resolved, request["primary_data_path"], primary_content)
-    _write_new_file(storage_root_resolved, request["manifest_path"], manifest_content)
+    write_new_files_transaction(
+        storage_root_resolved,
+        [
+            (request["primary_data_path"], primary_content),
+            (request["manifest_path"], manifest_content),
+        ],
+        label="measurement storage",
+    )
 
     return {
         "storage_policy": copy.deepcopy(source["storage_policy"]),

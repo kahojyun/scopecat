@@ -25,9 +25,11 @@ relation graph, or warning taxonomy.
 - [`handoff-package-visual-review-validation-result.md`](handoff-package-visual-review-validation-result.md)
 - [`handoff-package-visual-artifact-validation-result.md`](handoff-package-visual-artifact-validation-result.md)
 - [`handoff-package-inspection-workflow-validation-result.md`](handoff-package-inspection-workflow-validation-result.md)
+- [`handoff-package-acceptance-validation-result.md`](handoff-package-acceptance-validation-result.md)
 - [`handoff-package-writer-validation-result.md`](handoff-package-writer-validation-result.md)
 - [`handoff-package-round-trip-validation-result.md`](handoff-package-round-trip-validation-result.md)
 - [`contract-primitives-validation-result.md`](contract-primitives-validation-result.md)
+- [`filesystem-mutation-helpers-validation-result.md`](filesystem-mutation-helpers-validation-result.md)
 - [`adapter-authored-legacy-import-validation-result.md`](adapter-authored-legacy-import-validation-result.md)
 - [`legacy-import-acceptance-validation-result.md`](legacy-import-acceptance-validation-result.md)
 - [`reference-only-legacy-import-validation-result.md`](reference-only-legacy-import-validation-result.md)
@@ -111,12 +113,12 @@ traversal, and review GUI as separate decisions. This keeps it separate from
 incoming-record import preview, where the input authority is an external
 incoming-record manifest.
 
-The current handoff-package route has two validated tracks. Receiving-side use
-is contents preview -> opener -> read view -> visual review -> visual artifact,
-with inspection workflow composing those receiving-side layers for one local
-open-before-import action. Producer and compatibility work is writer -> round
-trip. Package import or storage acceptance remains a separate future mutation
-workflow.
+The current handoff-package route has separate validated tracks. Receiving-side
+use is contents preview -> opener -> read view -> visual review -> visual
+artifact, with inspection workflow composing those receiving-side layers for
+one local open-before-import action. Receiving-side mutation is package
+acceptance into new local storage records after explicit approval. Producer
+and compatibility work is writer -> round trip.
 
 Handoff package opener has the first read-only package-use candidate for
 Scopecat-authored directory packages. It reads `package-manifest.json`, reuses
@@ -170,6 +172,20 @@ returns one inspection receipt for those steps. This validates the user-facing
 open-before-import package inspection action without accepting package import,
 storage mutation, archive behavior, package integrity verification, dataframe
 adapters, live GUI behavior, final SDK names, or a shared measurement model.
+
+Handoff package acceptance has the first receiving-side package-to-storage
+mutation candidate. It is intended to start after inspection rather than
+replace it: an explicit approved acceptance request is checked against the
+package reopened through the read-only read view, then package-local primary
+CSV bytes are copied into canonical new local record directories and
+deterministic candidate-local record manifests are written. Linked context
+stays reference-only, existing record directories and storage targets are
+refused, and ordinary partial writes are rolled back. It verifies approval plus
+reviewed package identity/classification, not inspection-receipt provenance. It
+does not recursively import linked-context payloads, validate package
+integrity, support concurrent package-root mutation, extract archives, update
+existing records, define dataframe behavior, define a GUI flow, or accept final
+storage schema.
 
 Legacy import acceptance has a slice-local implementation candidate for the
 first approved review-to-acceptance mutation for a normalized adapter-authored
@@ -294,6 +310,14 @@ package-root separation. This is intentionally below a domain model: it reduces
 duplicated validation code without accepting a shared measurement-record
 schema, final package schema, storage architecture, public API, GUI contract,
 or runtime redaction engine.
+
+Filesystem mutation helpers now have a similarly narrow support candidate
+because multiple write slices repeated no-overwrite target checks,
+symlink-parent rejection, partial-file cleanup, and multi-file rollback. The
+helpers centralize caller-root file write mechanics only. They do not decide
+storage layout, package format, import/export semantics, source digest
+preflight, record-directory topology, concurrent writer locking, redaction, or
+public API behavior; each slice still owns those domain contracts.
 
 Handoff package route contracts now have a route-local support module for the
 next layer above primitives: package identity, manifest item state/include
