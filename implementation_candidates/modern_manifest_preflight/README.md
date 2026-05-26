@@ -1,16 +1,22 @@
 # Modern Manifest Preflight Candidate
 
-This candidate reads one explicitly approved `pyproject.toml` file and
-projects declared manifest facts for review.
+This candidate reads one explicitly approved `uv`/`pyproject.toml` file and
+projects declared manifest facts for review and comparison.
 
 Summary posture: `review_summary`. The output is a narrow preflight summary,
 not dependency resolution, dependency sync, package installation, runtime
 compatibility, hardware readiness, or run-start readiness.
 
+This is a manager-specific review projection, not Scopecat's general
+environment abstraction. `uv` remains the authority for resolution, lock
+interpretation, sync, and installation; future managers such as Pixi should
+earn separate projection and operation slices before any shared manager
+contract is generalized.
+
 It can:
 
 - validate an explicit preflight approval record, prepared run context, and
-  declared modern `uv` environment;
+  declared `uv`/`pyproject.toml` environment reference;
 - read only the declared `pyproject.toml` path under a caller-provided
   workspace root;
 - parse declared project metadata, simple dependency names, `requires-python`

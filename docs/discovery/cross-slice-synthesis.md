@@ -555,17 +555,19 @@ packages, probing runtimes, importing or executing code, probing hardware,
 defining a shared environment schema, defining managed runners, making
 run-blocking decisions, or claiming runnable readiness.
 
-Modern manifest preflight has a slice-local implementation candidate for the
-first approved environment read after review-bundle composition. It reads one
-explicitly approved `pyproject.toml` path under a caller-provided workspace
-root, parses declared project, `requires-python`, dependency name, skipped
-dependency entry, and dependency-group facts, and reports missing or malformed
+Modern manifest preflight has a slice-local implementation candidate for an
+optional `uv`/`pyproject.toml` review projection. It reads one explicitly
+approved `pyproject.toml` path under a caller-provided workspace root, parses
+declared project, `requires-python`, dependency name, skipped dependency entry,
+and dependency-group facts, and reports missing or malformed
 `requires-python`, malformed dependency-group values, and missing declared
-dependency groups as review findings. It does this without reading lockfiles,
+dependency groups as review findings. It supports review/comparison surfaces;
+it is not a prerequisite for invoking `uv sync` and not Scopecat's general
+environment-manager abstraction. It does this without reading lockfiles,
 resolving dependencies, syncing packages, installing packages, probing
 runtimes, importing or executing code, probing hardware, defining a shared
-environment schema, defining managed runners, making run-blocking decisions, or
-claiming runnable readiness.
+environment schema, defining managed runners, making run-blocking decisions,
+claiming manager-operation authority, or claiming runnable readiness.
 
 ## Version Terminology
 
@@ -640,7 +642,7 @@ schema.
 | Environment comparison finding | Experiment code, selected reference, prepared run context support | A declared-fact comparison result such as same-declared, changed, missing, unverified, or unsupported for selected environment context. It is not dependency resolution, runtime compatibility, hardware readiness, runnable readiness, or reproducibility. |
 | Environment file observation | Experiment code, prepared run context support | A read-only observation of explicitly declared environment files under a caller-provided workspace root. The first candidate records availability, sha256, byte size, malformed-manifest review findings, and narrow `pyproject.toml` declared summary fields without workspace discovery, lockfile graph parsing, dependency resolution or sync, runtime probes, hardware checks, code import, execution, or runnable-readiness claims. |
 | Environment review bundle | Experiment code, selected reference, prepared run context support | A composition of prepared/rerun context, declared environment comparison, file observation, and readiness-plan summaries into one review surface. It validates alignment and aggregates review findings without fresh observation, dependency resolution, dependency sync, package installation, runtime probes, hardware checks, code import, execution, shared environment schema, managed-runner behavior, run-blocking decisions, or runnable-readiness claims. |
-| Modern manifest preflight | Experiment code, prepared run context support | An approved preflight read of one declared `pyproject.toml` under a caller-provided workspace root. It summarizes declared manifest facts plus missing or malformed `requires-python`, malformed dependency-group values, and missing dependency-group review findings without lockfile parsing, dependency resolution, dependency sync, package installation, runtime probes, hardware checks, code import, execution, shared environment schema, managed-runner behavior, run-blocking decisions, or runnable-readiness claims. |
+| Modern manifest preflight | Experiment code, prepared run context support | An optional `uv`/`pyproject.toml` review projection over one approved manifest under a caller-provided workspace root. It summarizes declared manifest facts plus missing or malformed `requires-python`, malformed dependency-group values, and missing dependency-group review findings without defining a general manager abstraction, lockfile parsing, dependency resolution, dependency sync, package installation, runtime probes, hardware checks, code import, execution, shared environment schema, managed-runner behavior, run-blocking decisions, manager-operation authority, or runnable-readiness claims. |
 
 ## Stable Separations
 
@@ -729,10 +731,12 @@ Several separations now appear repeatedly enough to keep carrying forward:
   without becoming dependency resolution, dependency sync, package
   installation, runtime compatibility result, shared environment schema,
   managed-runner contract, run-blocking decision, or runnable-readiness claim.
-- Modern manifest preflight can be the first approved environment read after
-  composition, but should remain separate from lockfile parsing, dependency
-  resolution, dependency sync, package installation, runtime compatibility,
-  managed-runner behavior, run-blocking decisions, and runnable-readiness.
+- Modern manifest preflight can support environment review/comparison when raw
+  file hashes or text diffs are too weak, but should remain optional for
+  manager execution and separate from a general manager abstraction, lockfile
+  parsing, dependency resolution, dependency sync, package installation,
+  runtime compatibility, managed-runner behavior, run-blocking decisions, and
+  runnable-readiness.
 
 ## Design Pressure
 

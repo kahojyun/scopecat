@@ -7,13 +7,20 @@ Implementation candidate validated.
 Summary posture: `review_summary`. Fixture and expected-output artifacts are
 repository-safe discovery artifacts, not portable/public/export artifacts.
 
-This result validates a follow-up Experiment Code Context operation-shaped
+This result validates an optional Experiment Code Context review projection
 slice: **Modern Manifest Preflight**.
 
-It does not accept an environment manager, package resolver, dependency sync
-contract, package-install contract, lockfile parser, runtime-readiness check,
-code import, code execution, hardware-readiness check, managed runner, shared
-environment schema, workflow/DAG behavior, or GUI design.
+It does not accept a general environment abstraction, environment manager,
+package resolver, dependency sync contract, package-install contract, lockfile
+parser, runtime-readiness check, code import, code execution, hardware-readiness
+check, managed runner, shared environment schema, workflow/DAG behavior, or GUI
+design.
+
+The candidate is intentionally manager-specific: it covers a `uv` project that
+declares environment intent through `pyproject.toml`. It is not a claim that all
+future managers share this manifest shape. Future managers such as Pixi should
+earn separate projection and operation slices before Scopecat generalizes any
+manager interface.
 
 ## Fixture
 
@@ -23,11 +30,11 @@ Fixture:
 Implementation candidate:
 [`../../implementation_candidates/modern_manifest_preflight/`](../../implementation_candidates/modern_manifest_preflight/)
 
-The fixture preflights one approved qA chevron `pyproject.toml` manifest from
+The fixture projects one approved qA chevron `pyproject.toml` manifest from
 explicit prior context:
 
 - prepared run context;
-- declared modern `uv` environment context;
+- declared `uv`/`pyproject.toml` environment reference;
 - explicit preflight request and approval id;
 - caller-provided workspace root plus declared manifest-relative path.
 
@@ -53,12 +60,12 @@ schema.
 
 ## What This Earned
 
-The implementation candidate shows that Scopecat can perform the first narrow
-approved environment read after review-bundle composition without increasing
-authority to lockfile parsing, dependency resolution, dependency sync, or
-package installation:
+The implementation candidate shows that Scopecat can project a narrow
+`uv`/`pyproject.toml` review model without increasing authority to lockfile
+parsing, dependency resolution, dependency sync, or package installation:
 
-- require explicit approval for `modern_manifest_preflight`;
+- require explicit approval for the optional `modern_manifest_preflight`
+  projection;
 - read exactly one declared `pyproject.toml` path under a caller-provided root;
 - parse only declared manifest summary facts with stdlib `tomllib`;
 - compare manifest dependency groups with declared expectations;
@@ -67,12 +74,12 @@ package installation:
   review findings;
 - keep lockfile parsing, dependency resolution, dependency sync, package
   installation, runtime probing, code import, code execution, hardware probing,
-  shared environment schema, managed runners, run-blocking decisions, and
-  runnable-readiness claims out of scope.
+  shared environment schema, managed runners, run-blocking decisions, manager
+  operation authority, and runnable-readiness claims out of scope.
 
 ## Boundary
 
-This slice validates approved manifest preflight only.
+This slice validates approved manifest review projection only.
 
 It does not:
 
@@ -92,30 +99,35 @@ It does not:
 
 ## Result
 
-Modern manifest preflight is useful after environment review bundle composition
-because it gives an approved first read of the current manifest without folding
-manifest parsing, dependency resolution, sync, install, runtime checks, and
-readiness into one large authority jump.
+Modern manifest preflight is useful when Scopecat needs structured
+environment-review or environment-comparison facts beyond file hashes and raw
+text diffs. It is not required before invoking a bounded external manager
+operation such as `uv sync`; for execution, `uv` remains the authority.
 
-The result remains a preflight summary, not an environment operation. Manifest
+The result remains a review summary, not an environment operation. Manifest
 facts, missing or malformed `requires-python`, malformed dependency-group
-values, and missing declared dependency groups remain review items. They do not
-become dependency-resolution results, runtime compatibility results, hardware
-readiness, runnable readiness, reproducibility, safety, or run-blocking claims.
+values, and missing declared dependency groups remain review/comparison items.
+They do not become dependency-resolution results, runtime compatibility
+results, hardware readiness, runnable readiness, reproducibility, safety, or
+run-blocking claims.
 
 ## Follow-Up
 
-Stop this slice at approved manifest preflight unless the next workflow needs
-approved lockfile parsing, dependency resolution, dependency sync, or package
-installation.
+Stop this slice at approved manifest review projection unless the next workflow
+needs another manager-specific review projection or an explicitly bounded
+manager operation.
 
 Likely follow-up slices should stay separate:
 
-- additional preflight fixtures for unavailable and malformed manifests;
-- approved lockfile preflight, if lockfile graph summaries become necessary;
-- approved dependency resolution after manifest and lockfile preflight
-  authority is separately validated;
-- approved dependency sync only after resolution/sync intent and mutation
-  boundaries are validated;
+- additional projection fixtures for unavailable and malformed manifests;
+- approved `uv.lock` projection, if lockfile graph summaries become necessary
+  for review/comparison;
+- Pixi manifest projection, if Conda-capable manager support becomes a real
+  workflow requirement;
+- bounded manager operation intent, such as `uv sync` or a future Pixi
+  operation, with command shape and working directory validated but manager
+  semantics delegated to the external tool;
+- manager operation result recording, capturing command, exit status, and
+  summarized output without reimplementing resolution or installation;
 - execution or managed-runner slices only after environment operation
   authority, hardware boundaries, and run lifecycle are separately validated.
