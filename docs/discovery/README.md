@@ -46,9 +46,11 @@ supporting policy notes. The current slice inventory is:
 | Handoff package visual review | Measurement records | Implementation candidate validated | Plot-first local review view model over the read-only package read view, including declared XY visual summaries, axis labels/units/roles, structured context facts, linked-context references, review findings, local plot points, and table drilldown summaries without plot rendering, caption prose generation, GUI components, dataframe adapters, package import acceptance, archive behavior, package integrity verification, schema inference, final SDK names, or shared measurement model. |
 | Handoff package visual artifact | Measurement records | Implementation candidate validated | Local static HTML review artifact over the visual-review model, including plot-first visual cards, simple inline SVG for numeric-looking fixture points, linked-context and finding panels, measurement index, no-plot empty state, non-numeric render state, and HTML escaping for free text without accepting a live GUI framework, production plotting library, dataframe adapter, package import acceptance, archive behavior, package integrity verification, schema inference, portable/public report output, final SDK names, or shared measurement model. |
 | Handoff package inspection workflow | Measurement records | Implementation candidate validated | Receiving-side local inspection workflow for an existing directory-shaped package, composing read-only open/read-view use, plot-first visual-review projection, and local static HTML artifact writing into one inspection receipt without package import acceptance, storage mutation, archive behavior, package integrity verification, dataframe adapters, live GUI framework, final SDK names, or shared measurement model. |
+| Handoff package acceptance | Measurement records | Implementation candidate validated | Approved receiving-side storage mutation intended to run after read-only package review, requiring explicit approval, reviewed package identity/classification continuity, every package measurement selected, canonical new local record directories, no-overwrite writes, copied package-local primary CSV data, deterministic candidate-local record manifests, reference-only linked context, and best-effort rollback without inspection-receipt binding, archive handling, concurrent package-root mutation support, package-integrity verification, recursive context import, dataframe adapters, GUI flow, final storage schema, or shared measurement model. |
 | Handoff package writer | Measurement records | Implementation candidate validated | Approved directory-shaped package write for explicit handoff package writer input, including primary-data copy to `measurements/{measurement_record_id}/primary.csv`, deterministic `{package_id}/package-manifest.json` in the shape accepted by package contents preview, generated package topology, rejection of package roots equal to or inside measurement storage, non-empty selected-measurement input, source sha256/size preflight, no-overwrite destinations, best-effort rollback for ordinary write failures, and linked context as reference-only manifest entries whose payloads are not packaged, without archive creation, package import acceptance, arbitrary nested package paths, recursive traversal, schema inference, shared measurement schema, or GUI behavior. |
 | Handoff package round trip | Measurement records | Implementation candidate validated | Producer-to-reader compatibility over the current directory package route: writer output is previewed, opened, and consumed through the read-view surface, proving generated packages support identity continuity, primary/preview table access, declared plot series, and linked-context findings. The round-trip review summary also reports the writer receipt posture as local-only review data, without package import acceptance, archive behavior, receiving-side integrity verification, dataframe adapters, GUI, final package format, or shared measurement model. |
 | Contract primitives | Cross-slice support | Implementation candidate validated | Narrow shared validation helpers for repeated managed identifiers, syntax-only relative path checks, exact package primary-data paths, reference target lists, redacted display references, sha256 digests, and package-root separation, without accepting a measurement-record domain model, final package schema, storage architecture, public API, GUI contract, or runtime redaction engine. |
+| Filesystem mutation helpers | Cross-slice support | Implementation candidate validated | Narrow no-overwrite filesystem helpers for caller-root writes, including existing-root checks, relative-path target resolution, symlink-parent rejection, existing target detection, partial-file cleanup, and multi-file rollback across mutation slices without accepting storage architecture, locking, package/import semantics, redaction, public API, or measurement-record schema. |
 | Handoff package route contracts | Measurement records support | Route-local support candidate | Shared helper checks for handoff package identity, manifest item state/include semantics, selected primary-data topology, canonical primary-data bundle entries, and preview-ready metadata binding across writer, contents preview, opener reuse, and composition work, without accepting a final package schema, SDK object model, GUI contract, or shared measurement-record domain model. |
 | Adapter-authored legacy import manifest | Measurement records | Implementation candidate validated | Side-effect-free validation and summary for normalized manifests emitted by user-owned legacy adapters, including adapter identity, external source identity, primary-data reference, declared preview metadata, linked context, and adapter findings without stable public API, LabRAD/DataVault/Labber reader behavior, import acceptance, storage mutation, schema inference, package format, recursive traversal, or GUI behavior. |
 | Legacy import acceptance | Measurement records | Implementation candidate validated | Approved copy-into-new-record mutation for one reviewed adapter-authored manifest, including source sha256/size preflight, no-overwrite targets, copied primary data, deterministic imported-record manifest, preserved external source identity, and reference-only linked context without stable import API, legacy readers in core, export-package acceptance, existing-record update, schema inference, recursive traversal, package integrity, or GUI behavior. |
@@ -152,10 +154,12 @@ Measurement Records the owner of context-support behavior.
 | [`handoff-package-visual-review-validation-result.md`](handoff-package-visual-review-validation-result.md) | Result of the first plot-first local review view-model candidate over opened handoff packages. |
 | [`handoff-package-visual-artifact-validation-result.md`](handoff-package-visual-artifact-validation-result.md) | Result of the first local static HTML review artifact candidate over the visual-review model. |
 | [`handoff-package-inspection-workflow-validation-result.md`](handoff-package-inspection-workflow-validation-result.md) | Result of the first receiving-side local inspection workflow candidate over directory-shaped handoff packages. |
+| [`handoff-package-acceptance-validation-result.md`](handoff-package-acceptance-validation-result.md) | Result of the first approved receiving-side acceptance candidate that copies reviewed package primary data into new local storage records. |
 | [`handoff-package-writer-validation-result.md`](handoff-package-writer-validation-result.md) | Result of the first approved directory-shaped handoff package writer implementation candidate. |
 | [`handoff-package-round-trip-validation-result.md`](handoff-package-round-trip-validation-result.md) | Result of the first writer-to-reader artifact compatibility implementation candidate. |
 | [`handoff-package-route-contract-checklist.md`](handoff-package-route-contract-checklist.md) | Route-local contract checklist for same-class field audits across handoff package slices. |
 | [`contract-primitives-validation-result.md`](contract-primitives-validation-result.md) | Result of the first narrow shared contract-primitives implementation candidate. |
+| [`filesystem-mutation-helpers-validation-result.md`](filesystem-mutation-helpers-validation-result.md) | Result of the first narrow shared no-overwrite filesystem mutation helpers used by current write slices. |
 | [`../../implementation_candidates/handoff_package_contracts/`](../../implementation_candidates/handoff_package_contracts/) | Route-local helper contracts shared by handoff package candidates where semantics are already identical. |
 | [`adapter-authored-legacy-import-validation-result.md`](adapter-authored-legacy-import-validation-result.md) | Result of the first normalized adapter-authored legacy import manifest candidate. |
 | [`legacy-import-acceptance-validation-result.md`](legacy-import-acceptance-validation-result.md) | Result of the first approved copy-into-new-record acceptance candidate for a reviewed adapter-authored legacy manifest. |
@@ -238,9 +242,11 @@ Current handoff-package route map:
   review -> visual artifact;
 - receiving-side composition: inspection workflow over the receiving-side use
   layers;
+- receiving-side mutation: package acceptance into new local storage records
+  after explicit approval;
 - producer/compatibility: writer -> round trip;
-- package import or storage acceptance remains a separate future mutation
-  workflow.
+- final import API, existing-record updates, package integrity verification,
+  archive handling, GUI behavior, and storage architecture remain separate.
 
 The first handoff package contents preview candidate is validated in
 [`handoff-package-contents-preview-validation-result.md`](handoff-package-contents-preview-validation-result.md).
@@ -303,6 +309,20 @@ static HTML artifact writing. It returns one local inspection receipt for those
 steps while keeping package import acceptance, storage mutation, archive
 behavior, package integrity verification, dataframe adapters, live GUI
 frameworks, final SDK names, and shared measurement schema out of scope.
+
+The first handoff package acceptance candidate is validated in
+[`handoff-package-acceptance-validation-result.md`](handoff-package-acceptance-validation-result.md).
+It is intended to start after read-only package review and requires an
+explicit approved acceptance request rather than an inspection receipt. It
+reopens the package through the read-view path, checks reviewed package
+identity and preview classification continuity, requires every package
+measurement to be selected, copies package-local primary CSVs into canonical
+new local record directories, writes deterministic candidate-local record
+manifests, preserves linked context as reference-only facts, refuses existing
+record directories and targets, and rolls back ordinary partial writes. It
+does not validate package integrity, support concurrent package-root mutation,
+extract archives, import linked-context payloads, update existing records,
+define dataframe behavior, define a GUI flow, or accept final storage schema.
 
 The first handoff package writer candidate is validated in
 [`handoff-package-writer-validation-result.md`](handoff-package-writer-validation-result.md).

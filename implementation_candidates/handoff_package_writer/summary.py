@@ -45,6 +45,12 @@ from implementation_candidates.contract_primitives import (
 from implementation_candidates.contract_primitives import (
     validate_text as _validate_text,
 )
+from implementation_candidates.filesystem_mutation import (
+    existing_directory_root,
+    reject_existing_paths,
+    target_exists,
+    write_new_files_transaction,
+)
 from implementation_candidates.handoff_package_contents_preview import (
     build_handoff_package_contents_preview_summary,
 )
@@ -147,14 +153,6 @@ def _paths_overlap(left: str, right: str) -> bool:
     )
 
 
-def _existing_root(root: Path, label: str) -> Path:
-    if root.is_symlink():
-        raise ValueError(f"handoff package writer {label} root must not be a symlink")
-    if not root.is_dir():
-        raise ValueError(f"handoff package writer {label} root must be an existing directory")
-    return root.resolve()
-
-
 def _ensure_no_symlink_parents(root: Path, relative_path: str, label: str) -> None:
     current = root
     for part in _relative_parts(relative_path)[:-1]:
@@ -163,11 +161,6 @@ def _ensure_no_symlink_parents(root: Path, relative_path: str, label: str) -> No
             raise ValueError(f"handoff package writer {label} parent is a symlink")
         if current.exists() and not current.is_dir():
             raise ValueError(f"handoff package writer {label} parent is not a directory")
-
-
-def _target_exists(root: Path, relative_path: str) -> bool:
-    target = _path_under(root, relative_path)
-    return target.exists() or target.is_symlink()
 
 
 def _validate_policy(source: dict[str, Any]) -> None:
@@ -403,56 +396,17 @@ def _preflight_sources(
 
 def _ensure_new_targets(source: dict[str, Any], package_root: Path) -> None:
     request = source["package_write_request"]
-    if _target_exists(package_root, request["package_dir"]):
+    if target_exists(package_root, request["package_dir"]):
         raise ValueError("handoff package target already exists")
-    for path in [request["manifest_path"]] + [
-        _actual_package_path(source, record["primary_data"]["package_path"])
-        for record in source["selected_measurements"]
-    ]:
-        if _target_exists(package_root, path):
-            raise ValueError("handoff package target already exists")
-        _ensure_no_symlink_parents(package_root, path, "target")
-
-
-def _write_new_file(package_root: Path, relative_path: str, content: bytes) -> list[str]:
-    _ensure_no_symlink_parents(package_root, relative_path, "target")
-    parent_fd: int | None = None
-    created_dirs: list[str] = []
-    created_file = False
-    try:
-        parent_fd, created_dirs = _open_parent_dir_fd(package_root, relative_path, create=True)
-        file_fd = os.open(
-            _relative_parts(relative_path)[-1],
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW,
-            0o666,
-            dir_fd=parent_fd,
-        )
-        created_file = True
-        with os.fdopen(file_fd, "wb") as handle:
-            handle.write(content)
-    except Exception:
-        if created_file:
-            try:
-                _path_under(package_root, relative_path).unlink()
-            except FileNotFoundError:
-                pass
-        _remove_created_dirs(package_root, created_dirs)
-        raise
-    finally:
-        if parent_fd is not None:
-            os.close(parent_fd)
-    return created_dirs
-
-
-def _rollback_written_files(
-    package_root: Path, written_paths: list[str], created_dirs: list[str]
-) -> None:
-    for relative_path in reversed(written_paths):
-        try:
-            _path_under(package_root, relative_path).unlink()
-        except FileNotFoundError:
-            pass
-    _remove_created_dirs(package_root, created_dirs)
+    reject_existing_paths(
+        package_root,
+        [request["manifest_path"]]
+        + [
+            _actual_package_path(source, record["primary_data"]["package_path"])
+            for record in source["selected_measurements"]
+        ],
+        "handoff package",
+    )
 
 
 def _manifest_measurement(record: dict[str, Any], digest: str, size: int) -> dict[str, Any]:
@@ -649,8 +603,8 @@ def write_handoff_package(
 ) -> dict[str, Any]:
     """Write a minimal handoff package under a caller-provided package root."""
     _validate_references(source)
-    storage_root_resolved = _existing_root(storage_root, "storage")
-    package_root_resolved = _existing_root(package_root, "package")
+    storage_root_resolved = existing_directory_root(storage_root, "handoff package writer storage")
+    package_root_resolved = existing_directory_root(package_root, "handoff package writer package")
     _validate_package_root_outside_storage(
         storage_root_resolved,
         package_root_resolved,
@@ -663,20 +617,18 @@ def write_handoff_package(
     manifest_content = _manifest_bytes(source, copied_sources)
     manifest_digest = f"sha256:{hashlib.sha256(manifest_content).hexdigest()}"
 
-    written_paths: list[str] = []
-    created_dirs: list[str] = []
-    try:
-        for record, content in copied_sources:
-            package_path = _actual_package_path(source, record["primary_data"]["package_path"])
-            created_dirs.extend(_write_new_file(package_root_resolved, package_path, content))
-            written_paths.append(package_path)
-        created_dirs.extend(
-            _write_new_file(package_root_resolved, request["manifest_path"], manifest_content)
-        )
-        written_paths.append(request["manifest_path"])
-    except Exception:
-        _rollback_written_files(package_root_resolved, written_paths, created_dirs)
-        raise
+    write_new_files_transaction(
+        package_root_resolved,
+        [
+            (
+                _actual_package_path(source, record["primary_data"]["package_path"]),
+                content,
+            )
+            for record, content in copied_sources
+        ]
+        + [(request["manifest_path"], manifest_content)],
+        label="handoff package",
+    )
 
     copied_by_id = {record["measurement_record_id"]: content for record, content in copied_sources}
     return {

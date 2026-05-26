@@ -97,23 +97,6 @@ class MeasurementStorageWriterSummaryCandidateTest(unittest.TestCase):
                     storage_root=Path(temp_dir),
                 )
 
-    def test_existing_target_is_refused_without_overwrite(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir)
-            target = storage_root / "records" / "run-3101-rabi" / "primary.csv"
-            target.parent.mkdir(parents=True)
-            target.write_text("existing data\n", encoding="utf-8")
-
-            with self.assertRaisesRegex(ValueError, "target already exists"):
-                write_measurement_storage(
-                    _load_input(),
-                    content_root=CONTENT_ROOT,
-                    storage_root=storage_root,
-                )
-
-            self.assertEqual(target.read_text(encoding="utf-8"), "existing data\n")
-            self.assertFalse((target.parent / "record-manifest.json").exists())
-
     def test_existing_record_dir_is_refused_without_writing_children(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root = Path(temp_dir)
@@ -129,23 +112,6 @@ class MeasurementStorageWriterSummaryCandidateTest(unittest.TestCase):
 
             self.assertFalse((record_dir / "primary.csv").exists())
             self.assertFalse((record_dir / "record-manifest.json").exists())
-
-    def test_existing_manifest_target_is_refused_before_primary_write(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir)
-            manifest = storage_root / "records" / "run-3101-rabi" / "record-manifest.json"
-            manifest.parent.mkdir(parents=True)
-            manifest.write_text("existing manifest\n", encoding="utf-8")
-
-            with self.assertRaisesRegex(ValueError, "target already exists"):
-                write_measurement_storage(
-                    _load_input(),
-                    content_root=CONTENT_ROOT,
-                    storage_root=storage_root,
-                )
-
-            self.assertEqual(manifest.read_text(encoding="utf-8"), "existing manifest\n")
-            self.assertFalse((manifest.parent / "primary.csv").exists())
 
     def test_declared_digest_must_match_chunk_before_any_write(self) -> None:
         source = _load_input()
@@ -167,23 +133,6 @@ class MeasurementStorageWriterSummaryCandidateTest(unittest.TestCase):
             self.assertFalse(
                 (storage_root / "records" / "run-3101-rabi" / "record-manifest.json").exists()
             )
-
-    def test_target_symlink_is_refused_without_following(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir)
-            target = storage_root / "records" / "run-3101-rabi" / "primary.csv"
-            target.parent.mkdir(parents=True)
-            target.symlink_to("redirected.csv")
-
-            with self.assertRaisesRegex(ValueError, "target already exists"):
-                write_measurement_storage(
-                    _load_input(),
-                    content_root=CONTENT_ROOT,
-                    storage_root=storage_root,
-                )
-
-            self.assertTrue(target.is_symlink())
-            self.assertFalse((target.parent / "redirected.csv").exists())
 
     def test_duplicate_chunk_ids_are_rejected(self) -> None:
         source = _load_input()

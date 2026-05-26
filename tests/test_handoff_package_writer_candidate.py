@@ -8,10 +8,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from implementation_candidates.filesystem_mutation import filesystem as filesystem_mutation
 from implementation_candidates.handoff_package_contents_preview import (
     build_handoff_package_contents_preview_summary,
 )
-from implementation_candidates.handoff_package_writer import summary as writer_module
 from implementation_candidates.handoff_package_writer import write_handoff_package
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -699,19 +699,29 @@ class HandoffPackageWriterCandidateTest(unittest.TestCase):
             self.assertFalse((package_root / "handoff-package-legacy-rabi-001").exists())
 
     def test_late_write_failure_rolls_back_partial_package(self) -> None:
-        real_write = writer_module._write_new_file
+        real_write = filesystem_mutation.write_new_file
         calls = 0
 
-        def fail_on_manifest(package_root: Path, relative_path: str, content: bytes) -> list[str]:
+        def fail_on_manifest(
+            package_root: Path,
+            relative_path: str,
+            content: bytes,
+            *,
+            label: str,
+        ) -> list[str]:
             nonlocal calls
             calls += 1
             if calls == 2:
                 raise RuntimeError("simulated manifest write failure")
-            return real_write(package_root, relative_path, content)
+            return real_write(package_root, relative_path, content, label=label)
 
         with tempfile.TemporaryDirectory() as temp_dir:
             package_root = Path(temp_dir)
-            with mock.patch.object(writer_module, "_write_new_file", side_effect=fail_on_manifest):
+            with mock.patch.object(
+                filesystem_mutation,
+                "write_new_file",
+                side_effect=fail_on_manifest,
+            ):
                 with self.assertRaisesRegex(RuntimeError, "simulated manifest write failure"):
                     write_handoff_package(
                         _load_input(),

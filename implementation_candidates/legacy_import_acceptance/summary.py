@@ -31,6 +31,11 @@ from implementation_candidates.contract_primitives import (
 from implementation_candidates.contract_primitives import (
     validate_relative_path as _validate_relative_path,
 )
+from implementation_candidates.filesystem_mutation import (
+    existing_directory_root,
+    reject_existing_paths,
+    write_new_files_transaction,
+)
 
 _ACCEPTANCE_SCHEMA = "scopecat.legacy_import_acceptance.v0"
 
@@ -105,14 +110,6 @@ def _open_parent_dir_fd(root: Path, relative_path: str, *, create: bool) -> tupl
         raise
 
 
-def _existing_root(root: Path, label: str) -> Path:
-    if root.is_symlink():
-        raise ValueError(f"legacy import acceptance {label} root must not be a symlink")
-    if not root.is_dir():
-        raise ValueError(f"legacy import acceptance {label} root must be an existing directory")
-    return root.resolve()
-
-
 def _ensure_no_symlink_parents(root: Path, relative_path: str, label: str) -> None:
     current = root
     for part in _relative_parts(relative_path)[:-1]:
@@ -121,11 +118,6 @@ def _ensure_no_symlink_parents(root: Path, relative_path: str, label: str) -> No
             raise ValueError(f"legacy import acceptance {label} parent is a symlink")
         if current.exists() and not current.is_dir():
             raise ValueError(f"legacy import acceptance {label} parent is not a directory")
-
-
-def _target_exists(root: Path, relative_path: str) -> bool:
-    target = _path_under(root, relative_path)
-    return target.exists() or target.is_symlink()
 
 
 def _validate_policy(source: dict[str, Any]) -> None:
@@ -238,10 +230,11 @@ def _read_source_primary_data(source: dict[str, Any], content_root: Path) -> byt
 
 def _ensure_new_targets(source: dict[str, Any], storage_root: Path) -> None:
     request = source["acceptance_request"]
-    for field in ("record_dir", "primary_data_path", "manifest_path"):
-        if _target_exists(storage_root, request[field]):
-            raise ValueError("legacy import acceptance target already exists")
-        _ensure_no_symlink_parents(storage_root, request[field], "target")
+    reject_existing_paths(
+        storage_root,
+        [request["record_dir"], request["primary_data_path"], request["manifest_path"]],
+        "legacy import acceptance",
+    )
 
 
 def _manifest_bytes(
@@ -275,45 +268,6 @@ def _manifest_bytes(
         },
     }
     return json.dumps(manifest, indent=2, sort_keys=True).encode("utf-8") + b"\n"
-
-
-def _write_new_file(storage_root: Path, relative_path: str, content: bytes) -> list[str]:
-    _ensure_no_symlink_parents(storage_root, relative_path, "target")
-    parent_fd: int | None = None
-    created_dirs: list[str] = []
-    try:
-        parent_fd, created_dirs = _open_parent_dir_fd(storage_root, relative_path, create=True)
-        file_fd = os.open(
-            _relative_parts(relative_path)[-1],
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW,
-            0o666,
-            dir_fd=parent_fd,
-        )
-        with os.fdopen(file_fd, "wb") as handle:
-            handle.write(content)
-    except Exception:
-        try:
-            _path_under(storage_root, relative_path).unlink()
-        except FileNotFoundError:
-            pass
-        _remove_created_dirs(storage_root, created_dirs)
-        raise
-    finally:
-        if parent_fd is not None:
-            os.close(parent_fd)
-    return created_dirs
-
-
-def _rollback_written_files(
-    storage_root: Path, written_paths: list[str], created_dirs: list[str]
-) -> None:
-    for relative_path in reversed(written_paths):
-        target = _path_under(storage_root, relative_path)
-        try:
-            target.unlink()
-        except FileNotFoundError:
-            pass
-    _remove_created_dirs(storage_root, created_dirs)
 
 
 def _attention() -> list[dict[str, str]]:
@@ -359,8 +313,12 @@ def accept_legacy_import(
 ) -> dict[str, Any]:
     """Accept one reviewed adapter-authored legacy import into new storage."""
     adapter_summary = _validate_references(source)
-    content_root_resolved = _existing_root(content_root, "content")
-    storage_root_resolved = _existing_root(storage_root, "storage")
+    content_root_resolved = existing_directory_root(
+        content_root, "legacy import acceptance content"
+    )
+    storage_root_resolved = existing_directory_root(
+        storage_root, "legacy import acceptance storage"
+    )
     primary_content = _read_source_primary_data(source, content_root_resolved)
     _ensure_new_targets(source, storage_root_resolved)
 
@@ -370,20 +328,14 @@ def accept_legacy_import(
     manifest_digest = f"sha256:{hashlib.sha256(manifest_content).hexdigest()}"
 
     request = source["acceptance_request"]
-    written_paths: list[str] = []
-    created_dirs: list[str] = []
-    try:
-        created_dirs.extend(
-            _write_new_file(storage_root_resolved, request["primary_data_path"], primary_content)
-        )
-        written_paths.append(request["primary_data_path"])
-        created_dirs.extend(
-            _write_new_file(storage_root_resolved, request["manifest_path"], manifest_content)
-        )
-        written_paths.append(request["manifest_path"])
-    except Exception:
-        _rollback_written_files(storage_root_resolved, written_paths, created_dirs)
-        raise
+    write_new_files_transaction(
+        storage_root_resolved,
+        [
+            (request["primary_data_path"], primary_content),
+            (request["manifest_path"], manifest_content),
+        ],
+        label="legacy import acceptance",
+    )
 
     return {
         "acceptance_schema": source["acceptance_schema"],
