@@ -278,6 +278,32 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
         self.assertEqual(summary["column_validation"]["extra_source_columns"], [])
         self.assertIn("## Warnings\n\n- `none`", review)
 
+    def test_2d_grid_rejects_malformed_axis_order_without_plot_candidates(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_2d_grid_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "bias_v,drive_frequency_ghz,signal_db,phase_deg",
+                        "0.100,4.800,-41.2,12.0",
+                        "0.100,4.900,-43.5,18.0",
+                        "",
+                    ]
+                ),
+            )
+            source = json.loads((fixture / "shape-input.json").read_text(encoding="utf-8"))
+            source["data_shape"]["axis_order"] = ["bias_v"]
+            (fixture / "shape-input.json").write_text(
+                json.dumps(source, indent=2),
+                encoding="utf-8",
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(summary["plot_candidates"], [])
+
     def test_sidecar_missing_response_role_returns_failed_summary(self) -> None:
         with TemporaryDirectory() as temp_dir:
             fixture = Path(temp_dir)
@@ -454,6 +480,60 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
         self.assertEqual(
             summary["trace_validation"]["trace_summaries"][0]["status"], "unsafe_reference"
         )
+
+    def test_trace_per_point_rejects_empty_axis_order_without_plot_candidates(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_trace_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "bias_v,trace_ref,trace_kind",
+                        "0.0,source/traces/bias-0p0.csv,ringdown",
+                        "",
+                    ]
+                ),
+            )
+            source = json.loads((fixture / "shape-input.json").read_text(encoding="utf-8"))
+            source["data_shape"]["axis_order"] = []
+            (fixture / "shape-input.json").write_text(
+                json.dumps(source, indent=2),
+                encoding="utf-8",
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(summary["plot_candidates"], [])
+
+    def test_trace_per_point_reports_missing_trace_schema_field(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_trace_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "bias_v,trace_ref,trace_kind",
+                        "0.0,source/traces/bias-0p0.csv,ringdown",
+                        "",
+                    ]
+                ),
+            )
+            source = json.loads((fixture / "shape-input.json").read_text(encoding="utf-8"))
+            del source["data_shape"]["trace_schema"]["response_column"]
+            (fixture / "shape-input.json").write_text(
+                json.dumps(source, indent=2),
+                encoding="utf-8",
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(
+            summary["trace_validation"]["missing_trace_schema_fields"],
+            ["response_column"],
+        )
+        self.assertEqual(summary["plot_candidates"], [])
 
     def test_trace_per_point_reports_missing_trace_columns(self) -> None:
         with TemporaryDirectory() as temp_dir:

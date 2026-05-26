@@ -96,6 +96,7 @@
     ],
     "unsafe_trace_refs": [],
     "missing_trace_files": [],
+    "missing_trace_schema_fields": [],
     "missing_trace_columns_by_ref": {},
     "trace_summaries": [
       {

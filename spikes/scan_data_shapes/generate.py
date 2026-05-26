@@ -96,6 +96,7 @@ COMPLEX_FIXED_VECTOR_DECISIONS_NOT_EARNED = [
 
 FIXED_VECTOR_SHAPE_POLICY = "fixed_per_row"
 SUPPORTED_VECTOR_DTYPES = {"float64", "float32", "int64", "int32"}
+REQUIRED_TRACE_SCHEMA_FIELDS = ["independent_column", "response_column", "response_label"]
 SUPPORTED_COMPLEX_LOGICAL_TYPES = {"complex64", "complex128"}
 COMPLEX_LOGICAL_STORAGE_DTYPES = {
     "complex64": "float32",
@@ -245,6 +246,16 @@ def _trace_column_validation(
             [*missing_declared_columns, *missing_shape_columns, *undeclared_shape_columns]
         ),
     }
+
+
+def _missing_trace_schema_fields(trace_schema: Any) -> list[str]:
+    if not isinstance(trace_schema, dict):
+        return REQUIRED_TRACE_SCHEMA_FIELDS
+    return [
+        field
+        for field in REQUIRED_TRACE_SCHEMA_FIELDS
+        if not isinstance(trace_schema.get(field), str) or not trace_schema[field]
+    ]
 
 
 def _fixed_vector_shape_columns(
@@ -614,10 +625,15 @@ def _grid_status(
 ) -> str:
     if missing_columns:
         return "fail"
+    if len(axis_order) != 2:
+        return "fail"
 
     expected_point_count = 1
     for axis in axis_order:
-        expected_point_count *= expected_axis_cardinality[axis]
+        cardinality = expected_axis_cardinality.get(axis)
+        if not isinstance(cardinality, int) or isinstance(cardinality, bool) or cardinality <= 0:
+            return "fail"
+        expected_point_count *= cardinality
     if len(rows) != expected_point_count:
         return "fail"
 
@@ -703,7 +719,18 @@ def _generate_2d_grid_summary(source: dict[str, Any], fixture_root: Path) -> dic
     }
     expected_point_count = 1
     for axis in axis_order:
-        expected_point_count *= data_shape["expected_axis_cardinality"][axis]
+        cardinality = data_shape["expected_axis_cardinality"].get(axis)
+        if isinstance(cardinality, int) and not isinstance(cardinality, bool) and cardinality > 0:
+            expected_point_count *= cardinality
+        else:
+            expected_point_count = 0
+            break
+    grid_status = _grid_status(
+        axis_order=axis_order,
+        expected_axis_cardinality=data_shape["expected_axis_cardinality"],
+        rows=rows,
+        missing_columns=missing_columns,
+    )
 
     sweep_axes = _columns_by_role(declared_columns, "sweep_axis")
     measured_responses = _columns_by_role(declared_columns, "measured_response")
@@ -720,12 +747,7 @@ def _generate_2d_grid_summary(source: dict[str, Any], fixture_root: Path) -> dic
             "axis_cardinality": axis_cardinality,
             "expected_point_count": expected_point_count,
             "actual_row_count": len(rows),
-            "status": _grid_status(
-                axis_order=axis_order,
-                expected_axis_cardinality=data_shape["expected_axis_cardinality"],
-                rows=rows,
-                missing_columns=missing_columns,
-            ),
+            "status": grid_status,
         },
         "declared_axes": _without_role(sweep_axes),
         "declared_dependents": _without_role(measured_responses),
@@ -746,6 +768,7 @@ def _generate_2d_grid_summary(source: dict[str, Any], fixture_root: Path) -> dic
                 "source": measurement["source_table"],
             }
             for column in measured_responses
+            if grid_status == "pass"
         ],
         "warnings": [
             {
@@ -969,11 +992,14 @@ def _generate_trace_summary(source: dict[str, Any], fixture_root: Path) -> dict[
     extra_columns = [name for name in source_columns if name not in declared_names]
     axis_order = data_shape["axis_order"]
     trace_ref_column = data_shape["trace_ref_column"]
-    trace_schema = data_shape["trace_schema"]
+    trace_schema = data_shape.get("trace_schema", {})
+    missing_trace_schema_fields = _missing_trace_schema_fields(trace_schema)
     required_trace_columns = [
-        trace_schema["independent_column"],
-        trace_schema["response_column"],
+        trace_schema[field]
+        for field in ["independent_column", "response_column"]
+        if field not in missing_trace_schema_fields
     ]
+    axis_order_valid = bool(axis_order)
     trace_validation = _trace_column_validation(
         declared_names=declared_names,
         source_columns=source_columns,
@@ -981,12 +1007,13 @@ def _generate_trace_summary(source: dict[str, Any], fixture_root: Path) -> dict[
         trace_ref_column=trace_ref_column,
     )
     blocking_columns = trace_validation["blocking_columns"]
+    blocking_trace_metadata = bool(missing_trace_schema_fields) or not axis_order_valid
 
     trace_refs = [] if blocking_columns else [row[trace_ref_column] for row in rows]
     unsafe_trace_refs = [ref for ref in trace_refs if not _is_fixture_relative_ref(ref)]
     outer_trace_points = (
         []
-        if blocking_columns
+        if blocking_columns or blocking_trace_metadata
         else [
             {
                 "outer_coordinate": {axis: row[axis] for axis in axis_order},
@@ -1067,6 +1094,7 @@ def _generate_trace_summary(source: dict[str, Any], fixture_root: Path) -> dict[
     trace_status = (
         "pass"
         if not blocking_columns
+        and not blocking_trace_metadata
         and not unsafe_trace_refs
         and not missing_trace_files
         and not missing_trace_columns_by_ref
@@ -1108,20 +1136,25 @@ def _generate_trace_summary(source: dict[str, Any], fixture_root: Path) -> dict[
             "trace_refs": trace_refs,
             "unsafe_trace_refs": unsafe_trace_refs,
             "missing_trace_files": missing_trace_files,
+            "missing_trace_schema_fields": missing_trace_schema_fields,
             "missing_trace_columns_by_ref": missing_trace_columns_by_ref,
             "trace_summaries": trace_summaries,
         },
-        "plot_candidates": [
-            {
-                "title": f"{measurement['label']}: {trace_schema['response_label']}",
-                "plot_kind": "trace_family",
-                "x": trace_schema["independent_column"],
-                "series": axis_order[0],
-                "y": trace_schema["response_column"],
-                "trace_ref_column": trace_ref_column,
-                "source": measurement["source_table"],
-            }
-        ],
+        "plot_candidates": (
+            [
+                {
+                    "title": f"{measurement['label']}: {trace_schema['response_label']}",
+                    "plot_kind": "trace_family",
+                    "x": trace_schema["independent_column"],
+                    "series": axis_order[0],
+                    "y": trace_schema["response_column"],
+                    "trace_ref_column": trace_ref_column,
+                    "source": measurement["source_table"],
+                }
+            ]
+            if trace_status == "pass"
+            else []
+        ),
         "warnings": [
             {
                 "code": "extra_source_column",
@@ -1879,8 +1912,8 @@ def _generate_trace_review(summary: dict[str, Any]) -> str:
         f"- kind: `{shape['kind']}`",
         f"- axis order: {_format_list(shape['axis_order'])}",
         f"- trace ref column: `{shape['trace_ref_column']}`",
-        f"- trace independent column: `{shape['trace_schema']['independent_column']}`",
-        f"- trace response column: `{shape['trace_schema']['response_column']}`",
+        f"- trace independent column: `{shape['trace_schema'].get('independent_column')}`",
+        f"- trace response column: `{shape['trace_schema'].get('response_column')}`",
         f"- point count: `{shape['point_count']}`",
         f"- duplicate outer coordinates: `{shape['duplicate_outer_coordinates']}`",
         f"- status: `{shape['status']}`",
@@ -1921,6 +1954,7 @@ def _generate_trace_review(summary: dict[str, Any]) -> str:
             f"- trace refs: {_format_list(trace_validation['trace_refs'])}",
             f"- unsafe trace refs: {_format_list(trace_validation['unsafe_trace_refs'])}",
             f"- missing trace files: {_format_list(trace_validation['missing_trace_files'])}",
+            f"- missing trace schema fields: {_format_list(trace_validation['missing_trace_schema_fields'])}",
             "",
             "| Outer coordinate | Trace ref | Status | Rows | Columns | Missing trace columns |",
             "| --- | --- | --- | --- | --- | --- |",

@@ -52,6 +52,7 @@ Held condition:
 - trace refs: `source/traces/bias-neg-0p1.csv`, `source/traces/bias-0p0.csv`, `source/traces/bias-0p1.csv`
 - unsafe trace refs: `none`
 - missing trace files: `none`
+- missing trace schema fields: `none`
 
 | Outer coordinate | Trace ref | Status | Rows | Columns | Missing trace columns |
 | --- | --- | --- | --- | --- | --- |
