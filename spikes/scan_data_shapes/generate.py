@@ -235,8 +235,11 @@ def _ragged_column_validation(
     }
 
 
-def _trace_shape_columns(*, axis_order: list[str], trace_ref_column: str) -> list[str]:
-    return _unique_in_order([*axis_order, trace_ref_column])
+def _trace_shape_columns(*, axis_order: list[str], trace_ref_column: Any) -> list[str]:
+    shape_columns = list(axis_order)
+    if isinstance(trace_ref_column, str) and trace_ref_column:
+        shape_columns.append(trace_ref_column)
+    return _unique_in_order(shape_columns)
 
 
 def _trace_column_validation(
@@ -244,7 +247,7 @@ def _trace_column_validation(
     declared_names: list[str],
     source_columns: list[str],
     axis_order: list[str],
-    trace_ref_column: str,
+    trace_ref_column: Any,
 ) -> dict[str, list[str]]:
     shape_columns = _trace_shape_columns(axis_order=axis_order, trace_ref_column=trace_ref_column)
     missing_declared_columns = [name for name in declared_names if name not in source_columns]
@@ -268,6 +271,12 @@ def _missing_trace_schema_fields(trace_schema: Any) -> list[str]:
         for field in REQUIRED_TRACE_SCHEMA_FIELDS
         if not isinstance(trace_schema.get(field), str) or not trace_schema[field]
     ]
+
+
+def _invalid_trace_metadata_fields(*, trace_ref_column: Any) -> list[str]:
+    if not isinstance(trace_ref_column, str) or not trace_ref_column:
+        return ["trace_ref_column"]
+    return []
 
 
 def _fixed_vector_shape_columns(
@@ -522,7 +531,7 @@ def _vector_matches_dtype(values: list[Any], dtype: str) -> bool:
             return False
         try:
             coerced = float(value)
-        except (TypeError, ValueError):
+        except (OverflowError, TypeError, ValueError):
             return False
         if not math.isfinite(coerced):
             return False
@@ -1086,7 +1095,10 @@ def _generate_trace_summary(source: dict[str, Any], fixture_root: Path) -> dict[
     declared_names = _column_names(declared_columns)
     extra_columns = [name for name in source_columns if name not in declared_names]
     axis_order = data_shape["axis_order"]
-    trace_ref_column = data_shape["trace_ref_column"]
+    trace_ref_column = data_shape.get("trace_ref_column")
+    invalid_trace_metadata_fields = _invalid_trace_metadata_fields(
+        trace_ref_column=trace_ref_column
+    )
     trace_schema = data_shape.get("trace_schema", {})
     missing_trace_schema_fields = _missing_trace_schema_fields(trace_schema)
     required_trace_columns = [
@@ -1102,9 +1114,17 @@ def _generate_trace_summary(source: dict[str, Any], fixture_root: Path) -> dict[
         trace_ref_column=trace_ref_column,
     )
     blocking_columns = trace_validation["blocking_columns"]
-    blocking_trace_metadata = bool(missing_trace_schema_fields) or not axis_order_valid
+    blocking_trace_metadata = (
+        bool(missing_trace_schema_fields)
+        or bool(invalid_trace_metadata_fields)
+        or not axis_order_valid
+    )
 
-    trace_refs = [] if blocking_columns else [row[trace_ref_column] for row in rows]
+    trace_refs = (
+        []
+        if blocking_columns or blocking_trace_metadata
+        else [row[trace_ref_column] for row in rows]
+    )
     unsafe_trace_refs = [ref for ref in trace_refs if not _is_fixture_relative_ref(ref)]
     outer_trace_points = (
         []
@@ -1232,6 +1252,7 @@ def _generate_trace_summary(source: dict[str, Any], fixture_root: Path) -> dict[
             "unsafe_trace_refs": unsafe_trace_refs,
             "missing_trace_files": missing_trace_files,
             "missing_trace_schema_fields": missing_trace_schema_fields,
+            "invalid_trace_metadata_fields": invalid_trace_metadata_fields,
             "missing_trace_columns_by_ref": missing_trace_columns_by_ref,
             "trace_summaries": trace_summaries,
         },
@@ -2026,6 +2047,7 @@ def _generate_trace_review(summary: dict[str, Any]) -> str:
             f"- unsafe trace refs: {_format_list(trace_validation['unsafe_trace_refs'])}",
             f"- missing trace files: {_format_list(trace_validation['missing_trace_files'])}",
             f"- missing trace schema fields: {_format_list(trace_validation['missing_trace_schema_fields'])}",
+            f"- invalid trace metadata fields: {_format_list(trace_validation['invalid_trace_metadata_fields'])}",
             "",
             "| Outer coordinate | Trace ref | Status | Rows | Columns | Missing trace columns |",
             "| --- | --- | --- | --- | --- | --- |",

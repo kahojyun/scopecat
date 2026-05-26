@@ -53,6 +53,7 @@ Held condition:
 - unsafe trace refs: `none`
 - missing trace files: `none`
 - missing trace schema fields: `none`
+- invalid trace metadata fields: `none`
 
 | Outer coordinate | Trace ref | Status | Rows | Columns | Missing trace columns |
 | --- | --- | --- | --- | --- | --- |

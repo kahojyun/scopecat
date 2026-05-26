@@ -535,6 +535,36 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
         )
         self.assertEqual(summary["plot_candidates"], [])
 
+    def test_trace_per_point_rejects_non_string_trace_ref_column(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_trace_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "bias_v,trace_ref,trace_kind",
+                        "0.0,source/traces/bias-0p0.csv,ringdown",
+                        "",
+                    ]
+                ),
+            )
+            source = json.loads((fixture / "shape-input.json").read_text(encoding="utf-8"))
+            source["data_shape"]["trace_ref_column"] = ["trace_ref"]
+            (fixture / "shape-input.json").write_text(
+                json.dumps(source, indent=2),
+                encoding="utf-8",
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(
+            summary["trace_validation"]["invalid_trace_metadata_fields"],
+            ["trace_ref_column"],
+        )
+        self.assertEqual(summary["trace_validation"]["trace_refs"], [])
+        self.assertEqual(summary["plot_candidates"], [])
+
     def test_trace_per_point_reports_missing_trace_columns(self) -> None:
         with TemporaryDirectory() as temp_dir:
             fixture = Path(temp_dir)
@@ -1115,6 +1145,30 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
 
         self.assertEqual(summary["shape"]["status"], "fail")
         self.assertEqual(summary["vector_validation"]["column_summaries"][0]["dtype_failures"], 1)
+        self.assertEqual(summary["plot_candidates"], [])
+
+    def test_fixed_vector_reports_huge_integer_overflow_as_dtype_mismatch(self) -> None:
+        huge_integer = "9" * 4000
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_fixed_vector_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "pulse_amplitude_v,shot_iq,shot_state",
+                        f'0.10,"[{huge_integer}, 0.12]",ground',
+                        "",
+                    ]
+                ),
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(summary["vector_validation"]["column_summaries"][0]["dtype_failures"], 1)
+        self.assertEqual(
+            summary["vector_validation"]["failed_cells"][0]["failure"], "dtype_mismatch"
+        )
         self.assertEqual(summary["plot_candidates"], [])
 
     def test_complex_fixed_vector_rejects_unsupported_representation(self) -> None:
