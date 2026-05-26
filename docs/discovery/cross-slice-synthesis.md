@@ -26,6 +26,7 @@ relation graph, or warning taxonomy.
 - [`handoff-package-visual-artifact-validation-result.md`](handoff-package-visual-artifact-validation-result.md)
 - [`handoff-package-inspection-workflow-validation-result.md`](handoff-package-inspection-workflow-validation-result.md)
 - [`handoff-package-acceptance-validation-result.md`](handoff-package-acceptance-validation-result.md)
+- [`handoff-package-integrity-observation-validation-result.md`](handoff-package-integrity-observation-validation-result.md)
 - [`handoff-package-writer-validation-result.md`](handoff-package-writer-validation-result.md)
 - [`handoff-package-round-trip-validation-result.md`](handoff-package-round-trip-validation-result.md)
 - [`contract-primitives-validation-result.md`](contract-primitives-validation-result.md)
@@ -186,6 +187,17 @@ does not recursively import linked-context payloads, validate package
 integrity, support concurrent package-root mutation, extract archives, update
 existing records, define dataframe behavior, define a GUI flow, or accept final
 storage schema.
+
+Handoff package integrity observation has the first read-only package-local
+checksum comparison candidate. It validates the manifest through the existing
+contents-preview contract, requires package-directory/package-id continuity,
+collects manifest-declared packaged members, reads available regular files
+without following symlink targets or symlink parents, computes observed sha256
+and byte size, and reports verified, mismatched, unavailable, blocked, or
+not-declared member states. This can run before acceptance to catch missing or
+modified package members, while still not accepting authenticity, signatures,
+archive extraction, storage mutation, import acceptance, schema inference, GUI
+behavior, final package format, or a shared measurement model.
 
 Legacy import acceptance has a slice-local implementation candidate for the
 first approved review-to-acceptance mutation for a normalized adapter-authored
@@ -736,12 +748,12 @@ The cross-slice comparison still does not earn:
 Use this synthesis as the comparison point before promoting shared
 architecture.
 
-For the handoff route, read-only package use should remain the validated step
-before package import/acceptance. Next work should keep package-integrity or
-archive validation separate unless it is required before safe package use, and
-keep package acceptance/import as an explicit storage-mutation slice. Before
-adding more handoff-package behavior, apply the route-local field-category
-checklist in
+For the handoff route, read-only package use and package-local integrity
+observation should remain separate validated steps before package
+import/acceptance. Next work should keep archive validation, signatures,
+storage mutation, GUI behavior, and dataframe adapters separate unless a
+narrower implementation task requires one of them. Before adding more
+handoff-package behavior, apply the route-local field-category checklist in
 [`handoff-package-route-contract-checklist.md`](handoff-package-route-contract-checklist.md).
 
 Shared model extraction is currently deferred in
