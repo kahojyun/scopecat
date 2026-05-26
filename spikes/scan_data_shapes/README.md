@@ -12,6 +12,7 @@ Current scope is deliberately narrow:
 
 - declared 2D rectangular grid table;
 - declared ragged/adaptive table with variable inner-axis coverage;
+- observed-only ragged/adaptive table when expected group counts are unknown;
 - declared sidecar metadata for weakly labeled table columns;
 - header, row-count, coordinate-coverage, group-coverage, and mapping sanity checks;
 - plot-candidate descriptions only.

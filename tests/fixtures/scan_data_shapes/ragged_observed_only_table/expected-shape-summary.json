@@ -1,0 +1,114 @@
+{
+  "shape_summary_id": "scan-shape-ragged-observed-only-table.expected",
+  "status": "expected_validation_output",
+  "source_fixture": "shape-input.json",
+  "measurement": {
+    "measurement_id": "synthetic-meas-02004",
+    "label": "qB observed adaptive frequency response",
+    "target": "qB",
+    "source_kind": "primary_measurement",
+    "source_table": "source/ragged-observed-frequency-response.csv"
+  },
+  "shape": {
+    "kind": "ragged_observed_only_table",
+    "coverage_policy": "observed_only",
+    "axis_order": [
+      "bias_v",
+      "drive_frequency_ghz"
+    ],
+    "grouping_axis": "bias_v",
+    "ragged_axis": "drive_frequency_ghz",
+    "group_point_counts": {
+      "-0.1": 3,
+      "0.0": 5,
+      "0.1": 2
+    },
+    "total_row_count": 10,
+    "status": "pass"
+  },
+  "declared_axes": [
+    {
+      "name": "bias_v",
+      "label": "Bias",
+      "unit": "V"
+    },
+    {
+      "name": "drive_frequency_ghz",
+      "label": "Drive frequency",
+      "unit": "GHz"
+    }
+  ],
+  "declared_dependents": [
+    {
+      "name": "signal_db",
+      "label": "Signal magnitude",
+      "unit": "dB"
+    },
+    {
+      "name": "phase_deg",
+      "label": "Signal phase",
+      "unit": "deg"
+    }
+  ],
+  "held_conditions": [
+    {
+      "name": "readout_power_dbm",
+      "label": "Readout power",
+      "value": -24,
+      "unit": "dBm",
+      "authority": "fixture_declared"
+    }
+  ],
+  "column_validation": {
+    "status": "pass",
+    "declared_columns": [
+      "bias_v",
+      "drive_frequency_ghz",
+      "signal_db",
+      "phase_deg"
+    ],
+    "source_columns": [
+      "bias_v",
+      "drive_frequency_ghz",
+      "signal_db",
+      "phase_deg"
+    ],
+    "missing_declared_columns": [],
+    "extra_source_columns": []
+  },
+  "plot_candidates": [
+    {
+      "title": "qB observed adaptive frequency response: Signal magnitude",
+      "plot_kind": "ragged_observed_line_family",
+      "x": "drive_frequency_ghz",
+      "series": "bias_v",
+      "y": "signal_db",
+      "source": "source/ragged-observed-frequency-response.csv"
+    },
+    {
+      "title": "qB observed adaptive frequency response: Signal phase",
+      "plot_kind": "ragged_observed_line_family",
+      "x": "drive_frequency_ghz",
+      "series": "bias_v",
+      "y": "phase_deg",
+      "source": "source/ragged-observed-frequency-response.csv"
+    }
+  ],
+  "warnings": [],
+  "boundary_notes": [
+    "Observed-only ragged coverage is summarized from the fixture table after acquisition.",
+    "No expected group point counts are declared, so completeness against a planned adaptive path is not claimed.",
+    "Plot candidates are declared observed ragged line-family candidates only; no rendering, fit, uncertainty, or scientific validation is provided.",
+    "The fixture validates observed coordinate uniqueness and declared column presence only, not scientific correctness."
+  ],
+  "decisions_not_earned": [
+    "final storage schema",
+    "general dataframe API",
+    "plot rendering",
+    "automatic schema inference",
+    "rectangular grid coercion",
+    "trace-per-point support",
+    "array-valued measurement support",
+    "scientific validity or reproducibility"
+  ]
+}

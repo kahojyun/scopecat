@@ -67,6 +67,20 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
 
         self.assertEqual(generate_review(generate_summary(fixture)), expected)
 
+    def test_generates_ragged_observed_only_expected_summary(self) -> None:
+        fixture = FIXTURE_ROOT / "ragged_observed_only_table"
+
+        expected = json.loads((fixture / "expected-shape-summary.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(generate_summary(fixture), expected)
+
+    def test_generates_ragged_observed_only_expected_review(self) -> None:
+        fixture = FIXTURE_ROOT / "ragged_observed_only_table"
+
+        expected = (fixture / "expected-shape-review.md").read_text(encoding="utf-8")
+
+        self.assertEqual(generate_review(generate_summary(fixture)), expected)
+
     def test_ragged_missing_grouping_column_returns_failed_summary(self) -> None:
         with TemporaryDirectory() as temp_dir:
             fixture = Path(temp_dir)

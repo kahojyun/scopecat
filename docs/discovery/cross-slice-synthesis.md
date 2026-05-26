@@ -339,9 +339,10 @@ station-registry schema, setup-truth model, GUI behavior, or payload
 interpreter.
 
 Scan/data-shape fixtures currently support rectangular 2D grid table,
-declared ragged/adaptive table pressure, and sidecar-declared weak 1D table
-pressure. Harder shapes such as trace-per-point data and array-valued
-responses remain known risks, not current requirements.
+declared and observed-only ragged/adaptive table pressure, and
+sidecar-declared weak 1D table pressure. Harder shapes such as
+trace-per-point data and array-valued responses remain known risks, not
+current requirements.
 
 Selected reference comparison has a slice-local implementation candidate for
 comparing a current measurement against a user-selected reference as recorded

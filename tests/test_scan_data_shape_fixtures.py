@@ -10,6 +10,9 @@ ROOT = Path(__file__).resolve().parents[1]
 GRID_FIXTURE = ROOT / "tests" / "fixtures" / "scan_data_shapes" / "2d_grid_table"
 SIDECAR_FIXTURE = ROOT / "tests" / "fixtures" / "scan_data_shapes" / "sidecar_declared_table"
 RAGGED_FIXTURE = ROOT / "tests" / "fixtures" / "scan_data_shapes" / "ragged_adaptive_table"
+OBSERVED_RAGGED_FIXTURE = (
+    ROOT / "tests" / "fixtures" / "scan_data_shapes" / "ragged_observed_only_table"
+)
 
 
 class ScanDataShapeFixtureTest(unittest.TestCase):
@@ -188,6 +191,49 @@ class ScanDataShapeFixtureTest(unittest.TestCase):
         self.assertIn("ragged assumption: `declared_variable_inner_axis`", review)
         self.assertIn("treated as missing rectangular grid points", review)
         self.assertIn("not rectangular grid coercion", review)
+
+    def test_observed_ragged_fixture_json_files_are_valid(self) -> None:
+        for path in [
+            OBSERVED_RAGGED_FIXTURE / "shape-input.json",
+            OBSERVED_RAGGED_FIXTURE / "expected-shape-summary.json",
+        ]:
+            with self.subTest(path=path):
+                self._load_json(path)
+
+    def test_observed_ragged_summary_reports_counts_without_expected_counts(self) -> None:
+        shape_input = self._load_json(OBSERVED_RAGGED_FIXTURE / "shape-input.json")
+        summary = self._load_json(OBSERVED_RAGGED_FIXTURE / "expected-shape-summary.json")
+        source_path = OBSERVED_RAGGED_FIXTURE / summary["measurement"]["source_table"]
+        with source_path.open(newline="", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            rows = list(reader)
+
+        axis_order = summary["shape"]["axis_order"]
+        grouping_axis = summary["shape"]["grouping_axis"]
+        observed_coordinates = {tuple(row[axis] for axis in axis_order) for row in rows}
+        group_counts: dict[str, int] = {}
+        for row in rows:
+            group = row[grouping_axis]
+            group_counts[group] = group_counts.get(group, 0) + 1
+
+        self.assertEqual(shape_input["measurement"], summary["measurement"])
+        self.assertEqual(shape_input["data_shape"]["kind"], summary["shape"]["kind"])
+        self.assertEqual("observed_only", summary["shape"]["coverage_policy"])
+        self.assertNotIn("expected_group_point_counts", summary["shape"])
+        self.assertNotIn("missing_expected_groups", summary["shape"])
+        self.assertNotIn("unexpected_observed_groups", summary["shape"])
+        self.assertEqual(group_counts, summary["shape"]["group_point_counts"])
+        self.assertEqual(len(rows), summary["shape"]["total_row_count"])
+        self.assertEqual(len(observed_coordinates), len(rows))
+        self.assertEqual(summary["shape"]["status"], "pass")
+
+    def test_observed_ragged_review_disclaims_completeness(self) -> None:
+        review = (OBSERVED_RAGGED_FIXTURE / "expected-shape-review.md").read_text(encoding="utf-8")
+
+        self.assertIn("kind: `ragged_observed_only_table`", review)
+        self.assertIn("coverage policy: `observed_only`", review)
+        self.assertIn("Observed group coverage", review)
+        self.assertIn("completeness against planned group counts is not claimed", review)
 
 
 if __name__ == "__main__":
