@@ -409,6 +409,7 @@ def _fixed_vector_declaration_validation(
     shape_kind: str,
     declared_columns: list[dict[str, Any]],
     axis_order: list[str],
+    invalid_axis_order_fields: list[str],
     vector_columns: list[dict[str, Any]],
     invalid_vector_columns: list[dict[str, Any]],
 ) -> dict[str, Any]:
@@ -486,7 +487,8 @@ def _fixed_vector_declaration_validation(
         for item in invalid_vector_columns
     ]
     declaration_failure_count = (
-        len(invalid_axis_roles)
+        len(invalid_axis_order_fields)
+        + len(invalid_axis_roles)
         + len(invalid_vector_roles)
         + len(unsupported_shape_policies)
         + len(unsupported_value_shapes)
@@ -496,7 +498,7 @@ def _fixed_vector_declaration_validation(
         + len(missing_vector_columns)
         + len(invalid_vector_column_failures)
     )
-    return {
+    validation = {
         "status": "pass" if not declaration_failure_count else "fail",
         "invalid_axis_roles": invalid_axis_roles,
         "invalid_vector_roles": invalid_vector_roles,
@@ -508,6 +510,9 @@ def _fixed_vector_declaration_validation(
         "missing_vector_columns": missing_vector_columns,
         "invalid_vector_columns": invalid_vector_column_failures,
     }
+    if invalid_axis_order_fields:
+        validation["invalid_axis_order"] = invalid_axis_order_fields
+    return validation
 
 
 def _fixed_vector_status(*, blocking_columns: list[str], vector_validation: dict[str, Any]) -> str:
@@ -1313,7 +1318,8 @@ def _generate_fixed_vector_summary(source: dict[str, Any], fixture_root: Path) -
     declared_columns = source["declared_columns"]
     declared_names = _column_names(declared_columns)
     extra_columns = [name for name in source_columns if name not in declared_names]
-    axis_order = data_shape["axis_order"]
+    raw_axis_order = data_shape.get("axis_order")
+    axis_order, invalid_axis_order_fields = _normalize_axis_order(raw_axis_order)
     vector_columns, invalid_vector_columns = _normalize_vector_columns(
         data_shape.get("vector_columns")
     )
@@ -1328,6 +1334,7 @@ def _generate_fixed_vector_summary(source: dict[str, Any], fixture_root: Path) -
         shape_kind=data_shape["kind"],
         declared_columns=declared_columns,
         axis_order=axis_order,
+        invalid_axis_order_fields=invalid_axis_order_fields,
         vector_columns=vector_columns,
         invalid_vector_columns=invalid_vector_columns,
     )
@@ -1339,7 +1346,9 @@ def _generate_fixed_vector_summary(source: dict[str, Any], fixture_root: Path) -
         declaration_validation=declaration_validation,
     )
     observed_coordinates = (
-        [] if blocking_columns else [tuple(row[axis] for axis in axis_order) for row in rows]
+        []
+        if blocking_columns or declaration_validation["status"] == "fail"
+        else [tuple(row[axis] for axis in axis_order) for row in rows]
     )
     duplicate_coordinates = len(set(observed_coordinates)) != len(observed_coordinates)
     if duplicate_coordinates:

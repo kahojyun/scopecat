@@ -1041,6 +1041,70 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
             [{"index": 0, "failure": "vector_column_missing_name"}],
         )
 
+    def test_fixed_vector_rejects_null_axis_order_without_crashing(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_fixed_vector_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "pulse_amplitude_v,shot_iq,shot_state",
+                        '0.10,"[0.12, -0.03]",ground',
+                        "",
+                    ]
+                ),
+            )
+            source = json.loads((fixture / "shape-input.json").read_text(encoding="utf-8"))
+            source["data_shape"]["axis_order"] = None
+            (fixture / "shape-input.json").write_text(
+                json.dumps(source, indent=2),
+                encoding="utf-8",
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(summary["shape"]["axis_order"], [])
+        self.assertEqual(summary["shape"]["duplicate_coordinates"], False)
+        self.assertEqual(
+            summary["vector_validation"]["declaration_validation"]["invalid_axis_order"],
+            ["axis_order"],
+        )
+        self.assertEqual(summary["vector_validation"]["column_summaries"], [])
+        self.assertEqual(summary["plot_candidates"], [])
+
+    def test_fixed_vector_rejects_non_string_axis_order_items(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_fixed_vector_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "pulse_amplitude_v,shot_iq,shot_state",
+                        '0.10,"[0.12, -0.03]",ground',
+                        "",
+                    ]
+                ),
+            )
+            source = json.loads((fixture / "shape-input.json").read_text(encoding="utf-8"))
+            source["data_shape"]["axis_order"] = ["pulse_amplitude_v", ["nested_axis"]]
+            (fixture / "shape-input.json").write_text(
+                json.dumps(source, indent=2),
+                encoding="utf-8",
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(summary["shape"]["axis_order"], ["pulse_amplitude_v"])
+        self.assertEqual(summary["shape"]["duplicate_coordinates"], False)
+        self.assertEqual(
+            summary["vector_validation"]["declaration_validation"]["invalid_axis_order"],
+            ["axis_order"],
+        )
+        self.assertEqual(summary["vector_validation"]["column_summaries"], [])
+        self.assertEqual(summary["plot_candidates"], [])
+
     def test_fixed_vector_rejects_invalid_declared_roles(self) -> None:
         with TemporaryDirectory() as temp_dir:
             fixture = Path(temp_dir)

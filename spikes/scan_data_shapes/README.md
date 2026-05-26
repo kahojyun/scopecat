@@ -31,3 +31,22 @@ schema inference engine, general ndarray API, complex primitive storage model,
 transform engine, or scientific validation tool. Harder scan shapes such as
 complex trace responses, matrix heatmap analysis previews, and backend-specific
 binary containers remain deferred shape risks.
+
+## Validation Assumptions
+
+`shape-input.json` is repository-safe discovery fixture metadata, not an
+untrusted public import API. The generator should still avoid hard crashes for
+malformed values in fields it explicitly consumes for the supported shape
+families.
+
+The spike validates only the declared metadata and source facts needed for the
+reviewer-facing summary: declared columns, axis metadata, source-table
+coordinates, trace references, trace columns, and fixed-vector cells. It does
+not perform full JSON Schema validation, arbitrary unused-field validation,
+generic ndarray validation, scientific correctness checks, broad free-text
+redaction, or public API compatibility checks.
+
+When fixture metadata is malformed inside this stated scope, the expected
+behavior is a structured failed summary with no plot candidates for the invalid
+shape. When metadata outside this stated scope is malformed, that is a future
+contract decision rather than a requirement for this spike.
