@@ -11,6 +11,7 @@ import argparse
 import csv
 import json
 import math
+from decimal import Decimal, InvalidOperation
 from itertools import product
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -96,6 +97,11 @@ COMPLEX_FIXED_VECTOR_DECISIONS_NOT_EARNED = [
 
 FIXED_VECTOR_SHAPE_POLICY = "fixed_per_row"
 SUPPORTED_VECTOR_DTYPES = {"float64", "float32", "int64", "int32"}
+VECTOR_DTYPE_BOUNDS = {
+    "float32": (Decimal("-3.4028234663852886e38"), Decimal("3.4028234663852886e38")),
+    "int32": (Decimal("-2147483648"), Decimal("2147483647")),
+    "int64": (Decimal("-9223372036854775808"), Decimal("9223372036854775807")),
+}
 REQUIRED_TRACE_SCHEMA_FIELDS = ["independent_column", "response_column", "response_label"]
 SUPPORTED_COMPLEX_LOGICAL_TYPES = {"complex64", "complex128"}
 COMPLEX_LOGICAL_STORAGE_DTYPES = {
@@ -472,14 +478,66 @@ def _vector_matches_dtype(values: list[Any], dtype: str) -> bool:
         if isinstance(value, bool):
             return False
         try:
+            decimal_value = Decimal(str(value))
+        except (InvalidOperation, ValueError):
+            return False
+        if not decimal_value.is_finite():
+            return False
+        try:
             coerced = float(value)
         except (TypeError, ValueError):
             return False
         if not math.isfinite(coerced):
             return False
-        if dtype.startswith("int") and not coerced.is_integer():
-            return False
+        if dtype in VECTOR_DTYPE_BOUNDS:
+            lower, upper = VECTOR_DTYPE_BOUNDS[dtype]
+            if decimal_value < lower or decimal_value > upper:
+                return False
+        if dtype.startswith("int"):
+            if decimal_value != decimal_value.to_integral_value():
+                return False
     return True
+
+
+def _fixed_vector_plot_candidates(
+    *,
+    measurement: dict[str, Any],
+    vector_columns: list[dict[str, Any]],
+    vector_validation: dict[str, Any],
+    is_complex_shape: bool,
+) -> list[dict[str, Any]]:
+    if vector_validation["status"] != "pass":
+        return []
+    return [
+        {
+            "title": f"{measurement['label']}: {column['label']}",
+            "plot_kind": (
+                "complex_component_pair_scatter" if is_complex_shape else "component_pair_scatter"
+            ),
+            "x_component": (
+                column["logical_value"]["real_component"]
+                if is_complex_shape
+                else column["components"][0]
+            ),
+            "y_component": (
+                column["logical_value"]["imag_component"]
+                if is_complex_shape
+                else column["components"][1]
+            ),
+            "vector_column": column["name"],
+            "source": measurement["source_table"],
+            **(
+                {
+                    "logical_value_type": column["logical_value"]["type"],
+                    "derived_components": column["logical_value"]["derived_components"],
+                }
+                if is_complex_shape
+                else {}
+            ),
+        }
+        for column in vector_columns
+        if column["value_shape"] == [2] and len(column["components"]) == 2
+    ]
 
 
 def _fixed_vector_validation(
@@ -1213,7 +1271,6 @@ def _generate_fixed_vector_summary(source: dict[str, Any], fixture_root: Path) -
     if duplicate_coordinates:
         vector_validation["status"] = "fail"
     is_complex_shape = data_shape["kind"] == "complex_fixed_vector_response_table"
-    valid_declaration = declaration_validation["status"] == "pass"
 
     sweep_axes = _columns_by_role(declared_columns, "sweep_axis")
     vector_responses = [
@@ -1259,38 +1316,12 @@ def _generate_fixed_vector_summary(source: dict[str, Any], fixture_root: Path) -
             "extra_source_columns": extra_columns,
         },
         "vector_validation": vector_validation,
-        "plot_candidates": [
-            {
-                "title": f"{measurement['label']}: {column['label']}",
-                "plot_kind": (
-                    "complex_component_pair_scatter"
-                    if is_complex_shape and valid_declaration
-                    else "component_pair_scatter"
-                ),
-                "x_component": (
-                    column["logical_value"]["real_component"]
-                    if is_complex_shape and valid_declaration
-                    else column["components"][0]
-                ),
-                "y_component": (
-                    column["logical_value"]["imag_component"]
-                    if is_complex_shape and valid_declaration
-                    else column["components"][1]
-                ),
-                "vector_column": column["name"],
-                "source": measurement["source_table"],
-                **(
-                    {
-                        "logical_value_type": column["logical_value"]["type"],
-                        "derived_components": column["logical_value"]["derived_components"],
-                    }
-                    if is_complex_shape and valid_declaration
-                    else {}
-                ),
-            }
-            for column in vector_columns
-            if valid_declaration and column["value_shape"] == [2] and len(column["components"]) == 2
-        ],
+        "plot_candidates": _fixed_vector_plot_candidates(
+            measurement=measurement,
+            vector_columns=vector_columns,
+            vector_validation=vector_validation,
+            is_complex_shape=is_complex_shape,
+        ),
         "warnings": [
             {
                 "code": "extra_source_column",

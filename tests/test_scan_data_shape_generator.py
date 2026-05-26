@@ -639,6 +639,7 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
 
         self.assertEqual(summary["shape"]["status"], "fail")
         self.assertEqual(summary["vector_validation"]["column_summaries"][0]["shape_failures"], 1)
+        self.assertEqual(summary["plot_candidates"], [])
         self.assertEqual(
             summary["vector_validation"]["failed_cells"][0]["failure"], "shape_mismatch"
         )
@@ -661,9 +662,32 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
 
         self.assertEqual(summary["shape"]["status"], "fail")
         self.assertEqual(summary["vector_validation"]["column_summaries"][0]["dtype_failures"], 1)
+        self.assertEqual(summary["plot_candidates"], [])
         self.assertEqual(
             summary["vector_validation"]["failed_cells"][0]["failure"], "dtype_mismatch"
         )
+
+    def test_fixed_vector_rejects_duplicate_coordinates_without_plot_candidates(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_fixed_vector_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "pulse_amplitude_v,shot_iq,shot_state",
+                        '0.10,"[0.12, -0.03]",ground',
+                        '0.10,"[0.08, 0.01]",ground',
+                        "",
+                    ]
+                ),
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertTrue(summary["shape"]["duplicate_coordinates"])
+        self.assertEqual(summary["vector_validation"]["status"], "fail")
+        self.assertEqual(summary["plot_candidates"], [])
 
     def test_fixed_vector_rejects_unsupported_shape_policy(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -881,6 +905,7 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
 
         self.assertEqual(summary["shape"]["status"], "fail")
         self.assertEqual(summary["vector_validation"]["column_summaries"][0]["parse_failures"], 1)
+        self.assertEqual(summary["plot_candidates"], [])
         self.assertEqual(
             summary["vector_validation"]["failed_cells"][0]["failure"], "malformed_json"
         )
@@ -944,9 +969,62 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
 
         self.assertEqual(summary["shape"]["status"], "fail")
         self.assertEqual(summary["vector_validation"]["column_summaries"][0]["dtype_failures"], 1)
+        self.assertEqual(summary["plot_candidates"], [])
         self.assertEqual(
             summary["vector_validation"]["failed_cells"][0]["failure"], "dtype_mismatch"
         )
+
+    def test_fixed_vector_rejects_int32_out_of_range(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_fixed_vector_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "pulse_amplitude_v,shot_iq,shot_state",
+                        '0.10,"[2147483648, 0]",ground',
+                        "",
+                    ]
+                ),
+            )
+            source = json.loads((fixture / "shape-input.json").read_text(encoding="utf-8"))
+            source["data_shape"]["vector_columns"][0]["dtype"] = "int32"
+            (fixture / "shape-input.json").write_text(
+                json.dumps(source, indent=2),
+                encoding="utf-8",
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(summary["vector_validation"]["column_summaries"][0]["dtype_failures"], 1)
+        self.assertEqual(summary["plot_candidates"], [])
+
+    def test_fixed_vector_rejects_float32_out_of_range(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_fixed_vector_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "pulse_amplitude_v,shot_iq,shot_state",
+                        '0.10,"[1e39, 0.12]",ground',
+                        "",
+                    ]
+                ),
+            )
+            source = json.loads((fixture / "shape-input.json").read_text(encoding="utf-8"))
+            source["data_shape"]["vector_columns"][0]["dtype"] = "float32"
+            (fixture / "shape-input.json").write_text(
+                json.dumps(source, indent=2),
+                encoding="utf-8",
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(summary["vector_validation"]["column_summaries"][0]["dtype_failures"], 1)
+        self.assertEqual(summary["plot_candidates"], [])
 
     def test_complex_fixed_vector_rejects_unsupported_representation(self) -> None:
         with TemporaryDirectory() as temp_dir:
