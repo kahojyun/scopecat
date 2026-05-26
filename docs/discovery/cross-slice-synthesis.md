@@ -24,6 +24,7 @@ relation graph, or warning taxonomy.
 - [`handoff-package-read-view-validation-result.md`](handoff-package-read-view-validation-result.md)
 - [`handoff-package-visual-review-validation-result.md`](handoff-package-visual-review-validation-result.md)
 - [`handoff-package-visual-artifact-validation-result.md`](handoff-package-visual-artifact-validation-result.md)
+- [`handoff-package-inspection-workflow-validation-result.md`](handoff-package-inspection-workflow-validation-result.md)
 - [`handoff-package-writer-validation-result.md`](handoff-package-writer-validation-result.md)
 - [`handoff-package-round-trip-validation-result.md`](handoff-package-round-trip-validation-result.md)
 - [`contract-primitives-validation-result.md`](contract-primitives-validation-result.md)
@@ -111,9 +112,11 @@ incoming-record import preview, where the input authority is an external
 incoming-record manifest.
 
 The current handoff-package route has two validated tracks. Receiving-side use
-is contents preview -> opener -> read view -> visual review -> visual
-artifact. Producer and compatibility work is writer -> round trip. Package import or storage
-acceptance remains a separate future mutation workflow.
+is contents preview -> opener -> read view -> visual review -> visual artifact,
+with inspection workflow composing those receiving-side layers for one local
+open-before-import action. Producer and compatibility work is writer -> round
+trip. Package import or storage acceptance remains a separate future mutation
+workflow.
 
 Handoff package opener has the first read-only package-use candidate for
 Scopecat-authored directory packages. It reads `package-manifest.json`, reuses
@@ -158,6 +161,15 @@ render states, and escaped free text. It is a local review artifact for UX
 validation, not a portable package member, public report, live GUI framework,
 production plotting library decision, dataframe adapter, package import flow,
 integrity verifier, schema-inference layer, or final SDK contract.
+
+Handoff package inspection workflow has the first receiving-side composition
+candidate over an existing directory-shaped package. It opens the package
+through the read-only read-view route, builds the plot-first visual-review
+model, writes the local static HTML artifact outside the package tree, and
+returns one inspection receipt for those steps. This validates the user-facing
+open-before-import package inspection action without accepting package import,
+storage mutation, archive behavior, package integrity verification, dataframe
+adapters, live GUI behavior, final SDK names, or a shared measurement model.
 
 Legacy import acceptance has a slice-local implementation candidate for the
 first approved review-to-acceptance mutation for a normalized adapter-authored
@@ -266,11 +278,13 @@ through the read-view wrapper, and verifies reader-facing access to package
 identity, selected measurements, primary and preview table facts, declared plot
 series, and linked-context findings. It separately reports the writer receipt
 posture as local-only review data. This differs from the measurement-record
-handoff flow composition: the earlier composition checks semantic continuity
-across accepted-record and package-preview facts, while the round trip checks
-the generated package artifact itself. It does not accept package import,
-archive behavior, receiving-side integrity verification, dataframe adapters,
-GUI behavior, final package format, or a shared measurement model.
+handoff flow composition and the inspection workflow: the earlier composition
+checks semantic continuity across accepted-record and package-preview facts,
+the round trip checks the generated package artifact itself, and the inspection
+workflow checks an already available package as a receiving-side user action.
+It does not accept package import, archive behavior, receiving-side integrity
+verification, dataframe adapters, GUI behavior, final package format, or a
+shared measurement model.
 
 Contract primitives now have a narrow support candidate because the writer and
 composition work repeatedly needed the same low-level checks for managed
