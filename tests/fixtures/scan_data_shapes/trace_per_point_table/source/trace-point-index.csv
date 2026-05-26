@@ -1,0 +1,4 @@
+bias_v,trace_ref,trace_kind
+-0.1,source/traces/bias-neg-0p1.csv,ringdown
+0.0,source/traces/bias-0p0.csv,ringdown
+0.1,source/traces/bias-0p1.csv,ringdown

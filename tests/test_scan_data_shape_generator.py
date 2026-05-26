@@ -25,6 +25,22 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
             encoding="utf-8",
         )
 
+    def _write_trace_fixture(self, fixture: Path, source_text: str) -> None:
+        source = json.loads(
+            (FIXTURE_ROOT / "trace_per_point_table" / "shape-input.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        source_dir = fixture / "source"
+        trace_dir = source_dir / "traces"
+        trace_dir.mkdir(parents=True)
+        (fixture / "shape-input.json").write_text(json.dumps(source, indent=2), encoding="utf-8")
+        (source_dir / "trace-point-index.csv").write_text(source_text, encoding="utf-8")
+        (trace_dir / "bias-0p0.csv").write_text(
+            "\n".join(["time_ns,signal_v", "0,0.91", "20,0.61", ""]),
+            encoding="utf-8",
+        )
+
     def test_generates_2d_grid_expected_summary(self) -> None:
         fixture = FIXTURE_ROOT / "2d_grid_table"
 
@@ -76,6 +92,20 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
 
     def test_generates_ragged_observed_only_expected_review(self) -> None:
         fixture = FIXTURE_ROOT / "ragged_observed_only_table"
+
+        expected = (fixture / "expected-shape-review.md").read_text(encoding="utf-8")
+
+        self.assertEqual(generate_review(generate_summary(fixture)), expected)
+
+    def test_generates_trace_per_point_expected_summary(self) -> None:
+        fixture = FIXTURE_ROOT / "trace_per_point_table"
+
+        expected = json.loads((fixture / "expected-shape-summary.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(generate_summary(fixture), expected)
+
+    def test_generates_trace_per_point_expected_review(self) -> None:
+        fixture = FIXTURE_ROOT / "trace_per_point_table"
 
         expected = (fixture / "expected-shape-review.md").read_text(encoding="utf-8")
 
@@ -187,6 +217,54 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
         self.assertEqual(summary["warnings"], [])
         self.assertEqual(summary["column_validation"]["extra_source_columns"], [])
         self.assertIn("## Warnings\n\n- `none`", review)
+
+    def test_trace_per_point_rejects_unsafe_trace_reference(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_trace_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "bias_v,trace_ref,trace_kind",
+                        "0.0,../outside.csv,ringdown",
+                        "",
+                    ]
+                ),
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(summary["trace_validation"]["unsafe_trace_refs"], ["../outside.csv"])
+        self.assertEqual(
+            summary["trace_validation"]["trace_summaries"][0]["status"], "unsafe_reference"
+        )
+
+    def test_trace_per_point_reports_missing_trace_columns(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_trace_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "bias_v,trace_ref,trace_kind",
+                        "0.0,source/traces/bias-0p0.csv,ringdown",
+                        "",
+                    ]
+                ),
+            )
+            (fixture / "source" / "traces" / "bias-0p0.csv").write_text(
+                "\n".join(["time_ns,other_v", "0,0.91", "20,0.61", ""]),
+                encoding="utf-8",
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(
+            summary["trace_validation"]["missing_trace_columns_by_ref"],
+            {"source/traces/bias-0p0.csv": ["signal_v"]},
+        )
 
 
 if __name__ == "__main__":

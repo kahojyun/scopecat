@@ -11,7 +11,7 @@ import argparse
 import csv
 import json
 from itertools import product
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 GRID_DECISIONS_NOT_EARNED = [
@@ -45,6 +45,20 @@ RAGGED_DECISIONS_NOT_EARNED = [
     "automatic schema inference",
     "rectangular grid coercion",
     "trace-per-point support",
+    "array-valued measurement support",
+    "scientific validity or reproducibility",
+]
+
+TRACE_DECISIONS_NOT_EARNED = [
+    "final storage schema",
+    "shared data-shape schema",
+    "native nested storage mapping",
+    "general dataframe or array API",
+    "legacy importer",
+    "plot rendering",
+    "binary container support",
+    "automatic schema inference",
+    "trace alignment or resampling",
     "array-valued measurement support",
     "scientific validity or reproducibility",
 ]
@@ -135,6 +149,42 @@ def _ragged_column_validation(
             [*missing_declared_columns, *missing_shape_columns, *undeclared_shape_columns]
         ),
     }
+
+
+def _trace_shape_columns(*, axis_order: list[str], trace_ref_column: str) -> list[str]:
+    return _unique_in_order([*axis_order, trace_ref_column])
+
+
+def _trace_column_validation(
+    *,
+    declared_names: list[str],
+    source_columns: list[str],
+    axis_order: list[str],
+    trace_ref_column: str,
+) -> dict[str, list[str]]:
+    shape_columns = _trace_shape_columns(axis_order=axis_order, trace_ref_column=trace_ref_column)
+    missing_declared_columns = [name for name in declared_names if name not in source_columns]
+    missing_shape_columns = [name for name in shape_columns if name not in source_columns]
+    undeclared_shape_columns = [name for name in shape_columns if name not in declared_names]
+    return {
+        "missing_declared_columns": missing_declared_columns,
+        "missing_shape_columns": missing_shape_columns,
+        "undeclared_shape_columns": undeclared_shape_columns,
+        "blocking_columns": _unique_in_order(
+            [*missing_declared_columns, *missing_shape_columns, *undeclared_shape_columns]
+        ),
+    }
+
+
+def _is_package_relative_ref(value: str) -> bool:
+    path = PurePosixPath(value)
+    return (
+        bool(value)
+        and not path.is_absolute()
+        and ".." not in path.parts
+        and len(path.parts) > 1
+        and path.parts[0] == "source"
+    )
 
 
 def _grid_status(
@@ -488,6 +538,159 @@ def _generate_ragged_observed_summary(source: dict[str, Any], fixture_root: Path
     }
 
 
+def _generate_trace_summary(source: dict[str, Any], fixture_root: Path) -> dict[str, Any]:
+    measurement = source["measurement"]
+    data_shape = source["data_shape"]
+    source_columns, rows = read_csv_table(fixture_root / measurement["source_table"])
+
+    declared_columns = source["declared_columns"]
+    declared_names = _column_names(declared_columns)
+    extra_columns = [name for name in source_columns if name not in declared_names]
+    axis_order = data_shape["axis_order"]
+    trace_ref_column = data_shape["trace_ref_column"]
+    trace_schema = data_shape["trace_schema"]
+    required_trace_columns = [
+        trace_schema["independent_column"],
+        trace_schema["response_column"],
+    ]
+    trace_validation = _trace_column_validation(
+        declared_names=declared_names,
+        source_columns=source_columns,
+        axis_order=axis_order,
+        trace_ref_column=trace_ref_column,
+    )
+    blocking_columns = trace_validation["blocking_columns"]
+
+    trace_refs = [] if blocking_columns else [row[trace_ref_column] for row in rows]
+    unsafe_trace_refs = [ref for ref in trace_refs if not _is_package_relative_ref(ref)]
+    trace_summaries = []
+    missing_trace_files = []
+    missing_trace_columns_by_ref: dict[str, list[str]] = {}
+    for trace_ref in trace_refs:
+        if trace_ref in unsafe_trace_refs:
+            trace_summaries.append(
+                {
+                    "trace_ref": trace_ref,
+                    "status": "unsafe_reference",
+                    "row_count": None,
+                    "columns": [],
+                    "missing_trace_columns": required_trace_columns,
+                }
+            )
+            continue
+
+        trace_path = fixture_root / trace_ref
+        if not trace_path.is_file():
+            missing_trace_files.append(trace_ref)
+            trace_summaries.append(
+                {
+                    "trace_ref": trace_ref,
+                    "status": "missing",
+                    "row_count": None,
+                    "columns": [],
+                    "missing_trace_columns": required_trace_columns,
+                }
+            )
+            continue
+
+        trace_columns, trace_rows = read_csv_table(trace_path)
+        missing_trace_columns = [
+            column for column in required_trace_columns if column not in trace_columns
+        ]
+        if missing_trace_columns:
+            missing_trace_columns_by_ref[trace_ref] = missing_trace_columns
+        trace_summaries.append(
+            {
+                "trace_ref": trace_ref,
+                "status": "pass" if not missing_trace_columns else "fail",
+                "row_count": len(trace_rows),
+                "columns": trace_columns,
+                "missing_trace_columns": missing_trace_columns,
+            }
+        )
+
+    observed_coordinates = (
+        [] if blocking_columns else [tuple(row[axis] for axis in axis_order) for row in rows]
+    )
+    duplicate_outer_coordinates = len(set(observed_coordinates)) != len(observed_coordinates)
+    trace_status = (
+        "pass"
+        if not blocking_columns
+        and not unsafe_trace_refs
+        and not missing_trace_files
+        and not missing_trace_columns_by_ref
+        and not duplicate_outer_coordinates
+        else "fail"
+    )
+    sweep_axes = _columns_by_role(declared_columns, "sweep_axis")
+    trace_columns_declared = _columns_by_role(declared_columns, "trace_reference")
+
+    return {
+        "shape_summary_id": f"{source['fixture_id']}.expected",
+        "status": "expected_validation_output",
+        "source_fixture": "shape-input.json",
+        "measurement": measurement,
+        "shape": {
+            "kind": data_shape["kind"],
+            "axis_order": axis_order,
+            "trace_ref_column": trace_ref_column,
+            "trace_schema": trace_schema,
+            "point_count": len(rows),
+            "duplicate_outer_coordinates": duplicate_outer_coordinates,
+            "status": trace_status,
+        },
+        "declared_axes": _without_role(sweep_axes),
+        "declared_trace_references": _without_role(trace_columns_declared),
+        "held_conditions": source["held_conditions"],
+        "column_validation": {
+            "status": "pass" if not blocking_columns else "fail",
+            "declared_columns": declared_names,
+            "source_columns": source_columns,
+            "missing_declared_columns": trace_validation["missing_declared_columns"],
+            "missing_shape_columns": trace_validation["missing_shape_columns"],
+            "undeclared_shape_columns": trace_validation["undeclared_shape_columns"],
+            "extra_source_columns": extra_columns,
+        },
+        "trace_validation": {
+            "status": trace_status,
+            "trace_refs": trace_refs,
+            "unsafe_trace_refs": unsafe_trace_refs,
+            "missing_trace_files": missing_trace_files,
+            "missing_trace_columns_by_ref": missing_trace_columns_by_ref,
+            "trace_summaries": trace_summaries,
+        },
+        "plot_candidates": [
+            {
+                "title": f"{measurement['label']}: {trace_schema['response_label']}",
+                "plot_kind": "trace_family",
+                "x": trace_schema["independent_column"],
+                "series": axis_order[0],
+                "y": trace_schema["response_column"],
+                "trace_ref_column": trace_ref_column,
+                "source": measurement["source_table"],
+            }
+        ],
+        "warnings": [
+            {
+                "code": "extra_source_column",
+                "subject": extra_column,
+                "message": (
+                    "Source table contains an undeclared column. It is reported "
+                    "but not treated as plot metadata."
+                ),
+            }
+            for extra_column in extra_columns
+        ],
+        "boundary_notes": [
+            "Trace-per-point shape is declared by fixture metadata plus package-relative trace references, not schema inference.",
+            "Trace references are checked for fixture-local relative shape and openability only; no binary container, storage layout, or importer contract is earned.",
+            "Plot candidates are declared trace-family candidates only; no rendering, alignment, resampling, fit, uncertainty, or scientific validation is provided.",
+            "The fixture validates reference shape, trace openability, trace columns, and trace row counts only, not waveform correctness.",
+        ],
+        "decisions_not_earned": TRACE_DECISIONS_NOT_EARNED,
+    }
+
+
 def _generate_sidecar_summary(source: dict[str, Any], fixture_root: Path) -> dict[str, Any]:
     measurement = source["measurement"]
     data_shape = source["data_shape"]
@@ -568,6 +771,8 @@ def generate_summary(fixture_root: Path) -> dict[str, Any]:
         return _generate_ragged_summary(source, fixture_root)
     if kind == "ragged_observed_only_table":
         return _generate_ragged_observed_summary(source, fixture_root)
+    if kind == "trace_per_point_table":
+        return _generate_trace_summary(source, fixture_root)
     if kind == "sidecar_declared_table":
         return _generate_sidecar_summary(source, fixture_root)
     raise ValueError(f"unsupported scan data-shape fixture kind: {kind}")
@@ -1035,6 +1240,147 @@ def _generate_ragged_observed_review(summary: dict[str, Any]) -> str:
     return "\n".join(rows) + "\n"
 
 
+def _generate_trace_review(summary: dict[str, Any]) -> str:
+    measurement = summary["measurement"]
+    shape = summary["shape"]
+    validation = summary["column_validation"]
+    trace_validation = summary["trace_validation"]
+    rows = [
+        "# Expected Trace-Per-Point Table Shape Review",
+        "",
+        "## Status",
+        "",
+        "Expected reviewer-facing output for the synthetic `trace_per_point_table`",
+        "fixture. This is not a storage schema, plotting API, file importer,",
+        "binary container contract, or product contract.",
+        "",
+        "## Measurement",
+        "",
+        f"- measurement: `{measurement['measurement_id']}`",
+        f"- label: `{measurement['label']}`",
+        f"- target: `{measurement['target']}`",
+        f"- source kind: `{measurement['source_kind']}`",
+        f"- source table: `{measurement['source_table']}`",
+        "",
+        "## Declared Shape",
+        "",
+        f"- kind: `{shape['kind']}`",
+        f"- axis order: {_format_list(shape['axis_order'])}",
+        f"- trace ref column: `{shape['trace_ref_column']}`",
+        f"- trace independent column: `{shape['trace_schema']['independent_column']}`",
+        f"- trace response column: `{shape['trace_schema']['response_column']}`",
+        f"- point count: `{shape['point_count']}`",
+        f"- duplicate outer coordinates: `{shape['duplicate_outer_coordinates']}`",
+        f"- status: `{shape['status']}`",
+        "",
+        "## Axes And Trace References",
+        "",
+        "| Name | Label | Role | Unit |",
+        "| --- | --- | --- | --- |",
+    ]
+    for column in summary["declared_axes"]:
+        rows.append(f"| `{column['name']}` | {column['label']} | sweep axis | `{column['unit']}` |")
+    for column in summary["declared_trace_references"]:
+        rows.append(
+            f"| `{column['name']}` | {column['label']} | trace reference | `{column['unit']}` |"
+        )
+    rows.extend(["", "Held condition:", ""])
+    for condition in summary["held_conditions"]:
+        rows.append(
+            f"- {condition['label']}: `{_format_quantity(condition['value'])} "
+            f"{condition['unit']}` (`{condition['authority']}`)"
+        )
+    rows.extend(
+        [
+            "",
+            "## Column Validation",
+            "",
+            f"- status: `{validation['status']}`",
+            f"- declared columns: {_format_list(validation['declared_columns'])}",
+            f"- source columns: {_format_list(validation['source_columns'])}",
+            f"- missing declared columns: {_format_list(validation['missing_declared_columns'])}",
+            f"- missing shape columns: {_format_list(validation['missing_shape_columns'])}",
+            f"- undeclared shape columns: {_format_list(validation['undeclared_shape_columns'])}",
+            f"- extra source columns: {_format_list(validation['extra_source_columns'])}",
+            "",
+            "## Trace Validation",
+            "",
+            f"- status: `{trace_validation['status']}`",
+            f"- trace refs: {_format_list(trace_validation['trace_refs'])}",
+            f"- unsafe trace refs: {_format_list(trace_validation['unsafe_trace_refs'])}",
+            f"- missing trace files: {_format_list(trace_validation['missing_trace_files'])}",
+            "",
+            "| Trace ref | Status | Rows | Columns | Missing trace columns |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+    )
+    for trace_summary in trace_validation["trace_summaries"]:
+        row_count = trace_summary["row_count"]
+        rows.append(
+            f"| `{trace_summary['trace_ref']}` | `{trace_summary['status']}` | "
+            f"`{row_count if row_count is not None else 'unavailable'}` | "
+            f"{_format_list(trace_summary['columns'])} | "
+            f"{_format_list(trace_summary['missing_trace_columns'])} |"
+        )
+    rows.extend(
+        [
+            "",
+            "## Plot Candidates",
+            "",
+            "| Kind | X | Series | Y | Trace ref column | Source | Boundary note |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+        ]
+    )
+    for candidate in summary["plot_candidates"]:
+        rows.append(
+            f"| `{candidate['plot_kind']}` | `{candidate['x']}` | "
+            f"`{candidate['series']}` | `{candidate['y']}` | "
+            f"`{candidate['trace_ref_column']}` | `{candidate['source']}` | "
+            f"{summary['boundary_notes'][2]} |"
+        )
+    rows.extend(["", "## Warnings", ""])
+    if validation["extra_source_columns"]:
+        for extra_column in validation["extra_source_columns"]:
+            rows.extend(
+                [
+                    f"- `extra_source_column`: source table contains undeclared `{extra_column}`. It",
+                    "  is reported but not treated as plot metadata.",
+                ]
+            )
+    else:
+        rows.append("- `none`")
+    rows.extend(
+        [
+            "",
+            "## Boundary Notes",
+            "",
+            "- Trace-per-point shape is declared by fixture metadata plus",
+            "  package-relative trace references, not schema inference.",
+            "- Trace references are checked for fixture-local relative shape and",
+            "  openability only; no binary container, storage layout, or importer",
+            "  contract is earned.",
+            "- Plot candidates are declared trace-family candidates only; no",
+            "  rendering, alignment, resampling, fit, uncertainty, or scientific",
+            "  validation is provided.",
+            "- This fixture validates reference shape, trace openability, trace",
+            "  columns, and trace row counts only, not waveform correctness.",
+            "",
+            "## Reviewer Questions",
+            "",
+            "A reviewer should be able to answer:",
+            "",
+            "- which outer coordinate owns each trace reference;",
+            "- whether trace references are fixture-local and openable;",
+            "- which trace columns define the independent and response values;",
+            "- how many rows each trace contains;",
+            "- which trace-family plot candidate is declared;",
+            "- that this fixture tests model adequacy, not a binary container,",
+            "  storage layout, importer, or waveform analysis API.",
+        ]
+    )
+    return "\n".join(rows) + "\n"
+
+
 def generate_review(summary: dict[str, Any]) -> str:
     kind = summary["shape"]["kind"]
     if kind == "2d_grid_table":
@@ -1043,6 +1389,8 @@ def generate_review(summary: dict[str, Any]) -> str:
         return _generate_ragged_review(summary)
     if kind == "ragged_observed_only_table":
         return _generate_ragged_observed_review(summary)
+    if kind == "trace_per_point_table":
+        return _generate_trace_review(summary)
     if kind == "sidecar_declared_table":
         return _generate_sidecar_review(summary)
     raise ValueError(f"unsupported scan data-shape summary kind: {kind}")

@@ -1,0 +1,73 @@
+{
+  "fixture_id": "scan-shape-trace-per-point-table",
+  "fixture_status": "synthetic_public_safe",
+  "validation_goal": "Check whether a declared outer table can reference one small trace table per scan point without accepting a binary container, importer, or final nested storage layout.",
+  "measurement": {
+    "measurement_id": "synthetic-meas-02005",
+    "label": "qC bias-indexed resonator traces",
+    "target": "qC",
+    "source_kind": "primary_measurement",
+    "source_table": "source/trace-point-index.csv"
+  },
+  "data_shape": {
+    "kind": "trace_per_point_table",
+    "axis_order": [
+      "bias_v"
+    ],
+    "trace_ref_column": "trace_ref",
+    "trace_schema": {
+      "independent_column": "time_ns",
+      "independent_label": "Time",
+      "independent_unit": "ns",
+      "response_column": "signal_v",
+      "response_label": "Signal",
+      "response_unit": "V"
+    }
+  },
+  "declared_columns": [
+    {
+      "name": "bias_v",
+      "label": "Bias",
+      "role": "sweep_axis",
+      "unit": "V"
+    },
+    {
+      "name": "trace_ref",
+      "label": "Trace table reference",
+      "role": "trace_reference",
+      "unit": "relative_ref"
+    },
+    {
+      "name": "trace_kind",
+      "label": "Trace kind",
+      "role": "trace_kind",
+      "unit": "label"
+    }
+  ],
+  "held_conditions": [
+    {
+      "name": "readout_power_dbm",
+      "label": "Readout power",
+      "value": -26,
+      "unit": "dBm",
+      "authority": "fixture_declared"
+    }
+  ],
+  "validation_boundary": {
+    "validated": [
+      "declared outer column names against source table header",
+      "trace references are fixture-local relative refs",
+      "trace files are openable CSV tables",
+      "trace tables contain declared independent and response columns",
+      "trace row counts are summarized"
+    ],
+    "not_validated": [
+      "binary container layout",
+      "native nested storage mapping",
+      "trace alignment or resampling",
+      "waveform semantic correctness",
+      "unit correctness",
+      "scientific validity"
+    ]
+  }
+}

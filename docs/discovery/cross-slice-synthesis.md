@@ -340,8 +340,9 @@ interpreter.
 
 Scan/data-shape fixtures currently support rectangular 2D grid table,
 declared and observed-only ragged/adaptive table pressure, and
-sidecar-declared weak 1D table pressure. Harder shapes such as
-trace-per-point data and array-valued responses remain known risks, not
+trace-per-point table pressure with fixture-local trace CSV references, and
+sidecar-declared weak 1D table pressure. Harder shapes such as array-valued
+responses and backend-specific binary containers remain known risks, not
 current requirements.
 
 Selected reference comparison has a slice-local implementation candidate for

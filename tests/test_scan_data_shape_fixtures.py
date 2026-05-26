@@ -13,6 +13,7 @@ RAGGED_FIXTURE = ROOT / "tests" / "fixtures" / "scan_data_shapes" / "ragged_adap
 OBSERVED_RAGGED_FIXTURE = (
     ROOT / "tests" / "fixtures" / "scan_data_shapes" / "ragged_observed_only_table"
 )
+TRACE_FIXTURE = ROOT / "tests" / "fixtures" / "scan_data_shapes" / "trace_per_point_table"
 
 
 class ScanDataShapeFixtureTest(unittest.TestCase):
@@ -234,6 +235,55 @@ class ScanDataShapeFixtureTest(unittest.TestCase):
         self.assertIn("coverage policy: `observed_only`", review)
         self.assertIn("Observed group coverage", review)
         self.assertIn("completeness against planned group counts is not claimed", review)
+
+    def test_trace_fixture_json_files_are_valid(self) -> None:
+        for path in [
+            TRACE_FIXTURE / "shape-input.json",
+            TRACE_FIXTURE / "expected-shape-summary.json",
+        ]:
+            with self.subTest(path=path):
+                self._load_json(path)
+
+    def test_trace_summary_matches_outer_table_and_trace_files(self) -> None:
+        shape_input = self._load_json(TRACE_FIXTURE / "shape-input.json")
+        summary = self._load_json(TRACE_FIXTURE / "expected-shape-summary.json")
+        source_path = TRACE_FIXTURE / summary["measurement"]["source_table"]
+        with source_path.open(newline="", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            rows = list(reader)
+
+        trace_ref_column = summary["shape"]["trace_ref_column"]
+        trace_refs = [row[trace_ref_column] for row in rows]
+        trace_row_counts = []
+        for trace_ref in trace_refs:
+            with (TRACE_FIXTURE / trace_ref).open(newline="", encoding="utf-8") as handle:
+                trace_reader = csv.DictReader(handle)
+                trace_rows = list(trace_reader)
+                trace_row_counts.append(len(trace_rows))
+                self.assertEqual(["time_ns", "signal_v"], trace_reader.fieldnames)
+
+        self.assertEqual(shape_input["measurement"], summary["measurement"])
+        self.assertEqual(shape_input["data_shape"]["kind"], summary["shape"]["kind"])
+        self.assertEqual(shape_input["data_shape"]["axis_order"], summary["shape"]["axis_order"])
+        self.assertEqual(
+            shape_input["data_shape"]["trace_ref_column"],
+            summary["shape"]["trace_ref_column"],
+        )
+        self.assertEqual(len(rows), summary["shape"]["point_count"])
+        self.assertEqual(trace_refs, summary["trace_validation"]["trace_refs"])
+        self.assertEqual(
+            trace_row_counts,
+            [item["row_count"] for item in summary["trace_validation"]["trace_summaries"]],
+        )
+        self.assertEqual(summary["shape"]["status"], "pass")
+
+    def test_trace_review_states_trace_family_boundary(self) -> None:
+        review = (TRACE_FIXTURE / "expected-shape-review.md").read_text(encoding="utf-8")
+
+        self.assertIn("kind: `trace_per_point_table`", review)
+        self.assertIn("Trace Validation", review)
+        self.assertIn("trace-family plot candidate", review)
+        self.assertIn("not a binary container", review)
 
 
 if __name__ == "__main__":

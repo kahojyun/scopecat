@@ -17,11 +17,13 @@ Current scope is deliberately narrow:
 - declared 2D rectangular grid table;
 - declared ragged/adaptive table with variable inner-axis coverage;
 - observed-only ragged/adaptive table when expected group counts are unknown;
+- declared trace-per-point table with fixture-local trace CSV references;
 - declared sidecar metadata for weakly labeled table columns;
-- header, row-count, coordinate-coverage, group-coverage, and mapping sanity checks;
+- header, row-count, coordinate-coverage, group-coverage, trace-reference, and
+  mapping sanity checks;
 - plot-candidate descriptions only.
 
 It is not a storage schema, dataframe API, legacy importer, plotting layer,
 schema inference engine, or scientific validation tool. Harder scan shapes such
-as trace-per-point data, array-valued responses, and backend-specific binary
-containers remain deferred shape risks.
+as array-valued responses and backend-specific binary containers remain
+deferred shape risks.
