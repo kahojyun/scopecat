@@ -34,6 +34,7 @@ before it is emitted:
 | Redacted display reference | Local/review display for a managed object, not a portable package path. | Validate with a generated redacted-display shape; omit from portable writer manifests unless explicitly accepted. |
 | Free text | Human label, display name, note, or reason. | Validate as text only; public fixtures must be reviewed for safe text, but do not add broad runtime redaction by default. |
 | Declared manifest fact | Digest, size, preview metadata, package state, or package policy declared by the manifest. | Validate syntax and policy shape; do not claim observation or integrity unless a slice performs that check. |
+| Observed table fact | Rows and columns loaded from an opened package member. | Keep string-valued and rectangular; require unique non-empty headers and reject ragged rows before presenting a table-like read surface. |
 | Local receipt fact | Return value for engineering review of a local operation. | Keep local/review-only unless a slice explicitly promotes it to a portable artifact. |
 | Local operation path | Storage-relative or package-root-relative path used to perform or review a local write/open operation. | Keep in local receipts; do not project into portable manifests unless converted to a managed package path. |
 
@@ -50,6 +51,7 @@ before it is emitted:
 | Selected measurements | `measurement_record_id` | Managed identifier | Validate public-safe identifiers and uniqueness before using as path segments or targets. |
 | Primary package data | `primary_data.package_path`, primary bundle path, plot source | Managed package path | Current package topology is exactly `measurements/{measurement_record_id}/primary.csv`; additional package member layouts need separate contracts. |
 | Primary package data | `digest`, `size_bytes` | Declared manifest fact | Validate sha256 syntax and positive size where declared; opener reports them without comparing by default. |
+| Opened primary table | `primary_table.columns`, `primary_table.rows` | Observed table fact | Opener emits local string-valued table facts only after reading package-local CSV with unique non-empty headers and rectangular rows. Read-view wraps these facts without adding dataframe, type-inference, or large-file semantics. |
 | Preview metadata | `status`, declared columns, plot candidates | Declared manifest fact and managed schema-binding names | Contents preview accepts `preview_ready` and `degraded_preview`; opener currently opens only `preview_ready`. |
 | Linked context | `link_id`, `kind`, `relation`, linked measurement targets | Managed identifiers and target references | Writer, composition, contents preview, and opener via contents-preview reuse validate managed shape and selected-target alignment. |
 | Linked context | `label`, `reason` | Free text | Validate as text where owned by writer/composition; keep public fixtures reviewed. |

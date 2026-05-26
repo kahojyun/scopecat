@@ -133,7 +133,9 @@ def _validate_primary_manifest_facts(record: dict[str, Any]) -> None:
         raise ValueError("handoff package opener currently supports csv_table primary data")
 
 
-def _load_csv_rows(content: bytes, record: dict[str, Any]) -> list[dict[str, str]]:
+def _load_csv_rows(
+    content: bytes, record: dict[str, Any]
+) -> tuple[list[str], list[dict[str, str]]]:
     preview = record["declared_preview_metadata"]
     try:
         decoded = content.decode("utf-8")
@@ -145,10 +147,25 @@ def _load_csv_rows(content: bytes, record: dict[str, Any]) -> list[dict[str, str
         raise ValueError("handoff package primary data requires a CSV header")
 
     declared_names = [column["name"] for column in preview["declared_columns"]]
-    missing = [name for name in declared_names if name not in reader.fieldnames]
+    fieldnames = list(reader.fieldnames)
+    if any(name == "" for name in fieldnames):
+        raise ValueError("handoff package primary data requires non-empty CSV headers")
+    if len(set(fieldnames)) != len(fieldnames):
+        raise ValueError("handoff package primary data requires unique CSV headers")
+    missing = [name for name in declared_names if name not in fieldnames]
     if missing:
         raise ValueError("handoff package primary data is missing declared preview columns")
-    return [{key: "" if value is None else value for key, value in row.items()} for row in reader]
+    rows = []
+    for row in reader:
+        if None in row:
+            raise ValueError("handoff package primary data rows must match the CSV header")
+        if any(row[name] is None for name in fieldnames):
+            raise ValueError("handoff package primary data rows must match the CSV header")
+        rows.append({name: row[name] for name in fieldnames})
+    return (
+        fieldnames,
+        rows,
+    )
 
 
 def _preview_rows(rows: list[dict[str, str]], declared_names: list[str]) -> list[dict[str, str]]:
@@ -189,7 +206,7 @@ def _opened_measurement(package_dir: Path, record: dict[str, Any]) -> dict[str, 
         primary["package_path"],
         "handoff package primary data",
     )
-    rows = _load_csv_rows(content, record)
+    columns, rows = _load_csv_rows(content, record)
     declared_names = [column["name"] for column in preview["declared_columns"]]
     primary_data = {
         "package_path": primary["package_path"],
@@ -213,6 +230,12 @@ def _opened_measurement(package_dir: Path, record: dict[str, Any]) -> dict[str, 
             "metadata_authority": preview["metadata_authority"],
             "declared_columns": copy.deepcopy(preview["declared_columns"]),
             "plot_candidates": copy.deepcopy(preview["plot_candidates"]),
+        },
+        "primary_table": {
+            "source": primary["package_path"],
+            "columns": columns,
+            "rows": copy.deepcopy(rows),
+            "schema_inference": "not_performed",
         },
         "preview_data": {
             "source": primary["package_path"],
