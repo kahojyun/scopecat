@@ -41,6 +41,17 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
             encoding="utf-8",
         )
 
+    def _write_fixed_vector_fixture(self, fixture: Path, source_text: str) -> None:
+        source = json.loads(
+            (FIXTURE_ROOT / "fixed_vector_response_table" / "shape-input.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        source_dir = fixture / "source"
+        source_dir.mkdir(parents=True)
+        (fixture / "shape-input.json").write_text(json.dumps(source, indent=2), encoding="utf-8")
+        (source_dir / "single-shot-iq-vector.csv").write_text(source_text, encoding="utf-8")
+
     def test_generates_2d_grid_expected_summary(self) -> None:
         fixture = FIXTURE_ROOT / "2d_grid_table"
 
@@ -106,6 +117,20 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
 
     def test_generates_trace_per_point_expected_review(self) -> None:
         fixture = FIXTURE_ROOT / "trace_per_point_table"
+
+        expected = (fixture / "expected-shape-review.md").read_text(encoding="utf-8")
+
+        self.assertEqual(generate_review(generate_summary(fixture)), expected)
+
+    def test_generates_fixed_vector_response_expected_summary(self) -> None:
+        fixture = FIXTURE_ROOT / "fixed_vector_response_table"
+
+        expected = json.loads((fixture / "expected-shape-summary.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(generate_summary(fixture), expected)
+
+    def test_generates_fixed_vector_response_expected_review(self) -> None:
+        fixture = FIXTURE_ROOT / "fixed_vector_response_table"
 
         expected = (fixture / "expected-shape-review.md").read_text(encoding="utf-8")
 
@@ -297,6 +322,226 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
             ["source/traces/bias-0p0.csv"],
         )
         self.assertEqual(summary["trace_validation"]["trace_summaries"][0]["status"], "missing")
+
+    def test_fixed_vector_rejects_ragged_cell_length(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_fixed_vector_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "pulse_amplitude_v,shot_iq,shot_state",
+                        '0.10,"[0.12, -0.03]",ground',
+                        '0.12,"[0.08, 0.01, 0.02]",ground',
+                        "",
+                    ]
+                ),
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(summary["vector_validation"]["column_summaries"][0]["shape_failures"], 1)
+        self.assertEqual(
+            summary["vector_validation"]["failed_cells"][0]["failure"], "shape_mismatch"
+        )
+
+    def test_fixed_vector_rejects_non_numeric_dtype(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_fixed_vector_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "pulse_amplitude_v,shot_iq,shot_state",
+                        '0.10,"[0.12, ""bad""]",ground',
+                        "",
+                    ]
+                ),
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(summary["vector_validation"]["column_summaries"][0]["dtype_failures"], 1)
+        self.assertEqual(
+            summary["vector_validation"]["failed_cells"][0]["failure"], "dtype_mismatch"
+        )
+
+    def test_fixed_vector_rejects_unsupported_shape_policy(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_fixed_vector_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "pulse_amplitude_v,shot_iq,shot_state",
+                        '0.10,"[0.12, -0.03]",ground',
+                        "",
+                    ]
+                ),
+            )
+            source = json.loads((fixture / "shape-input.json").read_text(encoding="utf-8"))
+            source["data_shape"]["vector_columns"][0]["shape_policy"] = "ragged_per_row"
+            (fixture / "shape-input.json").write_text(
+                json.dumps(source, indent=2),
+                encoding="utf-8",
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(
+            summary["vector_validation"]["declaration_validation"]["unsupported_shape_policies"],
+            [{"column": "shot_iq", "shape_policy": "ragged_per_row"}],
+        )
+
+    def test_fixed_vector_rejects_multi_dimensional_value_shape(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_fixed_vector_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "pulse_amplitude_v,shot_iq,shot_state",
+                        '0.10,"[0.12, -0.03, 0.01, 0.02]",ground',
+                        "",
+                    ]
+                ),
+            )
+            source = json.loads((fixture / "shape-input.json").read_text(encoding="utf-8"))
+            source["data_shape"]["vector_columns"][0]["value_shape"] = [2, 2]
+            (fixture / "shape-input.json").write_text(
+                json.dumps(source, indent=2),
+                encoding="utf-8",
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(
+            summary["vector_validation"]["declaration_validation"]["unsupported_value_shapes"],
+            [{"column": "shot_iq", "value_shape": [2, 2]}],
+        )
+
+    def test_fixed_vector_rejects_empty_vector_columns(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_fixed_vector_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "pulse_amplitude_v,shot_iq,shot_state",
+                        '0.10,"[0.12, -0.03]",ground',
+                        "",
+                    ]
+                ),
+            )
+            source = json.loads((fixture / "shape-input.json").read_text(encoding="utf-8"))
+            source["data_shape"]["vector_columns"] = []
+            (fixture / "shape-input.json").write_text(
+                json.dumps(source, indent=2),
+                encoding="utf-8",
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(
+            summary["vector_validation"]["declaration_validation"]["missing_vector_columns"],
+            ["vector_columns"],
+        )
+
+    def test_fixed_vector_rejects_invalid_declared_roles(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_fixed_vector_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "pulse_amplitude_v,shot_iq,shot_state",
+                        '0.10,"[0.12, -0.03]",ground',
+                        "",
+                    ]
+                ),
+            )
+            source = json.loads((fixture / "shape-input.json").read_text(encoding="utf-8"))
+            source["declared_columns"][0]["role"] = "annotation"
+            source["declared_columns"][1]["role"] = "annotation"
+            (fixture / "shape-input.json").write_text(
+                json.dumps(source, indent=2),
+                encoding="utf-8",
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(summary["column_validation"]["invalid_axis_roles"], ["pulse_amplitude_v"])
+        self.assertEqual(summary["column_validation"]["invalid_vector_roles"], ["shot_iq"])
+
+    def test_fixed_vector_reports_parse_failures(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_fixed_vector_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "pulse_amplitude_v,shot_iq,shot_state",
+                        '0.10,"[0.12,",ground',
+                        "",
+                    ]
+                ),
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(summary["vector_validation"]["column_summaries"][0]["parse_failures"], 1)
+        self.assertEqual(
+            summary["vector_validation"]["failed_cells"][0]["failure"], "malformed_json"
+        )
+
+    def test_fixed_vector_rejects_non_list_json(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_fixed_vector_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "pulse_amplitude_v,shot_iq,shot_state",
+                        "0.10,0.12,ground",
+                        "",
+                    ]
+                ),
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(summary["vector_validation"]["column_summaries"][0]["parse_failures"], 1)
+        self.assertEqual(summary["vector_validation"]["failed_cells"][0]["failure"], "not_list")
+
+    def test_fixed_vector_rejects_non_finite_float(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_fixed_vector_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "pulse_amplitude_v,shot_iq,shot_state",
+                        '0.10,"[NaN, 0.12]",ground',
+                        "",
+                    ]
+                ),
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(summary["vector_validation"]["column_summaries"][0]["dtype_failures"], 1)
+        self.assertEqual(
+            summary["vector_validation"]["failed_cells"][0]["failure"], "dtype_mismatch"
+        )
 
 
 if __name__ == "__main__":

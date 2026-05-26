@@ -1,0 +1,131 @@
+{
+  "shape_summary_id": "fixed_vector_response_table.expected",
+  "status": "expected_validation_output",
+  "source_fixture": "shape-input.json",
+  "measurement": {
+    "measurement_id": "synthetic-single-shot-iq-001",
+    "label": "Synthetic Single-Shot IQ",
+    "target": "readout_resonator",
+    "source_kind": "declared_primary_table",
+    "source_table": "source/single-shot-iq-vector.csv"
+  },
+  "shape": {
+    "kind": "fixed_vector_response_table",
+    "vector_assumption": "fixed_shape_per_row",
+    "axis_order": [
+      "pulse_amplitude_v"
+    ],
+    "row_count": 4,
+    "duplicate_coordinates": false,
+    "status": "pass"
+  },
+  "declared_axes": [
+    {
+      "name": "pulse_amplitude_v",
+      "label": "Pulse amplitude",
+      "unit": "V"
+    }
+  ],
+  "declared_vector_responses": [
+    {
+      "name": "shot_iq",
+      "label": "Single-shot IQ",
+      "unit": "V"
+    }
+  ],
+  "held_conditions": [
+    {
+      "label": "Readout duration",
+      "value": 1600,
+      "unit": "ns",
+      "authority": "fixture declaration"
+    }
+  ],
+  "column_validation": {
+    "status": "pass",
+    "declared_columns": [
+      "pulse_amplitude_v",
+      "shot_iq",
+      "shot_state"
+    ],
+    "source_columns": [
+      "pulse_amplitude_v",
+      "shot_iq",
+      "shot_state"
+    ],
+    "missing_declared_columns": [],
+    "missing_shape_columns": [],
+    "undeclared_shape_columns": [],
+    "invalid_axis_roles": [],
+    "invalid_vector_roles": [],
+    "extra_source_columns": []
+  },
+  "vector_validation": {
+    "status": "pass",
+    "declaration_validation": {
+      "status": "pass",
+      "invalid_axis_roles": [],
+      "invalid_vector_roles": [],
+      "unsupported_shape_policies": [],
+      "unsupported_value_shapes": [],
+      "missing_vector_columns": []
+    },
+    "column_summaries": [
+      {
+        "name": "shot_iq",
+        "value_shape": [
+          2
+        ],
+        "dtype": "float64",
+        "shape_policy": "fixed_per_row",
+        "components": [
+          "I",
+          "Q"
+        ],
+        "row_count": 4,
+        "observed_lengths": [
+          "2"
+        ],
+        "reader_ndarray_shape": [
+          4,
+          2
+        ],
+        "parse_failures": 0,
+        "shape_failures": 0,
+        "dtype_failures": 0,
+        "status": "pass"
+      }
+    ],
+    "failed_cells": []
+  },
+  "plot_candidates": [
+    {
+      "title": "Synthetic Single-Shot IQ: Single-shot IQ",
+      "plot_kind": "component_pair_scatter",
+      "x_component": "I",
+      "y_component": "Q",
+      "vector_column": "shot_iq",
+      "source": "source/single-shot-iq-vector.csv"
+    }
+  ],
+  "warnings": [],
+  "boundary_notes": [
+    "Fixed-vector response shape is declared by fixture metadata, not schema inference.",
+    "The reader ndarray shape is a validated convenience view over fixed-shape per-row vectors, not a general array-column API.",
+    "Plot candidates are declared component-pair candidates only; no rendering, fit, uncertainty, or scientific validation is provided.",
+    "This fixture validates per-row vector parseability, fixed length, declared dtype coercion, and coordinate uniqueness only."
+  ],
+  "decisions_not_earned": [
+    "final storage schema",
+    "shared data-shape schema",
+    "native list or struct storage mapping",
+    "general dataframe or array API",
+    "legacy importer",
+    "plot rendering",
+    "multi-dimensional ndarray support",
+    "large waveform or trace storage",
+    "matrix heatmap or QST/QPT analysis support",
+    "automatic schema inference",
+    "scientific validity or reproducibility"
+  ]
+}

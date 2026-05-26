@@ -14,6 +14,9 @@ OBSERVED_RAGGED_FIXTURE = (
     ROOT / "tests" / "fixtures" / "scan_data_shapes" / "ragged_observed_only_table"
 )
 TRACE_FIXTURE = ROOT / "tests" / "fixtures" / "scan_data_shapes" / "trace_per_point_table"
+FIXED_VECTOR_FIXTURE = (
+    ROOT / "tests" / "fixtures" / "scan_data_shapes" / "fixed_vector_response_table"
+)
 
 
 class ScanDataShapeFixtureTest(unittest.TestCase):
@@ -284,6 +287,55 @@ class ScanDataShapeFixtureTest(unittest.TestCase):
         self.assertIn("Trace Validation", review)
         self.assertIn("trace-family plot candidate", review)
         self.assertIn("not a binary container", review)
+
+    def test_fixed_vector_fixture_json_files_are_valid(self) -> None:
+        for path in [
+            FIXED_VECTOR_FIXTURE / "shape-input.json",
+            FIXED_VECTOR_FIXTURE / "expected-shape-summary.json",
+        ]:
+            with self.subTest(path=path):
+                self._load_json(path)
+
+    def test_fixed_vector_summary_matches_declared_value_shape(self) -> None:
+        shape_input = self._load_json(FIXED_VECTOR_FIXTURE / "shape-input.json")
+        summary = self._load_json(FIXED_VECTOR_FIXTURE / "expected-shape-summary.json")
+        source_path = FIXED_VECTOR_FIXTURE / summary["measurement"]["source_table"]
+        with source_path.open(newline="", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            rows = list(reader)
+
+        vector_column = shape_input["data_shape"]["vector_columns"][0]
+        vector_summary = summary["vector_validation"]["column_summaries"][0]
+        parsed_vectors = [json.loads(row[vector_column["name"]]) for row in rows]
+        observed_coordinates = {
+            tuple(row[axis] for axis in summary["shape"]["axis_order"]) for row in rows
+        }
+
+        self.assertEqual(shape_input["measurement"], summary["measurement"])
+        self.assertEqual(shape_input["data_shape"]["kind"], summary["shape"]["kind"])
+        self.assertEqual(
+            shape_input["data_shape"]["vector_assumption"],
+            summary["shape"]["vector_assumption"],
+        )
+        self.assertEqual(shape_input["data_shape"]["axis_order"], summary["shape"]["axis_order"])
+        self.assertEqual(len(rows), summary["shape"]["row_count"])
+        self.assertEqual(len(observed_coordinates), len(rows))
+        self.assertFalse(summary["shape"]["duplicate_coordinates"])
+        self.assertEqual(vector_column["value_shape"], vector_summary["value_shape"])
+        self.assertEqual(
+            [len(rows), *vector_column["value_shape"]], vector_summary["reader_ndarray_shape"]
+        )
+        self.assertTrue(all(len(vector) == 2 for vector in parsed_vectors))
+        self.assertEqual(vector_summary["observed_lengths"], ["2"])
+        self.assertEqual(summary["shape"]["status"], "pass")
+
+    def test_fixed_vector_review_states_no_general_ndarray_boundary(self) -> None:
+        review = (FIXED_VECTOR_FIXTURE / "expected-shape-review.md").read_text(encoding="utf-8")
+
+        self.assertIn("kind: `fixed_vector_response_table`", review)
+        self.assertIn("reader ndarray shape", review)
+        self.assertIn("not a general array-column API", review)
+        self.assertIn("not arbitrary ndarray", review)
 
 
 if __name__ == "__main__":

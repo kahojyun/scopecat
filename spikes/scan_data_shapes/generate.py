@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 from itertools import product
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -63,6 +64,22 @@ TRACE_DECISIONS_NOT_EARNED = [
     "scientific validity or reproducibility",
 ]
 
+FIXED_VECTOR_DECISIONS_NOT_EARNED = [
+    "final storage schema",
+    "shared data-shape schema",
+    "native list or struct storage mapping",
+    "general dataframe or array API",
+    "legacy importer",
+    "plot rendering",
+    "multi-dimensional ndarray support",
+    "large waveform or trace storage",
+    "matrix heatmap or QST/QPT analysis support",
+    "automatic schema inference",
+    "scientific validity or reproducibility",
+]
+
+FIXED_VECTOR_SHAPE_POLICY = "fixed_per_row"
+
 
 def load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
@@ -103,6 +120,18 @@ def _format_role(role: str) -> str:
 
 def _format_quantity(value: Any) -> str:
     return f"{value:.3f}" if isinstance(value, float) else str(value)
+
+
+def _format_fixed_vector_policy_failures(values: list[dict[str, Any]]) -> str:
+    if not values:
+        return "`none`"
+    return ", ".join(f"`{item['column']}={item['shape_policy']}`" for item in values)
+
+
+def _format_fixed_vector_shape_failures(values: list[dict[str, Any]]) -> str:
+    if not values:
+        return "`none`"
+    return ", ".join(f"`{item['column']}={item['value_shape']}`" for item in values)
 
 
 def _sort_numeric_strings(values: list[str]) -> list[str]:
@@ -173,6 +202,226 @@ def _trace_column_validation(
         "blocking_columns": _unique_in_order(
             [*missing_declared_columns, *missing_shape_columns, *undeclared_shape_columns]
         ),
+    }
+
+
+def _fixed_vector_shape_columns(
+    *, axis_order: list[str], vector_columns: list[dict[str, Any]]
+) -> list[str]:
+    return _unique_in_order([*axis_order, *[column["name"] for column in vector_columns]])
+
+
+def _fixed_vector_column_validation(
+    *,
+    declared_names: list[str],
+    source_columns: list[str],
+    axis_order: list[str],
+    vector_columns: list[dict[str, Any]],
+) -> dict[str, list[str]]:
+    shape_columns = _fixed_vector_shape_columns(
+        axis_order=axis_order,
+        vector_columns=vector_columns,
+    )
+    missing_declared_columns = [name for name in declared_names if name not in source_columns]
+    missing_shape_columns = [name for name in shape_columns if name not in source_columns]
+    undeclared_shape_columns = [name for name in shape_columns if name not in declared_names]
+    return {
+        "missing_declared_columns": missing_declared_columns,
+        "missing_shape_columns": missing_shape_columns,
+        "undeclared_shape_columns": undeclared_shape_columns,
+        "blocking_columns": _unique_in_order(
+            [*missing_declared_columns, *missing_shape_columns, *undeclared_shape_columns]
+        ),
+    }
+
+
+def _is_supported_fixed_vector_shape(value_shape: Any) -> bool:
+    return (
+        isinstance(value_shape, list)
+        and len(value_shape) == 1
+        and isinstance(value_shape[0], int)
+        and not isinstance(value_shape[0], bool)
+        and value_shape[0] > 0
+    )
+
+
+def _fixed_vector_declaration_validation(
+    *,
+    declared_columns: list[dict[str, Any]],
+    axis_order: list[str],
+    vector_columns: list[dict[str, Any]],
+) -> dict[str, Any]:
+    declared_by_name = {column["name"]: column for column in declared_columns}
+    invalid_axis_roles = [
+        axis
+        for axis in axis_order
+        if axis in declared_by_name and declared_by_name[axis]["role"] != "sweep_axis"
+    ]
+    invalid_vector_roles = [
+        column["name"]
+        for column in vector_columns
+        if column["name"] in declared_by_name
+        and declared_by_name[column["name"]]["role"] != "vector_response"
+    ]
+    unsupported_shape_policies = [
+        {
+            "column": column["name"],
+            "shape_policy": column.get("shape_policy"),
+        }
+        for column in vector_columns
+        if column.get("shape_policy") != FIXED_VECTOR_SHAPE_POLICY
+    ]
+    unsupported_value_shapes = [
+        {
+            "column": column["name"],
+            "value_shape": column.get("value_shape"),
+        }
+        for column in vector_columns
+        if not _is_supported_fixed_vector_shape(column.get("value_shape"))
+    ]
+    missing_vector_columns = [] if vector_columns else ["vector_columns"]
+    declaration_failure_count = (
+        len(invalid_axis_roles)
+        + len(invalid_vector_roles)
+        + len(unsupported_shape_policies)
+        + len(unsupported_value_shapes)
+        + len(missing_vector_columns)
+    )
+    return {
+        "status": "pass" if not declaration_failure_count else "fail",
+        "invalid_axis_roles": invalid_axis_roles,
+        "invalid_vector_roles": invalid_vector_roles,
+        "unsupported_shape_policies": unsupported_shape_policies,
+        "unsupported_value_shapes": unsupported_value_shapes,
+        "missing_vector_columns": missing_vector_columns,
+    }
+
+
+def _fixed_vector_status(*, blocking_columns: list[str], vector_validation: dict[str, Any]) -> str:
+    if blocking_columns:
+        return "fail"
+    return "pass" if vector_validation["status"] == "pass" else "fail"
+
+
+def _parse_fixed_vector_cell(value: str) -> tuple[str, list[Any]]:
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return "malformed_json", []
+    if not isinstance(parsed, list):
+        return "not_list", []
+    return "parsed", parsed
+
+
+def _vector_matches_dtype(values: list[Any], dtype: str) -> bool:
+    if dtype not in {"float64", "float32", "int64", "int32"}:
+        return False
+    for value in values:
+        if isinstance(value, bool):
+            return False
+        try:
+            coerced = float(value)
+        except (TypeError, ValueError):
+            return False
+        if not math.isfinite(coerced):
+            return False
+        if dtype.startswith("int") and not coerced.is_integer():
+            return False
+    return True
+
+
+def _fixed_vector_validation(
+    *,
+    rows: list[dict[str, str]],
+    vector_columns: list[dict[str, Any]],
+    blocking_columns: list[str],
+    declaration_validation: dict[str, Any],
+) -> dict[str, Any]:
+    if blocking_columns or declaration_validation["status"] == "fail":
+        return {
+            "status": "fail",
+            "declaration_validation": declaration_validation,
+            "column_summaries": [],
+            "failed_cells": [],
+        }
+
+    column_summaries = []
+    failed_cells = []
+    for column in vector_columns:
+        name = column["name"]
+        value_shape = column["value_shape"]
+        expected_length = 1
+        for dimension in value_shape:
+            expected_length *= dimension
+        row_count = 0
+        observed_lengths: list[int] = []
+        parse_failures = 0
+        dtype_failures = 0
+        shape_failures = 0
+        for row_index, row in enumerate(rows):
+            row_count += 1
+            parse_status, parsed = _parse_fixed_vector_cell(row[name])
+            observed_lengths.append(len(parsed) if parse_status == "parsed" else 0)
+            if parse_status != "parsed":
+                parse_failures += 1
+                failed_cells.append(
+                    {
+                        "row_index": row_index,
+                        "column": name,
+                        "failure": parse_status,
+                        "value": row[name],
+                    }
+                )
+                continue
+            if len(parsed) != expected_length:
+                shape_failures += 1
+                failed_cells.append(
+                    {
+                        "row_index": row_index,
+                        "column": name,
+                        "failure": "shape_mismatch",
+                        "value_length": len(parsed),
+                        "expected_length": expected_length,
+                    }
+                )
+            if not _vector_matches_dtype(parsed, column["dtype"]):
+                dtype_failures += 1
+                failed_cells.append(
+                    {
+                        "row_index": row_index,
+                        "column": name,
+                        "failure": "dtype_mismatch",
+                        "dtype": column["dtype"],
+                    }
+                )
+        column_summaries.append(
+            {
+                "name": name,
+                "value_shape": value_shape,
+                "dtype": column["dtype"],
+                "shape_policy": column["shape_policy"],
+                "components": column["components"],
+                "row_count": row_count,
+                "observed_lengths": _unique_in_order([str(length) for length in observed_lengths]),
+                "reader_ndarray_shape": [row_count, *value_shape],
+                "parse_failures": parse_failures,
+                "shape_failures": shape_failures,
+                "dtype_failures": dtype_failures,
+                "status": (
+                    "pass"
+                    if not parse_failures and not shape_failures and not dtype_failures
+                    else "fail"
+                ),
+            }
+        )
+
+    return {
+        "status": "pass"
+        if all(column_summary["status"] == "pass" for column_summary in column_summaries)
+        else "fail",
+        "declaration_validation": declaration_validation,
+        "column_summaries": column_summaries,
+        "failed_cells": failed_cells,
     }
 
 
@@ -721,6 +970,119 @@ def _generate_trace_summary(source: dict[str, Any], fixture_root: Path) -> dict[
     }
 
 
+def _generate_fixed_vector_summary(source: dict[str, Any], fixture_root: Path) -> dict[str, Any]:
+    measurement = source["measurement"]
+    data_shape = source["data_shape"]
+    source_columns, rows = read_csv_table(fixture_root / measurement["source_table"])
+
+    declared_columns = source["declared_columns"]
+    declared_names = _column_names(declared_columns)
+    extra_columns = [name for name in source_columns if name not in declared_names]
+    axis_order = data_shape["axis_order"]
+    vector_columns = data_shape["vector_columns"]
+    vector_column_names = [column["name"] for column in vector_columns]
+    vector_column_validation = _fixed_vector_column_validation(
+        declared_names=declared_names,
+        source_columns=source_columns,
+        axis_order=axis_order,
+        vector_columns=vector_columns,
+    )
+    declaration_validation = _fixed_vector_declaration_validation(
+        declared_columns=declared_columns,
+        axis_order=axis_order,
+        vector_columns=vector_columns,
+    )
+    blocking_columns = vector_column_validation["blocking_columns"]
+    vector_validation = _fixed_vector_validation(
+        rows=rows,
+        vector_columns=vector_columns,
+        blocking_columns=blocking_columns,
+        declaration_validation=declaration_validation,
+    )
+    observed_coordinates = (
+        [] if blocking_columns else [tuple(row[axis] for axis in axis_order) for row in rows]
+    )
+    duplicate_coordinates = len(set(observed_coordinates)) != len(observed_coordinates)
+    if duplicate_coordinates:
+        vector_validation["status"] = "fail"
+
+    sweep_axes = _columns_by_role(declared_columns, "sweep_axis")
+    vector_responses = [
+        column
+        for column in declared_columns
+        if column["name"] in vector_column_names and column["role"] == "vector_response"
+    ]
+
+    return {
+        "shape_summary_id": f"{source['fixture_id']}.expected",
+        "status": "expected_validation_output",
+        "source_fixture": "shape-input.json",
+        "measurement": measurement,
+        "shape": {
+            "kind": data_shape["kind"],
+            "vector_assumption": data_shape["vector_assumption"],
+            "axis_order": axis_order,
+            "row_count": len(rows),
+            "duplicate_coordinates": duplicate_coordinates,
+            "status": _fixed_vector_status(
+                blocking_columns=blocking_columns,
+                vector_validation=vector_validation,
+            ),
+        },
+        "declared_axes": _without_role(sweep_axes),
+        "declared_vector_responses": _without_role(vector_responses),
+        "held_conditions": source["held_conditions"],
+        "column_validation": {
+            "status": (
+                "pass"
+                if not blocking_columns
+                and not declaration_validation["invalid_axis_roles"]
+                and not declaration_validation["invalid_vector_roles"]
+                else "fail"
+            ),
+            "declared_columns": declared_names,
+            "source_columns": source_columns,
+            "missing_declared_columns": vector_column_validation["missing_declared_columns"],
+            "missing_shape_columns": vector_column_validation["missing_shape_columns"],
+            "undeclared_shape_columns": vector_column_validation["undeclared_shape_columns"],
+            "invalid_axis_roles": declaration_validation["invalid_axis_roles"],
+            "invalid_vector_roles": declaration_validation["invalid_vector_roles"],
+            "extra_source_columns": extra_columns,
+        },
+        "vector_validation": vector_validation,
+        "plot_candidates": [
+            {
+                "title": f"{measurement['label']}: {column['label']}",
+                "plot_kind": "component_pair_scatter",
+                "x_component": column["components"][0],
+                "y_component": column["components"][1],
+                "vector_column": column["name"],
+                "source": measurement["source_table"],
+            }
+            for column in vector_columns
+            if column["value_shape"] == [2] and len(column["components"]) == 2
+        ],
+        "warnings": [
+            {
+                "code": "extra_source_column",
+                "subject": extra_column,
+                "message": (
+                    "Source table contains an undeclared column. It is reported "
+                    "but not treated as plot metadata."
+                ),
+            }
+            for extra_column in extra_columns
+        ],
+        "boundary_notes": [
+            "Fixed-vector response shape is declared by fixture metadata, not schema inference.",
+            "The reader ndarray shape is a validated convenience view over fixed-shape per-row vectors, not a general array-column API.",
+            "Plot candidates are declared component-pair candidates only; no rendering, fit, uncertainty, or scientific validation is provided.",
+            "This fixture validates per-row vector parseability, fixed length, declared dtype coercion, and coordinate uniqueness only.",
+        ],
+        "decisions_not_earned": FIXED_VECTOR_DECISIONS_NOT_EARNED,
+    }
+
+
 def _generate_sidecar_summary(source: dict[str, Any], fixture_root: Path) -> dict[str, Any]:
     measurement = source["measurement"]
     data_shape = source["data_shape"]
@@ -803,6 +1165,8 @@ def generate_summary(fixture_root: Path) -> dict[str, Any]:
         return _generate_ragged_observed_summary(source, fixture_root)
     if kind == "trace_per_point_table":
         return _generate_trace_summary(source, fixture_root)
+    if kind == "fixed_vector_response_table":
+        return _generate_fixed_vector_summary(source, fixture_root)
     if kind == "sidecar_declared_table":
         return _generate_sidecar_summary(source, fixture_root)
     raise ValueError(f"unsupported scan data-shape fixture kind: {kind}")
@@ -1415,6 +1779,161 @@ def _generate_trace_review(summary: dict[str, Any]) -> str:
     return "\n".join(rows) + "\n"
 
 
+def _generate_fixed_vector_review(summary: dict[str, Any]) -> str:
+    measurement = summary["measurement"]
+    shape = summary["shape"]
+    validation = summary["column_validation"]
+    vector_validation = summary["vector_validation"]
+    rows = [
+        "# Expected Fixed-Vector Response Table Shape Review",
+        "",
+        "## Status",
+        "",
+        "Expected reviewer-facing output for the synthetic",
+        "`fixed_vector_response_table` fixture. This is not a storage schema,",
+        "plotting API, dataframe API, general ndarray API, or product contract.",
+        "",
+        "## Measurement",
+        "",
+        f"- measurement: `{measurement['measurement_id']}`",
+        f"- label: `{measurement['label']}`",
+        f"- target: `{measurement['target']}`",
+        f"- source kind: `{measurement['source_kind']}`",
+        f"- source table: `{measurement['source_table']}`",
+        "",
+        "## Declared Shape",
+        "",
+        f"- kind: `{shape['kind']}`",
+        f"- vector assumption: `{shape['vector_assumption']}`",
+        f"- axis order: {_format_list(shape['axis_order'])}",
+        f"- row count: `{shape['row_count']}`",
+        f"- duplicate coordinates: `{shape['duplicate_coordinates']}`",
+        f"- status: `{shape['status']}`",
+        "",
+        "## Axes And Vector Responses",
+        "",
+        "| Name | Label | Role | Unit |",
+        "| --- | --- | --- | --- |",
+    ]
+    for column in summary["declared_axes"]:
+        rows.append(f"| `{column['name']}` | {column['label']} | sweep axis | `{column['unit']}` |")
+    for column in summary["declared_vector_responses"]:
+        rows.append(
+            f"| `{column['name']}` | {column['label']} | vector response | `{column['unit']}` |"
+        )
+    rows.extend(["", "Held condition:", ""])
+    for condition in summary["held_conditions"]:
+        rows.append(
+            f"- {condition['label']}: `{_format_quantity(condition['value'])} "
+            f"{condition['unit']}` (`{condition['authority']}`)"
+        )
+    rows.extend(
+        [
+            "",
+            "## Column Validation",
+            "",
+            f"- status: `{validation['status']}`",
+            f"- declared columns: {_format_list(validation['declared_columns'])}",
+            f"- source columns: {_format_list(validation['source_columns'])}",
+            f"- missing declared columns: {_format_list(validation['missing_declared_columns'])}",
+            f"- missing shape columns: {_format_list(validation['missing_shape_columns'])}",
+            f"- undeclared shape columns: {_format_list(validation['undeclared_shape_columns'])}",
+            f"- invalid axis roles: {_format_list(validation['invalid_axis_roles'])}",
+            f"- invalid vector roles: {_format_list(validation['invalid_vector_roles'])}",
+            f"- extra source columns: {_format_list(validation['extra_source_columns'])}",
+            "",
+            "## Vector Validation",
+            "",
+            f"- status: `{vector_validation['status']}`",
+            f"- missing vector columns: {_format_list(vector_validation['declaration_validation']['missing_vector_columns'])}",
+            "- unsupported shape policies: "
+            f"{_format_fixed_vector_policy_failures(vector_validation['declaration_validation']['unsupported_shape_policies'])}",
+            "- unsupported value shapes: "
+            f"{_format_fixed_vector_shape_failures(vector_validation['declaration_validation']['unsupported_value_shapes'])}",
+            "",
+            "| Column | Shape | Dtype | Components | Reader ndarray shape | Observed lengths | Status |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+        ]
+    )
+    for vector_summary in vector_validation["column_summaries"]:
+        rows.append(
+            f"| `{vector_summary['name']}` | `{vector_summary['value_shape']}` | "
+            f"`{vector_summary['dtype']}` | {_format_list(vector_summary['components'])} | "
+            f"`{vector_summary['reader_ndarray_shape']}` | "
+            f"{_format_list(vector_summary['observed_lengths'])} | "
+            f"`{vector_summary['status']}` |"
+        )
+    rows.extend(
+        [
+            "",
+            "Failed cells:",
+            "",
+        ]
+    )
+    if vector_validation["failed_cells"]:
+        for failed_cell in vector_validation["failed_cells"]:
+            rows.append(
+                f"- row `{failed_cell['row_index']}` column `{failed_cell['column']}`: "
+                f"`{failed_cell['failure']}`"
+            )
+    else:
+        rows.append("- `none`")
+    rows.extend(
+        [
+            "",
+            "## Plot Candidates",
+            "",
+            "| Kind | Vector column | X component | Y component | Source | Boundary note |",
+            "| --- | --- | --- | --- | --- | --- |",
+        ]
+    )
+    for candidate in summary["plot_candidates"]:
+        rows.append(
+            f"| `{candidate['plot_kind']}` | `{candidate['vector_column']}` | "
+            f"`{candidate['x_component']}` | `{candidate['y_component']}` | "
+            f"`{candidate['source']}` | {summary['boundary_notes'][2]} |"
+        )
+    rows.extend(["", "## Warnings", ""])
+    if validation["extra_source_columns"]:
+        for extra_column in validation["extra_source_columns"]:
+            rows.extend(
+                [
+                    f"- `extra_source_column`: source table contains undeclared `{extra_column}`. It",
+                    "  is reported but not treated as plot metadata.",
+                ]
+            )
+    else:
+        rows.append("- `none`")
+    rows.extend(
+        [
+            "",
+            "## Boundary Notes",
+            "",
+            "- Fixed-vector response shape is declared by fixture metadata, not",
+            "  schema inference.",
+            "- The reader ndarray shape is a validated convenience view over",
+            "  fixed-shape per-row vectors, not a general array-column API.",
+            "- Plot candidates are declared component-pair candidates only; no",
+            "  rendering, fit, uncertainty, or scientific validation is provided.",
+            "- This fixture validates per-row vector parseability, fixed length,",
+            "  declared dtype coercion, and coordinate uniqueness only.",
+            "",
+            "## Reviewer Questions",
+            "",
+            "A reviewer should be able to answer:",
+            "",
+            "- which column carries the fixed-shape vector response;",
+            "- which components and dtype are declared for the vector values;",
+            "- whether every row satisfies the declared vector length;",
+            "- which reader ndarray shape can be exposed after validation;",
+            "- which conservative component-pair plot candidate is declared;",
+            "- that this fixture tests model adequacy, not arbitrary ndarray,",
+            "  waveform, matrix heatmap, dataframe, or storage-backend support.",
+        ]
+    )
+    return "\n".join(rows) + "\n"
+
+
 def generate_review(summary: dict[str, Any]) -> str:
     kind = summary["shape"]["kind"]
     if kind == "2d_grid_table":
@@ -1425,6 +1944,8 @@ def generate_review(summary: dict[str, Any]) -> str:
         return _generate_ragged_observed_review(summary)
     if kind == "trace_per_point_table":
         return _generate_trace_review(summary)
+    if kind == "fixed_vector_response_table":
+        return _generate_fixed_vector_review(summary)
     if kind == "sidecar_declared_table":
         return _generate_sidecar_review(summary)
     raise ValueError(f"unsupported scan data-shape summary kind: {kind}")

@@ -34,6 +34,8 @@ Current fixture pressures:
 - declared ragged/adaptive table with expected group counts;
 - observed-only ragged/adaptive table when expected group counts are unknown;
 - trace-per-point table with fixture-relative trace CSV references;
+- fixed-vector response table for compact fixed-shape per-row single-shot
+  values;
 - sidecar-declared weak 1D table pressure.
 
 All fixtures are synthetic and repository-safe. They intentionally use small
@@ -56,6 +58,10 @@ storage backend or plotting implementation:
 - trace-per-point declarations can bind outer scan coordinates to
   fixture-relative trace tables, validate reference shape and containment,
   summarize trace row counts, and describe trace-family plot candidates;
+- fixed-vector declarations can validate small fixed-shape per-row vector
+  values against declared `value_shape`, `dtype`, and `shape_policy`, then
+  report a reader ndarray-shaped convenience view without accepting a general
+  array API;
 - sidecar declarations can assign meaning to weak physical columns without
   trusting source headers as the semantic authority.
 
@@ -88,6 +94,16 @@ natively supports lists or structs. Native nested storage can hold richer
 values, but Scopecat still needs explicit metadata to answer what each axis,
 response, trace reference, completeness claim, and preview candidate means.
 
+The fixed-vector fixture is also concept validation. It validates a narrow
+small-vector contract for compact per-row responses, such as an IQ pair. It
+does not accept arbitrary ndarray columns, large waveforms, image-like arrays,
+matrix heatmaps, QST/QPT support, or pandas-like multi-index table behavior.
+
+Artifact visualization remains separately bounded in
+[`artifact-preview-boundary.md`](artifact-preview-boundary.md): arbitrary
+artifacts are stored or referenced by default, and only declared
+Scopecat-understood preview models should produce plot candidates.
+
 ## Result
 
 Scan/data-shape work is ready to serve as pressure evidence for preview-ready
@@ -108,12 +124,12 @@ specific consumer of the shape metadata.
 
 Likely follow-up slices should stay separate:
 
-- array-valued response fixture, without accepting a final nested storage
-  layout or array API;
 - trace fixture hardening for duplicate trace references, missing trace files,
   duplicate outer coordinates, or additional containment cases;
 - adapter-authored versions of harder shapes, without making legacy readers
   part of Scopecat core;
+- matrix heatmap analysis preview for QST/QPT-like outputs, only after a
+  matrix-specific table model earns its semantics;
 - preview compatibility findings across selected measurements, without
   accepting raw-data comparison or publication-grade plotting;
 - storage-backend mapping experiments, after shape vocabulary has repeated
