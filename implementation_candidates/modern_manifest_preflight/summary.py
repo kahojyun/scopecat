@@ -16,6 +16,7 @@ from typing import Any
 from implementation_candidates.modern_manifest_preflight.contracts import (
     POLICY_ATTENTION_MATRIX,
     ModernManifestPreflightContract,
+    normalize_dependency_group,
     path_is_relative,
     validate_modern_manifest_preflight_contract,
 )
@@ -25,7 +26,6 @@ DEPENDENCY_NAME_PREFIX = re.compile(
     r"^([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)(?:\s*(?:\[|[<>=!~;]|$))"
 )
 DIRECT_REFERENCE = re.compile(r"\s@\s")
-NORMALIZED_NAME_SEPARATOR = re.compile(r"[-_.]+")
 PYTHON_SPECIFIER = re.compile(
     r"^\s*(?P<operator>~=|==|!=|<=|>=|<|>)\s*"
     r"(?P<version>[0-9]+(?:\.[0-9]+)*(?:\.\*)?)\s*$"
@@ -86,13 +86,24 @@ def _preflight_manifest(
         )
     try:
         parsed = _parse_pyproject(target)
-    except tomllib.TOMLDecodeError:
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError):
         return (
             _parse_failed_manifest_summary(),
             [
                 _finding(
                     "manifest_parse_failed",
                     "Approved pyproject.toml could not be parsed as TOML.",
+                    "dependency_resolution_or_runtime_compatibility",
+                )
+            ],
+        )
+    except OSError:
+        return (
+            _read_failed_manifest_summary(),
+            [
+                _finding(
+                    "manifest_read_failed",
+                    "Approved pyproject.toml exists but could not be read for preflight.",
                     "dependency_resolution_or_runtime_compatibility",
                 )
             ],
@@ -168,6 +179,21 @@ def _parse_failed_manifest_summary() -> dict[str, Any]:
     }
 
 
+def _read_failed_manifest_summary() -> dict[str, Any]:
+    return {
+        "manifest_kind": "pyproject_toml",
+        "status": "read_failed",
+        "project_name": None,
+        "requires_python": None,
+        "requires_python_status": "read_failed",
+        "dependency_names": [],
+        "skipped_dependency_entry_count": 0,
+        "dependency_group_names": [],
+        "dependency_group_shapes": {},
+        "does_not_claim": "dependency_resolution_or_runtime_compatibility",
+    }
+
+
 def _manifest_findings(
     contract: ModernManifestPreflightContract, manifest_summary: dict[str, Any]
 ) -> list[dict[str, str]]:
@@ -191,7 +217,7 @@ def _manifest_findings(
                 )
             )
     for normalized_group, groups in _duplicate_normalized_dependency_groups(
-        manifest_summary["dependency_group_names"]
+        _all_manifest_dependency_group_names(manifest_summary)
     ).items():
         findings.append(
             _finding(
@@ -201,10 +227,10 @@ def _manifest_findings(
             )
         )
     manifest_groups = {
-        _normalize_dependency_group(group) for group in manifest_summary["dependency_group_names"]
+        normalize_dependency_group(group) for group in manifest_summary["dependency_group_names"]
     }
     for group in contract.request.expected_dependency_groups:
-        if _normalize_dependency_group(group) not in manifest_groups:
+        if normalize_dependency_group(group) not in manifest_groups:
             findings.append(
                 _finding(
                     "declared_dependency_group_missing",
@@ -225,19 +251,22 @@ def _dependency_group_shapes(dependency_groups: dict[str, Any]) -> dict[str, str
     return dict(sorted(output.items()))
 
 
-def _normalize_dependency_group(name: str) -> str:
-    return NORMALIZED_NAME_SEPARATOR.sub("-", name).lower()
-
-
 def _duplicate_normalized_dependency_groups(groups: list[str]) -> dict[str, list[str]]:
     by_normalized_name: dict[str, list[str]] = {}
     for group in groups:
-        by_normalized_name.setdefault(_normalize_dependency_group(group), []).append(group)
+        by_normalized_name.setdefault(normalize_dependency_group(group), []).append(group)
     return {
         normalized: sorted(group_names)
         for normalized, group_names in sorted(by_normalized_name.items())
         if len(group_names) > 1
     }
+
+
+def _all_manifest_dependency_group_names(manifest_summary: dict[str, Any]) -> list[str]:
+    groups = list(manifest_summary["dependency_group_shapes"])
+    if "default" in manifest_summary["dependency_group_names"]:
+        groups.append("default")
+    return sorted(groups)
 
 
 def _valid_requires_python(value: str | None) -> bool:
@@ -288,15 +317,15 @@ def _skipped_dependency_count(dependencies: Any) -> int:
 def _dependency_group_checks(
     contract: ModernManifestPreflightContract, manifest_summary: dict[str, Any]
 ) -> list[dict[str, str]]:
-    manifest_groups = {
-        _normalize_dependency_group(group) for group in manifest_summary["dependency_group_names"]
-    }
+    manifest_groups = _manifest_dependency_groups_by_normalized_name(manifest_summary)
     return [
         {
             "dependency_group": group,
+            "normalized_dependency_group": normalize_dependency_group(group),
+            "matched_manifest_groups": manifest_groups.get(normalize_dependency_group(group), []),
             "state": (
                 "declared_in_manifest"
-                if _normalize_dependency_group(group) in manifest_groups
+                if normalize_dependency_group(group) in manifest_groups
                 else "missing_from_manifest"
             ),
             "does_not_claim": "dependency_resolution_or_dependency_sync",
@@ -305,11 +334,22 @@ def _dependency_group_checks(
     ]
 
 
+def _manifest_dependency_groups_by_normalized_name(
+    manifest_summary: dict[str, Any],
+) -> dict[str, list[str]]:
+    output: dict[str, list[str]] = {}
+    for group in manifest_summary["dependency_group_names"]:
+        output.setdefault(normalize_dependency_group(group), []).append(group)
+    return {normalized: sorted(group_names) for normalized, group_names in sorted(output.items())}
+
+
 def _preflight_status(manifest_summary: dict[str, Any], findings: list[dict[str, str]]) -> str:
     if manifest_summary["status"] == "unavailable":
         return "manifest_unavailable_for_preflight"
     if manifest_summary["status"] == "parse_failed":
         return "manifest_parse_failed_for_preflight"
+    if manifest_summary["status"] == "read_failed":
+        return "manifest_read_failed_for_preflight"
     if findings:
         return "manifest_preflight_has_review_findings"
     return "manifest_preflight_passed_declared_checks"

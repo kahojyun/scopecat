@@ -104,16 +104,26 @@
     "dependency_group_checks": [
       {
         "dependency_group": "default",
+        "normalized_dependency_group": "default",
+        "matched_manifest_groups": [
+          "default"
+        ],
         "state": "declared_in_manifest",
         "does_not_claim": "dependency_resolution_or_dependency_sync"
       },
       {
         "dependency_group": "analysis",
+        "normalized_dependency_group": "analysis",
+        "matched_manifest_groups": [
+          "analysis"
+        ],
         "state": "declared_in_manifest",
         "does_not_claim": "dependency_resolution_or_dependency_sync"
       },
       {
         "dependency_group": "lab",
+        "normalized_dependency_group": "lab",
+        "matched_manifest_groups": [],
         "state": "missing_from_manifest",
         "does_not_claim": "dependency_resolution_or_dependency_sync"
       }

@@ -375,8 +375,9 @@ First fixture: an approved qA chevron preflight request with prepared run
 context, declared current `uv`/`pyproject.toml` environment reference,
 caller-provided workspace root, and declared `pyproject.toml` path, producing
 parsed manifest summary facts plus review findings for missing or malformed
-`requires-python`, malformed dependency-group values, normalized
-dependency-group-name collisions, and missing declared dependency groups.
+`requires-python`, read failures, malformed dependency-group values, normalized
+dependency-group-name collisions, missing declared dependency groups, and a
+synthetic `default` group only when `[project].dependencies` is list-shaped.
 
 Result owner:
 [`modern-manifest-preflight-validation-result.md`](modern-manifest-preflight-validation-result.md)

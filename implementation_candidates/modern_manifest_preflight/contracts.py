@@ -186,7 +186,8 @@ MODERN_PYTHON_ENVIRONMENT_KEYS = {
 }
 
 MANAGED_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]*$")
-DEPENDENCY_GROUP = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]*$")
+DEPENDENCY_GROUP = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")
+NORMALIZED_NAME_SEPARATOR = re.compile(r"[-_.]+")
 
 
 def path_is_relative(path: str) -> bool:
@@ -204,6 +205,10 @@ def path_is_relative(path: str) -> bool:
 
 def _is_pyproject_path(path: str) -> bool:
     return PurePosixPath(path).name == "pyproject.toml"
+
+
+def normalize_dependency_group(name: str) -> str:
+    return NORMALIZED_NAME_SEPARATOR.sub("-", name).lower()
 
 
 @dataclass(frozen=True)
@@ -479,7 +484,9 @@ class ModernManifestPreflightContract:
             raise ValueError("modern manifest preflight request must match declared pyproject path")
         if self.request.expected_manager != manifest.manager:
             raise ValueError("modern manifest preflight request must match declared manager")
-        if set(self.request.expected_dependency_groups) != set(manifest.dependency_groups):
+        if _normalized_group_set(self.request.expected_dependency_groups) != _normalized_group_set(
+            manifest.dependency_groups
+        ):
             raise ValueError(
                 "modern manifest preflight request dependency groups must match declared environment"
             )
@@ -531,13 +538,22 @@ def _required_group_list(value: Any) -> list[str]:
     if not isinstance(value, list) or not value:
         raise ValueError("dependency groups must be a non-empty list")
     groups = []
+    normalized_groups = []
     for group in value:
         if not isinstance(group, str) or not DEPENDENCY_GROUP.fullmatch(group):
             raise ValueError("dependency groups must be non-empty safe strings")
         if group in groups:
             raise ValueError(f"duplicate dependency group: {group}")
+        normalized_group = normalize_dependency_group(group)
+        if normalized_group in normalized_groups:
+            raise ValueError(f"duplicate normalized dependency group: {group}")
         groups.append(group)
+        normalized_groups.append(normalized_group)
     return groups
+
+
+def _normalized_group_set(groups: tuple[str, ...]) -> set[str]:
+    return {normalize_dependency_group(group) for group in groups}
 
 
 def _validate_root_display_label(value: str) -> None:

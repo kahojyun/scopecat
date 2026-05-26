@@ -303,6 +303,28 @@ class ModernManifestPreflightSummaryCandidateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "dependency groups"):
             build_modern_manifest_preflight_summary(source, workspace_root=WORKSPACE_ROOT)
 
+    def test_dependency_group_contract_alignment_uses_normalized_names(self) -> None:
+        source = _load_input()
+        source["preflight_request"]["expected_dependency_groups"] = [
+            "default",
+            "analysis-tools",
+        ]
+        source["declared_environment"]["modern_python_environment"]["dependency_groups"] = [
+            "Default",
+            "Analysis_Tools",
+        ]
+
+        contract = validate_modern_manifest_preflight_contract(source)
+
+        self.assertEqual(
+            contract.request.expected_dependency_groups,
+            ("default", "analysis-tools"),
+        )
+        self.assertEqual(
+            contract.declared_environment.modern_python_environment.dependency_groups,
+            ("Default", "Analysis_Tools"),
+        )
+
     def test_duplicate_dependency_groups_are_rejected(self) -> None:
         source = _load_input()
         source["declared_environment"]["modern_python_environment"]["dependency_groups"] = [
@@ -313,6 +335,25 @@ class ModernManifestPreflightSummaryCandidateTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "duplicate dependency group"):
             build_modern_manifest_preflight_summary(source, workspace_root=WORKSPACE_ROOT)
+
+        source = _load_input()
+        source["preflight_request"]["expected_dependency_groups"] = [
+            "default",
+            "analysis-tools",
+            "Analysis_Tools",
+        ]
+
+        with self.assertRaisesRegex(ValueError, "duplicate normalized dependency group"):
+            build_modern_manifest_preflight_summary(source, workspace_root=WORKSPACE_ROOT)
+
+    def test_contract_dependency_group_names_match_manifest_group_shape(self) -> None:
+        for group in ["analysis-", "group_", "lab:"]:
+            with self.subTest(group=group):
+                source = _load_input()
+                source["preflight_request"]["expected_dependency_groups"] = ["default", group]
+
+                with self.assertRaisesRegex(ValueError, "dependency groups"):
+                    build_modern_manifest_preflight_summary(source, workspace_root=WORKSPACE_ROOT)
 
     def test_nested_contract_shapes_are_exact(self) -> None:
         cases = [
@@ -529,11 +570,15 @@ class ModernManifestPreflightSummaryCandidateTest(unittest.TestCase):
             [
                 {
                     "dependency_group": "default",
+                    "normalized_dependency_group": "default",
+                    "matched_manifest_groups": ["default"],
                     "state": "declared_in_manifest",
                     "does_not_claim": "dependency_resolution_or_dependency_sync",
                 },
                 {
                     "dependency_group": "analysis-tools",
+                    "normalized_dependency_group": "analysis-tools",
+                    "matched_manifest_groups": ["Analysis_Tools"],
                     "state": "declared_in_manifest",
                     "does_not_claim": "dependency_resolution_or_dependency_sync",
                 },
@@ -579,6 +624,38 @@ class ModernManifestPreflightSummaryCandidateTest(unittest.TestCase):
             "declared_in_manifest",
         )
         self.assertEqual(summary["preflight_status"], "manifest_preflight_has_review_findings")
+
+    def test_dependency_group_collision_includes_malformed_values(self) -> None:
+        source = _load_input()
+        _set_expected_groups(source, ["default", "analysis-tools"])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            _write_pyproject(
+                root,
+                "\n".join(
+                    [
+                        "[project]",
+                        'name = "qa-chevron-calibration"',
+                        'requires-python = ">=3.11"',
+                        "dependencies = []",
+                        "",
+                        "[dependency-groups]",
+                        'analysis-tools = ["scipy>=1.11"]',
+                        'Analysis_Tools = "not a list"',
+                        "",
+                    ]
+                ),
+            )
+
+            summary = build_modern_manifest_preflight_summary(source, workspace_root=root)
+
+        finding_codes = [finding["code"] for finding in summary["preflight_findings"]]
+        self.assertIn("dependency_group_normalization_collision", finding_codes)
+        self.assertIn("dependency_group_malformed", finding_codes)
+        self.assertEqual(
+            summary["dependency_group_checks"][1]["matched_manifest_groups"],
+            ["analysis-tools"],
+        )
 
     def test_dependency_entry_summary_handles_markers_extras_duplicates_and_direct_refs(
         self,
@@ -717,6 +794,54 @@ class ModernManifestPreflightSummaryCandidateTest(unittest.TestCase):
         self.assertEqual(summary["preflight_status"], "manifest_parse_failed_for_preflight")
         self.assertEqual(summary["manifest_summary"]["status"], "parse_failed")
         self.assertEqual(summary["preflight_findings"][0]["code"], "manifest_parse_failed")
+        self.assertEqual(
+            summary["preflight_findings"][0]["does_not_claim"],
+            "dependency_resolution_or_runtime_compatibility",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project = root / "project"
+            project.mkdir()
+            (project / "pyproject.toml").write_bytes(b"\xff\xfe[project]\n")
+
+            summary = build_modern_manifest_preflight_summary(source, workspace_root=root)
+
+        self.assertEqual(summary["preflight_status"], "manifest_parse_failed_for_preflight")
+        self.assertEqual(summary["manifest_summary"]["status"], "parse_failed")
+        self.assertEqual(summary["preflight_findings"][0]["code"], "manifest_parse_failed")
+
+    def test_manifest_read_failure_is_review_finding_not_uncaught_io_error(self) -> None:
+        source = _load_input()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            _write_pyproject(
+                root,
+                "\n".join(
+                    [
+                        "[project]",
+                        'name = "qa-chevron-calibration"',
+                        'requires-python = ">=3.11"',
+                        "dependencies = []",
+                        "",
+                    ]
+                ),
+            )
+            manifest = root / "project" / "pyproject.toml"
+            original_open = Path.open
+
+            def guarded_open(path: Path, *args: object, **kwargs: object) -> object:
+                if path.resolve() == manifest.resolve():
+                    raise PermissionError("synthetic read failure")
+                return original_open(path, *args, **kwargs)
+
+            with mock.patch.object(Path, "open", guarded_open):
+                summary = build_modern_manifest_preflight_summary(source, workspace_root=root)
+
+        self.assertEqual(summary["preflight_status"], "manifest_read_failed_for_preflight")
+        self.assertEqual(summary["manifest_summary"]["status"], "read_failed")
+        self.assertEqual(summary["manifest_summary"]["requires_python_status"], "read_failed")
+        self.assertEqual(summary["preflight_findings"][0]["code"], "manifest_read_failed")
         self.assertEqual(
             summary["preflight_findings"][0]["does_not_claim"],
             "dependency_resolution_or_runtime_compatibility",

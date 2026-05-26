@@ -20,12 +20,13 @@ It can:
 - read only the declared `pyproject.toml` path under a caller-provided
   workspace root;
 - parse declared project metadata, simple dependency names, `requires-python`
-  syntax posture, and list-shaped dependency group names using stdlib
-  `tomllib`;
+  syntax posture, a synthetic `default` group from list-shaped
+  `[project].dependencies`, and list-shaped `[dependency-groups]` names using
+  stdlib `tomllib`;
 - compare declared dependency-group expectations with groups present in the
   manifest using normalized dependency-group names while preserving original
   names for review display;
-- report manifest unavailable, parse failed, missing or malformed
+- report manifest unavailable, read failed, parse failed, missing or malformed
   `requires-python`, malformed dependency-group values, normalized
   dependency-group-name collisions, and missing declared dependency-group
   review findings.

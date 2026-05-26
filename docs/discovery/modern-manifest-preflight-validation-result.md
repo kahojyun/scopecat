@@ -40,12 +40,18 @@ explicit prior context:
 
 The builder reads only the approved `pyproject.toml` path under the caller root.
 It parses declared project name, `requires-python`, simple dependency names,
-skipped unparsed dependency entries, and list-shaped dependency group names. It
+skipped unparsed dependency entries, a synthetic `default` group from
+list-shaped `[project].dependencies`, and list-shaped `[dependency-groups]`
+names. Non-list `[project].dependencies` does not declare `default`. It
 compares declared dependency-group expectations with groups present in the
 manifest using normalized dependency-group names while preserving original
-names for review display, and reports missing or malformed `requires-python`,
-malformed dependency-group values, normalized dependency-group-name collisions,
-and missing declared groups as review findings.
+names for review display, and reports unavailable manifests, read failures,
+malformed manifests, missing or malformed `requires-python`, malformed
+dependency-group values, normalized dependency-group-name collisions, and
+missing declared groups as review findings.
+Dependency-group check rows carry the requested spelling, normalized name, and
+matched manifest group spelling so review consumers do not need to compare raw
+display strings.
 
 It does not read lockfiles, resolve dependencies, run `uv`, synchronize package
 state, install packages, inspect runtimes, import selected code, execute
@@ -57,8 +63,8 @@ shape, explicit approved operation, repository-safe managed identifiers,
 non-path workspace-root label, prepared-context scope alignment, declared
 environment alignment, declared `uv` manager, declared `pyproject.toml` path,
 relative path syntax, exact non-operational claim shape, expected dependency
-groups, and policy attention boundaries. This is not a shared environment
-schema.
+groups with normalized comparison between request and declared environment, and
+policy attention boundaries. This is not a shared environment schema.
 
 ## What This Earned
 
@@ -70,10 +76,11 @@ parsing, dependency resolution, dependency sync, or package installation:
   projection;
 - read exactly one declared `pyproject.toml` path under a caller-provided root;
 - parse only declared manifest summary facts with stdlib `tomllib`;
+- derive `default` only from list-shaped `[project].dependencies`;
 - compare manifest dependency groups with declared expectations using
   normalized dependency-group names;
-- report unavailable manifests, malformed manifests, missing or malformed
-  `requires-python`, malformed dependency-group values, normalized
+- report unavailable manifests, read failures, malformed manifests, missing or
+  malformed `requires-python`, malformed dependency-group values, normalized
   dependency-group-name collisions, and missing-group review findings;
 - keep lockfile parsing, dependency resolution, dependency sync, package
   installation, runtime probing, code import, code execution, hardware probing,
