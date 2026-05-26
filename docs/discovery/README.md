@@ -79,6 +79,7 @@ supporting policy notes. The current slice inventory is:
 | Environment comparison findings | Experiment code context | Implementation candidate validated | Side-effect-free comparison of selected-reference and current declared environment facts, including same-declared, changed, missing, unverified, and unsupported findings without reading manifests or lockfiles, resolving or syncing dependencies, probing runtime or hardware, importing code, executing code, or claiming runnable readiness. |
 | Environment file observation | Experiment code context | Implementation candidate validated | Read-only observation for explicitly declared environment files under a caller-provided workspace root, including sha256, size, unavailable, mismatch, malformed-manifest, and narrow `pyproject.toml` summary facts without workspace discovery, lockfile parsing, dependency resolution or sync, runtime probes, code import or execution, hardware checks, or runnable-readiness claims. |
 | Environment review bundle | Experiment code context | Implementation candidate validated | Composition summary for prepared/rerun context, declared environment comparison, file observation, and readiness-plan findings without fresh file reads, dependency resolution, dependency sync, package installation, runtime probes, code import or execution, hardware checks, shared environment schema, managed runners, run-blocking decisions, or runnable-readiness claims. |
+| Modern manifest preflight | Experiment code context | Implementation candidate validated | Approved read of one declared `pyproject.toml` under a caller-provided workspace root, summarizing declared project, `requires-python`, dependency name, skipped dependency entry, and dependency-group facts without lockfile parsing, dependency resolution, dependency sync, package installation, runtime probes, code import or execution, hardware checks, shared environment schema, managed runners, run-blocking decisions, or runnable-readiness claims. |
 | Setup binding | Setup binding | Implementation candidate validated | Side-effect-free setup-binding summary for explicit setup-binding snapshots, simple diffs, station-registry references, generated line/readout views, and measurement input references while keeping parameter state, station management, generator execution, and hardware control separate. |
 | Calibration work continuation | Calibration continuation | Assembler candidate validated | Continuation-state assembly for planned steps, observed outputs, review gates, proposed writes, blocked steps, and interventions without executor, scheduler, write-back, or GUI ownership. |
 | Selected reference comparison | Selected reference comparison | Implementation candidate validated | Side-effect-free context-comparison summary against a user-selected reference, including declared preview metadata, named input snapshots, selected artifacts, declared facts, and recorded-code context without user judgment, raw-data comparison, fit-quality comparison, setup truth, restore, execution, semantic source diff, or cause attribution. |
@@ -458,6 +459,7 @@ perform schema migration.
 | [`environment-comparison-validation-result.md`](environment-comparison-validation-result.md) | Result of the first declared environment comparison fixture and implementation candidate. |
 | [`environment-file-observation-validation-result.md`](environment-file-observation-validation-result.md) | Result of the first explicit declared environment file observation fixture and implementation candidate. |
 | [`environment-review-bundle-validation-result.md`](environment-review-bundle-validation-result.md) | Result of the first environment review bundle composition fixture and implementation candidate. |
+| [`modern-manifest-preflight-validation-result.md`](modern-manifest-preflight-validation-result.md) | Result of the first approved modern manifest preflight fixture and implementation candidate. |
 
 The canonical Experiment Code Context candidate-slice backlog lives in
 [`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md).
@@ -500,7 +502,12 @@ should earn stronger claims:
     environment comparison, file observation, and readiness-plan summaries into
     one review surface before dependency resolution, dependency sync, package
     installation, runtime check, shared environment schema, managed runner,
-    run-blocking decision, or runnable-readiness claim.
+    run-blocking decision, or runnable-readiness claim;
+12. modern manifest preflight: read one explicitly approved `pyproject.toml`
+    manifest under a caller-provided workspace root before lockfile parsing,
+    dependency resolution, dependency sync, package installation, runtime
+    checks, shared environment schema, managed runner, run-blocking decision,
+    or runnable-readiness claim.
 
 The comparison work is a fixture family, not one slice. The first
 recorded-to-managed declared-fact comparison is validated in
@@ -596,6 +603,18 @@ review bundle. It leaves fresh observation, dependency resolution, dependency
 sync, package installation, runtime probes, hardware checks, code import or
 execution, shared environment schema, managed runners, run-blocking decisions,
 and runnable-readiness claims out of scope.
+
+The first modern manifest preflight candidate is validated in
+[`modern-manifest-preflight-validation-result.md`](modern-manifest-preflight-validation-result.md).
+It reads one explicitly approved `pyproject.toml` path under a caller-provided
+workspace root and summarizes declared project, `requires-python`, dependency
+name, skipped dependency entry, and dependency-group facts. It compares
+declared dependency-group expectations with manifest groups and reports missing
+or malformed `requires-python`, malformed dependency-group values, and missing
+groups as review findings. It leaves lockfile parsing, dependency resolution,
+dependency sync, package installation, runtime probes, hardware checks, code
+import or execution, shared environment schema, managed runners, run-blocking
+decisions, and runnable-readiness claims out of scope.
 
 Do not validate "select a code version at run start" by itself. Selection
 becomes useful only when it prepares a run context, supports a reference-based

@@ -1,0 +1,73 @@
+{
+  "modern_manifest_preflight_policy": {
+    "summary_policy": "review_summary",
+    "preflight_authority": "approved_modern_manifest_preflight",
+    "workspace_root_authority": "caller_provided_workspace_root_plus_declared_manifest_path",
+    "manifest_read": "approved_pyproject_toml_only",
+    "lockfile_read": "not_performed",
+    "dependency_resolution": "not_performed",
+    "dependency_sync": "not_performed",
+    "package_install": "not_performed",
+    "runtime_probe": "not_performed",
+    "code_import_execution": "not_performed",
+    "hardware_probe": "not_performed",
+    "readiness_claim": "not_claimed",
+    "shared_environment_schema": "not_defined"
+  },
+  "preflight_request": {
+    "request_id": "modern-manifest-preflight-chevron-qA-0001",
+    "approval_id": "approval-chevron-qA-manifest-preflight-0001",
+    "approved_operation": "modern_manifest_preflight",
+    "workspace_root_label": "fixture-workspace",
+    "declared_environment_id": "declared-environment-chevron-qA-current",
+    "prepared_run_context_id": "prepared-run-context-chevron-qA-current",
+    "manifest_path": "project/pyproject.toml",
+    "expected_manager": "uv",
+    "expected_dependency_groups": [
+      "default",
+      "analysis",
+      "lab"
+    ]
+  },
+  "prepared_run_context": {
+    "prepared_run_context_id": "prepared-run-context-chevron-qA-current",
+    "label": "qA chevron current manual run context",
+    "scope": {
+      "managed_code_version_id": "managed-code-version-chevron-qA-current",
+      "editable_workspace_id": "editable-workspace-chevron-qA-current",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-current"
+    },
+    "selected_context_count": 7,
+    "preparation_claim": "manual_run_context_only"
+  },
+  "declared_environment": {
+    "environment_id": "declared-environment-chevron-qA-current",
+    "label": "qA chevron current declared environment",
+    "authority": "user_declared_inventory",
+    "record_status": "declared_with_review_findings",
+    "scope": {
+      "managed_code_version_id": "managed-code-version-chevron-qA-current",
+      "editable_workspace_id": "editable-workspace-chevron-qA-current",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-current"
+    },
+    "environment_claims": {
+      "readiness_claim": "not_checked",
+      "sync_claim": "not_synced",
+      "execution_claim": "not_imported_loaded_or_executed",
+      "hardware_claim": "not_probed"
+    },
+    "modern_python_environment": {
+      "environment_ref": "modern-python-env-chevron-qA-current",
+      "manager": "uv",
+      "pyproject_path": "project/pyproject.toml",
+      "lockfile_path": "project/uv.lock",
+      "dependency_groups": [
+        "default",
+        "analysis",
+        "lab"
+      ],
+      "python_version_source": "requires-python",
+      "manifest_state": "declared"
+    }
+  }
+}

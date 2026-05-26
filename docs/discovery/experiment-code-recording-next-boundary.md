@@ -129,6 +129,10 @@ Validation should follow authority boundaries more strictly than user adoption:
     resolution, dependency sync, package installation, runtime checks, shared
     environment schema, managed runners, run-blocking decisions, or
     runnable-readiness claims.
+12. Validate approved modern manifest preflight before treating a declared
+    `pyproject.toml` as dependency resolution, dependency sync, package
+    installation, runtime compatibility, run-blocking, or runnable-readiness
+    evidence.
 
 ## Validation Slice Backlog
 
@@ -355,6 +359,32 @@ Boundary: no fresh file reads, dependency resolution, dependency sync, package
 installation, runtime probes, hardware probes, code import, code execution,
 shared environment schema, managed runner, run-blocking decision, or
 runnable-readiness claim.
+
+### 12. Modern Manifest Preflight
+
+Validation question: can Scopecat read one explicitly approved modern
+`pyproject.toml` manifest and summarize declared manifest facts without
+performing lockfile parsing, dependency resolution, dependency sync, or package
+installation?
+
+User pressure: users approving a later environment operation need to know
+whether the current manifest is readable and whether declared dependency-group
+expectations appear in the manifest before any dependency resolution or sync is
+approved.
+
+First fixture: an approved qA chevron preflight request with prepared run
+context, declared current `uv` environment context, caller-provided workspace
+root, and declared `pyproject.toml` path, producing parsed manifest summary
+facts plus review findings for missing or malformed `requires-python`,
+malformed dependency-group values, and missing declared dependency groups.
+
+Result owner:
+[`modern-manifest-preflight-validation-result.md`](modern-manifest-preflight-validation-result.md)
+
+Boundary: one approved `pyproject.toml` read only; no lockfile parsing,
+dependency resolution, dependency sync, package installation, runtime probes,
+hardware probes, code import, code execution, shared environment schema,
+managed runner, run-blocking decision, or runnable-readiness claim.
 
 All slices should keep code execution separate from code record integrity and
 environment planning until an explicit execution slice earns that authority.

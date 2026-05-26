@@ -1,0 +1,1 @@
+poison = "valid TOML-shaped lockfile fixture; manifest preflight must not read this file"
