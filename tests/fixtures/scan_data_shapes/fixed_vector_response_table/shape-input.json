@@ -1,5 +1,7 @@
 {
   "fixture_id": "fixed_vector_response_table",
+  "fixture_status": "synthetic_public_safe",
+  "validation_goal": "Check whether a declared fixed-shape per-row vector response can expose a reader ndarray shape without implying a general ndarray or storage API.",
   "measurement": {
     "measurement_id": "synthetic-single-shot-iq-001",
     "label": "Synthetic Single-Shot IQ",
@@ -56,5 +58,19 @@
       "unit": "ns",
       "authority": "fixture declaration"
     }
-  ]
+  ],
+  "validation_boundary": {
+    "validated": [
+      "declared vector column exists in source table",
+      "per-row vector cells parse as lists",
+      "per-row vector length matches declared value shape",
+      "reader ndarray shape is derived after validation"
+    ],
+    "not_validated": [
+      "native list or struct backend mapping",
+      "general ndarray API",
+      "plot rendering",
+      "scientific validity"
+    ]
+  }
 }

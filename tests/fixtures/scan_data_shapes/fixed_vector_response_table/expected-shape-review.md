@@ -52,6 +52,8 @@ Held condition:
 - missing vector columns: `none`
 - unsupported shape policies: `none`
 - unsupported value shapes: `none`
+- unsupported dtypes: `none`
+- unsupported components: `none`
 - unsupported complex logical values: `none`
 
 | Column | Shape | Dtype | Components | Reader ndarray shape | Observed lengths | Status |

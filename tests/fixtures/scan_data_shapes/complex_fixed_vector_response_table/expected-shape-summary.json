@@ -66,6 +66,8 @@
       "invalid_vector_roles": [],
       "unsupported_shape_policies": [],
       "unsupported_value_shapes": [],
+      "unsupported_dtypes": [],
+      "unsupported_components": [],
       "unsupported_complex_logical_values": [],
       "missing_vector_columns": []
     },

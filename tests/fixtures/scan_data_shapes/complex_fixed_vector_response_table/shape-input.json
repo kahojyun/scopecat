@@ -1,5 +1,7 @@
 {
   "fixture_id": "complex_fixed_vector_response_table",
+  "fixture_status": "synthetic_public_safe",
+  "validation_goal": "Check whether a declared two-component vector can carry complex logical metadata without accepting a primitive complex storage type or transform engine.",
   "measurement": {
     "measurement_id": "synthetic-complex-iq-001",
     "label": "Synthetic Complex IQ",
@@ -63,5 +65,20 @@
       "unit": "GHz",
       "authority": "fixture declaration"
     }
-  ]
+  ],
+  "validation_boundary": {
+    "validated": [
+      "declared complex vector column exists in source table",
+      "per-row vector cells parse as two numeric components",
+      "logical real and imaginary components are declared",
+      "derived logical views are declared as metadata only"
+    ],
+    "not_validated": [
+      "complex primitive storage type",
+      "native complex backend mapping",
+      "general transform engine",
+      "plot rendering",
+      "scientific validity"
+    ]
+  }
 }

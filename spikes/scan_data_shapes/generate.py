@@ -95,6 +95,7 @@ COMPLEX_FIXED_VECTOR_DECISIONS_NOT_EARNED = [
 ]
 
 FIXED_VECTOR_SHAPE_POLICY = "fixed_per_row"
+SUPPORTED_VECTOR_DTYPES = {"float64", "float32", "int64", "int32"}
 SUPPORTED_COMPLEX_LOGICAL_TYPES = {"complex64", "complex128"}
 COMPLEX_LOGICAL_STORAGE_DTYPES = {
     "complex64": "float32",
@@ -155,6 +156,18 @@ def _format_fixed_vector_shape_failures(values: list[dict[str, Any]]) -> str:
     if not values:
         return "`none`"
     return ", ".join(f"`{item['column']}={item['value_shape']}`" for item in values)
+
+
+def _format_fixed_vector_dtype_failures(values: list[dict[str, Any]]) -> str:
+    if not values:
+        return "`none`"
+    return ", ".join(f"`{item['column']}={item['dtype']}`" for item in values)
+
+
+def _format_fixed_vector_component_failures(values: list[dict[str, Any]]) -> str:
+    if not values:
+        return "`none`"
+    return ", ".join(f"`{item['column']}={item['failure']}`" for item in values)
 
 
 def _format_complex_logical_failures(values: list[dict[str, Any]]) -> str:
@@ -274,6 +287,27 @@ def _is_supported_fixed_vector_shape(value_shape: Any) -> bool:
     )
 
 
+def _fixed_vector_expected_length(value_shape: list[int]) -> int:
+    expected_length = 1
+    for dimension in value_shape:
+        expected_length *= dimension
+    return expected_length
+
+
+def _component_validation_failure(column: dict[str, Any]) -> str | None:
+    components = column.get("components")
+    value_shape = column.get("value_shape")
+    if not isinstance(components, list):
+        return "components_not_list"
+    if not all(isinstance(component, str) for component in components):
+        return "component_not_string"
+    if _is_supported_fixed_vector_shape(value_shape) and len(
+        components
+    ) != _fixed_vector_expected_length(value_shape):
+        return "component_count_mismatch"
+    return None
+
+
 def _complex_logical_validation_failure(
     column: dict[str, Any], *, requires_logical_value: bool
 ) -> str | None:
@@ -342,6 +376,24 @@ def _fixed_vector_declaration_validation(
         for column in vector_columns
         if not _is_supported_fixed_vector_shape(column.get("value_shape"))
     ]
+    unsupported_dtypes = [
+        {
+            "column": column["name"],
+            "dtype": column.get("dtype"),
+        }
+        for column in vector_columns
+        if column.get("dtype") not in SUPPORTED_VECTOR_DTYPES
+    ]
+    unsupported_components = [
+        {
+            "column": column["name"],
+            "failure": failure,
+            "components": column.get("components"),
+        }
+        for column in vector_columns
+        for failure in [_component_validation_failure(column)]
+        if failure is not None
+    ]
     unsupported_complex_logical_values = [
         {
             "column": column["name"],
@@ -366,6 +418,8 @@ def _fixed_vector_declaration_validation(
         + len(invalid_vector_roles)
         + len(unsupported_shape_policies)
         + len(unsupported_value_shapes)
+        + len(unsupported_dtypes)
+        + len(unsupported_components)
         + len(unsupported_complex_logical_values)
         + len(missing_vector_columns)
     )
@@ -375,6 +429,8 @@ def _fixed_vector_declaration_validation(
         "invalid_vector_roles": invalid_vector_roles,
         "unsupported_shape_policies": unsupported_shape_policies,
         "unsupported_value_shapes": unsupported_value_shapes,
+        "unsupported_dtypes": unsupported_dtypes,
+        "unsupported_components": unsupported_components,
         "unsupported_complex_logical_values": unsupported_complex_logical_values,
         "missing_vector_columns": missing_vector_columns,
     }
@@ -399,7 +455,7 @@ def _parse_fixed_vector_cell(value: Any) -> tuple[str, list[Any]]:
 
 
 def _vector_matches_dtype(values: list[Any], dtype: str) -> bool:
-    if dtype not in {"float64", "float32", "int64", "int32"}:
+    if dtype not in SUPPORTED_VECTOR_DTYPES:
         return False
     for value in values:
         if isinstance(value, bool):
@@ -435,9 +491,7 @@ def _fixed_vector_validation(
     for column in vector_columns:
         name = column["name"]
         value_shape = column["value_shape"]
-        expected_length = 1
-        for dimension in value_shape:
-            expected_length *= dimension
+        expected_length = _fixed_vector_expected_length(value_shape)
         row_count = 0
         observed_lengths: list[int] = []
         parse_failures = 0
@@ -537,6 +591,20 @@ def _is_contained_regular_file(root: Path, candidate: Path) -> bool:
     )
 
 
+def _read_fixture_csv_table(
+    fixture_root: Path, source_ref: Any
+) -> tuple[list[str], list[dict[str, str]]]:
+    if not _is_fixture_relative_ref(source_ref):
+        return [], []
+    source_path = fixture_root / source_ref
+    if not _is_contained_regular_file(fixture_root, source_path):
+        return [], []
+    try:
+        return read_csv_table(source_path)
+    except (OSError, UnicodeDecodeError, csv.Error):
+        return [], []
+
+
 def _grid_status(
     *,
     axis_order: list[str],
@@ -622,7 +690,7 @@ def _ragged_group_point_counts(
 def _generate_2d_grid_summary(source: dict[str, Any], fixture_root: Path) -> dict[str, Any]:
     measurement = source["measurement"]
     data_shape = source["data_shape"]
-    source_columns, rows = read_csv_table(fixture_root / measurement["source_table"])
+    source_columns, rows = _read_fixture_csv_table(fixture_root, measurement["source_table"])
 
     declared_columns = source["declared_columns"]
     declared_names = _column_names(declared_columns)
@@ -682,12 +750,13 @@ def _generate_2d_grid_summary(source: dict[str, Any], fixture_root: Path) -> dic
         "warnings": [
             {
                 "code": "extra_source_column",
-                "subject": extra_columns[0] if extra_columns else None,
+                "subject": extra_column,
                 "message": (
                     "Source table contains an undeclared column. It is reported "
                     "but not treated as plot metadata."
                 ),
-            },
+            }
+            for extra_column in extra_columns
         ],
         "boundary_notes": [
             "The 2D grid shape comes from fixture declaration, not schema inference.",
@@ -701,7 +770,7 @@ def _generate_2d_grid_summary(source: dict[str, Any], fixture_root: Path) -> dic
 def _generate_ragged_summary(source: dict[str, Any], fixture_root: Path) -> dict[str, Any]:
     measurement = source["measurement"]
     data_shape = source["data_shape"]
-    source_columns, rows = read_csv_table(fixture_root / measurement["source_table"])
+    source_columns, rows = _read_fixture_csv_table(fixture_root, measurement["source_table"])
 
     declared_columns = source["declared_columns"]
     declared_names = _column_names(declared_columns)
@@ -803,7 +872,7 @@ def _generate_ragged_summary(source: dict[str, Any], fixture_root: Path) -> dict
 def _generate_ragged_observed_summary(source: dict[str, Any], fixture_root: Path) -> dict[str, Any]:
     measurement = source["measurement"]
     data_shape = source["data_shape"]
-    source_columns, rows = read_csv_table(fixture_root / measurement["source_table"])
+    source_columns, rows = _read_fixture_csv_table(fixture_root, measurement["source_table"])
 
     declared_columns = source["declared_columns"]
     declared_names = _column_names(declared_columns)
@@ -893,7 +962,7 @@ def _generate_ragged_observed_summary(source: dict[str, Any], fixture_root: Path
 def _generate_trace_summary(source: dict[str, Any], fixture_root: Path) -> dict[str, Any]:
     measurement = source["measurement"]
     data_shape = source["data_shape"]
-    source_columns, rows = read_csv_table(fixture_root / measurement["source_table"])
+    source_columns, rows = _read_fixture_csv_table(fixture_root, measurement["source_table"])
 
     declared_columns = source["declared_columns"]
     declared_names = _column_names(declared_columns)
@@ -960,7 +1029,21 @@ def _generate_trace_summary(source: dict[str, Any], fixture_root: Path) -> dict[
             )
             continue
 
-        trace_columns, trace_rows = read_csv_table(trace_path)
+        try:
+            trace_columns, trace_rows = read_csv_table(trace_path)
+        except (OSError, UnicodeDecodeError, csv.Error):
+            missing_trace_files.append(trace_ref)
+            trace_summaries.append(
+                {
+                    "outer_coordinate": outer_coordinate,
+                    "trace_ref": trace_ref,
+                    "status": "missing",
+                    "row_count": None,
+                    "columns": [],
+                    "missing_trace_columns": required_trace_columns,
+                }
+            )
+            continue
         missing_trace_columns = [
             column for column in required_trace_columns if column not in trace_columns
         ]
@@ -1063,7 +1146,7 @@ def _generate_trace_summary(source: dict[str, Any], fixture_root: Path) -> dict[
 def _generate_fixed_vector_summary(source: dict[str, Any], fixture_root: Path) -> dict[str, Any]:
     measurement = source["measurement"]
     data_shape = source["data_shape"]
-    source_columns, rows = read_csv_table(fixture_root / measurement["source_table"])
+    source_columns, rows = _read_fixture_csv_table(fixture_root, measurement["source_table"])
 
     declared_columns = source["declared_columns"]
     declared_names = _column_names(declared_columns)
@@ -1207,7 +1290,7 @@ def _generate_fixed_vector_summary(source: dict[str, Any], fixture_root: Path) -
 def _generate_sidecar_summary(source: dict[str, Any], fixture_root: Path) -> dict[str, Any]:
     measurement = source["measurement"]
     data_shape = source["data_shape"]
-    physical_columns, rows = read_csv_table(fixture_root / measurement["source_table"])
+    physical_columns, rows = _read_fixture_csv_table(fixture_root, measurement["source_table"])
     column_mapping = source["column_mapping"]
     mapped_physical_names = [column["physical_name"] for column in column_mapping]
     declared_names = [column["declared_name"] for column in column_mapping]
@@ -1221,9 +1304,13 @@ def _generate_sidecar_summary(source: dict[str, Any], fixture_root: Path) -> dic
         if not missing_physical and has_unique_names and has_axis and has_response
         else "fail"
     )
-    sweep_axis = next(column for column in column_mapping if column["role"] == "sweep_axis")
+    sweep_axis = next(
+        (column for column in column_mapping if column["role"] == "sweep_axis"),
+        None,
+    )
     measured_response = next(
-        column for column in column_mapping if column["role"] == "measured_response"
+        (column for column in column_mapping if column["role"] == "measured_response"),
+        None,
     )
 
     return {
@@ -1247,15 +1334,19 @@ def _generate_sidecar_summary(source: dict[str, Any], fixture_root: Path) -> dic
             "missing_physical_columns": missing_physical,
             "unmapped_physical_columns": unmapped_physical,
         },
-        "plot_candidates": [
-            {
-                "title": f"{measurement['label']}: {measured_response['label']}",
-                "x": sweep_axis["declared_name"],
-                "y": measured_response["declared_name"],
-                "source": measurement["source_table"],
-                "metadata_source": measurement["metadata_source"],
-            }
-        ],
+        "plot_candidates": (
+            [
+                {
+                    "title": f"{measurement['label']}: {measured_response['label']}",
+                    "x": sweep_axis["declared_name"],
+                    "y": measured_response["declared_name"],
+                    "source": measurement["source_table"],
+                    "metadata_source": measurement["metadata_source"],
+                }
+            ]
+            if sweep_axis is not None and measured_response is not None
+            else []
+        ),
         "warnings": [
             {
                 "code": "legacy_source_weak_labels",
@@ -1367,13 +1458,19 @@ def _generate_2d_grid_review(summary: dict[str, Any]) -> str:
             f"| `{candidate['x']}` | `{candidate['y']}` | `{candidate['z']}` | "
             f"`{candidate['source']}` | {summary['boundary_notes'][1]} |"
         )
+    rows.extend(["", "## Warnings", ""])
+    if validation["extra_source_columns"]:
+        for extra_column in validation["extra_source_columns"]:
+            rows.extend(
+                [
+                    f"- `extra_source_column`: source table contains undeclared `{extra_column}`. It",
+                    "  is reported but not treated as plot metadata.",
+                ]
+            )
+    else:
+        rows.append("- `none`")
     rows.extend(
         [
-            "",
-            "## Warnings",
-            "",
-            f"- `extra_source_column`: source table contains undeclared `{validation['extra_source_columns'][0]}`. It",
-            "  is reported but not treated as plot metadata.",
             "",
             "## Boundary Notes",
             "",
@@ -1971,6 +2068,10 @@ def _generate_fixed_vector_review(summary: dict[str, Any]) -> str:
             f"{_format_fixed_vector_policy_failures(vector_validation['declaration_validation']['unsupported_shape_policies'])}",
             "- unsupported value shapes: "
             f"{_format_fixed_vector_shape_failures(vector_validation['declaration_validation']['unsupported_value_shapes'])}",
+            "- unsupported dtypes: "
+            f"{_format_fixed_vector_dtype_failures(vector_validation['declaration_validation']['unsupported_dtypes'])}",
+            "- unsupported components: "
+            f"{_format_fixed_vector_component_failures(vector_validation['declaration_validation']['unsupported_components'])}",
             "- unsupported complex logical values: "
             f"{_format_complex_logical_failures(vector_validation['declaration_validation']['unsupported_complex_logical_values'])}",
             "",
