@@ -178,6 +178,13 @@ class MeasurementReadView:
         return self._measurement["primary_data"]["package_path"]
 
     @property
+    def declared_preview_columns(self) -> tuple[dict[str, str], ...]:
+        return tuple(
+            copy.deepcopy(column)
+            for column in self._measurement["declared_preview"]["declared_columns"]
+        )
+
+    @property
     def integrity_check(self) -> str:
         return self._measurement["primary_data"]["integrity_check"]
 

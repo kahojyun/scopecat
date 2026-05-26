@@ -53,6 +53,15 @@ class HandoffPackageReadViewCandidateTest(unittest.TestCase):
         self.assertEqual(measurement.label, "Rabi calibration follow-up")
         self.assertEqual(measurement.experiment_type, "rabi")
         self.assertEqual(measurement.target, "qA")
+        self.assertEqual(
+            measurement.declared_preview_columns[0],
+            {
+                "name": "drive_frequency",
+                "label": "Drive frequency",
+                "role": "sweep_axis",
+                "unit": "GHz",
+            },
+        )
 
     def test_reader_gets_table_like_primary_data_without_dataframe_dependency(self) -> None:
         measurement = open_handoff_package_view(PACKAGE).measurement("legacy-rabi-001")
