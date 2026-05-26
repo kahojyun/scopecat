@@ -23,6 +23,7 @@ relation graph, or warning taxonomy.
 - [`handoff-package-opener-validation-result.md`](handoff-package-opener-validation-result.md)
 - [`handoff-package-read-view-validation-result.md`](handoff-package-read-view-validation-result.md)
 - [`handoff-package-writer-validation-result.md`](handoff-package-writer-validation-result.md)
+- [`handoff-package-round-trip-validation-result.md`](handoff-package-round-trip-validation-result.md)
 - [`contract-primitives-validation-result.md`](contract-primitives-validation-result.md)
 - [`adapter-authored-legacy-import-validation-result.md`](adapter-authored-legacy-import-validation-result.md)
 - [`legacy-import-acceptance-validation-result.md`](legacy-import-acceptance-validation-result.md)
@@ -231,6 +232,19 @@ rejects empty selected-measurement packages and package roots equal to or inside
 measurement storage, while still leaving arbitrary nested package paths,
 archive creation, package import acceptance, recursive linked-context capture,
 shared measurement schema, schema inference, and GUI behavior out of scope.
+
+Handoff package round trip has the first producer-to-reader compatibility
+candidate over the current directory package route. It writes a package through
+the writer, previews the generated manifest, opens the generated package
+through the read-view wrapper, and verifies reader-facing access to package
+identity, selected measurements, primary and preview table facts, declared plot
+series, and linked-context findings. It separately reports the writer receipt
+posture as local-only review data. This differs from the measurement-record
+handoff flow composition: the earlier composition checks semantic continuity
+across accepted-record and package-preview facts, while the round trip checks
+the generated package artifact itself. It does not accept package import,
+archive behavior, receiving-side integrity verification, dataframe adapters,
+GUI behavior, final package format, or a shared measurement model.
 
 Contract primitives now have a narrow support candidate because the writer and
 composition work repeatedly needed the same low-level checks for managed
