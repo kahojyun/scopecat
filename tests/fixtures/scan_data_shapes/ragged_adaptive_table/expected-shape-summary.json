@@ -82,6 +82,8 @@
       "operator_note"
     ],
     "missing_declared_columns": [],
+    "missing_shape_columns": [],
+    "undeclared_shape_columns": [],
     "extra_source_columns": [
       "operator_note"
     ]
@@ -119,8 +121,11 @@
   ],
   "decisions_not_earned": [
     "final storage schema",
+    "shared data-shape schema",
     "general dataframe API",
+    "legacy importer",
     "plot rendering",
+    "adaptive planner semantics",
     "automatic schema inference",
     "rectangular grid coercion",
     "trace-per-point support",

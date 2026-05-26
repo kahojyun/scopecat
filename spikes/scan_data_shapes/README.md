@@ -8,6 +8,10 @@ CSV source table and regenerates the expected reviewer surfaces:
 - `expected-shape-summary.json`
 - `expected-shape-review.md`
 
+The expected JSON files are `internal_validation_summary` artifacts. The
+expected Markdown files are `review_summary` artifacts. Neither is a portable
+export/package artifact or public report.
+
 Current scope is deliberately narrow:
 
 - declared 2D rectangular grid table;

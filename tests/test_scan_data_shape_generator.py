@@ -102,6 +102,33 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
         self.assertEqual(summary["shape"]["group_point_counts"], {})
         self.assertEqual(summary["column_validation"]["missing_declared_columns"], ["bias_v"])
 
+    def test_ragged_undeclared_shape_axis_returns_failed_summary(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_ragged_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "bias_v,hidden_group,drive_frequency_ghz,signal_db,phase_deg",
+                        "0.0,A,4.96,-13.2,10",
+                        "0.0,A,5.02,-18.5,42",
+                        "",
+                    ]
+                ),
+            )
+            source = json.loads((fixture / "shape-input.json").read_text(encoding="utf-8"))
+            source["data_shape"]["grouping_axis"] = "hidden_group"
+            (fixture / "shape-input.json").write_text(
+                json.dumps(source, indent=2),
+                encoding="utf-8",
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(summary["shape"]["group_point_counts"], {})
+        self.assertEqual(summary["column_validation"]["undeclared_shape_columns"], ["hidden_group"])
+
     def test_ragged_unexpected_group_is_visible_in_review(self) -> None:
         with TemporaryDirectory() as temp_dir:
             fixture = Path(temp_dir)

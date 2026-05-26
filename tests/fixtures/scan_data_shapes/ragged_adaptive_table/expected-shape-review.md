@@ -51,6 +51,8 @@ Held condition:
 - declared columns: `bias_v`, `drive_frequency_ghz`, `signal_db`, `phase_deg`
 - source columns: `bias_v`, `drive_frequency_ghz`, `signal_db`, `phase_deg`, `operator_note`
 - missing declared columns: `none`
+- missing shape columns: `none`
+- undeclared shape columns: `none`
 - extra source columns: `operator_note`
 
 ## Plot Candidates

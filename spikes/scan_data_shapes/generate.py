@@ -37,8 +37,11 @@ SIDECAR_DECISIONS_NOT_EARNED = [
 
 RAGGED_DECISIONS_NOT_EARNED = [
     "final storage schema",
+    "shared data-shape schema",
     "general dataframe API",
+    "legacy importer",
     "plot rendering",
+    "adaptive planner semantics",
     "automatic schema inference",
     "rectangular grid coercion",
     "trace-per-point support",
@@ -86,6 +89,52 @@ def _format_role(role: str) -> str:
 
 def _format_quantity(value: Any) -> str:
     return f"{value:.3f}" if isinstance(value, float) else str(value)
+
+
+def _sort_numeric_strings(values: list[str]) -> list[str]:
+    def sort_key(value: str) -> tuple[int, float | str]:
+        try:
+            return (0, float(value))
+        except ValueError:
+            return (1, value)
+
+    return sorted(values, key=sort_key)
+
+
+def _unique_in_order(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(values))
+
+
+def _ragged_shape_columns(
+    *, axis_order: list[str], grouping_axis: str, ragged_axis: str
+) -> list[str]:
+    return _unique_in_order([*axis_order, grouping_axis, ragged_axis])
+
+
+def _ragged_column_validation(
+    *,
+    declared_names: list[str],
+    source_columns: list[str],
+    axis_order: list[str],
+    grouping_axis: str,
+    ragged_axis: str,
+) -> dict[str, list[str]]:
+    shape_columns = _ragged_shape_columns(
+        axis_order=axis_order,
+        grouping_axis=grouping_axis,
+        ragged_axis=ragged_axis,
+    )
+    missing_declared_columns = [name for name in declared_names if name not in source_columns]
+    missing_shape_columns = [name for name in shape_columns if name not in source_columns]
+    undeclared_shape_columns = [name for name in shape_columns if name not in declared_names]
+    return {
+        "missing_declared_columns": missing_declared_columns,
+        "missing_shape_columns": missing_shape_columns,
+        "undeclared_shape_columns": undeclared_shape_columns,
+        "blocking_columns": _unique_in_order(
+            [*missing_declared_columns, *missing_shape_columns, *undeclared_shape_columns]
+        ),
+    }
 
 
 def _grid_status(
@@ -162,7 +211,10 @@ def _ragged_group_point_counts(
     for row in rows:
         group = row[grouping_axis]
         group_point_counts[group] = group_point_counts.get(group, 0) + 1
-    return group_point_counts
+    return {
+        group: group_point_counts[group]
+        for group in _sort_numeric_strings(list(group_point_counts))
+    }
 
 
 def _generate_2d_grid_summary(source: dict[str, Any], fixture_root: Path) -> dict[str, Any]:
@@ -251,15 +303,21 @@ def _generate_ragged_summary(source: dict[str, Any], fixture_root: Path) -> dict
 
     declared_columns = source["declared_columns"]
     declared_names = _column_names(declared_columns)
-    missing_columns = [name for name in declared_names if name not in source_columns]
     extra_columns = [name for name in source_columns if name not in declared_names]
     axis_order = data_shape["axis_order"]
     grouping_axis = data_shape["grouping_axis"]
     ragged_axis = data_shape["ragged_axis"]
+    ragged_validation = _ragged_column_validation(
+        declared_names=declared_names,
+        source_columns=source_columns,
+        axis_order=axis_order,
+        grouping_axis=grouping_axis,
+        ragged_axis=ragged_axis,
+    )
     group_point_counts = _ragged_group_point_counts(
         grouping_axis=grouping_axis,
         rows=rows,
-        missing_columns=missing_columns,
+        missing_columns=ragged_validation["blocking_columns"],
     )
     expected_group_point_counts = data_shape["expected_group_point_counts"]
     missing_expected_groups = [
@@ -293,17 +351,19 @@ def _generate_ragged_summary(source: dict[str, Any], fixture_root: Path) -> dict
                 grouping_axis=grouping_axis,
                 expected_group_point_counts=expected_group_point_counts,
                 rows=rows,
-                missing_columns=missing_columns,
+                missing_columns=ragged_validation["blocking_columns"],
             ),
         },
         "declared_axes": _without_role(sweep_axes),
         "declared_dependents": _without_role(measured_responses),
         "held_conditions": source["held_conditions"],
         "column_validation": {
-            "status": "pass" if not missing_columns else "fail",
+            "status": "pass" if not ragged_validation["blocking_columns"] else "fail",
             "declared_columns": declared_names,
             "source_columns": source_columns,
-            "missing_declared_columns": missing_columns,
+            "missing_declared_columns": ragged_validation["missing_declared_columns"],
+            "missing_shape_columns": ragged_validation["missing_shape_columns"],
+            "undeclared_shape_columns": ragged_validation["undeclared_shape_columns"],
             "extra_source_columns": extra_columns,
         },
         "plot_candidates": [
@@ -345,15 +405,21 @@ def _generate_ragged_observed_summary(source: dict[str, Any], fixture_root: Path
 
     declared_columns = source["declared_columns"]
     declared_names = _column_names(declared_columns)
-    missing_columns = [name for name in declared_names if name not in source_columns]
     extra_columns = [name for name in source_columns if name not in declared_names]
     axis_order = data_shape["axis_order"]
     grouping_axis = data_shape["grouping_axis"]
     ragged_axis = data_shape["ragged_axis"]
+    ragged_validation = _ragged_column_validation(
+        declared_names=declared_names,
+        source_columns=source_columns,
+        axis_order=axis_order,
+        grouping_axis=grouping_axis,
+        ragged_axis=ragged_axis,
+    )
     group_point_counts = _ragged_group_point_counts(
         grouping_axis=grouping_axis,
         rows=rows,
-        missing_columns=missing_columns,
+        missing_columns=ragged_validation["blocking_columns"],
     )
 
     sweep_axes = _columns_by_role(declared_columns, "sweep_axis")
@@ -375,17 +441,19 @@ def _generate_ragged_observed_summary(source: dict[str, Any], fixture_root: Path
             "status": _ragged_observed_status(
                 axis_order=axis_order,
                 rows=rows,
-                missing_columns=missing_columns,
+                missing_columns=ragged_validation["blocking_columns"],
             ),
         },
         "declared_axes": _without_role(sweep_axes),
         "declared_dependents": _without_role(measured_responses),
         "held_conditions": source["held_conditions"],
         "column_validation": {
-            "status": "pass" if not missing_columns else "fail",
+            "status": "pass" if not ragged_validation["blocking_columns"] else "fail",
             "declared_columns": declared_names,
             "source_columns": source_columns,
-            "missing_declared_columns": missing_columns,
+            "missing_declared_columns": ragged_validation["missing_declared_columns"],
+            "missing_shape_columns": ragged_validation["missing_shape_columns"],
+            "undeclared_shape_columns": ragged_validation["undeclared_shape_columns"],
             "extra_source_columns": extra_columns,
         },
         "plot_candidates": [
@@ -784,6 +852,8 @@ def _generate_ragged_review(summary: dict[str, Any]) -> str:
             f"- declared columns: {_format_list(validation['declared_columns'])}",
             f"- source columns: {_format_list(validation['source_columns'])}",
             f"- missing declared columns: {_format_list(validation['missing_declared_columns'])}",
+            f"- missing shape columns: {_format_list(validation['missing_shape_columns'])}",
+            f"- undeclared shape columns: {_format_list(validation['undeclared_shape_columns'])}",
             f"- extra source columns: {_format_list(validation['extra_source_columns'])}",
             "",
             "## Plot Candidates",
@@ -907,6 +977,8 @@ def _generate_ragged_observed_review(summary: dict[str, Any]) -> str:
             f"- declared columns: {_format_list(validation['declared_columns'])}",
             f"- source columns: {_format_list(validation['source_columns'])}",
             f"- missing declared columns: {_format_list(validation['missing_declared_columns'])}",
+            f"- missing shape columns: {_format_list(validation['missing_shape_columns'])}",
+            f"- undeclared shape columns: {_format_list(validation['undeclared_shape_columns'])}",
             f"- extra source columns: {_format_list(validation['extra_source_columns'])}",
             "",
             "## Plot Candidates",
