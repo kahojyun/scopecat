@@ -75,6 +75,7 @@ supporting policy notes. The current slice inventory is:
 | Environment readiness planning | Experiment code context | Implementation candidate validated | Side-effect-free check plan from a declared modern `uv`/`pyproject.toml` environment context, with lab-managed drivers and legacy dependency concerns as record-only review notes rather than sync inputs, without reading dependency files, resolving or syncing dependencies, installing packages, probing runtime or hardware, importing code, executing code, or claiming runnable readiness. |
 | Environment comparison findings | Experiment code context | Implementation candidate validated | Side-effect-free comparison of selected-reference and current declared environment facts, including same-declared, changed, missing, unverified, and unsupported findings without reading manifests or lockfiles, resolving or syncing dependencies, probing runtime or hardware, importing code, executing code, or claiming runnable readiness. |
 | Environment file observation | Experiment code context | Implementation candidate validated | Read-only observation for explicitly declared environment files under a caller-provided workspace root, including sha256, size, unavailable, mismatch, malformed-manifest, and narrow `pyproject.toml` summary facts without workspace discovery, lockfile parsing, dependency resolution or sync, runtime probes, code import or execution, hardware checks, or runnable-readiness claims. |
+| Environment review bundle | Experiment code context | Implementation candidate validated | Composition summary for prepared/rerun context, declared environment comparison, file observation, and readiness-plan findings without fresh file reads, dependency resolution, dependency sync, package installation, runtime probes, code import or execution, hardware checks, shared environment schema, managed runners, run-blocking decisions, or runnable-readiness claims. |
 | Setup binding | Setup binding | Implementation candidate validated | Side-effect-free setup-binding summary for explicit setup-binding snapshots, simple diffs, station-registry references, generated line/readout views, and measurement input references while keeping parameter state, station management, generator execution, and hardware control separate. |
 | Calibration work continuation | Calibration continuation | Assembler candidate validated | Continuation-state assembly for planned steps, observed outputs, review gates, proposed writes, blocked steps, and interventions without executor, scheduler, write-back, or GUI ownership. |
 | Selected reference comparison | Selected reference comparison | Implementation candidate validated | Side-effect-free context-comparison summary against a user-selected reference, including declared preview metadata, named input snapshots, selected artifacts, declared facts, and recorded-code context without user judgment, raw-data comparison, fit-quality comparison, setup truth, restore, execution, semantic source diff, or cause attribution. |
@@ -419,6 +420,7 @@ perform schema migration.
 | [`environment-readiness-validation-result.md`](environment-readiness-validation-result.md) | Result of the first environment readiness planning fixture and implementation candidate. |
 | [`environment-comparison-validation-result.md`](environment-comparison-validation-result.md) | Result of the first declared environment comparison fixture and implementation candidate. |
 | [`environment-file-observation-validation-result.md`](environment-file-observation-validation-result.md) | Result of the first explicit declared environment file observation fixture and implementation candidate. |
+| [`environment-review-bundle-validation-result.md`](environment-review-bundle-validation-result.md) | Result of the first environment review bundle composition fixture and implementation candidate. |
 
 The canonical Experiment Code Context candidate-slice backlog lives in
 [`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md).
@@ -456,7 +458,12 @@ should earn stronger claims:
 10. environment file observation: observe explicitly declared environment files
     under a caller-provided workspace root without workspace discovery,
     lockfile parsing, dependency resolution or sync, runtime probes, code
-    import or execution, hardware checks, or runnable-readiness claims.
+    import or execution, hardware checks, or runnable-readiness claims;
+11. environment review bundle: compose prepared/rerun context, declared
+    environment comparison, file observation, and readiness-plan summaries into
+    one review surface before dependency resolution, dependency sync, package
+    installation, runtime check, shared environment schema, managed runner,
+    run-blocking decision, or runnable-readiness claim.
 
 The comparison work is a fixture family, not one slice. The first
 recorded-to-managed declared-fact comparison is validated in
@@ -534,6 +541,24 @@ malformed manifests as review findings without losing observed file facts. It
 does not scan workspaces, parse lockfiles into dependency graphs, resolve or
 sync dependencies, install packages, probe runtimes or hardware, import code,
 execute code, or claim runnable readiness.
+
+The first environment review bundle candidate is validated in
+[`environment-review-bundle-validation-result.md`](environment-review-bundle-validation-result.md).
+It composes prepared/rerun context, declared environment comparison, file
+observation, and readiness-plan summaries into one `review_summary` surface.
+The candidate-local contract validates selected-reference continuity, scope and
+environment alignment, exact top-level source shape, exact selected-record and
+finding-row shapes, non-empty scalar identifiers, labels, and finding basis
+text, non-negative scalar counts, exact non-operational claim shape,
+declaration-only role/status vocabulary, bounded count-map keys, comparison
+count-map consistency with comparison finding rows, readiness review-state
+count consistency with readiness finding rows, bounded finding vocabularies,
+finding boundary vocabularies, and finding source alignment. Component records
+are selected by bundle reachability; finding rows must all reference a bundled
+review bundle. It leaves fresh observation, dependency resolution, dependency
+sync, package installation, runtime probes, hardware checks, code import or
+execution, shared environment schema, managed runners, run-blocking decisions,
+and runnable-readiness claims out of scope.
 
 Do not validate "select a code version at run start" by itself. Selection
 becomes useful only when it prepares a run context, supports a reference-based

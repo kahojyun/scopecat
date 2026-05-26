@@ -115,14 +115,20 @@ Validation should follow authority boundaries more strictly than user adoption:
 7. Validate reference-based rerun preparation as a convenience workflow over
    prepared run context, not as a separate reproducibility claim.
 8. Validate environment readiness planning from declared environment context
-   before attempting dependency operations, runtime probes, hardware checks, or
-   managed runners.
+   before attempting dependency resolution, dependency sync, package
+   installation, runtime probes, hardware checks, or managed runners.
 9. Validate environment comparison findings before treating selected-reference
-   and current declared environment differences as dependency operations,
-   runtime compatibility checks, hardware readiness, or runnable readiness.
+   and current declared environment differences as dependency resolution,
+   dependency sync, package installation, runtime compatibility checks, hardware
+   readiness, or runnable readiness.
 10. Validate environment file observation before treating declared modern
     manifests or lockfiles as dependency-resolution, sync, runtime,
     hardware-readiness, or runnable-readiness inputs.
+11. Validate environment review bundle composition before turning comparison,
+    file observation, or readiness-plan findings into approved dependency
+    resolution, dependency sync, package installation, runtime checks, shared
+    environment schema, managed runners, run-blocking decisions, or
+    runnable-readiness claims.
 
 ## Validation Slice Backlog
 
@@ -325,6 +331,29 @@ Result owner:
 Boundary: no workspace discovery, lockfile dependency-graph parsing,
 dependency resolution, dependency sync, package installation, runtime probes,
 hardware probes, code import, code execution, shared environment schema, or
+runnable-readiness claim.
+
+### 11. Environment Review Bundle
+
+Validation question: can Scopecat compose prepared/rerun context, declared
+environment comparison, file observation, and readiness-plan summaries into one
+review bundle without performing fresh environment operations?
+
+User pressure: users reviewing a selected-reference manual rerun need one
+place to see declared environment differences, observed file status, and
+planned check findings before approving any later environment operation.
+
+First fixture: a current manual rerun context with selected-reference and
+current declared environment records, a declared comparison summary, a file
+observation summary, and a readiness-plan summary, producing one environment
+review bundle.
+
+Result owner:
+[`environment-review-bundle-validation-result.md`](environment-review-bundle-validation-result.md)
+
+Boundary: no fresh file reads, dependency resolution, dependency sync, package
+installation, runtime probes, hardware probes, code import, code execution,
+shared environment schema, managed runner, run-blocking decision, or
 runnable-readiness claim.
 
 All slices should keep code execution separate from code record integrity and

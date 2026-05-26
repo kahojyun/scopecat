@@ -58,6 +58,7 @@ relation graph, or warning taxonomy.
 - [`environment-readiness-validation-result.md`](environment-readiness-validation-result.md)
 - [`environment-comparison-validation-result.md`](environment-comparison-validation-result.md)
 - [`environment-file-observation-validation-result.md`](environment-file-observation-validation-result.md)
+- [`environment-review-bundle-validation-result.md`](environment-review-bundle-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
 - [`adoption-routes.md`](adoption-routes.md)
 - [`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md)
@@ -502,6 +503,17 @@ facts. It does not scan workspaces, parse lockfiles into dependency graphs,
 resolve or sync dependencies, install packages, probe runtimes, import code,
 execute code, probe hardware, or claim runnable readiness.
 
+Environment review bundle has a slice-local implementation candidate for
+composing prepared/rerun context, declared environment comparison, file
+observation, and readiness-plan summaries into one review surface. It validates
+scope, selected-reference, environment identity, and finding source alignment
+through a candidate-local contract module before aggregating comparison,
+file-observation, and planned-check findings. It does this without performing
+fresh observation, resolving dependencies, syncing packages, installing
+packages, probing runtimes, importing or executing code, probing hardware,
+defining a shared environment schema, defining managed runners, making
+run-blocking decisions, or claiming runnable readiness.
+
 ## Version Terminology
 
 The slices are converging on a shared distinction without yet earning a shared
@@ -574,6 +586,7 @@ schema.
 | Environment readiness plan | Experiment code, prepared run context support | A reviewable plan for what checks would be needed for a selected declared modern `uv`/`pyproject.toml` environment context. The first candidate treats lab-managed drivers and legacy dependency concerns as review notes while avoiding package-manager runs, code import, code execution, hardware probes, or runnable-readiness claims. |
 | Environment comparison finding | Experiment code, selected reference, prepared run context support | A declared-fact comparison result such as same-declared, changed, missing, unverified, or unsupported for selected environment context. It is not dependency resolution, runtime compatibility, hardware readiness, runnable readiness, or reproducibility. |
 | Environment file observation | Experiment code, prepared run context support | A read-only observation of explicitly declared environment files under a caller-provided workspace root. The first candidate records availability, sha256, byte size, malformed-manifest review findings, and narrow `pyproject.toml` declared summary fields without workspace discovery, lockfile graph parsing, dependency resolution or sync, runtime probes, hardware checks, code import, execution, or runnable-readiness claims. |
+| Environment review bundle | Experiment code, selected reference, prepared run context support | A composition of prepared/rerun context, declared environment comparison, file observation, and readiness-plan summaries into one review surface. It validates alignment and aggregates review findings without fresh observation, dependency resolution, dependency sync, package installation, runtime probes, hardware checks, code import, execution, shared environment schema, managed-runner behavior, run-blocking decisions, or runnable-readiness claims. |
 
 ## Stable Separations
 
@@ -657,6 +670,11 @@ Several separations now appear repeatedly enough to keep carrying forward:
   resolution, sync, runtime probes, code import, execution, or hardware checks
   are authorized, with legacy/lab-managed environment facts kept as record-only
   review evidence rather than sync inputs.
+- Environment review bundles can compose prior declared comparison,
+  file-observation, and readiness-plan summaries for manual rerun review
+  without becoming dependency resolution, dependency sync, package
+  installation, runtime compatibility result, shared environment schema,
+  managed-runner contract, run-blocking decision, or runnable-readiness claim.
 
 ## Design Pressure
 
