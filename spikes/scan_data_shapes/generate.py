@@ -278,6 +278,8 @@ def _normalize_axis_order(value: Any) -> tuple[list[str], list[str]]:
         return [], ["axis_order"]
     if not value or not all(isinstance(axis, str) and axis for axis in value):
         return [axis for axis in value if isinstance(axis, str) and axis], ["axis_order"]
+    if len(set(value)) != len(value):
+        return value, ["axis_order"]
     return value, []
 
 

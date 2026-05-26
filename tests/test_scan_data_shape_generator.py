@@ -566,6 +566,36 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
         self.assertEqual(summary["trace_validation"]["trace_refs"], [])
         self.assertEqual(summary["plot_candidates"], [])
 
+    def test_trace_per_point_rejects_duplicate_axis_order(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_trace_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "bias_v,trace_ref,trace_kind",
+                        "0.0,source/traces/bias-0p0.csv,ringdown",
+                        "",
+                    ]
+                ),
+            )
+            source = json.loads((fixture / "shape-input.json").read_text(encoding="utf-8"))
+            source["data_shape"]["axis_order"] = ["bias_v", "bias_v"]
+            (fixture / "shape-input.json").write_text(
+                json.dumps(source, indent=2),
+                encoding="utf-8",
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(
+            summary["trace_validation"]["invalid_trace_metadata_fields"],
+            ["axis_order"],
+        )
+        self.assertEqual(summary["trace_validation"]["trace_refs"], [])
+        self.assertEqual(summary["plot_candidates"], [])
+
     def test_trace_per_point_reports_missing_trace_schema_field(self) -> None:
         with TemporaryDirectory() as temp_dir:
             fixture = Path(temp_dir)
@@ -1097,6 +1127,37 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
 
         self.assertEqual(summary["shape"]["status"], "fail")
         self.assertEqual(summary["shape"]["axis_order"], ["pulse_amplitude_v"])
+        self.assertEqual(summary["shape"]["duplicate_coordinates"], False)
+        self.assertEqual(
+            summary["vector_validation"]["declaration_validation"]["invalid_axis_order"],
+            ["axis_order"],
+        )
+        self.assertEqual(summary["vector_validation"]["column_summaries"], [])
+        self.assertEqual(summary["plot_candidates"], [])
+
+    def test_fixed_vector_rejects_duplicate_axis_order(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_fixed_vector_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "pulse_amplitude_v,shot_iq,shot_state",
+                        '0.10,"[0.12, -0.03]",ground',
+                        "",
+                    ]
+                ),
+            )
+            source = json.loads((fixture / "shape-input.json").read_text(encoding="utf-8"))
+            source["data_shape"]["axis_order"] = ["pulse_amplitude_v", "pulse_amplitude_v"]
+            (fixture / "shape-input.json").write_text(
+                json.dumps(source, indent=2),
+                encoding="utf-8",
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
         self.assertEqual(summary["shape"]["duplicate_coordinates"], False)
         self.assertEqual(
             summary["vector_validation"]["declaration_validation"]["invalid_axis_order"],

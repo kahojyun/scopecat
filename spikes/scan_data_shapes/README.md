@@ -46,7 +46,9 @@ not perform full JSON Schema validation, arbitrary unused-field validation,
 generic ndarray validation, scientific correctness checks, broad free-text
 redaction, or public API compatibility checks.
 
-When fixture metadata is malformed inside this stated scope, the expected
-behavior is a structured failed summary with no plot candidates for the invalid
-shape. When metadata outside this stated scope is malformed, that is a future
-contract decision rather than a requirement for this spike.
+For trace and fixed-vector metadata, malformed `axis_order` values are currently
+test-backed to fail structurally when they are missing, empty, non-string, or
+duplicated. For other consumed metadata fields, hardening is added only where a
+fixture contract or regression test earns it. When metadata outside this stated
+scope is malformed, that is a future contract decision rather than a
+requirement for this spike.
