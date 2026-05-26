@@ -22,6 +22,7 @@ relation graph, or warning taxonomy.
 - [`handoff-package-contents-preview-validation-result.md`](handoff-package-contents-preview-validation-result.md)
 - [`handoff-package-opener-validation-result.md`](handoff-package-opener-validation-result.md)
 - [`handoff-package-read-view-validation-result.md`](handoff-package-read-view-validation-result.md)
+- [`handoff-package-sdk-view-model-validation-result.md`](handoff-package-sdk-view-model-validation-result.md)
 - [`handoff-package-visual-review-validation-result.md`](handoff-package-visual-review-validation-result.md)
 - [`handoff-package-visual-artifact-validation-result.md`](handoff-package-visual-artifact-validation-result.md)
 - [`handoff-package-inspection-workflow-validation-result.md`](handoff-package-inspection-workflow-validation-result.md)
@@ -147,6 +148,18 @@ keeps linked context and findings visible. It tests SDK/GUI consumption
 pressure without accepting final SDK names, dataframe dependencies, GUI
 components, import acceptance, package integrity, schema inference, storage
 mutation, or a shared measurement model.
+
+Handoff package SDK view model has the first thin Python-facing package object
+candidate over the read-only route. It keeps package parsing in the opener/read
+view, then exposes measurement lookup by id or position, primary/preview table
+access by string column key or position, optional pandas/numpy adapters,
+declared primary and saved XY/IQ plot specs, and an SDK-side explicit
+long-table heatmap binding. Analysis and fit results are reserved as empty
+read-only extension points. This validates notebook and future-GUI consumption
+pressure without accepting final SDK names, hard dataframe dependencies, plot
+rendering, fit execution, analysis write-back, package import, storage
+mutation, schema inference, automatic scan/data-shape inference, or a shared
+measurement model.
 
 Handoff package visual review has the first plot-first view-model candidate
 over the read-only package read view. It projects opened package facts into
