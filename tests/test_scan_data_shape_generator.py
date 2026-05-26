@@ -11,6 +11,18 @@ FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "scan_data_shapes"
 
 
 class ScanDataShapeGeneratorTest(unittest.TestCase):
+    def _write_2d_grid_fixture(self, fixture: Path, source_text: str) -> None:
+        source = json.loads(
+            (FIXTURE_ROOT / "2d_grid_table" / "shape-input.json").read_text(encoding="utf-8")
+        )
+        source_dir = fixture / "source"
+        source_dir.mkdir(parents=True)
+        (fixture / "shape-input.json").write_text(json.dumps(source, indent=2), encoding="utf-8")
+        (source_dir / "declared-2d-frequency-response-grid.csv").write_text(
+            source_text,
+            encoding="utf-8",
+        )
+
     def _write_ragged_fixture(self, fixture: Path, source_text: str) -> None:
         source = json.loads(
             (FIXTURE_ROOT / "ragged_adaptive_table" / "shape-input.json").read_text(
@@ -161,6 +173,30 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
 
         self.assertEqual(generate_review(generate_summary(fixture)), expected)
 
+    def test_2d_grid_reports_missing_axis_cell_as_failed_shape(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_2d_grid_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "bias_v,drive_frequency_ghz,signal_db,phase_deg",
+                        "0.100",
+                        "0.100,4.900,-43.5,18.0",
+                        "0.100,5.000,-40.8,25.0",
+                        "0.200,4.800,-39.7,8.0",
+                        "0.200,4.900,-44.1,15.0",
+                        "0.200,5.000,-42.0,21.0",
+                        "",
+                    ]
+                ),
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(summary["shape"]["actual_row_count"], 6)
+
     def test_ragged_missing_grouping_column_returns_failed_summary(self) -> None:
         with TemporaryDirectory() as temp_dir:
             fixture = Path(temp_dir)
@@ -290,6 +326,28 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
             summary["trace_validation"]["trace_summaries"][0]["status"], "unsafe_reference"
         )
 
+    def test_trace_per_point_rejects_missing_trace_reference_cell(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_trace_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "bias_v,trace_ref,trace_kind",
+                        "0.0",
+                        "",
+                    ]
+                ),
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(summary["trace_validation"]["unsafe_trace_refs"], [None])
+        self.assertEqual(
+            summary["trace_validation"]["trace_summaries"][0]["status"], "unsafe_reference"
+        )
+
     def test_trace_per_point_reports_missing_trace_columns(self) -> None:
         with TemporaryDirectory() as temp_dir:
             fixture = Path(temp_dir)
@@ -338,6 +396,33 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
             trace_path = fixture / "source" / "traces" / "bias-0p0.csv"
             trace_path.unlink()
             trace_path.symlink_to(outside)
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(
+            summary["trace_validation"]["missing_trace_files"],
+            ["source/traces/bias-0p0.csv"],
+        )
+        self.assertEqual(summary["trace_validation"]["trace_summaries"][0]["status"], "missing")
+
+    def test_trace_per_point_reports_unresolvable_trace_path_as_missing(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir) / "fixture"
+            fixture.mkdir()
+            self._write_trace_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "bias_v,trace_ref,trace_kind",
+                        "0.0,source/traces/bias-0p0.csv,ringdown",
+                        "",
+                    ]
+                ),
+            )
+            trace_path = fixture / "source" / "traces" / "bias-0p0.csv"
+            trace_path.unlink()
+            trace_path.symlink_to(trace_path)
 
             summary = generate_summary(fixture)
 
@@ -525,6 +610,27 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
         self.assertEqual(
             summary["vector_validation"]["failed_cells"][0]["failure"], "malformed_json"
         )
+
+    def test_fixed_vector_reports_missing_vector_cell(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_fixed_vector_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "pulse_amplitude_v,shot_iq,shot_state",
+                        "0.10",
+                        "",
+                    ]
+                ),
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(summary["vector_validation"]["column_summaries"][0]["parse_failures"], 1)
+        self.assertEqual(summary["vector_validation"]["failed_cells"][0]["failure"], "not_string")
+        self.assertIsNone(summary["vector_validation"]["failed_cells"][0]["value"])
 
     def test_fixed_vector_rejects_non_list_json(self) -> None:
         with TemporaryDirectory() as temp_dir:

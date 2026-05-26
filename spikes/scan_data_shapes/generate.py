@@ -163,12 +163,12 @@ def _format_complex_logical_failures(values: list[dict[str, Any]]) -> str:
     return ", ".join(f"`{item['column']}={item['failure']}`" for item in values)
 
 
-def _sort_numeric_strings(values: list[str]) -> list[str]:
-    def sort_key(value: str) -> tuple[int, float | str]:
+def _sort_numeric_strings(values: list[Any]) -> list[Any]:
+    def sort_key(value: Any) -> tuple[int, float | str]:
         try:
             return (0, float(value))
-        except ValueError:
-            return (1, value)
+        except (TypeError, ValueError):
+            return (1, "" if value is None else str(value))
 
     return sorted(values, key=sort_key)
 
@@ -386,7 +386,9 @@ def _fixed_vector_status(*, blocking_columns: list[str], vector_validation: dict
     return "pass" if vector_validation["status"] == "pass" else "fail"
 
 
-def _parse_fixed_vector_cell(value: str) -> tuple[str, list[Any]]:
+def _parse_fixed_vector_cell(value: Any) -> tuple[str, list[Any]]:
+    if not isinstance(value, str):
+        return "not_string", []
     try:
         parsed = json.loads(value)
     except json.JSONDecodeError:
@@ -509,7 +511,9 @@ def _fixed_vector_validation(
     }
 
 
-def _is_fixture_relative_ref(value: str) -> bool:
+def _is_fixture_relative_ref(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
     path = PurePosixPath(value)
     return (
         bool(value)
@@ -524,7 +528,7 @@ def _is_contained_regular_file(root: Path, candidate: Path) -> bool:
     try:
         root_resolved = root.resolve()
         candidate_resolved = candidate.resolve(strict=True)
-    except FileNotFoundError:
+    except OSError:
         return False
     return (
         candidate_resolved.is_file()
@@ -553,7 +557,9 @@ def _grid_status(
     if len(set(observed_coordinates)) != len(observed_coordinates):
         return "fail"
 
-    expected_values = [sorted({row[axis] for row in rows}, key=float) for axis in axis_order]
+    expected_values = [
+        _sort_numeric_strings(list({row[axis] for row in rows})) for axis in axis_order
+    ]
     expected_coordinates = set(product(*expected_values))
     return "pass" if set(observed_coordinates) == expected_coordinates else "fail"
 
