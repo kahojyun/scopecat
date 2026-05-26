@@ -1,0 +1,303 @@
+{
+  "summary_id": "environment-review-bundle-basic-bundle.expected",
+  "status": "expected_validation_output",
+  "source_fixture": "environment-review-bundle-input.json",
+  "reference_semantics": {
+    "status": "fixture_only",
+    "contract_guard": "Environment review bundle is not an environment manager, package resolver, dependency sync operation, package installation step, runtime probe, code import, execution step, hardware check, shared environment schema, managed runner, run-blocking decision, or runnable-readiness claim.",
+    "bundle": "The bundle composes prior review summaries for a manual rerun context; it does not perform fresh observation or environment operations.",
+    "finding_boundary": "Comparison, file-observation, and readiness findings are review facts, not automatic run blocks or runtime compatibility results."
+  },
+  "candidate_summary": {
+    "environment_review_bundle_policy": {
+      "summary_policy": "review_summary",
+      "bundle_authority": "explicit_prior_environment_review_summaries",
+      "prepared_context_source": "declared_prepared_run_context_summary",
+      "rerun_source": "declared_reference_based_rerun_preparation_summary",
+      "comparison_source": "declared_environment_comparison_summary",
+      "file_observation_source": "declared_environment_file_observation_summary",
+      "readiness_source": "declared_environment_readiness_plan_summary",
+      "dependency_resolution": "not_performed",
+      "dependency_sync": "not_performed",
+      "package_install": "not_performed",
+      "runtime_probe": "not_performed",
+      "code_import_execution": "not_performed",
+      "hardware_probe": "not_performed",
+      "managed_runner": "not_defined",
+      "readiness_claim": "not_claimed",
+      "shared_environment_schema": "not_defined"
+    },
+    "review_bundles": [
+      {
+        "bundle_id": "environment-review-bundle-chevron-qA-0001",
+        "label": "qA chevron rerun environment review bundle",
+        "selected_reference_id": "selected-reference-chevron-qA-last-working",
+        "rerun_preparation_id": "rerun-prep-chevron-qA-from-reference-0001",
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-current",
+        "reference_environment_id": "declared-environment-chevron-qA-reference",
+        "current_environment_id": "declared-environment-chevron-qA-current",
+        "environment_comparison_id": "environment-comparison-chevron-qA-reference-to-current",
+        "environment_file_observation_id": "environment-file-observation-chevron-qA-current",
+        "environment_readiness_plan_id": "environment-readiness-chevron-qA-current",
+        "comparison_review_finding_counts": {
+          "declared_environment_fact_changed": 1,
+          "declared_environment_fact_missing": 1,
+          "declared_environment_fact_unsupported": 1,
+          "declared_environment_fact_unverified": 1
+        },
+        "file_observation_finding_count": 0,
+        "readiness_finding_count": 2,
+        "classification": "environment_review_has_planned_check_findings",
+        "bundle_claim": "environment_review_bundle_only"
+      }
+    ],
+    "prepared_run_contexts": [
+      {
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-current",
+        "label": "qA chevron current manual run context",
+        "scope": {
+          "managed_code_version_id": "managed-code-version-chevron-qA-current",
+          "editable_workspace_id": "editable-workspace-chevron-qA-current",
+          "prepared_run_context_id": "prepared-run-context-chevron-qA-current"
+        },
+        "selected_context_count": 7,
+        "preparation_claim": "manual_run_context_only"
+      }
+    ],
+    "rerun_preparations": [
+      {
+        "rerun_preparation_id": "rerun-prep-chevron-qA-from-reference-0001",
+        "selected_reference_id": "selected-reference-chevron-qA-last-working",
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-current",
+        "reference_measurement_id": "measurement-04021",
+        "current_measurement_id": "measurement-05021",
+        "preparation_claim": "manual_rerun_seed_summary_only"
+      }
+    ],
+    "environment_contexts": [
+      {
+        "environment_id": "declared-environment-chevron-qA-reference",
+        "label": "qA chevron selected-reference declared environment",
+        "role": "selected_reference_environment",
+        "record_status": "declared",
+        "scope": {
+          "managed_code_version_id": "managed-code-version-chevron-qA-reference",
+          "editable_workspace_id": "editable-workspace-chevron-qA-reference",
+          "prepared_run_context_id": "prepared-run-context-chevron-qA-reference"
+        },
+        "environment_claims": {
+          "readiness_claim": "not_checked",
+          "sync_claim": "not_synced",
+          "execution_claim": "not_imported_loaded_or_executed",
+          "hardware_claim": "not_probed"
+        }
+      },
+      {
+        "environment_id": "declared-environment-chevron-qA-current",
+        "label": "qA chevron current declared environment",
+        "role": "current_environment",
+        "record_status": "declared_with_review_findings",
+        "scope": {
+          "managed_code_version_id": "managed-code-version-chevron-qA-current",
+          "editable_workspace_id": "editable-workspace-chevron-qA-current",
+          "prepared_run_context_id": "prepared-run-context-chevron-qA-current"
+        },
+        "environment_claims": {
+          "readiness_claim": "not_checked",
+          "sync_claim": "not_synced",
+          "execution_claim": "not_imported_loaded_or_executed",
+          "hardware_claim": "not_probed"
+        }
+      }
+    ],
+    "environment_comparisons": [
+      {
+        "comparison_id": "environment-comparison-chevron-qA-reference-to-current",
+        "baseline_environment_id": "declared-environment-chevron-qA-reference",
+        "comparison_environment_id": "declared-environment-chevron-qA-current",
+        "comparison_claim": "declared_environment_fact_comparison_only",
+        "fact_count": 5,
+        "finding_state_counts": {
+          "changed": 1,
+          "missing": 1,
+          "same_declared": 1,
+          "unsupported": 1,
+          "unverified": 1
+        }
+      }
+    ],
+    "environment_file_observations": [
+      {
+        "file_observation_id": "environment-file-observation-chevron-qA-current",
+        "environment_id": "declared-environment-chevron-qA-current",
+        "classification": "environment_files_observed_match_declared_facts",
+        "observation_status_counts": {
+          "observed": 2
+        },
+        "review_finding_count": 0
+      }
+    ],
+    "environment_readiness_plans": [
+      {
+        "readiness_plan_id": "environment-readiness-chevron-qA-current",
+        "declared_environment_id": "declared-environment-chevron-qA-current",
+        "scope": {
+          "managed_code_version_id": "managed-code-version-chevron-qA-current",
+          "editable_workspace_id": "editable-workspace-chevron-qA-current",
+          "prepared_run_context_id": "prepared-run-context-chevron-qA-current"
+        },
+        "check_count": 5,
+        "check_state_counts": {
+          "planned": 3,
+          "review_required": 2
+        },
+        "readiness_claim": "not_checked",
+        "sync_claim": "not_performed",
+        "execution_claim": "not_imported_loaded_or_executed",
+        "hardware_claim": "not_probed"
+      }
+    ],
+    "environment_review_findings": [
+      {
+        "bundle_id": "environment-review-bundle-chevron-qA-0001",
+        "source_kind": "environment_comparison",
+        "source_id": "environment-comparison-chevron-qA-reference-to-current",
+        "severity": "review",
+        "finding": "declared_environment_fact_changed",
+        "basis": "Current lockfile path differs from the selected reference declaration.",
+        "does_not_claim": "runtime_compatibility_or_runnable_readiness"
+      },
+      {
+        "bundle_id": "environment-review-bundle-chevron-qA-0001",
+        "source_kind": "environment_comparison",
+        "source_id": "environment-comparison-chevron-qA-reference-to-current",
+        "severity": "review",
+        "finding": "declared_environment_fact_missing",
+        "basis": "Current dependency group declaration omits the reference lab group.",
+        "does_not_claim": "runtime_compatibility_or_runnable_readiness"
+      },
+      {
+        "bundle_id": "environment-review-bundle-chevron-qA-0001",
+        "source_kind": "environment_comparison",
+        "source_id": "environment-comparison-chevron-qA-reference-to-current",
+        "severity": "review",
+        "finding": "declared_environment_fact_unverified",
+        "basis": "External runtime note is declared but not verified.",
+        "does_not_claim": "runtime_compatibility_or_runnable_readiness"
+      },
+      {
+        "bundle_id": "environment-review-bundle-chevron-qA-0001",
+        "source_kind": "environment_comparison",
+        "source_id": "environment-comparison-chevron-qA-reference-to-current",
+        "severity": "review",
+        "finding": "declared_environment_fact_unsupported",
+        "basis": "Legacy migration note is comparison evidence only.",
+        "does_not_claim": "runtime_compatibility_or_runnable_readiness"
+      },
+      {
+        "bundle_id": "environment-review-bundle-chevron-qA-0001",
+        "source_kind": "environment_readiness_plan",
+        "source_id": "environment-readiness-chevron-qA-current",
+        "severity": "review",
+        "finding": "check_review_required",
+        "basis": "External driver remains a control-PC review item, not a Python dependency.",
+        "does_not_claim": "external_tool_available_or_compatible"
+      },
+      {
+        "bundle_id": "environment-review-bundle-chevron-qA-0001",
+        "source_kind": "environment_readiness_plan",
+        "source_id": "environment-readiness-chevron-qA-current",
+        "severity": "review",
+        "finding": "check_review_required",
+        "basis": "Legacy pin policy is record-only here and should be migrated before any approved modern uv operation.",
+        "does_not_claim": "legacy_environment_migrated"
+      }
+    ],
+    "finding_source_counts": {
+      "environment_comparison": 4,
+      "environment_file_observation": 0,
+      "environment_readiness_plan": 2
+    },
+    "attention": [
+      {
+        "code": "environment_review_bundle_only",
+        "severity": "info",
+        "basis": "The bundle composes explicit prior environment review summaries.",
+        "does_not_claim": "new_environment_observation_or_operation"
+      },
+      {
+        "code": "dependency_resolution_not_performed",
+        "severity": "review",
+        "basis": "Declared comparison and file observation facts are not dependency resolution.",
+        "does_not_claim": "resolved_environment"
+      },
+      {
+        "code": "dependency_sync_not_performed",
+        "severity": "review",
+        "basis": "The bundle does not run uv sync or synchronize package state.",
+        "does_not_claim": "synchronized_environment"
+      },
+      {
+        "code": "package_install_not_performed",
+        "severity": "review",
+        "basis": "The bundle does not install, update, or remove packages.",
+        "does_not_claim": "installed_environment"
+      },
+      {
+        "code": "runtime_probe_not_performed",
+        "severity": "review",
+        "basis": "The bundle does not inspect interpreters, installed packages, shells, or tools.",
+        "does_not_claim": "runtime_available_or_compatible"
+      },
+      {
+        "code": "code_execution_not_granted",
+        "severity": "review",
+        "basis": "The bundle does not import, load, or execute selected code.",
+        "does_not_claim": "execution_permission"
+      },
+      {
+        "code": "hardware_probe_not_performed",
+        "severity": "review",
+        "basis": "External runtime notes remain review facts, not hardware checks.",
+        "does_not_claim": "control_pc_or_hardware_ready"
+      },
+      {
+        "code": "managed_runner_not_defined",
+        "severity": "review",
+        "basis": "The bundle does not define managed-runner behavior or run lifecycle control.",
+        "does_not_claim": "managed_runner_available"
+      },
+      {
+        "code": "runnable_readiness_not_claimed",
+        "severity": "review",
+        "basis": "Aggregated environment findings do not decide whether a run can start.",
+        "does_not_claim": "run_can_start"
+      },
+      {
+        "code": "shared_environment_schema_not_defined",
+        "severity": "review",
+        "basis": "The bundle validates a slice-local contract, not a shared environment schema.",
+        "does_not_claim": "shared_environment_schema"
+      }
+    ]
+  },
+  "boundary_notes": [
+    "The fixture composes prior review summaries and does not perform fresh environment observation.",
+    "Environment comparison, file observation, and readiness-plan findings remain review facts.",
+    "The bundle does not claim dependency resolution, dependency sync, package installation, runtime readiness, hardware readiness, code execution, shared environment schema, run-blocking decisions, or run-start readiness."
+  ],
+  "decisions_not_earned": [
+    "dependency resolution",
+    "dependency sync",
+    "package installation",
+    "runtime readiness",
+    "code import",
+    "code execution",
+    "hardware readiness",
+    "managed runner",
+    "run-blocking decisions",
+    "runnable readiness",
+    "shared environment schema",
+    "GUI workflow"
+  ]
+}

@@ -1,0 +1,191 @@
+{
+  "environment_review_bundle_policy": {
+    "summary_policy": "review_summary",
+    "bundle_authority": "explicit_prior_environment_review_summaries",
+    "prepared_context_source": "declared_prepared_run_context_summary",
+    "rerun_source": "declared_reference_based_rerun_preparation_summary",
+    "comparison_source": "declared_environment_comparison_summary",
+    "file_observation_source": "declared_environment_file_observation_summary",
+    "readiness_source": "declared_environment_readiness_plan_summary",
+    "dependency_resolution": "not_performed",
+    "dependency_sync": "not_performed",
+    "package_install": "not_performed",
+    "runtime_probe": "not_performed",
+    "code_import_execution": "not_performed",
+    "hardware_probe": "not_performed",
+    "managed_runner": "not_defined",
+    "readiness_claim": "not_claimed",
+    "shared_environment_schema": "not_defined"
+  },
+  "review_bundles": [
+    {
+      "bundle_id": "environment-review-bundle-chevron-qA-0001",
+      "label": "qA chevron rerun environment review bundle",
+      "selected_reference_id": "selected-reference-chevron-qA-last-working",
+      "rerun_preparation_id": "rerun-prep-chevron-qA-from-reference-0001",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-current",
+      "reference_managed_code_version_id": "managed-code-version-chevron-qA-reference",
+      "reference_environment_id": "declared-environment-chevron-qA-reference",
+      "current_environment_id": "declared-environment-chevron-qA-current",
+      "environment_comparison_id": "environment-comparison-chevron-qA-reference-to-current",
+      "environment_file_observation_id": "environment-file-observation-chevron-qA-current",
+      "environment_readiness_plan_id": "environment-readiness-chevron-qA-current",
+      "bundle_claim": "environment_review_bundle_only"
+    }
+  ],
+  "prepared_run_contexts": [
+    {
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-current",
+      "label": "qA chevron current manual run context",
+      "scope": {
+        "managed_code_version_id": "managed-code-version-chevron-qA-current",
+        "editable_workspace_id": "editable-workspace-chevron-qA-current",
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-current"
+      },
+      "selected_context_count": 7,
+      "preparation_claim": "manual_run_context_only"
+    }
+  ],
+  "rerun_preparations": [
+    {
+      "rerun_preparation_id": "rerun-prep-chevron-qA-from-reference-0001",
+      "selected_reference_id": "selected-reference-chevron-qA-last-working",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-current",
+      "reference_measurement_id": "measurement-04021",
+      "current_measurement_id": "measurement-05021",
+      "preparation_claim": "manual_rerun_seed_summary_only"
+    }
+  ],
+  "environment_contexts": [
+    {
+      "environment_id": "declared-environment-chevron-qA-reference",
+      "label": "qA chevron selected-reference declared environment",
+      "role": "selected_reference_environment",
+      "record_status": "declared",
+      "scope": {
+        "managed_code_version_id": "managed-code-version-chevron-qA-reference",
+        "editable_workspace_id": "editable-workspace-chevron-qA-reference",
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-reference"
+      },
+      "environment_claims": {
+        "readiness_claim": "not_checked",
+        "sync_claim": "not_synced",
+        "execution_claim": "not_imported_loaded_or_executed",
+        "hardware_claim": "not_probed"
+      }
+    },
+    {
+      "environment_id": "declared-environment-chevron-qA-current",
+      "label": "qA chevron current declared environment",
+      "role": "current_environment",
+      "record_status": "declared_with_review_findings",
+      "scope": {
+        "managed_code_version_id": "managed-code-version-chevron-qA-current",
+        "editable_workspace_id": "editable-workspace-chevron-qA-current",
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-current"
+      },
+      "environment_claims": {
+        "readiness_claim": "not_checked",
+        "sync_claim": "not_synced",
+        "execution_claim": "not_imported_loaded_or_executed",
+        "hardware_claim": "not_probed"
+      }
+    }
+  ],
+  "environment_comparisons": [
+    {
+      "comparison_id": "environment-comparison-chevron-qA-reference-to-current",
+      "baseline_environment_id": "declared-environment-chevron-qA-reference",
+      "comparison_environment_id": "declared-environment-chevron-qA-current",
+      "comparison_claim": "declared_environment_fact_comparison_only",
+      "fact_count": 5,
+      "finding_state_counts": {
+        "changed": 1,
+        "missing": 1,
+        "same_declared": 1,
+        "unsupported": 1,
+        "unverified": 1
+      }
+    }
+  ],
+  "environment_file_observations": [
+    {
+      "file_observation_id": "environment-file-observation-chevron-qA-current",
+      "environment_id": "declared-environment-chevron-qA-current",
+      "classification": "environment_files_observed_match_declared_facts",
+      "observation_status_counts": {
+        "observed": 2
+      },
+      "review_finding_count": 0
+    }
+  ],
+  "environment_readiness_plans": [
+    {
+      "readiness_plan_id": "environment-readiness-chevron-qA-current",
+      "declared_environment_id": "declared-environment-chevron-qA-current",
+      "scope": {
+        "managed_code_version_id": "managed-code-version-chevron-qA-current",
+        "editable_workspace_id": "editable-workspace-chevron-qA-current",
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-current"
+      },
+      "check_count": 5,
+      "check_state_counts": {
+        "planned": 3,
+        "review_required": 2
+      },
+      "readiness_claim": "not_checked",
+      "sync_claim": "not_performed",
+      "execution_claim": "not_imported_loaded_or_executed",
+      "hardware_claim": "not_probed"
+    }
+  ],
+  "comparison_findings": [
+    {
+      "bundle_id": "environment-review-bundle-chevron-qA-0001",
+      "comparison_id": "environment-comparison-chevron-qA-reference-to-current",
+      "finding": "declared_environment_fact_changed",
+      "basis": "Current lockfile path differs from the selected reference declaration."
+    },
+    {
+      "bundle_id": "environment-review-bundle-chevron-qA-0001",
+      "comparison_id": "environment-comparison-chevron-qA-reference-to-current",
+      "finding": "declared_environment_fact_missing",
+      "basis": "Current dependency group declaration omits the reference lab group."
+    },
+    {
+      "bundle_id": "environment-review-bundle-chevron-qA-0001",
+      "comparison_id": "environment-comparison-chevron-qA-reference-to-current",
+      "finding": "declared_environment_fact_unverified",
+      "basis": "External runtime note is declared but not verified."
+    },
+    {
+      "bundle_id": "environment-review-bundle-chevron-qA-0001",
+      "comparison_id": "environment-comparison-chevron-qA-reference-to-current",
+      "finding": "declared_environment_fact_unsupported",
+      "basis": "Legacy migration note is comparison evidence only."
+    },
+    {
+      "bundle_id": "environment-review-bundle-chevron-qA-0001",
+      "comparison_id": "environment-comparison-chevron-qA-reference-to-current",
+      "finding": "declared_environment_fact_same",
+      "basis": "Both sides declare uv as the environment manager."
+    }
+  ],
+  "file_observation_findings": [],
+  "readiness_findings": [
+    {
+      "bundle_id": "environment-review-bundle-chevron-qA-0001",
+      "readiness_plan_id": "environment-readiness-chevron-qA-current",
+      "finding": "check_review_required",
+      "basis": "External driver remains a control-PC review item, not a Python dependency.",
+      "does_not_claim": "external_tool_available_or_compatible"
+    },
+    {
+      "bundle_id": "environment-review-bundle-chevron-qA-0001",
+      "readiness_plan_id": "environment-readiness-chevron-qA-current",
+      "finding": "check_review_required",
+      "basis": "Legacy pin policy is record-only here and should be migrated before any approved modern uv operation.",
+      "does_not_claim": "legacy_environment_migrated"
+    }
+  ]
+}
