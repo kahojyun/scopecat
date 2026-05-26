@@ -23,6 +23,7 @@ relation graph, or warning taxonomy.
 - [`handoff-package-opener-validation-result.md`](handoff-package-opener-validation-result.md)
 - [`handoff-package-read-view-validation-result.md`](handoff-package-read-view-validation-result.md)
 - [`handoff-package-visual-review-validation-result.md`](handoff-package-visual-review-validation-result.md)
+- [`handoff-package-visual-artifact-validation-result.md`](handoff-package-visual-artifact-validation-result.md)
 - [`handoff-package-writer-validation-result.md`](handoff-package-writer-validation-result.md)
 - [`handoff-package-round-trip-validation-result.md`](handoff-package-round-trip-validation-result.md)
 - [`contract-primitives-validation-result.md`](contract-primitives-validation-result.md)
@@ -110,8 +111,8 @@ incoming-record import preview, where the input authority is an external
 incoming-record manifest.
 
 The current handoff-package route has two validated tracks. Receiving-side use
-is contents preview -> opener -> read view -> visual review. Producer and
-compatibility work is writer -> round trip. Package import or storage
+is contents preview -> opener -> read view -> visual review -> visual
+artifact. Producer and compatibility work is writer -> round trip. Package import or storage
 acceptance remains a separate future mutation workflow.
 
 Handoff package opener has the first read-only package-use candidate for
@@ -148,6 +149,15 @@ workflow where plots and structured context are often the first review surface.
 It deliberately does not generate caption prose, render plots, define GUI
 components, define dataframe adapters, accept package import, verify package
 integrity, infer schema, or accept final SDK names.
+
+Handoff package visual artifact has the first local static HTML artifact
+candidate over the visual-review model. It renders plot-first visual cards,
+simple inline SVG for numeric-looking fixture points, linked-context and
+finding panels, measurement index rows, no-plot empty states, non-numeric
+render states, and escaped free text. It is a local review artifact for UX
+validation, not a portable package member, public report, live GUI framework,
+production plotting library decision, dataframe adapter, package import flow,
+integrity verifier, schema-inference layer, or final SDK contract.
 
 Legacy import acceptance has a slice-local implementation candidate for the
 first approved review-to-acceptance mutation for a normalized adapter-authored
