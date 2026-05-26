@@ -129,6 +129,10 @@ Validation should follow authority boundaries more strictly than user adoption:
     resolution, dependency sync, package installation, runtime checks, shared
     environment schema, managed runners, run-blocking decisions, or
     runnable-readiness claims.
+12. Validate optional manager-specific manifest projection before treating a
+    declared `pyproject.toml` as structured environment-comparison evidence,
+    while keeping external managers such as `uv` or Pixi authoritative for
+    resolution, sync, and installation.
 
 ## Validation Slice Backlog
 
@@ -354,6 +358,34 @@ Result owner:
 Boundary: no fresh file reads, dependency resolution, dependency sync, package
 installation, runtime probes, hardware probes, code import, code execution,
 shared environment schema, managed runner, run-blocking decision, or
+runnable-readiness claim.
+
+### 12. Modern Manifest Preflight
+
+Validation question: can Scopecat optionally project one explicitly approved
+`uv`/`pyproject.toml` manifest into review/comparison facts without defining a
+general environment-manager abstraction or performing lockfile parsing,
+dependency resolution, dependency sync, or package installation?
+
+User pressure: users comparing environments across experiments need more than
+file hashes or raw text diffs, but Scopecat should still delegate resolution,
+sync, and installation semantics to the selected external manager.
+
+First fixture: an approved qA chevron preflight request with prepared run
+context, declared current `uv`/`pyproject.toml` environment reference,
+caller-provided workspace root, and declared `pyproject.toml` path, producing
+parsed manifest summary facts plus review findings for missing or malformed
+`requires-python`, read failures, malformed dependency-group values, normalized
+dependency-group-name collisions, missing declared dependency groups, and a
+synthetic `default` group only when `[project].dependencies` is list-shaped.
+
+Result owner:
+[`modern-manifest-preflight-validation-result.md`](modern-manifest-preflight-validation-result.md)
+
+Boundary: one approved `uv`/`pyproject.toml` review projection only; no general
+manager abstraction, lockfile parsing, dependency resolution, dependency sync,
+package installation, runtime probes, hardware probes, code import, code
+execution, shared environment schema, managed runner, run-blocking decision, or
 runnable-readiness claim.
 
 All slices should keep code execution separate from code record integrity and

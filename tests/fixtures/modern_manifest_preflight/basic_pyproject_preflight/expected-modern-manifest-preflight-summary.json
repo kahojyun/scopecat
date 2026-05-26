@@ -1,0 +1,223 @@
+{
+  "summary_id": "modern-manifest-preflight-basic-pyproject.expected",
+  "status": "expected_validation_output",
+  "source_fixture": "modern-manifest-preflight-input.json",
+  "reference_semantics": {
+    "status": "fixture_only",
+    "contract_guard": "Modern manifest preflight is not an environment manager, package resolver, dependency sync operation, package installation step, lockfile parser, runtime probe, code import, execution step, hardware check, shared environment schema, managed runner, run-blocking decision, or runnable-readiness claim.",
+    "preflight": "The preflight reads one explicitly approved pyproject.toml manifest under a caller-provided workspace root.",
+    "finding_boundary": "Manifest findings are review facts, not automatic run blocks or runtime compatibility results."
+  },
+  "candidate_summary": {
+    "modern_manifest_preflight_policy": {
+      "summary_policy": "review_summary",
+      "preflight_authority": "approved_modern_manifest_preflight",
+      "workspace_root_authority": "caller_provided_workspace_root_plus_declared_manifest_path",
+      "manifest_read": "approved_pyproject_toml_only",
+      "lockfile_read": "not_performed",
+      "dependency_resolution": "not_performed",
+      "dependency_sync": "not_performed",
+      "package_install": "not_performed",
+      "runtime_probe": "not_performed",
+      "code_import_execution": "not_performed",
+      "hardware_probe": "not_performed",
+      "readiness_claim": "not_claimed",
+      "shared_environment_schema": "not_defined"
+    },
+    "preflight_request": {
+      "request_id": "modern-manifest-preflight-chevron-qA-0001",
+      "approval_id": "approval-chevron-qA-manifest-preflight-0001",
+      "approved_operation": "modern_manifest_preflight",
+      "workspace_root_label": "fixture-workspace",
+      "declared_environment_id": "declared-environment-chevron-qA-current",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-current",
+      "manifest_path": "project/pyproject.toml",
+      "expected_manager": "uv",
+      "expected_dependency_groups": [
+        "default",
+        "analysis",
+        "lab"
+      ]
+    },
+    "prepared_run_context": {
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-current",
+      "label": "qA chevron current manual run context",
+      "scope": {
+        "managed_code_version_id": "managed-code-version-chevron-qA-current",
+        "editable_workspace_id": "editable-workspace-chevron-qA-current",
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-current"
+      },
+      "selected_context_count": 7,
+      "preparation_claim": "manual_run_context_only"
+    },
+    "declared_environment": {
+      "environment_id": "declared-environment-chevron-qA-current",
+      "label": "qA chevron current declared environment",
+      "authority": "user_declared_inventory",
+      "record_status": "declared_with_review_findings",
+      "scope": {
+        "managed_code_version_id": "managed-code-version-chevron-qA-current",
+        "editable_workspace_id": "editable-workspace-chevron-qA-current",
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-current"
+      },
+      "environment_claims": {
+        "readiness_claim": "not_checked",
+        "sync_claim": "not_synced",
+        "execution_claim": "not_imported_loaded_or_executed",
+        "hardware_claim": "not_probed"
+      },
+      "modern_python_environment": {
+        "environment_ref": "modern-python-env-chevron-qA-current",
+        "manager": "uv",
+        "pyproject_path": "project/pyproject.toml",
+        "lockfile_path": "project/uv.lock",
+        "dependency_groups": [
+          "default",
+          "analysis",
+          "lab"
+        ],
+        "python_version_source": "requires-python",
+        "manifest_state": "declared"
+      }
+    },
+    "preflight_status": "manifest_preflight_has_review_findings",
+    "manifest_summary": {
+      "manifest_kind": "pyproject_toml",
+      "status": "parsed",
+      "project_name": "qa-chevron-calibration",
+      "requires_python": ">=3.11,<3.13",
+      "requires_python_status": "declared",
+      "dependency_names": [
+        "numpy",
+        "qcodes"
+      ],
+      "skipped_dependency_entry_count": 1,
+      "dependency_group_names": [
+        "default",
+        "analysis"
+      ],
+      "dependency_group_shapes": {
+        "analysis": "declared_list"
+      },
+      "does_not_claim": "dependency_resolution_or_runtime_compatibility"
+    },
+    "dependency_group_checks": [
+      {
+        "dependency_group": "default",
+        "normalized_dependency_group": "default",
+        "matched_manifest_groups": [
+          "default"
+        ],
+        "state": "declared_in_manifest",
+        "does_not_claim": "dependency_resolution_or_dependency_sync"
+      },
+      {
+        "dependency_group": "analysis",
+        "normalized_dependency_group": "analysis",
+        "matched_manifest_groups": [
+          "analysis"
+        ],
+        "state": "declared_in_manifest",
+        "does_not_claim": "dependency_resolution_or_dependency_sync"
+      },
+      {
+        "dependency_group": "lab",
+        "normalized_dependency_group": "lab",
+        "matched_manifest_groups": [],
+        "state": "missing_from_manifest",
+        "does_not_claim": "dependency_resolution_or_dependency_sync"
+      }
+    ],
+    "preflight_findings": [
+      {
+        "code": "declared_dependency_group_missing",
+        "severity": "review",
+        "basis": "Declared dependency group 'lab' is absent from approved pyproject.toml.",
+        "does_not_claim": "dependency_resolution_or_dependency_sync",
+        "dependency_group": "lab"
+      }
+    ],
+    "attention": [
+      {
+        "code": "modern_manifest_preflight_only",
+        "severity": "info",
+        "basis": "The slice reads one explicitly approved pyproject.toml manifest.",
+        "does_not_claim": "environment_operation_beyond_manifest_preflight"
+      },
+      {
+        "code": "lockfile_read_not_performed",
+        "severity": "review",
+        "basis": "The preflight does not open or parse lockfiles.",
+        "does_not_claim": "locked_dependency_graph"
+      },
+      {
+        "code": "dependency_resolution_not_performed",
+        "severity": "review",
+        "basis": "Dependency names and groups are declared manifest facts, not resolved packages.",
+        "does_not_claim": "resolved_environment"
+      },
+      {
+        "code": "dependency_sync_not_performed",
+        "severity": "review",
+        "basis": "The preflight does not run uv sync or synchronize package state.",
+        "does_not_claim": "synchronized_environment"
+      },
+      {
+        "code": "package_install_not_performed",
+        "severity": "review",
+        "basis": "The preflight does not install, update, or remove packages.",
+        "does_not_claim": "installed_environment"
+      },
+      {
+        "code": "runtime_probe_not_performed",
+        "severity": "review",
+        "basis": "The preflight does not inspect interpreters, tools, or installed packages.",
+        "does_not_claim": "runtime_available_or_compatible"
+      },
+      {
+        "code": "code_execution_not_granted",
+        "severity": "review",
+        "basis": "The preflight does not import, load, or execute selected code.",
+        "does_not_claim": "execution_permission"
+      },
+      {
+        "code": "hardware_probe_not_performed",
+        "severity": "review",
+        "basis": "The preflight does not contact instruments, drivers, or control-PC hardware.",
+        "does_not_claim": "control_pc_or_hardware_ready"
+      },
+      {
+        "code": "runnable_readiness_not_claimed",
+        "severity": "review",
+        "basis": "Manifest preflight does not decide whether a run can start.",
+        "does_not_claim": "run_can_start"
+      },
+      {
+        "code": "shared_environment_schema_not_defined",
+        "severity": "review",
+        "basis": "The preflight validates a slice-local contract, not a shared environment schema.",
+        "does_not_claim": "shared_environment_schema"
+      }
+    ]
+  },
+  "boundary_notes": [
+    "The fixture reads one approved pyproject.toml manifest and does not read lockfiles.",
+    "Dependency names and dependency groups are declared manifest facts, not dependency resolution.",
+    "The preflight does not claim dependency resolution, dependency sync, package installation, runtime readiness, hardware readiness, code execution, shared environment schema, run-blocking decisions, or run-start readiness."
+  ],
+  "decisions_not_earned": [
+    "lockfile parsing",
+    "dependency resolution",
+    "dependency sync",
+    "package installation",
+    "runtime readiness",
+    "code import",
+    "code execution",
+    "hardware readiness",
+    "managed runner",
+    "run-blocking decisions",
+    "runnable readiness",
+    "shared environment schema",
+    "GUI workflow"
+  ]
+}

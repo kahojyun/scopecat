@@ -62,6 +62,7 @@ relation graph, or warning taxonomy.
 - [`environment-comparison-validation-result.md`](environment-comparison-validation-result.md)
 - [`environment-file-observation-validation-result.md`](environment-file-observation-validation-result.md)
 - [`environment-review-bundle-validation-result.md`](environment-review-bundle-validation-result.md)
+- [`modern-manifest-preflight-validation-result.md`](modern-manifest-preflight-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
 - [`adoption-routes.md`](adoption-routes.md)
 - [`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md)
@@ -540,7 +541,7 @@ Environment file observation has a slice-local implementation candidate for
 reading explicitly declared modern environment files under a caller-provided
 workspace root. It observes availability, sha256, and byte size for declared
 `pyproject.toml` and `uv.lock` files, and parses `pyproject.toml` only for a
-narrow declared manifest summary while skipping unsafe dependency entries and
+narrow declared manifest summary while skipping unparsed dependency entries and
 reporting malformed manifests as review findings without losing observed file
 facts. It does not scan workspaces, parse lockfiles into dependency graphs,
 resolve or sync dependencies, install packages, probe runtimes, import code,
@@ -556,6 +557,23 @@ fresh observation, resolving dependencies, syncing packages, installing
 packages, probing runtimes, importing or executing code, probing hardware,
 defining a shared environment schema, defining managed runners, making
 run-blocking decisions, or claiming runnable readiness.
+
+Modern manifest preflight has a slice-local implementation candidate for an
+optional `uv`/`pyproject.toml` review projection. It reads one explicitly
+approved `pyproject.toml` path under a caller-provided workspace root, parses
+declared project, `requires-python`, dependency name, skipped dependency entry,
+a synthetic `default` group from list-shaped `[project].dependencies`, and
+`[dependency-groups]` facts, and reports missing or malformed
+`requires-python`, read failures, malformed dependency-group values, normalized
+dependency-group-name collisions, and missing declared dependency groups as
+review findings. Dependency-group comparison uses normalized names while
+preserving original names for review display. It supports review/comparison
+surfaces; it is not a prerequisite for invoking `uv sync` and not Scopecat's general
+environment-manager abstraction. It does this without reading lockfiles,
+resolving dependencies, syncing packages, installing packages, probing
+runtimes, importing or executing code, probing hardware, defining a shared
+environment schema, defining managed runners, making run-blocking decisions,
+claiming manager-operation authority, or claiming runnable readiness.
 
 ## Version Terminology
 
@@ -630,6 +648,7 @@ schema.
 | Environment comparison finding | Experiment code, selected reference, prepared run context support | A declared-fact comparison result such as same-declared, changed, missing, unverified, or unsupported for selected environment context. It is not dependency resolution, runtime compatibility, hardware readiness, runnable readiness, or reproducibility. |
 | Environment file observation | Experiment code, prepared run context support | A read-only observation of explicitly declared environment files under a caller-provided workspace root. The first candidate records availability, sha256, byte size, malformed-manifest review findings, and narrow `pyproject.toml` declared summary fields without workspace discovery, lockfile graph parsing, dependency resolution or sync, runtime probes, hardware checks, code import, execution, or runnable-readiness claims. |
 | Environment review bundle | Experiment code, selected reference, prepared run context support | A composition of prepared/rerun context, declared environment comparison, file observation, and readiness-plan summaries into one review surface. It validates alignment and aggregates review findings without fresh observation, dependency resolution, dependency sync, package installation, runtime probes, hardware checks, code import, execution, shared environment schema, managed-runner behavior, run-blocking decisions, or runnable-readiness claims. |
+| Modern manifest preflight | Experiment code, prepared run context support | An optional `uv`/`pyproject.toml` review projection over one approved manifest under a caller-provided workspace root. It summarizes declared manifest facts, derives `default` only from list-shaped `[project].dependencies`, and reports missing or malformed `requires-python`, read failures, malformed dependency-group values, normalized dependency-group-name collisions, and missing dependency-group review findings, using normalized dependency-group comparison without defining a general manager abstraction, lockfile parsing, dependency resolution, dependency sync, package installation, runtime probes, hardware checks, code import, execution, shared environment schema, managed-runner behavior, run-blocking decisions, manager-operation authority, or runnable-readiness claims. |
 
 ## Stable Separations
 
@@ -718,6 +737,12 @@ Several separations now appear repeatedly enough to keep carrying forward:
   without becoming dependency resolution, dependency sync, package
   installation, runtime compatibility result, shared environment schema,
   managed-runner contract, run-blocking decision, or runnable-readiness claim.
+- Modern manifest preflight can support environment review/comparison when raw
+  file hashes or text diffs are too weak, but should remain optional for
+  manager execution and separate from a general manager abstraction, lockfile
+  parsing, dependency resolution, dependency sync, package installation,
+  runtime compatibility, managed-runner behavior, run-blocking decisions, and
+  runnable-readiness.
 
 ## Design Pressure
 
