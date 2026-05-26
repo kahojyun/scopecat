@@ -1,19 +1,19 @@
 {
-  "shape_summary_id": "fixed_vector_response_table.expected",
+  "shape_summary_id": "complex_fixed_vector_response_table.expected",
   "status": "expected_validation_output",
   "source_fixture": "shape-input.json",
   "measurement": {
-    "measurement_id": "synthetic-single-shot-iq-001",
-    "label": "Synthetic Single-Shot IQ",
+    "measurement_id": "synthetic-complex-iq-001",
+    "label": "Synthetic Complex IQ",
     "target": "readout_resonator",
     "source_kind": "declared_primary_table",
-    "source_table": "source/single-shot-iq-vector.csv"
+    "source_table": "source/complex-iq-vector.csv"
   },
   "shape": {
-    "kind": "fixed_vector_response_table",
+    "kind": "complex_fixed_vector_response_table",
     "vector_assumption": "fixed_shape_per_row",
     "axis_order": [
-      "pulse_amplitude_v"
+      "readout_power_dbm"
     ],
     "row_count": 4,
     "duplicate_coordinates": false,
@@ -21,37 +21,35 @@
   },
   "declared_axes": [
     {
-      "name": "pulse_amplitude_v",
-      "label": "Pulse amplitude",
-      "unit": "V"
+      "name": "readout_power_dbm",
+      "label": "Readout power",
+      "unit": "dBm"
     }
   ],
   "declared_vector_responses": [
     {
-      "name": "shot_iq",
-      "label": "Single-shot IQ",
+      "name": "iq_v",
+      "label": "IQ response",
       "unit": "V"
     }
   ],
   "held_conditions": [
     {
-      "label": "Readout duration",
-      "value": 1600,
-      "unit": "ns",
+      "label": "Readout frequency",
+      "value": 6.25,
+      "unit": "GHz",
       "authority": "fixture declaration"
     }
   ],
   "column_validation": {
     "status": "pass",
     "declared_columns": [
-      "pulse_amplitude_v",
-      "shot_iq",
-      "shot_state"
+      "readout_power_dbm",
+      "iq_v"
     ],
     "source_columns": [
-      "pulse_amplitude_v",
-      "shot_iq",
-      "shot_state"
+      "readout_power_dbm",
+      "iq_v"
     ],
     "missing_declared_columns": [],
     "missing_shape_columns": [],
@@ -73,7 +71,7 @@
     },
     "column_summaries": [
       {
-        "name": "shot_iq",
+        "name": "iq_v",
         "value_shape": [
           2
         ],
@@ -83,6 +81,19 @@
           "I",
           "Q"
         ],
+        "logical_value": {
+          "type": "complex128",
+          "representation": "cartesian_vector",
+          "real_component": "I",
+          "imag_component": "Q",
+          "derived_components": [
+            "real",
+            "imag",
+            "magnitude",
+            "phase"
+          ],
+          "phase_unit": "rad"
+        },
         "row_count": 4,
         "observed_lengths": [
           "2"
@@ -101,30 +112,39 @@
   },
   "plot_candidates": [
     {
-      "title": "Synthetic Single-Shot IQ: Single-shot IQ",
-      "plot_kind": "component_pair_scatter",
+      "title": "Synthetic Complex IQ: IQ response",
+      "plot_kind": "complex_component_pair_scatter",
       "x_component": "I",
       "y_component": "Q",
-      "vector_column": "shot_iq",
-      "source": "source/single-shot-iq-vector.csv"
+      "vector_column": "iq_v",
+      "source": "source/complex-iq-vector.csv",
+      "logical_value_type": "complex128",
+      "derived_components": [
+        "real",
+        "imag",
+        "magnitude",
+        "phase"
+      ]
     }
   ],
   "warnings": [],
   "boundary_notes": [
     "Fixed-vector response shape is declared by fixture metadata, not schema inference.",
     "The reader ndarray shape is a validated convenience view over fixed-shape per-row vectors, not a general array-column API.",
-    "Plot candidates are declared component-pair candidates only; no rendering, fit, uncertainty, or scientific validation is provided.",
+    "Plot candidates are declared component-pair candidates only; logical complex metadata declares real, imaginary, magnitude, and phase views without earning a primitive complex storage type or transform engine.",
     "This fixture validates per-row vector parseability, fixed length, declared dtype coercion, and coordinate uniqueness only."
   ],
   "decisions_not_earned": [
     "final storage schema",
     "shared data-shape schema",
-    "native list or struct storage mapping",
+    "complex primitive storage type",
+    "native complex backend mapping",
     "general dataframe or array API",
+    "general transform engine",
     "legacy importer",
     "plot rendering",
     "multi-dimensional ndarray support",
-    "large waveform or trace storage",
+    "complex trace response support",
     "matrix heatmap or QST/QPT analysis support",
     "automatic schema inference",
     "scientific validity or reproducibility"

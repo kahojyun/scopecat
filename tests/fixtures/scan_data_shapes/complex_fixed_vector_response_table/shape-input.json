@@ -1,0 +1,67 @@
+{
+  "fixture_id": "complex_fixed_vector_response_table",
+  "measurement": {
+    "measurement_id": "synthetic-complex-iq-001",
+    "label": "Synthetic Complex IQ",
+    "target": "readout_resonator",
+    "source_kind": "declared_primary_table",
+    "source_table": "source/complex-iq-vector.csv"
+  },
+  "data_shape": {
+    "kind": "complex_fixed_vector_response_table",
+    "vector_assumption": "fixed_shape_per_row",
+    "axis_order": [
+      "readout_power_dbm"
+    ],
+    "vector_columns": [
+      {
+        "name": "iq_v",
+        "label": "IQ response",
+        "value_shape": [
+          2
+        ],
+        "dtype": "float64",
+        "shape_policy": "fixed_per_row",
+        "components": [
+          "I",
+          "Q"
+        ],
+        "logical_value": {
+          "type": "complex128",
+          "representation": "cartesian_vector",
+          "real_component": "I",
+          "imag_component": "Q",
+          "derived_components": [
+            "real",
+            "imag",
+            "magnitude",
+            "phase"
+          ],
+          "phase_unit": "rad"
+        }
+      }
+    ]
+  },
+  "declared_columns": [
+    {
+      "name": "readout_power_dbm",
+      "label": "Readout power",
+      "role": "sweep_axis",
+      "unit": "dBm"
+    },
+    {
+      "name": "iq_v",
+      "label": "IQ response",
+      "role": "vector_response",
+      "unit": "V"
+    }
+  ],
+  "held_conditions": [
+    {
+      "label": "Readout frequency",
+      "value": 6.25,
+      "unit": "GHz",
+      "authority": "fixture declaration"
+    }
+  ]
+}

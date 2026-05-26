@@ -52,6 +52,17 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
         (fixture / "shape-input.json").write_text(json.dumps(source, indent=2), encoding="utf-8")
         (source_dir / "single-shot-iq-vector.csv").write_text(source_text, encoding="utf-8")
 
+    def _write_complex_fixed_vector_fixture(self, fixture: Path, source_text: str) -> None:
+        source = json.loads(
+            (FIXTURE_ROOT / "complex_fixed_vector_response_table" / "shape-input.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        source_dir = fixture / "source"
+        source_dir.mkdir(parents=True)
+        (fixture / "shape-input.json").write_text(json.dumps(source, indent=2), encoding="utf-8")
+        (source_dir / "complex-iq-vector.csv").write_text(source_text, encoding="utf-8")
+
     def test_generates_2d_grid_expected_summary(self) -> None:
         fixture = FIXTURE_ROOT / "2d_grid_table"
 
@@ -131,6 +142,20 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
 
     def test_generates_fixed_vector_response_expected_review(self) -> None:
         fixture = FIXTURE_ROOT / "fixed_vector_response_table"
+
+        expected = (fixture / "expected-shape-review.md").read_text(encoding="utf-8")
+
+        self.assertEqual(generate_review(generate_summary(fixture)), expected)
+
+    def test_generates_complex_fixed_vector_response_expected_summary(self) -> None:
+        fixture = FIXTURE_ROOT / "complex_fixed_vector_response_table"
+
+        expected = json.loads((fixture / "expected-shape-summary.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(generate_summary(fixture), expected)
+
+    def test_generates_complex_fixed_vector_response_expected_review(self) -> None:
+        fixture = FIXTURE_ROOT / "complex_fixed_vector_response_table"
 
         expected = (fixture / "expected-shape-review.md").read_text(encoding="utf-8")
 
@@ -541,6 +566,256 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
         self.assertEqual(summary["vector_validation"]["column_summaries"][0]["dtype_failures"], 1)
         self.assertEqual(
             summary["vector_validation"]["failed_cells"][0]["failure"], "dtype_mismatch"
+        )
+
+    def test_complex_fixed_vector_rejects_unsupported_representation(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_complex_fixed_vector_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "readout_power_dbm,iq_v",
+                        '-35,"[0.120, -0.030]"',
+                        "",
+                    ]
+                ),
+            )
+            source = json.loads((fixture / "shape-input.json").read_text(encoding="utf-8"))
+            source["data_shape"]["vector_columns"][0]["logical_value"]["representation"] = (
+                "polar_vector"
+            )
+            (fixture / "shape-input.json").write_text(
+                json.dumps(source, indent=2),
+                encoding="utf-8",
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(summary["plot_candidates"], [])
+        self.assertEqual(
+            summary["vector_validation"]["declaration_validation"][
+                "unsupported_complex_logical_values"
+            ],
+            [{"column": "iq_v", "failure": "unsupported_representation"}],
+        )
+
+    def test_complex_fixed_vector_requires_logical_value(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_complex_fixed_vector_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "readout_power_dbm,iq_v",
+                        '-35,"[0.120, -0.030]"',
+                        "",
+                    ]
+                ),
+            )
+            source = json.loads((fixture / "shape-input.json").read_text(encoding="utf-8"))
+            del source["data_shape"]["vector_columns"][0]["logical_value"]
+            (fixture / "shape-input.json").write_text(
+                json.dumps(source, indent=2),
+                encoding="utf-8",
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(summary["plot_candidates"], [])
+        self.assertEqual(
+            summary["vector_validation"]["declaration_validation"][
+                "unsupported_complex_logical_values"
+            ],
+            [{"column": "iq_v", "failure": "missing_logical_value"}],
+        )
+
+    def test_complex_fixed_vector_requires_declared_components(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_complex_fixed_vector_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "readout_power_dbm,iq_v",
+                        '-35,"[0.120, -0.030]"',
+                        "",
+                    ]
+                ),
+            )
+            source = json.loads((fixture / "shape-input.json").read_text(encoding="utf-8"))
+            source["data_shape"]["vector_columns"][0]["components"] = ["I", "aux"]
+            (fixture / "shape-input.json").write_text(
+                json.dumps(source, indent=2),
+                encoding="utf-8",
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(
+            summary["vector_validation"]["declaration_validation"][
+                "unsupported_complex_logical_values"
+            ],
+            [{"column": "iq_v", "failure": "complex_components_not_declared"}],
+        )
+
+    def test_complex_fixed_vector_rejects_extra_components(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_complex_fixed_vector_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "readout_power_dbm,iq_v",
+                        '-35,"[0.120, -0.030]"',
+                        "",
+                    ]
+                ),
+            )
+            source = json.loads((fixture / "shape-input.json").read_text(encoding="utf-8"))
+            source["data_shape"]["vector_columns"][0]["components"] = ["I", "Q", "aux"]
+            (fixture / "shape-input.json").write_text(
+                json.dumps(source, indent=2),
+                encoding="utf-8",
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(summary["plot_candidates"], [])
+        self.assertEqual(
+            summary["vector_validation"]["declaration_validation"][
+                "unsupported_complex_logical_values"
+            ],
+            [{"column": "iq_v", "failure": "complex_requires_two_components"}],
+        )
+
+    def test_complex_fixed_vector_plot_uses_declared_real_imag_mapping(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_complex_fixed_vector_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "readout_power_dbm,iq_v",
+                        '-35,"[0.120, -0.030]"',
+                        "",
+                    ]
+                ),
+            )
+            source = json.loads((fixture / "shape-input.json").read_text(encoding="utf-8"))
+            source["data_shape"]["vector_columns"][0]["components"] = ["Q", "I"]
+            source["data_shape"]["vector_columns"][0]["logical_value"]["real_component"] = "I"
+            source["data_shape"]["vector_columns"][0]["logical_value"]["imag_component"] = "Q"
+            (fixture / "shape-input.json").write_text(
+                json.dumps(source, indent=2),
+                encoding="utf-8",
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "pass")
+        self.assertEqual(summary["plot_candidates"][0]["x_component"], "I")
+        self.assertEqual(summary["plot_candidates"][0]["y_component"], "Q")
+
+    def test_complex_fixed_vector_rejects_logical_type_dtype_mismatch(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_complex_fixed_vector_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "readout_power_dbm,iq_v",
+                        '-35,"[0.120, -0.030]"',
+                        "",
+                    ]
+                ),
+            )
+            source = json.loads((fixture / "shape-input.json").read_text(encoding="utf-8"))
+            source["data_shape"]["vector_columns"][0]["dtype"] = "float32"
+            source["data_shape"]["vector_columns"][0]["logical_value"]["type"] = "complex128"
+            (fixture / "shape-input.json").write_text(
+                json.dumps(source, indent=2),
+                encoding="utf-8",
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(
+            summary["vector_validation"]["declaration_validation"][
+                "unsupported_complex_logical_values"
+            ],
+            [{"column": "iq_v", "failure": "logical_type_dtype_mismatch"}],
+        )
+
+    def test_complex_fixed_vector_accepts_complex64_float32(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_complex_fixed_vector_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "readout_power_dbm,iq_v",
+                        '-35,"[0.120, -0.030]"',
+                        "",
+                    ]
+                ),
+            )
+            source = json.loads((fixture / "shape-input.json").read_text(encoding="utf-8"))
+            source["data_shape"]["vector_columns"][0]["dtype"] = "float32"
+            source["data_shape"]["vector_columns"][0]["logical_value"]["type"] = "complex64"
+            (fixture / "shape-input.json").write_text(
+                json.dumps(source, indent=2),
+                encoding="utf-8",
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "pass")
+        self.assertEqual(
+            summary["vector_validation"]["column_summaries"][0]["logical_value"]["type"],
+            "complex64",
+        )
+
+    def test_plain_fixed_vector_rejects_complex_logical_metadata(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_fixed_vector_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "pulse_amplitude_v,shot_iq,shot_state",
+                        '0.10,"[0.12, -0.03]",ground',
+                        "",
+                    ]
+                ),
+            )
+            source = json.loads((fixture / "shape-input.json").read_text(encoding="utf-8"))
+            source["data_shape"]["vector_columns"][0]["logical_value"] = {
+                "type": "complex128",
+                "representation": "cartesian_vector",
+                "real_component": "I",
+                "imag_component": "Q",
+                "derived_components": ["real", "imag", "magnitude", "phase"],
+                "phase_unit": "rad",
+            }
+            (fixture / "shape-input.json").write_text(
+                json.dumps(source, indent=2),
+                encoding="utf-8",
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(
+            summary["vector_validation"]["declaration_validation"][
+                "unsupported_complex_logical_values"
+            ],
+            [{"column": "shot_iq", "failure": "complex_logical_value_requires_complex_shape"}],
         )
 
 

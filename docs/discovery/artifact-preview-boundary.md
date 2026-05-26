@@ -75,6 +75,10 @@ data item when each row validates against declared fixed-shape `value_shape`,
 view as a convenience, but Scopecat should not treat that as a general
 array-column API.
 
+Complex-valued responses are logical value metadata over such previewable data
+items, not primitive storage types. The current complex validation is bounded
+in [`complex-response-boundary.md`](complex-response-boundary.md).
+
 For traces and waveforms, keep trace-per-point or sidecar trace references
 separate from small vector responses.
 

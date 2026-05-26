@@ -19,12 +19,15 @@ Current scope is deliberately narrow:
 - observed-only ragged/adaptive table when expected group counts are unknown;
 - declared trace-per-point table with fixture-local trace CSV references;
 - declared fixed-vector response table for compact per-row single-shot values;
+- declared complex fixed-vector response table for cartesian logical complex
+  values;
 - declared sidecar metadata for weakly labeled table columns;
 - header, row-count, coordinate-coverage, group-coverage, trace-reference,
-  fixed-vector, and mapping sanity checks;
+  fixed-vector, complex logical value, and mapping sanity checks;
 - plot-candidate descriptions only.
 
 It is not a storage schema, dataframe API, legacy importer, plotting layer,
-schema inference engine, general ndarray API, or scientific validation tool.
-Harder scan shapes such as matrix heatmap analysis previews and
-backend-specific binary containers remain deferred shape risks.
+schema inference engine, general ndarray API, complex primitive storage model,
+transform engine, or scientific validation tool. Harder scan shapes such as
+complex trace responses, matrix heatmap analysis previews, and backend-specific
+binary containers remain deferred shape risks.

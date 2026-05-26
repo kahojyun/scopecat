@@ -36,6 +36,7 @@ Current fixture pressures:
 - trace-per-point table with fixture-relative trace CSV references;
 - fixed-vector response table for compact fixed-shape per-row single-shot
   values;
+- complex fixed-vector response table for cartesian logical complex values;
 - sidecar-declared weak 1D table pressure.
 
 All fixtures are synthetic and repository-safe. They intentionally use small
@@ -62,6 +63,10 @@ storage backend or plotting implementation:
   values against declared `value_shape`, `dtype`, and `shape_policy`, then
   report a reader ndarray-shaped convenience view without accepting a general
   array API;
+- complex fixed-vector declarations can add logical value metadata for
+  `complex64` or `complex128` cartesian values and declare real, imaginary,
+  magnitude, and phase views without accepting a primitive complex storage
+  type or general transform engine;
 - sidecar declarations can assign meaning to weak physical columns without
   trusting source headers as the semantic authority.
 
@@ -99,10 +104,17 @@ small-vector contract for compact per-row responses, such as an IQ pair. It
 does not accept arbitrary ndarray columns, large waveforms, image-like arrays,
 matrix heatmaps, QST/QPT support, or pandas-like multi-index table behavior.
 
+The complex fixed-vector fixture is concept validation for logical value
+metadata only. It validates a cartesian vector representation and derived view
+declarations, not native complex storage, arbitrary conversion, trace complex
+schema, or matrix complex analysis support.
+
 Artifact visualization remains separately bounded in
 [`artifact-preview-boundary.md`](artifact-preview-boundary.md): arbitrary
 artifacts are stored or referenced by default, and only declared
 Scopecat-understood preview models should produce plot candidates.
+Complex response semantics are separately bounded in
+[`complex-response-boundary.md`](complex-response-boundary.md).
 
 ## Result
 
@@ -130,6 +142,8 @@ Likely follow-up slices should stay separate:
   part of Scopecat core;
 - matrix heatmap analysis preview for QST/QPT-like outputs, only after a
   matrix-specific table model earns its semantics;
+- complex trace response support, only after trace-specific metadata earns its
+  semantics;
 - preview compatibility findings across selected measurements, without
   accepting raw-data comparison or publication-grade plotting;
 - storage-backend mapping experiments, after shape vocabulary has repeated

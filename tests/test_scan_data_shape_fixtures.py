@@ -17,6 +17,9 @@ TRACE_FIXTURE = ROOT / "tests" / "fixtures" / "scan_data_shapes" / "trace_per_po
 FIXED_VECTOR_FIXTURE = (
     ROOT / "tests" / "fixtures" / "scan_data_shapes" / "fixed_vector_response_table"
 )
+COMPLEX_FIXED_VECTOR_FIXTURE = (
+    ROOT / "tests" / "fixtures" / "scan_data_shapes" / "complex_fixed_vector_response_table"
+)
 
 
 class ScanDataShapeFixtureTest(unittest.TestCase):
@@ -335,6 +338,46 @@ class ScanDataShapeFixtureTest(unittest.TestCase):
         self.assertIn("kind: `fixed_vector_response_table`", review)
         self.assertIn("reader ndarray shape", review)
         self.assertIn("not a general array-column API", review)
+        self.assertIn("not arbitrary ndarray", review)
+
+    def test_complex_fixed_vector_fixture_json_files_are_valid(self) -> None:
+        for path in [
+            COMPLEX_FIXED_VECTOR_FIXTURE / "shape-input.json",
+            COMPLEX_FIXED_VECTOR_FIXTURE / "expected-shape-summary.json",
+        ]:
+            with self.subTest(path=path):
+                self._load_json(path)
+
+    def test_complex_fixed_vector_summary_reports_logical_value_views(self) -> None:
+        shape_input = self._load_json(COMPLEX_FIXED_VECTOR_FIXTURE / "shape-input.json")
+        summary = self._load_json(COMPLEX_FIXED_VECTOR_FIXTURE / "expected-shape-summary.json")
+        vector_column = shape_input["data_shape"]["vector_columns"][0]
+        vector_summary = summary["vector_validation"]["column_summaries"][0]
+        plot_candidate = summary["plot_candidates"][0]
+
+        self.assertEqual("complex_fixed_vector_response_table", summary["shape"]["kind"])
+        self.assertEqual(vector_column["logical_value"], vector_summary["logical_value"])
+        self.assertEqual("complex128", vector_summary["logical_value"]["type"])
+        self.assertEqual("cartesian_vector", vector_summary["logical_value"]["representation"])
+        self.assertEqual(
+            ["real", "imag", "magnitude", "phase"],
+            vector_summary["logical_value"]["derived_components"],
+        )
+        self.assertEqual("complex_component_pair_scatter", plot_candidate["plot_kind"])
+        self.assertEqual("complex128", plot_candidate["logical_value_type"])
+        self.assertEqual(
+            ["real", "imag", "magnitude", "phase"],
+            plot_candidate["derived_components"],
+        )
+
+    def test_complex_fixed_vector_review_states_no_complex_primitive_boundary(self) -> None:
+        review = (COMPLEX_FIXED_VECTOR_FIXTURE / "expected-shape-review.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("kind: `complex_fixed_vector_response_table`", review)
+        self.assertIn("Logical Value Views", review)
+        self.assertIn("`complex128`", review)
         self.assertIn("not arbitrary ndarray", review)
 
 

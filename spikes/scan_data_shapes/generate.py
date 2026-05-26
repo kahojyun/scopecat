@@ -78,7 +78,26 @@ FIXED_VECTOR_DECISIONS_NOT_EARNED = [
     "scientific validity or reproducibility",
 ]
 
+COMPLEX_FIXED_VECTOR_DECISIONS_NOT_EARNED = [
+    "final storage schema",
+    "shared data-shape schema",
+    "complex primitive storage type",
+    "native complex backend mapping",
+    "general dataframe or array API",
+    "general transform engine",
+    "legacy importer",
+    "plot rendering",
+    "multi-dimensional ndarray support",
+    "complex trace response support",
+    "matrix heatmap or QST/QPT analysis support",
+    "automatic schema inference",
+    "scientific validity or reproducibility",
+]
+
 FIXED_VECTOR_SHAPE_POLICY = "fixed_per_row"
+SUPPORTED_COMPLEX_LOGICAL_TYPES = {"complex64", "complex128"}
+SUPPORTED_COMPLEX_REPRESENTATION = "cartesian_vector"
+SUPPORTED_COMPLEX_DERIVED_COMPONENTS = ["real", "imag", "magnitude", "phase"]
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -132,6 +151,12 @@ def _format_fixed_vector_shape_failures(values: list[dict[str, Any]]) -> str:
     if not values:
         return "`none`"
     return ", ".join(f"`{item['column']}={item['value_shape']}`" for item in values)
+
+
+def _format_complex_logical_failures(values: list[dict[str, Any]]) -> str:
+    if not values:
+        return "`none`"
+    return ", ".join(f"`{item['column']}={item['failure']}`" for item in values)
 
 
 def _sort_numeric_strings(values: list[str]) -> list[str]:
@@ -245,12 +270,51 @@ def _is_supported_fixed_vector_shape(value_shape: Any) -> bool:
     )
 
 
+def _complex_logical_validation_failure(
+    column: dict[str, Any], *, requires_logical_value: bool
+) -> str | None:
+    logical_value = column.get("logical_value")
+    if logical_value is None:
+        return "missing_logical_value" if requires_logical_value else None
+    if not isinstance(logical_value, dict):
+        return "logical_value_not_object"
+    if logical_value.get("type") not in SUPPORTED_COMPLEX_LOGICAL_TYPES:
+        return "unsupported_logical_type"
+    if (
+        logical_value["type"] == "complex64"
+        and column.get("dtype") != "float32"
+        or logical_value["type"] == "complex128"
+        and column.get("dtype") != "float64"
+    ):
+        return "logical_type_dtype_mismatch"
+    if logical_value.get("representation") != SUPPORTED_COMPLEX_REPRESENTATION:
+        return "unsupported_representation"
+    if column.get("value_shape") != [2]:
+        return "complex_requires_value_shape_2"
+    components = column.get("components", [])
+    if not isinstance(components, list) or len(components) != 2:
+        return "complex_requires_two_components"
+    real_component = logical_value.get("real_component")
+    imag_component = logical_value.get("imag_component")
+    if real_component not in components or imag_component not in components:
+        return "complex_components_not_declared"
+    if real_component == imag_component:
+        return "complex_components_not_distinct"
+    if logical_value.get("derived_components") != SUPPORTED_COMPLEX_DERIVED_COMPONENTS:
+        return "unsupported_derived_components"
+    if logical_value.get("phase_unit") != "rad":
+        return "unsupported_phase_unit"
+    return None
+
+
 def _fixed_vector_declaration_validation(
     *,
+    shape_kind: str,
     declared_columns: list[dict[str, Any]],
     axis_order: list[str],
     vector_columns: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    is_complex_shape = shape_kind == "complex_fixed_vector_response_table"
     declared_by_name = {column["name"]: column for column in declared_columns}
     invalid_axis_roles = [
         axis
@@ -279,12 +343,31 @@ def _fixed_vector_declaration_validation(
         for column in vector_columns
         if not _is_supported_fixed_vector_shape(column.get("value_shape"))
     ]
+    unsupported_complex_logical_values = [
+        {
+            "column": column["name"],
+            "failure": (
+                "complex_logical_value_requires_complex_shape"
+                if not is_complex_shape and column.get("logical_value") is not None
+                else failure
+            ),
+        }
+        for column in vector_columns
+        for failure in [
+            _complex_logical_validation_failure(
+                column,
+                requires_logical_value=is_complex_shape,
+            )
+        ]
+        if failure is not None or (not is_complex_shape and column.get("logical_value") is not None)
+    ]
     missing_vector_columns = [] if vector_columns else ["vector_columns"]
     declaration_failure_count = (
         len(invalid_axis_roles)
         + len(invalid_vector_roles)
         + len(unsupported_shape_policies)
         + len(unsupported_value_shapes)
+        + len(unsupported_complex_logical_values)
         + len(missing_vector_columns)
     )
     return {
@@ -293,6 +376,7 @@ def _fixed_vector_declaration_validation(
         "invalid_vector_roles": invalid_vector_roles,
         "unsupported_shape_policies": unsupported_shape_policies,
         "unsupported_value_shapes": unsupported_value_shapes,
+        "unsupported_complex_logical_values": unsupported_complex_logical_values,
         "missing_vector_columns": missing_vector_columns,
     }
 
@@ -401,6 +485,7 @@ def _fixed_vector_validation(
                 "dtype": column["dtype"],
                 "shape_policy": column["shape_policy"],
                 "components": column["components"],
+                **({"logical_value": column["logical_value"]} if "logical_value" in column else {}),
                 "row_count": row_count,
                 "observed_lengths": _unique_in_order([str(length) for length in observed_lengths]),
                 "reader_ndarray_shape": [row_count, *value_shape],
@@ -988,6 +1073,7 @@ def _generate_fixed_vector_summary(source: dict[str, Any], fixture_root: Path) -
         vector_columns=vector_columns,
     )
     declaration_validation = _fixed_vector_declaration_validation(
+        shape_kind=data_shape["kind"],
         declared_columns=declared_columns,
         axis_order=axis_order,
         vector_columns=vector_columns,
@@ -1005,6 +1091,8 @@ def _generate_fixed_vector_summary(source: dict[str, Any], fixture_root: Path) -
     duplicate_coordinates = len(set(observed_coordinates)) != len(observed_coordinates)
     if duplicate_coordinates:
         vector_validation["status"] = "fail"
+    is_complex_shape = data_shape["kind"] == "complex_fixed_vector_response_table"
+    valid_declaration = declaration_validation["status"] == "pass"
 
     sweep_axes = _columns_by_role(declared_columns, "sweep_axis")
     vector_responses = [
@@ -1053,14 +1141,34 @@ def _generate_fixed_vector_summary(source: dict[str, Any], fixture_root: Path) -
         "plot_candidates": [
             {
                 "title": f"{measurement['label']}: {column['label']}",
-                "plot_kind": "component_pair_scatter",
-                "x_component": column["components"][0],
-                "y_component": column["components"][1],
+                "plot_kind": (
+                    "complex_component_pair_scatter"
+                    if is_complex_shape and valid_declaration
+                    else "component_pair_scatter"
+                ),
+                "x_component": (
+                    column["logical_value"]["real_component"]
+                    if is_complex_shape and valid_declaration
+                    else column["components"][0]
+                ),
+                "y_component": (
+                    column["logical_value"]["imag_component"]
+                    if is_complex_shape and valid_declaration
+                    else column["components"][1]
+                ),
                 "vector_column": column["name"],
                 "source": measurement["source_table"],
+                **(
+                    {
+                        "logical_value_type": column["logical_value"]["type"],
+                        "derived_components": column["logical_value"]["derived_components"],
+                    }
+                    if is_complex_shape and valid_declaration
+                    else {}
+                ),
             }
             for column in vector_columns
-            if column["value_shape"] == [2] and len(column["components"]) == 2
+            if valid_declaration and column["value_shape"] == [2] and len(column["components"]) == 2
         ],
         "warnings": [
             {
@@ -1076,10 +1184,18 @@ def _generate_fixed_vector_summary(source: dict[str, Any], fixture_root: Path) -
         "boundary_notes": [
             "Fixed-vector response shape is declared by fixture metadata, not schema inference.",
             "The reader ndarray shape is a validated convenience view over fixed-shape per-row vectors, not a general array-column API.",
-            "Plot candidates are declared component-pair candidates only; no rendering, fit, uncertainty, or scientific validation is provided.",
+            (
+                "Plot candidates are declared component-pair candidates only; logical complex metadata declares real, imaginary, magnitude, and phase views without earning a primitive complex storage type or transform engine."
+                if is_complex_shape
+                else "Plot candidates are declared component-pair candidates only; no rendering, fit, uncertainty, or scientific validation is provided."
+            ),
             "This fixture validates per-row vector parseability, fixed length, declared dtype coercion, and coordinate uniqueness only.",
         ],
-        "decisions_not_earned": FIXED_VECTOR_DECISIONS_NOT_EARNED,
+        "decisions_not_earned": (
+            COMPLEX_FIXED_VECTOR_DECISIONS_NOT_EARNED
+            if is_complex_shape
+            else FIXED_VECTOR_DECISIONS_NOT_EARNED
+        ),
     }
 
 
@@ -1165,7 +1281,7 @@ def generate_summary(fixture_root: Path) -> dict[str, Any]:
         return _generate_ragged_observed_summary(source, fixture_root)
     if kind == "trace_per_point_table":
         return _generate_trace_summary(source, fixture_root)
-    if kind == "fixed_vector_response_table":
+    if kind in {"fixed_vector_response_table", "complex_fixed_vector_response_table"}:
         return _generate_fixed_vector_summary(source, fixture_root)
     if kind == "sidecar_declared_table":
         return _generate_sidecar_summary(source, fixture_root)
@@ -1790,7 +1906,7 @@ def _generate_fixed_vector_review(summary: dict[str, Any]) -> str:
         "## Status",
         "",
         "Expected reviewer-facing output for the synthetic",
-        "`fixed_vector_response_table` fixture. This is not a storage schema,",
+        f"`{shape['kind']}` fixture. This is not a storage schema,",
         "plotting API, dataframe API, general ndarray API, or product contract.",
         "",
         "## Measurement",
@@ -1850,6 +1966,8 @@ def _generate_fixed_vector_review(summary: dict[str, Any]) -> str:
             f"{_format_fixed_vector_policy_failures(vector_validation['declaration_validation']['unsupported_shape_policies'])}",
             "- unsupported value shapes: "
             f"{_format_fixed_vector_shape_failures(vector_validation['declaration_validation']['unsupported_value_shapes'])}",
+            "- unsupported complex logical values: "
+            f"{_format_complex_logical_failures(vector_validation['declaration_validation']['unsupported_complex_logical_values'])}",
             "",
             "| Column | Shape | Dtype | Components | Reader ndarray shape | Observed lengths | Status |",
             "| --- | --- | --- | --- | --- | --- | --- |",
@@ -1878,6 +1996,31 @@ def _generate_fixed_vector_review(summary: dict[str, Any]) -> str:
             )
     else:
         rows.append("- `none`")
+    complex_summaries = [
+        vector_summary
+        for vector_summary in vector_validation["column_summaries"]
+        if "logical_value" in vector_summary
+    ]
+    if complex_summaries:
+        rows.extend(
+            [
+                "",
+                "## Logical Value Views",
+                "",
+                "| Column | Logical type | Representation | Real component | Imag component | Derived views | Phase unit |",
+                "| --- | --- | --- | --- | --- | --- | --- |",
+            ]
+        )
+        for vector_summary in complex_summaries:
+            logical_value = vector_summary["logical_value"]
+            rows.append(
+                f"| `{vector_summary['name']}` | `{logical_value['type']}` | "
+                f"`{logical_value['representation']}` | "
+                f"`{logical_value['real_component']}` | "
+                f"`{logical_value['imag_component']}` | "
+                f"{_format_list(logical_value['derived_components'])} | "
+                f"`{logical_value['phase_unit']}` |"
+            )
     rows.extend(
         [
             "",
@@ -1944,7 +2087,7 @@ def generate_review(summary: dict[str, Any]) -> str:
         return _generate_ragged_observed_review(summary)
     if kind == "trace_per_point_table":
         return _generate_trace_review(summary)
-    if kind == "fixed_vector_response_table":
+    if kind in {"fixed_vector_response_table", "complex_fixed_vector_response_table"}:
         return _generate_fixed_vector_review(summary)
     if kind == "sidecar_declared_table":
         return _generate_sidecar_review(summary)
