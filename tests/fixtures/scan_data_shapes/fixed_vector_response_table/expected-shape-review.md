@@ -50,6 +50,7 @@ Held condition:
 
 - status: `pass`
 - missing vector columns: `none`
+- invalid vector columns: `none`
 - unsupported shape policies: `none`
 - unsupported value shapes: `none`
 - unsupported dtypes: `none`

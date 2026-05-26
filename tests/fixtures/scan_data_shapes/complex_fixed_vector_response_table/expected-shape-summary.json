@@ -69,7 +69,8 @@
       "unsupported_dtypes": [],
       "unsupported_components": [],
       "unsupported_complex_logical_values": [],
-      "missing_vector_columns": []
+      "missing_vector_columns": [],
+      "invalid_vector_columns": []
     },
     "column_summaries": [
       {

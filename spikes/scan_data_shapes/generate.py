@@ -177,6 +177,12 @@ def _format_fixed_vector_component_failures(values: list[dict[str, Any]]) -> str
     return ", ".join(f"`{item['column']}={item['failure']}`" for item in values)
 
 
+def _format_fixed_vector_column_failures(values: list[dict[str, Any]]) -> str:
+    if not values:
+        return "`none`"
+    return ", ".join(f"`index {item['index']}={item['failure']}`" for item in values)
+
+
 def _format_complex_logical_failures(values: list[dict[str, Any]]) -> str:
     if not values:
         return "`none`"
@@ -268,6 +274,27 @@ def _fixed_vector_shape_columns(
     *, axis_order: list[str], vector_columns: list[dict[str, Any]]
 ) -> list[str]:
     return _unique_in_order([*axis_order, *[column["name"] for column in vector_columns]])
+
+
+def _normalize_vector_columns(value: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    if not isinstance(value, list):
+        return [], [{"index": None, "failure": "vector_columns_not_list", "value": value}]
+    normalized_columns = []
+    invalid_vector_columns = []
+    for index, column in enumerate(value):
+        if not isinstance(column, dict):
+            invalid_vector_columns.append(
+                {"index": index, "failure": "vector_column_not_object", "value": column}
+            )
+            continue
+        name = column.get("name")
+        if not isinstance(name, str) or not name:
+            invalid_vector_columns.append(
+                {"index": index, "failure": "vector_column_missing_name", "value": column}
+            )
+            continue
+        normalized_columns.append(column)
+    return normalized_columns, invalid_vector_columns
 
 
 def _fixed_vector_column_validation(
@@ -363,6 +390,7 @@ def _fixed_vector_declaration_validation(
     declared_columns: list[dict[str, Any]],
     axis_order: list[str],
     vector_columns: list[dict[str, Any]],
+    invalid_vector_columns: list[dict[str, Any]],
 ) -> dict[str, Any]:
     is_complex_shape = shape_kind == "complex_fixed_vector_response_table"
     declared_by_name = {column["name"]: column for column in declared_columns}
@@ -430,6 +458,13 @@ def _fixed_vector_declaration_validation(
         if failure is not None or (not is_complex_shape and column.get("logical_value") is not None)
     ]
     missing_vector_columns = [] if vector_columns else ["vector_columns"]
+    invalid_vector_column_failures = [
+        {
+            "index": item["index"],
+            "failure": item["failure"],
+        }
+        for item in invalid_vector_columns
+    ]
     declaration_failure_count = (
         len(invalid_axis_roles)
         + len(invalid_vector_roles)
@@ -439,6 +474,7 @@ def _fixed_vector_declaration_validation(
         + len(unsupported_components)
         + len(unsupported_complex_logical_values)
         + len(missing_vector_columns)
+        + len(invalid_vector_column_failures)
     )
     return {
         "status": "pass" if not declaration_failure_count else "fail",
@@ -450,6 +486,7 @@ def _fixed_vector_declaration_validation(
         "unsupported_components": unsupported_components,
         "unsupported_complex_logical_values": unsupported_complex_logical_values,
         "missing_vector_columns": missing_vector_columns,
+        "invalid_vector_columns": invalid_vector_column_failures,
     }
 
 
@@ -1243,7 +1280,9 @@ def _generate_fixed_vector_summary(source: dict[str, Any], fixture_root: Path) -
     declared_names = _column_names(declared_columns)
     extra_columns = [name for name in source_columns if name not in declared_names]
     axis_order = data_shape["axis_order"]
-    vector_columns = data_shape["vector_columns"]
+    vector_columns, invalid_vector_columns = _normalize_vector_columns(
+        data_shape.get("vector_columns")
+    )
     vector_column_names = [column["name"] for column in vector_columns]
     vector_column_validation = _fixed_vector_column_validation(
         declared_names=declared_names,
@@ -1256,6 +1295,7 @@ def _generate_fixed_vector_summary(source: dict[str, Any], fixture_root: Path) -
         declared_columns=declared_columns,
         axis_order=axis_order,
         vector_columns=vector_columns,
+        invalid_vector_columns=invalid_vector_columns,
     )
     blocking_columns = vector_column_validation["blocking_columns"]
     vector_validation = _fixed_vector_validation(
@@ -2129,6 +2169,8 @@ def _generate_fixed_vector_review(summary: dict[str, Any]) -> str:
             "",
             f"- status: `{vector_validation['status']}`",
             f"- missing vector columns: {_format_list(vector_validation['declaration_validation']['missing_vector_columns'])}",
+            "- invalid vector columns: "
+            f"{_format_fixed_vector_column_failures(vector_validation['declaration_validation']['invalid_vector_columns'])}",
             "- unsupported shape policies: "
             f"{_format_fixed_vector_policy_failures(vector_validation['declaration_validation']['unsupported_shape_policies'])}",
             "- unsupported value shapes: "
