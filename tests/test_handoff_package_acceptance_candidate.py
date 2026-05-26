@@ -126,9 +126,82 @@ class HandoffPackageAcceptanceCandidateTest(unittest.TestCase):
         self.assertEqual(manifest["declared_preview"]["preview_row_count"], 5)
         self.assertEqual(manifest["declared_preview"]["plot_series"][0]["point_count"], 5)
         self.assertEqual(manifest["linked_context"][0]["materialization"], "reference_only")
+        self.assertEqual(
+            manifest["linked_context"][0]["payload_materialization"],
+            "not_performed",
+        )
         self.assertEqual(manifest["linked_context"][0]["authority"], "scopecat_export_manifest")
         self.assertEqual(manifest["linked_context"][0]["relation"], "run_start_context")
-        self.assertIn("reason", manifest["linked_context"][0])
+        self.assertEqual(
+            manifest["linked_context"][0]["source_package"]["reason"],
+            "The accepted legacy import preserved this linked context as a reference-only fact; the package writer does not include its payload.",
+        )
+
+    def test_projects_linked_context_into_reference_only_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = temp_root / PACKAGE.name
+            shutil.copytree(PACKAGE, package_dir)
+            manifest_path = package_dir / "package-manifest.json"
+            package_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            package_manifest["linked_context"][0].update(
+                {
+                    "package_path": "context/package-legacy-rabi-001-parameter-snapshot.json",
+                    "include_status": "included_by_user",
+                    "package_state": "packaged",
+                    "reason": None,
+                    "package_payload_shape": {
+                        "private_field": "must-not-be-copied-into-accepted-record"
+                    },
+                }
+            )
+            manifest_path.write_text(
+                json.dumps(package_manifest, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            storage_root = temp_root / "storage"
+            storage_root.mkdir()
+            source = _acceptance_source()
+            source["acceptance_request"]["review"]["reviewed_preview_classification"] = (
+                "preview_ready_for_opening"
+            )
+
+            accept_handoff_package(
+                source,
+                package_dir=package_dir,
+                storage_root=storage_root,
+            )
+            accepted_manifest = json.loads(
+                (storage_root / "records" / "legacy-rabi-001" / "record-manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+
+        accepted_context = accepted_manifest["linked_context"][0]
+        self.assertEqual(
+            set(accepted_context),
+            {
+                "link_id",
+                "kind",
+                "label",
+                "relation",
+                "authority",
+                "linked_measurement_record_ids",
+                "materialization",
+                "payload_materialization",
+                "source_package",
+            },
+        )
+        self.assertEqual(accepted_context["materialization"], "reference_only")
+        self.assertEqual(accepted_context["payload_materialization"], "not_performed")
+        self.assertEqual(
+            accepted_context["source_package"],
+            {
+                "package_state": "packaged",
+                "include_status": "included_by_user",
+                "reason": None,
+            },
+        )
 
     def test_rejects_unapproved_request_before_writing_storage(self) -> None:
         source = _acceptance_source()

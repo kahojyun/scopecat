@@ -306,9 +306,23 @@ def _linked_context_for_measurement(
     for item in manifest["linked_context"]:
         if measurement_record_id not in item["linked_measurement_record_ids"]:
             continue
-        copied_item = copy.deepcopy(item)
-        copied_item["materialization"] = "reference_only"
-        linked_context.append(copied_item)
+        linked_context.append(
+            {
+                "link_id": item["link_id"],
+                "kind": item["kind"],
+                "label": item["label"],
+                "relation": item["relation"],
+                "authority": item["authority"],
+                "linked_measurement_record_ids": list(item["linked_measurement_record_ids"]),
+                "materialization": "reference_only",
+                "payload_materialization": "not_performed",
+                "source_package": {
+                    "package_state": item["package_state"],
+                    "include_status": item["include_status"],
+                    "reason": item.get("reason"),
+                },
+            }
+        )
     return linked_context
 
 
