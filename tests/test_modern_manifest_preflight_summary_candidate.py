@@ -497,6 +497,89 @@ class ModernManifestPreflightSummaryCandidateTest(unittest.TestCase):
             [finding["code"] for finding in summary["preflight_findings"]],
         )
 
+    def test_dependency_group_comparison_uses_normalized_names(self) -> None:
+        source = _load_input()
+        _set_expected_groups(source, ["default", "analysis-tools"])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            _write_pyproject(
+                root,
+                "\n".join(
+                    [
+                        "[project]",
+                        'name = "qa-chevron-calibration"',
+                        'requires-python = ">=3.11"',
+                        "dependencies = []",
+                        "",
+                        "[dependency-groups]",
+                        'Analysis_Tools = ["scipy>=1.11"]',
+                        "",
+                    ]
+                ),
+            )
+
+            summary = build_modern_manifest_preflight_summary(source, workspace_root=root)
+
+        self.assertEqual(
+            summary["manifest_summary"]["dependency_group_names"],
+            ["default", "Analysis_Tools"],
+        )
+        self.assertEqual(
+            summary["dependency_group_checks"],
+            [
+                {
+                    "dependency_group": "default",
+                    "state": "declared_in_manifest",
+                    "does_not_claim": "dependency_resolution_or_dependency_sync",
+                },
+                {
+                    "dependency_group": "analysis-tools",
+                    "state": "declared_in_manifest",
+                    "does_not_claim": "dependency_resolution_or_dependency_sync",
+                },
+            ],
+        )
+        self.assertEqual(summary["preflight_findings"], [])
+        self.assertEqual(summary["preflight_status"], "manifest_preflight_passed_declared_checks")
+
+    def test_dependency_group_normalization_collision_is_review_finding(self) -> None:
+        source = _load_input()
+        _set_expected_groups(source, ["default", "analysis-tools"])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            _write_pyproject(
+                root,
+                "\n".join(
+                    [
+                        "[project]",
+                        'name = "qa-chevron-calibration"',
+                        'requires-python = ">=3.11"',
+                        "dependencies = []",
+                        "",
+                        "[dependency-groups]",
+                        'analysis-tools = ["scipy>=1.11"]',
+                        'Analysis_Tools = ["numpy>=1"]',
+                        "",
+                    ]
+                ),
+            )
+
+            summary = build_modern_manifest_preflight_summary(source, workspace_root=root)
+
+        self.assertEqual(
+            summary["manifest_summary"]["dependency_group_names"],
+            ["default", "Analysis_Tools", "analysis-tools"],
+        )
+        self.assertIn(
+            "dependency_group_normalization_collision",
+            [finding["code"] for finding in summary["preflight_findings"]],
+        )
+        self.assertEqual(
+            summary["dependency_group_checks"][1]["state"],
+            "declared_in_manifest",
+        )
+        self.assertEqual(summary["preflight_status"], "manifest_preflight_has_review_findings")
+
     def test_dependency_entry_summary_handles_markers_extras_duplicates_and_direct_refs(
         self,
     ) -> None:

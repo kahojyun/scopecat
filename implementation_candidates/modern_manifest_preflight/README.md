@@ -23,10 +23,12 @@ It can:
   syntax posture, and list-shaped dependency group names using stdlib
   `tomllib`;
 - compare declared dependency-group expectations with groups present in the
-  manifest;
+  manifest using normalized dependency-group names while preserving original
+  names for review display;
 - report manifest unavailable, parse failed, missing or malformed
-  `requires-python`, malformed dependency-group values, and missing declared
-  dependency-group review findings.
+  `requires-python`, malformed dependency-group values, normalized
+  dependency-group-name collisions, and missing declared dependency-group
+  review findings.
 
 It does not read lockfiles, resolve dependencies, run dependency sync, install,
 update, or remove packages, inspect interpreters or installed packages, import

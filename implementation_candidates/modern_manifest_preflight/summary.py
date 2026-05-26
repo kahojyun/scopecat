@@ -25,6 +25,7 @@ DEPENDENCY_NAME_PREFIX = re.compile(
     r"^([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)(?:\s*(?:\[|[<>=!~;]|$))"
 )
 DIRECT_REFERENCE = re.compile(r"\s@\s")
+NORMALIZED_NAME_SEPARATOR = re.compile(r"[-_.]+")
 PYTHON_SPECIFIER = re.compile(
     r"^\s*(?P<operator>~=|==|!=|<=|>=|<|>)\s*"
     r"(?P<version>[0-9]+(?:\.[0-9]+)*(?:\.\*)?)\s*$"
@@ -189,9 +190,21 @@ def _manifest_findings(
                     dependency_group=group,
                 )
             )
-    manifest_groups = set(manifest_summary["dependency_group_names"])
+    for normalized_group, groups in _duplicate_normalized_dependency_groups(
+        manifest_summary["dependency_group_names"]
+    ).items():
+        findings.append(
+            _finding(
+                "dependency_group_normalization_collision",
+                f"Dependency groups {groups!r} collapse to normalized name {normalized_group!r}.",
+                "dependency_resolution_or_dependency_sync",
+            )
+        )
+    manifest_groups = {
+        _normalize_dependency_group(group) for group in manifest_summary["dependency_group_names"]
+    }
     for group in contract.request.expected_dependency_groups:
-        if group not in manifest_groups:
+        if _normalize_dependency_group(group) not in manifest_groups:
             findings.append(
                 _finding(
                     "declared_dependency_group_missing",
@@ -210,6 +223,21 @@ def _dependency_group_shapes(dependency_groups: dict[str, Any]) -> dict[str, str
             continue
         output[name] = "declared_list" if isinstance(value, list) else "malformed_value"
     return dict(sorted(output.items()))
+
+
+def _normalize_dependency_group(name: str) -> str:
+    return NORMALIZED_NAME_SEPARATOR.sub("-", name).lower()
+
+
+def _duplicate_normalized_dependency_groups(groups: list[str]) -> dict[str, list[str]]:
+    by_normalized_name: dict[str, list[str]] = {}
+    for group in groups:
+        by_normalized_name.setdefault(_normalize_dependency_group(group), []).append(group)
+    return {
+        normalized: sorted(group_names)
+        for normalized, group_names in sorted(by_normalized_name.items())
+        if len(group_names) > 1
+    }
 
 
 def _valid_requires_python(value: str | None) -> bool:
@@ -260,12 +288,16 @@ def _skipped_dependency_count(dependencies: Any) -> int:
 def _dependency_group_checks(
     contract: ModernManifestPreflightContract, manifest_summary: dict[str, Any]
 ) -> list[dict[str, str]]:
-    manifest_groups = set(manifest_summary["dependency_group_names"])
+    manifest_groups = {
+        _normalize_dependency_group(group) for group in manifest_summary["dependency_group_names"]
+    }
     return [
         {
             "dependency_group": group,
             "state": (
-                "declared_in_manifest" if group in manifest_groups else "missing_from_manifest"
+                "declared_in_manifest"
+                if _normalize_dependency_group(group) in manifest_groups
+                else "missing_from_manifest"
             ),
             "does_not_claim": "dependency_resolution_or_dependency_sync",
         }

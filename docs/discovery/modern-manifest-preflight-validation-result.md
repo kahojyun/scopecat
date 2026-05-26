@@ -42,8 +42,10 @@ The builder reads only the approved `pyproject.toml` path under the caller root.
 It parses declared project name, `requires-python`, simple dependency names,
 skipped unparsed dependency entries, and list-shaped dependency group names. It
 compares declared dependency-group expectations with groups present in the
-manifest and reports missing or malformed `requires-python`, malformed
-dependency-group values, and missing declared groups as review findings.
+manifest using normalized dependency-group names while preserving original
+names for review display, and reports missing or malformed `requires-python`,
+malformed dependency-group values, normalized dependency-group-name collisions,
+and missing declared groups as review findings.
 
 It does not read lockfiles, resolve dependencies, run `uv`, synchronize package
 state, install packages, inspect runtimes, import selected code, execute
@@ -68,10 +70,11 @@ parsing, dependency resolution, dependency sync, or package installation:
   projection;
 - read exactly one declared `pyproject.toml` path under a caller-provided root;
 - parse only declared manifest summary facts with stdlib `tomllib`;
-- compare manifest dependency groups with declared expectations;
+- compare manifest dependency groups with declared expectations using
+  normalized dependency-group names;
 - report unavailable manifests, malformed manifests, missing or malformed
-  `requires-python`, malformed dependency-group values, and missing-group
-  review findings;
+  `requires-python`, malformed dependency-group values, normalized
+  dependency-group-name collisions, and missing-group review findings;
 - keep lockfile parsing, dependency resolution, dependency sync, package
   installation, runtime probing, code import, code execution, hardware probing,
   shared environment schema, managed runners, run-blocking decisions, manager
@@ -106,10 +109,10 @@ operation such as `uv sync`; for execution, `uv` remains the authority.
 
 The result remains a review summary, not an environment operation. Manifest
 facts, missing or malformed `requires-python`, malformed dependency-group
-values, and missing declared dependency groups remain review/comparison items.
-They do not become dependency-resolution results, runtime compatibility
-results, hardware readiness, runnable readiness, reproducibility, safety, or
-run-blocking claims.
+values, normalized dependency-group-name collisions, and missing declared
+dependency groups remain review/comparison items. They do not become
+dependency-resolution results, runtime compatibility results, hardware
+readiness, runnable readiness, reproducibility, safety, or run-blocking claims.
 
 ## Follow-Up
 
