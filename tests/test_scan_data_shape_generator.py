@@ -266,6 +266,38 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
             {"source/traces/bias-0p0.csv": ["signal_v"]},
         )
 
+    def test_trace_per_point_rejects_symlink_escape_before_reading(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir) / "fixture"
+            fixture.mkdir()
+            self._write_trace_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "bias_v,trace_ref,trace_kind",
+                        "0.0,source/traces/bias-0p0.csv,ringdown",
+                        "",
+                    ]
+                ),
+            )
+            outside = Path(temp_dir) / "outside.csv"
+            outside.write_text(
+                "\n".join(["time_ns,signal_v", "0,999", ""]),
+                encoding="utf-8",
+            )
+            trace_path = fixture / "source" / "traces" / "bias-0p0.csv"
+            trace_path.unlink()
+            trace_path.symlink_to(outside)
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(
+            summary["trace_validation"]["missing_trace_files"],
+            ["source/traces/bias-0p0.csv"],
+        )
+        self.assertEqual(summary["trace_validation"]["trace_summaries"][0]["status"], "missing")
+
 
 if __name__ == "__main__":
     unittest.main()

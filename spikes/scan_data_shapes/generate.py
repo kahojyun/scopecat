@@ -176,7 +176,7 @@ def _trace_column_validation(
     }
 
 
-def _is_package_relative_ref(value: str) -> bool:
+def _is_fixture_relative_ref(value: str) -> bool:
     path = PurePosixPath(value)
     return (
         bool(value)
@@ -184,6 +184,19 @@ def _is_package_relative_ref(value: str) -> bool:
         and ".." not in path.parts
         and len(path.parts) > 1
         and path.parts[0] == "source"
+    )
+
+
+def _is_contained_regular_file(root: Path, candidate: Path) -> bool:
+    try:
+        root_resolved = root.resolve()
+        candidate_resolved = candidate.resolve(strict=True)
+    except FileNotFoundError:
+        return False
+    return (
+        candidate_resolved.is_file()
+        and not candidate.is_symlink()
+        and candidate_resolved.is_relative_to(root_resolved)
     )
 
 
@@ -562,14 +575,28 @@ def _generate_trace_summary(source: dict[str, Any], fixture_root: Path) -> dict[
     blocking_columns = trace_validation["blocking_columns"]
 
     trace_refs = [] if blocking_columns else [row[trace_ref_column] for row in rows]
-    unsafe_trace_refs = [ref for ref in trace_refs if not _is_package_relative_ref(ref)]
+    unsafe_trace_refs = [ref for ref in trace_refs if not _is_fixture_relative_ref(ref)]
+    outer_trace_points = (
+        []
+        if blocking_columns
+        else [
+            {
+                "outer_coordinate": {axis: row[axis] for axis in axis_order},
+                "trace_ref": row[trace_ref_column],
+            }
+            for row in rows
+        ]
+    )
     trace_summaries = []
     missing_trace_files = []
     missing_trace_columns_by_ref: dict[str, list[str]] = {}
-    for trace_ref in trace_refs:
+    for trace_point in outer_trace_points:
+        trace_ref = trace_point["trace_ref"]
+        outer_coordinate = trace_point["outer_coordinate"]
         if trace_ref in unsafe_trace_refs:
             trace_summaries.append(
                 {
+                    "outer_coordinate": outer_coordinate,
                     "trace_ref": trace_ref,
                     "status": "unsafe_reference",
                     "row_count": None,
@@ -580,10 +607,11 @@ def _generate_trace_summary(source: dict[str, Any], fixture_root: Path) -> dict[
             continue
 
         trace_path = fixture_root / trace_ref
-        if not trace_path.is_file():
+        if not _is_contained_regular_file(fixture_root, trace_path):
             missing_trace_files.append(trace_ref)
             trace_summaries.append(
                 {
+                    "outer_coordinate": outer_coordinate,
                     "trace_ref": trace_ref,
                     "status": "missing",
                     "row_count": None,
@@ -601,6 +629,7 @@ def _generate_trace_summary(source: dict[str, Any], fixture_root: Path) -> dict[
             missing_trace_columns_by_ref[trace_ref] = missing_trace_columns
         trace_summaries.append(
             {
+                "outer_coordinate": outer_coordinate,
                 "trace_ref": trace_ref,
                 "status": "pass" if not missing_trace_columns else "fail",
                 "row_count": len(trace_rows),
@@ -639,6 +668,7 @@ def _generate_trace_summary(source: dict[str, Any], fixture_root: Path) -> dict[
             "duplicate_outer_coordinates": duplicate_outer_coordinates,
             "status": trace_status,
         },
+        "outer_trace_points": outer_trace_points,
         "declared_axes": _without_role(sweep_axes),
         "declared_trace_references": _without_role(trace_columns_declared),
         "held_conditions": source["held_conditions"],
@@ -682,8 +712,8 @@ def _generate_trace_summary(source: dict[str, Any], fixture_root: Path) -> dict[
             for extra_column in extra_columns
         ],
         "boundary_notes": [
-            "Trace-per-point shape is declared by fixture metadata plus package-relative trace references, not schema inference.",
-            "Trace references are checked for fixture-local relative shape and openability only; no binary container, storage layout, or importer contract is earned.",
+            "Trace-per-point shape is declared by fixture metadata plus fixture-relative trace references, not schema inference.",
+            "Trace references are checked for fixture-relative shape, containment, and openability only; no binary container, storage layout, or importer contract is earned.",
             "Plot candidates are declared trace-family candidates only; no rendering, alignment, resampling, fit, uncertainty, or scientific validation is provided.",
             "The fixture validates reference shape, trace openability, trace columns, and trace row counts only, not waveform correctness.",
         ],
@@ -1310,14 +1340,18 @@ def _generate_trace_review(summary: dict[str, Any]) -> str:
             f"- unsafe trace refs: {_format_list(trace_validation['unsafe_trace_refs'])}",
             f"- missing trace files: {_format_list(trace_validation['missing_trace_files'])}",
             "",
-            "| Trace ref | Status | Rows | Columns | Missing trace columns |",
-            "| --- | --- | --- | --- | --- |",
+            "| Outer coordinate | Trace ref | Status | Rows | Columns | Missing trace columns |",
+            "| --- | --- | --- | --- | --- | --- |",
         ]
     )
     for trace_summary in trace_validation["trace_summaries"]:
         row_count = trace_summary["row_count"]
+        outer_coordinate = ", ".join(
+            f"{axis}={value}" for axis, value in trace_summary["outer_coordinate"].items()
+        )
         rows.append(
-            f"| `{trace_summary['trace_ref']}` | `{trace_summary['status']}` | "
+            f"| `{outer_coordinate}` | `{trace_summary['trace_ref']}` | "
+            f"`{trace_summary['status']}` | "
             f"`{row_count if row_count is not None else 'unavailable'}` | "
             f"{_format_list(trace_summary['columns'])} | "
             f"{_format_list(trace_summary['missing_trace_columns'])} |"
@@ -1355,10 +1389,10 @@ def _generate_trace_review(summary: dict[str, Any]) -> str:
             "## Boundary Notes",
             "",
             "- Trace-per-point shape is declared by fixture metadata plus",
-            "  package-relative trace references, not schema inference.",
-            "- Trace references are checked for fixture-local relative shape and",
-            "  openability only; no binary container, storage layout, or importer",
-            "  contract is earned.",
+            "  fixture-relative trace references, not schema inference.",
+            "- Trace references are checked for fixture-relative shape, containment,",
+            "  and openability only; no binary container, storage layout, or",
+            "  importer contract is earned.",
             "- Plot candidates are declared trace-family candidates only; no",
             "  rendering, alignment, resampling, fit, uncertainty, or scientific",
             "  validation is provided.",

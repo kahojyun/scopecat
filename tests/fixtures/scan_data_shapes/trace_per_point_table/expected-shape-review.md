@@ -53,11 +53,11 @@ Held condition:
 - unsafe trace refs: `none`
 - missing trace files: `none`
 
-| Trace ref | Status | Rows | Columns | Missing trace columns |
-| --- | --- | --- | --- | --- |
-| `source/traces/bias-neg-0p1.csv` | `pass` | `4` | `time_ns`, `signal_v` | `none` |
-| `source/traces/bias-0p0.csv` | `pass` | `5` | `time_ns`, `signal_v` | `none` |
-| `source/traces/bias-0p1.csv` | `pass` | `3` | `time_ns`, `signal_v` | `none` |
+| Outer coordinate | Trace ref | Status | Rows | Columns | Missing trace columns |
+| --- | --- | --- | --- | --- | --- |
+| `bias_v=-0.1` | `source/traces/bias-neg-0p1.csv` | `pass` | `4` | `time_ns`, `signal_v` | `none` |
+| `bias_v=0.0` | `source/traces/bias-0p0.csv` | `pass` | `5` | `time_ns`, `signal_v` | `none` |
+| `bias_v=0.1` | `source/traces/bias-0p1.csv` | `pass` | `3` | `time_ns`, `signal_v` | `none` |
 
 ## Plot Candidates
 
@@ -72,10 +72,10 @@ Held condition:
 ## Boundary Notes
 
 - Trace-per-point shape is declared by fixture metadata plus
-  package-relative trace references, not schema inference.
-- Trace references are checked for fixture-local relative shape and
-  openability only; no binary container, storage layout, or importer
-  contract is earned.
+  fixture-relative trace references, not schema inference.
+- Trace references are checked for fixture-relative shape, containment,
+  and openability only; no binary container, storage layout, or
+  importer contract is earned.
 - Plot candidates are declared trace-family candidates only; no
   rendering, alignment, resampling, fit, uncertainty, or scientific
   validation is provided.

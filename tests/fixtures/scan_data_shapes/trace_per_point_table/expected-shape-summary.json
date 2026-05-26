@@ -27,6 +27,26 @@
     "duplicate_outer_coordinates": false,
     "status": "pass"
   },
+  "outer_trace_points": [
+    {
+      "outer_coordinate": {
+        "bias_v": "-0.1"
+      },
+      "trace_ref": "source/traces/bias-neg-0p1.csv"
+    },
+    {
+      "outer_coordinate": {
+        "bias_v": "0.0"
+      },
+      "trace_ref": "source/traces/bias-0p0.csv"
+    },
+    {
+      "outer_coordinate": {
+        "bias_v": "0.1"
+      },
+      "trace_ref": "source/traces/bias-0p1.csv"
+    }
+  ],
   "declared_axes": [
     {
       "name": "bias_v",
@@ -79,6 +99,9 @@
     "missing_trace_columns_by_ref": {},
     "trace_summaries": [
       {
+        "outer_coordinate": {
+          "bias_v": "-0.1"
+        },
         "trace_ref": "source/traces/bias-neg-0p1.csv",
         "status": "pass",
         "row_count": 4,
@@ -89,6 +112,9 @@
         "missing_trace_columns": []
       },
       {
+        "outer_coordinate": {
+          "bias_v": "0.0"
+        },
         "trace_ref": "source/traces/bias-0p0.csv",
         "status": "pass",
         "row_count": 5,
@@ -99,6 +125,9 @@
         "missing_trace_columns": []
       },
       {
+        "outer_coordinate": {
+          "bias_v": "0.1"
+        },
         "trace_ref": "source/traces/bias-0p1.csv",
         "status": "pass",
         "row_count": 3,
@@ -123,8 +152,8 @@
   ],
   "warnings": [],
   "boundary_notes": [
-    "Trace-per-point shape is declared by fixture metadata plus package-relative trace references, not schema inference.",
-    "Trace references are checked for fixture-local relative shape and openability only; no binary container, storage layout, or importer contract is earned.",
+    "Trace-per-point shape is declared by fixture metadata plus fixture-relative trace references, not schema inference.",
+    "Trace references are checked for fixture-relative shape, containment, and openability only; no binary container, storage layout, or importer contract is earned.",
     "Plot candidates are declared trace-family candidates only; no rendering, alignment, resampling, fit, uncertainty, or scientific validation is provided.",
     "The fixture validates reference shape, trace openability, trace columns, and trace row counts only, not waveform correctness."
   ],
