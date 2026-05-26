@@ -107,6 +107,36 @@
         "label": "Rabi calibration follow-up",
         "legacy_data_id": 1001,
         "measurement_record_id": "legacy-rabi-001",
+        "primary_table": {
+          "columns": [
+            "drive_frequency",
+            "signal"
+          ],
+          "rows": [
+            {
+              "drive_frequency": "4.98",
+              "signal": "0.12"
+            },
+            {
+              "drive_frequency": "5.00",
+              "signal": "0.44"
+            },
+            {
+              "drive_frequency": "5.02",
+              "signal": "0.81"
+            },
+            {
+              "drive_frequency": "5.04",
+              "signal": "0.45"
+            },
+            {
+              "drive_frequency": "5.06",
+              "signal": "0.13"
+            }
+          ],
+          "schema_inference": "not_performed",
+          "source": "measurements/legacy-rabi-001/primary.csv"
+        },
         "preview_data": {
           "plot_series": [
             {

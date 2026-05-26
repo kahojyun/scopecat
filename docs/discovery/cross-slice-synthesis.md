@@ -21,6 +21,7 @@ relation graph, or warning taxonomy.
 - [`measurement-record-import-preview-validation-result.md`](measurement-record-import-preview-validation-result.md)
 - [`handoff-package-contents-preview-validation-result.md`](handoff-package-contents-preview-validation-result.md)
 - [`handoff-package-opener-validation-result.md`](handoff-package-opener-validation-result.md)
+- [`handoff-package-read-view-validation-result.md`](handoff-package-read-view-validation-result.md)
 - [`handoff-package-writer-validation-result.md`](handoff-package-writer-validation-result.md)
 - [`contract-primitives-validation-result.md`](contract-primitives-validation-result.md)
 - [`adapter-authored-legacy-import-validation-result.md`](adapter-authored-legacy-import-validation-result.md)
@@ -112,14 +113,24 @@ the handoff package contents preview contract for manifest validation, rejects
 empty selected-measurement packages, requires the package directory name to
 match the manifest package id, opens package-local primary CSV files through
 declared package paths, and exposes declared preview rows and plot-ready point
-series from `preview_ready` metadata only. Degraded-preview packages remain
-manifest-previewable but are not opened by this first opener candidate. The
-opener carries manifest-preview findings, applies symlink guardrails to
-package-local file opening, and reports declared digest and size facts when
-present without comparing them or claiming package integrity. It does not
-accept/import packages, mutate storage, extract archives, validate checksums or
-signatures, infer schemas, recursively traverse linked context, or define a GUI
-or stable SDK object model.
+series from `preview_ready` metadata only. It also exposes loaded primary CSV
+rows as local string-valued table facts for reader-facing wrappers. Degraded
+preview packages remain manifest-previewable but are not opened by this first
+opener candidate. The opener carries manifest-preview findings, applies
+symlink guardrails to package-local file opening, and reports declared digest
+and size facts when present without comparing them or claiming package
+integrity. It does not accept/import packages, mutate storage, extract
+archives, validate checksums or signatures, infer schemas, recursively traverse
+linked context, or define a GUI or stable SDK object model.
+
+Handoff package read view has the first reader-facing object candidate over
+the opener summary. It opens a package through the existing opener, exposes
+package and measurement lookup, gives primary and preview rows through
+table-like string objects, returns declared plot series by column pair, and
+keeps linked context and findings visible. It tests SDK/GUI consumption
+pressure without accepting final SDK names, dataframe dependencies, GUI
+components, import acceptance, package integrity, schema inference, storage
+mutation, or a shared measurement model.
 
 Legacy import acceptance has a slice-local implementation candidate for the
 first approved review-to-acceptance mutation for a normalized adapter-authored

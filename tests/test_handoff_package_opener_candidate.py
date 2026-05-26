@@ -206,6 +206,47 @@ class HandoffPackageOpenerCandidateTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "missing declared preview columns"):
                 open_handoff_package(package_dir)
 
+    def test_duplicate_csv_header_is_rejected_before_table_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            package_dir = _copy_package(temp_dir)
+            (package_dir / "measurements" / "legacy-rabi-001" / "primary.csv").write_text(
+                "drive_frequency,signal,signal\n5.00,0.44,0.45\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "requires unique CSV headers"):
+                open_handoff_package(package_dir)
+
+    def test_empty_csv_header_is_rejected_before_table_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            package_dir = _copy_package(temp_dir)
+            (package_dir / "measurements" / "legacy-rabi-001" / "primary.csv").write_text(
+                "drive_frequency,\n5.00,0.44\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "requires non-empty CSV headers"):
+                open_handoff_package(package_dir)
+
+    def test_ragged_csv_rows_are_rejected_before_table_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            package_dir = _copy_package(temp_dir)
+            primary = package_dir / "measurements" / "legacy-rabi-001" / "primary.csv"
+
+            primary.write_text(
+                "drive_frequency,signal\n5.00,0.44,extra\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "rows must match the CSV header"):
+                open_handoff_package(package_dir)
+
+            primary.write_text(
+                "drive_frequency,signal\n5.00\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "rows must match the CSV header"):
+                open_handoff_package(package_dir)
+
     def test_package_member_path_traversal_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             package_dir = _copy_package(temp_dir)

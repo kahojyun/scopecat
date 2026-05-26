@@ -36,6 +36,8 @@ local Scopecat storage:
   rejecting symlink package roots, primary-data files, and primary-data parent
   directories;
 - load UTF-8 CSV rows from declared `csv_table` primary data;
+- expose the loaded primary data as a local string-valued table summary with
+  unique non-empty headers and rectangular rows for reader-facing wrappers;
 - derive preview rows and plot-ready point series from declared preview
   columns and plot candidates;
 - require `preview_ready` metadata for this first opener candidate; degraded
