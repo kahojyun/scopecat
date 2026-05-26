@@ -1,0 +1,72 @@
+{
+  "fixture_id": "scan-shape-ragged-observed-only-table",
+  "fixture_status": "synthetic_public_safe",
+  "validation_goal": "Check whether a completed adaptive scan can summarize observed ragged coverage when expected group point counts were not declared.",
+  "measurement": {
+    "measurement_id": "synthetic-meas-02004",
+    "label": "qB observed adaptive frequency response",
+    "target": "qB",
+    "source_kind": "primary_measurement",
+    "source_table": "source/ragged-observed-frequency-response.csv"
+  },
+  "data_shape": {
+    "kind": "ragged_observed_only_table",
+    "coverage_policy": "observed_only",
+    "axis_order": [
+      "bias_v",
+      "drive_frequency_ghz"
+    ],
+    "grouping_axis": "bias_v",
+    "ragged_axis": "drive_frequency_ghz"
+  },
+  "declared_columns": [
+    {
+      "name": "bias_v",
+      "label": "Bias",
+      "role": "sweep_axis",
+      "unit": "V"
+    },
+    {
+      "name": "drive_frequency_ghz",
+      "label": "Drive frequency",
+      "role": "sweep_axis",
+      "unit": "GHz"
+    },
+    {
+      "name": "signal_db",
+      "label": "Signal magnitude",
+      "role": "measured_response",
+      "unit": "dB"
+    },
+    {
+      "name": "phase_deg",
+      "label": "Signal phase",
+      "role": "measured_response",
+      "unit": "deg"
+    }
+  ],
+  "held_conditions": [
+    {
+      "name": "readout_power_dbm",
+      "label": "Readout power",
+      "value": -24,
+      "unit": "dBm",
+      "authority": "fixture_declared"
+    }
+  ],
+  "validation_boundary": {
+    "validated": [
+      "declared column names against source table header",
+      "observed variable inner-axis point counts per grouping-axis value",
+      "duplicate coordinate pairs are rejected"
+    ],
+    "not_validated": [
+      "expected adaptive path completeness",
+      "role semantic correctness",
+      "unit correctness",
+      "adaptive-step suitability",
+      "instrument calibration",
+      "scientific validity"
+    ]
+  }
+}

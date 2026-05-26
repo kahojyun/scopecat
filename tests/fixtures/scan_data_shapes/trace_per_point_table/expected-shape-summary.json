@@ -1,0 +1,175 @@
+{
+  "shape_summary_id": "scan-shape-trace-per-point-table.expected",
+  "status": "expected_validation_output",
+  "source_fixture": "shape-input.json",
+  "measurement": {
+    "measurement_id": "synthetic-meas-02005",
+    "label": "qC bias-indexed resonator traces",
+    "target": "qC",
+    "source_kind": "primary_measurement",
+    "source_table": "source/trace-point-index.csv"
+  },
+  "shape": {
+    "kind": "trace_per_point_table",
+    "axis_order": [
+      "bias_v"
+    ],
+    "trace_ref_column": "trace_ref",
+    "trace_schema": {
+      "independent_column": "time_ns",
+      "independent_label": "Time",
+      "independent_unit": "ns",
+      "response_column": "signal_v",
+      "response_label": "Signal",
+      "response_unit": "V"
+    },
+    "point_count": 3,
+    "duplicate_outer_coordinates": false,
+    "status": "pass"
+  },
+  "outer_trace_points": [
+    {
+      "outer_coordinate": {
+        "bias_v": "-0.1"
+      },
+      "trace_ref": "source/traces/bias-neg-0p1.csv"
+    },
+    {
+      "outer_coordinate": {
+        "bias_v": "0.0"
+      },
+      "trace_ref": "source/traces/bias-0p0.csv"
+    },
+    {
+      "outer_coordinate": {
+        "bias_v": "0.1"
+      },
+      "trace_ref": "source/traces/bias-0p1.csv"
+    }
+  ],
+  "declared_axes": [
+    {
+      "name": "bias_v",
+      "label": "Bias",
+      "unit": "V"
+    }
+  ],
+  "declared_trace_references": [
+    {
+      "name": "trace_ref",
+      "label": "Trace table reference",
+      "unit": "relative_ref"
+    }
+  ],
+  "held_conditions": [
+    {
+      "name": "readout_power_dbm",
+      "label": "Readout power",
+      "value": -26,
+      "unit": "dBm",
+      "authority": "fixture_declared"
+    }
+  ],
+  "column_validation": {
+    "status": "pass",
+    "declared_columns": [
+      "bias_v",
+      "trace_ref",
+      "trace_kind"
+    ],
+    "source_columns": [
+      "bias_v",
+      "trace_ref",
+      "trace_kind"
+    ],
+    "missing_declared_columns": [],
+    "missing_shape_columns": [],
+    "undeclared_shape_columns": [],
+    "extra_source_columns": []
+  },
+  "trace_validation": {
+    "status": "pass",
+    "trace_refs": [
+      "source/traces/bias-neg-0p1.csv",
+      "source/traces/bias-0p0.csv",
+      "source/traces/bias-0p1.csv"
+    ],
+    "unsafe_trace_refs": [],
+    "missing_trace_files": [],
+    "missing_trace_schema_fields": [],
+    "invalid_trace_metadata_fields": [],
+    "missing_trace_columns_by_ref": {},
+    "trace_summaries": [
+      {
+        "outer_coordinate": {
+          "bias_v": "-0.1"
+        },
+        "trace_ref": "source/traces/bias-neg-0p1.csv",
+        "status": "pass",
+        "row_count": 4,
+        "columns": [
+          "time_ns",
+          "signal_v"
+        ],
+        "missing_trace_columns": []
+      },
+      {
+        "outer_coordinate": {
+          "bias_v": "0.0"
+        },
+        "trace_ref": "source/traces/bias-0p0.csv",
+        "status": "pass",
+        "row_count": 5,
+        "columns": [
+          "time_ns",
+          "signal_v"
+        ],
+        "missing_trace_columns": []
+      },
+      {
+        "outer_coordinate": {
+          "bias_v": "0.1"
+        },
+        "trace_ref": "source/traces/bias-0p1.csv",
+        "status": "pass",
+        "row_count": 3,
+        "columns": [
+          "time_ns",
+          "signal_v"
+        ],
+        "missing_trace_columns": []
+      }
+    ]
+  },
+  "plot_candidates": [
+    {
+      "title": "qC bias-indexed resonator traces: Signal",
+      "plot_kind": "trace_family",
+      "x": "time_ns",
+      "series": "bias_v",
+      "y": "signal_v",
+      "trace_ref_column": "trace_ref",
+      "source": "source/trace-point-index.csv"
+    }
+  ],
+  "warnings": [],
+  "boundary_notes": [
+    "Trace-per-point shape is declared by fixture metadata plus fixture-relative trace references, not schema inference.",
+    "Trace references are checked for fixture-relative shape, containment, and openability only; no binary container, storage layout, or importer contract is earned.",
+    "Plot candidates are declared trace-family candidates only; no rendering, alignment, resampling, fit, uncertainty, or scientific validation is provided.",
+    "The fixture validates reference shape, trace openability, trace columns, and trace row counts only, not waveform correctness."
+  ],
+  "decisions_not_earned": [
+    "final storage schema",
+    "shared data-shape schema",
+    "native nested storage mapping",
+    "general dataframe or array API",
+    "legacy importer",
+    "plot rendering",
+    "binary container support",
+    "automatic schema inference",
+    "trace alignment or resampling",
+    "array-valued measurement support",
+    "scientific validity or reproducibility"
+  ]
+}

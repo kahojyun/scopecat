@@ -1,0 +1,76 @@
+{
+  "fixture_id": "fixed_vector_response_table",
+  "fixture_status": "synthetic_public_safe",
+  "validation_goal": "Check whether a declared fixed-shape per-row vector response can expose a reader ndarray shape without implying a general ndarray or storage API.",
+  "measurement": {
+    "measurement_id": "synthetic-single-shot-iq-001",
+    "label": "Synthetic Single-Shot IQ",
+    "target": "readout_resonator",
+    "source_kind": "declared_primary_table",
+    "source_table": "source/single-shot-iq-vector.csv"
+  },
+  "data_shape": {
+    "kind": "fixed_vector_response_table",
+    "vector_assumption": "fixed_shape_per_row",
+    "axis_order": [
+      "pulse_amplitude_v"
+    ],
+    "vector_columns": [
+      {
+        "name": "shot_iq",
+        "label": "Single-shot IQ",
+        "value_shape": [
+          2
+        ],
+        "dtype": "float64",
+        "shape_policy": "fixed_per_row",
+        "components": [
+          "I",
+          "Q"
+        ]
+      }
+    ]
+  },
+  "declared_columns": [
+    {
+      "name": "pulse_amplitude_v",
+      "label": "Pulse amplitude",
+      "role": "sweep_axis",
+      "unit": "V"
+    },
+    {
+      "name": "shot_iq",
+      "label": "Single-shot IQ",
+      "role": "vector_response",
+      "unit": "V"
+    },
+    {
+      "name": "shot_state",
+      "label": "Classifier state",
+      "role": "annotation",
+      "unit": "state"
+    }
+  ],
+  "held_conditions": [
+    {
+      "label": "Readout duration",
+      "value": 1600,
+      "unit": "ns",
+      "authority": "fixture declaration"
+    }
+  ],
+  "validation_boundary": {
+    "validated": [
+      "declared vector column exists in source table",
+      "per-row vector cells parse as lists",
+      "per-row vector length matches declared value shape",
+      "reader ndarray shape is derived after validation"
+    ],
+    "not_validated": [
+      "native list or struct backend mapping",
+      "general ndarray API",
+      "plot rendering",
+      "scientific validity"
+    ]
+  }
+}

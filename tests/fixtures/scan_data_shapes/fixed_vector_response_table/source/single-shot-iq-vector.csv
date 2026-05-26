@@ -1,0 +1,5 @@
+pulse_amplitude_v,shot_iq,shot_state
+0.10,"[0.12, -0.03]",ground
+0.12,"[0.08, 0.01]",ground
+0.14,"[-0.02, 0.11]",excited
+0.16,"[-0.06, 0.15]",excited
