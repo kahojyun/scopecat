@@ -35,6 +35,17 @@ SIDECAR_DECISIONS_NOT_EARNED = [
     "scientific validity or reproducibility",
 ]
 
+RAGGED_DECISIONS_NOT_EARNED = [
+    "final storage schema",
+    "general dataframe API",
+    "plot rendering",
+    "automatic schema inference",
+    "rectangular grid coercion",
+    "trace-per-point support",
+    "array-valued measurement support",
+    "scientific validity or reproducibility",
+]
+
 
 def load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
@@ -100,6 +111,45 @@ def _grid_status(
     expected_values = [sorted({row[axis] for row in rows}, key=float) for axis in axis_order]
     expected_coordinates = set(product(*expected_values))
     return "pass" if set(observed_coordinates) == expected_coordinates else "fail"
+
+
+def _ragged_status(
+    *,
+    axis_order: list[str],
+    grouping_axis: str,
+    expected_group_point_counts: dict[str, int],
+    rows: list[dict[str, str]],
+    missing_columns: list[str],
+) -> str:
+    if missing_columns:
+        return "fail"
+
+    observed_coordinates = [tuple(row[axis] for axis in axis_order) for row in rows]
+    if len(set(observed_coordinates)) != len(observed_coordinates):
+        return "fail"
+
+    observed_group_counts: dict[str, int] = {}
+    for row in rows:
+        group = row[grouping_axis]
+        observed_group_counts[group] = observed_group_counts.get(group, 0) + 1
+
+    return "pass" if observed_group_counts == expected_group_point_counts else "fail"
+
+
+def _ragged_group_point_counts(
+    *,
+    grouping_axis: str,
+    rows: list[dict[str, str]],
+    missing_columns: list[str],
+) -> dict[str, int]:
+    if missing_columns:
+        return {}
+
+    group_point_counts: dict[str, int] = {}
+    for row in rows:
+        group = row[grouping_axis]
+        group_point_counts[group] = group_point_counts.get(group, 0) + 1
+    return group_point_counts
 
 
 def _generate_2d_grid_summary(source: dict[str, Any], fixture_root: Path) -> dict[str, Any]:
@@ -181,6 +231,100 @@ def _generate_2d_grid_summary(source: dict[str, Any], fixture_root: Path) -> dic
     }
 
 
+def _generate_ragged_summary(source: dict[str, Any], fixture_root: Path) -> dict[str, Any]:
+    measurement = source["measurement"]
+    data_shape = source["data_shape"]
+    source_columns, rows = read_csv_table(fixture_root / measurement["source_table"])
+
+    declared_columns = source["declared_columns"]
+    declared_names = _column_names(declared_columns)
+    missing_columns = [name for name in declared_names if name not in source_columns]
+    extra_columns = [name for name in source_columns if name not in declared_names]
+    axis_order = data_shape["axis_order"]
+    grouping_axis = data_shape["grouping_axis"]
+    ragged_axis = data_shape["ragged_axis"]
+    group_point_counts = _ragged_group_point_counts(
+        grouping_axis=grouping_axis,
+        rows=rows,
+        missing_columns=missing_columns,
+    )
+    expected_group_point_counts = data_shape["expected_group_point_counts"]
+    missing_expected_groups = [
+        group for group in expected_group_point_counts if group not in group_point_counts
+    ]
+    unexpected_observed_groups = [
+        group for group in group_point_counts if group not in expected_group_point_counts
+    ]
+
+    sweep_axes = _columns_by_role(declared_columns, "sweep_axis")
+    measured_responses = _columns_by_role(declared_columns, "measured_response")
+
+    return {
+        "shape_summary_id": f"{source['fixture_id']}.expected",
+        "status": "expected_validation_output",
+        "source_fixture": "shape-input.json",
+        "measurement": measurement,
+        "shape": {
+            "kind": data_shape["kind"],
+            "ragged_assumption": data_shape["ragged_assumption"],
+            "axis_order": axis_order,
+            "grouping_axis": grouping_axis,
+            "ragged_axis": ragged_axis,
+            "expected_group_point_counts": expected_group_point_counts,
+            "group_point_counts": group_point_counts,
+            "missing_expected_groups": missing_expected_groups,
+            "unexpected_observed_groups": unexpected_observed_groups,
+            "total_row_count": len(rows),
+            "status": _ragged_status(
+                axis_order=axis_order,
+                grouping_axis=grouping_axis,
+                expected_group_point_counts=expected_group_point_counts,
+                rows=rows,
+                missing_columns=missing_columns,
+            ),
+        },
+        "declared_axes": _without_role(sweep_axes),
+        "declared_dependents": _without_role(measured_responses),
+        "held_conditions": source["held_conditions"],
+        "column_validation": {
+            "status": "pass" if not missing_columns else "fail",
+            "declared_columns": declared_names,
+            "source_columns": source_columns,
+            "missing_declared_columns": missing_columns,
+            "extra_source_columns": extra_columns,
+        },
+        "plot_candidates": [
+            {
+                "title": f"{measurement['label']}: {column['label']}",
+                "plot_kind": "ragged_line_family",
+                "x": ragged_axis,
+                "series": grouping_axis,
+                "y": column["name"],
+                "source": measurement["source_table"],
+            }
+            for column in measured_responses
+        ],
+        "warnings": [
+            {
+                "code": "extra_source_column",
+                "subject": extra_column,
+                "message": (
+                    "Source table contains an undeclared column. It is reported "
+                    "but not treated as plot metadata."
+                ),
+            }
+            for extra_column in extra_columns
+        ],
+        "boundary_notes": [
+            "The ragged scan shape comes from fixture declaration, not schema inference.",
+            "Variable inner-axis coverage is expected for this fixture and is not treated as missing rectangular grid points.",
+            "Plot candidates are declared ragged line-family candidates only; no rendering, fit, uncertainty, or scientific validation is provided.",
+            "The fixture validates declared ragged coverage consistency only, not scientific correctness.",
+        ],
+        "decisions_not_earned": RAGGED_DECISIONS_NOT_EARNED,
+    }
+
+
 def _generate_sidecar_summary(source: dict[str, Any], fixture_root: Path) -> dict[str, Any]:
     measurement = source["measurement"]
     data_shape = source["data_shape"]
@@ -257,6 +401,8 @@ def generate_summary(fixture_root: Path) -> dict[str, Any]:
     kind = source["data_shape"]["kind"]
     if kind == "2d_grid_table":
         return _generate_2d_grid_summary(source, fixture_root)
+    if kind == "ragged_adaptive_table":
+        return _generate_ragged_summary(source, fixture_root)
     if kind == "sidecar_declared_table":
         return _generate_sidecar_summary(source, fixture_root)
     raise ValueError(f"unsupported scan data-shape fixture kind: {kind}")
@@ -469,10 +615,139 @@ def _generate_sidecar_review(summary: dict[str, Any]) -> str:
     return "\n".join(rows) + "\n"
 
 
+def _generate_ragged_review(summary: dict[str, Any]) -> str:
+    measurement = summary["measurement"]
+    shape = summary["shape"]
+    validation = summary["column_validation"]
+    rows = [
+        "# Expected Ragged Adaptive Table Shape Review",
+        "",
+        "## Status",
+        "",
+        "Expected reviewer-facing output for the synthetic `ragged_adaptive_table`",
+        "fixture. This is not a storage schema, plotting API, file importer, or",
+        "product contract.",
+        "",
+        "## Measurement",
+        "",
+        f"- measurement: `{measurement['measurement_id']}`",
+        f"- label: `{measurement['label']}`",
+        f"- target: `{measurement['target']}`",
+        f"- source kind: `{measurement['source_kind']}`",
+        f"- source table: `{measurement['source_table']}`",
+        "",
+        "## Declared Shape",
+        "",
+        f"- kind: `{shape['kind']}`",
+        f"- ragged assumption: `{shape['ragged_assumption']}`",
+        f"- axis order: {_format_list(shape['axis_order'])}",
+        f"- grouping axis: `{shape['grouping_axis']}`",
+        f"- ragged axis: `{shape['ragged_axis']}`",
+        f"- total row count: `{shape['total_row_count']}`",
+        f"- status: `{shape['status']}`",
+        "",
+        "Group coverage:",
+        "",
+        "| Group | Expected points | Observed points |",
+        "| --- | --- | --- |",
+    ]
+    for group, expected_count in shape["expected_group_point_counts"].items():
+        observed_count = shape["group_point_counts"].get(group, 0)
+        rows.append(f"| `{group}` | `{expected_count}` | `{observed_count}` |")
+    for group in shape["unexpected_observed_groups"]:
+        observed_count = shape["group_point_counts"][group]
+        rows.append(f"| `{group}` | `undeclared` | `{observed_count}` |")
+    rows.extend(
+        [
+            "",
+            "## Axes And Dependents",
+            "",
+            "| Name | Label | Role | Unit |",
+            "| --- | --- | --- | --- |",
+        ]
+    )
+    for column in summary["declared_axes"]:
+        rows.append(f"| `{column['name']}` | {column['label']} | sweep axis | `{column['unit']}` |")
+    for column in summary["declared_dependents"]:
+        rows.append(
+            f"| `{column['name']}` | {column['label']} | measured response | `{column['unit']}` |"
+        )
+    rows.extend(["", "Held condition:", ""])
+    for condition in summary["held_conditions"]:
+        rows.append(
+            f"- {condition['label']}: `{_format_quantity(condition['value'])} "
+            f"{condition['unit']}` (`{condition['authority']}`)"
+        )
+    rows.extend(
+        [
+            "",
+            "## Column Validation",
+            "",
+            f"- status: `{validation['status']}`",
+            f"- declared columns: {_format_list(validation['declared_columns'])}",
+            f"- source columns: {_format_list(validation['source_columns'])}",
+            f"- missing declared columns: {_format_list(validation['missing_declared_columns'])}",
+            f"- extra source columns: {_format_list(validation['extra_source_columns'])}",
+            "",
+            "## Plot Candidates",
+            "",
+            "| Kind | X | Series | Y | Source | Boundary note |",
+            "| --- | --- | --- | --- | --- | --- |",
+        ]
+    )
+    for candidate in summary["plot_candidates"]:
+        rows.append(
+            f"| `{candidate['plot_kind']}` | `{candidate['x']}` | "
+            f"`{candidate['series']}` | `{candidate['y']}` | "
+            f"`{candidate['source']}` | {summary['boundary_notes'][2]} |"
+        )
+    rows.extend(["", "## Warnings", ""])
+    if validation["extra_source_columns"]:
+        for extra_column in validation["extra_source_columns"]:
+            rows.extend(
+                [
+                    f"- `extra_source_column`: source table contains undeclared `{extra_column}`. It",
+                    "  is reported but not treated as plot metadata.",
+                ]
+            )
+    else:
+        rows.append("- `none`")
+    rows.extend(
+        [
+            "",
+            "## Boundary Notes",
+            "",
+            "- The ragged scan shape comes from fixture declaration, not schema",
+            "  inference.",
+            "- Variable inner-axis coverage is expected for this fixture and is not",
+            "  treated as missing rectangular grid points.",
+            "- Plot candidates are declared ragged line-family candidates only; no",
+            "  rendering, fit, uncertainty, or scientific validation is provided.",
+            "- This fixture validates declared ragged coverage consistency only, not",
+            "  scientific correctness.",
+            "",
+            "## Reviewer Questions",
+            "",
+            "A reviewer should be able to answer:",
+            "",
+            "- which axis groups the adaptive scan;",
+            "- which inner axis has variable coverage;",
+            "- whether each declared group has the expected observed point count;",
+            "- which measured responses can become line-family plot candidates;",
+            "- what is mechanically checked and what remains unvalidated;",
+            "- that this fixture tests model adequacy, not rectangular grid coercion or",
+            "  a final storage or plotting API.",
+        ]
+    )
+    return "\n".join(rows) + "\n"
+
+
 def generate_review(summary: dict[str, Any]) -> str:
     kind = summary["shape"]["kind"]
     if kind == "2d_grid_table":
         return _generate_2d_grid_review(summary)
+    if kind == "ragged_adaptive_table":
+        return _generate_ragged_review(summary)
     if kind == "sidecar_declared_table":
         return _generate_sidecar_review(summary)
     raise ValueError(f"unsupported scan data-shape summary kind: {kind}")

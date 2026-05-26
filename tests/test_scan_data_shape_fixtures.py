@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 GRID_FIXTURE = ROOT / "tests" / "fixtures" / "scan_data_shapes" / "2d_grid_table"
 SIDECAR_FIXTURE = ROOT / "tests" / "fixtures" / "scan_data_shapes" / "sidecar_declared_table"
+RAGGED_FIXTURE = ROOT / "tests" / "fixtures" / "scan_data_shapes" / "ragged_adaptive_table"
 
 
 class ScanDataShapeFixtureTest(unittest.TestCase):
@@ -121,6 +122,72 @@ class ScanDataShapeFixtureTest(unittest.TestCase):
         self.assertIn("metadata source: `sidecar_declaration`", review)
         self.assertIn("not source header inference", review)
         self.assertIn("not a sidecar importer or schema", review)
+
+    def test_ragged_fixture_json_files_are_valid(self) -> None:
+        for path in [
+            RAGGED_FIXTURE / "shape-input.json",
+            RAGGED_FIXTURE / "expected-shape-summary.json",
+        ]:
+            with self.subTest(path=path):
+                self._load_json(path)
+
+    def test_ragged_summary_matches_declared_group_coverage(self) -> None:
+        shape_input = self._load_json(RAGGED_FIXTURE / "shape-input.json")
+        summary = self._load_json(RAGGED_FIXTURE / "expected-shape-summary.json")
+        source_path = RAGGED_FIXTURE / summary["measurement"]["source_table"]
+        with source_path.open(newline="", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            rows = list(reader)
+
+        axis_order = summary["shape"]["axis_order"]
+        grouping_axis = summary["shape"]["grouping_axis"]
+        observed_coordinates = {tuple(row[axis] for axis in axis_order) for row in rows}
+        group_counts: dict[str, int] = {}
+        for row in rows:
+            group = row[grouping_axis]
+            group_counts[group] = group_counts.get(group, 0) + 1
+
+        self.assertEqual(shape_input["measurement"], summary["measurement"])
+        self.assertEqual(shape_input["data_shape"]["kind"], summary["shape"]["kind"])
+        self.assertEqual(
+            shape_input["data_shape"]["ragged_assumption"],
+            summary["shape"]["ragged_assumption"],
+        )
+        self.assertEqual(shape_input["data_shape"]["axis_order"], axis_order)
+        self.assertEqual(shape_input["data_shape"]["grouping_axis"], grouping_axis)
+        self.assertEqual(
+            shape_input["data_shape"]["ragged_axis"],
+            summary["shape"]["ragged_axis"],
+        )
+        self.assertEqual(
+            shape_input["data_shape"]["expected_group_point_counts"],
+            summary["shape"]["expected_group_point_counts"],
+        )
+        self.assertEqual(group_counts, summary["shape"]["group_point_counts"])
+        self.assertEqual(len(rows), summary["shape"]["total_row_count"])
+        self.assertEqual(len(observed_coordinates), len(rows))
+        self.assertEqual(summary["shape"]["status"], "pass")
+
+    def test_ragged_plot_candidates_are_line_families_not_heatmaps(self) -> None:
+        summary = self._load_json(RAGGED_FIXTURE / "expected-shape-summary.json")
+
+        self.assertEqual(
+            ["ragged_line_family", "ragged_line_family"],
+            [candidate["plot_kind"] for candidate in summary["plot_candidates"]],
+        )
+        self.assertEqual(
+            ["signal_db", "phase_deg"],
+            [candidate["y"] for candidate in summary["plot_candidates"]],
+        )
+        self.assertTrue(all("z" not in candidate for candidate in summary["plot_candidates"]))
+
+    def test_ragged_review_states_no_rectangular_grid_coercion_boundary(self) -> None:
+        review = (RAGGED_FIXTURE / "expected-shape-review.md").read_text(encoding="utf-8")
+
+        self.assertIn("kind: `ragged_adaptive_table`", review)
+        self.assertIn("ragged assumption: `declared_variable_inner_axis`", review)
+        self.assertIn("treated as missing rectangular grid points", review)
+        self.assertIn("not rectangular grid coercion", review)
 
 
 if __name__ == "__main__":
