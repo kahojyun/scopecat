@@ -273,10 +273,21 @@ def _missing_trace_schema_fields(trace_schema: Any) -> list[str]:
     ]
 
 
-def _invalid_trace_metadata_fields(*, trace_ref_column: Any) -> list[str]:
+def _normalize_axis_order(value: Any) -> tuple[list[str], list[str]]:
+    if not isinstance(value, list):
+        return [], ["axis_order"]
+    if not value or not all(isinstance(axis, str) and axis for axis in value):
+        return [axis for axis in value if isinstance(axis, str) and axis], ["axis_order"]
+    return value, []
+
+
+def _invalid_trace_metadata_fields(
+    *, invalid_axis_order_fields: list[str], trace_ref_column: Any
+) -> list[str]:
+    invalid_fields = list(invalid_axis_order_fields)
     if not isinstance(trace_ref_column, str) or not trace_ref_column:
-        return ["trace_ref_column"]
-    return []
+        invalid_fields.append("trace_ref_column")
+    return invalid_fields
 
 
 def _fixed_vector_shape_columns(
@@ -1094,10 +1105,12 @@ def _generate_trace_summary(source: dict[str, Any], fixture_root: Path) -> dict[
     declared_columns = source["declared_columns"]
     declared_names = _column_names(declared_columns)
     extra_columns = [name for name in source_columns if name not in declared_names]
-    axis_order = data_shape["axis_order"]
+    raw_axis_order = data_shape.get("axis_order")
+    axis_order, invalid_axis_order_fields = _normalize_axis_order(raw_axis_order)
     trace_ref_column = data_shape.get("trace_ref_column")
     invalid_trace_metadata_fields = _invalid_trace_metadata_fields(
-        trace_ref_column=trace_ref_column
+        invalid_axis_order_fields=invalid_axis_order_fields,
+        trace_ref_column=trace_ref_column,
     )
     trace_schema = data_shape.get("trace_schema", {})
     missing_trace_schema_fields = _missing_trace_schema_fields(trace_schema)
@@ -1106,7 +1119,7 @@ def _generate_trace_summary(source: dict[str, Any], fixture_root: Path) -> dict[
         for field in ["independent_column", "response_column"]
         if field not in missing_trace_schema_fields
     ]
-    axis_order_valid = bool(axis_order)
+    axis_order_valid = not invalid_axis_order_fields and bool(axis_order)
     trace_validation = _trace_column_validation(
         declared_names=declared_names,
         source_columns=source_columns,

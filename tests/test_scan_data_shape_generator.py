@@ -506,6 +506,66 @@ class ScanDataShapeGeneratorTest(unittest.TestCase):
         self.assertEqual(summary["shape"]["status"], "fail")
         self.assertEqual(summary["plot_candidates"], [])
 
+    def test_trace_per_point_rejects_null_axis_order_without_crashing(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_trace_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "bias_v,trace_ref,trace_kind",
+                        "0.0,source/traces/bias-0p0.csv,ringdown",
+                        "",
+                    ]
+                ),
+            )
+            source = json.loads((fixture / "shape-input.json").read_text(encoding="utf-8"))
+            source["data_shape"]["axis_order"] = None
+            (fixture / "shape-input.json").write_text(
+                json.dumps(source, indent=2),
+                encoding="utf-8",
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(
+            summary["trace_validation"]["invalid_trace_metadata_fields"],
+            ["axis_order"],
+        )
+        self.assertEqual(summary["trace_validation"]["trace_refs"], [])
+        self.assertEqual(summary["plot_candidates"], [])
+
+    def test_trace_per_point_rejects_non_string_axis_order_items(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            self._write_trace_fixture(
+                fixture,
+                "\n".join(
+                    [
+                        "bias_v,trace_ref,trace_kind",
+                        "0.0,source/traces/bias-0p0.csv,ringdown",
+                        "",
+                    ]
+                ),
+            )
+            source = json.loads((fixture / "shape-input.json").read_text(encoding="utf-8"))
+            source["data_shape"]["axis_order"] = ["bias_v", ["nested_axis"]]
+            (fixture / "shape-input.json").write_text(
+                json.dumps(source, indent=2),
+                encoding="utf-8",
+            )
+
+            summary = generate_summary(fixture)
+
+        self.assertEqual(summary["shape"]["status"], "fail")
+        self.assertEqual(
+            summary["trace_validation"]["invalid_trace_metadata_fields"],
+            ["axis_order"],
+        )
+        self.assertEqual(summary["trace_validation"]["trace_refs"], [])
+        self.assertEqual(summary["plot_candidates"], [])
+
     def test_trace_per_point_reports_missing_trace_schema_field(self) -> None:
         with TemporaryDirectory() as temp_dir:
             fixture = Path(temp_dir)
