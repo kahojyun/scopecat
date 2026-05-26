@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import html
 import math
+import os
 from pathlib import Path
 from typing import Any
 
-_ARTIFACT_NAME = "handoff-package-visual-review.html"
+HANDOFF_PACKAGE_VISUAL_REVIEW_ARTIFACT_NAME = "handoff-package-visual-review.html"
 _EXPECTED_POLICY = {
     "artifact_authority": "handoff_package_visual_review_model",
     "artifact_class": "local_review_surface",
@@ -479,8 +480,10 @@ def write_handoff_package_visual_review_artifact(
     if _is_in_package_tree(output_dir):
         raise ValueError("visual review artifact output_dir must not be in a package tree")
     output_dir.mkdir(parents=True, exist_ok=True)
-    html_path = output_dir / _ARTIFACT_NAME
-    existed = html_path.exists()
+    html_path = output_dir / HANDOFF_PACKAGE_VISUAL_REVIEW_ARTIFACT_NAME
+    if html_path.is_symlink():
+        raise ValueError("visual review artifact target must not be a symlink")
+    existed = os.path.lexists(html_path)
     if existed and not overwrite:
         raise ValueError("visual review artifact already exists")
     html_path.write_text(
@@ -491,7 +494,7 @@ def write_handoff_package_visual_review_artifact(
         "artifact_posture": "review_summary",
         "artifact_policy": dict(_EXPECTED_POLICY),
         "html_artifact": {
-            "filename": _ARTIFACT_NAME,
+            "filename": HANDOFF_PACKAGE_VISUAL_REVIEW_ARTIFACT_NAME,
             "local_path": str(html_path),
             "created": html_path.is_file(),
             "overwritten": existed,

@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 import copy
+import tempfile
 import unittest
+from pathlib import Path
 
 from implementation_candidates.handoff_package_contracts import (
     MANIFEST_AUTHORITY,
     validate_handoff_package_identity,
     validate_handoff_preview_ready_metadata,
+    validate_handoff_receiving_roots,
+    validate_handoff_reviewed_package_continuity,
     validate_package_item_shape,
 )
+
+ARTIFACT_NAME = "handoff-package-visual-review.html"
 
 
 def _identity() -> dict[str, object]:
@@ -64,6 +70,20 @@ def _preview() -> dict[str, object]:
                 "source": "measurements/measurement-001/primary.csv",
             }
         ],
+    }
+
+
+def _inspected_package() -> dict[str, object]:
+    return {
+        "package_id": "handoff-package-001",
+        "preview_classification": "needs_review_before_acceptance",
+    }
+
+
+def _integrity_package() -> dict[str, object]:
+    return {
+        "package_id": "handoff-package-001",
+        "preview_classification": "needs_review_before_acceptance",
     }
 
 
@@ -198,6 +218,169 @@ class HandoffPackageContractsCandidateTest(unittest.TestCase):
                 preview,
                 primary_path="measurements/measurement-001/primary.csv",
                 owner="preview",
+            )
+
+    def test_receiving_roots_require_artifact_outside_package_and_storage(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = temp_root / "handoff-package-001"
+            storage_root = temp_root / "storage"
+            artifact_output_dir = temp_root / "local-review"
+            package_dir.mkdir()
+            storage_root.mkdir()
+
+            validate_handoff_receiving_roots(
+                package_dir=package_dir,
+                storage_root=storage_root,
+                artifact_output_dir=artifact_output_dir,
+                artifact_output_filenames=(ARTIFACT_NAME,),
+            )
+
+            with self.assertRaisesRegex(ValueError, "outside the package tree"):
+                validate_handoff_receiving_roots(
+                    package_dir=package_dir,
+                    storage_root=storage_root,
+                    artifact_output_dir=package_dir / "review",
+                    artifact_output_filenames=(ARTIFACT_NAME,),
+                )
+
+            with self.assertRaisesRegex(ValueError, "outside the package tree"):
+                validate_handoff_receiving_roots(
+                    package_dir=package_dir,
+                    storage_root=storage_root,
+                    artifact_output_dir=package_dir,
+                    artifact_output_filenames=(ARTIFACT_NAME,),
+                )
+
+            with self.assertRaisesRegex(ValueError, "outside the storage root"):
+                validate_handoff_receiving_roots(
+                    package_dir=package_dir,
+                    storage_root=storage_root,
+                    artifact_output_dir=storage_root / "review",
+                    artifact_output_filenames=(ARTIFACT_NAME,),
+                )
+
+            with self.assertRaisesRegex(ValueError, "outside the storage root"):
+                validate_handoff_receiving_roots(
+                    package_dir=package_dir,
+                    storage_root=storage_root,
+                    artifact_output_dir=storage_root,
+                    artifact_output_filenames=(ARTIFACT_NAME,),
+                )
+
+    def test_receiving_roots_require_package_and_storage_separation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = temp_root / "package"
+            storage_root = package_dir / "storage"
+            artifact_output_dir = temp_root / "local-review"
+            storage_root.mkdir(parents=True)
+
+            with self.assertRaisesRegex(ValueError, "must be separate"):
+                validate_handoff_receiving_roots(
+                    package_dir=package_dir,
+                    storage_root=storage_root,
+                    artifact_output_dir=artifact_output_dir,
+                )
+
+            with self.assertRaisesRegex(ValueError, "must be separate"):
+                validate_handoff_receiving_roots(
+                    package_dir=storage_root,
+                    storage_root=storage_root,
+                    artifact_output_dir=artifact_output_dir,
+                )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            storage_root = temp_root / "storage"
+            package_dir = storage_root / "package"
+            artifact_output_dir = temp_root / "local-review"
+            package_dir.mkdir(parents=True)
+
+            with self.assertRaisesRegex(ValueError, "must be separate"):
+                validate_handoff_receiving_roots(
+                    package_dir=package_dir,
+                    storage_root=storage_root,
+                    artifact_output_dir=artifact_output_dir,
+                )
+
+    def test_receiving_roots_reject_existing_artifact_target_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = temp_root / "package"
+            storage_root = temp_root / "storage"
+            artifact_output_dir = temp_root / "local-review"
+            package_dir.mkdir()
+            storage_root.mkdir()
+            artifact_output_dir.mkdir()
+            (artifact_output_dir / ARTIFACT_NAME).symlink_to(
+                storage_root / "records" / "legacy-rabi-001.html",
+            )
+
+            with self.assertRaisesRegex(ValueError, "must not be a symlink"):
+                validate_handoff_receiving_roots(
+                    package_dir=package_dir,
+                    storage_root=storage_root,
+                    artifact_output_dir=artifact_output_dir,
+                    artifact_output_filenames=(ARTIFACT_NAME,),
+                )
+
+            with self.assertRaisesRegex(ValueError, "must not be a symlink"):
+                validate_handoff_receiving_roots(
+                    package_dir=package_dir,
+                    storage_root=storage_root,
+                    artifact_output_dir=artifact_output_dir,
+                    artifact_output_filenames=(ARTIFACT_NAME,),
+                    allow_existing_artifact_targets=True,
+                )
+
+    def test_reviewed_package_continuity_accepts_matching_facts(self) -> None:
+        validate_handoff_reviewed_package_continuity(
+            reviewed_package_id="handoff-package-001",
+            reviewed_preview_classification="needs_review_before_acceptance",
+            reviewed_integrity_classification="declared_integrity_verified",
+            inspected_package=_inspected_package(),
+            integrity_package=_integrity_package(),
+            integrity_classification="declared_integrity_verified",
+        )
+
+    def test_reviewed_package_continuity_checks_integrity_preview(self) -> None:
+        integrity_package = _integrity_package()
+        integrity_package["preview_classification"] = "preview_ready_for_opening"
+
+        with self.assertRaisesRegex(ValueError, "preview classification"):
+            validate_handoff_reviewed_package_continuity(
+                reviewed_package_id="handoff-package-001",
+                reviewed_preview_classification="needs_review_before_acceptance",
+                reviewed_integrity_classification="declared_integrity_verified",
+                inspected_package=_inspected_package(),
+                integrity_package=integrity_package,
+                integrity_classification="declared_integrity_verified",
+            )
+
+    def test_reviewed_package_continuity_checks_integrity_package_id(self) -> None:
+        integrity_package = _integrity_package()
+        integrity_package["package_id"] = "different-package"
+
+        with self.assertRaisesRegex(ValueError, "integrity-observed package"):
+            validate_handoff_reviewed_package_continuity(
+                reviewed_package_id="handoff-package-001",
+                reviewed_preview_classification="needs_review_before_acceptance",
+                reviewed_integrity_classification="declared_integrity_verified",
+                inspected_package=_inspected_package(),
+                integrity_package=integrity_package,
+                integrity_classification="declared_integrity_verified",
+            )
+
+    def test_reviewed_package_continuity_checks_integrity_classification(self) -> None:
+        with self.assertRaisesRegex(ValueError, "integrity classification"):
+            validate_handoff_reviewed_package_continuity(
+                reviewed_package_id="handoff-package-001",
+                reviewed_preview_classification="needs_review_before_acceptance",
+                reviewed_integrity_classification="integrity_review_required",
+                inspected_package=_inspected_package(),
+                integrity_package=_integrity_package(),
+                integrity_classification="declared_integrity_verified",
             )
 
 

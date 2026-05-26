@@ -1,13 +1,16 @@
-"""Shared handoff-package route contracts.
+"""Handoff-package route contract helpers.
 
-These helpers describe the route-level contract shared by the handoff writer,
-contents preview, opener, and composition candidates. They intentionally stay
+Most helpers describe route-level contracts already shared by the handoff
+writer, contents preview, opener, and composition candidates. Receiving
+root/continuity helpers are provisional composition support. All helpers stay
 below a durable product schema: callers still own slice-specific policy,
-file-system work, and continuity checks.
+file-system work, and workflow ordering.
 """
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import Any
 
 from implementation_candidates.contract_primitives import (
@@ -66,6 +69,10 @@ EXPECTED_PRIMARY_BUNDLE = {
 }
 
 _PRIVATE_PACKAGE_PATH_SEGMENTS = {"Users", "private"}
+
+
+def _path_same_or_under(path: Path, parent: Path) -> bool:
+    return path == parent or parent in path.parents
 
 
 def _validate_public_package_path(value: str, owner: str) -> None:
@@ -260,3 +267,82 @@ def validate_handoff_preview_ready_metadata(
         if candidate["x"] not in declared_name_set or candidate["y"] not in declared_name_set:
             raise ValueError(f"{owner} plot candidate axes must reference declared columns")
     return declared_name_set
+
+
+def validate_handoff_receiving_roots(
+    *,
+    package_dir: Path,
+    storage_root: Path,
+    artifact_output_dir: Path,
+    artifact_output_filenames: tuple[str, ...] = (),
+    allow_existing_artifact_targets: bool = False,
+) -> None:
+    """Validate receiving-workflow root separation before local writes."""
+
+    if package_dir.is_symlink():
+        raise ValueError("package root must not be a symlink")
+    if storage_root.is_symlink():
+        raise ValueError("storage root must not be a symlink")
+    if artifact_output_dir.is_symlink():
+        raise ValueError("artifact output must not be a symlink")
+    if not package_dir.is_dir():
+        raise ValueError("package root must be an existing directory")
+    if not storage_root.is_dir():
+        raise ValueError("storage root must be an existing directory")
+
+    package_root = package_dir.resolve()
+    storage_root = storage_root.resolve()
+    artifact_root = artifact_output_dir.resolve(strict=False)
+    if _path_same_or_under(storage_root, package_root) or _path_same_or_under(
+        package_root,
+        storage_root,
+    ):
+        raise ValueError("package root and storage root must be separate")
+    if _path_same_or_under(artifact_root, package_root):
+        raise ValueError("artifact output must be outside the package tree")
+    if _path_same_or_under(artifact_root, storage_root):
+        raise ValueError("artifact output must be outside the storage root")
+    for filename in artifact_output_filenames:
+        validate_public_identifier(filename, "artifact output filename")
+        artifact_target = artifact_output_dir / filename
+        if artifact_target.is_symlink():
+            raise ValueError("artifact output target must not be a symlink")
+        if os.path.lexists(artifact_target) and not allow_existing_artifact_targets:
+            raise ValueError("artifact output target must not already exist")
+        target_root = artifact_target.resolve(strict=False)
+        if _path_same_or_under(target_root, package_root):
+            raise ValueError("artifact output target must be outside the package tree")
+        if _path_same_or_under(target_root, storage_root):
+            raise ValueError("artifact output target must be outside the storage root")
+
+
+def validate_handoff_reviewed_package_continuity(
+    *,
+    reviewed_package_id: str,
+    reviewed_preview_classification: str,
+    reviewed_integrity_classification: str,
+    inspected_package: dict[str, Any],
+    integrity_package: dict[str, Any],
+    integrity_classification: str,
+) -> None:
+    """Validate reviewed package facts against composed receiving observations."""
+
+    validate_public_identifier(reviewed_package_id, "reviewed_package_id")
+    validate_public_identifier(
+        reviewed_preview_classification,
+        "reviewed_preview_classification",
+    )
+    validate_public_identifier(
+        reviewed_integrity_classification,
+        "reviewed_integrity_classification",
+    )
+    if reviewed_package_id != inspected_package["package_id"]:
+        raise ValueError("reviewed package id must match inspected package")
+    if reviewed_package_id != integrity_package["package_id"]:
+        raise ValueError("reviewed package id must match integrity-observed package")
+    if reviewed_preview_classification != inspected_package["preview_classification"]:
+        raise ValueError("reviewed preview classification must match inspection")
+    if reviewed_preview_classification != integrity_package["preview_classification"]:
+        raise ValueError("reviewed preview classification must match integrity observation")
+    if reviewed_integrity_classification != integrity_classification:
+        raise ValueError("reviewed integrity classification must match observation")
