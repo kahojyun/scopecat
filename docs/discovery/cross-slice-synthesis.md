@@ -27,6 +27,7 @@ relation graph, or warning taxonomy.
 - [`handoff-package-inspection-workflow-validation-result.md`](handoff-package-inspection-workflow-validation-result.md)
 - [`handoff-package-acceptance-validation-result.md`](handoff-package-acceptance-validation-result.md)
 - [`handoff-package-integrity-observation-validation-result.md`](handoff-package-integrity-observation-validation-result.md)
+- [`handoff-package-receiving-workflow-validation-result.md`](handoff-package-receiving-workflow-validation-result.md)
 - [`handoff-package-writer-validation-result.md`](handoff-package-writer-validation-result.md)
 - [`handoff-package-round-trip-validation-result.md`](handoff-package-round-trip-validation-result.md)
 - [`contract-primitives-validation-result.md`](contract-primitives-validation-result.md)
@@ -199,6 +200,19 @@ modified package members, while still not accepting authenticity, signatures,
 archive extraction, storage mutation, import acceptance, schema inference, GUI
 behavior, final package format, or a shared measurement model.
 
+Handoff package receiving workflow has the first receiving-side composition
+candidate over the current package-use route. It runs the existing read-only
+inspection workflow, runs the existing read-only integrity observation, checks
+explicit approval and reviewed package/preview/integrity continuity, requires
+package/storage/artifact target separation, requires `declared_integrity_verified`,
+and only then delegates to the existing acceptance candidate for storage
+mutation. If integrity needs review, it returns a local blocked receipt after
+inspection and integrity observation but without writing storage. This
+validates the open-review-check-accept workflow order while explicitly keeping
+concurrent package-root mutation unsupported, and without adding archive
+extraction, signature validation, GUI state, dataframe behavior, final import
+API, final storage schema, or a shared measurement model.
+
 Legacy import acceptance has a slice-local implementation candidate for the
 first approved review-to-acceptance mutation for a normalized adapter-authored
 legacy manifest. It validates the embedded adapter manifest, requires approved
@@ -334,9 +348,10 @@ public API behavior; each slice still owns those domain contracts.
 Handoff package route contracts now have a route-local support module for the
 next layer above primitives: package identity, manifest item state/include
 semantics, selected primary-data topology, canonical primary-data bundle
-entries, and preview-ready metadata binding. It is used where the writer,
-contents preview, opener reuse, and composition slices already share semantics,
-but it is still not a final package schema or SDK object model.
+entries, and preview-ready metadata binding. Receiving-composition root and
+reviewed-fact checks are currently provisional route support because they have
+one direct workflow consumer. The module is still not a final package schema,
+storage architecture, or SDK object model.
 
 Calibration work continuation has a tiny assembler candidate for continuation
 state. It pressures episode context, planned steps, observed outputs, review
@@ -748,12 +763,13 @@ The cross-slice comparison still does not earn:
 Use this synthesis as the comparison point before promoting shared
 architecture.
 
-For the handoff route, read-only package use and package-local integrity
-observation should remain separate validated steps before package
-import/acceptance. Next work should keep archive validation, signatures,
-storage mutation, GUI behavior, and dataframe adapters separate unless a
-narrower implementation task requires one of them. Before adding more
-handoff-package behavior, apply the route-local field-category checklist in
+For the handoff route, read-only package use, package-local integrity
+observation, and explicit receiving-side acceptance are now composed in a
+validated local workflow. Next work should keep concurrent package mutation,
+archive validation, signatures, GUI behavior, dataframe adapters, and final
+storage/import API decisions separate unless a narrower implementation task
+requires one of them. Before adding more handoff-package behavior, apply the
+route-local field-category checklist in
 [`handoff-package-route-contract-checklist.md`](handoff-package-route-contract-checklist.md).
 
 Shared model extraction is currently deferred in

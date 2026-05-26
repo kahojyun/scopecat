@@ -17,10 +17,11 @@ validator were explicit. Use this checklist to classify same-class fields
 together instead of fixing one reviewed example at a time.
 
 The currently shared route-local helpers live in
-`implementation_candidates/handoff_package_contracts/`. They hold stable
-handoff package checks that are already used by multiple slices, while leaving
-slice policy, file-system effects, and workflow continuity local to each
-candidate.
+`implementation_candidates/handoff_package_contracts/`. They mostly hold stable
+handoff package checks that are already used by multiple slices. A small number
+of receiving-composition helpers are provisional single-route support while
+review pressure settles. Slice policy, file-system effects, and workflow
+ordering stay local to each candidate.
 
 ## Field Categories
 
@@ -59,7 +60,9 @@ before it is emitted:
 | Opener file reads | package root, manifest, primary CSV path | Managed filesystem boundary | Opener rejects symlink package roots, primary files, and primary parent directories, but does not claim adversarial race safety. |
 | Integrity/import/storage | checksum comparison, archive extraction, import acceptance, storage mutation | Explicitly separate workflows | Keep `not_performed` or `not_claimed` unless a slice performs that workflow. |
 | Writer receipt | `source_path`, `package_write_request`, materialized paths | Local operation path | Writer validates them for the local operation and keeps them in the local write receipt, not the portable manifest. |
-| Shared route helpers | package identity, package item shape, primary-data topology, preview-ready metadata | Route-local contract support | Use `handoff_package_contracts` only when the same handoff package semantics already appear in multiple slices. Do not use it to promote a final package schema. |
+| Receiving workflow roots | package root, storage root, local artifact output root and fixed artifact target | Managed filesystem boundary | Receiving workflow validates root separation and the concrete local artifact target before local artifact writes or storage acceptance. This is provisional preflight separation, not concurrent mutation protection or a storage architecture. |
+| Receiving reviewed facts | reviewed package id, preview classification, integrity classification | Route-local contract support | Receiving workflow validates reviewed facts against inspection and integrity-observation facts before acceptance. This is provisional fact continuity, not workflow orchestration or GUI state. |
+| Shared route helpers | package identity, package item shape, primary-data topology, preview-ready metadata, provisional receiving root separation, provisional reviewed fact continuity | Route-local contract support | Use `handoff_package_contracts` only when the same handoff package semantics already appear in multiple slices or when a provisional composition helper prevents repeated route-boundary drift. Do not use it to promote a final package schema, storage architecture, or SDK object model. |
 
 ## Review Requirements
 

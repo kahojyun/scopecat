@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from implementation_candidates.handoff_package_visual_artifact import (
+    HANDOFF_PACKAGE_VISUAL_REVIEW_ARTIFACT_NAME,
     build_handoff_package_visual_review_html,
     write_handoff_package_visual_review_artifact,
 )
@@ -23,7 +24,7 @@ PACKAGE = (
     / "package"
     / "handoff-package-legacy-rabi-001"
 )
-ARTIFACT_NAME = "handoff-package-visual-review.html"
+ARTIFACT_NAME = HANDOFF_PACKAGE_VISUAL_REVIEW_ARTIFACT_NAME
 
 
 def _visual_model() -> dict:
@@ -274,6 +275,23 @@ class HandoffPackageVisualArtifactCandidateTest(unittest.TestCase):
 
             self.assertEqual(current_html, original_html)
             self.assertNotIn("Changed package", current_html)
+
+    def test_write_rejects_artifact_target_symlink_even_with_overwrite(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir) / "review"
+            target_dir = Path(temp_dir) / "target"
+            output_dir.mkdir()
+            target_dir.mkdir()
+            (output_dir / ARTIFACT_NAME).symlink_to(target_dir / "artifact.html")
+
+            with self.assertRaisesRegex(ValueError, "target must not be a symlink"):
+                write_handoff_package_visual_review_artifact(
+                    _minimal_model(),
+                    output_dir=output_dir,
+                    overwrite=True,
+                )
+
+            self.assertFalse((target_dir / "artifact.html").exists())
 
     def test_write_allows_explicit_overwrite(self) -> None:
         model = _minimal_model()
