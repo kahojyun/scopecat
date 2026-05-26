@@ -1,7 +1,7 @@
 """Generate expected outputs from scan data-shape fixtures.
 
 This module is a validation spike, not product code or a durable data schema.
-It intentionally supports only the public-safe fixture shapes under
+It intentionally supports only the repository-safe fixture shapes under
 ``tests/fixtures/scan_data_shapes``.
 """
 
@@ -96,6 +96,10 @@ COMPLEX_FIXED_VECTOR_DECISIONS_NOT_EARNED = [
 
 FIXED_VECTOR_SHAPE_POLICY = "fixed_per_row"
 SUPPORTED_COMPLEX_LOGICAL_TYPES = {"complex64", "complex128"}
+COMPLEX_LOGICAL_STORAGE_DTYPES = {
+    "complex64": "float32",
+    "complex128": "float64",
+}
 SUPPORTED_COMPLEX_REPRESENTATION = "cartesian_vector"
 SUPPORTED_COMPLEX_DERIVED_COMPONENTS = ["real", "imag", "magnitude", "phase"]
 
@@ -280,12 +284,7 @@ def _complex_logical_validation_failure(
         return "logical_value_not_object"
     if logical_value.get("type") not in SUPPORTED_COMPLEX_LOGICAL_TYPES:
         return "unsupported_logical_type"
-    if (
-        logical_value["type"] == "complex64"
-        and column.get("dtype") != "float32"
-        or logical_value["type"] == "complex128"
-        and column.get("dtype") != "float64"
-    ):
+    if column.get("dtype") != COMPLEX_LOGICAL_STORAGE_DTYPES[logical_value["type"]]:
         return "logical_type_dtype_mismatch"
     if logical_value.get("representation") != SUPPORTED_COMPLEX_REPRESENTATION:
         return "unsupported_representation"
