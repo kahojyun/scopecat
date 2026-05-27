@@ -1,0 +1,132 @@
+# Handoff Package Route Consolidation
+
+## Status
+
+Discovery consolidation note, not an ADR.
+
+This note harvests the current handoff-package validation work into one
+route-level view. It does not accept a final package format, stable SDK,
+GUI contract, storage import API, dataframe dependency, plotting library,
+archive format, signature model, or shared measurement-record domain model.
+
+## Route Shape
+
+The validated handoff-package posture is **open before import**:
+
+```text
+write package
+  -> carry package directory
+  -> preview manifest
+  -> open/read package
+  -> inspect plot/table/context locally
+  -> optionally observe integrity
+  -> optionally accept into local storage
+```
+
+The package directory is the carried artifact. Local receipts, summaries,
+inspection artifacts, SDK/view objects, and GUI-oriented projections are local
+review surfaces around that artifact unless a future slice explicitly promotes
+one of them to portable output.
+
+## Current Track Map
+
+| Track | Current slices | Earned responsibility |
+| --- | --- | --- |
+| Producer | Writer | Materialize one directory-shaped package from explicit selected-measurement facts. |
+| Producer compatibility | Round trip | Prove current writer output can be previewed, opened, and consumed by the current reader route. |
+| Receiving orientation | Contents preview | Read package manifest facts for quick orientation before file reads, integrity checks, or import. |
+| Read-only package use | Opener, read view | Open a directory package, validate manifest shape, load declared primary CSV data for preview-ready measurements, and expose table/plot facts. |
+| Python-facing pressure | SDK view model | Test notebook-style object access, optional dataframe adapters, plot specs, and reserved read-only analysis/fit extension points. |
+| Preview/view pressure | Preview shape view, visual review, visual artifact, preview consumption | Test declared preview metadata, plot-first local review, table drilldown, and local static review output without accepting GUI or plotting architecture. |
+| Receiving composition | Inspection workflow, receiving workflow | Compose existing local review, integrity observation, and approved acceptance in the intended order. |
+| Integrity observation | Integrity observation | Compare package-local observed sha256/byte-size facts to declared package facts where present. |
+| Receiving mutation | Acceptance | Copy reviewed package primary data into new local storage records after explicit approval. |
+| Route-local support | Handoff package route contracts | Share repeated handoff-specific identity, package-path, preview-ready, and continuity checks where the same semantics already recur. |
+
+## Artifact Boundary
+
+| Surface | Boundary posture | Redaction/reference responsibility |
+| --- | --- | --- |
+| Package directory | Portable package artifact | Owns portable package topology, package-relative references, and package/public projection. |
+| `package-manifest.json` | Portable contract/index inside the package | Must use managed identifiers and package-relative references; local display paths stay out unless explicitly accepted. |
+| Copied package members | Portable package contents | Must match declared package topology and integrity facts where declared by the writer. |
+| Writer return value | Local review receipt | May retain local operation facts needed for engineering review; not carried as package content. |
+| Contents preview/open/read summaries | Local review/runtime projections | Validate managed references they expose, but do not become portable/public outputs. |
+| SDK/view objects | Local runtime objects | May preserve useful user-facing facts; final names and dataframe dependency remain deferred. |
+| Visual review/static artifact | Local review surface | Escape rendered dynamic text and constrain structural positions; broad runtime redaction is not required merely because it is visible locally. |
+| Acceptance receipt | Local mutation receipt | Records what was accepted into local storage; it is not a package member or public report. |
+
+## Stable Route Concepts
+
+These concepts have enough repeated pressure to carry forward in handoff work:
+
+- package identity and package-directory identity continuity;
+- selected measurement identity and non-empty selected-measurement packages;
+- canonical package primary data topology,
+  `measurements/{measurement_record_id}/primary.csv`;
+- declared preview metadata as the trusted first preview path;
+- package-local primary table facts as string-valued, rectangular, local read
+  facts;
+- plot-first local review as the first experimental-user inspection posture;
+- linked context as reference-only until a separate payload-packaging contract
+  is earned;
+- integrity observation as separate from authenticity, signatures, archive
+  validation, and acceptance;
+- explicit approval before receiving-side storage mutation;
+- local review summaries as useful program state, not portable artifacts by
+  default.
+
+## Still Candidate-Local
+
+Keep these concepts local to their current candidates until a narrower
+implementation need makes them worth promoting:
+
+- final SDK object names and package-open API;
+- pandas/numpy adapter behavior and hard dataframe dependencies;
+- GUI state, GUI routing, component hierarchy, and interactive selection;
+- production plotting library and publication-grade rendering;
+- scan-shape schema, automatic shape inference, trace opening, and array API;
+- analysis/fit result model, fit execution, uncertainty, and write-back;
+- archive extraction, package signatures, authenticity, and concurrent
+  package-root mutation;
+- final storage import API, existing-record updates, and storage schema;
+- recursive linked-context traversal or linked-context payload import;
+- shared measurement-record domain model.
+
+## Test And Fixture Posture
+
+Future handoff tests should prefer route behavior over restating low-level
+primitive behavior:
+
+- keep tests that prove route order, continuity, boundary separation, local vs
+  portable posture, and user-visible review behavior;
+- keep one negative test per new managed field category or boundary narrowing;
+- avoid duplicating contract-primitive tests in every slice once a route-local
+  helper owns identical semantics;
+- add richer package fixtures only when they pressure a real reader UX case,
+  such as multi-plot selection, no-plot table drilldown, degraded preview, or
+  visible-but-not-packaged context;
+- keep repository fixtures small and repository-safe; do not convert every
+  discovery output into a portable/public output.
+
+## Recommended Next Work
+
+The handoff route is ready to pause broad slice expansion. Prefer one of these
+focused follow-ups:
+
+1. **Minimal GUI view-state candidate**: consume existing preview/read/visual
+   projections and model measurement list, selected measurement, primary
+   plot/table surface, findings, and linked context without building a GUI.
+2. **Richer package fixture pressure**: add one package fixture that exercises
+   a specific reader UX case not covered by the current one-dimensional table
+   package.
+3. **SDK ergonomics spike**: test whether the current Python-facing model feels
+   natural for notebook users, including optional pandas access, without making
+   pandas part of the package contract.
+4. **Import/storage design only when needed**: continue acceptance/import work
+   only for a concrete storage question, not to extend handoff validation for
+   its own sake.
+
+Do not add another handoff slice merely to restate package identity, preview
+metadata, dataframe deferral, GUI deferral, or redaction boundaries. Those are
+now route-level conclusions unless a new user workflow challenges them.

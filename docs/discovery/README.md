@@ -18,6 +18,7 @@ product contracts too early.
 | [`adoption-routes.md`](adoption-routes.md) | Compare current evidence-backed adoption routes by durable user workflow. |
 | [`problem-briefs/README.md`](problem-briefs/README.md) | Start from evidence-backed problem framing before choosing a validation question. |
 | [`cross-slice-synthesis.md`](cross-slice-synthesis.md) | See recurring candidate concepts across validated slices and explicitly marked under-review composition candidates. |
+| [`handoff-package-route-consolidation.md`](handoff-package-route-consolidation.md) | Read the consolidated handoff package route map, artifact boundaries, stable route concepts, and recommended next handoff work. |
 | [`handoff-package-route-contract-checklist.md`](handoff-package-route-contract-checklist.md) | Apply route-local field categories and review checks before changing handoff package writer, preview, opener, or composition slices. |
 | [`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md) | Shared discovery backlog for context records attached to or selected for measurements, without accepting a shared schema. |
 | [`shared-model-extraction-deferral.md`](shared-model-extraction-deferral.md) | Understand why shared domain models are intentionally deferred. |
@@ -177,6 +178,7 @@ Measurement Records the owner of context-support behavior.
 | [`handoff-package-receiving-workflow-validation-result.md`](handoff-package-receiving-workflow-validation-result.md) | Result of the first receiving-side workflow composition over inspection, integrity observation, and acceptance. |
 | [`handoff-package-writer-validation-result.md`](handoff-package-writer-validation-result.md) | Result of the first approved directory-shaped handoff package writer implementation candidate. |
 | [`handoff-package-round-trip-validation-result.md`](handoff-package-round-trip-validation-result.md) | Result of the first writer-to-reader artifact compatibility implementation candidate. |
+| [`handoff-package-route-consolidation.md`](handoff-package-route-consolidation.md) | Consolidated route-level map for open-before-import handoff package behavior, local vs portable artifact boundaries, stable route concepts, candidate-local concepts, and next-work guidance. |
 | [`handoff-package-route-contract-checklist.md`](handoff-package-route-contract-checklist.md) | Route-local contract checklist for same-class field audits across handoff package slices. |
 | [`contract-primitives-validation-result.md`](contract-primitives-validation-result.md) | Result of the first narrow shared contract-primitives implementation candidate. |
 | [`filesystem-mutation-helpers-validation-result.md`](filesystem-mutation-helpers-validation-result.md) | Result of the first narrow shared no-overwrite filesystem mutation helpers used by current write slices. |
@@ -256,17 +258,11 @@ keeps storage mutation, package writing, package acceptance, GUI behavior,
 recursive traversal, schema inference, and final storage/package architecture
 out of scope.
 
-Current handoff-package route map:
-
-- receiving-side use: contents preview -> opener -> read view -> visual
-  review -> visual artifact;
-- receiving-side composition: inspection workflow over the receiving-side use
-  layers;
-- receiving-side mutation: package acceptance into new local storage records
-  after explicit approval;
-- producer/compatibility: writer -> round trip;
-- final import API, existing-record updates, package integrity verification,
-  archive handling, GUI behavior, and storage architecture remain separate.
+The current handoff-package route map is consolidated in
+[`handoff-package-route-consolidation.md`](handoff-package-route-consolidation.md).
+Use that note as the route-level owner for open-before-import flow shape,
+portable vs local artifact boundaries, stable route concepts, candidate-local
+concepts, and handoff-specific next-work guidance.
 
 The first handoff package contents preview candidate is validated in
 [`handoff-package-contents-preview-validation-result.md`](handoff-package-contents-preview-validation-result.md).
