@@ -42,6 +42,16 @@ reader route use the canonical topology
 layouts need their own contract; fixtures must not create arbitrary nested path
 semantics by accident.
 
+The current package purpose is analysis/review, not offline execution
+migration.
+Use
+[`package-purpose-boundary.md`](package-purpose-boundary.md)
+to distinguish current handoff packages from shared lab references such as NAS
+paths and future restorable execution-context artifacts or workflows.
+Offline execution migration should open a separate migration boundary or route.
+It should change this handoff route only when an analysis/review package needs
+to expose references to that future migration context.
+
 Declared preview metadata is the preview authority. Reader-side preview,
 visual-review, GUI-state, and SDK projections consume declared preview facts.
 They do not infer scan shape, table schema, scalar types, scientific meaning,
@@ -98,6 +108,9 @@ Keep these out of the current route until a named user workflow requires them:
   category affects SDK or GUI use;
 - archive extraction, compressed package format, signatures, authenticity,
   trust policy, and adversarial package-root race handling;
+- offline execution migration behavior, including code workspace
+  restore, environment restore, dependency sync, managed-runner inputs, or
+  runnable readiness;
 - final storage import API, existing-record update behavior, storage schema,
   import conflict policy, and concurrency semantics;
 - shared measurement-record domain models or cross-route object lifecycles.

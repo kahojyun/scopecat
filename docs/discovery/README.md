@@ -20,6 +20,7 @@ product contracts too early.
 | [`cross-slice-synthesis.md`](cross-slice-synthesis.md) | See recurring candidate concepts across validated slices and explicitly marked under-review composition candidates. |
 | [`handoff-package-route-consolidation.md`](handoff-package-route-consolidation.md) | Read the consolidated handoff package route map, artifact boundaries, stable route concepts, and recommended next handoff work. |
 | [`handoff-package-route-decision-consolidation.md`](handoff-package-route-decision-consolidation.md) | Read the current handoff package route decisions, deferred decisions, reopen triggers, and stop rule. |
+| [`package-purpose-boundary.md`](package-purpose-boundary.md) | Separate analysis/review packages, shared lab references such as NAS paths, and future offline execution migration before adding package behavior. |
 | [`experiment-code-route-consolidation.md`](experiment-code-route-consolidation.md) | Read the consolidated experiment-code route map, code recording/materialization boundaries, prepared-run composition posture, and future execution/storage/workflow forks. |
 | [`environment-operation-route-consolidation.md`](environment-operation-route-consolidation.md) | Read the consolidated environment-operation route map, manager ownership boundaries, local review surfaces, and future execution/Pixi/runtime/package forks. |
 | [`handoff-package-route-contract-checklist.md`](handoff-package-route-contract-checklist.md) | Apply route-local field categories and review checks before changing handoff package writer, preview, opener, or composition slices. |
@@ -164,6 +165,7 @@ Measurement Records the owner of context-support behavior.
 | [`storage-transition-export-validation-result.md`](storage-transition-export-validation-result.md) | Result of the storage-transition fixture and domain review. |
 | [`external-file-reference-policy.md`](external-file-reference-policy.md) | Candidate external-file policy modes that affect export, import, inspection, and provenance. |
 | [`measurement-data-reference-boundary.md`](measurement-data-reference-boundary.md) | Boundary rule that Scopecat can record arbitrary external references, but plotting/preview requires normalized Scopecat-readable data or a supported previewable data item. |
+| [`package-purpose-boundary.md`](package-purpose-boundary.md) | Boundary between current analysis/review packages, shared lab references such as NAS paths, and future offline execution migration artifacts or workflows. |
 | [`artifact-preview-boundary.md`](artifact-preview-boundary.md) | Boundary between arbitrary artifacts and declared previewable data items. |
 | [`complex-response-boundary.md`](complex-response-boundary.md) | Boundary for complex-valued response metadata and derived component views. |
 | [`../../spikes/scan_data_shapes/README.md`](../../spikes/scan_data_shapes/README.md) | Spike boundary for declared scan/data-shape fixture generation. |
@@ -519,6 +521,10 @@ environment records describe runtime/dependency context. Environment operation
 records describe approved manager intents and declared external results. The
 families can be composed through prepared-run and review summaries, but none of
 them owns the others' contracts.
+Use
+[`package-purpose-boundary.md`](package-purpose-boundary.md)
+before treating code or environment context as part of analysis/review
+packages, shared lab references, or offline execution migration.
 
 #### Experiment Code
 
