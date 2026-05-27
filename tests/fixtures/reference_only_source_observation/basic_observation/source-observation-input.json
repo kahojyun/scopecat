@@ -1,0 +1,85 @@
+{
+  "source_observation_schema": "scopecat.reference_only_source_observation.v0",
+  "source_observation_policy": {
+    "observation_authority": "explicit_file_level_observation_request",
+    "input_authority": "reference_only_legacy_import_facts",
+    "external_root_authority": "caller_provided_external_root",
+    "source_observation": "file_level_only",
+    "checksum_algorithm": "sha256",
+    "data_observation": "not_performed",
+    "row_count": "not_performed",
+    "schema_inference": "not_performed",
+    "preview_verification": "not_performed",
+    "legacy_source_parsing": "not_performed_by_scopecat",
+    "storage_mutation": "not_performed",
+    "copy_behavior": "not_performed",
+    "reference_repair": "not_performed",
+    "recursive_relation_traversal": "not_performed",
+    "gui_workflow": "not_defined"
+  },
+  "reference_only_import_facts": {
+    "adapter_manifest_classification": "adapter_manifest_ready_for_review",
+    "measurement_record": {
+      "measurement_record_id": "legacy-rabi-001",
+      "label": "Rabi calibration follow-up",
+      "experiment_type": "rabi",
+      "source_kind": "adapter_authored_legacy_reference",
+      "classification": "reference_only_import_ready_for_review"
+    },
+    "reference_only_request": {
+      "request_id": "reference-legacy-rabi-001",
+      "approval_state": "approved",
+      "reviewed_manifest_classification": "adapter_manifest_ready_for_review",
+      "materialization": {
+        "primary_data": "external_reference_only",
+        "linked_context": "reference_only",
+        "source_identity": "preserve_external_reference"
+      }
+    },
+    "current_primary_data_reference": {
+      "reference_id": "legacy-record-001-current-primary",
+      "reference_kind": "lab_managed_shared_storage",
+      "external_root_label": "redacted-shared-storage",
+      "display_path": "LEGACY_SOURCE:/redacted-shared-storage/2026/05/01/legacy-record-001",
+      "adapter_primary_data_path": "source-data/measurement.csv",
+      "authority": "adapter_declared",
+      "reference_state": "adapter_declared_available",
+      "openability": "not_checked",
+      "verification_state": "unobserved",
+      "digest": null,
+      "size_bytes": null,
+      "reason": null
+    },
+    "preview": {
+      "status": "preview_ready",
+      "metadata_authority": "adapter_declared",
+      "shape_kind": "declared_1d_table",
+      "axis_order": ["drive_frequency", "signal"],
+      "declared_row_count": 5,
+      "plot_candidates": [
+        {
+          "x": "drive_frequency",
+          "y": "signal",
+          "source": "source-data/measurement.csv"
+        }
+      ],
+      "warnings": []
+    },
+    "storage_mutation": "not_performed",
+    "copy_result": "not_copied"
+  },
+  "observation_request": {
+    "request_id": "observe-reference-legacy-rabi-001",
+    "reference_id": "legacy-record-001-current-primary",
+    "external_root_label": "redacted-shared-storage",
+    "source_path": "source-data/measurement.csv",
+    "expected_digest": "sha256:3f585c5b6e5cc01b77d79d91aaf17f02e1b6f9f896476f2531d13bf737878b6c",
+    "expected_size_bytes": 87
+  },
+  "attention_expected": [
+    "file_level_observation_only",
+    "legacy_parser_not_in_core",
+    "reference_repair_not_performed",
+    "storage_mutation_not_performed"
+  ]
+}

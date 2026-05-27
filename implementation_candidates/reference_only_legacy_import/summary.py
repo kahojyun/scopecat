@@ -1,7 +1,7 @@
 """Reference-only acceptance summary for adapter-authored legacy imports.
 
 This module validates an approved reference-only acceptance request for a
-normalized adapter manifest. It preserves a lab-managed external primary-data
+normalized adapter manifest. It preserves a lab-managed external source
 reference without copying files, reading source data, writing storage, parsing
 legacy formats, inferring schemas, importing linked context payloads, or
 defining a stable public API.
@@ -106,7 +106,7 @@ def _validate_materialization(request: dict[str, Any]) -> None:
 def _validate_current_reference(request: dict[str, Any], adapter_manifest: dict[str, Any]) -> None:
     current_reference = request["current_primary_data_reference"]
     if set(current_reference) != _CURRENT_REFERENCE_FIELDS:
-        raise ValueError("current primary data reference must match expected shape")
+        raise ValueError("current external source reference must match expected shape")
     _validate_public_safe_token(
         current_reference["reference_id"], "current reference_id", requires_redacted=False
     )
@@ -164,7 +164,7 @@ def _attention() -> list[dict[str, str]]:
         {
             "code": "reference_only_import_accepted",
             "severity": "review",
-            "basis": "An approved request preserves the adapter-declared primary data as a lab-managed external reference.",
+            "basis": "An approved request preserves the adapter-declared source as a lab-managed external reference.",
             "does_not_claim": "copied_or_observed_primary_data",
         },
         {
@@ -176,7 +176,7 @@ def _attention() -> list[dict[str, str]]:
         {
             "code": "external_reference_unobserved",
             "severity": "review",
-            "basis": "The current primary-data reference is adapter-declared and is not opened, checksummed, sized, copied, or repaired.",
+            "basis": "The current external source reference is adapter-declared and is not opened, checksummed, sized, copied, or repaired.",
             "does_not_claim": "openability_or_integrity",
         },
         {
