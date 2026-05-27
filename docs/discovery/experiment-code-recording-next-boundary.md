@@ -481,5 +481,11 @@ installation, runtime probes, hardware probes, code import, code execution,
 shared environment schema, general manager abstraction, managed runner,
 run-blocking decision, or runnable-readiness claim.
 
+Environment-operation next-work selection is now consolidated in
+[`environment-operation-route-consolidation.md`](environment-operation-route-consolidation.md).
+Use that route-level note before adding more manager-operation slices; broad
+expansion should pause unless a new execution, Pixi/Conda, runtime probe,
+package projection, or managed-runner authority question appears.
+
 All slices should keep code execution separate from code record integrity and
 environment planning until an explicit execution slice earns that authority.

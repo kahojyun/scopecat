@@ -19,6 +19,7 @@ product contracts too early.
 | [`problem-briefs/README.md`](problem-briefs/README.md) | Start from evidence-backed problem framing before choosing a validation question. |
 | [`cross-slice-synthesis.md`](cross-slice-synthesis.md) | See recurring candidate concepts across validated slices and explicitly marked under-review composition candidates. |
 | [`handoff-package-route-consolidation.md`](handoff-package-route-consolidation.md) | Read the consolidated handoff package route map, artifact boundaries, stable route concepts, and recommended next handoff work. |
+| [`environment-operation-route-consolidation.md`](environment-operation-route-consolidation.md) | Read the consolidated environment-operation route map, manager ownership boundaries, local review surfaces, and future execution/Pixi/runtime/package forks. |
 | [`handoff-package-route-contract-checklist.md`](handoff-package-route-contract-checklist.md) | Apply route-local field categories and review checks before changing handoff package writer, preview, opener, or composition slices. |
 | [`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md) | Shared discovery backlog for context records attached to or selected for measurements, without accepting a shared schema. |
 | [`shared-model-extraction-deferral.md`](shared-model-extraction-deferral.md) | Understand why shared domain models are intentionally deferred. |
@@ -516,6 +517,7 @@ perform schema migration.
 | [`uv-sync-intent-validation-result.md`](uv-sync-intent-validation-result.md) | Result of the first approved uv sync command-intent fixture and implementation candidate. |
 | [`uv-sync-result-validation-result.md`](uv-sync-result-validation-result.md) | Result of the first declared external uv sync result fixture and implementation candidate. |
 | [`environment-operation-review-bundle-validation-result.md`](environment-operation-review-bundle-validation-result.md) | Result of the first environment operation review bundle composition fixture and implementation candidate. |
+| [`environment-operation-route-consolidation.md`](environment-operation-route-consolidation.md) | Consolidated route-level map for uv-specific environment-operation review, manager ownership boundaries, local `review_summary` posture, and future execution/Pixi/runtime/package forks. |
 
 The canonical Experiment Code Context candidate-slice backlog lives in
 [`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md).
