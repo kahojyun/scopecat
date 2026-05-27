@@ -1,0 +1,75 @@
+{
+  "uv_sync_result_policy": {
+    "summary_policy": "review_summary",
+    "result_authority": "declared_external_uv_sync_result",
+    "prior_intent_source": "declared_uv_sync_intent_summary",
+    "manager_scope": "uv_only",
+    "command_result_shape": "bounded_uv_sync_result_record",
+    "local_execution_cwd_authority": "declared_local_review_path_optional",
+    "scopecat_process_execution": "not_performed",
+    "manifest_read": "not_performed",
+    "lockfile_read": "not_performed",
+    "output_parsing": "summary_only_no_dependency_parsing",
+    "dependency_resolution": "delegated_to_uv_not_performed_by_scopecat",
+    "dependency_sync": "externally_reported_not_verified_by_scopecat",
+    "package_install": "externally_reported_not_verified_by_scopecat",
+    "runtime_probe": "not_performed",
+    "code_import_execution": "not_performed",
+    "hardware_probe": "not_performed",
+    "readiness_claim": "not_claimed",
+    "shared_environment_schema": "not_defined"
+  },
+  "uv_sync_intent_summary": {
+    "intent_status": "ready_for_external_review",
+    "sync_request": {
+      "request_id": "uv-sync-intent-chevron-qA-001",
+      "approval_id": "approval-uv-sync-chevron-qA-001",
+      "working_directory": "project",
+      "expected_manager": "uv"
+    },
+    "command_intent": {
+      "manager": "uv",
+      "operation": "sync",
+      "working_directory": "project",
+      "argv": [
+        "uv",
+        "sync",
+        "--locked",
+        "--no-default-groups",
+        "--group",
+        "analysis"
+      ],
+      "does_not_claim": "process_executed_or_environment_synchronized"
+    }
+  },
+  "command_result": {
+    "result_id": "uv-sync-result-chevron-qA-001",
+    "intent_request_id": "uv-sync-intent-chevron-qA-001",
+    "approval_id": "approval-uv-sync-chevron-qA-001",
+    "manager": "uv",
+    "operation": "sync",
+    "working_directory": "project",
+    "local_execution_cwd": null,
+    "argv": [
+      "uv",
+      "sync",
+      "--locked",
+      "--no-default-groups",
+      "--group",
+      "analysis"
+    ],
+    "execution_state": "completed_success",
+    "exit_code": 0,
+    "started_at": "2026-05-27T09:30:00Z",
+    "completed_at": "2026-05-27T09:30:18Z",
+    "duration_ms": 18000,
+    "stdout_summary": "uv sync completed for the declared project environment",
+    "stderr_summary": "",
+    "output_capture": {
+      "stdout": "bounded_summary_only",
+      "stderr": "bounded_summary_only",
+      "raw_output": "not_recorded"
+    },
+    "execution_observer": "external_executor_declared"
+  }
+}
