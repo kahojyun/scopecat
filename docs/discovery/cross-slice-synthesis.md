@@ -68,6 +68,7 @@ relation graph, or warning taxonomy.
 - [`modern-manifest-preflight-validation-result.md`](modern-manifest-preflight-validation-result.md)
 - [`uv-sync-intent-validation-result.md`](uv-sync-intent-validation-result.md)
 - [`uv-sync-result-validation-result.md`](uv-sync-result-validation-result.md)
+- [`environment-operation-review-bundle-validation-result.md`](environment-operation-review-bundle-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
 - [`adoption-routes.md`](adoption-routes.md)
 - [`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md)
@@ -644,6 +645,18 @@ probing runtimes, importing or executing code, probing hardware, defining a
 shared environment schema, defining a general manager abstraction, defining
 managed runners, making run-blocking decisions, or claiming runnable readiness.
 
+Environment operation review bundle has a slice-local composition candidate for
+uv-specific operation review surfaces. It validates selected facts from prior
+modern manifest preflight, `uv_sync_intent`, and `uv_sync_result` summaries,
+then checks request identity, prepared-run context, declared environment,
+intent/result reference continuity, and command continuity. It surfaces child
+findings, non-success result status, and cross-summary mismatches as review
+findings without fresh filesystem inspection, manifest reads, lockfile reads,
+process execution, dependency-output parsing, verified sync or package
+installation, runtime probes, code import or execution, hardware probes, shared
+environment schema, general manager abstraction, managed runners, run-blocking
+decisions, or runnable-readiness claims.
+
 ## Version Terminology
 
 The slices are converging on a shared distinction without yet earning a shared
@@ -720,6 +733,7 @@ schema.
 | Modern manifest preflight | Experiment code, prepared run context support | An optional `uv`/`pyproject.toml` review projection over one approved manifest under a caller-provided workspace root. It summarizes declared manifest facts, derives `default` only from list-shaped `[project].dependencies`, and reports missing or malformed `requires-python`, read failures, malformed dependency-group values, normalized dependency-group-name collisions, and missing dependency-group review findings, using normalized dependency-group comparison without defining a general manager abstraction, lockfile parsing, dependency resolution, dependency sync, package installation, runtime probes, hardware checks, code import, execution, shared environment schema, managed-runner behavior, run-blocking decisions, manager-operation authority, or runnable-readiness claims. |
 | UV sync intent | Experiment code, prepared run context support | A bounded `uv sync` command-intent projection over one approved request. It constructs exact argv from structured fields, including `--locked`, `--no-default-groups`, and selected declared uv dependency groups while modeling project dependencies separately, leaving filesystem inspection, manifest reads, lockfile reads, dependency resolution, process execution, dependency sync, package installation, runtime probes, hardware checks, code import, execution, shared environment schema, general manager abstraction, managed-runner behavior, run-blocking decisions, and runnable-readiness claims out of scope. |
 | UV sync result | Experiment code, prepared run context support | A declared external `uv sync` result record checked against a prior command intent. It records execution state, exit code, timestamp/duration consistency, observer, nullable local execution cwd, bounded stdout/stderr summaries, and command mismatch findings while leaving process execution, filesystem inspection, manifest reads, lockfile reads, dependency-output parsing, verified dependency sync, verified package installation, runtime probes, hardware checks, code import, execution, shared environment schema, general manager abstraction, managed-runner behavior, run-blocking decisions, and runnable-readiness claims out of scope. |
+| Environment operation review bundle | Experiment code, prepared run context support | A local `review_summary` composition over prior modern manifest preflight, `uv_sync_intent`, and `uv_sync_result` summaries. It validates selected identity and command continuity and aggregates child findings, non-success result status, and cross-summary mismatches without producing a portable/export artifact, fresh filesystem inspection, manifest reads, lockfile reads, process execution, dependency-output parsing, verified dependency sync, verified package installation, runtime probes, hardware checks, code import, execution, shared environment schema, general manager abstraction, managed-runner behavior, run-blocking decisions, or runnable-readiness claims. |
 
 ## Stable Separations
 
@@ -822,6 +836,11 @@ Several separations now appear repeatedly enough to keep carrying forward:
   outcome into verified package state, runtime readiness, managed-runner state,
   or run-start permission. Result recording should remain manager-specific
   until multiple operation-result slices earn a shared manager abstraction.
+- Environment operation review bundles can compose uv-specific preflight,
+  intent, and result summaries into one local review surface without becoming
+  the manager executor, portable/export output, shared manager abstraction,
+  environment verifier, runtime readiness result, managed-runner state, or
+  run-start permission.
 
 ## Design Pressure
 
