@@ -28,6 +28,14 @@ Scopecat owns the local review records around the operation: explicit approval,
 bounded argv construction, declared external result recording, and composition
 of prior summaries into one `review_summary` surface.
 
+In the wider route model, environment operation records support selected
+prepared-run and declared-environment identity references. They can explain
+what manager command was approved, what external result was recorded, and how
+that result aligns with selected code/environment context, but they do not make
+environment state the anchor record. Measurement records and prepared-run
+context still explain why this environment operation matters for a user
+workflow.
+
 ## Current Track Map
 
 | Track | Current slices | Earned responsibility |
@@ -115,6 +123,9 @@ authority questions:
 
 Current cross-route coupling should stay reference-based:
 
+- measurement records and prepared-run context explain the user workflow that
+  needs environment review, but they do not make the environment-operation
+  route own measurement storage, code loading, or run execution;
 - prepared run context and declared environment records provide identity and
   scope references;
 - handoff package work may eventually carry references to managed code,

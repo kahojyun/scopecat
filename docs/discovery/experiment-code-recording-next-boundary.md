@@ -83,6 +83,13 @@ The current slice does not earn:
 These remain plausible future capabilities. They are not required for the
 first code snapshot record to be useful.
 
+Experiment-code next-work selection is now consolidated in
+[`experiment-code-route-consolidation.md`](experiment-code-route-consolidation.md).
+Use that route-level note before adding more code-recording, managed-version,
+materialization, editable-observation, or prepared-run slices; broad expansion
+should pause unless a new execution, managed-storage, semantic-diff,
+workflow/DAG, or package-projection authority question appears.
+
 ## Code-Context Adoption Boundary
 
 The route-level adoption path is owned by

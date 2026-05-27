@@ -56,6 +56,7 @@ relation graph, or warning taxonomy.
 - [`selected-reference-comparison-validation-result.md`](selected-reference-comparison-validation-result.md)
 - [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md)
 - [`experiment-code-recording-validation-result.md`](experiment-code-recording-validation-result.md)
+- [`experiment-code-route-consolidation.md`](experiment-code-route-consolidation.md)
 - [`managed-code-version-validation-result.md`](managed-code-version-validation-result.md)
 - [`comparable-code-surface-validation-result.md`](comparable-code-surface-validation-result.md)
 - [`workspace-materialization-intent-validation-result.md`](workspace-materialization-intent-validation-result.md)
@@ -581,6 +582,14 @@ workspace limitations, or missing environment context as review findings. It
 does not accept a shared context schema, run lifecycle model, restore behavior,
 environment readiness, hardware control, code import, code execution, executor,
 workflow/DAG behavior, or GUI semantics.
+The route-level consolidation in
+[`experiment-code-route-consolidation.md`](experiment-code-route-consolidation.md)
+now treats recording, managed-version promotion, materialization planning,
+approved materialization, editable-folder observation, prepared-run
+composition, and reference-based rerun preparation as enough route evidence to
+pause broad experiment-code slice expansion until a new product authority
+question requires execution, managed storage, semantic diff, workflow/DAG
+support, or package projection.
 
 Declared environment inventory has a slice-local implementation candidate for
 summarizing explicit runtime hints, dependency-source references, package
@@ -738,6 +747,25 @@ backlog is still discovery vocabulary: it reduces duplicated route-local slice
 lists without accepting shared schema, storage, lifecycle, restore, write-back,
 diff, or execution behavior.
 
+## Route Relationship Model
+
+Current measurement-route evidence, experiment-code consolidation, and
+environment-operation consolidation should be read as route-level
+interpretations of validated slices, not new contract sources. The
+relationship among measurement, experiment code, and environment is:
+
+| Route surface | Current role | Current non-claim |
+| --- | --- | --- |
+| Measurement record | User-facing evidence, selection, export, import, handoff, inspection, and selected-reference anchor for comparison or rerun work. | Does not own code recording, environment sync, runtime readiness, or execution. |
+| Experiment code context | Linked run/step context describing recorded code, managed code version, materialized workspace, or editable observation. | Does not own environment restoration, runnable readiness, Git semantics, import, or execution. |
+| Declared environment or environment operation record | Linked runtime/manager context describing declared environment facts, approved manager intent, declared external result, and local operation review. | Does not own package-state truth, manager execution, code loading, measurement storage, or run readiness. |
+| Prepared run context | Local composition surface joining selected code/workspace, parameter/setup/station context, measurement intent, declared environment context, and separately validated environment review findings for manual run preparation. | Does not become a shared run-context schema, runner, restore contract, hardware-control contract, or reproducibility claim. |
+
+This keeps the current architecture reference-based: measurement explains why
+context is selected, experiment code and environment records explain selected
+facts around a run, and prepared-run or review bundles compose those facts for
+local review without turning them into execution authority.
+
 ## Recurring Candidate Concepts
 
 These concepts recur across more than one slice and are becoming useful
@@ -770,14 +798,14 @@ schema.
 | Editable workspace observation | Experiment code, prepared-run context support | A read-only observation of a selected editable folder against a managed code version. The first candidate records size and sha256 facts for observed files and reports drift or non-authoritative extras while using ignored-directory guardrails for workspace internals, without accepting semantic source diff, Git diagnostics, environment readiness, import, execution, or prepared run context. |
 | Prepared run context | Experiment code, measurement context support | A manual run-preparation summary that groups selected managed code/workspace observation, parameter state, setup binding, station registry, and measurement intent while surfacing missing environment context, workspace drift, or workspace limitations as review findings, without claiming restore, runnable readiness, hardware control, import, or execution. |
 | Reference-based rerun preparation | Experiment code, selected reference, measurement context support | A proposed manual rerun context seeded from a user-selected reference measurement and its linked context records. The first candidate validates reference-linked selection and review findings without claiming reference goodness, reproducibility, automatic cause attribution, drift correction, hardware control, environment sync, import, or execution. |
-| Environment readiness plan | Experiment code, prepared run context support | A reviewable plan for what checks would be needed for a selected declared modern `uv`/`pyproject.toml` environment context. The first candidate treats lab-managed drivers and legacy dependency concerns as review notes while avoiding package-manager runs, code import, code execution, hardware probes, or runnable-readiness claims. |
-| Environment comparison finding | Experiment code, selected reference, prepared run context support | A declared-fact comparison result such as same-declared, changed, missing, unverified, or unsupported for selected environment context. It is not dependency resolution, runtime compatibility, hardware readiness, runnable readiness, or reproducibility. |
-| Environment file observation | Experiment code, prepared run context support | A read-only observation of explicitly declared environment files under a caller-provided workspace root. The first candidate records availability, sha256, byte size, malformed-manifest review findings, and narrow `pyproject.toml` declared summary fields without workspace discovery, lockfile graph parsing, dependency resolution or sync, runtime probes, hardware checks, code import, execution, or runnable-readiness claims. |
-| Environment review bundle | Experiment code, selected reference, prepared run context support | A composition of prepared/rerun context, declared environment comparison, file observation, and readiness-plan summaries into one review surface. It validates alignment and aggregates review findings without fresh observation, dependency resolution, dependency sync, package installation, runtime probes, hardware checks, code import, execution, shared environment schema, managed-runner behavior, run-blocking decisions, or runnable-readiness claims. |
-| Modern manifest preflight | Experiment code, prepared run context support | An optional `uv`/`pyproject.toml` review projection over one approved manifest under a caller-provided workspace root. It summarizes declared manifest facts, derives `default` only from list-shaped `[project].dependencies`, and reports missing or malformed `requires-python`, read failures, malformed dependency-group values, normalized dependency-group-name collisions, and missing dependency-group review findings, using normalized dependency-group comparison without defining a general manager abstraction, lockfile parsing, dependency resolution, dependency sync, package installation, runtime probes, hardware checks, code import, execution, shared environment schema, managed-runner behavior, run-blocking decisions, manager-operation authority, or runnable-readiness claims. |
-| UV sync intent | Experiment code, prepared run context support | A bounded `uv sync` command-intent projection over one approved request. It constructs exact argv from structured fields, including `--locked`, `--no-default-groups`, and selected declared uv dependency groups while modeling project dependencies separately, leaving filesystem inspection, manifest reads, lockfile reads, dependency resolution, process execution, dependency sync, package installation, runtime probes, hardware checks, code import, execution, shared environment schema, general manager abstraction, managed-runner behavior, run-blocking decisions, and runnable-readiness claims out of scope. |
-| UV sync result | Experiment code, prepared run context support | A declared external `uv sync` result record checked against a prior command intent. It records execution state, exit code, timestamp/duration consistency, observer, nullable local execution cwd, bounded stdout/stderr summaries, and command mismatch findings while leaving process execution, filesystem inspection, manifest reads, lockfile reads, dependency-output parsing, verified dependency sync, verified package installation, runtime probes, hardware checks, code import, execution, shared environment schema, general manager abstraction, managed-runner behavior, run-blocking decisions, and runnable-readiness claims out of scope. |
-| Environment operation review bundle | Experiment code, prepared run context support | A local `review_summary` composition over prior modern manifest preflight, `uv_sync_intent`, and `uv_sync_result` summaries. It validates selected identity and command continuity and aggregates child findings, non-success result status, and cross-summary mismatches without producing a portable/export artifact, fresh filesystem inspection, manifest reads, lockfile reads, process execution, dependency-output parsing, verified dependency sync, verified package installation, runtime probes, hardware checks, code import, execution, shared environment schema, general manager abstraction, managed-runner behavior, run-blocking decisions, or runnable-readiness claims. |
+| Environment readiness plan | Declared environment, prepared run context support | A reviewable plan for what checks would be needed for a selected declared modern `uv`/`pyproject.toml` environment context. The first candidate treats lab-managed drivers and legacy dependency concerns as review notes while avoiding package-manager runs, code import, code execution, hardware probes, or runnable-readiness claims. |
+| Environment comparison finding | Declared environment, selected reference, prepared run context support | A declared-fact comparison result such as same-declared, changed, missing, unverified, or unsupported for selected environment context. It is not dependency resolution, runtime compatibility, hardware readiness, runnable readiness, or reproducibility. |
+| Environment file observation | Declared environment, prepared run context support | A read-only observation of explicitly declared environment files under a caller-provided workspace root. The first candidate records availability, sha256, byte size, malformed-manifest review findings, and narrow `pyproject.toml` declared summary fields without workspace discovery, lockfile graph parsing, dependency resolution or sync, runtime probes, hardware checks, code import, execution, or runnable-readiness claims. |
+| Environment review bundle | Declared environment, selected reference, prepared run context support | A composition of prepared/rerun context, declared environment comparison, file observation, and readiness-plan summaries into one review surface. It validates alignment and aggregates review findings without fresh observation, dependency resolution, dependency sync, package installation, runtime probes, hardware checks, code import, execution, shared environment schema, managed-runner behavior, run-blocking decisions, or runnable-readiness claims. |
+| Modern manifest preflight | Environment operation, declared environment support | An optional `uv`/`pyproject.toml` review projection over one approved manifest under a caller-provided workspace root. It summarizes declared manifest facts, derives `default` only from list-shaped `[project].dependencies`, and reports missing or malformed `requires-python`, read failures, malformed dependency-group values, normalized dependency-group-name collisions, and missing dependency-group review findings, using normalized dependency-group comparison without defining a general manager abstraction, lockfile parsing, dependency resolution, dependency sync, package installation, runtime probes, hardware checks, code import, execution, shared environment schema, managed-runner behavior, run-blocking decisions, manager-operation authority, or runnable-readiness claims. |
+| UV sync intent | Environment operation, prepared run context support | A bounded `uv sync` command-intent projection over one approved request. It constructs exact argv from structured fields, including `--locked`, `--no-default-groups`, and selected declared uv dependency groups while modeling project dependencies separately, leaving filesystem inspection, manifest reads, lockfile reads, dependency resolution, process execution, dependency sync, package installation, runtime probes, hardware checks, code import, execution, shared environment schema, general manager abstraction, managed-runner behavior, run-blocking decisions, and runnable-readiness claims out of scope. |
+| UV sync result | Environment operation, prepared run context support | A declared external `uv sync` result record checked against a prior command intent. It records execution state, exit code, timestamp/duration consistency, observer, nullable local execution cwd, bounded stdout/stderr summaries, and command mismatch findings while leaving process execution, filesystem inspection, manifest reads, lockfile reads, dependency-output parsing, verified dependency sync, verified package installation, runtime probes, hardware checks, code import, execution, shared environment schema, general manager abstraction, managed-runner behavior, run-blocking decisions, and runnable-readiness claims out of scope. |
+| Environment operation review bundle | Environment operation, prepared run context support | A local `review_summary` composition over prior modern manifest preflight, `uv_sync_intent`, and `uv_sync_result` summaries. It validates selected identity and command continuity and aggregates child findings, non-success result status, and cross-summary mismatches without producing a portable/export artifact, fresh filesystem inspection, manifest reads, lockfile reads, process execution, dependency-output parsing, verified dependency sync, verified package installation, runtime probes, hardware checks, code import, execution, shared environment schema, general manager abstraction, managed-runner behavior, run-blocking decisions, or runnable-readiness claims. |
 
 ## Stable Separations
 
@@ -977,6 +1005,15 @@ results, or a narrower shared-model extraction trigger. Before changing
 handoff-package fields or contracts, apply the route-local field-category
 checklist in
 [`handoff-package-route-contract-checklist.md`](handoff-package-route-contract-checklist.md).
+
+For the experiment-code route, recording, managed code version promotion,
+materialization planning, approved workspace materialization, editable-folder
+observation, prepared run context, and reference-based rerun preparation are
+now consolidated in
+[`experiment-code-route-consolidation.md`](experiment-code-route-consolidation.md).
+Use that route-level note before adding more experiment-code behavior. Next
+work should be chosen by a new authority question: execution, managed storage,
+semantic diff, workflow/DAG support, or package projection.
 
 For the environment-operation route, uv-specific manifest preflight, command
 intent, external result recording, operation review, and edge-case fixture

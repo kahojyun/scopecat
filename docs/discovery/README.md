@@ -20,6 +20,7 @@ product contracts too early.
 | [`cross-slice-synthesis.md`](cross-slice-synthesis.md) | See recurring candidate concepts across validated slices and explicitly marked under-review composition candidates. |
 | [`handoff-package-route-consolidation.md`](handoff-package-route-consolidation.md) | Read the consolidated handoff package route map, artifact boundaries, stable route concepts, and recommended next handoff work. |
 | [`handoff-package-route-decision-consolidation.md`](handoff-package-route-decision-consolidation.md) | Read the current handoff package route decisions, deferred decisions, reopen triggers, and stop rule. |
+| [`experiment-code-route-consolidation.md`](experiment-code-route-consolidation.md) | Read the consolidated experiment-code route map, code recording/materialization boundaries, prepared-run composition posture, and future execution/storage/workflow forks. |
 | [`environment-operation-route-consolidation.md`](environment-operation-route-consolidation.md) | Read the consolidated environment-operation route map, manager ownership boundaries, local review surfaces, and future execution/Pixi/runtime/package forks. |
 | [`handoff-package-route-contract-checklist.md`](handoff-package-route-contract-checklist.md) | Apply route-local field categories and review checks before changing handoff package writer, preview, opener, or composition slices. |
 | [`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md) | Shared discovery backlog for context records attached to or selected for measurements, without accepting a shared schema. |
@@ -508,7 +509,16 @@ state while reporting skipped untrusted or schema-limited entries. It does not
 write files, apply parameters to hardware, claim external JSON authority, or
 perform schema migration.
 
-### Experiment Code Context
+### Experiment Code And Environment Context
+
+These documents cover three related context families. Experiment code records
+code/workspace context attached to measurements, runs, or steps. Declared
+environment records describe runtime/dependency context. Environment operation
+records describe approved manager intents and declared external results. The
+families can be composed through prepared-run and review summaries, but none of
+them owns the others' contracts.
+
+#### Experiment Code
 
 | Document | Use For |
 | --- | --- |
@@ -516,6 +526,7 @@ perform schema migration.
 | [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md) | Direction for messy external-folder recording, Scopecat-managed code versions, named entrypoints, and workflow/DAG deferral. |
 | [`experiment-code-recording-validation-plan.md`](experiment-code-recording-validation-plan.md) | First fixture-validation boundary for recorded code context that defines code snapshot records. |
 | [`experiment-code-recording-validation-result.md`](experiment-code-recording-validation-result.md) | Result of the first code snapshot fixture and summary candidate. |
+| [`experiment-code-route-consolidation.md`](experiment-code-route-consolidation.md) | Consolidated route-level map for experiment-code recording, managed versions, materialization, editable observation, prepared-run composition, and future execution/storage/workflow forks. |
 | [`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md) | What the code-recording slice has earned, what remains deferred, the user adoption route, and the candidate validation-slice backlog. |
 | [`managed-code-version-validation-plan.md`](managed-code-version-validation-plan.md) | First fixture-validation boundary for turning a code snapshot record into a managed code version record. |
 | [`managed-code-version-validation-result.md`](managed-code-version-validation-result.md) | Result of the first managed code version fixture and summary candidate. |
@@ -525,23 +536,38 @@ perform schema migration.
 | [`workspace-materialization-validation-result.md`](workspace-materialization-validation-result.md) | Result of the first approved workspace materialization fixture and implementation candidate. |
 | [`editable-folder-observation-validation-result.md`](editable-folder-observation-validation-result.md) | Result of the first read-only editable-folder observation fixture and implementation candidate. |
 | [`prepared-run-context-validation-result.md`](prepared-run-context-validation-result.md) | Result of the first prepared run context fixture and implementation candidate. |
-| [`declared-environment-inventory-validation-result.md`](declared-environment-inventory-validation-result.md) | Result of the first declared environment inventory fixture and implementation candidate. |
 | [`reference-based-rerun-preparation-validation-result.md`](reference-based-rerun-preparation-validation-result.md) | Result of the first reference-based rerun preparation fixture and implementation candidate. |
+
+#### Declared Environment
+
+| Document | Use For |
+| --- | --- |
+| [`declared-environment-inventory-validation-result.md`](declared-environment-inventory-validation-result.md) | Result of the first declared environment inventory fixture and implementation candidate. |
 | [`environment-readiness-validation-result.md`](environment-readiness-validation-result.md) | Result of the first environment readiness planning fixture and implementation candidate. |
 | [`environment-comparison-validation-result.md`](environment-comparison-validation-result.md) | Result of the first declared environment comparison fixture and implementation candidate. |
 | [`environment-file-observation-validation-result.md`](environment-file-observation-validation-result.md) | Result of the first explicit declared environment file observation fixture and implementation candidate. |
 | [`environment-review-bundle-validation-result.md`](environment-review-bundle-validation-result.md) | Result of the first environment review bundle composition fixture and implementation candidate. |
+
+#### Environment Operation
+
+| Document | Use For |
+| --- | --- |
 | [`modern-manifest-preflight-validation-result.md`](modern-manifest-preflight-validation-result.md) | Result of the first approved modern manifest preflight fixture and implementation candidate. |
 | [`uv-sync-intent-validation-result.md`](uv-sync-intent-validation-result.md) | Result of the first approved uv sync command-intent fixture and implementation candidate. |
 | [`uv-sync-result-validation-result.md`](uv-sync-result-validation-result.md) | Result of the first declared external uv sync result fixture and implementation candidate. |
 | [`environment-operation-review-bundle-validation-result.md`](environment-operation-review-bundle-validation-result.md) | Result of the first environment operation review bundle composition fixture and implementation candidate. |
 | [`environment-operation-route-consolidation.md`](environment-operation-route-consolidation.md) | Consolidated route-level map for uv-specific environment-operation review, manager ownership boundaries, local `review_summary` posture, and future execution/Pixi/runtime/package forks. |
 
-The canonical Experiment Code Context candidate-slice backlog lives in
+The code-route next-work guidance lives in
+[`experiment-code-route-consolidation.md`](experiment-code-route-consolidation.md)
+and the older code-recording boundary note
 [`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md).
-In compact form, the validation slices should be ordered by authority level.
-This order is not the user adoption route; it is the order in which Scopecat
-should earn stronger claims:
+Environment-operation next-work guidance lives in
+[`environment-operation-route-consolidation.md`](environment-operation-route-consolidation.md).
+In compact form, the related validation slices below are grouped by increasing
+authority level across code, declared-environment, and operation records. This
+order is not the user adoption route and does not make one route own the
+others' contracts:
 
 1. comparable code surface: compare two authority-explicit code fact sets over
    known captured, reference-only, missing, redacted, or excluded surfaces,
