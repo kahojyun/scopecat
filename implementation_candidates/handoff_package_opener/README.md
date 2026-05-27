@@ -16,6 +16,8 @@ flow:
   directories;
 - expose declared preview rows and plot-ready point series from declared
   columns when the manifest metadata is `preview_ready`;
+- preserve manifest-declared `data_shape` as local opened summary metadata
+  without inferring shape from CSV contents;
 - carry manifest-preview findings without treating them as opener-local file
   open failures;
 - keep linked context reference-only.

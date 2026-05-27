@@ -228,6 +228,7 @@ def _opened_measurement(package_dir: Path, record: dict[str, Any]) -> dict[str, 
         "declared_preview": {
             "status": preview["status"],
             "metadata_authority": preview["metadata_authority"],
+            "data_shape": copy.deepcopy(preview["data_shape"]),
             "declared_columns": copy.deepcopy(preview["declared_columns"]),
             "plot_candidates": copy.deepcopy(preview["plot_candidates"]),
         },

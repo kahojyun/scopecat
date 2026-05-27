@@ -79,6 +79,13 @@
       {
         "classification": "opened_for_declared_preview",
         "declared_preview": {
+          "data_shape": {
+            "axis_order": [
+              "drive_frequency",
+              "signal"
+            ],
+            "kind": "declared_1d_table"
+          },
           "declared_columns": [
             {
               "label": "Drive frequency",
