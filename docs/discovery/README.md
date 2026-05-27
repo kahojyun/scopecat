@@ -87,6 +87,7 @@ supporting policy notes. The current slice inventory is:
 | Environment review bundle | Experiment code context | Implementation candidate validated | Composition summary for prepared/rerun context, declared environment comparison, file observation, and readiness-plan findings without fresh file reads, dependency resolution, dependency sync, package installation, runtime probes, code import or execution, hardware checks, shared environment schema, managed runners, run-blocking decisions, or runnable-readiness claims. |
 | Modern manifest preflight | Experiment code context | Implementation candidate validated | Optional `uv`/`pyproject.toml` review projection over one approved manifest under a caller-provided workspace root, summarizing declared project, `requires-python`, dependency name, skipped dependency entry, a synthetic `default` group from list-shaped `[project].dependencies`, and `[dependency-groups]` facts, with normalized dependency-group comparison for review/comparison, without defining a general manager abstraction, lockfile parsing, dependency resolution, dependency sync, package installation, runtime probes, code import or execution, hardware checks, shared environment schema, managed runners, run-blocking decisions, or runnable-readiness claims. |
 | UV sync intent | Experiment code context | Implementation candidate validated | Approved `uv sync` command-intent projection over declared prepared-run and environment context, constructing exact `uv sync --locked --no-default-groups` argv plus selected declared uv dependency groups without filesystem inspection, manifest reads, lockfile reads, dependency resolution, process execution, dependency sync, package installation, runtime probes, code import or execution, hardware checks, shared environment schema, general manager abstraction, managed runners, run-blocking decisions, or runnable-readiness claims. |
+| UV sync result | Experiment code context | Implementation candidate validated | Declared external `uv sync` result recording against a prior command intent, including execution state, exit code, timestamp/duration consistency, nullable local execution cwd, observer, bounded stdout/stderr summaries, and command mismatch findings without process execution, filesystem inspection, manifest reads, lockfile reads, dependency-output parsing, verified dependency sync, verified package installation, runtime probes, code import or execution, hardware checks, shared manager abstraction, managed runners, run-blocking decisions, or runnable-readiness claims. |
 | Setup binding | Setup binding | Implementation candidate validated | Side-effect-free setup-binding summary for explicit setup-binding snapshots, simple diffs, station-registry references, generated line/readout views, and measurement input references while keeping parameter state, station management, generator execution, and hardware control separate. |
 | Calibration work continuation | Calibration continuation | Assembler candidate validated | Continuation-state assembly for planned steps, observed outputs, review gates, proposed writes, blocked steps, and interventions without executor, scheduler, write-back, or GUI ownership. |
 | Selected reference comparison | Selected reference comparison | Implementation candidate validated | Side-effect-free context-comparison summary against a user-selected reference, including declared preview metadata, named input snapshots, selected artifacts, declared facts, and recorded-code context without user judgment, raw-data comparison, fit-quality comparison, setup truth, restore, execution, semantic source diff, or cause attribution. |
@@ -491,6 +492,7 @@ perform schema migration.
 | [`environment-review-bundle-validation-result.md`](environment-review-bundle-validation-result.md) | Result of the first environment review bundle composition fixture and implementation candidate. |
 | [`modern-manifest-preflight-validation-result.md`](modern-manifest-preflight-validation-result.md) | Result of the first approved modern manifest preflight fixture and implementation candidate. |
 | [`uv-sync-intent-validation-result.md`](uv-sync-intent-validation-result.md) | Result of the first approved uv sync command-intent fixture and implementation candidate. |
+| [`uv-sync-result-validation-result.md`](uv-sync-result-validation-result.md) | Result of the first declared external uv sync result fixture and implementation candidate. |
 
 The canonical Experiment Code Context candidate-slice backlog lives in
 [`experiment-code-recording-next-boundary.md`](experiment-code-recording-next-boundary.md).
@@ -545,6 +547,11 @@ should earn stronger claims:
     dependency resolution, process execution, dependency sync, package
     installation, runtime checks, shared manager abstraction, managed runner,
     run-blocking decision, or runnable-readiness claim.
+14. uv sync result: record one declared external `uv sync` result against a
+    prior command intent without process execution, dependency-output parsing,
+    verified dependency sync, verified package installation, runtime checks,
+    shared manager abstraction, managed runner, run-blocking decision, or
+    runnable-readiness claim.
 
 The comparison work is a fixture family, not one slice. The first
 recorded-to-managed declared-fact comparison is validated in
@@ -669,6 +676,17 @@ filesystem, reading manifests or lockfiles, resolving dependencies, executing
 `uv`, syncing or installing packages, probing runtimes or hardware, importing
 or executing code, defining a shared manager abstraction, or claiming runnable
 readiness.
+
+The first uv sync result candidate is validated in
+[`uv-sync-result-validation-result.md`](uv-sync-result-validation-result.md).
+It records one declared external `uv sync` outcome against a prior command
+intent, including execution state, exit code, timestamp/duration consistency,
+observer, bounded stdout/stderr summaries, nullable local execution cwd, and
+command mismatch findings. It keeps process execution, filesystem inspection,
+manifest or lockfile reads, dependency-output parsing, verified sync or package
+installation, runtime or hardware probing,
+code import or execution, shared manager abstraction, managed runners,
+run-blocking decisions, and runnable readiness out of scope.
 
 Do not validate "select a code version at run start" by itself. Selection
 becomes useful only when it prepares a run context, supports a reference-based

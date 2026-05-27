@@ -66,6 +66,7 @@ relation graph, or warning taxonomy.
 - [`environment-review-bundle-validation-result.md`](environment-review-bundle-validation-result.md)
 - [`modern-manifest-preflight-validation-result.md`](modern-manifest-preflight-validation-result.md)
 - [`uv-sync-intent-validation-result.md`](uv-sync-intent-validation-result.md)
+- [`uv-sync-result-validation-result.md`](uv-sync-result-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
 - [`adoption-routes.md`](adoption-routes.md)
 - [`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md)
@@ -618,6 +619,20 @@ probing runtimes, importing or executing code, probing hardware, defining a
 shared environment schema, defining a general manager abstraction, defining
 managed runners, making run-blocking decisions, or claiming runnable readiness.
 
+UV sync result has a slice-local implementation candidate for declared
+external manager-operation results. It validates a prior `uv_sync_intent`
+summary projection and a bounded external command result, then compares manager,
+operation, relative command cwd, and argv against the intent. It records
+execution state, exit code, timestamp/duration consistency, observer, nullable
+local execution cwd, and bounded stdout/stderr summaries, with raw output
+explicitly not recorded.
+Command mismatches, failures, and not-run outcomes are review findings. It does
+this without running `uv`, inspecting the filesystem, reading manifests or
+lockfiles, parsing dependency output, verifying sync or package installation,
+probing runtimes, importing or executing code, probing hardware, defining a
+shared environment schema, defining a general manager abstraction, defining
+managed runners, making run-blocking decisions, or claiming runnable readiness.
+
 ## Version Terminology
 
 The slices are converging on a shared distinction without yet earning a shared
@@ -693,6 +708,7 @@ schema.
 | Environment review bundle | Experiment code, selected reference, prepared run context support | A composition of prepared/rerun context, declared environment comparison, file observation, and readiness-plan summaries into one review surface. It validates alignment and aggregates review findings without fresh observation, dependency resolution, dependency sync, package installation, runtime probes, hardware checks, code import, execution, shared environment schema, managed-runner behavior, run-blocking decisions, or runnable-readiness claims. |
 | Modern manifest preflight | Experiment code, prepared run context support | An optional `uv`/`pyproject.toml` review projection over one approved manifest under a caller-provided workspace root. It summarizes declared manifest facts, derives `default` only from list-shaped `[project].dependencies`, and reports missing or malformed `requires-python`, read failures, malformed dependency-group values, normalized dependency-group-name collisions, and missing dependency-group review findings, using normalized dependency-group comparison without defining a general manager abstraction, lockfile parsing, dependency resolution, dependency sync, package installation, runtime probes, hardware checks, code import, execution, shared environment schema, managed-runner behavior, run-blocking decisions, manager-operation authority, or runnable-readiness claims. |
 | UV sync intent | Experiment code, prepared run context support | A bounded `uv sync` command-intent projection over one approved request. It constructs exact argv from structured fields, including `--locked`, `--no-default-groups`, and selected declared uv dependency groups while modeling project dependencies separately, leaving filesystem inspection, manifest reads, lockfile reads, dependency resolution, process execution, dependency sync, package installation, runtime probes, hardware checks, code import, execution, shared environment schema, general manager abstraction, managed-runner behavior, run-blocking decisions, and runnable-readiness claims out of scope. |
+| UV sync result | Experiment code, prepared run context support | A declared external `uv sync` result record checked against a prior command intent. It records execution state, exit code, timestamp/duration consistency, observer, nullable local execution cwd, bounded stdout/stderr summaries, and command mismatch findings while leaving process execution, filesystem inspection, manifest reads, lockfile reads, dependency-output parsing, verified dependency sync, verified package installation, runtime probes, hardware checks, code import, execution, shared environment schema, general manager abstraction, managed-runner behavior, run-blocking decisions, and runnable-readiness claims out of scope. |
 
 ## Stable Separations
 
@@ -791,6 +807,10 @@ Several separations now appear repeatedly enough to keep carrying forward:
   becoming that operation's executor. Exact argv construction should remain
   manager-specific until multiple operation-intent slices earn a shared
   manager abstraction.
+- UV sync result can record an external manager outcome without turning that
+  outcome into verified package state, runtime readiness, managed-runner state,
+  or run-start permission. Result recording should remain manager-specific
+  until multiple operation-result slices earn a shared manager abstraction.
 
 ## Design Pressure
 

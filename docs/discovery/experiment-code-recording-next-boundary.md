@@ -139,6 +139,10 @@ Validation should follow authority boundaries more strictly than user adoption:
     before any process execution, dependency sync, package installation,
     operation-result recording, runtime probe, managed runner, or shared
     environment-manager abstraction.
+14. Validate manager-specific operation result recording before treating an
+    external manager report as verified dependency sync, package installation,
+    runtime readiness, run-blocking decision, managed-runner state, or shared
+    manager abstraction.
 
 ## Validation Slice Backlog
 
@@ -418,6 +422,31 @@ manifest read, lockfile read, dependency resolution, dependency sync, package
 installation, process execution, runtime probes, hardware probes, code import,
 code execution, shared environment schema, general manager abstraction,
 managed runner, run-blocking decision, or runnable-readiness claim.
+
+### 14. UV Sync Result
+
+Validation question: can Scopecat record a declared external `uv sync` result
+against a prior approved command intent without running `uv`, parsing
+dependency output, or verifying environment state?
+
+User pressure: after a bounded `uv sync` command is approved and attempted
+outside this slice, users need the outcome to stay visible with the run context
+without turning stdout, stderr, or exit code into package-state truth.
+
+First fixture: a declared qA chevron `uv sync` success result with prior
+intent summary, matching cwd and argv, exit code, timestamp/duration
+consistency, observer, nullable local execution cwd, bounded stdout/stderr
+summaries, and raw output explicitly not recorded.
+
+Result owner:
+[`uv-sync-result-validation-result.md`](uv-sync-result-validation-result.md)
+
+Boundary: declared external result record only; no process execution,
+filesystem inspection, manifest read, lockfile read, dependency-output parsing,
+dependency resolution, verified dependency sync, verified package
+installation, runtime probes, hardware probes, code import, code execution,
+shared environment schema, general manager abstraction, managed runner,
+run-blocking decision, or runnable-readiness claim.
 
 All slices should keep code execution separate from code record integrity and
 environment planning until an explicit execution slice earns that authority.
