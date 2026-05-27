@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import builtins
+import copy
 import json
 import os
 import subprocess
@@ -19,6 +20,9 @@ from implementation_candidates.environment_operation_review_bundle.contracts imp
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = (
     ROOT / "tests" / "fixtures" / "environment_operation_review_bundle" / "basic_operation_review"
+)
+EDGE_CASE_FIXTURE = (
+    ROOT / "tests" / "fixtures" / "environment_operation_review_bundle" / "review_edge_cases"
 )
 MANIFEST_FIXTURE = (
     ROOT / "tests" / "fixtures" / "modern_manifest_preflight" / "basic_pyproject_preflight"
@@ -39,8 +43,29 @@ def _load_expected() -> dict:
     )
 
 
+def _load_edge_cases() -> dict:
+    return json.loads(
+        (EDGE_CASE_FIXTURE / "environment-operation-review-edge-cases.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+
 def _load_prior_candidate_summary(fixture_dir: Path, file_name: str) -> dict:
     return json.loads((fixture_dir / file_name).read_text(encoding="utf-8"))["candidate_summary"]
+
+
+def _source_with_mutations(mutations: list[dict]) -> dict:
+    source = copy.deepcopy(_load_input())
+    for mutation in mutations:
+        target = source
+        path = mutation["path"]
+        for key in path[:-1]:
+            target = target[key]
+        if path[-1] not in target:
+            raise AssertionError(f"fixture mutation path does not exist: {path}")
+        target[path[-1]] = copy.deepcopy(mutation["value"])
+    return source
 
 
 class EnvironmentOperationReviewBundleCandidateTest(unittest.TestCase):
@@ -59,6 +84,49 @@ class EnvironmentOperationReviewBundleCandidateTest(unittest.TestCase):
         self.assertEqual(expected["source_fixture"], "environment-operation-review-input.json")
         self.assertEqual(expected["reference_semantics"]["status"], "fixture_only")
         self.assertIn("does not execute uv", expected["reference_semantics"]["contract_guard"])
+
+    def test_edge_case_fixture_declares_fixture_boundary_metadata(self) -> None:
+        fixture = _load_edge_cases()
+
+        self.assertEqual(fixture["status"], "expected_validation_output")
+        self.assertEqual(
+            fixture["source_fixture"],
+            "../basic_operation_review/environment-operation-review-input.json",
+        )
+        self.assertEqual(fixture["reference_semantics"]["status"], "fixture_only")
+        self.assertEqual(
+            fixture["reference_semantics"]["artifact_boundary"],
+            "internal_validation_summary",
+        )
+
+    def test_edge_case_fixtures_surface_expected_review_findings(self) -> None:
+        fixture = _load_edge_cases()
+        case_ids = [case["case_id"] for case in fixture["cases"]]
+
+        self.assertEqual(
+            case_ids,
+            [
+                "manifest_preflight_has_findings",
+                "uv_sync_reported_failure",
+                "uv_sync_not_run",
+                "uv_sync_command_mismatch",
+            ],
+        )
+        self.assertEqual(len(case_ids), len(set(case_ids)))
+        for case in fixture["cases"]:
+            with self.subTest(case_id=case["case_id"]):
+                summary = build_environment_operation_review_bundle_summary(
+                    _source_with_mutations(case["mutations"])
+                )
+
+                self.assertEqual(
+                    summary["operation_review_status"],
+                    case["expected_operation_review_status"],
+                )
+                self.assertEqual(
+                    [finding["code"] for finding in summary["operation_review_findings"]],
+                    case["expected_finding_codes"],
+                )
 
     def test_successful_external_result_still_has_review_limits(self) -> None:
         summary = build_environment_operation_review_bundle_summary(_load_input())
