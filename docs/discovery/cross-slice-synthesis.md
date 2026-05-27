@@ -24,6 +24,7 @@ relation graph, or warning taxonomy.
 - [`handoff-package-read-view-validation-result.md`](handoff-package-read-view-validation-result.md)
 - [`handoff-package-sdk-view-model-validation-result.md`](handoff-package-sdk-view-model-validation-result.md)
 - [`handoff-package-preview-shape-view-validation-result.md`](handoff-package-preview-shape-view-validation-result.md)
+- [`handoff-package-preview-consumption-validation-result.md`](handoff-package-preview-consumption-validation-result.md)
 - [`handoff-package-visual-review-validation-result.md`](handoff-package-visual-review-validation-result.md)
 - [`handoff-package-visual-artifact-validation-result.md`](handoff-package-visual-artifact-validation-result.md)
 - [`handoff-package-inspection-workflow-validation-result.md`](handoff-package-inspection-workflow-validation-result.md)
@@ -169,12 +170,22 @@ projection over the read-only package route. It preserves manifest-declared
 affordance, axis/column facts, declared plot bindings, and review findings
 for unsupported affordances, plot-kind mismatches, or incomplete or
 metadata-inconsistent plot bindings. It proves the package route for the
-existing declared one-dimensional table
-fixture and uses richer scan/data-shape fixtures as input pressure rather than
-package-route support. This connects scan/data-shape evidence to a package
-reader surface without accepting final schema names, storage mapping,
+existing declared one-dimensional table fixture and uses richer
+scan/data-shape fixtures as input pressure rather than package-route support.
+This connects scan/data-shape evidence to a package reader surface without
+accepting final schema names, storage mapping,
 dataframe or array APIs, trace opening, file observation, plot rendering,
 package import, storage mutation, or shape inference.
+
+Handoff package preview consumption has the first preview-aware local
+consumption composition over the read-only package route. It composes the read
+view, declared preview-shape projection, and plot-first visual-review
+projection into one receipt, then reports each measurement's first local
+review/use surface and table drilldown summary facts. This tests whether the
+recent reader-side projections fit together without accepting SDK/dataframe
+adapter invocation, plot rendering, live GUI routing, package acceptance, storage
+mutation, package integrity verification, schema inference, scan-shape
+inference, or a shared measurement model.
 
 Handoff package visual review has the first plot-first view-model candidate
 over the read-only package read view. It projects opened package facts into
