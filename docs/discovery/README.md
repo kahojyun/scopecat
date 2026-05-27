@@ -19,6 +19,7 @@ product contracts too early.
 | [`problem-briefs/README.md`](problem-briefs/README.md) | Start from evidence-backed problem framing before choosing a validation question. |
 | [`cross-slice-synthesis.md`](cross-slice-synthesis.md) | See recurring candidate concepts across validated slices and explicitly marked under-review composition candidates. |
 | [`handoff-package-route-consolidation.md`](handoff-package-route-consolidation.md) | Read the consolidated handoff package route map, artifact boundaries, stable route concepts, and recommended next handoff work. |
+| [`handoff-package-route-decision-consolidation.md`](handoff-package-route-decision-consolidation.md) | Read the current handoff package route decisions, deferred decisions, reopen triggers, and stop rule. |
 | [`environment-operation-route-consolidation.md`](environment-operation-route-consolidation.md) | Read the consolidated environment-operation route map, manager ownership boundaries, local review surfaces, and future execution/Pixi/runtime/package forks. |
 | [`handoff-package-route-contract-checklist.md`](handoff-package-route-contract-checklist.md) | Apply route-local field categories and review checks before changing handoff package writer, preview, opener, or composition slices. |
 | [`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md) | Shared discovery backlog for context records attached to or selected for measurements, without accepting a shared schema. |
@@ -188,6 +189,7 @@ Measurement Records the owner of context-support behavior.
 | [`handoff-package-writer-validation-result.md`](handoff-package-writer-validation-result.md) | Result of the first approved directory-shaped handoff package writer implementation candidate. |
 | [`handoff-package-round-trip-validation-result.md`](handoff-package-round-trip-validation-result.md) | Result of the first writer-to-reader artifact compatibility implementation candidate. |
 | [`handoff-package-route-consolidation.md`](handoff-package-route-consolidation.md) | Consolidated route-level map for open-before-import handoff package behavior, local vs portable artifact boundaries, stable route concepts, candidate-local concepts, and next-work guidance. |
+| [`handoff-package-route-decision-consolidation.md`](handoff-package-route-decision-consolidation.md) | Decision consolidation for the current handoff route, including accepted-for-now posture, deferred decisions, reopen triggers, and the route stop rule. |
 | [`handoff-package-route-contract-checklist.md`](handoff-package-route-contract-checklist.md) | Route-local contract checklist for same-class field audits across handoff package slices. |
 | [`contract-primitives-validation-result.md`](contract-primitives-validation-result.md) | Result of the first narrow shared contract-primitives implementation candidate. |
 | [`filesystem-mutation-helpers-validation-result.md`](filesystem-mutation-helpers-validation-result.md) | Result of the first narrow shared no-overwrite filesystem mutation helpers used by current write slices. |
@@ -201,6 +203,11 @@ Measurement Records the owner of context-support behavior.
 | [`measurement-source-observation-validation-result.md`](measurement-source-observation-validation-result.md) | Result of the first read-only source observation implementation candidate. |
 
 Candidate next slices in this route should stay separate:
+
+For handoff-package work, use
+[`handoff-package-route-decision-consolidation.md`](handoff-package-route-decision-consolidation.md)
+as the stop rule and reopen-trigger list. The bullets below are broader
+Measurement Records follow-ups, not handoff-package continuation by default.
 
 - existing-record append or update pressure: validate locks, crash recovery,
   and in-progress record behavior separately from the new-record writer and

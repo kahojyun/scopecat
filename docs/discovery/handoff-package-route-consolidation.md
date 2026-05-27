@@ -9,6 +9,10 @@ route-level view. It does not accept a final package format, stable SDK,
 GUI contract, storage import API, dataframe dependency, plotting library,
 archive format, signature model, or shared measurement-record domain model.
 
+For the current accepted-for-now route decisions, deferred decisions, reopen
+triggers, and stop rule, read
+[`handoff-package-route-decision-consolidation.md`](handoff-package-route-decision-consolidation.md).
+
 ## Route Shape
 
 The validated handoff-package posture is **open before import**:
@@ -128,12 +132,10 @@ primitive behavior:
 
 ## Recommended Next Work
 
-The handoff route is ready to pause broad slice expansion. Current actionable
-follow-up is:
-
-1. **Import/storage design only when needed**: continue acceptance/import work
-   only for a concrete storage question, not to extend handoff validation for
-   its own sake.
+The handoff route is ready to pause broad slice expansion. The owner for
+current accepted-for-now decisions, deferred decisions, reopen triggers, and
+the stop rule is
+[`handoff-package-route-decision-consolidation.md`](handoff-package-route-decision-consolidation.md).
 
 Do not add another handoff slice merely to restate package identity, preview
 metadata, dataframe deferral, GUI deferral, or redaction boundaries. Those are

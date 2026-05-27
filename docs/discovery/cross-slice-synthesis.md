@@ -36,6 +36,7 @@ relation graph, or warning taxonomy.
 - [`handoff-package-receiving-workflow-validation-result.md`](handoff-package-receiving-workflow-validation-result.md)
 - [`handoff-package-writer-validation-result.md`](handoff-package-writer-validation-result.md)
 - [`handoff-package-round-trip-validation-result.md`](handoff-package-round-trip-validation-result.md)
+- [`handoff-package-route-decision-consolidation.md`](handoff-package-route-decision-consolidation.md)
 - [`contract-primitives-validation-result.md`](contract-primitives-validation-result.md)
 - [`filesystem-mutation-helpers-validation-result.md`](filesystem-mutation-helpers-validation-result.md)
 - [`adapter-authored-legacy-import-validation-result.md`](adapter-authored-legacy-import-validation-result.md)
@@ -432,6 +433,20 @@ entries, and preview-ready metadata binding. Receiving-composition root and
 reviewed-fact checks are currently provisional route support because they have
 one direct workflow consumer. The module is still not a final package schema,
 storage architecture, or SDK object model.
+
+Handoff package route decision consolidation closes the current handoff
+discovery pass after the writer, reader, inspection, integrity, acceptance,
+composition, route-pressure, SDK, GUI, and route-local contract slices. It
+accepts the route posture as open-before-import, the package directory as the
+portable artifact, `package-manifest.json` as its portable contract/index,
+primary CSV data as first-class package data, declared preview metadata as the
+preview authority, Python use as table-first and plot-ready, GUI/local review
+as plot-first when declared plots exist, linked context as reference-only,
+integrity observation as separate from authenticity and acceptance, and
+explicit approval before receiving-side storage mutation. It also records the
+stop rule: future handoff work should name a concrete missing user workflow or
+changed authority boundary instead of restating already settled route
+boundaries.
 
 Calibration work continuation has a tiny assembler candidate for continuation
 state. It pressures episode context, planned steps, observed outputs, review
@@ -953,10 +968,12 @@ For the handoff route, read-only package use, package-local integrity
 observation, and explicit receiving-side acceptance are now composed in a
 validated local workflow. The route-level consolidation in
 [`handoff-package-route-consolidation.md`](handoff-package-route-consolidation.md)
-is the starting point before adding more handoff behavior. Next work should
-keep concurrent package mutation, archive validation, signatures, GUI
-behavior, dataframe adapters, and final storage/import API decisions separate
-unless a narrower implementation task requires one of them. Before changing
+is the route map, and
+[`handoff-package-route-decision-consolidation.md`](handoff-package-route-decision-consolidation.md)
+is the closeout for current route decisions. Next handoff work should require
+a concrete missing workflow, such as archive/authenticity, notebook numeric
+ergonomics, inspectable linked-context payloads, storage import, analysis
+results, or a narrower shared-model extraction trigger. Before changing
 handoff-package fields or contracts, apply the route-local field-category
 checklist in
 [`handoff-package-route-contract-checklist.md`](handoff-package-route-contract-checklist.md).
