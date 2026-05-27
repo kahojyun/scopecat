@@ -37,7 +37,7 @@ one of them to portable output.
 | Receiving orientation | Contents preview | Read package manifest facts for quick orientation before file reads, integrity checks, or import. |
 | Read-only package use | Opener, read view | Open a directory package, validate manifest shape, load declared primary CSV data for preview-ready measurements, and expose table/plot facts. |
 | Python-facing pressure | SDK view model | Test notebook-style object access, optional dataframe adapters, plot specs, and reserved read-only analysis/fit extension points. |
-| Preview/view pressure | Preview shape view, visual review, GUI view state, visual artifact, preview consumption | Test declared preview metadata, plot-first local review, GUI-ready local state, table drilldown, and local static review output without accepting live GUI or plotting architecture. |
+| Preview/view pressure | Preview shape view, visual review, GUI view state, visual artifact, preview consumption, route pressure fixture | Test declared preview metadata, plot-first local review, GUI-ready local state, table drilldown, richer fixture pressure, and local static review output without accepting live GUI or plotting architecture. |
 | Receiving composition | Inspection workflow, receiving workflow | Compose existing local review, integrity observation, and approved acceptance in the intended order. |
 | Integrity observation | Integrity observation | Compare package-local observed sha256/byte-size facts to declared package facts where present. |
 | Receiving mutation | Acceptance | Copy reviewed package primary data into new local storage records after explicit approval. |
@@ -115,19 +115,21 @@ primitive behavior:
   [`handoff-package-gui-view-state-validation-result.md`](handoff-package-gui-view-state-validation-result.md).
   Further GUI work should now require a new interaction, rendering, or product
   layout question rather than repeating route-level state projection.
+- **Richer package fixture pressure**: validated in
+  [`handoff-package-route-pressure-validation-result.md`](handoff-package-route-pressure-validation-result.md).
+  The route now has repository-safe pressure for multi-plot, table-only,
+  shared linked-context, degraded-preview, and optional digest/size cases
+  without creating another handoff implementation layer.
 
 ## Recommended Next Work
 
 The handoff route is ready to pause broad slice expansion. Current actionable
 follow-ups are:
 
-1. **Richer package fixture pressure**: add one package fixture that exercises
-   a specific reader UX case not covered by the current one-dimensional table
-   package.
-2. **SDK ergonomics spike**: test whether the current Python-facing model feels
+1. **SDK ergonomics spike**: test whether the current Python-facing model feels
    natural for notebook users, including optional pandas access, without making
    pandas part of the package contract.
-3. **Import/storage design only when needed**: continue acceptance/import work
+2. **Import/storage design only when needed**: continue acceptance/import work
    only for a concrete storage question, not to extend handoff validation for
    its own sake.
 

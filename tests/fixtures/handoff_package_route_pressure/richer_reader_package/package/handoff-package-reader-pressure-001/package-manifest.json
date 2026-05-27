@@ -1,0 +1,172 @@
+{
+  "linked_context": [
+    {
+      "authority": "scopecat_export_manifest",
+      "include_status": "visible_excluded",
+      "kind": "parameter_state",
+      "label": "Shared run setup snapshot",
+      "link_id": "pressure-shared-setup-snapshot",
+      "linked_measurement_record_ids": [
+        "pressure-rabi-001",
+        "pressure-check-001"
+      ],
+      "package_path": null,
+      "package_state": "not_packaged_visible_reference",
+      "reason": "The package keeps this setup snapshot visible as a reference-only fact; its payload is not packaged.",
+      "relation": "run_start_context"
+    }
+  ],
+  "package_identity": {
+    "created_by": "scopecat_selected_measurement_export",
+    "display_name": "Reader pressure handoff package",
+    "local_path_redacted": true,
+    "package_id": "handoff-package-reader-pressure-001",
+    "source_export_summary_id": "export-summary-reader-pressure-001"
+  },
+  "package_preview_policy": {
+    "archive_extraction": "not_performed",
+    "file_observation": "not_performed",
+    "gui_workflow": "not_defined",
+    "import_acceptance": "not_performed",
+    "package_integrity": "not_claimed",
+    "preview_authority": "scopecat_export_manifest_only",
+    "recursive_relation_traversal": "not_performed",
+    "schema_inference": "not_performed",
+    "shared_measurement_schema": "not_defined",
+    "storage_mutation": "not_performed"
+  },
+  "selected_measurements": [
+    {
+      "declared_preview_metadata": {
+        "data_shape": {
+          "axis_order": [
+            "drive_frequency",
+            "signal",
+            "residual"
+          ],
+          "kind": "declared_1d_table"
+        },
+        "declared_columns": [
+          {
+            "label": "Drive frequency",
+            "name": "drive_frequency",
+            "role": "sweep_axis",
+            "unit": "GHz"
+          },
+          {
+            "label": "Signal",
+            "name": "signal",
+            "role": "response",
+            "unit": "a.u."
+          },
+          {
+            "label": "Residual",
+            "name": "residual",
+            "role": "residual",
+            "unit": "a.u."
+          }
+        ],
+        "metadata_authority": "scopecat_export_manifest",
+        "plot_candidates": [
+          {
+            "source": "measurements/pressure-rabi-001/primary.csv",
+            "x": "drive_frequency",
+            "y": "signal"
+          },
+          {
+            "source": "measurements/pressure-rabi-001/primary.csv",
+            "x": "drive_frequency",
+            "y": "residual"
+          }
+        ],
+        "status": "preview_ready"
+      },
+      "default_bundle": [
+        {
+          "authority": "scopecat_export_manifest",
+          "include_status": "included_by_default",
+          "item_id": "pressure-rabi-001-primary",
+          "kind": "primary_data",
+          "label": "Rabi primary data",
+          "package_path": "measurements/pressure-rabi-001/primary.csv",
+          "package_state": "packaged",
+          "reason": null,
+          "relation": "selected_measurement_source"
+        }
+      ],
+      "experiment_type": "rabi",
+      "label": "Reader pressure Rabi run",
+      "legacy_data_id": 2001,
+      "measurement_record_id": "pressure-rabi-001",
+      "primary_data": {
+        "authority": "scopecat_export_manifest",
+        "format": "csv_table",
+        "include_status": "included_by_default",
+        "kind": "primary_data",
+        "label": "Rabi primary data",
+        "package_path": "measurements/pressure-rabi-001/primary.csv",
+        "package_state": "packaged",
+        "reason": null,
+        "relation": "selected_measurement_source"
+      },
+      "target": "qA"
+    },
+    {
+      "declared_preview_metadata": {
+        "data_shape": {
+          "axis_order": [
+            "delay",
+            "contrast"
+          ],
+          "kind": "declared_1d_table"
+        },
+        "declared_columns": [
+          {
+            "label": "Delay",
+            "name": "delay",
+            "role": "sweep_axis",
+            "unit": "us"
+          },
+          {
+            "label": "Contrast",
+            "name": "contrast",
+            "role": "response",
+            "unit": "a.u."
+          }
+        ],
+        "metadata_authority": "scopecat_export_manifest",
+        "plot_candidates": [],
+        "status": "preview_ready"
+      },
+      "default_bundle": [
+        {
+          "authority": "scopecat_export_manifest",
+          "include_status": "included_by_default",
+          "item_id": "pressure-check-001-primary",
+          "kind": "primary_data",
+          "label": "Check primary data",
+          "package_path": "measurements/pressure-check-001/primary.csv",
+          "package_state": "packaged",
+          "reason": null,
+          "relation": "selected_measurement_source"
+        }
+      ],
+      "experiment_type": "stability_check",
+      "label": "Reader pressure table-only check",
+      "legacy_data_id": 2002,
+      "measurement_record_id": "pressure-check-001",
+      "primary_data": {
+        "authority": "scopecat_export_manifest",
+        "format": "csv_table",
+        "include_status": "included_by_default",
+        "kind": "primary_data",
+        "label": "Check primary data",
+        "package_path": "measurements/pressure-check-001/primary.csv",
+        "package_state": "packaged",
+        "reason": null,
+        "relation": "selected_measurement_source"
+      },
+      "target": "qB"
+    }
+  ]
+}
