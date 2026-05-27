@@ -26,6 +26,7 @@ relation graph, or warning taxonomy.
 - [`handoff-package-preview-shape-view-validation-result.md`](handoff-package-preview-shape-view-validation-result.md)
 - [`handoff-package-preview-consumption-validation-result.md`](handoff-package-preview-consumption-validation-result.md)
 - [`handoff-package-visual-review-validation-result.md`](handoff-package-visual-review-validation-result.md)
+- [`handoff-package-gui-view-state-validation-result.md`](handoff-package-gui-view-state-validation-result.md)
 - [`handoff-package-visual-artifact-validation-result.md`](handoff-package-visual-artifact-validation-result.md)
 - [`handoff-package-inspection-workflow-validation-result.md`](handoff-package-inspection-workflow-validation-result.md)
 - [`handoff-package-acceptance-validation-result.md`](handoff-package-acceptance-validation-result.md)
@@ -201,6 +202,16 @@ workflow where plots and structured context are often the first review surface.
 It deliberately does not generate caption prose, render plots, define GUI
 components, define dataframe adapters, accept package import, verify package
 integrity, infer schema, or accept final SDK names.
+
+Handoff package GUI view state has the first local GUI-ready state projection
+over existing read-only package projections. It consumes preview-consumption
+first-surface facts and visual-review facts into measurement navigation,
+deterministic default selection, selected-measurement primary surface, plot
+summary panel facts, table drilldown, linked context, findings, and deferred
+actions. This tests GUI consumption pressure without accepting live GUI
+components, plot rendering, dataframe adapter invocation, package acceptance,
+storage mutation, package integrity verification, schema inference,
+scan-shape inference, final SDK/API names, or a shared measurement model.
 
 Handoff package visual artifact has the first local static HTML artifact
 candidate over the visual-review model. It renders plot-first visual cards,
