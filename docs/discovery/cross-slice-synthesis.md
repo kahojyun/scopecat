@@ -298,23 +298,24 @@ API, final storage schema, or a shared measurement model.
 Legacy import acceptance has a slice-local implementation candidate for the
 first approved review-to-acceptance mutation for a normalized adapter-authored
 legacy manifest. It validates the embedded adapter manifest, requires approved
-acceptance, preflights one declared source primary-data file by sha256 and
-size, refuses existing targets, copies primary data into a new record
-directory, writes a deterministic imported-record manifest, preserves external
-source identity, and keeps linked context reference-only. It does not accept a
-stable import API, legacy readers in core, Scopecat export-package acceptance,
-existing-record append or update behavior, schema inference, recursive
-relation traversal, linked-context payload import, package integrity, or GUI
-behavior.
+acceptance, preflights one declared adapter-normalized primary-data file by
+sha256 and size, refuses existing targets, copies that normalized data into a
+new record directory, writes a deterministic imported-record manifest,
+preserves external source identity, and keeps linked context reference-only. It
+does not accept a stable import API, legacy readers in core, Scopecat
+export-package acceptance, existing-record append or update behavior, schema
+inference, recursive relation traversal, linked-context payload import, package
+integrity, or GUI behavior.
 
 Reference-only legacy import has a slice-local implementation candidate for
 the other side of that copy/reference decision. It validates an approved
 reference-only request for a normalized adapter-authored legacy manifest,
-preserves a lab-managed current primary-data reference with public-safe
+preserves a lab-managed current external source reference with public-safe
 redacted display facts, keeps source openability, size, digest, and schema
 verification unobserved, reports copy and storage mutation as not performed,
-and keeps linked context reference-only. It does not copy primary data, write storage, observe or repair external
-references, accept a stable import API, add legacy readers in core, accept
+and keeps linked context reference-only. It does not copy primary data, write
+storage, observe or repair external references, preview or plot original
+legacy files, accept a stable import API, add legacy readers in core, accept
 Scopecat export packages, infer schemas, traverse relations recursively, or
 define GUI behavior.
 
@@ -345,13 +346,14 @@ relations recursively, inferring analysis DAGs, judging scientific validity, or
 designing a GUI.
 
 Measurement source observation has a slice-local implementation candidate for
-checking one declared primary-data file after storage or writer output exists.
-It reads only the explicit relative path under a caller-provided storage root,
-reports unavailable data or sha256, size, and row-count mismatches as review
-findings, and preserves declared preview metadata without schema inference. It
-does not accept storage repair, recursive storage inspection, import/export
-packages, package integrity, live service, GUI behavior, hardware control, or
-scan execution.
+checking one declared normalized primary-data file after storage or writer
+output exists. It reads only the explicit relative path under a caller-provided
+storage root, reports unavailable data or sha256 and size file-fact
+mismatches, and treats CSV row-count comparison as a data-level check for that
+validated normalized fixture. It preserves declared preview metadata without
+schema inference. It does not accept storage repair, recursive storage
+inspection, import/export packages, package integrity, live service, GUI
+behavior, hardware control, or scan execution.
 
 Measurement record handoff flow has a first composition candidate under review
 over the existing measurement-record slices. It consumes selected explicit
@@ -776,8 +778,9 @@ schema.
 | --- | --- | --- |
 | Measurement record | Export, incoming-record import preview, handoff package contents preview, legacy import acceptance, reference-only legacy import, running inspection, new-run writer, storage writer, source observation, calibration continuation | The ordinary user-facing unit for primary recorded experiment data, created from writer events, written to storage, accepted from reviewed legacy adapter manifests, preserved as external references, observed after storage, selected for export, previewed before external import, handoff package read-only open, or later package acceptance, inspected while running, or referenced as calibration output. |
 | Source identity | Export, incoming-record import preview, legacy import acceptance, reference-only legacy import, running inspection, new-run writer, calibration continuation | Recoverable provenance for where a record came from, distinct from current read path, package-relative fixture path, writer-declared primary data path, external current reference, or final storage identity. |
-| Primary data reference | Export, incoming-record import preview, handoff package contents preview, legacy import acceptance, reference-only legacy import, running inspection, new-run writer, storage writer, source observation, measurement boundary | The data item users expect to inspect, preview, export, import, package, store, observe, preserve by reference, or later plot; may be fixture path-shaped now but should not imply durable path identity. |
-| Declared preview metadata | Export, incoming-record import preview, handoff package contents preview, legacy import acceptance, reference-only legacy import, running inspection, new-run writer, storage writer, source observation, scan/data-shape | Shape, roles, labels, units, axis order, row order, and plot candidates supplied explicitly enough to support preview without schema inference. |
+| Primary data reference | Export, incoming-record import preview, handoff package contents preview, legacy import acceptance, running inspection, new-run writer, storage writer, source observation, measurement boundary | A Scopecat-readable or adapter-normalized data item users expect to inspect, preview, export, import, package, store, observe, or later plot; may be fixture path-shaped now but should not imply durable path identity. Original legacy files preserved without normalized data should be modeled as external source references, not previewable primary data. |
+| External source reference | Storage-transition export, incoming-record import preview, adapter-authored legacy import, reference-only legacy import, measurement boundary | A declared pointer to original or lab-managed external data for provenance, transition, or later observation. It can carry source identity, reference state, redacted display facts, and file-level observations, but does not imply Scopecat can parse, preview, or plot the referenced data. |
+| Declared preview metadata | Export, incoming-record import preview, handoff package contents preview, legacy import acceptance, reference-only legacy import, running inspection, new-run writer, storage writer, source observation, scan/data-shape | Shape, roles, labels, units, axis order, row order, and plot candidates supplied explicitly enough to support preview without schema inference when paired with Scopecat-readable or adapter-normalized data. For external source references, preview metadata remains a declared adapter/manifest assertion until normalized data or data-level observation is validated. |
 | Linked context | Export, incoming-record import preview, handoff package contents preview, legacy import acceptance, reference-only legacy import, derived artifact source links, calibration continuation, measurement boundary | Snapshots, attachments, artifacts, fit previews, notes, or derived outputs connected to a measurement, package, or step with explicit relation and authority. |
 | Include state | Export, handoff package contents preview, measurement boundary | Whether linked context is default-included, user-included, visible-but-excluded, visible-but-not-packaged, missing, or local-only; this is not recursive graph traversal. |
 | Lifecycle or progress state | Running inspection, new-run writer, calibration continuation | Current status of a measurement or step, such as running, complete, partial, review-needed, failed, or blocked. |
@@ -845,6 +848,9 @@ Several separations now appear repeatedly enough to keep carrying forward:
   output from accepted parameter state is still separate from writing files,
   applying hardware parameters, flattening schema-limited values, or tracking
   live JSON state.
+- External legacy data references can be preserved for provenance and
+  transition, but plotting and dataframe-like preview require normalized
+  Scopecat-readable data or a supported previewable data item.
 - Partial running data can be visible as normal state. Incompleteness is not a
   warning unless it blocks a declared need.
 - Linked artifacts and attachments need labels and relations, but recursive

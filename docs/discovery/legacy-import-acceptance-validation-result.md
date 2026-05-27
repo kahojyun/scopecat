@@ -28,7 +28,8 @@ acceptance input includes:
 - the full adapter-authored manifest;
 - an explicit approved acceptance request;
 - caller-relative destination paths under a new measurement record directory;
-- a source primary-data content reference with declared sha256 and byte size;
+- an adapter-normalized primary-data content reference with declared sha256
+  and byte size;
 - a materialization policy that copies primary data, preserves external source
   identity, and keeps linked context reference-only.
 
@@ -48,9 +49,9 @@ record:
 - reuse the normalized manifest boundary instead of parsing legacy formats in
   core;
 - validate relative destination paths and no-overwrite behavior;
-- preflight source primary-data size and sha256 before writing;
+- preflight adapter-normalized primary-data size and sha256 before writing;
 - refuse symlink roots or parent traversal as fixture guardrails;
-- write copied primary data and a deterministic manifest under a
+- write copied normalized primary data and a deterministic manifest under a
   caller-provided storage root;
 - preserve adapter identity, external source identity, preview metadata, and
   linked-context references in the stored manifest;
@@ -104,6 +105,7 @@ Likely follow-up slices should stay separate:
   format or GUI workflow;
 - reference-only import planning for lab-managed shared storage without
   copying primary data;
-- source observation for imported records after storage write;
+- data-level observation of copied normalized primary data after storage write,
+  or separate file-level observation of external source references;
 - harder adapter-authored data-shape cases, such as ragged scans or
   trace-per-point data, without automatic schema inference.
