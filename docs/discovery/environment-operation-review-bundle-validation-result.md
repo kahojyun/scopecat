@@ -22,6 +22,9 @@ run-blocking decision, or GUI design.
 Fixture:
 [`../../tests/fixtures/environment_operation_review_bundle/basic_operation_review/`](../../tests/fixtures/environment_operation_review_bundle/basic_operation_review/)
 
+Edge-case fixture matrix:
+[`../../tests/fixtures/environment_operation_review_bundle/review_edge_cases/`](../../tests/fixtures/environment_operation_review_bundle/review_edge_cases/)
+
 Implementation candidate:
 [`../../implementation_candidates/environment_operation_review_bundle/`](../../implementation_candidates/environment_operation_review_bundle/)
 
@@ -40,6 +43,13 @@ selected prior facts and compares request, prepared-run, declared-environment,
 manager, operation, command cwd, argv, intent request, approval, and result
 identity continuity. Mismatches are surfaced as review findings rather than
 converted into run-blocking decisions.
+
+The edge-case matrix uses the same repository-safe base input and declares
+explicit fixture mutations for manifest findings, uv sync failure, uv sync
+not-run, and a deliberately inconsistent command-mismatch projection. These
+cases harden finding expectations and bundle-level alignment guards without
+adding process execution, dependency sync verification, or runtime readiness
+authority.
 
 Raw JSON fixture input is validated into dataclass contract records before
 projection. The contract validates exact top-level source and policy shape,
@@ -108,8 +118,8 @@ general manager abstraction or runtime readiness result.
 Stop this slice at prior-summary composition unless the next workflow needs one
 of these separate capabilities:
 
-- additional operation review fixtures for manifest findings, sync failure,
-  not-run, and command mismatch workflows;
+- additional operation review fixtures for combined mismatch workflows or
+  product-specific review wording;
 - a manager execution wrapper that actually runs `uv` under explicit execution
   authority;
 - post-sync runtime probing, if users need interpreter or package-state review;
