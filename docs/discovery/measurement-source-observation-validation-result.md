@@ -20,7 +20,9 @@ Fixture:
 Implementation candidate:
 [`../../implementation_candidates/measurement_source_observation/`](../../implementation_candidates/measurement_source_observation/)
 
-The fixture observes one stored Rabi measurement primary-data file:
+The fixture observes one stored Rabi measurement primary-data file that is
+already in the small normalized CSV/table shape used by the storage-writer
+pressure:
 
 - one explicit observation request with a storage-root-relative primary-data path,
   expected sha256 digest, expected byte size, and expected row count;
@@ -29,7 +31,9 @@ The fixture observes one stored Rabi measurement primary-data file:
 
 The candidate reads only the declared primary-data file under the caller root.
 It does not scan the storage root, read a manifest, infer columns, repair
-files, accept imports, or write export packages.
+files, accept imports, or write export packages. Sha256 and byte size are
+file-level observations; CSV row count is a data-level check for this
+validated normalized fixture only.
 
 ## What This Earned
 
@@ -42,7 +46,9 @@ The implementation candidate shows that a bounded source observer can:
 - refuse symlink targets rather than following them;
 - report unavailable primary data as a review finding instead of performing
   repair or import acceptance;
-- compare observed sha256, byte size, and CSV row count with declared facts;
+- compare observed sha256 and byte size with declared file facts;
+- compare CSV row count with the declared row-count fact for this normalized
+  fixture;
 - report digest, size, and row-count mismatches as review findings without
   cause attribution;
 - preserve declared preview metadata without inferring schema from source rows;

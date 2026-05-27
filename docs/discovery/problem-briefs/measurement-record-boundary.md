@@ -39,6 +39,11 @@ is context, what is an attachment, and what remains ambiguous.
   useful for transition or legacy workflows, but it preserves the old risks:
   files can move, disappear, remain machine-local, or depend on user-managed
   directory hygiene.
+- Scopecat can record arbitrary legacy source references, but plotting and
+  dataframe-like preview should require normalized Scopecat-readable data or a
+  supported previewable data item. An original legacy file reference is closer
+  to an external source reference or attachment-like artifact until an adapter
+  produces normalized primary data.
 - Cross-run analysis outputs may remain cataloged as linked artifacts
   associated with source records rather than parsed primary records.
 - Legacy CSV/INI/NPY/JSON/workbook combinations should be treated as model

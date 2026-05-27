@@ -38,6 +38,13 @@ It does not read source files, parse CSV headers, copy files, write storage,
 accept imports, infer schemas, checksum content, render plots, or traverse
 relations.
 
+Declared preview metadata in an incoming manifest is a manifest assertion. If
+the referenced data is an original legacy file rather than normalized
+Scopecat-readable data, the reference should remain an external source
+reference until an adapter or later slice provides normalized previewable data.
+See
+[`measurement-data-reference-boundary.md`](measurement-data-reference-boundary.md).
+
 ## What This Earned
 
 The implementation candidate shows that a side-effect-free summary can preview

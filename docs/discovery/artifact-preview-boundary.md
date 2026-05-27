@@ -20,6 +20,12 @@ Artifact posture:
 Scopecat should not provide default visualization for arbitrary-shaped
 artifacts.
 
+The same rule applies to original legacy measurement files. Recording a
+reference to a Data Vault, LabRAD, Labber, shared-drive, or old-system file is
+not enough to make that file previewable. Plotting or dataframe-like access
+requires normalized Scopecat-readable data or an explicitly supported
+previewable data item.
+
 An artifact is any stored or referenced result that may have provenance,
 metadata, checksums, relation links, and openability facts. By default,
 Scopecat can list it, identify it, link it to source measurements, report

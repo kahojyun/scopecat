@@ -22,12 +22,14 @@ Implementation candidate:
 
 The fixture represents **adapter output**, not legacy input. A user-owned
 external adapter has already parsed an old record and emitted a normalized
-Scopecat-shaped manifest:
+Scopecat-shaped manifest. For the boundary between normalized primary data and
+external legacy source references, see
+[`measurement-data-reference-boundary.md`](measurement-data-reference-boundary.md).
 
 - one adapter identity with explicit external parsing authority;
 - one external legacy source identity with public-safe redacted display path;
 - one measurement identity;
-- one package-relative primary CSV data reference;
+- one package-relative normalized primary CSV data reference;
 - declared 1D preview metadata and row count;
 - one adapter-declared parameter-state context reference;
 - one adapter finding that says legacy parsing was performed outside
@@ -90,9 +92,12 @@ lives in a user-owned adapter, and Scopecat consumes a normalized manifest with
 explicit authority and non-claims. This is enough to test one fixture-local
 contract shape that an adapter could emit while avoiding premature API design.
 
-The package-relative CSV is present so the fixture can verify openability and
-row-count pressure in tests. The builder itself remains side-effect free and
-does not read primary data files.
+The package-relative CSV is present as adapter-normalized primary data so the
+fixture can verify openability and row-count pressure in tests. If an adapter
+instead points directly to an original legacy file, that reference should be
+modeled as an external source reference or artifact-like attachment, not as
+Scopecat-readable primary data. The builder itself remains side-effect free
+and does not read primary data files.
 
 ## Follow-Up
 
@@ -105,8 +110,8 @@ Likely follow-up slices should stay separate:
   mutation and no-overwrite or copy/reference policy;
 - adapter package or drop-folder validation, without accepting a broad package
   format or GUI workflow;
-- source observation or checksum validation for adapter-provided primary data,
-  without accepting a final integrity contract;
+- file-level source observation or checksum validation for adapter-provided
+  normalized primary data, without accepting a final integrity contract;
 - a local user-owned adapter script example outside Scopecat core, without
   making LabRAD/DataVault/Labber parsing part of core product behavior;
 - harder adapter-authored data-shape cases, such as ragged scans or
