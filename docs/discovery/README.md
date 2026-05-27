@@ -72,6 +72,7 @@ supporting policy notes. The current slice inventory is:
 | Adapter-authored legacy import manifest | Measurement records | Implementation candidate validated | Side-effect-free validation and summary for normalized manifests emitted by user-owned legacy adapters, including adapter identity, external source identity, adapter-normalized primary-data reference, declared preview metadata, linked context, and adapter findings without stable public API, LabRAD/DataVault/Labber reader behavior, import acceptance, storage mutation, schema inference, package format, recursive traversal, or GUI behavior. |
 | Legacy import acceptance | Measurement records | Implementation candidate validated | Approved copy-into-new-record mutation for one reviewed adapter-authored manifest, including source sha256/size preflight, no-overwrite targets, copied adapter-normalized primary data, deterministic imported-record manifest, preserved external source identity, and reference-only linked context without stable import API, legacy readers in core, export-package acceptance, existing-record update, schema inference, recursive traversal, package integrity, or GUI behavior. |
 | Reference-only legacy import | Measurement records | Implementation candidate validated | Side-effect-free reference-only acceptance summary for one reviewed adapter-authored manifest, including lab-managed external source-reference facts, public-safe redacted display validation, preserved source identity, unobserved openability/checksum/size state, and reference-only linked context without copying primary data, storage mutation, source observation, repair, stable import API, legacy readers in core, export-package acceptance, schema inference, recursive traversal, package integrity, or GUI behavior. |
+| Reference-only source observation | Measurement records | Implementation candidate validated | File-level observation for one external source reference preserved by reference-only legacy import, including reference continuity, explicit external-root access, sha256/size comparison, unavailable/mismatch findings, and declared preview metadata as an unverified adapter assertion without data-level observation, row-count checks, preview verification, schema inference, copying, repair, storage mutation, legacy readers, or GUI behavior. |
 | New-run measurement writer semantics | Measurement records | Implementation candidate validated | Side-effect-free summary from explicit writer events, including lifecycle, progress, declared primary data reference, and preview metadata without storage mutation, source observation, schema inference, live service, hardware control, scan execution, or GUI behavior. |
 | Append-only measurement storage writer | Measurement records | Implementation candidate validated | Approved filesystem mutation for one new measurement record directory from declared append chunks, including sha256/size preflight, no-overwrite targets, stored primary data, and deterministic manifest without final storage architecture, schema inference, import/export packages, live service, GUI, or hardware-control authority. |
 | Derived artifact source links | Measurement records | Implementation candidate validated | Side-effect-free summary for an explicit derived-artifact manifest, including artifact identity, direct source measurement roles, relation states, and review findings without artifact parsing, source observation, checksum validation, storage mutation, recursive traversal, analysis-DAG inference, scientific validity review, or GUI behavior. |
@@ -202,6 +203,7 @@ Measurement Records the owner of context-support behavior.
 | [`adapter-authored-legacy-import-validation-result.md`](adapter-authored-legacy-import-validation-result.md) | Result of the first normalized adapter-authored legacy import manifest candidate with adapter-normalized primary data. |
 | [`legacy-import-acceptance-validation-result.md`](legacy-import-acceptance-validation-result.md) | Result of the first approved copy-into-new-record acceptance candidate for a reviewed adapter-authored legacy manifest. |
 | [`reference-only-legacy-import-validation-result.md`](reference-only-legacy-import-validation-result.md) | Result of the first side-effect-free reference-only acceptance candidate for preserving an external source reference from a reviewed adapter-authored legacy manifest. |
+| [`reference-only-source-observation-validation-result.md`](reference-only-source-observation-validation-result.md) | Result of the first file-level observation candidate for external source references preserved by reference-only legacy import. |
 | [`new-run-measurement-writer-validation-result.md`](new-run-measurement-writer-validation-result.md) | Result of the first side-effect-free writer-event implementation candidate. |
 | [`measurement-storage-writer-validation-result.md`](measurement-storage-writer-validation-result.md) | Result of the first approved append-only storage writer implementation candidate. |
 | [`derived-artifact-source-links-validation-result.md`](derived-artifact-source-links-validation-result.md) | Result of the first explicit derived-artifact source-link implementation candidate. |
@@ -216,10 +218,7 @@ Measurement Records follow-ups, not handoff-package continuation by default.
 
 - existing-record append or update pressure: validate locks, crash recovery,
   and in-progress record behavior separately from the new-record writer and
-  legacy import acceptance;
-- file-level observation for reference-only imported records: validate
-  explicit checks against lab-managed shared-storage references without
-  automatic repair, discovery, schema inference, or preview/plot claims.
+  legacy import acceptance.
 
 The first reference-only legacy import candidate is validated in
 [`reference-only-legacy-import-validation-result.md`](reference-only-legacy-import-validation-result.md).
@@ -229,13 +228,20 @@ leaves primary-data copy, storage mutation, source observation, repair,
 export-package acceptance, schema inference, package integrity, and GUI
 behavior out of scope.
 
+The first reference-only source observation candidate is validated in
+[`reference-only-source-observation-validation-result.md`](reference-only-source-observation-validation-result.md).
+It performs file-level observation for one preserved external source reference,
+checking availability, sha256, and byte size while leaving row counts, schema,
+preview verification, copying, repair, storage mutation, legacy readers, and
+GUI behavior out of scope.
+
 The first legacy import acceptance candidate is validated in
 [`legacy-import-acceptance-validation-result.md`](legacy-import-acceptance-validation-result.md).
 It copies one reviewed adapter-authored legacy record into new storage after
-source sha256 and size preflight, preserves external source identity and
-linked context as reference-only facts, and leaves stable import APIs,
-legacy readers in core, export-package acceptance, existing-record update,
-schema inference, package integrity, and GUI behavior out of scope.
+adapter-normalized primary-data sha256 and size preflight, preserves external
+source identity and linked context as reference-only facts, and leaves stable
+import APIs, legacy readers in core, export-package acceptance, existing-record
+update, schema inference, package integrity, and GUI behavior out of scope.
 
 The first append-only storage writer candidate is validated in
 [`measurement-storage-writer-validation-result.md`](measurement-storage-writer-validation-result.md).

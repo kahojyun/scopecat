@@ -6,8 +6,8 @@ architecture or a stable import API.
 The candidate tests the reference-only side of legacy import acceptance for
 lab-managed shared storage. A user-owned adapter has already emitted a
 normalized adapter-authored manifest, and review has approved preserving the
-legacy primary-data location as a current external reference instead of
-copying primary data into Scopecat storage.
+legacy source location as a current external reference instead of copying
+primary data into Scopecat storage.
 
 The candidate:
 

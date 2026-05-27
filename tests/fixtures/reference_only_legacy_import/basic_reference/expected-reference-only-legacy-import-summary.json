@@ -1,7 +1,7 @@
 {
   "status": "fixture",
   "reference_semantics": {
-    "contract_guard": "Reference-only legacy import consumes an approved adapter-authored manifest and preserves one lab-managed external primary-data reference without copying or observing the source. It is not a stable public import API, LabRAD/DataVault/Labber reader, export-package acceptance flow, storage writer, source observation, schema inference engine, linked-context importer, recursive relation traversal, reference repair path, or GUI workflow.",
+    "contract_guard": "Reference-only legacy import consumes an approved adapter-authored manifest and preserves one lab-managed external source reference without copying or observing the source. It is not a stable public import API, LabRAD/DataVault/Labber reader, export-package acceptance flow, storage writer, source observation, schema inference engine, linked-context importer, recursive relation traversal, reference repair path, or GUI workflow.",
     "source_fixture": "reference-only-legacy-import-input.json"
   },
   "candidate_summary": {
@@ -117,7 +117,7 @@
       {
         "code": "reference_only_import_accepted",
         "severity": "review",
-        "basis": "An approved request preserves the adapter-declared primary data as a lab-managed external reference.",
+        "basis": "An approved request preserves the adapter-declared source as a lab-managed external reference.",
         "does_not_claim": "copied_or_observed_primary_data"
       },
       {
@@ -129,7 +129,7 @@
       {
         "code": "external_reference_unobserved",
         "severity": "review",
-        "basis": "The current primary-data reference is adapter-declared and is not opened, checksummed, sized, copied, or repaired.",
+        "basis": "The current external source reference is adapter-declared and is not opened, checksummed, sized, copied, or repaired.",
         "does_not_claim": "openability_or_integrity"
       },
       {
@@ -148,7 +148,7 @@
   },
   "boundary_notes": [
     "The fixture starts from normalized adapter output and an explicit approved reference-only acceptance request.",
-    "Scopecat preserves the current primary-data reference as adapter-declared and unobserved.",
+    "Scopecat preserves the current external source reference as adapter-declared and unobserved.",
     "No source files are opened, copied, checksummed, sized, repaired, or interpreted by this candidate."
   ],
   "decisions_not_earned": [

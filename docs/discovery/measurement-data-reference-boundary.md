@@ -89,8 +89,8 @@ Current import-like slices should be read this way:
 
 Before implementing more reference-only import observation, name the level:
 
-- a file-level observation slice may validate that an external source reference
-  still resolves and matches declared file facts;
+- the first file-level observation slice validates that an external source
+  reference still resolves and matches declared file facts;
 - a data-level observation or preview slice must require normalized primary
   data or explicit adapter authority;
 - repair, moved-reference discovery, recursive artifact traversal, and legacy

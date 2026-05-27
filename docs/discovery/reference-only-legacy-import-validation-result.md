@@ -102,8 +102,9 @@ workflow needs a harder storage or adapter boundary.
 
 Likely follow-up slices should stay separate:
 
-- file-level source observation for reference-only imported records, without
-  preview/plot claims;
+- file-level source observation for reference-only imported records is now
+  validated separately in
+  [`reference-only-source-observation-validation-result.md`](reference-only-source-observation-validation-result.md);
 - existing-record append or update pressure, including locks and crash
   recovery;
 - adapter package or drop-folder validation without accepting a broad package
