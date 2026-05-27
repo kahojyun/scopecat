@@ -23,6 +23,7 @@ relation graph, or warning taxonomy.
 - [`handoff-package-opener-validation-result.md`](handoff-package-opener-validation-result.md)
 - [`handoff-package-read-view-validation-result.md`](handoff-package-read-view-validation-result.md)
 - [`handoff-package-sdk-view-model-validation-result.md`](handoff-package-sdk-view-model-validation-result.md)
+- [`handoff-package-sdk-ergonomics-spike-validation-result.md`](handoff-package-sdk-ergonomics-spike-validation-result.md)
 - [`handoff-package-preview-shape-view-validation-result.md`](handoff-package-preview-shape-view-validation-result.md)
 - [`handoff-package-preview-consumption-validation-result.md`](handoff-package-preview-consumption-validation-result.md)
 - [`handoff-package-visual-review-validation-result.md`](handoff-package-visual-review-validation-result.md)
@@ -171,6 +172,16 @@ pressure without accepting final SDK names, hard dataframe dependencies, plot
 rendering, fit execution, analysis write-back, package import, storage
 mutation, schema inference, automatic scan/data-shape inference, or a shared
 measurement model.
+
+Handoff package SDK ergonomics has script-shaped fixture pressure over the
+existing SDK view model and richer route-pressure package. It validates a
+notebook-like flow: open a package, discover measurements, convert primary
+tables to pandas-like frames, convert declared plot specs to records and
+numpy-like arrays, handle table-only measurements without treating the absence
+of plots as an error, and keep linked-context findings visible. It reinforces
+that pandas/numpy remain optional adapters and that plotting, fitting,
+analysis writeback, import/storage, schema inference, scan-shape inference,
+and final public SDK names are still separate decisions.
 
 Handoff package preview shape view has the first declared preview plot/view
 projection over the read-only package route. It preserves manifest-declared

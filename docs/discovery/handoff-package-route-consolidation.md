@@ -120,16 +120,18 @@ primitive behavior:
   The route now has repository-safe pressure for multi-plot, table-only,
   shared linked-context, degraded-preview, and optional digest/size cases
   without creating another handoff implementation layer.
+- **SDK ergonomics spike**: validated in
+  [`handoff-package-sdk-ergonomics-spike-validation-result.md`](handoff-package-sdk-ergonomics-spike-validation-result.md).
+  Notebook-style use can discover measurements, get dataframe-like tables,
+  get declared plot records/arrays, and keep context visible without adding
+  hard pandas/numpy dependencies or finalizing the public SDK.
 
 ## Recommended Next Work
 
 The handoff route is ready to pause broad slice expansion. Current actionable
-follow-ups are:
+follow-up is:
 
-1. **SDK ergonomics spike**: test whether the current Python-facing model feels
-   natural for notebook users, including optional pandas access, without making
-   pandas part of the package contract.
-2. **Import/storage design only when needed**: continue acceptance/import work
+1. **Import/storage design only when needed**: continue acceptance/import work
    only for a concrete storage question, not to extend handoff validation for
    its own sake.
 
