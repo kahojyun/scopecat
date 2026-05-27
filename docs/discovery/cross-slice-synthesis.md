@@ -17,6 +17,7 @@ relation graph, or warning taxonomy.
 - [`storage-transition-export-fixture.md`](storage-transition-export-fixture.md)
 - [`storage-transition-export-validation-result.md`](storage-transition-export-validation-result.md)
 - [`external-file-reference-policy.md`](external-file-reference-policy.md)
+- [`package-purpose-boundary.md`](package-purpose-boundary.md)
 - [`running-measurement-inspection-validation-result.md`](running-measurement-inspection-validation-result.md)
 - [`measurement-record-import-preview-validation-result.md`](measurement-record-import-preview-validation-result.md)
 - [`handoff-package-contents-preview-validation-result.md`](handoff-package-contents-preview-validation-result.md)
@@ -91,6 +92,14 @@ identity, current reference, and package materialization for managed records
 and lab-managed network references, and it treats missing or moved external
 context as warning-worthy. It does not decide the final storage model or
 external-reference policy.
+
+[`package-purpose-boundary.md`](package-purpose-boundary.md)
+keeps three related sharing modes separate: current analysis/review packages,
+shared lab references such as NAS paths, and future offline execution
+migration artifacts or workflows. Shared lab references are live external
+references, not carried artifacts or remote Scopecat services; execution
+migration would need separate settings, code restore, environment restore or
+sync, compatibility, and execution authority.
 
 The storage-transition validation result stops that slice at fixture
 validation. It carries forward the source/current-reference/materialization
@@ -1004,12 +1013,18 @@ validated local workflow. The route-level consolidation in
 [`handoff-package-route-consolidation.md`](handoff-package-route-consolidation.md)
 is the route map, and
 [`handoff-package-route-decision-consolidation.md`](handoff-package-route-decision-consolidation.md)
-is the closeout for current route decisions. Next handoff work should require
-a concrete missing workflow, such as archive/authenticity, notebook numeric
+is the closeout for current route decisions.
+[`package-purpose-boundary.md`](package-purpose-boundary.md)
+keeps current handoff packages scoped to analysis/review unless a future slice
+explicitly changes that package purpose. Package-purpose work should choose
+the route first: return to handoff only when the desired artifact remains
+analysis/review oriented, and open a separate boundary for shared lab reference
+deployment or offline execution migration. Next handoff work should require a
+concrete missing workflow, such as archive/authenticity, notebook numeric
 ergonomics, inspectable linked-context payloads, storage import, analysis
-results, or a narrower shared-model extraction trigger. Before changing
-handoff-package fields or contracts, apply the route-local field-category
-checklist in
+results, or a narrower shared-model extraction trigger.
+Before changing handoff-package fields or contracts, apply the route-local
+field-category checklist in
 [`handoff-package-route-contract-checklist.md`](handoff-package-route-contract-checklist.md).
 
 For the experiment-code route, recording, managed code version promotion,
