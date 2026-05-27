@@ -126,7 +126,10 @@ use is contents preview -> opener -> read view -> visual review -> visual
 artifact, with inspection workflow composing those receiving-side layers for
 one local open-before-import action. Receiving-side mutation is package
 acceptance into new local storage records after explicit approval. Producer
-and compatibility work is writer -> round trip.
+and compatibility work is writer -> round trip. The consolidated route map,
+artifact boundary, stable route concepts, candidate-local concepts, and
+handoff-specific next-work guidance are owned by
+[`handoff-package-route-consolidation.md`](handoff-package-route-consolidation.md).
 
 Handoff package opener has the first read-only package-use candidate for
 Scopecat-authored directory packages. It reads `package-manifest.json`, reuses
@@ -869,11 +872,14 @@ architecture.
 
 For the handoff route, read-only package use, package-local integrity
 observation, and explicit receiving-side acceptance are now composed in a
-validated local workflow. Next work should keep concurrent package mutation,
-archive validation, signatures, GUI behavior, dataframe adapters, and final
-storage/import API decisions separate unless a narrower implementation task
-requires one of them. Before adding more handoff-package behavior, apply the
-route-local field-category checklist in
+validated local workflow. The route-level consolidation in
+[`handoff-package-route-consolidation.md`](handoff-package-route-consolidation.md)
+is the starting point before adding more handoff behavior. Next work should
+keep concurrent package mutation, archive validation, signatures, GUI
+behavior, dataframe adapters, and final storage/import API decisions separate
+unless a narrower implementation task requires one of them. Before changing
+handoff-package fields or contracts, apply the route-local field-category
+checklist in
 [`handoff-package-route-contract-checklist.md`](handoff-package-route-contract-checklist.md).
 
 Shared model extraction is currently deferred in
