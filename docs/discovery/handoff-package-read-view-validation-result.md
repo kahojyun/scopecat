@@ -36,6 +36,8 @@ reader actions:
   row count, column access, and records output;
 - access declared preview rows as a separate table-like object;
 - access declared plot candidates as copy-safe point series by column pair;
+- access copy-safe declared preview shape and plot-candidate metadata for
+  downstream review projections;
 - keep linked context and manifest-preview findings visible while preserving
   their reference-only status;
 - keep package integrity as not performed/not claimed.

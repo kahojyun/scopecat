@@ -40,6 +40,8 @@ local Scopecat storage:
   unique non-empty headers and rectangular rows for reader-facing wrappers;
 - derive preview rows and plot-ready point series from declared preview
   columns and plot candidates;
+- preserve manifest-declared `data_shape` as opened summary metadata for
+  later declared-shape consumers without inferring shape from CSV contents;
 - require `preview_ready` metadata for this first opener candidate; degraded
   preview packages remain manifest-previewable but are not opened for declared
   preview rows until a separate behavior is validated;

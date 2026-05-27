@@ -12,6 +12,8 @@ package opener:
 - expose primary CSV data and declared preview rows as rectangular
   string-valued table-like objects;
 - expose declared plot candidates as copy-safe point series;
+- expose copy-safe declared preview shape and plot-candidate metadata for
+  downstream review projections;
 - keep linked context reference-only and findings visible.
 
 This is a use-case prototype for how a Python SDK or GUI model might feel. It

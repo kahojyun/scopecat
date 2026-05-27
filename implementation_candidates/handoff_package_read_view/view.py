@@ -185,6 +185,17 @@ class MeasurementReadView:
         )
 
     @property
+    def declared_preview_shape(self) -> dict[str, Any]:
+        return copy.deepcopy(self._measurement["declared_preview"]["data_shape"])
+
+    @property
+    def declared_preview_plot_candidates(self) -> tuple[dict[str, Any], ...]:
+        return tuple(
+            copy.deepcopy(candidate)
+            for candidate in self._measurement["declared_preview"]["plot_candidates"]
+        )
+
+    @property
     def integrity_check(self) -> str:
         return self._measurement["primary_data"]["integrity_check"]
 

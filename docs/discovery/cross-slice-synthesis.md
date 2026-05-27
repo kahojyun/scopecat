@@ -23,6 +23,7 @@ relation graph, or warning taxonomy.
 - [`handoff-package-opener-validation-result.md`](handoff-package-opener-validation-result.md)
 - [`handoff-package-read-view-validation-result.md`](handoff-package-read-view-validation-result.md)
 - [`handoff-package-sdk-view-model-validation-result.md`](handoff-package-sdk-view-model-validation-result.md)
+- [`handoff-package-preview-shape-view-validation-result.md`](handoff-package-preview-shape-view-validation-result.md)
 - [`handoff-package-visual-review-validation-result.md`](handoff-package-visual-review-validation-result.md)
 - [`handoff-package-visual-artifact-validation-result.md`](handoff-package-visual-artifact-validation-result.md)
 - [`handoff-package-inspection-workflow-validation-result.md`](handoff-package-inspection-workflow-validation-result.md)
@@ -161,6 +162,19 @@ pressure without accepting final SDK names, hard dataframe dependencies, plot
 rendering, fit execution, analysis write-back, package import, storage
 mutation, schema inference, automatic scan/data-shape inference, or a shared
 measurement model.
+
+Handoff package preview shape view has the first declared preview plot/view
+projection over the read-only package route. It preserves manifest-declared
+`data_shape` through the opener/read view and exposes normalized preview
+affordance, axis/column facts, declared plot bindings, and review findings
+for unsupported affordances, plot-kind mismatches, or incomplete or
+metadata-inconsistent plot bindings. It proves the package route for the
+existing declared one-dimensional table
+fixture and uses richer scan/data-shape fixtures as input pressure rather than
+package-route support. This connects scan/data-shape evidence to a package
+reader surface without accepting final schema names, storage mapping,
+dataframe or array APIs, trace opening, file observation, plot rendering,
+package import, storage mutation, or shape inference.
 
 Handoff package visual review has the first plot-first view-model candidate
 over the read-only package read view. It projects opened package facts into
