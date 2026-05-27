@@ -1,0 +1,130 @@
+{
+  "environment_operation_review_policy": {
+    "summary_policy": "review_summary",
+    "bundle_authority": "explicit_prior_environment_operation_summaries",
+    "manifest_preflight_source": "declared_modern_manifest_preflight_summary",
+    "sync_intent_source": "declared_uv_sync_intent_summary",
+    "sync_result_source": "declared_uv_sync_result_summary",
+    "manager_scope": "uv_only",
+    "composition_authority": "review_projection_only",
+    "filesystem_inspection": "not_performed",
+    "manifest_read": "not_performed",
+    "lockfile_read": "not_performed",
+    "process_execution": "not_performed",
+    "dependency_output_parsing": "not_performed",
+    "dependency_resolution": "not_performed",
+    "dependency_sync": "externally_reported_not_verified_by_scopecat",
+    "package_install": "externally_reported_not_verified_by_scopecat",
+    "runtime_probe": "not_performed",
+    "code_import_execution": "not_performed",
+    "hardware_probe": "not_performed",
+    "run_blocking_decision": "not_made",
+    "readiness_claim": "not_claimed",
+    "shared_environment_schema": "not_defined"
+  },
+  "operation_review_request": {
+    "review_id": "env-op-review-chevron-qA-001",
+    "prepared_run_context_id": "prepared-run-context-chevron-qA-current",
+    "declared_environment_id": "declared-env-chevron-qA-current",
+    "expected_manager": "uv",
+    "expected_operation": "sync",
+    "manifest_preflight_request_id": "modern-manifest-preflight-chevron-qA-001",
+    "sync_intent_request_id": "uv-sync-intent-chevron-qA-001",
+    "sync_result_id": "uv-sync-result-chevron-qA-001"
+  },
+  "modern_manifest_preflight_summary": {
+    "preflight_request": {
+      "request_id": "modern-manifest-preflight-chevron-qA-001",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-current",
+      "declared_environment_id": "declared-env-chevron-qA-current",
+      "expected_manager": "uv"
+    },
+    "preflight_status": "manifest_preflight_passed_declared_checks",
+    "manifest_summary": {
+      "manifest_kind": "pyproject_toml",
+      "status": "parsed",
+      "project_name": "qa-chevron-calibration",
+      "requires_python": ">=3.11,<3.13",
+      "dependency_group_names": [
+        "default",
+        "analysis"
+      ],
+      "does_not_claim": "dependency_resolution_or_runtime_compatibility"
+    },
+    "dependency_group_checks": [
+      {
+        "dependency_group": "analysis",
+        "state": "declared_in_manifest",
+        "does_not_claim": "dependency_resolution_or_dependency_sync"
+      }
+    ],
+    "preflight_findings": []
+  },
+  "uv_sync_intent_summary": {
+    "intent_status": "ready_for_external_review",
+    "sync_request": {
+      "request_id": "uv-sync-intent-chevron-qA-001",
+      "approval_id": "approval-uv-sync-chevron-qA-001",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-current",
+      "declared_environment_id": "declared-env-chevron-qA-current",
+      "working_directory": "project",
+      "expected_manager": "uv"
+    },
+    "command_intent": {
+      "manager": "uv",
+      "operation": "sync",
+      "working_directory": "project",
+      "argv": [
+        "uv",
+        "sync",
+        "--locked",
+        "--no-default-groups",
+        "--group",
+        "analysis"
+      ],
+      "does_not_claim": "process_executed_or_environment_synchronized"
+    }
+  },
+  "uv_sync_result_summary": {
+    "uv_sync_intent_ref": {
+      "request_id": "uv-sync-intent-chevron-qA-001",
+      "approval_id": "approval-uv-sync-chevron-qA-001",
+      "expected_manager": "uv",
+      "working_directory": "project",
+      "command_intent": {
+        "manager": "uv",
+        "operation": "sync",
+        "working_directory": "project",
+        "argv": [
+          "uv",
+          "sync",
+          "--locked",
+          "--no-default-groups",
+          "--group",
+          "analysis"
+        ],
+        "does_not_claim": "process_executed_or_environment_synchronized"
+      }
+    },
+    "command_result": {
+      "result_id": "uv-sync-result-chevron-qA-001",
+      "intent_request_id": "uv-sync-intent-chevron-qA-001",
+      "approval_id": "approval-uv-sync-chevron-qA-001",
+      "manager": "uv",
+      "operation": "sync",
+      "working_directory": "project",
+      "argv": [
+        "uv",
+        "sync",
+        "--locked",
+        "--no-default-groups",
+        "--group",
+        "analysis"
+      ],
+      "execution_state": "completed_success",
+      "exit_code": 0
+    },
+    "result_status": "external_sync_reported_success",
+    "result_findings": []
+  }
+}

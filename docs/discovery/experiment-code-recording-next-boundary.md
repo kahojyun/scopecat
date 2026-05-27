@@ -143,6 +143,11 @@ Validation should follow authority boundaries more strictly than user adoption:
     external manager report as verified dependency sync, package installation,
     runtime readiness, run-blocking decision, managed-runner state, or shared
     manager abstraction.
+15. Validate manager-specific operation review composition before treating
+    prior modern manifest preflight, command intent, and operation result
+    summaries as a verified environment state, runtime readiness, run-blocking
+    decision, managed-runner state, portable/export artifact, or shared manager
+    abstraction.
 
 ## Validation Slice Backlog
 
@@ -443,6 +448,34 @@ Result owner:
 
 Boundary: declared external result record only; no process execution,
 filesystem inspection, manifest read, lockfile read, dependency-output parsing,
+dependency resolution, verified dependency sync, verified package
+installation, runtime probes, hardware probes, code import, code execution,
+shared environment schema, general manager abstraction, managed runner,
+run-blocking decision, or runnable-readiness claim.
+
+### 15. Environment Operation Review Bundle
+
+Validation question: can Scopecat compose prior modern manifest preflight,
+`uv_sync_intent`, and `uv_sync_result` summaries into one local
+`review_summary` operation review surface without performing fresh environment
+operations, producing portable/export output, or claiming verified environment
+state?
+
+User pressure: after users approve and externally attempt a manager operation,
+they need one review surface that says what was approved, what was declared,
+what was reported, and what still cannot be claimed.
+
+First fixture: a qA chevron environment operation review with declared manifest
+preflight projection, matching uv sync intent, matching uv sync success result,
+operation identity references, no child findings, and explicit non-claims for
+execution, dependency parsing, verified sync, runtime readiness, and run-start
+readiness.
+
+Result owner:
+[`environment-operation-review-bundle-validation-result.md`](environment-operation-review-bundle-validation-result.md)
+
+Boundary: prior-summary composition only; no fresh filesystem inspection,
+manifest read, lockfile read, process execution, dependency-output parsing,
 dependency resolution, verified dependency sync, verified package
 installation, runtime probes, hardware probes, code import, code execution,
 shared environment schema, general manager abstraction, managed runner,
