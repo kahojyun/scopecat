@@ -29,6 +29,7 @@ relation graph, or warning taxonomy.
 - [`handoff-package-gui-view-state-validation-result.md`](handoff-package-gui-view-state-validation-result.md)
 - [`handoff-package-visual-artifact-validation-result.md`](handoff-package-visual-artifact-validation-result.md)
 - [`handoff-package-inspection-workflow-validation-result.md`](handoff-package-inspection-workflow-validation-result.md)
+- [`handoff-package-route-pressure-validation-result.md`](handoff-package-route-pressure-validation-result.md)
 - [`handoff-package-acceptance-validation-result.md`](handoff-package-acceptance-validation-result.md)
 - [`handoff-package-integrity-observation-validation-result.md`](handoff-package-integrity-observation-validation-result.md)
 - [`handoff-package-receiving-workflow-validation-result.md`](handoff-package-receiving-workflow-validation-result.md)
@@ -213,6 +214,16 @@ actions. This tests GUI consumption pressure without accepting live GUI
 components, plot rendering, dataframe adapter invocation, package acceptance,
 storage mutation, package integrity verification, schema inference,
 scan-shape inference, final SDK/API names, or a shared measurement model.
+
+Handoff package route pressure now has richer repository fixtures over the
+existing read-only route. The fixtures exercise a multi-plot measurement, a
+table-only measurement, shared visible-but-not-packaged linked context,
+degraded-preview manifest orientation, and optional digest/size metadata
+across contents preview, opener, read view, visual review, preview
+consumption, and GUI view state. This raises confidence in route composition
+without adding another implementation layer or accepting a final package, GUI,
+SDK, dataframe, import, storage, schema, scan-shape, or shared measurement
+contract.
 
 Handoff package visual artifact has the first local static HTML artifact
 candidate over the visual-review model. It renders plot-first visual cards,
