@@ -50,18 +50,18 @@
       "reference_id": "legacy-record-001-current-primary",
       "external_root_label": "redacted-shared-storage",
       "source_path": "source-data/measurement.csv",
-      "expected_digest": "sha256:3f585c5b6e5cc01b77d79d91aaf17f02e1b6f9f896476f2531d13bf737878b6c",
-      "expected_size_bytes": 87
+      "expected_digest": "sha256:199db1971c733fb3e850c073f16367fbbb8ef0c7f3c1e1724078fd83cfba244a",
+      "expected_size_bytes": 86
     },
     "observed_external_source": {
       "reference_id": "legacy-record-001-current-primary",
       "path": "source-data/measurement.csv",
       "status": "observed",
       "observation_level": "file_level",
-      "expected_digest": "sha256:3f585c5b6e5cc01b77d79d91aaf17f02e1b6f9f896476f2531d13bf737878b6c",
-      "observed_digest": "sha256:3f585c5b6e5cc01b77d79d91aaf17f02e1b6f9f896476f2531d13bf737878b6c",
-      "expected_size_bytes": 87,
-      "observed_size_bytes": 87,
+      "expected_digest": "sha256:199db1971c733fb3e850c073f16367fbbb8ef0c7f3c1e1724078fd83cfba244a",
+      "observed_digest": "sha256:199db1971c733fb3e850c073f16367fbbb8ef0c7f3c1e1724078fd83cfba244a",
+      "expected_size_bytes": 86,
+      "observed_size_bytes": 86,
       "data_observation": "not_performed",
       "preview_verification": "not_performed"
     },
