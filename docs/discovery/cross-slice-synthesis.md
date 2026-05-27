@@ -71,6 +71,7 @@ relation graph, or warning taxonomy.
 - [`uv-sync-intent-validation-result.md`](uv-sync-intent-validation-result.md)
 - [`uv-sync-result-validation-result.md`](uv-sync-result-validation-result.md)
 - [`environment-operation-review-bundle-validation-result.md`](environment-operation-review-bundle-validation-result.md)
+- [`environment-operation-route-consolidation.md`](environment-operation-route-consolidation.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
 - [`adoption-routes.md`](adoption-routes.md)
 - [`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md)
@@ -678,6 +679,12 @@ process execution, dependency-output parsing, verified sync or package
 installation, runtime probes, code import or execution, hardware probes, shared
 environment schema, general manager abstraction, managed runners, run-blocking
 decisions, or runnable-readiness claims.
+The route-level consolidation in
+[`environment-operation-route-consolidation.md`](environment-operation-route-consolidation.md)
+now treats those uv-specific preflight, intent, result, review, and edge-case
+fixtures as enough route evidence to pause broad environment-operation slice
+expansion until a new product authority question requires execution, Pixi,
+runtime probing, package projection, or managed-runner validation.
 
 ## Version Terminology
 
@@ -953,6 +960,14 @@ unless a narrower implementation task requires one of them. Before changing
 handoff-package fields or contracts, apply the route-local field-category
 checklist in
 [`handoff-package-route-contract-checklist.md`](handoff-package-route-contract-checklist.md).
+
+For the environment-operation route, uv-specific manifest preflight, command
+intent, external result recording, operation review, and edge-case fixture
+pressure are now consolidated in
+[`environment-operation-route-consolidation.md`](environment-operation-route-consolidation.md).
+Use that route-level note before adding more environment-operation behavior.
+Next work should be chosen by a new authority question: execution, Pixi/Conda
+support, runtime probing, package projection, or managed-runner validation.
 
 Shared model extraction is currently deferred in
 [`shared-model-extraction-deferral.md`](shared-model-extraction-deferral.md).
