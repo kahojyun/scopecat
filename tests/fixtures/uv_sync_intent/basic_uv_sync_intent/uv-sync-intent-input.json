@@ -1,0 +1,78 @@
+{
+  "uv_sync_intent_policy": {
+    "summary_policy": "review_summary",
+    "operation_authority": "approved_uv_sync_intent",
+    "manager_scope": "uv_only",
+    "working_directory_authority": "declared_relative_workspace_path",
+    "command_shape": "bounded_uv_sync_argv",
+    "filesystem_inspection": "not_performed",
+    "manifest_read": "not_performed",
+    "lockfile_read": "not_performed",
+    "dependency_resolution": "delegated_to_uv_not_performed_by_scopecat",
+    "dependency_sync": "not_executed",
+    "package_install": "not_performed_by_scopecat",
+    "process_execution": "not_performed",
+    "runtime_probe": "not_performed",
+    "code_import_execution": "not_performed",
+    "hardware_probe": "not_performed",
+    "readiness_claim": "not_claimed",
+    "shared_environment_schema": "not_defined"
+  },
+  "sync_request": {
+    "request_id": "uv-sync-intent-chevron-qA-001",
+    "approval_id": "approval-uv-sync-chevron-qA-001",
+    "approved_operation": "uv_sync_intent",
+    "workspace_root_label": "current editable workspace",
+    "declared_environment_id": "declared-env-chevron-qA-current",
+    "prepared_run_context_id": "prepared-run-context-chevron-qA-current",
+    "working_directory": "project",
+    "expected_manager": "uv",
+    "include_project_dependencies": true,
+    "dependency_groups": [
+      "analysis"
+    ],
+    "sync_mode": "include_project_dependencies_and_selected_groups",
+    "lock_policy": "uv_locked_mode",
+    "command_policy": "locked_no_default_groups"
+  },
+  "prepared_run_context": {
+    "prepared_run_context_id": "prepared-run-context-chevron-qA-current",
+    "label": "qA chevron calibration manual run context",
+    "scope": {
+      "managed_code_version_id": "managed-code-version-chevron-qA-001",
+      "editable_workspace_id": "editable-workspace-chevron-qA-current",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-current"
+    },
+    "selected_context_count": 5,
+    "preparation_claim": "manual_run_context_only"
+  },
+  "declared_environment": {
+    "environment_id": "declared-env-chevron-qA-current",
+    "label": "Current qA chevron uv environment",
+    "authority": "user_declared_inventory",
+    "record_status": "declared",
+    "scope": {
+      "managed_code_version_id": "managed-code-version-chevron-qA-001",
+      "editable_workspace_id": "editable-workspace-chevron-qA-current",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-current"
+    },
+    "environment_claims": {
+      "readiness_claim": "not_checked",
+      "sync_claim": "not_synced",
+      "execution_claim": "not_imported_loaded_or_executed",
+      "hardware_claim": "not_probed"
+    },
+    "modern_python_environment": {
+      "environment_ref": "uv-env-chevron-qA-current",
+      "manager": "uv",
+      "pyproject_path": "project/pyproject.toml",
+      "lockfile_path": "project/uv.lock",
+      "project_dependencies": "declared",
+      "dependency_groups": [
+        "analysis"
+      ],
+      "python_version_source": "requires-python",
+      "manifest_state": "declared"
+    }
+  }
+}

@@ -65,6 +65,7 @@ relation graph, or warning taxonomy.
 - [`environment-file-observation-validation-result.md`](environment-file-observation-validation-result.md)
 - [`environment-review-bundle-validation-result.md`](environment-review-bundle-validation-result.md)
 - [`modern-manifest-preflight-validation-result.md`](modern-manifest-preflight-validation-result.md)
+- [`uv-sync-intent-validation-result.md`](uv-sync-intent-validation-result.md)
 - [`problem-briefs/measurement-record-boundary.md`](problem-briefs/measurement-record-boundary.md)
 - [`adoption-routes.md`](adoption-routes.md)
 - [`measurement-context-candidate-backlog.md`](measurement-context-candidate-backlog.md)
@@ -600,6 +601,20 @@ runtimes, importing or executing code, probing hardware, defining a shared
 environment schema, defining managed runners, making run-blocking decisions,
 claiming manager-operation authority, or claiming runnable readiness.
 
+UV sync intent has a slice-local implementation candidate for an approved
+manager-operation intent. It validates one declared `uv` command request,
+prepared run context, declared environment reference, relative working
+directory, lock policy, command policy, and dependency-group continuity before
+projecting exact argv. The first policy emits `uv sync --locked
+--no-default-groups` plus selected declared uv dependency groups, with project
+dependencies modeled separately from uv dependency groups, so the review
+surface is bounded without accepting arbitrary caller flags. It does this
+without inspecting the filesystem, reading manifests or lockfiles,
+resolving dependencies, executing `uv`, syncing packages, installing packages,
+probing runtimes, importing or executing code, probing hardware, defining a
+shared environment schema, defining a general manager abstraction, defining
+managed runners, making run-blocking decisions, or claiming runnable readiness.
+
 ## Version Terminology
 
 The slices are converging on a shared distinction without yet earning a shared
@@ -674,6 +689,7 @@ schema.
 | Environment file observation | Experiment code, prepared run context support | A read-only observation of explicitly declared environment files under a caller-provided workspace root. The first candidate records availability, sha256, byte size, malformed-manifest review findings, and narrow `pyproject.toml` declared summary fields without workspace discovery, lockfile graph parsing, dependency resolution or sync, runtime probes, hardware checks, code import, execution, or runnable-readiness claims. |
 | Environment review bundle | Experiment code, selected reference, prepared run context support | A composition of prepared/rerun context, declared environment comparison, file observation, and readiness-plan summaries into one review surface. It validates alignment and aggregates review findings without fresh observation, dependency resolution, dependency sync, package installation, runtime probes, hardware checks, code import, execution, shared environment schema, managed-runner behavior, run-blocking decisions, or runnable-readiness claims. |
 | Modern manifest preflight | Experiment code, prepared run context support | An optional `uv`/`pyproject.toml` review projection over one approved manifest under a caller-provided workspace root. It summarizes declared manifest facts, derives `default` only from list-shaped `[project].dependencies`, and reports missing or malformed `requires-python`, read failures, malformed dependency-group values, normalized dependency-group-name collisions, and missing dependency-group review findings, using normalized dependency-group comparison without defining a general manager abstraction, lockfile parsing, dependency resolution, dependency sync, package installation, runtime probes, hardware checks, code import, execution, shared environment schema, managed-runner behavior, run-blocking decisions, manager-operation authority, or runnable-readiness claims. |
+| UV sync intent | Experiment code, prepared run context support | A bounded `uv sync` command-intent projection over one approved request. It constructs exact argv from structured fields, including `--locked`, `--no-default-groups`, and selected declared uv dependency groups while modeling project dependencies separately, leaving filesystem inspection, manifest reads, lockfile reads, dependency resolution, process execution, dependency sync, package installation, runtime probes, hardware checks, code import, execution, shared environment schema, general manager abstraction, managed-runner behavior, run-blocking decisions, and runnable-readiness claims out of scope. |
 
 ## Stable Separations
 
@@ -768,6 +784,10 @@ Several separations now appear repeatedly enough to keep carrying forward:
   parsing, dependency resolution, dependency sync, package installation,
   runtime compatibility, managed-runner behavior, run-blocking decisions, and
   runnable-readiness.
+- UV sync intent can express a bounded external manager operation without
+  becoming that operation's executor. Exact argv construction should remain
+  manager-specific until multiple operation-intent slices earn a shared
+  manager abstraction.
 
 ## Design Pressure
 

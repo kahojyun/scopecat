@@ -71,7 +71,8 @@ The current slice does not earn:
 - branch, merge, conflict, push, pull, sync, or collaboration semantics;
 - package or environment ownership;
 - loading a selected code snapshot or managed code version for execution;
-- `uv sync` or lockfile-driven environment restoration;
+- `uv sync` execution, dependency synchronization, or lockfile-driven
+  environment restoration;
 - notebook execution, code import, dependency discovery, or hardware readiness
   checks;
 - workflow/DAG nodes, component-level code versions, or compatibility
@@ -110,8 +111,9 @@ Validation should follow authority boundaries more strictly than user adoption:
    workspace observation, selected parameter state, setup binding, and
    measurement intent.
 6. Validate declared environment inventory before environment readiness
-   planning, and keep any active dependency sync for a later modern-manifest
-   operation slice; legacy/lab-managed environment facts stay record-only.
+   planning, and keep any active dependency sync for a later bounded
+   manager-operation slice; legacy/lab-managed environment facts stay
+   record-only.
 7. Validate reference-based rerun preparation as a convenience workflow over
    prepared run context, not as a separate reproducibility claim.
 8. Validate environment readiness planning from declared environment context
@@ -133,6 +135,10 @@ Validation should follow authority boundaries more strictly than user adoption:
     declared `pyproject.toml` as structured environment-comparison evidence,
     while keeping external managers such as `uv` or Pixi authoritative for
     resolution, sync, and installation.
+13. Validate bounded manager-specific operation intent, such as `uv sync`,
+    before any process execution, dependency sync, package installation,
+    operation-result recording, runtime probe, managed runner, or shared
+    environment-manager abstraction.
 
 ## Validation Slice Backlog
 
@@ -387,6 +393,31 @@ manager abstraction, lockfile parsing, dependency resolution, dependency sync,
 package installation, runtime probes, hardware probes, code import, code
 execution, shared environment schema, managed runner, run-blocking decision, or
 runnable-readiness claim.
+
+### 13. UV Sync Intent
+
+Validation question: can Scopecat project one explicitly approved `uv sync`
+command intent into a bounded, reviewable argv without running the process or
+taking over uv's manager semantics?
+
+User pressure: users may want Scopecat to integrate with `uv sync` as an
+external manager operation, but the product should not need to parse manifests,
+parse lockfiles, resolve dependencies, or infer Python environment state before
+presenting a controlled command intent.
+
+First fixture: an approved qA chevron sync-intent request with prepared run
+context, declared current `uv`/`pyproject.toml` environment reference, declared
+workspace-root label, and relative working directory, producing
+`uv sync --locked --no-default-groups --group analysis` as exact argv.
+
+Result owner:
+[`uv-sync-intent-validation-result.md`](uv-sync-intent-validation-result.md)
+
+Boundary: approved `uv sync` command intent only; no filesystem inspection,
+manifest read, lockfile read, dependency resolution, dependency sync, package
+installation, process execution, runtime probes, hardware probes, code import,
+code execution, shared environment schema, general manager abstraction,
+managed runner, run-blocking decision, or runnable-readiness claim.
 
 All slices should keep code execution separate from code record integrity and
 environment planning until an explicit execution slice earns that authority.
