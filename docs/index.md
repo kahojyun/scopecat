@@ -9,7 +9,7 @@ Navigation map for current Scopecat docs.
 ```text
 docs/
   strategy/   product direction and boundaries
-  discovery/  problem briefs, adoption routes, validation, and synthesis
+  discovery/  problem briefs, policies, routes, validation slices, synthesis
   evidence/   evidence register, method, research, external baseline
 ```
 
@@ -19,9 +19,11 @@ docs/
 | [`AGENTS.md`](AGENTS.md) | AI-session rules for work inside `docs/`. |
 | [`strategy/product-direction.md`](strategy/product-direction.md) | Current product direction, default ownership boundaries, and non-goals. |
 | [`discovery/README.md`](discovery/README.md) | Discovery navigation for problem briefs, validation slices, synthesis, and deferrals. |
-| [`discovery/adoption-routes.md`](discovery/adoption-routes.md) | Evidence-backed adoption routes grouped by durable user workflow. |
-| [`discovery/cross-slice-synthesis.md`](discovery/cross-slice-synthesis.md) | Current synthesis across validated discovery slices. |
-| [`discovery/shared-model-extraction-deferral.md`](discovery/shared-model-extraction-deferral.md) | Current deferral of shared domain model extraction. |
+| [`discovery/doc-types.md`](discovery/doc-types.md) | Discovery document type responsibilities and ownership rules. |
+| [`discovery/routes/adoption-routes.md`](discovery/routes/adoption-routes.md) | Evidence-backed adoption routes grouped by durable user workflow. |
+| [`discovery/slices/README.md`](discovery/slices/README.md) | Current discovery slice inventory. |
+| [`discovery/synthesis/cross-slice.md`](discovery/synthesis/cross-slice.md) | Current synthesis across validated discovery slices. |
+| [`discovery/synthesis/shared-model-extraction-deferral.md`](discovery/synthesis/shared-model-extraction-deferral.md) | Current deferral of shared domain model extraction. |
 | [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md) | Evidence-backed problem briefs. |
 | [`evidence/evidence-register.md`](evidence/evidence-register.md) | Stable `EV-*` evidence claims and source posture. |
 | [`evidence/method.md`](evidence/method.md) | Evidence classes, support rules, source handling, and update rules. |

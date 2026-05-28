@@ -16,9 +16,9 @@ its evidence posture, source coverage, and the workflow pressure it can inform.
 Use neighboring documents for other layers:
 
 - interpretation rules and source hygiene: [`method.md`](method.md)
-- problem framing: [`../discovery/problem-briefs/`](../discovery/problem-briefs/)
+- problem framing: [`../discovery/problem-briefs/`](../discovery/problem-briefs)
 - product direction: [`../strategy/product-direction.md`](../strategy/product-direction.md)
-- adoption routes: [`../discovery/adoption-routes.md`](../discovery/adoption-routes.md)
+- adoption routes: [`../discovery/routes/adoption-routes.md`](../discovery/routes/adoption-routes.md)
 - external system baseline: [`external-baseline.md`](external-baseline.md)
 
 ## Source Families

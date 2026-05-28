@@ -5,7 +5,7 @@
 Evidence-backed problem brief.
 
 Related validation artifacts:
-[`../selected-measurement-export-decision-summary.md`](../selected-measurement-export-decision-summary.md)
+[`../selected-measurement-export-decision-summary.md`](../slices/measurement-records/selected-measurement-export-decision-summary.md)
 and the public-safe `tests/fixtures/scan_data_shapes/` fixtures.
 
 ## User-Facing Failure
