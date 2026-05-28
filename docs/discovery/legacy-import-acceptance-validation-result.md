@@ -101,8 +101,8 @@ Likely follow-up slices should stay separate:
 
 - existing-record append or update pressure, including locks and crash
   recovery;
-- adapter package or drop-folder validation without accepting a broad package
-  format or GUI workflow;
+- final adapter handoff transport, discovery, and trust beyond the current
+  adapter output boundary;
 - reference-only import planning for lab-managed shared storage without
   copying primary data;
 - data-level observation of copied normalized primary data after storage write,

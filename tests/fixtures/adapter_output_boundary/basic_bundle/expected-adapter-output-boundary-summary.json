@@ -1,0 +1,139 @@
+{
+  "status": "fixture",
+  "reference_semantics": {
+    "contract_guard": "Adapter output boundary validates one adapter-produced input bundle as transport pressure. It is not a final drop-folder protocol, writer-like adapter API, stable public adapter API, storage mutation, schema inference engine, legacy reader, reference repair workflow, linked-context importer, or GUI workflow.",
+    "source_fixture": "adapter-output/"
+  },
+  "candidate_summary": {
+    "adapter_output_schema": "scopecat.adapter_output_boundary.v0",
+    "adapter_output_policy": {
+      "adapter_output_authority": "adapter_produced_boundary",
+      "transport_shape": "file_bundle_fixture",
+      "final_transport_api": "not_decided",
+      "writer_like_api_compatibility": "logical_contract_only",
+      "legacy_source_parsing": "not_performed_by_scopecat",
+      "manifest_validation": "adapter_authored_legacy_import_manifest",
+      "file_observation": "declared_adapter_output_files",
+      "storage_mutation": "not_performed",
+      "import_acceptance": "not_performed",
+      "schema_inference": "not_performed",
+      "reference_repair": "not_performed",
+      "gui_workflow": "not_defined",
+      "stable_public_api": "not_defined"
+    },
+    "transport": {
+      "fixture_shape": "file_bundle",
+      "final_transport": "not_decided",
+      "writer_like_api": "logical_contract_compatible"
+    },
+    "classification": "adapter_output_ready_for_review",
+    "adapter_manifest_path": "adapter-import-manifest.json",
+    "adapter_manifest_review": {
+      "classification": "adapter_manifest_ready_for_review",
+      "adapter_id": "public-safe-legacy-adapter",
+      "measurement_record_id": "legacy-rabi-001",
+      "primary_data_path": "source-data/measurement.csv",
+      "primary_data_format": "csv_table",
+      "preview_status": "preview_ready",
+      "declared_row_count": 5,
+      "linked_context_ids": [
+        "legacy-001-parameter-snapshot"
+      ],
+      "adapter_finding_codes": [
+        "legacy_format_not_supported_by_core"
+      ],
+      "does_not_claim": "stable_adapter_api_or_schema_inference"
+    },
+    "measurement": {
+      "measurement_record_id": "legacy-rabi-001",
+      "label": "Rabi calibration follow-up",
+      "experiment_type": "rabi",
+      "started_at": "2026-05-01T10:15:00Z"
+    },
+    "source_identity": {
+      "external_record_id": "legacy-record-001",
+      "external_root_label": "redacted-lab-share",
+      "original_path_display": "LEGACY_SOURCE:/redacted/2026/05/01/legacy-record-001",
+      "local_path_redacted": true
+    },
+    "observed_files": [
+      {
+        "file_id": "adapter-manifest",
+        "role": "adapter_manifest",
+        "path": "adapter-import-manifest.json",
+        "status": "observed",
+        "expected_digest": "sha256:7b2551de961372fac4c8fcb7656935cea1477ea70ec8e59a698e9f3d9859880f",
+        "observed_digest": "sha256:7b2551de961372fac4c8fcb7656935cea1477ea70ec8e59a698e9f3d9859880f",
+        "expected_size_bytes": 2891,
+        "observed_size_bytes": 2891
+      },
+      {
+        "file_id": "normalized-primary-data",
+        "role": "normalized_primary_data",
+        "path": "source-data/measurement.csv",
+        "status": "observed",
+        "expected_digest": "sha256:669f4266ee0eacf1c6a2ff3312dc9aa589ed2ea28947a8be6e0254c6bb101065",
+        "observed_digest": "sha256:669f4266ee0eacf1c6a2ff3312dc9aa589ed2ea28947a8be6e0254c6bb101065",
+        "expected_size_bytes": 78,
+        "observed_size_bytes": 78
+      }
+    ],
+    "observed_linked_context_refs": [
+      {
+        "file_id": "legacy-001-parameter-snapshot",
+        "role": "linked_context_reference",
+        "path": "context/parameters.reference.json",
+        "status": "observed",
+        "expected_digest": "sha256:55d8bb024f2bde078592af25781a400cd59da5425d84efd37b49b12f601712cd",
+        "observed_digest": "sha256:55d8bb024f2bde078592af25781a400cd59da5425d84efd37b49b12f601712cd",
+        "expected_size_bytes": 164,
+        "observed_size_bytes": 164,
+        "payload_import": "not_performed"
+      }
+    ],
+    "review_findings": [],
+    "storage_mutation": "not_performed",
+    "import_acceptance": "not_performed",
+    "attention": [
+      {
+        "code": "file_bundle_fixture_transport",
+        "severity": "review",
+        "basis": "The fixture uses files to pressure the adapter-produced input boundary.",
+        "does_not_claim": "final_drop_folder_or_public_adapter_api"
+      },
+      {
+        "code": "writer_like_api_not_decided",
+        "severity": "review",
+        "basis": "A future writer-like adapter API could supply the same logical facts without the same directory layout.",
+        "does_not_claim": "final_transport_or_storage_protocol"
+      },
+      {
+        "code": "legacy_parser_not_in_core",
+        "severity": "review",
+        "basis": "Scopecat validates adapter output and does not parse the original legacy source format.",
+        "does_not_claim": "labrad_datavault_labber_reader"
+      },
+      {
+        "code": "import_not_accepted",
+        "severity": "review",
+        "basis": "This boundary validates adapter output before any copy/import acceptance step.",
+        "does_not_claim": "storage_mutation"
+      }
+    ]
+  },
+  "boundary_notes": [
+    "The file-shaped fixture pressures an adapter-produced input boundary, not a final transport API.",
+    "A writer-like adapter API could satisfy the same logical contract later without preserving this directory layout.",
+    "Scopecat validates adapter output facts and declared files without parsing legacy source formats or copying into storage."
+  ],
+  "decisions_not_earned": [
+    "final drop-folder protocol or writer-like adapter API",
+    "stable public adapter API",
+    "LabRAD, DataVault, Labber, or lab-specific legacy reader in Scopecat core",
+    "storage mutation or import acceptance",
+    "schema inference, scan-shape inference, or generic dataframe semantics",
+    "reference repair or moved-reference discovery",
+    "linked-context payload import or recursive traversal",
+    "GUI workflow"
+  ]
+}

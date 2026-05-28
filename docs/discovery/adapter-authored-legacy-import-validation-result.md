@@ -108,8 +108,9 @@ Likely follow-up slices should stay separate:
 
 - import acceptance for an adapter-authored manifest, with explicit storage
   mutation and no-overwrite or copy/reference policy;
-- adapter package or drop-folder validation, without accepting a broad package
-  format or GUI workflow;
+- concrete adapter transport validation only if users need a final
+  drop-folder, writer-like API, or service-mediated adapter handoff beyond the
+  current adapter output boundary;
 - file-level source observation or checksum validation for adapter-provided
   normalized primary data, without accepting a final integrity contract;
 - a local user-owned adapter script example outside Scopecat core, without

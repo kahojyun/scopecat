@@ -41,6 +41,7 @@ relation graph, or warning taxonomy.
 - [`contract-primitives-validation-result.md`](contract-primitives-validation-result.md)
 - [`filesystem-mutation-helpers-validation-result.md`](filesystem-mutation-helpers-validation-result.md)
 - [`adapter-authored-legacy-import-validation-result.md`](adapter-authored-legacy-import-validation-result.md)
+- [`adapter-output-boundary-validation-result.md`](adapter-output-boundary-validation-result.md)
 - [`legacy-import-acceptance-validation-result.md`](legacy-import-acceptance-validation-result.md)
 - [`reference-only-legacy-import-validation-result.md`](reference-only-legacy-import-validation-result.md)
 - [`reference-only-source-observation-validation-result.md`](reference-only-source-observation-validation-result.md)
@@ -305,6 +306,25 @@ validates the open-review-check-accept workflow order while explicitly keeping
 concurrent package-root mutation unsupported, and without adding archive
 extraction, signature validation, GUI state, dataframe behavior, final import
 API, final storage schema, or a shared measurement model.
+
+Adapter-authored legacy import has a slice-local implementation candidate for
+reviewing normalized manifests emitted by user-owned legacy adapters. It
+validates adapter identity, external source identity, adapter-normalized
+primary-data reference, declared preview metadata, linked context, and adapter
+findings while leaving stable adapter APIs, core LabRAD/DataVault/Labber
+readers, import acceptance, storage mutation, schema inference, package format,
+recursive traversal, and GUI behavior out of scope.
+
+Adapter output boundary has the first file-shaped adapter-produced input
+boundary candidate. It validates a boundary manifest, observes declared
+adapter output file facts for the adapter-authored manifest, normalized
+primary data, and linked-context references, delegates logical manifest
+checks to the adapter-authored legacy import candidate, and reports missing or
+mismatched declared files as review findings. The file layout is transport
+pressure only; it does not accept a final drop-folder protocol, writer-like
+adapter API, stable public adapter API, storage mutation, import acceptance,
+core legacy reader, schema inference, reference repair, linked-context payload
+import, or GUI workflow.
 
 Legacy import acceptance has a slice-local implementation candidate for the
 first approved review-to-acceptance mutation for a normalized adapter-authored
@@ -799,10 +819,10 @@ schema.
 | --- | --- | --- |
 | Measurement record | Export, incoming-record import preview, handoff package contents preview, legacy import acceptance, reference-only legacy import, reference-only source observation, running inspection, new-run writer, storage writer, source observation, calibration continuation | The ordinary user-facing unit for primary recorded experiment data, created from writer events, written to storage, accepted from reviewed legacy adapter manifests, preserved as external references, observed after storage or at the file level while still external, selected for export, previewed before external import, handoff package read-only open, or later package acceptance, inspected while running, or referenced as calibration output. |
 | Source identity | Export, incoming-record import preview, legacy import acceptance, reference-only legacy import, running inspection, new-run writer, calibration continuation | Recoverable provenance for where a record came from, distinct from current read path, package-relative fixture path, writer-declared primary data path, external current reference, or final storage identity. |
-| Primary data reference | Export, incoming-record import preview, handoff package contents preview, legacy import acceptance, running inspection, new-run writer, storage writer, source observation, measurement boundary | A Scopecat-readable or adapter-normalized data item users expect to inspect, preview, export, import, package, store, observe, or later plot; may be fixture path-shaped now but should not imply durable path identity. Original legacy files preserved without normalized data should be modeled as external source references, not previewable primary data. |
+| Primary data reference | Export, incoming-record import preview, handoff package contents preview, adapter output boundary, legacy import acceptance, running inspection, new-run writer, storage writer, source observation, measurement boundary | A Scopecat-readable or adapter-normalized data item users expect to inspect, preview, export, import, package, store, observe, or later plot; may be fixture path-shaped now but should not imply durable path identity. Original legacy files preserved without normalized data should be modeled as external source references, not previewable primary data. |
 | External source reference | Storage-transition export, incoming-record import preview, adapter-authored legacy import, reference-only legacy import, reference-only source observation, measurement boundary | A declared pointer to original or lab-managed external data for provenance, transition, or later observation. It can carry source identity, reference state, redacted display facts, and file-level observations, but does not imply Scopecat can parse, preview, or plot the referenced data. |
-| Declared preview metadata | Export, incoming-record import preview, handoff package contents preview, legacy import acceptance, reference-only legacy import, running inspection, new-run writer, storage writer, source observation, scan/data-shape | Shape, roles, labels, units, axis order, row order, and plot candidates supplied explicitly enough to support preview without schema inference when paired with Scopecat-readable or adapter-normalized data. For external source references, preview metadata remains a declared adapter/manifest assertion until normalized data or data-level observation is validated. |
-| Linked context | Export, incoming-record import preview, handoff package contents preview, legacy import acceptance, reference-only legacy import, derived artifact source links, calibration continuation, measurement boundary | Snapshots, attachments, artifacts, fit previews, notes, or derived outputs connected to a measurement, package, or step with explicit relation and authority. |
+| Declared preview metadata | Export, incoming-record import preview, handoff package contents preview, adapter output boundary, legacy import acceptance, reference-only legacy import, running inspection, new-run writer, storage writer, source observation, scan/data-shape | Shape, roles, labels, units, axis order, row order, and plot candidates supplied explicitly enough to support preview without schema inference when paired with Scopecat-readable or adapter-normalized data. For external source references, preview metadata remains a declared adapter/manifest assertion until normalized data or data-level observation is validated. |
+| Linked context | Export, incoming-record import preview, handoff package contents preview, adapter output boundary, legacy import acceptance, reference-only legacy import, derived artifact source links, calibration continuation, measurement boundary | Snapshots, attachments, artifacts, fit previews, notes, or derived outputs connected to a measurement, package, or step with explicit relation and authority. Adapter output boundary currently observes linked-context file facts only; it does not import or interpret payloads. |
 | Include state | Export, handoff package contents preview, measurement boundary | Whether linked context is default-included, user-included, visible-but-excluded, visible-but-not-packaged, missing, or local-only; this is not recursive graph traversal. |
 | Lifecycle or progress state | Running inspection, new-run writer, calibration continuation | Current status of a measurement or step, such as running, complete, partial, review-needed, failed, or blocked. |
 | Intervention or operation | Running inspection, calibration continuation, future GUI pressure | A user-facing item that needs attention or can be acted on, without implying autonomous execution. |
@@ -1039,13 +1059,14 @@ Before changing handoff-package fields or contracts, apply the route-local
 field-category checklist in
 [`handoff-package-route-contract-checklist.md`](handoff-package-route-contract-checklist.md).
 
-For the import/source route, adapter-authored legacy manifests, copy
-acceptance, reference-only import, reference-only source observation, storage
-writer behavior, and stored source observation are now consolidated in
+For the import/source route, adapter-authored legacy manifests, adapter output
+boundary validation, copy acceptance, reference-only import, reference-only
+source observation, storage writer behavior, and stored source observation are
+now consolidated in
 [`measurement-import-source-route-decision-consolidation.md`](measurement-import-source-route-decision-consolidation.md).
 Use that route-level note before adding more import or source-reference
-behavior. Next work should be chosen by a new authority question: adapter
-package/drop-folder validation, data-level read of adapter-normalized output,
+behavior. Next work should be chosen by a new authority question: final
+adapter handoff transport, data-level read of adapter-normalized output,
 reference repair review, existing-record append/update, or a narrower
 shared-model extraction trigger.
 
