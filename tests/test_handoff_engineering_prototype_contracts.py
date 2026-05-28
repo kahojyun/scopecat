@@ -1,0 +1,72 @@
+from __future__ import annotations
+
+import copy
+import json
+import unittest
+from pathlib import Path
+
+from scopecat.handoff.contracts import validate_package_primary_data_path
+from scopecat.handoff.manifest_preview import preview_handoff_manifest
+
+ROOT = Path(__file__).resolve().parents[1]
+PACKAGE = (
+    ROOT
+    / "tests"
+    / "fixtures"
+    / "handoff_package_opener"
+    / "basic_package"
+    / "package"
+    / "handoff-package-legacy-rabi-001"
+)
+HANDOFF_MODULE = ROOT / "scopecat" / "handoff"
+
+
+def _load_manifest() -> dict:
+    return json.loads((PACKAGE / "package-manifest.json").read_text(encoding="utf-8"))
+
+
+class HandoffEngineeringPrototypeContractsTest(unittest.TestCase):
+    def test_manifest_preview_is_route_local_product_state(self) -> None:
+        preview = preview_handoff_manifest(_load_manifest())
+
+        self.assertEqual(preview.package_id, "handoff-package-legacy-rabi-001")
+        self.assertEqual(preview.classification, "needs_review_before_acceptance")
+        self.assertEqual(preview.findings[0].code, "linked_context_not_packaged_visible_reference")
+        self.assertEqual(preview.findings[0].subject_type, "linked_context")
+
+    def test_preview_contract_rejects_plot_candidates_outside_declared_columns(self) -> None:
+        manifest = _load_manifest()
+        measurement = manifest["selected_measurements"][0]
+        measurement["declared_preview_metadata"] = copy.deepcopy(
+            measurement["declared_preview_metadata"]
+        )
+        measurement["declared_preview_metadata"]["plot_candidates"][0]["y"] = "missing_signal"
+
+        with self.assertRaisesRegex(ValueError, "axes must reference declared columns"):
+            preview_handoff_manifest(manifest)
+
+    def test_primary_data_path_contract_is_canonical_for_handoff_route(self) -> None:
+        validate_package_primary_data_path(
+            "measurements/legacy-rabi-001/primary.csv",
+            measurement_record_id="legacy-rabi-001",
+            owner="primary data",
+        )
+
+        with self.assertRaisesRegex(ValueError, "path must be"):
+            validate_package_primary_data_path(
+                "records/legacy-rabi-001/primary.csv",
+                measurement_record_id="legacy-rabi-001",
+                owner="primary data",
+            )
+
+    def test_handoff_prototype_no_longer_imports_implementation_candidates(self) -> None:
+        offenders = []
+        for path in HANDOFF_MODULE.glob("*.py"):
+            if "implementation_candidates" in path.read_text(encoding="utf-8"):
+                offenders.append(path.name)
+
+        self.assertEqual(offenders, [])
+
+
+if __name__ == "__main__":
+    unittest.main()

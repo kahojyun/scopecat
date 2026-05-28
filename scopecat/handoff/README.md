@@ -11,3 +11,7 @@ plotting stack, or shared measurement-record domain model.
 The runtime API exposes route-local objects rather than discovery candidate
 summary dictionaries. `as_open_summary()` exists as a copy-safe prototype
 snapshot, not as a public contract.
+
+The prototype owns its handoff-specific manifest preview and contract helpers
+inside this module. Discovery implementation candidates remain historical
+validation inputs, not runtime dependencies for this route.

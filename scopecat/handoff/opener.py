@@ -9,19 +9,16 @@ import stat
 from pathlib import Path
 from typing import Any
 
-from implementation_candidates.contract_primitives import (
+from scopecat.handoff.contracts import (
     relative_path_parts as _relative_parts,
 )
-from implementation_candidates.contract_primitives import (
+from scopecat.handoff.contracts import (
     validate_package_primary_data_path,
     validate_positive_integer,
     validate_public_identifier,
     validate_sha256_digest,
 )
-from implementation_candidates.handoff_package_contents_preview import (
-    build_handoff_package_contents_preview_summary,
-)
-
+from scopecat.handoff.manifest_preview import preview_handoff_manifest
 from scopecat.handoff.package import (
     HandoffFinding,
     HandoffLinkedContext,
@@ -267,15 +264,12 @@ def open_handoff_package(package_dir: Path) -> HandoffPackage:
 
     package_dir = _existing_package_dir(package_dir)
     manifest = _load_manifest(package_dir)
-    preview_summary = build_handoff_package_contents_preview_summary(manifest)
+    preview = preview_handoff_manifest(manifest)
     _validate_manifest_identity(package_dir, manifest)
     linked_context = tuple(
         HandoffLinkedContext.from_manifest_item(item) for item in manifest["linked_context"]
     )
-    findings = tuple(
-        HandoffFinding.from_manifest_finding(finding)
-        for finding in preview_summary["preview_findings"]
-    )
+    findings = preview.findings
     measurements = [
         _opened_measurement(
             package_dir,
@@ -290,7 +284,7 @@ def open_handoff_package(package_dir: Path) -> HandoffPackage:
         display_name=manifest["package_identity"]["display_name"],
         created_by=manifest["package_identity"]["created_by"],
         source_export_summary_id=manifest["package_identity"]["source_export_summary_id"],
-        preview_classification=preview_summary["package"]["classification"],
+        preview_classification=preview.classification,
         measurements=tuple(measurements),
         linked_context=linked_context,
         findings=findings,

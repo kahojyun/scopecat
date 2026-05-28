@@ -138,6 +138,9 @@ It provides:
 - route-local read-only opener behavior for package manifest loading,
   package-local primary CSV reads, symlink guardrails, declared preview-table
   projection, and declared plot-series construction;
+- route-local handoff contract and manifest-preview helpers for package
+  identity, package-relative primary-data topology, preview-ready metadata,
+  linked-context references, package classification, and review findings;
 - product-shaped package state rather than candidate-shaped summary wrapping:
   manifest-preview findings, linked-context references, declared digest/size
   facts, primary/preview tables, and plot series are exposed as route-local
@@ -149,19 +152,18 @@ It provides:
 - a local `scopecat/ruff.toml` that applies stricter lint only to the
   prototype/product-shaped package.
 
-The prototype no longer delegates read-only opening to
-`implementation_candidates.handoff_package_opener`. It still reuses validated
-low-level contract primitives and the existing contents-preview summary
-builder for manifest-preview classification and findings. The local inspection
-artifact is prototype-local review output; it is not a portable package member,
-public report, final GUI component model, dataframe adapter, package import
-record, or package-integrity verification.
+The prototype no longer delegates read-only opening, manifest-preview
+classification, or handoff contract checks to `implementation_candidates`.
+Those discovery candidates remain historical validation evidence. The local
+inspection artifact is prototype-local review output; it is not a portable
+package member, public report, final GUI component model, dataframe adapter,
+package import record, or package-integrity verification.
 
 Promotion blockers still include:
 
-- deciding whether the remaining contents-preview and contract-primitives
-  dependencies are the right long-term boundary or should move under
-  accepted handoff route contracts before promotion;
+- deciding whether the route-local contract helpers should stay private to
+  the handoff prototype or become accepted handoff route contracts before
+  promotion;
 - deciding whether the current stdlib HTML renderer remains enough for the
   first accepted vertical or should be replaced by a template/rendering layer
   before promotion;
