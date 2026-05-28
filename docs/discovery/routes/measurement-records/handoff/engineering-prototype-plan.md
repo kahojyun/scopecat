@@ -260,12 +260,14 @@ If multiple routes later need the same lifecycle, validation behavior, and
 failure semantics, reconsider shared model extraction with a narrower accepted
 decision or ADR.
 
+Current stop-criteria assessment and promotion recommendation are recorded in
+[`engineering-prototype-readiness.md`](engineering-prototype-readiness.md).
+
 ## Open Questions
 
-- Which candidate output fields are user-facing enough to preserve in the
-  prototype view?
-- Should the inspection artifact become the accepted local review surface for
-  the first vertical, or remain prototype-only while a future GUI/report layer
-  is validated separately?
-- Which route-local models should be kept as projections rather than promoted
-  into shared measurement-record concepts?
+- Which route-local APIs should remain private implementation details during
+  the promotion pass?
+- Should route-local contract helpers stay private to handoff or become
+  accepted handoff route contracts before promotion?
+- Which old implementation candidates can be archived, left untouched as
+  evidence, or ignored by future maintenance?

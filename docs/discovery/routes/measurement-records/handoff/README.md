@@ -63,6 +63,10 @@ Use [`engineering-prototype-plan.md`](engineering-prototype-plan.md) for the
 prototype objective, scope, fixture policy, stop conditions, and promotion
 criteria.
 
+Use
+[`engineering-prototype-readiness.md`](engineering-prototype-readiness.md) for
+the current stop-criteria check and recommended promotion path.
+
 ## Artifact Boundary
 
 | Surface | Boundary posture | Redaction/reference responsibility |
