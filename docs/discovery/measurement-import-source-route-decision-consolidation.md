@@ -6,9 +6,9 @@ Discovery decision consolidation, not an ADR.
 
 This note closes the current measurement import/source-reference discovery
 pass. It records the route decisions earned by the validated adapter-authored
-legacy import, adapter output boundary, legacy import acceptance,
-reference-only import, reference-only source observation, append-only storage
-writer, and measurement source observation slices.
+legacy import, adapter output boundary, normalized primary table, legacy import
+acceptance, reference-only import, reference-only source observation,
+append-only storage writer, and measurement source observation slices.
 
 It does not accept a stable import API, adapter API, legacy reader, final
 storage schema, existing-record update behavior, reference repair, package
@@ -33,7 +33,7 @@ legacy system data
   -> reviewed adapter-authored manifest
   -> choose copy acceptance or reference-only acceptance
   -> optionally observe file facts
-  -> optionally read normalized primary data through a later validated route
+  -> optionally read normalized primary table facts where the route needs them
 ```
 
 Scopecat should not parse arbitrary legacy systems in core. Legacy-specific
@@ -67,6 +67,14 @@ normalized primary-data file under a caller-provided storage root. Its current
 row-count check is data-level evidence for the validated normalized fixture,
 not a generic schema inference engine.
 
+Normalized primary table reading is the route's first shared data-level table
+contract. It validates already-provided Scopecat-readable CSV bytes as
+string-valued rows with declared preview-column bindings. It does not observe
+files, parse legacy sources, infer schemas or dtypes, build plot series, or
+define dataframe behavior. A consuming route can adopt this table read before
+review/acceptance or after storage/package boundaries when that boundary
+already has normalized table bytes and needs table facts.
+
 Declared preview metadata from adapters is useful as an assertion. It becomes
 Scopecat-observed previewability only when normalized data access or an
 explicit adapter authority has been validated by the relevant slice.
@@ -95,6 +103,7 @@ plus declared output file facts.
 | Incoming orientation | Incoming measurement record import preview | Classify explicit incoming manifests without file reads or import acceptance. |
 | Adapter normalization | Adapter-authored legacy import manifest | Validate reviewed adapter-authored manifest facts with adapter-normalized primary data and external source identity. |
 | Adapter-produced input boundary | Adapter output boundary | Validate one file-shaped adapter-produced boundary as transport pressure, including declared manifest, primary-data, and linked-context file facts. |
+| Normalized table reading | Normalized primary table | Validate already-provided normalized CSV bytes into string-valued table facts and declared preview rows without file observation or schema inference. |
 | Copy acceptance | Legacy import acceptance | Copy one reviewed adapter-normalized primary file into a new record after approval and file preflight. |
 | Reference preservation | Reference-only legacy import | Preserve one lab-managed external source reference without source observation or storage mutation. |
 | External file observation | Reference-only source observation | Check availability, sha256, and byte size for one preserved external source reference. |
@@ -146,8 +155,8 @@ appears:
   extend the current adapter output boundary into a concrete final transport,
   discovery, trust, and failure model.
 - Users need to convert legacy data for plotting:
-  validate data-level open/read of adapter-normalized output, not direct
-  parsing of arbitrary legacy source references.
+  first require normalized Scopecat-readable table bytes, then use or extend
+  normalized table reading rather than parsing arbitrary legacy references.
 - Users need reference-only records to recover from moved files:
   validate a repair/review workflow without automatic path discovery by
   default.
@@ -166,10 +175,10 @@ Do more work on this track only when a product workflow needs a concrete final
 adapter handoff mechanism, such as drop-folder discovery, a writer-like API, or
 service-mediated adapter output.
 
-If the next question is whether adapter-normalized data can be read like a
-Scopecat table for preview, plotting, or Python access, validate data-level
-read of normalized adapter output next. That is separate from parsing raw
-legacy source formats.
+The first data-level normalized table read is now validated in
+[`normalized-primary-table-validation-result.md`](normalized-primary-table-validation-result.md).
+Adopt it in adapter output, storage observation, handoff package, SDK, or GUI
+routes only when that route needs the same table behavior.
 
 If the product question is instead durable storage editing, do
 **existing-record append/update** next. That is a storage-concurrency and

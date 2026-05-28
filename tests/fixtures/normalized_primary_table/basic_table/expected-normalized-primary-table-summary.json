@@ -1,0 +1,122 @@
+{
+  "status": "fixture",
+  "candidate_summary": {
+    "normalized_table_schema": "scopecat.normalized_primary_table.v0",
+    "normalized_table_policy": {
+      "table_authority": "scopecat_normalized_primary_table",
+      "input_authority": "caller_provided_bytes",
+      "format": "csv_table",
+      "file_observation": "not_performed",
+      "legacy_source_parsing": "not_performed",
+      "schema_inference": "not_performed",
+      "scan_shape_inference": "not_performed",
+      "scalar_type_inference": "not_performed",
+      "dataframe_adapter": "not_invoked",
+      "plot_series": "not_built",
+      "storage_mutation": "not_performed",
+      "stable_public_api": "not_defined"
+    },
+    "classification": "normalized_table_ready",
+    "source": "source/primary.csv",
+    "format": "csv_table",
+    "columns": [
+      {
+        "name": "drive_frequency",
+        "position": 0,
+        "declared": true,
+        "label": "Drive frequency",
+        "role": "sweep_axis",
+        "unit": "GHz"
+      },
+      {
+        "name": "signal",
+        "position": 1,
+        "declared": true,
+        "label": "Signal",
+        "role": "response",
+        "unit": "a.u."
+      },
+      {
+        "name": "comment",
+        "position": 2,
+        "declared": false,
+        "label": "comment",
+        "role": "undeclared",
+        "unit": null
+      }
+    ],
+    "declared_columns": [
+      {
+        "name": "drive_frequency",
+        "label": "Drive frequency",
+        "role": "sweep_axis",
+        "unit": "GHz"
+      },
+      {
+        "name": "signal",
+        "label": "Signal",
+        "role": "response",
+        "unit": "a.u."
+      }
+    ],
+    "row_count": 5,
+    "declared_row_count": 5,
+    "rows": [
+      {
+        "drive_frequency": "5.00",
+        "signal": "0.44",
+        "comment": "start"
+      },
+      {
+        "drive_frequency": "5.01",
+        "signal": "0.67",
+        "comment": "mid"
+      },
+      {
+        "drive_frequency": "5.02",
+        "signal": "0.81",
+        "comment": "peak"
+      },
+      {
+        "drive_frequency": "5.03",
+        "signal": "0.65",
+        "comment": "mid"
+      },
+      {
+        "drive_frequency": "5.04",
+        "signal": "0.43",
+        "comment": "end"
+      }
+    ],
+    "preview": {
+      "row_limit": 3,
+      "columns": [
+        "drive_frequency",
+        "signal"
+      ],
+      "rows": [
+        {
+          "drive_frequency": "5.00",
+          "signal": "0.44"
+        },
+        {
+          "drive_frequency": "5.01",
+          "signal": "0.67"
+        },
+        {
+          "drive_frequency": "5.02",
+          "signal": "0.81"
+        }
+      ]
+    },
+    "review_findings": []
+  },
+  "decisions_not_earned": [
+    "filesystem observation, file integrity, package format, or package integrity",
+    "adapter transport, handoff package behavior, or storage mutation",
+    "legacy source parsing",
+    "schema, scalar-type, scan-shape, or dataframe inference",
+    "plot series generation or GUI workflow",
+    "stable public table API"
+  ]
+}
