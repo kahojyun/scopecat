@@ -20,10 +20,11 @@ This defers shared architecture. It does not reject the recurring concepts.
 
 ## Context
 
-The cross-slice synthesis shows repeated vocabulary across measurement records,
-running inspection, calibration continuation, parameter state, setup binding,
-selected-reference comparison, experiment-code recording, managed code version,
-and measurement/data-shape fixtures:
+The cross-slice synthesis shows repeated vocabulary across areas including
+measurement records, running inspection, calibration continuation, parameter
+state, setup binding, selected-reference comparison, experiment-code records,
+managed code versions, declared environment context, environment operation,
+prepared-run context, and measurement/data-shape fixtures:
 
 - measurement record;
 - source identity;
