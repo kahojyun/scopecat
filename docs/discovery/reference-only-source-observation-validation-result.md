@@ -107,6 +107,7 @@ these separate boundaries:
 
 - data-level open/read of normalized adapter output;
 - reference repair or moved-reference review without automatic discovery;
-- adapter package or drop-folder validation;
+- final adapter handoff transport, discovery, and trust beyond the current
+  adapter output boundary;
 - existing-record append/update behavior with lock and crash-recovery pressure;
 - GUI display of reference-observation findings without previewing legacy data.

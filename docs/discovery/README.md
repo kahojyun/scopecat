@@ -71,6 +71,7 @@ supporting policy notes. The current slice inventory is:
 | Filesystem mutation helpers | Cross-slice support | Implementation candidate validated | Narrow no-overwrite filesystem helpers for caller-root writes, including existing-root checks, relative-path target resolution, symlink-parent rejection, existing target detection, partial-file cleanup, and multi-file rollback across mutation slices without accepting storage architecture, locking, package/import semantics, redaction, public API, or measurement-record schema. |
 | Handoff package route contracts | Measurement records support | Route-local support candidate | Shared helper checks for handoff package identity, manifest item state/include semantics, selected primary-data topology, canonical primary-data bundle entries, and preview-ready metadata binding, plus provisional receiving-composition checks for artifact target separation and reviewed package/preview/integrity fact continuity, without accepting a final package schema, SDK object model, GUI contract, storage architecture, or shared measurement-record domain model. |
 | Adapter-authored legacy import manifest | Measurement records | Implementation candidate validated | Side-effect-free validation and summary for normalized manifests emitted by user-owned legacy adapters, including adapter identity, external source identity, adapter-normalized primary-data reference, declared preview metadata, linked context, and adapter findings without stable public API, LabRAD/DataVault/Labber reader behavior, import acceptance, storage mutation, schema inference, package format, recursive traversal, or GUI behavior. |
+| Adapter output boundary | Measurement records | Implementation candidate validated | File-shaped adapter-produced input boundary fixture for reviewed adapter-authored manifest facts plus declared output file facts, including normalized primary data, linked-context reference file observation, sha256/size checks, and blocked review findings without accepting a final drop-folder protocol, writer-like adapter API, stable public adapter API, storage mutation, import acceptance, core legacy readers, schema inference, reference repair, linked-context payload import, or GUI behavior. |
 | Legacy import acceptance | Measurement records | Implementation candidate validated | Approved copy-into-new-record mutation for one reviewed adapter-authored manifest, including source sha256/size preflight, no-overwrite targets, copied adapter-normalized primary data, deterministic imported-record manifest, preserved external source identity, and reference-only linked context without stable import API, legacy readers in core, export-package acceptance, existing-record update, schema inference, recursive traversal, package integrity, or GUI behavior. |
 | Reference-only legacy import | Measurement records | Implementation candidate validated | Side-effect-free reference-only acceptance summary for one reviewed adapter-authored manifest, including lab-managed external source-reference facts, public-safe redacted display validation, preserved source identity, unobserved openability/checksum/size state, and reference-only linked context without copying primary data, storage mutation, source observation, repair, stable import API, legacy readers in core, export-package acceptance, schema inference, recursive traversal, package integrity, or GUI behavior. |
 | Reference-only source observation | Measurement records | Implementation candidate validated | File-level observation for one external source reference preserved by reference-only legacy import, including reference continuity, explicit external-root access, sha256/size comparison, unavailable/mismatch findings, and declared preview metadata as an unverified adapter assertion without data-level observation, row-count checks, preview verification, schema inference, copying, repair, storage mutation, legacy readers, or GUI behavior. |
@@ -203,6 +204,7 @@ Measurement Records the owner of context-support behavior.
 | [`filesystem-mutation-helpers-validation-result.md`](filesystem-mutation-helpers-validation-result.md) | Result of the first narrow shared no-overwrite filesystem mutation helpers used by current write slices. |
 | [`../../implementation_candidates/handoff_package_contracts/`](../../implementation_candidates/handoff_package_contracts/) | Route-local helper contracts shared by handoff package candidates where semantics are already identical. |
 | [`adapter-authored-legacy-import-validation-result.md`](adapter-authored-legacy-import-validation-result.md) | Result of the first normalized adapter-authored legacy import manifest candidate with adapter-normalized primary data. |
+| [`adapter-output-boundary-validation-result.md`](adapter-output-boundary-validation-result.md) | Result of the first adapter-produced input boundary candidate, using a file-shaped fixture as transport pressure without accepting a final drop-folder or writer-like adapter API. |
 | [`legacy-import-acceptance-validation-result.md`](legacy-import-acceptance-validation-result.md) | Result of the first approved copy-into-new-record acceptance candidate for a reviewed adapter-authored legacy manifest. |
 | [`reference-only-legacy-import-validation-result.md`](reference-only-legacy-import-validation-result.md) | Result of the first side-effect-free reference-only acceptance candidate for preserving an external source reference from a reviewed adapter-authored legacy manifest. |
 | [`reference-only-source-observation-validation-result.md`](reference-only-source-observation-validation-result.md) | Result of the first file-level observation candidate for external source references preserved by reference-only legacy import. |
@@ -211,16 +213,28 @@ Measurement Records the owner of context-support behavior.
 | [`derived-artifact-source-links-validation-result.md`](derived-artifact-source-links-validation-result.md) | Result of the first explicit derived-artifact source-link implementation candidate. |
 | [`measurement-source-observation-validation-result.md`](measurement-source-observation-validation-result.md) | Result of the first read-only source observation implementation candidate. |
 
-Candidate next slices in this route should stay separate:
-
 For handoff-package work, use
 [`handoff-package-route-decision-consolidation.md`](handoff-package-route-decision-consolidation.md)
-as the stop rule and reopen-trigger list. The bullets below are broader
-Measurement Records follow-ups, not handoff-package continuation by default.
+as the stop rule and reopen-trigger list. The import/source route notes below
+are broader Measurement Records follow-ups, not handoff-package continuation
+by default.
 
-- existing-record append or update pressure: validate locks, crash recovery,
-  and in-progress record behavior separately from the new-record writer and
-  legacy import acceptance.
+The first adapter output boundary candidate is validated in
+[`adapter-output-boundary-validation-result.md`](adapter-output-boundary-validation-result.md).
+It treats a file-shaped adapter-produced bundle as transport pressure: the
+adapter supplies reviewed manifest facts plus declared output file facts for
+normalized primary data and linked-context references. It does not accept a
+final drop-folder protocol, writer-like adapter API, stable public adapter API,
+storage mutation, import acceptance, schema inference, reference repair,
+linked-context payload import, or GUI behavior.
+
+The first legacy import acceptance candidate is validated in
+[`legacy-import-acceptance-validation-result.md`](legacy-import-acceptance-validation-result.md).
+It copies one reviewed adapter-authored legacy record into new storage after
+adapter-normalized primary-data sha256 and size preflight, preserves external
+source identity and linked context as reference-only facts, and leaves stable
+import APIs, legacy readers in core, export-package acceptance, existing-record
+update, schema inference, package integrity, and GUI behavior out of scope.
 
 The first reference-only legacy import candidate is validated in
 [`reference-only-legacy-import-validation-result.md`](reference-only-legacy-import-validation-result.md).
@@ -237,13 +251,11 @@ checking availability, sha256, and byte size while leaving row counts, schema,
 preview verification, copying, repair, storage mutation, legacy readers, and
 GUI behavior out of scope.
 
-The first legacy import acceptance candidate is validated in
-[`legacy-import-acceptance-validation-result.md`](legacy-import-acceptance-validation-result.md).
-It copies one reviewed adapter-authored legacy record into new storage after
-adapter-normalized primary-data sha256 and size preflight, preserves external
-source identity and linked context as reference-only facts, and leaves stable
-import APIs, legacy readers in core, export-package acceptance, existing-record
-update, schema inference, package integrity, and GUI behavior out of scope.
+Candidate next slices in this route should stay separate:
+
+- existing-record append or update pressure: validate locks, crash recovery,
+  and in-progress record behavior separately from the new-record writer and
+  legacy import acceptance.
 
 The first append-only storage writer candidate is validated in
 [`measurement-storage-writer-validation-result.md`](measurement-storage-writer-validation-result.md).

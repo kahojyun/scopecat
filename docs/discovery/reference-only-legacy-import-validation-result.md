@@ -107,8 +107,8 @@ Likely follow-up slices should stay separate:
   [`reference-only-source-observation-validation-result.md`](reference-only-source-observation-validation-result.md);
 - existing-record append or update pressure, including locks and crash
   recovery;
-- adapter package or drop-folder validation without accepting a broad package
-  format or GUI workflow;
+- final adapter handoff transport, discovery, and trust beyond the current
+  adapter output boundary;
 - reference repair or moved-reference review without automatic path discovery;
 - harder adapter-authored data-shape cases, such as ragged scans or
   trace-per-point data, without automatic schema inference.

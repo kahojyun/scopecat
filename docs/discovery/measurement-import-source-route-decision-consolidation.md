@@ -6,9 +6,9 @@ Discovery decision consolidation, not an ADR.
 
 This note closes the current measurement import/source-reference discovery
 pass. It records the route decisions earned by the validated adapter-authored
-legacy import, legacy import acceptance, reference-only import, reference-only
-source observation, append-only storage writer, and measurement source
-observation slices.
+legacy import, adapter output boundary, legacy import acceptance,
+reference-only import, reference-only source observation, append-only storage
+writer, and measurement source observation slices.
 
 It does not accept a stable import API, adapter API, legacy reader, final
 storage schema, existing-record update behavior, reference repair, package
@@ -29,6 +29,7 @@ and **observed file facts**:
 ```text
 legacy system data
   -> user/lab adapter output
+  -> reviewed adapter-produced boundary facts
   -> reviewed adapter-authored manifest
   -> choose copy acceptance or reference-only acceptance
   -> optionally observe file facts
@@ -70,6 +71,12 @@ Declared preview metadata from adapters is useful as an assertion. It becomes
 Scopecat-observed previewability only when normalized data access or an
 explicit adapter authority has been validated by the relevant slice.
 
+The current adapter output boundary fixture is file-shaped only to make the
+boundary testable. It does not decide whether the final adapter handoff is a
+drop-folder protocol, writer-like API, service call, or another transport. The
+stable part for now is the logical boundary: reviewed adapter manifest facts
+plus declared output file facts.
+
 ## Route Concepts
 
 | Concept | Current meaning | Not implied |
@@ -87,6 +94,7 @@ explicit adapter authority has been validated by the relevant slice.
 | --- | --- | --- |
 | Incoming orientation | Incoming measurement record import preview | Classify explicit incoming manifests without file reads or import acceptance. |
 | Adapter normalization | Adapter-authored legacy import manifest | Validate reviewed adapter-authored manifest facts with adapter-normalized primary data and external source identity. |
+| Adapter-produced input boundary | Adapter output boundary | Validate one file-shaped adapter-produced boundary as transport pressure, including declared manifest, primary-data, and linked-context file facts. |
 | Copy acceptance | Legacy import acceptance | Copy one reviewed adapter-normalized primary file into a new record after approval and file preflight. |
 | Reference preservation | Reference-only legacy import | Preserve one lab-managed external source reference without source observation or storage mutation. |
 | External file observation | Reference-only source observation | Check availability, sha256, and byte size for one preserved external source reference. |
@@ -115,7 +123,8 @@ Keep these out of the current route until a named workflow requires them:
 
 - stable public import API or adapter API;
 - core LabRAD, DataVault, Labber, or lab-specific legacy readers;
-- adapter package/drop-folder protocol, discovery, trust, and failure model;
+- final adapter package/drop-folder protocol, writer-like adapter API,
+  discovery, trust, and failure model beyond the current logical boundary;
 - existing-record append/update, locking, crash recovery, merge, and conflict
   behavior;
 - reference repair, moved-reference discovery, or automatic path search;
@@ -134,8 +143,8 @@ Do more import/source-route work only when one of these concrete triggers
 appears:
 
 - Users need to drop an adapter-produced bundle into Scopecat:
-  validate adapter package or drop-folder shape, required files, reviewed
-  facts, and failure reporting.
+  extend the current adapter output boundary into a concrete final transport,
+  discovery, trust, and failure model.
 - Users need to convert legacy data for plotting:
   validate data-level open/read of adapter-normalized output, not direct
   parsing of arbitrary legacy source references.
@@ -151,23 +160,16 @@ appears:
 
 ## Recommended Next Work
 
-The next high-value slice is **adapter package/drop-folder validation** if the
-product question is how lab-owned adapters hand normalized data to Scopecat.
-This is an adapter-produced input boundary, not the Scopecat-authored handoff
-package route.
+The first adapter-produced input boundary is now validated in
+[`adapter-output-boundary-validation-result.md`](adapter-output-boundary-validation-result.md).
+Do more work on this track only when a product workflow needs a concrete final
+adapter handoff mechanism, such as drop-folder discovery, a writer-like API, or
+service-mediated adapter output.
 
-That slice should validate a small adapter-produced bundle with:
-
-- explicit adapter identity and source identity;
-- one normalized primary data item;
-- one external source reference for provenance;
-- declared preview metadata as an adapter assertion;
-- small linked-context references;
-- repository-safe findings for missing, malformed, or inconsistent required
-  files.
-
-It should not copy into storage, parse legacy source formats, infer schema,
-repair references, define GUI behavior, or accept a stable public adapter API.
+If the next question is whether adapter-normalized data can be read like a
+Scopecat table for preview, plotting, or Python access, validate data-level
+read of normalized adapter output next. That is separate from parsing raw
+legacy source formats.
 
 If the product question is instead durable storage editing, do
 **existing-record append/update** next. That is a storage-concurrency and

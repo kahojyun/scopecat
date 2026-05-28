@@ -1,0 +1,54 @@
+{
+  "adapter_output_schema": "scopecat.adapter_output_boundary.v0",
+  "adapter_output_policy": {
+    "adapter_output_authority": "adapter_produced_boundary",
+    "transport_shape": "file_bundle_fixture",
+    "final_transport_api": "not_decided",
+    "writer_like_api_compatibility": "logical_contract_only",
+    "legacy_source_parsing": "not_performed_by_scopecat",
+    "manifest_validation": "adapter_authored_legacy_import_manifest",
+    "file_observation": "declared_adapter_output_files",
+    "storage_mutation": "not_performed",
+    "import_acceptance": "not_performed",
+    "schema_inference": "not_performed",
+    "reference_repair": "not_performed",
+    "gui_workflow": "not_defined",
+    "stable_public_api": "not_defined"
+  },
+  "transport": {
+    "fixture_shape": "file_bundle",
+    "final_transport": "not_decided",
+    "writer_like_api": "logical_contract_compatible"
+  },
+  "adapter_manifest_path": "adapter-import-manifest.json",
+  "declared_files": [
+    {
+      "file_id": "adapter-manifest",
+      "role": "adapter_manifest",
+      "path": "adapter-import-manifest.json",
+      "authority": "adapter_declared",
+      "required": true,
+      "digest": "sha256:7b2551de961372fac4c8fcb7656935cea1477ea70ec8e59a698e9f3d9859880f",
+      "size_bytes": 2891
+    },
+    {
+      "file_id": "normalized-primary-data",
+      "role": "normalized_primary_data",
+      "path": "source-data/measurement.csv",
+      "authority": "adapter_declared",
+      "required": true,
+      "digest": "sha256:669f4266ee0eacf1c6a2ff3312dc9aa589ed2ea28947a8be6e0254c6bb101065",
+      "size_bytes": 78
+    }
+  ],
+  "linked_context_refs": [
+    {
+      "link_id": "legacy-001-parameter-snapshot",
+      "path": "context/parameters.reference.json",
+      "authority": "adapter_declared",
+      "payload_import": "not_performed",
+      "digest": "sha256:55d8bb024f2bde078592af25781a400cd59da5425d84efd37b49b12f601712cd",
+      "size_bytes": 164
+    }
+  ]
+}
