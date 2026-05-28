@@ -1,0 +1,219 @@
+{
+  "summary_id": "calibration-fit-validation-dataset-repeated-attempt-history.expected",
+  "status": "expected_validation_output",
+  "source_fixture": "fit-validation-input.json",
+  "reference_semantics": {
+    "status": "fixture_references_are_synthetic",
+    "artifact_posture": "internal_validation_summary",
+    "contract_guard": "Attempt history is user-owned replay context, not a fitting API, score contract, replay harness, dataset registry, package format, GUI, or hardware-control contract."
+  },
+  "candidate_summary": {
+    "summary_id": "calibration-fit-validation-dataset-repeated-attempt-history.candidate",
+    "queue": [
+      {
+        "incident_id": "incident-rabi-repeated-attempt",
+        "order": 1,
+        "state": "fit_repaired_after_adjustment",
+        "measurement_ref": {
+          "record_id": "measurement:run-fit-0101",
+          "label": "Rabi amplitude scan with visible oscillation and repaired fit",
+          "preview_metadata_ref": "preview:rabi-amplitude-0101"
+        },
+        "calibration_target": "qA.drive_amplitude",
+        "fit_family": "rabi_amplitude",
+        "labels": [
+          "signal_fit_failed",
+          "roi_adjusted_refit",
+          "initial_guess_adjusted_refit",
+          "fit_repaired",
+          "add_to_validation_dataset"
+        ],
+        "fit_attempt_ref": "fit-attempt:rabi-0101-roi-refit-accepted",
+        "fit_attempt_status": "completed_after_user_adjustment",
+        "recovery_actions": [
+          "adjust_roi_refit",
+          "adjust_initial_guess_refit",
+          "accept_after_refit",
+          "add_to_validation_dataset"
+        ],
+        "chosen_recovery_action": "accept_after_refit",
+        "selected_for_dataset": true,
+        "source_authority": "fixture_declared_user_review",
+        "fit_attempt_history_count": 2,
+        "current_fit_attempt_ref": "fit-attempt:rabi-0101-roi-refit-accepted",
+        "selected_fit_attempt_refs": [
+          "fit-attempt:rabi-0101-default-failed",
+          "fit-attempt:rabi-0101-roi-refit-accepted"
+        ]
+      }
+    ],
+    "recovery_actions": [
+      {
+        "action_id": "incident-rabi-repeated-attempt:adjust_roi_refit",
+        "incident_id": "incident-rabi-repeated-attempt",
+        "action": "adjust_roi_refit",
+        "chosen": false,
+        "source": "fixture_declared"
+      },
+      {
+        "action_id": "incident-rabi-repeated-attempt:adjust_initial_guess_refit",
+        "incident_id": "incident-rabi-repeated-attempt",
+        "action": "adjust_initial_guess_refit",
+        "chosen": false,
+        "source": "fixture_declared"
+      },
+      {
+        "action_id": "incident-rabi-repeated-attempt:accept_after_refit",
+        "incident_id": "incident-rabi-repeated-attempt",
+        "action": "accept_after_refit",
+        "chosen": true,
+        "source": "fixture_declared"
+      },
+      {
+        "action_id": "incident-rabi-repeated-attempt:add_to_validation_dataset",
+        "incident_id": "incident-rabi-repeated-attempt",
+        "action": "add_to_validation_dataset",
+        "chosen": false,
+        "source": "fixture_declared"
+      }
+    ],
+    "dataset_candidates": [
+      {
+        "validation_case_id": "validation-case-rabi-repeated-attempt",
+        "source_measurement_ref": "measurement:run-fit-0101",
+        "calibration_target": "qA.drive_amplitude",
+        "fit_family": "rabi_amplitude",
+        "incident_labels": [
+          "signal_fit_failed",
+          "roi_adjusted_refit",
+          "initial_guess_adjusted_refit",
+          "fit_repaired",
+          "add_to_validation_dataset"
+        ],
+        "user_fit_attempt_ref": "fit-attempt:rabi-0101-roi-refit-accepted",
+        "user_code_ref": "code:rabi-fit-helper-v2",
+        "fit_config_ref": "fit-config:rabi-adjusted-roi-and-guess",
+        "review_note_ref": "note:rabi-repeated-attempt-0101",
+        "expected_replay_behavior": "Improved user code should cover the default visible-signal failure or make the required ROI and initial-guess adjustment explicit.",
+        "selection_reason": "The default failure and adjusted successful refit should remain linked for future regression coverage.",
+        "source_fit_attempt_refs": [
+          "fit-attempt:rabi-0101-default-failed",
+          "fit-attempt:rabi-0101-roi-refit-accepted"
+        ],
+        "selected_fit_attempts": [
+          {
+            "attempt_id": "fit-attempt:rabi-0101-default-failed",
+            "status": "fit_failed_exception",
+            "user_code_ref": "code:rabi-fit-helper-v2",
+            "fit_config_ref": "fit-config:rabi-default-roi"
+          },
+          {
+            "attempt_id": "fit-attempt:rabi-0101-roi-refit-accepted",
+            "status": "completed_after_user_adjustment",
+            "user_code_ref": "code:rabi-fit-helper-v2",
+            "fit_config_ref": "fit-config:rabi-adjusted-roi-and-guess"
+          }
+        ]
+      }
+    ],
+    "dataset_draft": {
+      "dataset_id": "fit-validation-dataset-qA-0002",
+      "label": "qA repeated fit attempt validation draft",
+      "posture": "lab_internal_validation_dataset_draft",
+      "selected_case_ids": [
+        "validation-case-rabi-repeated-attempt"
+      ],
+      "withheld_incident_ids": [],
+      "ready_for_lab_internal_validation": true
+    },
+    "attention": [],
+    "boundary": {
+      "summary_posture": "internal_validation_summary",
+      "non_claims": [
+        "no fit execution",
+        "no Scopecat-defined score",
+        "no automatic ROI or initial-guess selection",
+        "no remeasurement or hardware control",
+        "no parameter write-back",
+        "no replay harness",
+        "no dataset registry",
+        "no GUI workflow",
+        "no portable/public dataset package"
+      ]
+    },
+    "attempt_histories": [
+      {
+        "incident_id": "incident-rabi-repeated-attempt",
+        "current_fit_attempt_ref": "fit-attempt:rabi-0101-roi-refit-accepted",
+        "selected_fit_attempt_refs": [
+          "fit-attempt:rabi-0101-default-failed",
+          "fit-attempt:rabi-0101-roi-refit-accepted"
+        ],
+        "attempts": [
+          {
+            "attempt_id": "fit-attempt:rabi-0101-default-failed",
+            "order": 1,
+            "status": "fit_failed_exception",
+            "status_reason": "Default initial guess missed the visible oscillation region.",
+            "user_code_ref": "code:rabi-fit-helper-v2",
+            "fit_config_ref": "fit-config:rabi-default-roi",
+            "config_labels": [
+              "default_roi",
+              "default_initial_guess"
+            ],
+            "input_adjustments": [],
+            "output_ref": "artifact:rabi-default-fit-exception-preview",
+            "declared_diagnostics": {
+              "fit_quality_facts": [
+                "visible_oscillation",
+                "exception_before_result"
+              ],
+              "score_policy": "user_declared_no_threshold"
+            }
+          },
+          {
+            "attempt_id": "fit-attempt:rabi-0101-roi-refit-accepted",
+            "order": 2,
+            "status": "completed_after_user_adjustment",
+            "status_reason": "User narrowed the ROI and changed the initial guess.",
+            "user_code_ref": "code:rabi-fit-helper-v2",
+            "fit_config_ref": "fit-config:rabi-adjusted-roi-and-guess",
+            "config_labels": [
+              "adjusted_roi",
+              "adjusted_initial_guess"
+            ],
+            "input_adjustments": [
+              "roi_narrowed_to_visible_oscillation",
+              "initial_guess_seeded_from_neighboring_period"
+            ],
+            "output_ref": "artifact:rabi-fit-adjusted-preview",
+            "declared_diagnostics": {
+              "fit_quality_facts": [
+                "completed_without_exception",
+                "manual_review_accepted"
+              ],
+              "score_policy": "user_declared_no_threshold"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "boundary_notes": [
+    "Attempt history records user-owned fit attempts and review facts.",
+    "Input adjustments are declared context, not Scopecat-generated ROI or initial guesses.",
+    "Declared diagnostics and score-policy labels are user facts, not Scopecat thresholds.",
+    "Selected fit attempts remain lab-internal validation references, not a replay harness."
+  ],
+  "decisions_not_earned": [
+    "fitting API",
+    "score model",
+    "attempt replay harness",
+    "dataset registry",
+    "GUI workflow",
+    "automatic ROI selection",
+    "automatic initial-guess generation",
+    "parameter write-back",
+    "hardware control"
+  ]
+}

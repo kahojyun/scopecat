@@ -19,6 +19,7 @@ datasets.
 - [`brief`](../../problem-briefs/calibration-fit-validation-dataset.md)
 - [`validation plan`](calibration-fit-validation-dataset-validation-plan.md)
 - `tests/fixtures/calibration_fit_validation_dataset/basic_candidate_queue/`
+- `tests/fixtures/calibration_fit_validation_dataset/repeated_attempt_history/`
 - `implementation_candidates/calibration_fit_validation_dataset/`
 
 ## Validated Boundary
@@ -45,6 +46,20 @@ The expected summary organizes that context into:
 - attention findings for selected cases missing replay context;
 - explicit boundary non-claims.
 
+A second repeated-attempt fixture validates one richer incident where a
+visible-signal default fit fails, the user adjusts ROI and initial guess, a
+later attempt completes after review, and the user selects both attempts as
+linked validation context.
+
+That fixture uses sample-derived vocabulary only as declared facts:
+
+- fit helpers may report warning/failure text when fitting fails;
+- batch fit helpers may retry from neighboring fitted parameters;
+- user-visible diagnostics may include chi-like values, stderr, SNR,
+  visibility, fidelity, or fit-score-style facts;
+- ROI and initial-guess changes are user-owned recovery context, not
+  Scopecat-generated advice.
+
 ## Important Separations
 
 The fixture clarified several boundaries that should be preserved:
@@ -58,6 +73,8 @@ The fixture clarified several boundaries that should be preserved:
 - Selected validation cases require enough user-owned replay context to be
   useful later: source measurement, fit attempt, user-code reference, fit
   config, review note, and expected replay behavior.
+- Repeated fit attempts are useful validation context when the original
+  failure and the adjusted refit explain each other.
 - The lab-internal dataset draft is not a portable/export package.
 
 ## Assembler Candidate
@@ -70,10 +87,16 @@ It assembles and validates:
 
 - unique fit-incident identifiers;
 - unique derived validation case identifiers for selected cases;
+- unique fit-attempt identifiers inside declared attempt histories;
+- non-empty unique selected-attempt lists for selected history-backed cases;
+- current and selected fit attempts reference declared attempt history entries;
 - chosen recovery action membership in available actions;
 - queue summaries from declared incident facts;
 - recovery action records as user choices;
 - selected incidents into minimal validation case records;
+- history-backed validation cases whose primary fit/code/config refs come from
+  the primary selected attempt;
+- optional attempt-history summaries for repeated user-owned refits;
 - readiness findings when selected cases lack replay context;
 - readiness findings when the draft posture is outside the validated
   lab-internal boundary.
@@ -89,6 +112,8 @@ The current summary can answer:
 - which fit incidents are waiting for review or recovery;
 - which immediate recovery action was chosen for each incident;
 - which incidents were selected for validation dataset inclusion;
+- which declared fit attempts were selected as part of a validation case;
+- which user-owned adjustments connect a failed attempt to a later refit;
 - which no-signal incident was withheld from the dataset draft;
 - which minimal validation case records would be available for future replay;
 - whether selected cases are missing replay context;
@@ -107,6 +132,7 @@ This validation does not earn:
 - Scopecat-decided parameter write-back;
 - local executor or notebook execution;
 - replay harness;
+- attempt-history data model beyond this candidate projection;
 - dataset registry service;
 - portable/public dataset package;
 - GUI implementation;
@@ -117,10 +143,10 @@ This validation does not earn:
 
 - The fixture is hand-authored and synthetic. It validates shape and boundary,
   not product usefulness.
-- The fixture covers only three incident types. It does not cover ambiguous
-  data quality, multiple repeated fit attempts, conflicting user labels,
-  partial raw-data availability, selected cases with private context, or
-  dataset versioning.
+- The fixtures cover only four incident shapes across two synthetic inputs.
+  They do not cover ambiguous data quality, many repeated fit attempts,
+  conflicting user labels, partial raw-data availability, selected cases with
+  private context, or dataset versioning.
 - The summary does not prove that users will accept the candidate queue in the
   middle of calibration work.
 - Replay is only represented as future user-owned intent. No harness, adapter,
@@ -128,14 +154,14 @@ This validation does not earn:
 
 ## Slice Recommendation
 
-Continue with one richer fixture before designing a dataset registry or replay
-harness.
+Attempt history is now pressured enough to keep in the candidate read model,
+but not enough to become a final shared fit-result schema.
 
-The next fixture should pressure repeated user-owned fit attempts on the same
-measurement: failed default fit, adjusted ROI or initial guess, accepted or
-still failed outcome, and final decision to add or withhold the case. That
-would test whether the queue needs first-class attempt history before any GUI,
-registry, or replay adapter work.
+Continue with one narrow workflow composition before designing a dataset
+registry or replay harness. The next useful fixture should connect this
+attempt-history summary to calibration work continuation: an immediate user
+choice keeps the experiment moving, while the selected failed/refit attempts
+remain available for later lab-internal validation.
 
 Do not start fit execution, scoring, automatic ROI selection, remeasurement,
 write-back, or hardware-control work from this slice.

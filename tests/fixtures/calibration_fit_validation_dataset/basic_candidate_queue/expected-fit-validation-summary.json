@@ -223,6 +223,9 @@
         "no automatic ROI or initial-guess selection",
         "no remeasurement or hardware control",
         "no parameter write-back",
+        "no replay harness",
+        "no dataset registry",
+        "no GUI workflow",
         "no portable/public dataset package"
       ]
     }
