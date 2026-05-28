@@ -78,6 +78,7 @@ supporting policy notes. The current slice inventory is:
 | Reference-only source observation | Measurement records | Implementation candidate validated | File-level observation for one external source reference preserved by reference-only legacy import, including reference continuity, explicit external-root access, sha256/size comparison, unavailable/mismatch findings, and declared preview metadata as an unverified adapter assertion without data-level observation, row-count checks, preview verification, schema inference, copying, repair, storage mutation, legacy readers, or GUI behavior. |
 | New-run measurement writer semantics | Measurement records | Implementation candidate validated | Side-effect-free summary from explicit writer events, including lifecycle, progress, declared primary data reference, and preview metadata without storage mutation, source observation, schema inference, live service, hardware control, scan execution, or GUI behavior. |
 | Append-only measurement storage writer | Measurement records | Implementation candidate validated | Approved filesystem mutation for one new measurement record directory from declared append chunks, including sha256/size preflight, no-overwrite targets, stored primary data, and deterministic manifest without final storage architecture, schema inference, import/export packages, live service, GUI, or hardware-control authority. |
+| Existing record append update | Measurement records | Implementation candidate validated | Approved append-style mutation under one existing measurement record directory, including current-record preflight, direct record-local lock guard use, no-overwrite append-segment and update-receipt writes, and explicit non-claims around manifest replacement, compaction, crash recovery, live service, GUI, or hardware-control authority. |
 | Derived artifact source links | Measurement records | Implementation candidate validated | Side-effect-free summary for an explicit derived-artifact manifest, including artifact identity, direct source measurement roles, relation states, and review findings without artifact parsing, source observation, checksum validation, storage mutation, recursive traversal, analysis-DAG inference, scientific validity review, or GUI behavior. |
 | Measurement source observation | Measurement records | Implementation candidate validated | Read-only observation for one normalized primary-data file under a caller-provided storage root, including sha256/size file facts, CSV row-count data-level comparison for the validated fixture, unavailable, and mismatch findings without schema inference, repair, recursive storage inspection, import/export packages, live service, GUI, or hardware-control authority. |
 | Measurement record handoff flow | Measurement records | Composition candidate under review | Provisional vertical workflow that consumes selected explicit accepted-record facts, builds a read-only source-observation request for stored source data, carries unavailable or mismatch findings, summarizes selected measurement export, and previews an explicit handoff package manifest while validating accepted-record paths and materialization, public-safe display references, accepted-record/measurement identity continuity, package-declared export-summary reference syntax, candidate-local package/export path topology, preview metadata, linked-context handoff alignment, and slice boundaries. Accepted linked-context `reference` values remain adapter-declared scalar text for local review; topology validation applies to owned package/export fields such as `linked_context_export_refs[].path` and package `package_path`. The flow does not accept storage mutation, a shared measurement schema, package writer, package acceptance, GUI, recursive traversal, schema inference, or final storage/package architecture. |
@@ -212,6 +213,7 @@ Measurement Records the owner of context-support behavior.
 | [`reference-only-source-observation-validation-result.md`](reference-only-source-observation-validation-result.md) | Result of the first file-level observation candidate for external source references preserved by reference-only legacy import. |
 | [`new-run-measurement-writer-validation-result.md`](new-run-measurement-writer-validation-result.md) | Result of the first side-effect-free writer-event implementation candidate. |
 | [`measurement-storage-writer-validation-result.md`](measurement-storage-writer-validation-result.md) | Result of the first approved append-only storage writer implementation candidate. |
+| [`existing-record-update-validation-result.md`](existing-record-update-validation-result.md) | Result of the first approved existing-record append update implementation candidate. |
 | [`derived-artifact-source-links-validation-result.md`](derived-artifact-source-links-validation-result.md) | Result of the first explicit derived-artifact source-link implementation candidate. |
 | [`measurement-source-observation-validation-result.md`](measurement-source-observation-validation-result.md) | Result of the first read-only source observation implementation candidate. |
 
@@ -262,9 +264,9 @@ GUI behavior out of scope.
 
 Candidate next slices in this route should stay separate:
 
-- existing-record append or update pressure: validate locks, crash recovery,
-  and in-progress record behavior separately from the new-record writer and
-  legacy import acceptance.
+- stronger existing-record update pressure, such as manifest replacement,
+  read-model refresh, stale-lock cleanup, crash recovery, conflict policy, and
+  in-progress record semantics, separately from the first append-receipt slice.
 
 The first append-only storage writer candidate is validated in
 [`measurement-storage-writer-validation-result.md`](measurement-storage-writer-validation-result.md).
@@ -273,6 +275,16 @@ declared append chunks, after sha256 and size preflight, while refusing
 existing targets and leaving final storage architecture, import/export package
 behavior, schema inference, live service, GUI, and hardware control out of
 scope.
+
+The first existing-record update candidate is validated in
+[`existing-record-update-validation-result.md`](existing-record-update-validation-result.md).
+It performs one approved append-style mutation under an existing record
+directory, first checking the record directory without creating it, then
+acquiring a direct record-local lock guard before current-record preflight,
+append-chunk read, and no-overwrite append-segment/update-receipt writes. It
+leaves manifest replacement, primary-data merge or compaction, read-model
+refresh, stale-lock cleanup, crash recovery, live service, GUI, and hardware
+control out of scope.
 
 The first derived artifact source-link candidate is validated in
 [`derived-artifact-source-links-validation-result.md`](derived-artifact-source-links-validation-result.md).

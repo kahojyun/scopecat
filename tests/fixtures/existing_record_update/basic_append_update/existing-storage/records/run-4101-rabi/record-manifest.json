@@ -1,0 +1,15 @@
+{
+  "expected_points": 5,
+  "experiment_type": "rabi_amplitude",
+  "label": "Partial Rabi run 4101",
+  "measurement_record_id": "run-4101-rabi",
+  "primary_data": {
+    "digest": "sha256:1d1f73992d187e9c1b0986ac767e119df8dcfa80df44db420138d4fafd584ad1",
+    "format": "csv_table",
+    "path": "records/run-4101-rabi/primary.csv",
+    "rows_recorded": 3,
+    "size_bytes": 72
+  },
+  "record_dir": "records/run-4101-rabi",
+  "target": "q0"
+}

@@ -89,8 +89,8 @@ external incoming-record manifest or a Scopecat-authored export package.
 
 The candidate is intentionally small. It copies one primary-data file and
 writes one imported-record manifest under a caller-provided storage root after
-digest and size checks. Existing-record append or update behavior remains a
-separate storage problem.
+digest and size checks. Existing-record append-receipt behavior is validated
+separately, and stronger update behavior remains a separate storage problem.
 
 ## Follow-Up
 
@@ -99,8 +99,8 @@ needs a harder storage or adapter boundary.
 
 Likely follow-up slices should stay separate:
 
-- existing-record append or update pressure, including locks and crash
-  recovery;
+- stronger existing-record update pressure, including manifest replacement,
+  read-model refresh, stale-lock cleanup, crash recovery, and conflict policy;
 - final adapter handoff transport, discovery, and trust beyond the current
   adapter output boundary;
 - reference-only import planning for lab-managed shared storage without

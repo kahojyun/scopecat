@@ -109,5 +109,6 @@ these separate boundaries:
 - reference repair or moved-reference review without automatic discovery;
 - final adapter handoff transport, discovery, and trust beyond the current
   adapter output boundary;
-- existing-record append/update behavior with lock and crash-recovery pressure;
+- stronger existing-record update behavior with manifest replacement,
+  read-model refresh, stale-lock cleanup, crash recovery, and conflict policy;
 - GUI display of reference-observation findings without previewing legacy data.

@@ -98,8 +98,8 @@ needs a stronger storage or package contract.
 
 Likely follow-up slices should stay separate:
 
-- append or update behavior for existing in-progress records, with explicit
-  lock and crash-recovery pressure;
+- stronger update behavior for existing records, such as manifest replacement,
+  read-model refresh, stale-lock cleanup, crash recovery, and conflict policy;
 - adapter-authored import review-to-acceptance, with explicit copy/reference
   storage mutation and no-overwrite policy;
 - harder data-shape observation cases, such as ragged scans, trace-per-point
