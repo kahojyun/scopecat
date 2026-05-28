@@ -104,12 +104,10 @@ global domain layer. A plausible module split is:
 
 ```text
 scopecat/handoff/
-  manifest.py
-  preview.py
-  opener.py
-  read_view.py
-  findings.py
-  cli.py
+  __main__.py
+  package.py
+  read_only.py
+  tables.py
 ```
 
 The first implementation pass starts in `scopecat/handoff/` because the
@@ -121,6 +119,37 @@ Low-level helpers may be reused from existing implementation candidates only
 when their semantics already match the handoff route. New shared helpers should
 remain route-local unless at least two concrete implementation consumers need
 the same behavior, failure semantics, and tests.
+
+## Initial Implementation Status
+
+The first engineering-prototype pass now exists under `scopecat/handoff/`.
+It provides:
+
+- `open_package(package_dir)` as the Python entrypoint;
+- route-local `HandoffPackage`, `HandoffMeasurement`, `HandoffTable`, and
+  `HandoffPlotSeries` projections;
+- a stdlib smoke CLI via `python -m scopecat.handoff <package-dir>`;
+- regression coverage over the basic opener fixture and richer route-pressure
+  fixtures, including multi-plot, table-only, shared-context, and degraded
+  preview cases;
+- a local `scopecat/ruff.toml` that applies stricter lint only to the
+  prototype/product-shaped package.
+
+The prototype still delegates package manifest validation and package-local
+file opening to the validated `implementation_candidates.handoff_package_opener`
+candidate. That delegation is intentional for the first pass: it keeps the
+prototype focused on route-local module shape, read actions, and fixture
+composition before moving low-level opener behavior.
+
+Promotion blockers still include:
+
+- deciding whether to keep candidate opener delegation, move opener logic into
+  `scopecat/handoff/`, or extract only the already-earned route-local opener
+  contracts;
+- deciding which candidate summary fields are stable enough for the prototype
+  view and which should remain historical validation shape;
+- deciding whether static HTML visual artifact generation is outside the first
+  read-only module or an optional local review adapter.
 
 ## Fixture Policy
 
@@ -209,7 +238,6 @@ decision or ADR.
 
 ## Open Questions
 
-- Should the first entrypoint be Python-only, CLI-only, or both?
 - Which candidate output fields are user-facing enough to preserve in the
   prototype view?
 - Should static HTML visual artifact generation remain outside the first
