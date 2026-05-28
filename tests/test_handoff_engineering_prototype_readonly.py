@@ -20,6 +20,19 @@ PACKAGE = (
     / "package"
     / "handoff-package-legacy-rabi-001"
 )
+ROUTE_PRESSURE_ROOT = ROOT / "tests" / "fixtures" / "handoff_package_route_pressure"
+RICHER_PACKAGE = (
+    ROUTE_PRESSURE_ROOT
+    / "richer_reader_package"
+    / "package"
+    / "handoff-package-reader-pressure-001"
+)
+DEGRADED_PACKAGE = (
+    ROUTE_PRESSURE_ROOT
+    / "degraded_preview_package"
+    / "package"
+    / "handoff-package-degraded-preview-001"
+)
 
 
 def _copy_package(temp_dir: str) -> Path:
@@ -175,6 +188,41 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
         self.assertEqual(summary["preview_classification"], "needs_review_before_acceptance")
         self.assertEqual(summary["finding_count"], 1)
         self.assertEqual(summary["linked_context_count"], 1)
+
+    def test_route_pressure_fixture_exposes_multi_plot_and_table_only_measurements(self) -> None:
+        package = open_package(RICHER_PACKAGE)
+        rabi = package.measurement("pressure-rabi-001")
+        check = package.measurement("pressure-check-001")
+
+        self.assertEqual(package.package_id, "handoff-package-reader-pressure-001")
+        self.assertEqual(package.measurement_ids, ("pressure-rabi-001", "pressure-check-001"))
+        self.assertEqual(rabi.primary_table.columns, ("drive_frequency", "signal", "residual"))
+        self.assertEqual(len(rabi.plot_series), 2)
+        self.assertEqual(
+            rabi.plot_series_by_columns(x="drive_frequency", y="residual").y[2],
+            "0.01",
+        )
+        self.assertEqual(check.primary_table.columns, ("delay", "contrast"))
+        self.assertEqual(check.plot_series, ())
+        self.assertEqual(check.preview_table.row_count, 4)
+
+    def test_route_pressure_fixture_associates_shared_context_with_each_measurement(self) -> None:
+        package = open_package(RICHER_PACKAGE)
+
+        for measurement_id in ("pressure-rabi-001", "pressure-check-001"):
+            measurement = package.measurement(measurement_id)
+            self.assertEqual(
+                measurement.linked_context[0]["link_id"],
+                "pressure-shared-setup-snapshot",
+            )
+            self.assertEqual(
+                measurement.findings[0]["subject_id"],
+                "pressure-shared-setup-snapshot",
+            )
+
+    def test_degraded_route_pressure_package_remains_not_openable(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires preview_ready metadata"):
+            open_package(DEGRADED_PACKAGE)
 
 
 if __name__ == "__main__":
