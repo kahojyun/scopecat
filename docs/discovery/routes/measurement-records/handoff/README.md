@@ -47,6 +47,17 @@ one of them to portable output.
 | Receiving mutation | Acceptance | Copy reviewed package primary data into new local storage records after explicit approval. |
 | Route-local support | Handoff package route contracts | Share repeated handoff-specific identity, package-path, preview-ready, and continuity checks where the same semantics already recur. |
 
+## Current Engineering Prototype
+
+The route is entering an engineering prototype phase for read-only handoff
+package use. The prototype tests route-local module boundaries, regression
+fixtures, and a thin local entrypoint without changing the accepted-for-now
+route decisions in [`decision.md`](decision.md).
+
+Use [`engineering-prototype-plan.md`](engineering-prototype-plan.md) for the
+prototype objective, scope, fixture policy, stop conditions, and promotion
+criteria.
+
 ## Artifact Boundary
 
 | Surface | Boundary posture | Redaction/reference responsibility |
