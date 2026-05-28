@@ -98,8 +98,8 @@ stronger storage contract.
 
 Likely follow-up slices should stay separate:
 
-- append or update behavior for existing in-progress records, with explicit
-  lock and crash-recovery pressure;
+- stronger update behavior for existing records, such as manifest replacement,
+  read-model refresh, stale-lock cleanup, crash recovery, and conflict policy;
 - harder data-shape writer cases, such as ragged scans, trace-per-point data,
   or array-valued responses, without automatic schema inference;
 - import acceptance or export package writing, without reusing this fixture as

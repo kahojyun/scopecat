@@ -8,12 +8,13 @@ This note closes the current measurement import/source-reference discovery
 pass. It records the route decisions earned by the validated adapter-authored
 legacy import, adapter output boundary, normalized primary table, legacy import
 acceptance, reference-only import, reference-only source observation,
-append-only storage writer, and measurement source observation slices.
+append-only storage writer, existing-record append receipt, and measurement
+source observation slices.
 
 It does not accept a stable import API, adapter API, legacy reader, final
-storage schema, existing-record update behavior, reference repair, package
-format, GUI contract, dataframe API, schema-inference engine, or shared
-measurement-record domain model.
+storage schema, full existing-record update behavior, reference repair,
+package format, GUI contract, dataframe API, schema-inference engine, or
+shared measurement-record domain model.
 
 Artifact posture: `internal_validation_summary`. This document is internal
 project memory. It creates no portable/export artifact and no new redaction
@@ -75,6 +76,14 @@ define dataframe behavior. A consuming route can adopt this table read before
 review/acceptance or after storage/package boundaries when that boundary
 already has normalized table bytes and needs table facts.
 
+Existing-record append receipt owns one approved append-style mutation under
+an existing record directory. It first proves the existing record directory
+without creating it, then uses a direct record-local lock guard before
+current-record preflight, append-chunk read, and no-overwrite
+append-segment/update-receipt writes. It records append evidence without
+replacing the manifest, merging primary data, refreshing a read model, defining
+lock identity, or accepting crash recovery.
+
 Declared preview metadata from adapters is useful as an assertion. It becomes
 Scopecat-observed previewability only when normalized data access or an
 explicit adapter authority has been validated by the relevant slice.
@@ -108,6 +117,7 @@ plus declared output file facts.
 | Reference preservation | Reference-only legacy import | Preserve one lab-managed external source reference without source observation or storage mutation. |
 | External file observation | Reference-only source observation | Check availability, sha256, and byte size for one preserved external source reference. |
 | New-record writing | New-run writer, append-only storage writer | Represent writer events and write one new storage record from declared chunks. |
+| Existing-record append receipt | Existing record append update | Record append evidence under an existing record directory with current-record preflight, direct record-local lock guard, and no-overwrite new update files. |
 | Stored source observation | Measurement source observation | Observe one declared normalized primary-data file under storage and check fixture-level row count. |
 | Handoff/package use | Handoff package route | Own package-local normalized data projection and open-before-import package use separately from legacy import. |
 
@@ -134,8 +144,9 @@ Keep these out of the current route until a named workflow requires them:
 - core LabRAD, DataVault, Labber, or lab-specific legacy readers;
 - final adapter package/drop-folder protocol, writer-like adapter API,
   discovery, trust, and failure model beyond the current logical boundary;
-- existing-record append/update, locking, crash recovery, merge, and conflict
-  behavior;
+- stronger existing-record update behavior such as manifest replacement,
+  primary-data merge or compaction, read-model refresh, lock identity,
+  stale-lock cleanup, crash recovery, and conflict policy;
 - reference repair, moved-reference discovery, or automatic path search;
 - data-level open/read of external references that are not normalized primary
   data;
@@ -161,8 +172,9 @@ appears:
   validate a repair/review workflow without automatic path discovery by
   default.
 - Users need to add data to existing records:
-  validate append/update locking, crash recovery, conflict policy, and
-  in-progress record semantics separately from new-record import.
+  validate stronger update behavior such as manifest replacement, read-model
+  refresh, stale-lock cleanup, crash recovery, conflict policy, and in-progress
+  record semantics separately from the first append-receipt slice.
 - Two or more routes need identical measurement-record behavior with the same
   lifecycle and failure semantics:
   reconsider shared model extraction with an accepted decision.
@@ -180,9 +192,11 @@ The first data-level normalized table read is now validated in
 Adopt it in adapter output, storage observation, handoff package, SDK, or GUI
 routes only when that route needs the same table behavior.
 
-If the product question is instead durable storage editing, do
-**existing-record append/update** next. That is a storage-concurrency and
-mutation slice, not an import/source-reference slice.
+If the product question is instead durable storage editing beyond append
+receipts, validate the next existing-record update boundary: manifest
+replacement, read-model refresh, stale-lock cleanup, crash recovery, conflict
+policy, or in-progress record semantics. That remains storage-concurrency and
+mutation work, not import/source-reference work.
 
 ## Stop Rule
 

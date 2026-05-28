@@ -49,6 +49,7 @@ relation graph, or warning taxonomy.
 - [`measurement-import-source-route-decision-consolidation.md`](measurement-import-source-route-decision-consolidation.md)
 - [`new-run-measurement-writer-validation-result.md`](new-run-measurement-writer-validation-result.md)
 - [`measurement-storage-writer-validation-result.md`](measurement-storage-writer-validation-result.md)
+- [`existing-record-update-validation-result.md`](existing-record-update-validation-result.md)
 - [`derived-artifact-source-links-validation-result.md`](derived-artifact-source-links-validation-result.md)
 - [`measurement-source-observation-validation-result.md`](measurement-source-observation-validation-result.md)
 - [`../../implementation_candidates/measurement_record_handoff_flow/README.md`](../../implementation_candidates/measurement_record_handoff_flow/README.md)
@@ -386,6 +387,16 @@ data plus manifest files. It does not accept final storage architecture,
 existing-record append or update behavior, import/export package behavior,
 schema inference, live service, GUI behavior, hardware control, or scan
 execution.
+
+Existing record append update has a slice-local implementation candidate for
+one approved mutation under an already-created measurement record directory.
+It first checks that the existing record directory exists without creating it,
+then acquires a direct record-local lock guard, preflights the current manifest and
+primary-data digest/size facts, reads one declared append chunk, writes only a
+new append segment and update receipt, and releases the guard. It leaves
+manifest replacement, primary-data merge or compaction, read-model refresh,
+distributed locking, lock identity, stale-lock repair, crash recovery, live
+service, GUI behavior, hardware control, and scan execution out of scope.
 
 Derived artifact source links has a slice-local implementation candidate for
 connecting one derived artifact to explicitly listed source measurements. It
@@ -826,9 +837,9 @@ schema.
 
 | Candidate concept | Slice pressure | Current meaning |
 | --- | --- | --- |
-| Measurement record | Export, incoming-record import preview, handoff package contents preview, legacy import acceptance, reference-only legacy import, reference-only source observation, running inspection, new-run writer, storage writer, source observation, calibration continuation | The ordinary user-facing unit for primary recorded experiment data, created from writer events, written to storage, accepted from reviewed legacy adapter manifests, preserved as external references, observed after storage or at the file level while still external, selected for export, previewed before external import, handoff package read-only open, or later package acceptance, inspected while running, or referenced as calibration output. |
+| Measurement record | Export, incoming-record import preview, handoff package contents preview, legacy import acceptance, reference-only legacy import, reference-only source observation, running inspection, new-run writer, storage writer, existing-record update, source observation, calibration continuation | The ordinary user-facing unit for primary recorded experiment data, created from writer events, written to storage, given separately recorded append evidence under a bounded existing-record update, accepted from reviewed legacy adapter manifests, preserved as external references, observed after storage or at the file level while still external, selected for export, previewed before external import, handoff package read-only open, or later package acceptance, inspected while running, or referenced as calibration output. |
 | Source identity | Export, incoming-record import preview, legacy import acceptance, reference-only legacy import, running inspection, new-run writer, calibration continuation | Recoverable provenance for where a record came from, distinct from current read path, package-relative fixture path, writer-declared primary data path, external current reference, or final storage identity. |
-| Primary data reference | Export, incoming-record import preview, handoff package contents preview, adapter output boundary, normalized primary table, legacy import acceptance, running inspection, new-run writer, storage writer, source observation, measurement boundary | A Scopecat-readable or adapter-normalized data item users expect to inspect, preview, export, import, package, store, observe, or later plot; may be fixture path-shaped now but should not imply durable path identity. Original legacy files preserved without normalized data should be modeled as external source references, not previewable primary data. |
+| Primary data reference | Export, incoming-record import preview, handoff package contents preview, adapter output boundary, normalized primary table, legacy import acceptance, running inspection, new-run writer, storage writer, existing-record update, source observation, measurement boundary | A Scopecat-readable or adapter-normalized data item users expect to inspect, preview, export, import, package, store, associate with separately recorded append evidence, observe, or later plot; may be fixture path-shaped now but should not imply durable path identity. Original legacy files preserved without normalized data should be modeled as external source references, not previewable primary data. |
 | External source reference | Storage-transition export, incoming-record import preview, adapter-authored legacy import, reference-only legacy import, reference-only source observation, measurement boundary | A declared pointer to original or lab-managed external data for provenance, transition, or later observation. It can carry source identity, reference state, redacted display facts, and file-level observations, but does not imply Scopecat can parse, preview, or plot the referenced data. |
 | Declared preview metadata | Export, incoming-record import preview, handoff package contents preview, adapter output boundary, normalized primary table, legacy import acceptance, reference-only legacy import, running inspection, new-run writer, storage writer, source observation, scan/data-shape | Shape, roles, labels, units, axis order, row order, and plot candidates supplied explicitly enough to support preview without schema inference when paired with Scopecat-readable or adapter-normalized data. For external source references, preview metadata remains a declared adapter/manifest assertion until normalized data or data-level observation is validated. |
 | Observed table fact | Handoff package opener, handoff package read view, normalized primary table | String-valued rows and columns read from a normalized table source after malformed table shapes are rejected. This currently proves table shape and declared-column binding, not scalar types, dtypes, scan shape, plotting semantics, streaming, or query behavior. |
@@ -837,7 +848,7 @@ schema.
 | Lifecycle or progress state | Running inspection, new-run writer, calibration continuation | Current status of a measurement or step, such as running, complete, partial, review-needed, failed, or blocked. |
 | Intervention or operation | Running inspection, calibration continuation, future GUI pressure | A user-facing item that needs attention or can be acted on, without implying autonomous execution. |
 | Reviewable change | Calibration continuation, parameter-state pressure | A user-authored or Scopecat-computed diff from a known state that can be reviewed before committing or applying; not durable history unless accepted. |
-| Warning or attention state | Export, incoming-record import preview, handoff package contents preview, legacy import acceptance, reference-only legacy import, reference-only source observation, running inspection, new-run writer, source observation, calibration continuation | A degraded, missing, stale, uncertain, risky, unavailable, mismatched, failed, blocked, or review-needed condition. Normal policy and boundary disclaimers should not become warnings. |
+| Warning or attention state | Export, incoming-record import preview, handoff package contents preview, legacy import acceptance, reference-only legacy import, reference-only source observation, running inspection, new-run writer, existing-record update, source observation, calibration continuation | A degraded, missing, stale, uncertain, risky, unavailable, mismatched, failed, blocked, or review-needed condition. Normal policy and boundary disclaimers should not become warnings. |
 | Authority/provenance | All validated slices | A way to separate fixture-declared, observed, user-authored, external, materialized, and Scopecat-managed facts without settling final ownership. |
 | Setup binding | Parameter state, selected reference, future measurement reference pressure | The sample/cooldown/session-specific mapping from logical experiment entities to physical wiring, channels, instruments, generated line/readout state, and selected registry context. |
 | Named input snapshot | Parameter state, setup binding, experiment code, measurement reference pressure | A measurement or step context entry that references a point-in-time context record by family name, such as parameter state, setup binding, station registry, or code context, without making those families share lifecycle, diff, storage, or restore semantics. |
@@ -1016,6 +1027,9 @@ The cross-slice comparison still does not earn:
 - final measurement, artifact, attachment, relation, or data-shape schema;
 - shared `core`, `domain`, or reusable model package;
 - final storage identity, object ID, external-reference, or package path model;
+- final existing-record update model, manifest replacement, segment
+  compaction, read-model refresh, distributed locking, lock identity,
+  stale-lock cleanup, or crash recovery;
 - checksum, archive, importer, or package integrity contract;
 - checksum, observed-file-state, file-watcher, backup, or restore contract;
 - export, handoff-package contents, incoming-record import GUI, live monitor
@@ -1072,12 +1086,14 @@ field-category checklist in
 For the import/source route, adapter-authored legacy manifests, adapter output
 boundary validation, normalized primary table reading, copy acceptance,
 reference-only import, reference-only source observation, storage writer
-behavior, and stored source observation are now consolidated in
+behavior, first existing-record append receipt, and stored source observation
+are now consolidated in
 [`measurement-import-source-route-decision-consolidation.md`](measurement-import-source-route-decision-consolidation.md).
 Use that route-level note before adding more import or source-reference
 behavior. Next work should be chosen by a new authority question: final
 adapter handoff transport, adoption of normalized table reading at a concrete
-route boundary, reference repair review, existing-record append/update, or a
+route boundary, reference repair review, stronger existing-record update
+behavior, or a
 narrower shared-model extraction trigger.
 
 For the experiment-code route, recording, managed code version promotion,

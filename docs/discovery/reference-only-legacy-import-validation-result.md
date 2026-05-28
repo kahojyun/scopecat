@@ -105,8 +105,8 @@ Likely follow-up slices should stay separate:
 - file-level source observation for reference-only imported records is now
   validated separately in
   [`reference-only-source-observation-validation-result.md`](reference-only-source-observation-validation-result.md);
-- existing-record append or update pressure, including locks and crash
-  recovery;
+- stronger existing-record update pressure, including manifest replacement,
+  read-model refresh, stale-lock cleanup, crash recovery, and conflict policy;
 - final adapter handoff transport, discovery, and trust beyond the current
   adapter output boundary;
 - reference repair or moved-reference review without automatic path discovery;
