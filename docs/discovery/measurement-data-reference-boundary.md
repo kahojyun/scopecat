@@ -9,6 +9,10 @@ Scopecat can preview and files Scopecat can only reference or observe. It does
 not accept a final storage schema, importer API, adapter API, GUI contract,
 legacy reader, artifact schema, or shared measurement-record domain model.
 
+For the current route decisions and next-work guidance after the import/source
+observation pass, read
+[`measurement-import-source-route-decision-consolidation.md`](measurement-import-source-route-decision-consolidation.md).
+
 Artifact posture: `internal_validation_summary`. This document is internal
 project memory and creates no portable/export artifact.
 
