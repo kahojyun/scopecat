@@ -8,7 +8,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scopecat.handoff import HandoffPackage, HandoffPlotSeries, HandoffTable, open_package
+from scopecat.handoff import (
+    HANDOFF_INSPECTION_ARTIFACT_NAME,
+    HandoffPackage,
+    HandoffPlotSeries,
+    HandoffTable,
+    open_package,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = (
@@ -188,6 +194,33 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
         self.assertEqual(summary["preview_classification"], "needs_review_before_acceptance")
         self.assertEqual(summary["finding_count"], 1)
         self.assertEqual(summary["linked_context_count"], 1)
+        self.assertIsNone(summary["html_artifact"])
+
+    def test_module_cli_can_write_local_html_inspection_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "scopecat.handoff",
+                    str(PACKAGE),
+                    "--html-dir",
+                    temp_dir,
+                ],
+                check=True,
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+            artifact_path = Path(temp_dir) / HANDOFF_INSPECTION_ARTIFACT_NAME
+            html = artifact_path.read_text(encoding="utf-8")
+
+        summary = json.loads(result.stdout)
+
+        self.assertEqual(summary["package_id"], "handoff-package-legacy-rabi-001")
+        self.assertEqual(summary["html_artifact"]["filename"], HANDOFF_INSPECTION_ARTIFACT_NAME)
+        self.assertEqual(summary["html_artifact"]["portable_package_member"], False)
+        self.assertIn("Rabi calibration follow-up", html)
 
     def test_route_pressure_fixture_exposes_multi_plot_and_table_only_measurements(self) -> None:
         package = open_package(RICHER_PACKAGE)
