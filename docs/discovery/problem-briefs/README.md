@@ -41,6 +41,7 @@ Each brief should separate:
 | Brief | Use For |
 | --- | --- |
 | [`calibration-work-continuation.md`](calibration-work-continuation.md) | Sequential scans, calibration work, interruption, review gates, continuation, and thin local execution questions. |
+| [`calibration-fit-validation-dataset.md`](calibration-fit-validation-dataset.md) | User-owned fit failures, suspicious-fit labeling, recovery actions, and lab-internal validation dataset curation. |
 | [`parameter-state-management.md`](parameter-state-management.md) | First-class calibrated parameter state, named state lineages, purpose labels, trusted versus incomplete snapshots, reviewable diffs, run links, and write-back boundaries. |
 | [`setup-binding.md`](setup-binding.md) | Sample/cooldown setup bindings between logical experiment entities and physical wiring, channels, instruments, generated line state, and measurement references. |
 | [`experiment-code-recording.md`](experiment-code-recording.md) | Copied folders, entrypoint/helper ambiguity, run/step code context, environment readiness, and future code snapshot selection. |
