@@ -54,6 +54,11 @@ package use. The prototype tests route-local module boundaries, regression
 fixtures, and a thin local entrypoint without changing the accepted-for-now
 route decisions in [`decision.md`](decision.md).
 
+The current prototype API is intentionally product-shaped rather than a direct
+wrapper around discovery candidate summaries: it exposes route-local package,
+measurement, table, plot, finding, and linked-context objects while keeping
+candidate outputs as historical validation evidence.
+
 Use [`engineering-prototype-plan.md`](engineering-prototype-plan.md) for the
 prototype objective, scope, fixture policy, stop conditions, and promotion
 criteria.

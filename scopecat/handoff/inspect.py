@@ -8,7 +8,12 @@ import os
 from pathlib import Path
 from typing import Any
 
-from scopecat.handoff.package import HandoffMeasurement, HandoffPackage
+from scopecat.handoff.package import (
+    HandoffFinding,
+    HandoffLinkedContext,
+    HandoffMeasurement,
+    HandoffPackage,
+)
 from scopecat.handoff.read_only import open_package
 from scopecat.handoff.tables import HandoffPlotSeries, HandoffTable
 
@@ -125,26 +130,23 @@ def _svg_plot(series: HandoffPlotSeries, measurement: HandoffMeasurement) -> tup
     return svg, "rendered_fixture_svg"
 
 
-def _badges(items: tuple[dict[str, Any], ...]) -> str:
+def _badges(items: tuple[HandoffFinding, ...]) -> str:
     if not items:
         return '<span class="badge quiet">no review findings</span>'
-    return "\n".join(
-        f'<span class="badge review">{_esc(item.get("finding", item.get("code", "review")))}</span>'
-        for item in items
-    )
+    return "\n".join(f'<span class="badge review">{_esc(item.code)}</span>' for item in items)
 
 
-def _linked_context(items: tuple[dict[str, Any], ...]) -> str:
+def _linked_context(items: tuple[HandoffLinkedContext, ...]) -> str:
     if not items:
         return '<p class="empty">No linked context declared.</p>'
     rows = []
     for item in items:
         rows.append(
             "<li>"
-            f"<b>{_esc(item['label'])}</b>"
-            f"<span>{_esc(item['kind'])}</span>"
-            f"<span>{_esc(item['materialization'])}</span>"
-            f"<code>{_esc(item['link_id'])}</code>"
+            f"<b>{_esc(item.label)}</b>"
+            f"<span>{_esc(item.kind)}</span>"
+            f"<span>{_esc(item.materialization)}</span>"
+            f"<code>{_esc(item.link_id)}</code>"
             "</li>"
         )
     return f'<ul class="linked-context">{"".join(rows)}</ul>'

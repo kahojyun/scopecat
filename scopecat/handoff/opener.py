@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import csv
 import json
 import os
@@ -23,23 +22,15 @@ from implementation_candidates.handoff_package_contents_preview import (
     build_handoff_package_contents_preview_summary,
 )
 
+from scopecat.handoff.package import (
+    HandoffFinding,
+    HandoffLinkedContext,
+    HandoffMeasurement,
+    HandoffPackage,
+)
+from scopecat.handoff.tables import HandoffPlotSeries, HandoffTable
+
 _MANIFEST_NAME = "package-manifest.json"
-_OPEN_POLICY = {
-    "open_authority": "caller_provided_package_directory",
-    "manifest_name": _MANIFEST_NAME,
-    "manifest_preview": "scopecat_export_manifest_contract_reused",
-    "file_opening": "package_local_declared_primary_data",
-    "primary_data_loading": "declared_csv_preview_rows",
-    "archive_extraction": "not_performed",
-    "checksum_validation": "not_performed",
-    "package_integrity": "not_claimed",
-    "storage_mutation": "not_performed",
-    "import_acceptance": "not_performed",
-    "schema_inference": "not_performed",
-    "recursive_relation_traversal": "not_performed",
-    "gui_workflow": "not_defined",
-    "sdk_object_model": "not_defined",
-}
 
 
 def _existing_package_dir(package_dir: Path) -> Path:
@@ -166,27 +157,66 @@ def _preview_rows(rows: list[dict[str, str]], declared_names: list[str]) -> list
 def _plot_series(
     rows: list[dict[str, str]],
     plot_candidates: list[dict[str, str]],
-) -> list[dict[str, Any]]:
+) -> tuple[HandoffPlotSeries, ...]:
     series = []
     for candidate in plot_candidates:
         series.append(
-            {
-                "source": candidate["source"],
-                "x": candidate["x"],
-                "y": candidate["y"],
-                "points": [
+            HandoffPlotSeries.from_points(
+                source=candidate["source"],
+                x_name=candidate["x"],
+                y_name=candidate["y"],
+                points=[
                     {
                         "x": row[candidate["x"]],
                         "y": row[candidate["y"]],
                     }
                     for row in rows
                 ],
-            }
+            )
         )
-    return series
+    return tuple(series)
 
 
-def _opened_measurement(package_dir: Path, record: dict[str, Any]) -> dict[str, Any]:
+def _findings_for_measurement(
+    *,
+    measurement_record_id: str,
+    linked_context: tuple[HandoffLinkedContext, ...],
+    package_findings: tuple[HandoffFinding, ...],
+) -> tuple[HandoffFinding, ...]:
+    linked_context_ids = {
+        item.link_id
+        for item in linked_context
+        if measurement_record_id in item.linked_measurement_record_ids
+    }
+    findings = []
+    seen = set()
+    for finding in package_findings:
+        is_direct = finding.measurement_record_id == measurement_record_id
+        is_linked_context = (
+            finding.subject_type == "linked_context" and finding.subject_id in linked_context_ids
+        )
+        if not is_direct and not is_linked_context:
+            continue
+        key = (
+            finding.code,
+            finding.subject_type,
+            finding.subject_id,
+            finding.measurement_record_id,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        findings.append(finding)
+    return tuple(findings)
+
+
+def _opened_measurement(
+    package_dir: Path,
+    record: dict[str, Any],
+    *,
+    linked_context: tuple[HandoffLinkedContext, ...],
+    package_findings: tuple[HandoffFinding, ...],
+) -> HandoffMeasurement:
     _validate_primary_manifest_facts(record)
     preview = record["declared_preview_metadata"]
     if preview["status"] != "preview_ready":
@@ -199,120 +229,70 @@ def _opened_measurement(package_dir: Path, record: dict[str, Any]) -> dict[str, 
     )
     columns, rows = _load_csv_rows(content, record)
     declared_names = [column["name"] for column in preview["declared_columns"]]
-    primary_data = {
-        "package_path": primary["package_path"],
-        "format": primary["format"],
-        "open_state": "opened",
-        "observed_size_bytes": len(content),
-        "integrity_check": "not_performed",
-    }
-    if "digest" in primary and "size_bytes" in primary:
-        primary_data["declared_digest"] = primary["digest"]
-        primary_data["declared_size_bytes"] = primary["size_bytes"]
-    return {
-        "measurement_record_id": record["measurement_record_id"],
-        "legacy_data_id": record["legacy_data_id"],
-        "label": record["label"],
-        "experiment_type": record["experiment_type"],
-        "target": record["target"],
-        "primary_data": primary_data,
-        "declared_preview": {
-            "status": preview["status"],
-            "metadata_authority": preview["metadata_authority"],
-            "data_shape": copy.deepcopy(preview["data_shape"]),
-            "declared_columns": copy.deepcopy(preview["declared_columns"]),
-            "plot_candidates": copy.deepcopy(preview["plot_candidates"]),
-        },
-        "primary_table": {
-            "source": primary["package_path"],
-            "columns": columns,
-            "rows": copy.deepcopy(rows),
-            "schema_inference": "not_performed",
-        },
-        "preview_data": {
-            "source": primary["package_path"],
-            "row_count": len(rows),
-            "preview_rows": _preview_rows(rows, declared_names),
-            "plot_series": _plot_series(rows, preview["plot_candidates"]),
-            "schema_inference": "not_performed",
-        },
-        "classification": "opened_for_declared_preview",
-    }
+    measurement_id = record["measurement_record_id"]
+    return HandoffMeasurement(
+        measurement_record_id=measurement_id,
+        legacy_data_id=record["legacy_data_id"],
+        label=record["label"],
+        experiment_type=record["experiment_type"],
+        target=record["target"],
+        primary_package_path=primary["package_path"],
+        primary_format=primary["format"],
+        declared_digest=primary.get("digest"),
+        declared_size_bytes=primary.get("size_bytes"),
+        observed_size_bytes=len(content),
+        integrity_check="not_performed",
+        declared_preview_metadata_authority=preview["metadata_authority"],
+        declared_preview_columns=tuple(preview["declared_columns"]),
+        declared_preview_shape=preview["data_shape"],
+        declared_preview_plot_candidates=tuple(preview["plot_candidates"]),
+        primary_table=HandoffTable.from_records(columns, rows),
+        preview_table=HandoffTable.from_records(
+            declared_names, _preview_rows(rows, declared_names)
+        ),
+        plot_series=_plot_series(rows, preview["plot_candidates"]),
+        linked_context=tuple(
+            item for item in linked_context if measurement_id in item.linked_measurement_record_ids
+        ),
+        findings=_findings_for_measurement(
+            measurement_record_id=measurement_id,
+            linked_context=linked_context,
+            package_findings=package_findings,
+        ),
+    )
 
 
-def _linked_context_summary(manifest: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
-        {
-            "link_id": item["link_id"],
-            "kind": item["kind"],
-            "label": item["label"],
-            "package_state": item["package_state"],
-            "materialization": "reference_only",
-            "linked_measurement_record_ids": list(item["linked_measurement_record_ids"]),
-        }
-        for item in manifest["linked_context"]
-    ]
-
-
-def _attention() -> list[dict[str, str]]:
-    return [
-        {
-            "code": "package_opened_read_only",
-            "severity": "info",
-            "basis": (
-                "Declared package manifest and package-local primary data were opened "
-                "without storage mutation."
-            ),
-            "does_not_claim": "package_acceptance_or_import",
-        },
-        {
-            "code": "package_integrity_not_claimed",
-            "severity": "review",
-            "basis": (
-                "Declared digest and size facts remain manifest facts where present; "
-                "this opener does not compare them."
-            ),
-            "does_not_claim": "package_integrity_verified",
-        },
-        {
-            "code": "schema_inference_not_performed",
-            "severity": "review",
-            "basis": "Preview rows and plot series are derived only from manifest-declared columns.",
-            "does_not_claim": "automatic_schema_detection",
-        },
-        {
-            "code": "linked_context_reference_only",
-            "severity": "review",
-            "basis": "Linked context remains visible reference-only during read-only package use.",
-            "does_not_claim": "recursive_relation_traversal_or_context_capture",
-        },
-    ]
-
-
-def open_handoff_package(package_dir: Path) -> dict[str, Any]:
+def open_handoff_package(package_dir: Path) -> HandoffPackage:
     """Open a directory-shaped handoff package for read-only declared preview use."""
 
     package_dir = _existing_package_dir(package_dir)
     manifest = _load_manifest(package_dir)
     preview_summary = build_handoff_package_contents_preview_summary(manifest)
     _validate_manifest_identity(package_dir, manifest)
+    linked_context = tuple(
+        HandoffLinkedContext.from_manifest_item(item) for item in manifest["linked_context"]
+    )
+    findings = tuple(
+        HandoffFinding.from_manifest_finding(finding)
+        for finding in preview_summary["preview_findings"]
+    )
     measurements = [
-        _opened_measurement(package_dir, record) for record in manifest["selected_measurements"]
+        _opened_measurement(
+            package_dir,
+            record,
+            linked_context=linked_context,
+            package_findings=findings,
+        )
+        for record in manifest["selected_measurements"]
     ]
-    return {
-        "package_open_policy": copy.deepcopy(_OPEN_POLICY),
-        "package": {
-            "package_id": manifest["package_identity"]["package_id"],
-            "display_name": manifest["package_identity"]["display_name"],
-            "created_by": manifest["package_identity"]["created_by"],
-            "source_export_summary_id": manifest["package_identity"]["source_export_summary_id"],
-            "manifest_path": _MANIFEST_NAME,
-            "classification": "opened_read_only_for_declared_preview",
-            "preview_classification": preview_summary["package"]["classification"],
-        },
-        "manifest_preview_findings": copy.deepcopy(preview_summary["preview_findings"]),
-        "selected_measurements": measurements,
-        "linked_context": _linked_context_summary(manifest),
-        "open_findings": [],
-        "attention": _attention(),
-    }
+    return HandoffPackage(
+        package_id=manifest["package_identity"]["package_id"],
+        display_name=manifest["package_identity"]["display_name"],
+        created_by=manifest["package_identity"]["created_by"],
+        source_export_summary_id=manifest["package_identity"]["source_export_summary_id"],
+        preview_classification=preview_summary["package"]["classification"],
+        measurements=tuple(measurements),
+        linked_context=linked_context,
+        findings=findings,
+        manifest_path=_MANIFEST_NAME,
+    )

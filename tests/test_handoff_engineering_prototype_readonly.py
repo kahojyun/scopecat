@@ -77,6 +77,10 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
             "measurements/legacy-rabi-001/primary.csv",
         )
         self.assertEqual(measurement.integrity_check, "not_performed")
+        self.assertEqual(
+            measurement.declared_preview_metadata_authority,
+            "scopecat_export_manifest",
+        )
 
     def test_primary_table_and_declared_plot_series_are_available_without_dataframe(self) -> None:
         measurement = open_package(PACKAGE).measurement("legacy-rabi-001")
@@ -115,19 +119,19 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
         package = open_package(PACKAGE)
         measurement = package.measurement("legacy-rabi-001")
 
-        self.assertEqual(package.linked_context[0]["materialization"], "reference_only")
+        self.assertEqual(package.linked_context[0].materialization, "reference_only")
         self.assertEqual(
-            package.findings[0]["finding"],
+            package.findings[0].code,
             "linked_context_not_packaged_visible_reference",
         )
-        self.assertEqual(measurement.linked_context[0]["materialization"], "reference_only")
+        self.assertEqual(measurement.linked_context[0].materialization, "reference_only")
         self.assertEqual(
-            measurement.findings[0]["subject_id"],
+            measurement.findings[0].subject_id,
             "package-legacy-001-parameter-snapshot",
         )
         self.assertEqual(
-            package.attention[0]["does_not_claim"],
-            "package_acceptance_or_import",
+            package.findings[0].does_not_claim,
+            "package_integrity_or_import_acceptance_failure",
         )
 
     def test_projection_outputs_are_copy_safe(self) -> None:
@@ -135,8 +139,8 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
         measurement = package.measurement("legacy-rabi-001")
 
         package_summary = package.as_open_summary()
-        package_findings = package.findings
-        measurement_context = measurement.linked_context
+        package_findings = [finding.to_dict() for finding in package.findings]
+        measurement_context = [context.to_dict() for context in measurement.linked_context]
         table_records = measurement.primary_table.to_records()
         plot_points = measurement.plot_series[0].points
 
@@ -148,10 +152,10 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
 
         self.assertEqual(package.package_id, "handoff-package-legacy-rabi-001")
         self.assertEqual(
-            package.findings[0]["finding"],
+            package.findings[0].code,
             "linked_context_not_packaged_visible_reference",
         )
-        self.assertEqual(measurement.linked_context[0]["materialization"], "reference_only")
+        self.assertEqual(measurement.linked_context[0].materialization, "reference_only")
         self.assertEqual(measurement.primary_table.row(0)["signal"], "0.12")
         self.assertEqual(measurement.plot_series[0].points[0]["y"], "0.12")
 
@@ -245,11 +249,11 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
         for measurement_id in ("pressure-rabi-001", "pressure-check-001"):
             measurement = package.measurement(measurement_id)
             self.assertEqual(
-                measurement.linked_context[0]["link_id"],
+                measurement.linked_context[0].link_id,
                 "pressure-shared-setup-snapshot",
             )
             self.assertEqual(
-                measurement.findings[0]["subject_id"],
+                measurement.findings[0].subject_id,
                 "pressure-shared-setup-snapshot",
             )
 

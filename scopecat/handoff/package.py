@@ -10,116 +10,119 @@ from scopecat.handoff.tables import HandoffPlotSeries, HandoffTable
 
 
 @dataclass(frozen=True)
+class HandoffFinding:
+    """Review finding surfaced by the read-only handoff route."""
+
+    code: str
+    severity: str
+    subject_type: str
+    subject_id: str
+    measurement_record_id: str | None = None
+    basis: str | None = None
+    does_not_claim: str | None = None
+
+    @classmethod
+    def from_manifest_finding(cls, finding: dict[str, Any]) -> HandoffFinding:
+        return cls(
+            code=finding["finding"],
+            severity=finding["severity"],
+            subject_type=finding["subject_type"],
+            subject_id=finding["subject_id"],
+            measurement_record_id=finding.get("measurement_record_id"),
+            basis=finding.get("basis"),
+            does_not_claim=finding.get("does_not_claim"),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        result = {
+            "finding": self.code,
+            "severity": self.severity,
+            "subject_type": self.subject_type,
+            "subject_id": self.subject_id,
+        }
+        if self.measurement_record_id is not None:
+            result["measurement_record_id"] = self.measurement_record_id
+        if self.basis is not None:
+            result["basis"] = self.basis
+        if self.does_not_claim is not None:
+            result["does_not_claim"] = self.does_not_claim
+        return result
+
+
+@dataclass(frozen=True)
+class HandoffLinkedContext:
+    """Reference-only linked context visible during package inspection."""
+
+    link_id: str
+    kind: str
+    label: str
+    package_state: str
+    materialization: str
+    linked_measurement_record_ids: tuple[str, ...]
+
+    @classmethod
+    def from_manifest_item(cls, item: dict[str, Any]) -> HandoffLinkedContext:
+        return cls(
+            link_id=item["link_id"],
+            kind=item["kind"],
+            label=item["label"],
+            package_state=item["package_state"],
+            materialization="reference_only",
+            linked_measurement_record_ids=tuple(item["linked_measurement_record_ids"]),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "link_id": self.link_id,
+            "kind": self.kind,
+            "label": self.label,
+            "package_state": self.package_state,
+            "materialization": self.materialization,
+            "linked_measurement_record_ids": list(self.linked_measurement_record_ids),
+        }
+
+
+@dataclass(frozen=True)
 class HandoffMeasurement:
     """Route-local projection of one opened handoff package measurement."""
 
-    _measurement: dict[str, Any]
-    _package_summary: dict[str, Any]
+    measurement_record_id: str
+    legacy_data_id: int
+    label: str
+    experiment_type: str
+    target: str
+    primary_package_path: str
+    primary_format: str
+    declared_digest: str | None
+    declared_size_bytes: int | None
+    observed_size_bytes: int
+    integrity_check: str
+    declared_preview_metadata_authority: str
+    declared_preview_columns: tuple[dict[str, str], ...]
+    declared_preview_shape: dict[str, Any]
+    declared_preview_plot_candidates: tuple[dict[str, Any], ...]
+    primary_table: HandoffTable
+    preview_table: HandoffTable
+    plot_series: tuple[HandoffPlotSeries, ...]
+    linked_context: tuple[HandoffLinkedContext, ...]
+    findings: tuple[HandoffFinding, ...]
+    classification: str = "opened_for_declared_preview"
 
-    @property
-    def measurement_record_id(self) -> str:
-        return self._measurement["measurement_record_id"]
-
-    @property
-    def label(self) -> str:
-        return self._measurement["label"]
-
-    @property
-    def experiment_type(self) -> str:
-        return self._measurement["experiment_type"]
-
-    @property
-    def target(self) -> str:
-        return self._measurement["target"]
-
-    @property
-    def primary_package_path(self) -> str:
-        return self._measurement["primary_data"]["package_path"]
-
-    @property
-    def declared_preview_columns(self) -> tuple[dict[str, str], ...]:
-        return tuple(
-            copy.deepcopy(column)
-            for column in self._measurement["declared_preview"]["declared_columns"]
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "declared_preview_columns",
+            tuple(copy.deepcopy(column) for column in self.declared_preview_columns),
         )
-
-    @property
-    def declared_preview_shape(self) -> dict[str, Any]:
-        return copy.deepcopy(self._measurement["declared_preview"]["data_shape"])
-
-    @property
-    def declared_preview_plot_candidates(self) -> tuple[dict[str, Any], ...]:
-        return tuple(
-            copy.deepcopy(candidate)
-            for candidate in self._measurement["declared_preview"]["plot_candidates"]
+        object.__setattr__(
+            self,
+            "declared_preview_shape",
+            copy.deepcopy(self.declared_preview_shape),
         )
-
-    @property
-    def integrity_check(self) -> str:
-        return self._measurement["primary_data"]["integrity_check"]
-
-    @property
-    def findings(self) -> tuple[dict[str, Any], ...]:
-        linked_context_ids = {
-            item["link_id"]
-            for item in self._package_summary["linked_context"]
-            if self.measurement_record_id in item["linked_measurement_record_ids"]
-        }
-        findings = []
-        seen = set()
-        for finding in self._package_summary["manifest_preview_findings"]:
-            is_direct = finding.get("measurement_record_id") == self.measurement_record_id
-            is_linked_context = (
-                finding.get("subject_type") == "linked_context"
-                and finding.get("subject_id") in linked_context_ids
-            )
-            if not is_direct and not is_linked_context:
-                continue
-            key = (
-                finding.get("finding"),
-                finding.get("subject_type"),
-                finding.get("subject_id"),
-                finding.get("measurement_record_id"),
-            )
-            if key in seen:
-                continue
-            seen.add(key)
-            findings.append(copy.deepcopy(finding))
-        return tuple(findings)
-
-    @property
-    def linked_context(self) -> tuple[dict[str, Any], ...]:
-        return tuple(
-            copy.deepcopy(item)
-            for item in self._package_summary["linked_context"]
-            if self.measurement_record_id in item["linked_measurement_record_ids"]
-        )
-
-    @property
-    def primary_table(self) -> HandoffTable:
-        table = self._measurement["primary_table"]
-        return HandoffTable.from_records(table["columns"], table["rows"])
-
-    @property
-    def preview_table(self) -> HandoffTable:
-        declared_columns = [
-            column["name"] for column in self._measurement["declared_preview"]["declared_columns"]
-        ]
-        return HandoffTable.from_records(
-            declared_columns,
-            self._measurement["preview_data"]["preview_rows"],
-        )
-
-    @property
-    def plot_series(self) -> tuple[HandoffPlotSeries, ...]:
-        return tuple(
-            HandoffPlotSeries.from_points(
-                source=series["source"],
-                x_name=series["x"],
-                y_name=series["y"],
-                points=series["points"],
-            )
-            for series in self._measurement["preview_data"]["plot_series"]
+        object.__setattr__(
+            self,
+            "declared_preview_plot_candidates",
+            tuple(copy.deepcopy(candidate) for candidate in self.declared_preview_plot_candidates),
         )
 
     def plot_series_by_columns(self, *, x: str, y: str) -> HandoffPlotSeries:
@@ -128,50 +131,82 @@ class HandoffMeasurement:
                 return series
         raise KeyError(f"{x}:{y}")
 
+    def to_dict(self) -> dict[str, Any]:
+        primary_data = {
+            "package_path": self.primary_package_path,
+            "format": self.primary_format,
+            "open_state": "opened",
+            "observed_size_bytes": self.observed_size_bytes,
+            "integrity_check": self.integrity_check,
+        }
+        if self.declared_digest is not None:
+            primary_data["declared_digest"] = self.declared_digest
+        if self.declared_size_bytes is not None:
+            primary_data["declared_size_bytes"] = self.declared_size_bytes
+
+        return {
+            "measurement_record_id": self.measurement_record_id,
+            "legacy_data_id": self.legacy_data_id,
+            "label": self.label,
+            "experiment_type": self.experiment_type,
+            "target": self.target,
+            "primary_data": primary_data,
+            "declared_preview": {
+                "status": "preview_ready",
+                "metadata_authority": self.declared_preview_metadata_authority,
+                "data_shape": copy.deepcopy(self.declared_preview_shape),
+                "declared_columns": tuple(
+                    copy.deepcopy(column) for column in self.declared_preview_columns
+                ),
+                "plot_candidates": tuple(
+                    copy.deepcopy(candidate) for candidate in self.declared_preview_plot_candidates
+                ),
+            },
+            "primary_table": {
+                "source": self.primary_package_path,
+                "columns": self.primary_table.columns,
+                "rows": self.primary_table.to_records(),
+                "schema_inference": "not_performed",
+            },
+            "preview_data": {
+                "source": self.primary_package_path,
+                "row_count": self.preview_table.row_count,
+                "preview_rows": self.preview_table.to_records(),
+                "plot_series": [
+                    {
+                        "source": series.source,
+                        "x": series.x_name,
+                        "y": series.y_name,
+                        "points": series.to_records(),
+                    }
+                    for series in self.plot_series
+                ],
+                "schema_inference": "not_performed",
+            },
+            "linked_context": [item.to_dict() for item in self.linked_context],
+            "findings": [finding.to_dict() for finding in self.findings],
+            "classification": self.classification,
+        }
+
 
 @dataclass(frozen=True)
 class HandoffPackage:
     """Read-only route projection for a Scopecat-authored handoff package."""
 
-    _summary: dict[str, Any]
-
-    @property
-    def package_id(self) -> str:
-        return self._summary["package"]["package_id"]
-
-    @property
-    def display_name(self) -> str:
-        return self._summary["package"]["display_name"]
-
-    @property
-    def preview_classification(self) -> str:
-        return self._summary["package"]["preview_classification"]
+    package_id: str
+    display_name: str
+    created_by: str
+    source_export_summary_id: str
+    preview_classification: str
+    measurements: tuple[HandoffMeasurement, ...]
+    linked_context: tuple[HandoffLinkedContext, ...]
+    findings: tuple[HandoffFinding, ...]
+    manifest_path: str = "package-manifest.json"
+    classification: str = "opened_read_only_for_declared_preview"
 
     @property
     def measurement_ids(self) -> tuple[str, ...]:
-        return tuple(
-            measurement["measurement_record_id"]
-            for measurement in self._summary["selected_measurements"]
-        )
-
-    @property
-    def measurements(self) -> tuple[HandoffMeasurement, ...]:
-        return tuple(
-            HandoffMeasurement(measurement, self._summary)
-            for measurement in self._summary["selected_measurements"]
-        )
-
-    @property
-    def linked_context(self) -> tuple[dict[str, Any], ...]:
-        return tuple(copy.deepcopy(item) for item in self._summary["linked_context"])
-
-    @property
-    def findings(self) -> tuple[dict[str, Any], ...]:
-        return tuple(copy.deepcopy(item) for item in self._summary["manifest_preview_findings"])
-
-    @property
-    def attention(self) -> tuple[dict[str, Any], ...]:
-        return tuple(copy.deepcopy(item) for item in self._summary["attention"])
+        return tuple(measurement.measurement_record_id for measurement in self.measurements)
 
     def measurement(self, measurement_record_id: str) -> HandoffMeasurement:
         for measurement in self.measurements:
@@ -179,5 +214,27 @@ class HandoffPackage:
                 return measurement
         raise KeyError(measurement_record_id)
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "package": {
+                "package_id": self.package_id,
+                "display_name": self.display_name,
+                "created_by": self.created_by,
+                "source_export_summary_id": self.source_export_summary_id,
+                "manifest_path": self.manifest_path,
+                "classification": self.classification,
+                "preview_classification": self.preview_classification,
+            },
+            "selected_measurements": [measurement.to_dict() for measurement in self.measurements],
+            "linked_context": [item.to_dict() for item in self.linked_context],
+            "findings": [finding.to_dict() for finding in self.findings],
+        }
+
     def as_open_summary(self) -> dict[str, Any]:
-        return copy.deepcopy(self._summary)
+        """Return a copy-safe prototype snapshot.
+
+        This is not the discovery candidate summary shape; policy/non-claim
+        details are owned by route docs, tests, and concise runtime fields.
+        """
+
+        return copy.deepcopy(self.to_dict())

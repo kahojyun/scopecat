@@ -129,7 +129,8 @@ It provides:
 
 - `open_package(package_dir)` as the Python entrypoint;
 - route-local `HandoffPackage`, `HandoffMeasurement`, `HandoffTable`, and
-  `HandoffPlotSeries` projections;
+  `HandoffFinding`, `HandoffLinkedContext`, and `HandoffPlotSeries`
+  projections;
 - a stdlib CLI via `python -m scopecat.handoff <package-dir>` for JSON
   orientation and `--html-dir <dir>` for a local static inspection artifact;
 - `build_inspection_html()` and `write_inspection_artifact()` for local
@@ -137,6 +138,11 @@ It provides:
 - route-local read-only opener behavior for package manifest loading,
   package-local primary CSV reads, symlink guardrails, declared preview-table
   projection, and declared plot-series construction;
+- product-shaped package state rather than candidate-shaped summary wrapping:
+  manifest-preview findings, linked-context references, declared digest/size
+  facts, primary/preview tables, and plot series are exposed as route-local
+  objects, with `as_open_summary()` kept only as a copy-safe prototype
+  snapshot;
 - regression coverage over the basic opener fixture and richer route-pressure
   fixtures, including multi-plot, table-only, shared-context, and degraded
   preview cases;
@@ -156,8 +162,6 @@ Promotion blockers still include:
 - deciding whether the remaining contents-preview and contract-primitives
   dependencies are the right long-term boundary or should move under
   accepted handoff route contracts before promotion;
-- deciding which candidate summary fields are stable enough for the prototype
-  view and which should remain historical validation shape;
 - deciding whether the current stdlib HTML renderer remains enough for the
   first accepted vertical or should be replaced by a template/rendering layer
   before promotion;

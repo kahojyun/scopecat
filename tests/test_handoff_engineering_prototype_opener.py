@@ -39,16 +39,12 @@ def _write_manifest(package_dir: Path, manifest: dict) -> None:
 
 class HandoffEngineeringPrototypeOpenerTest(unittest.TestCase):
     def test_opens_package_without_import_or_integrity_claims(self) -> None:
-        summary = open_handoff_package(PACKAGE)
+        package = open_handoff_package(PACKAGE)
 
-        self.assertEqual(summary["package"]["package_id"], "handoff-package-legacy-rabi-001")
-        self.assertEqual(
-            summary["package"]["classification"], "opened_read_only_for_declared_preview"
-        )
-        self.assertEqual(summary["package_open_policy"]["storage_mutation"], "not_performed")
-        self.assertEqual(summary["package_open_policy"]["import_acceptance"], "not_performed")
-        self.assertEqual(summary["package_open_policy"]["package_integrity"], "not_claimed")
-        self.assertEqual(summary["linked_context"][0]["materialization"], "reference_only")
+        self.assertEqual(package.package_id, "handoff-package-legacy-rabi-001")
+        self.assertEqual(package.classification, "opened_read_only_for_declared_preview")
+        self.assertEqual(package.measurements[0].integrity_check, "not_performed")
+        self.assertEqual(package.linked_context[0].materialization, "reference_only")
 
     def test_degraded_preview_is_rejected_before_primary_file_read(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -99,11 +95,11 @@ class HandoffEngineeringPrototypeOpenerTest(unittest.TestCase):
             manifest["selected_measurements"][0]["primary_data"]["digest"] = "sha256:" + "0" * 64
             _write_manifest(package_dir, manifest)
 
-            summary = open_handoff_package(package_dir)
+            package = open_handoff_package(package_dir)
 
-        primary = summary["selected_measurements"][0]["primary_data"]
-        self.assertEqual(primary["declared_digest"], "sha256:" + "0" * 64)
-        self.assertEqual(primary["integrity_check"], "not_performed")
+        measurement = package.measurements[0]
+        self.assertEqual(measurement.declared_digest, "sha256:" + "0" * 64)
+        self.assertEqual(measurement.integrity_check, "not_performed")
 
     def test_csv_table_checks_reject_duplicate_header(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

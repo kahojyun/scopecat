@@ -5,12 +5,19 @@ from scopecat.handoff.inspect import (
     build_inspection_html,
     write_inspection_artifact,
 )
-from scopecat.handoff.package import HandoffMeasurement, HandoffPackage
+from scopecat.handoff.package import (
+    HandoffFinding,
+    HandoffLinkedContext,
+    HandoffMeasurement,
+    HandoffPackage,
+)
 from scopecat.handoff.read_only import open_package
 from scopecat.handoff.tables import HandoffPlotSeries, HandoffTable
 
 __all__ = [
     "HANDOFF_INSPECTION_ARTIFACT_NAME",
+    "HandoffFinding",
+    "HandoffLinkedContext",
     "HandoffMeasurement",
     "HandoffPackage",
     "HandoffPlotSeries",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from scopecat.handoff import (
@@ -59,9 +60,18 @@ class HandoffEngineeringPrototypeInspectionTest(unittest.TestCase):
 
     def test_inspection_html_escapes_free_text_without_runtime_redaction(self) -> None:
         package = open_package(BASIC_PACKAGE)
-        package._summary["package"]["display_name"] = 'Unsafe <Package> "Name"'
-        package._summary["selected_measurements"][0]["label"] = "Rabi <calibration>"
-        package._summary["linked_context"][0]["label"] = "Context <snapshot>"
+        context = replace(package.linked_context[0], label="Context <snapshot>")
+        measurement = replace(
+            package.measurements[0],
+            label="Rabi <calibration>",
+            linked_context=(context,),
+        )
+        package = replace(
+            package,
+            display_name='Unsafe <Package> "Name"',
+            measurements=(measurement,),
+            linked_context=(context,),
+        )
 
         html = build_inspection_html(package)
 
