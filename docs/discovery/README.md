@@ -28,6 +28,7 @@ product contracts too early.
 | [`shared-model-extraction-deferral.md`](shared-model-extraction-deferral.md) | Understand why shared domain models are intentionally deferred. |
 | [`external-file-reference-policy.md`](external-file-reference-policy.md) | Candidate policy vocabulary for external files, latest state, observed file state, and non-backup boundaries. |
 | [`measurement-data-reference-boundary.md`](measurement-data-reference-boundary.md) | Distinguish normalized primary data from external source references, attachments/artifacts, and previewable data items before adding import or observation behavior. |
+| [`measurement-import-source-route-decision-consolidation.md`](measurement-import-source-route-decision-consolidation.md) | Read the current import/source route decisions, deferred decisions, reopen triggers, and next-slice guidance after the legacy import and source observation pass. |
 | [`artifact-boundary-and-redaction-policy.md`](artifact-boundary-and-redaction-policy.md) | Distinguish repository-safe discovery artifacts and local UI/review surfaces from portable/public/export boundaries, and keep runtime redaction scope explicit. |
 | [`artifact-preview-boundary.md`](artifact-preview-boundary.md) | Separate arbitrary artifacts from Scopecat-declared previewable data items, without accepting generic visualization, ndarray, dataframe, or matrix heatmap support. |
 | [`complex-response-boundary.md`](complex-response-boundary.md) | Treat complex-valued responses as logical value metadata over declared previewable data items, without accepting primitive complex storage or a transform engine. |
@@ -166,6 +167,7 @@ Measurement Records the owner of context-support behavior.
 | [`storage-transition-export-validation-result.md`](storage-transition-export-validation-result.md) | Result of the storage-transition fixture and domain review. |
 | [`external-file-reference-policy.md`](external-file-reference-policy.md) | Candidate external-file policy modes that affect export, import, inspection, and provenance. |
 | [`measurement-data-reference-boundary.md`](measurement-data-reference-boundary.md) | Boundary rule that Scopecat can record arbitrary external references, but plotting/preview requires normalized Scopecat-readable data or a supported previewable data item. |
+| [`measurement-import-source-route-decision-consolidation.md`](measurement-import-source-route-decision-consolidation.md) | Decision consolidation for the current import/source-reference route, including accepted-for-now concepts, deferred decisions, reopen triggers, and recommended next work. |
 | [`package-purpose-boundary.md`](package-purpose-boundary.md) | Boundary between current analysis/review packages, shared lab references such as NAS paths, and future offline execution migration artifacts or workflows. |
 | [`artifact-preview-boundary.md`](artifact-preview-boundary.md) | Boundary between arbitrary artifacts and declared previewable data items. |
 | [`complex-response-boundary.md`](complex-response-boundary.md) | Boundary for complex-valued response metadata and derived component views. |

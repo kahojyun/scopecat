@@ -44,6 +44,7 @@ relation graph, or warning taxonomy.
 - [`legacy-import-acceptance-validation-result.md`](legacy-import-acceptance-validation-result.md)
 - [`reference-only-legacy-import-validation-result.md`](reference-only-legacy-import-validation-result.md)
 - [`reference-only-source-observation-validation-result.md`](reference-only-source-observation-validation-result.md)
+- [`measurement-import-source-route-decision-consolidation.md`](measurement-import-source-route-decision-consolidation.md)
 - [`new-run-measurement-writer-validation-result.md`](new-run-measurement-writer-validation-result.md)
 - [`measurement-storage-writer-validation-result.md`](measurement-storage-writer-validation-result.md)
 - [`derived-artifact-source-links-validation-result.md`](derived-artifact-source-links-validation-result.md)
@@ -1037,6 +1038,16 @@ results, or a narrower shared-model extraction trigger.
 Before changing handoff-package fields or contracts, apply the route-local
 field-category checklist in
 [`handoff-package-route-contract-checklist.md`](handoff-package-route-contract-checklist.md).
+
+For the import/source route, adapter-authored legacy manifests, copy
+acceptance, reference-only import, reference-only source observation, storage
+writer behavior, and stored source observation are now consolidated in
+[`measurement-import-source-route-decision-consolidation.md`](measurement-import-source-route-decision-consolidation.md).
+Use that route-level note before adding more import or source-reference
+behavior. Next work should be chosen by a new authority question: adapter
+package/drop-folder validation, data-level read of adapter-normalized output,
+reference repair review, existing-record append/update, or a narrower
+shared-model extraction trigger.
 
 For the experiment-code route, recording, managed code version promotion,
 materialization planning, approved workspace materialization, editable-folder
