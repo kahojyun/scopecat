@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -156,6 +158,23 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
 
         with self.assertRaisesRegex(KeyError, "missing-measurement"):
             package.measurement("missing-measurement")
+
+    def test_module_cli_prints_read_only_orientation_summary(self) -> None:
+        result = subprocess.run(
+            [sys.executable, "-m", "scopecat.handoff", str(PACKAGE)],
+            check=True,
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+        summary = json.loads(result.stdout)
+
+        self.assertEqual(summary["package_id"], "handoff-package-legacy-rabi-001")
+        self.assertEqual(summary["measurement_ids"], ["legacy-rabi-001"])
+        self.assertEqual(summary["preview_classification"], "needs_review_before_acceptance")
+        self.assertEqual(summary["finding_count"], 1)
+        self.assertEqual(summary["linked_context_count"], 1)
 
 
 if __name__ == "__main__":
