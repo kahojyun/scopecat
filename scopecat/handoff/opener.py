@@ -13,12 +13,13 @@ from scopecat.handoff.contracts import (
     relative_path_parts as _relative_parts,
 )
 from scopecat.handoff.contracts import (
-    validate_package_primary_data_path,
-    validate_positive_integer,
     validate_public_identifier,
-    validate_sha256_digest,
 )
-from scopecat.handoff.manifest_preview import preview_handoff_manifest
+from scopecat.handoff.manifest_preview import (
+    HandoffManifestMeasurement,
+    HandoffManifestPreviewMetadata,
+    preview_handoff_manifest,
+)
 from scopecat.handoff.package import (
     HandoffFinding,
     HandoffLinkedContext,
@@ -84,41 +85,16 @@ def _load_manifest(package_dir: Path) -> dict[str, Any]:
     return manifest
 
 
-def _validate_manifest_identity(package_dir: Path, manifest: dict[str, Any]) -> None:
-    package_id = manifest["package_identity"]["package_id"]
+def _validate_package_dir_identity(package_dir: Path, package_id: str) -> None:
     validate_public_identifier(package_id, "handoff package package_id")
     if package_dir.name != package_id:
         raise ValueError("handoff package directory name must match package_id")
 
 
-def _validate_primary_manifest_facts(record: dict[str, Any]) -> None:
-    measurement_id = record["measurement_record_id"]
-    validate_public_identifier(measurement_id, "measurement_record_id")
-    primary = record["primary_data"]
-    validate_package_primary_data_path(
-        primary["package_path"],
-        measurement_record_id=measurement_id,
-        owner="handoff package primary_data package_path",
-    )
-    has_digest = "digest" in primary
-    has_size = "size_bytes" in primary
-    if has_digest != has_size:
-        raise ValueError("handoff package primary_data digest and size_bytes must match")
-    if has_digest:
-        validate_sha256_digest(primary["digest"], "handoff package primary_data digest")
-        validate_positive_integer(
-            primary["size_bytes"],
-            "handoff package primary_data size_bytes",
-        )
-    if primary["format"] != "csv_table":
-        raise ValueError("handoff package opener currently supports csv_table primary data")
-
-
 def _load_csv_rows(
     content: bytes,
-    record: dict[str, Any],
+    preview: HandoffManifestPreviewMetadata,
 ) -> tuple[list[str], list[dict[str, str]]]:
-    preview = record["declared_preview_metadata"]
     try:
         decoded = content.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -128,7 +104,7 @@ def _load_csv_rows(
     if not reader.fieldnames:
         raise ValueError("handoff package primary data requires a CSV header")
 
-    declared_names = [column["name"] for column in preview["declared_columns"]]
+    declared_names = list(preview.declared_column_names)
     fieldnames = list(reader.fieldnames)
     if any(name == "" for name in fieldnames):
         raise ValueError("handoff package primary data requires non-empty CSV headers")
@@ -153,7 +129,7 @@ def _preview_rows(rows: list[dict[str, str]], declared_names: list[str]) -> list
 
 def _plot_series(
     rows: list[dict[str, str]],
-    plot_candidates: list[dict[str, str]],
+    plot_candidates: tuple[dict[str, str], ...],
 ) -> tuple[HandoffPlotSeries, ...]:
     series = []
     for candidate in plot_candidates:
@@ -209,45 +185,44 @@ def _findings_for_measurement(
 
 def _opened_measurement(
     package_dir: Path,
-    record: dict[str, Any],
+    measurement: HandoffManifestMeasurement,
     *,
     linked_context: tuple[HandoffLinkedContext, ...],
     package_findings: tuple[HandoffFinding, ...],
 ) -> HandoffMeasurement:
-    _validate_primary_manifest_facts(record)
-    preview = record["declared_preview_metadata"]
-    if preview["status"] != "preview_ready":
+    preview = measurement.preview_metadata
+    if preview.status != "preview_ready":
         raise ValueError("handoff package opener requires preview_ready metadata")
-    primary = record["primary_data"]
+    primary = measurement.primary_data
     content = _read_regular_package_file(
         package_dir,
-        primary["package_path"],
+        primary.package_path,
         "handoff package primary data",
     )
-    columns, rows = _load_csv_rows(content, record)
-    declared_names = [column["name"] for column in preview["declared_columns"]]
-    measurement_id = record["measurement_record_id"]
+    columns, rows = _load_csv_rows(content, preview)
+    declared_names = list(preview.declared_column_names)
+    measurement_id = measurement.measurement_record_id
     return HandoffMeasurement(
         measurement_record_id=measurement_id,
-        legacy_data_id=record["legacy_data_id"],
-        label=record["label"],
-        experiment_type=record["experiment_type"],
-        target=record["target"],
-        primary_package_path=primary["package_path"],
-        primary_format=primary["format"],
-        declared_digest=primary.get("digest"),
-        declared_size_bytes=primary.get("size_bytes"),
+        legacy_data_id=measurement.legacy_data_id,
+        label=measurement.label,
+        experiment_type=measurement.experiment_type,
+        target=measurement.target,
+        primary_package_path=primary.package_path,
+        primary_format=primary.format,
+        declared_digest=primary.digest,
+        declared_size_bytes=primary.size_bytes,
         observed_size_bytes=len(content),
         integrity_check="not_performed",
-        declared_preview_metadata_authority=preview["metadata_authority"],
-        declared_preview_columns=tuple(preview["declared_columns"]),
-        declared_preview_shape=preview["data_shape"],
-        declared_preview_plot_candidates=tuple(preview["plot_candidates"]),
+        declared_preview_metadata_authority=preview.metadata_authority,
+        declared_preview_columns=preview.declared_columns,
+        declared_preview_shape=preview.data_shape,
+        declared_preview_plot_candidates=preview.plot_candidates,
         primary_table=HandoffTable.from_records(columns, rows),
         preview_table=HandoffTable.from_records(
             declared_names, _preview_rows(rows, declared_names)
         ),
-        plot_series=_plot_series(rows, preview["plot_candidates"]),
+        plot_series=_plot_series(rows, preview.plot_candidates),
         linked_context=tuple(
             item for item in linked_context if measurement_id in item.linked_measurement_record_ids
         ),
@@ -265,25 +240,33 @@ def open_handoff_package(package_dir: Path) -> HandoffPackage:
     package_dir = _existing_package_dir(package_dir)
     manifest = _load_manifest(package_dir)
     preview = preview_handoff_manifest(manifest)
-    _validate_manifest_identity(package_dir, manifest)
+    _validate_package_dir_identity(package_dir, preview.package_id)
     linked_context = tuple(
-        HandoffLinkedContext.from_manifest_item(item) for item in manifest["linked_context"]
+        HandoffLinkedContext(
+            link_id=item.link_id,
+            kind=item.kind,
+            label=item.label,
+            package_state=item.package_state,
+            materialization="reference_only",
+            linked_measurement_record_ids=item.linked_measurement_record_ids,
+        )
+        for item in preview.linked_context
     )
     findings = preview.findings
     measurements = [
         _opened_measurement(
             package_dir,
-            record,
+            measurement,
             linked_context=linked_context,
             package_findings=findings,
         )
-        for record in manifest["selected_measurements"]
+        for measurement in preview.measurements
     ]
     return HandoffPackage(
-        package_id=manifest["package_identity"]["package_id"],
-        display_name=manifest["package_identity"]["display_name"],
-        created_by=manifest["package_identity"]["created_by"],
-        source_export_summary_id=manifest["package_identity"]["source_export_summary_id"],
+        package_id=preview.package_id,
+        display_name=preview.display_name,
+        created_by=preview.created_by,
+        source_export_summary_id=preview.source_export_summary_id,
         preview_classification=preview.classification,
         measurements=tuple(measurements),
         linked_context=linked_context,

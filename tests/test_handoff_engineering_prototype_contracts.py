@@ -34,6 +34,32 @@ class HandoffEngineeringPrototypeContractsTest(unittest.TestCase):
         self.assertEqual(preview.findings[0].code, "linked_context_not_packaged_visible_reference")
         self.assertEqual(preview.findings[0].subject_type, "linked_context")
 
+        measurement = preview.measurements[0]
+        self.assertEqual(measurement.measurement_record_id, "legacy-rabi-001")
+        self.assertEqual(
+            measurement.primary_data.package_path,
+            "measurements/legacy-rabi-001/primary.csv",
+        )
+        self.assertEqual(
+            measurement.preview_metadata.declared_column_names,
+            ("drive_frequency", "signal"),
+        )
+        self.assertEqual(preview.linked_context[0].link_id, "package-legacy-001-parameter-snapshot")
+
+    def test_manifest_preview_fragments_are_copy_safe(self) -> None:
+        manifest = _load_manifest()
+        preview = preview_handoff_manifest(manifest)
+        preview_metadata = preview.measurements[0].preview_metadata
+
+        manifest["selected_measurements"][0]["declared_preview_metadata"]["declared_columns"][0][
+            "name"
+        ] = "mutated"
+        preview_metadata.declared_columns[0]["name"] = "also_mutated"
+
+        self.assertEqual(
+            preview.measurements[0].preview_metadata.declared_column_names[0], "drive_frequency"
+        )
+
     def test_preview_contract_rejects_plot_candidates_outside_declared_columns(self) -> None:
         manifest = _load_manifest()
         measurement = manifest["selected_measurements"][0]

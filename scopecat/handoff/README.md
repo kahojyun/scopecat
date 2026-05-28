@@ -15,3 +15,7 @@ snapshot, not as a public contract.
 The prototype owns its handoff-specific manifest preview and contract helpers
 inside this module. Discovery implementation candidates remain historical
 validation inputs, not runtime dependencies for this route.
+
+Raw manifest dictionaries are validated at the package boundary. After that,
+opener internals consume typed route-local manifest fragments and package
+projection objects.

@@ -141,6 +141,10 @@ It provides:
 - route-local handoff contract and manifest-preview helpers for package
   identity, package-relative primary-data topology, preview-ready metadata,
   linked-context references, package classification, and review findings;
+- typed manifest-preview fragments for identity, primary data, declared
+  preview metadata, selected measurements, and linked-context references, so
+  raw manifest dictionaries stay at the JSON validation boundary instead of
+  flowing through opener internals;
 - product-shaped package state rather than candidate-shaped summary wrapping:
   manifest-preview findings, linked-context references, declared digest/size
   facts, primary/preview tables, and plot series are exposed as route-local
