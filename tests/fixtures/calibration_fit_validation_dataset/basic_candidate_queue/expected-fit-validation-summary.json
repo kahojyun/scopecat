@@ -1,0 +1,245 @@
+{
+  "summary_id": "calibration-fit-validation-dataset-basic-candidate-queue.expected",
+  "status": "expected_validation_output",
+  "source_fixture": "fit-validation-input.json",
+  "reference_semantics": {
+    "status": "fixture_references_are_synthetic",
+    "artifact_posture": "internal_validation_summary",
+    "contract_guard": "This is not a fitting API, score contract, dataset registry, replay harness, package format, GUI, or hardware-control contract."
+  },
+  "candidate_summary": {
+    "summary_id": "calibration-fit-validation-dataset-basic-candidate-queue.candidate",
+    "queue": [
+      {
+        "incident_id": "incident-no-signal-resonator",
+        "order": 1,
+        "state": "no_meaningful_signal",
+        "measurement_ref": {
+          "record_id": "measurement:run-fit-0001",
+          "label": "Resonator scan with no visible dip",
+          "preview_metadata_ref": "preview:resonator-scan-0001"
+        },
+        "calibration_target": "qA.resonator",
+        "fit_family": "resonator_frequency",
+        "labels": [
+          "no_signal_remeasure"
+        ],
+        "fit_attempt_ref": "fit-attempt:resonator-0001",
+        "fit_attempt_status": "not_attempted_no_signal",
+        "recovery_actions": [
+          "adjust_parameters_remeasure",
+          "skip_for_now",
+          "add_note"
+        ],
+        "chosen_recovery_action": "adjust_parameters_remeasure",
+        "selected_for_dataset": false,
+        "source_authority": "fixture_declared_user_review"
+      },
+      {
+        "incident_id": "incident-rabi-roi-failed",
+        "order": 2,
+        "state": "signal_visible_fit_failed",
+        "measurement_ref": {
+          "record_id": "measurement:run-fit-0002",
+          "label": "Rabi amplitude scan with visible oscillation",
+          "preview_metadata_ref": "preview:rabi-amplitude-0002"
+        },
+        "calibration_target": "qA.drive_amplitude",
+        "fit_family": "rabi_amplitude",
+        "labels": [
+          "signal_fit_failed",
+          "roi_adjusted_refit",
+          "initial_guess_adjusted_refit",
+          "add_to_validation_dataset"
+        ],
+        "fit_attempt_ref": "fit-attempt:rabi-0002",
+        "fit_attempt_status": "fit_failed_exception",
+        "recovery_actions": [
+          "adjust_roi_refit",
+          "adjust_initial_guess_refit",
+          "rerun_measurement",
+          "add_to_validation_dataset"
+        ],
+        "chosen_recovery_action": "adjust_roi_refit",
+        "selected_for_dataset": true,
+        "source_authority": "fixture_declared_user_review"
+      },
+      {
+        "incident_id": "incident-readout-score-reviewed",
+        "order": 3,
+        "state": "accepted_after_review",
+        "measurement_ref": {
+          "record_id": "measurement:run-fit-0003",
+          "label": "Readout histogram accepted after fit-score review",
+          "preview_metadata_ref": "preview:readout-histogram-0003"
+        },
+        "calibration_target": "qA.readout",
+        "fit_family": "readout_histogram_gaussian",
+        "labels": [
+          "accepted_after_review",
+          "outlier_sensitive",
+          "add_to_validation_dataset"
+        ],
+        "fit_attempt_ref": "fit-attempt:readout-0003",
+        "fit_attempt_status": "completed_with_warning",
+        "recovery_actions": [
+          "accept_after_review",
+          "adjust_outlier_handling_refit",
+          "add_to_validation_dataset"
+        ],
+        "chosen_recovery_action": "accept_after_review",
+        "selected_for_dataset": true,
+        "source_authority": "fixture_declared_user_review"
+      }
+    ],
+    "recovery_actions": [
+      {
+        "action_id": "incident-no-signal-resonator:adjust_parameters_remeasure",
+        "incident_id": "incident-no-signal-resonator",
+        "action": "adjust_parameters_remeasure",
+        "chosen": true,
+        "source": "fixture_declared"
+      },
+      {
+        "action_id": "incident-no-signal-resonator:skip_for_now",
+        "incident_id": "incident-no-signal-resonator",
+        "action": "skip_for_now",
+        "chosen": false,
+        "source": "fixture_declared"
+      },
+      {
+        "action_id": "incident-no-signal-resonator:add_note",
+        "incident_id": "incident-no-signal-resonator",
+        "action": "add_note",
+        "chosen": false,
+        "source": "fixture_declared"
+      },
+      {
+        "action_id": "incident-rabi-roi-failed:adjust_roi_refit",
+        "incident_id": "incident-rabi-roi-failed",
+        "action": "adjust_roi_refit",
+        "chosen": true,
+        "source": "fixture_declared"
+      },
+      {
+        "action_id": "incident-rabi-roi-failed:adjust_initial_guess_refit",
+        "incident_id": "incident-rabi-roi-failed",
+        "action": "adjust_initial_guess_refit",
+        "chosen": false,
+        "source": "fixture_declared"
+      },
+      {
+        "action_id": "incident-rabi-roi-failed:rerun_measurement",
+        "incident_id": "incident-rabi-roi-failed",
+        "action": "rerun_measurement",
+        "chosen": false,
+        "source": "fixture_declared"
+      },
+      {
+        "action_id": "incident-rabi-roi-failed:add_to_validation_dataset",
+        "incident_id": "incident-rabi-roi-failed",
+        "action": "add_to_validation_dataset",
+        "chosen": false,
+        "source": "fixture_declared"
+      },
+      {
+        "action_id": "incident-readout-score-reviewed:accept_after_review",
+        "incident_id": "incident-readout-score-reviewed",
+        "action": "accept_after_review",
+        "chosen": true,
+        "source": "fixture_declared"
+      },
+      {
+        "action_id": "incident-readout-score-reviewed:adjust_outlier_handling_refit",
+        "incident_id": "incident-readout-score-reviewed",
+        "action": "adjust_outlier_handling_refit",
+        "chosen": false,
+        "source": "fixture_declared"
+      },
+      {
+        "action_id": "incident-readout-score-reviewed:add_to_validation_dataset",
+        "incident_id": "incident-readout-score-reviewed",
+        "action": "add_to_validation_dataset",
+        "chosen": false,
+        "source": "fixture_declared"
+      }
+    ],
+    "dataset_candidates": [
+      {
+        "validation_case_id": "validation-case-rabi-roi-failed",
+        "source_measurement_ref": "measurement:run-fit-0002",
+        "calibration_target": "qA.drive_amplitude",
+        "fit_family": "rabi_amplitude",
+        "incident_labels": [
+          "signal_fit_failed",
+          "roi_adjusted_refit",
+          "initial_guess_adjusted_refit",
+          "add_to_validation_dataset"
+        ],
+        "user_fit_attempt_ref": "fit-attempt:rabi-0002",
+        "user_code_ref": "code:rabi-fit-helper-v2",
+        "fit_config_ref": "fit-config:rabi-default-roi",
+        "review_note_ref": "note:rabi-roi-refit-0002",
+        "expected_replay_behavior": "Improved code should fit visible oscillation after ROI or initial-guess adjustment without exception.",
+        "selection_reason": "Visible signal failed under default ROI and initial guess."
+      },
+      {
+        "validation_case_id": "validation-case-readout-score-reviewed",
+        "source_measurement_ref": "measurement:run-fit-0003",
+        "calibration_target": "qA.readout",
+        "fit_family": "readout_histogram_gaussian",
+        "incident_labels": [
+          "accepted_after_review",
+          "outlier_sensitive",
+          "add_to_validation_dataset"
+        ],
+        "user_fit_attempt_ref": "fit-attempt:readout-0003",
+        "user_code_ref": "code:readout-fit-helper-v1",
+        "fit_config_ref": "fit-config:readout-default-bins",
+        "review_note_ref": "note:readout-score-reviewed-0003",
+        "expected_replay_behavior": "Improved code should keep the reviewed result stable enough for user review.",
+        "selection_reason": "Accepted suspicious score should stay covered by future code."
+      }
+    ],
+    "dataset_draft": {
+      "dataset_id": "fit-validation-dataset-qA-0001",
+      "label": "qA fit incident validation draft",
+      "posture": "lab_internal_validation_dataset_draft",
+      "selected_case_ids": [
+        "validation-case-rabi-roi-failed",
+        "validation-case-readout-score-reviewed"
+      ],
+      "withheld_incident_ids": [
+        "incident-no-signal-resonator"
+      ],
+      "ready_for_lab_internal_validation": true
+    },
+    "attention": [],
+    "boundary": {
+      "summary_posture": "internal_validation_summary",
+      "non_claims": [
+        "no fit execution",
+        "no Scopecat-defined score",
+        "no automatic ROI or initial-guess selection",
+        "no remeasurement or hardware control",
+        "no parameter write-back",
+        "no portable/public dataset package"
+      ]
+    }
+  },
+  "boundary_notes": [
+    "Fit attempts and scores are user-owned or fixture-declared facts.",
+    "Recovery actions are available user choices, not Scopecat decisions.",
+    "Dataset candidates are lab-internal validation cases, not export packages.",
+    "Replay behavior is a user-owned future harness expectation."
+  ],
+  "decisions_not_earned": [
+    "fitting API",
+    "score model",
+    "dataset registry",
+    "replay harness",
+    "GUI workflow",
+    "parameter write-back",
+    "hardware control"
+  ]
+}
