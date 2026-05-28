@@ -20,7 +20,7 @@ product contracts too early.
 | [`policies/README.md`](policies/README.md) | Navigate repeated boundary vocabulary and product posture documents. |
 | [`problem-briefs/README.md`](problem-briefs/README.md) | Start from evidence-backed problem framing before choosing a validation question. |
 | [`slices/README.md`](slices/README.md) | Browse the current discovery slice inventory by route and maturity. |
-| [`synthesis/cross-slice.md`](synthesis/cross-slice.md) | See recurring candidate concepts across validated slices and explicitly marked under-review composition candidates. |
+| [`synthesis/cross-slice.md`](synthesis/cross-slice.md) | See recurring candidate concepts, stable separations, and cross-route design pressure. |
 | [`synthesis/shared-model-extraction-deferral.md`](synthesis/shared-model-extraction-deferral.md) | Understand why shared domain models are intentionally deferred. |
 | [`synthesis/measurement-context-backlog.md`](synthesis/measurement-context-backlog.md) | Shared discovery backlog for context records attached to or selected for measurements, without accepting a shared schema. |
 

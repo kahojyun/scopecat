@@ -4,774 +4,50 @@
 
 Discovery synthesis, not an ADR.
 
-This document compares currently validated slices and explicitly marked
-under-review composition candidates to identify recurring candidate concepts
-and remaining design pressure. It does not accept a final schema, storage
-model, workflow model, GUI contract, export package format, executor design,
-relation graph, or warning taxonomy.
-
-## Inputs
-
-- [`selected-measurement-export-decision-summary.md`](../slices/measurement-records/selected-measurement-export-decision-summary.md)
-- [`preview-ready-selected-measurement-export-validation-result.md`](../slices/measurement-records/preview-ready-selected-measurement-export-validation-result.md)
-- [`storage-transition-export-fixture.md`](../slices/measurement-records/storage-transition-export-fixture.md)
-- [`storage-transition-export-validation-result.md`](../slices/measurement-records/storage-transition-export-validation-result.md)
-- [`policies/external-file-reference.md`](../policies/external-file-reference.md)
-- [`policies/package-purpose-boundary.md`](../policies/package-purpose-boundary.md)
-- [`running-measurement-inspection-validation-result.md`](../slices/measurement-records/running-measurement-inspection-validation-result.md)
-- [`measurement-record-import-preview-validation-result.md`](../slices/measurement-records/measurement-record-import-preview-validation-result.md)
-- [`slices/measurement-records/handoff/contents-preview-validation-result.md`](../slices/measurement-records/handoff/contents-preview-validation-result.md)
-- [`slices/measurement-records/handoff/opener-validation-result.md`](../slices/measurement-records/handoff/opener-validation-result.md)
-- [`slices/measurement-records/handoff/read-view-validation-result.md`](../slices/measurement-records/handoff/read-view-validation-result.md)
-- [`slices/measurement-records/handoff/sdk-view-model-validation-result.md`](../slices/measurement-records/handoff/sdk-view-model-validation-result.md)
-- [`slices/measurement-records/handoff/sdk-ergonomics-spike-validation-result.md`](../slices/measurement-records/handoff/sdk-ergonomics-spike-validation-result.md)
-- [`slices/measurement-records/handoff/preview-shape-view-validation-result.md`](../slices/measurement-records/handoff/preview-shape-view-validation-result.md)
-- [`slices/measurement-records/handoff/preview-consumption-validation-result.md`](../slices/measurement-records/handoff/preview-consumption-validation-result.md)
-- [`slices/measurement-records/handoff/visual-review-validation-result.md`](../slices/measurement-records/handoff/visual-review-validation-result.md)
-- [`slices/measurement-records/handoff/gui-view-state-validation-result.md`](../slices/measurement-records/handoff/gui-view-state-validation-result.md)
-- [`slices/measurement-records/handoff/visual-artifact-validation-result.md`](../slices/measurement-records/handoff/visual-artifact-validation-result.md)
-- [`slices/measurement-records/handoff/inspection-workflow-validation-result.md`](../slices/measurement-records/handoff/inspection-workflow-validation-result.md)
-- [`slices/measurement-records/handoff/route-pressure-validation-result.md`](../slices/measurement-records/handoff/route-pressure-validation-result.md)
-- [`slices/measurement-records/handoff/acceptance-validation-result.md`](../slices/measurement-records/handoff/acceptance-validation-result.md)
-- [`slices/measurement-records/handoff/integrity-observation-validation-result.md`](../slices/measurement-records/handoff/integrity-observation-validation-result.md)
-- [`slices/measurement-records/handoff/receiving-workflow-validation-result.md`](../slices/measurement-records/handoff/receiving-workflow-validation-result.md)
-- [`slices/measurement-records/handoff/writer-validation-result.md`](../slices/measurement-records/handoff/writer-validation-result.md)
-- [`slices/measurement-records/handoff/round-trip-validation-result.md`](../slices/measurement-records/handoff/round-trip-validation-result.md)
-- [`routes/measurement-records/handoff/decision.md`](../routes/measurement-records/handoff/decision.md)
-- [`contract-primitives-validation-result.md`](../slices/support/contract-primitives-validation-result.md)
-- [`filesystem-mutation-helpers-validation-result.md`](../slices/support/filesystem-mutation-helpers-validation-result.md)
-- [`normalized-primary-table-validation-result.md`](../slices/measurement-records/normalized-primary-table-validation-result.md)
-- [`adapter-authored-legacy-import-validation-result.md`](../slices/measurement-records/adapter-authored-legacy-import-validation-result.md)
-- [`adapter-output-boundary-validation-result.md`](../slices/measurement-records/adapter-output-boundary-validation-result.md)
-- [`legacy-import-acceptance-validation-result.md`](../slices/measurement-records/legacy-import-acceptance-validation-result.md)
-- [`reference-only-legacy-import-validation-result.md`](../slices/measurement-records/reference-only-legacy-import-validation-result.md)
-- [`reference-only-source-observation-validation-result.md`](../slices/measurement-records/reference-only-source-observation-validation-result.md)
-- [`routes/measurement-records/import-source-decision.md`](../routes/measurement-records/import-source-decision.md)
-- [`new-run-measurement-writer-validation-result.md`](../slices/measurement-records/new-run-measurement-writer-validation-result.md)
-- [`measurement-storage-writer-validation-result.md`](../slices/measurement-records/measurement-storage-writer-validation-result.md)
-- [`existing-record-update-validation-result.md`](../slices/measurement-records/existing-record-update-validation-result.md)
-- [`derived-artifact-source-links-validation-result.md`](../slices/measurement-records/derived-artifact-source-links-validation-result.md)
-- [`measurement-source-observation-validation-result.md`](../slices/measurement-records/measurement-source-observation-validation-result.md)
-- [`../../implementation_candidates/measurement_record_handoff_flow/README.md`](../../../implementation_candidates/measurement_record_handoff_flow/README.md)
-- [`calibration-work-continuation-validation-result.md`](../slices/calibration/calibration-work-continuation-validation-result.md)
-- [`parameter-state-management-validation-result.md`](../slices/parameter-state/parameter-state-management-validation-result.md)
-- [`parameter-write-compatibility-output-validation-result.md`](../slices/parameter-state/parameter-write-compatibility-output-validation-result.md)
-- [`problem-briefs/setup-binding.md`](../problem-briefs/setup-binding.md)
-- [`setup-binding-validation-plan.md`](../slices/setup-binding/setup-binding-validation-plan.md)
-- [`setup-binding-validation-result.md`](../slices/setup-binding/setup-binding-validation-result.md)
-- [`selected-reference-comparison-validation-result.md`](../slices/selected-reference/selected-reference-comparison-validation-result.md)
-- [`policies/managed-experiment-code-posture.md`](../policies/managed-experiment-code-posture.md)
-- [`experiment-code-recording-validation-result.md`](../slices/experiment-code/experiment-code-recording-validation-result.md)
-- [`routes/experiment-code/README.md`](../routes/experiment-code/README.md)
-- [`managed-code-version-validation-result.md`](../slices/experiment-code/managed-code-version-validation-result.md)
-- [`comparable-code-surface-validation-result.md`](../slices/experiment-code/comparable-code-surface-validation-result.md)
-- [`workspace-materialization-intent-validation-result.md`](../slices/experiment-code/workspace-materialization-intent-validation-result.md)
-- [`workspace-materialization-validation-result.md`](../slices/experiment-code/workspace-materialization-validation-result.md)
-- [`editable-folder-observation-validation-result.md`](../slices/experiment-code/editable-folder-observation-validation-result.md)
-- [`prepared-run-context-validation-result.md`](../slices/experiment-code/prepared-run-context-validation-result.md)
-- [`declared-environment-inventory-validation-result.md`](../slices/experiment-code/declared-environment-inventory-validation-result.md)
-- [`reference-based-rerun-preparation-validation-result.md`](../slices/experiment-code/reference-based-rerun-preparation-validation-result.md)
-- [`environment-readiness-validation-result.md`](../slices/experiment-code/environment-readiness-validation-result.md)
-- [`environment-comparison-validation-result.md`](../slices/experiment-code/environment-comparison-validation-result.md)
-- [`environment-file-observation-validation-result.md`](../slices/experiment-code/environment-file-observation-validation-result.md)
-- [`environment-review-bundle-validation-result.md`](../slices/experiment-code/environment-review-bundle-validation-result.md)
-- [`modern-manifest-preflight-validation-result.md`](../slices/environment-operation/modern-manifest-preflight-validation-result.md)
-- [`uv-sync-intent-validation-result.md`](../slices/environment-operation/uv-sync-intent-validation-result.md)
-- [`uv-sync-result-validation-result.md`](../slices/environment-operation/uv-sync-result-validation-result.md)
-- [`environment-operation-review-bundle-validation-result.md`](../slices/environment-operation/environment-operation-review-bundle-validation-result.md)
-- [`routes/environment-operation/README.md`](../routes/environment-operation/README.md)
-- [`problem-briefs/measurement-record-boundary.md`](../problem-briefs/measurement-record-boundary.md)
-- [`routes/adoption-routes.md`](../routes/adoption-routes.md)
-- [`synthesis/measurement-context-backlog.md`](measurement-context-backlog.md)
-
-## Current Slice Positions
-
-Selected measurement export has the strongest implementation-shaped boundary.
-It earned a pure structured summary builder for explicit selected measurement
-sets, default bundles, optional linked context, declared preview metadata,
-degraded-preview warnings, and non-recursive traversal.
-
-The storage-transition export fixture adds early-adoption and lab-policy
-pressure without changing that implementation boundary. It separates source
-identity, current reference, and package materialization for managed records
-and lab-managed network references, and it treats missing or moved external
-context as warning-worthy. It does not decide the final storage model or
-external-reference policy.
-
-[`policies/package-purpose-boundary.md`](../policies/package-purpose-boundary.md)
-keeps three related sharing modes separate: current analysis/review packages,
-shared lab references such as NAS paths, and future offline execution
-migration artifacts or workflows. Shared lab references are live external
-references, not carried artifacts or remote Scopecat services; execution
-migration would need separate settings, code restore, environment restore or
-sync, compatibility, and execution authority.
-
-The storage-transition validation result stops that slice at fixture
-validation. It carries forward the source/current-reference/materialization
-split and external-file policy vocabulary, while explicitly deferring storage,
-checksum, backup, package writer, importer, and GUI behavior.
-
-Running measurement inspection has a slice-local implementation candidate for
-state summaries over already-recorded data from still-running measurements. It
-pressures lifecycle state, progress, completeness, freshness, declared preview
-metadata, and non-durable monitor ergonomics, but has not earned a live service,
-monitor interaction model, plotting API, durable saved-decision record, or
-harder data-shape model.
-
-Incoming measurement record import preview has a slice-local implementation
-candidate for previewing and classifying external incoming records from an
-explicit manifest before import authority exists. It preserves source identity,
-current-reference state, primary-data references, declared preview metadata,
-and explicitly listed linked context while reporting unavailable source data,
-missing preview metadata, and unavailable linked context as review findings. It
-does not accept imports, preview Scopecat-authored selected-measurement export
-packages, write storage, inspect source files, infer schemas, checksum content,
-define a package format, traverse relation graphs, or design an import GUI.
-
-Handoff package contents preview has a slice-local implementation candidate for
-previewing and classifying a Scopecat-authored selected-measurement export
-package manifest for quick receiving-side orientation. The intended package UX
-is open-before-import: preview the manifest, then use a read-only opener to
-inspect a standalone package, load declared primary data, and use declared
-preview metadata, then optionally accept/import into local storage. The preview
-candidate preserves package identity, selected measurements, packaged primary
-data and default bundles, declared preview metadata, packaged linked context,
-visible-but-not-packaged artifacts, and missing context as review findings. It
-keeps import acceptance, storage writes, archive extraction, package-file
-inspection, schema inference, package integrity, final package format, relation
-traversal, and review GUI as separate decisions. This keeps it separate from
-incoming-record import preview, where the input authority is an external
-incoming-record manifest.
-
-The current handoff-package route has separate validated tracks. Receiving-side
-use is contents preview -> opener -> read view -> visual review -> visual
-artifact, with inspection workflow composing those receiving-side layers for
-one local open-before-import action. Receiving-side mutation is package
-acceptance into new local storage records after explicit approval. Producer
-and compatibility work is writer -> round trip. The consolidated route map,
-artifact boundary, stable route concepts, candidate-local concepts, and
-handoff-specific next-work guidance are owned by
-[`routes/measurement-records/handoff/README.md`](../routes/measurement-records/handoff/README.md).
-
-Handoff package opener has the first read-only package-use candidate for
-Scopecat-authored directory packages. It reads `package-manifest.json`, reuses
-the handoff package contents preview contract for manifest validation, rejects
-empty selected-measurement packages, requires the package directory name to
-match the manifest package id, opens package-local primary CSV files through
-declared package paths, and exposes declared preview rows and plot-ready point
-series from `preview_ready` metadata only. It also exposes loaded primary CSV
-rows as local string-valued table facts for reader-facing wrappers. Degraded
-preview packages remain manifest-previewable but are not opened by this first
-opener candidate. The opener carries manifest-preview findings, applies
-symlink guardrails to package-local file opening, and reports declared digest
-and size facts when present without comparing them or claiming package
-integrity. It does not accept/import packages, mutate storage, extract
-archives, validate checksums or signatures, infer schemas, recursively traverse
-linked context, or define a GUI or stable SDK object model.
-
-Handoff package read view has the first reader-facing object candidate over
-the opener summary. It opens a package through the existing opener, exposes
-package and measurement lookup, gives primary and preview rows through
-table-like string objects, returns declared plot series by column pair, and
-keeps linked context and findings visible. It tests SDK/GUI consumption
-pressure without accepting final SDK names, dataframe dependencies, GUI
-components, import acceptance, package integrity, schema inference, storage
-mutation, or a shared measurement model.
-
-Handoff package SDK view model has the first thin Python-facing package object
-candidate over the read-only route. It keeps package parsing in the opener/read
-view, then exposes measurement lookup by id or position, primary/preview table
-access by string column key or position, optional pandas/numpy adapters,
-declared primary and saved XY/IQ plot specs, and an SDK-side explicit
-long-table heatmap binding. Analysis and fit results are reserved as empty
-read-only extension points. This validates notebook and future-GUI consumption
-pressure without accepting final SDK names, hard dataframe dependencies, plot
-rendering, fit execution, analysis write-back, package import, storage
-mutation, schema inference, automatic scan/data-shape inference, or a shared
-measurement model.
-
-Handoff package SDK ergonomics has script-shaped fixture pressure over the
-existing SDK view model and richer route-pressure package. It validates a
-notebook-like flow: open a package, discover measurements, convert primary
-tables to pandas-like frames, convert declared plot specs to records and
-numpy-like arrays, handle table-only measurements without treating the absence
-of plots as an error, and keep linked-context findings visible. It reinforces
-that pandas/numpy remain optional adapters and that plotting, fitting,
-analysis writeback, import/storage, schema inference, scan-shape inference,
-and final public SDK names are still separate decisions.
-
-Handoff package preview shape view has the first declared preview plot/view
-projection over the read-only package route. It preserves manifest-declared
-`data_shape` through the opener/read view and exposes normalized preview
-affordance, axis/column facts, declared plot bindings, and review findings
-for unsupported affordances, plot-kind mismatches, or incomplete or
-metadata-inconsistent plot bindings. It proves the package route for the
-existing declared one-dimensional table fixture and uses richer
-scan/data-shape fixtures as input pressure rather than package-route support.
-This connects scan/data-shape evidence to a package reader surface without
-accepting final schema names, storage mapping,
-dataframe or array APIs, trace opening, file observation, plot rendering,
-package import, storage mutation, or shape inference.
-
-Handoff package preview consumption has the first preview-aware local
-consumption composition over the read-only package route. It composes the read
-view, declared preview-shape projection, and plot-first visual-review
-projection into one receipt, then reports each measurement's first local
-review/use surface and table drilldown summary facts. This tests whether the
-recent reader-side projections fit together without accepting SDK/dataframe
-adapter invocation, plot rendering, live GUI routing, package acceptance, storage
-mutation, package integrity verification, schema inference, scan-shape
-inference, or a shared measurement model.
-
-Handoff package visual review has the first plot-first view-model candidate
-over the read-only package read view. It projects opened package facts into
-declared XY visual summaries, structured axis label/unit/role facts,
-measurement context, linked-context references, review findings, local plot
-points, and table drilldown summaries. This reflects the experimental-user
-workflow where plots and structured context are often the first review surface.
-It deliberately does not generate caption prose, render plots, define GUI
-components, define dataframe adapters, accept package import, verify package
-integrity, infer schema, or accept final SDK names.
-
-Handoff package GUI view state has the first local GUI-ready state projection
-over existing read-only package projections. It consumes preview-consumption
-first-surface facts and visual-review facts into measurement navigation,
-deterministic default selection, selected-measurement primary surface, plot
-summary panel facts, table drilldown, linked context, findings, and deferred
-actions. This tests GUI consumption pressure without accepting live GUI
-components, plot rendering, dataframe adapter invocation, package acceptance,
-storage mutation, package integrity verification, schema inference,
-scan-shape inference, final SDK/API names, or a shared measurement model.
-
-Handoff package route pressure now has richer repository fixtures over the
-existing read-only route. The fixtures exercise a multi-plot measurement, a
-table-only measurement, shared visible-but-not-packaged linked context,
-degraded-preview manifest orientation, and optional digest/size metadata
-across contents preview, opener, read view, visual review, preview
-consumption, and GUI view state. This raises confidence in route composition
-without adding another implementation layer or accepting a final package, GUI,
-SDK, dataframe, import, storage, schema, scan-shape, or shared measurement
-contract.
-
-Handoff package visual artifact has the first local static HTML artifact
-candidate over the visual-review model. It renders plot-first visual cards,
-simple inline SVG for numeric-looking fixture points, linked-context and
-finding panels, measurement index rows, no-plot empty states, non-numeric
-render states, and escaped free text. It is a local review artifact for UX
-validation, not a portable package member, public report, live GUI framework,
-production plotting library decision, dataframe adapter, package import flow,
-integrity verifier, schema-inference layer, or final SDK contract.
-
-Handoff package inspection workflow has the first receiving-side composition
-candidate over an existing directory-shaped package. It opens the package
-through the read-only read-view route, builds the plot-first visual-review
-model, writes the local static HTML artifact outside the package tree, and
-returns one inspection receipt for those steps. This validates the user-facing
-open-before-import package inspection action without accepting package import,
-storage mutation, archive behavior, package integrity verification, dataframe
-adapters, live GUI behavior, final SDK names, or a shared measurement model.
-
-Handoff package acceptance has the first receiving-side package-to-storage
-mutation candidate. It is intended to start after inspection rather than
-replace it: an explicit approved acceptance request is checked against the
-package reopened through the read-only read view, then package-local primary
-CSV bytes are copied into canonical new local record directories and
-deterministic candidate-local record manifests are written. Linked context
-stays reference-only, existing record directories and storage targets are
-refused, and ordinary partial writes are rolled back. It verifies approval plus
-reviewed package identity/classification, not inspection-receipt provenance. It
-does not recursively import linked-context payloads, validate package
-integrity, support concurrent package-root mutation, extract archives, update
-existing records, define dataframe behavior, define a GUI flow, or accept final
-storage schema.
-
-Handoff package integrity observation has the first read-only package-local
-checksum comparison candidate. It validates the manifest through the existing
-contents-preview contract, requires package-directory/package-id continuity,
-collects manifest-declared packaged members, reads available regular files
-without following symlink targets or symlink parents, computes observed sha256
-and byte size, and reports verified, mismatched, unavailable, blocked, or
-not-declared member states. This can run before acceptance to catch missing or
-modified package members, while still not accepting authenticity, signatures,
-archive extraction, storage mutation, import acceptance, schema inference, GUI
-behavior, final package format, or a shared measurement model.
-
-Handoff package receiving workflow has the first receiving-side composition
-candidate over the current package-use route. It runs the existing read-only
-inspection workflow, runs the existing read-only integrity observation, checks
-explicit approval and reviewed package/preview/integrity continuity, requires
-package/storage/artifact target separation, requires `declared_integrity_verified`,
-and only then delegates to the existing acceptance candidate for storage
-mutation. If integrity needs review, it returns a local blocked receipt after
-inspection and integrity observation but without writing storage. This
-validates the open-review-check-accept workflow order while explicitly keeping
-concurrent package-root mutation unsupported, and without adding archive
-extraction, signature validation, GUI state, dataframe behavior, final import
-API, final storage schema, or a shared measurement model.
-
-Adapter-authored legacy import has a slice-local implementation candidate for
-reviewing normalized manifests emitted by user-owned legacy adapters. It
-validates adapter identity, external source identity, adapter-normalized
-primary-data reference, declared preview metadata, linked context, and adapter
-findings while leaving stable adapter APIs, core LabRAD/DataVault/Labber
-readers, import acceptance, storage mutation, schema inference, package format,
-recursive traversal, and GUI behavior out of scope.
-
-Adapter output boundary has the first file-shaped adapter-produced input
-boundary candidate. It validates a boundary manifest, observes declared
-adapter output file facts for the adapter-authored manifest, normalized
-primary data, and linked-context references, delegates logical manifest
-checks to the adapter-authored legacy import candidate, and reports missing or
-mismatched declared files as review findings. The file layout is transport
-pressure only; it does not accept a final drop-folder protocol, writer-like
-adapter API, stable public adapter API, storage mutation, import acceptance,
-core legacy reader, schema inference, reference repair, linked-context payload
-import, or GUI workflow.
-
-Normalized primary table has the first shared table-read candidate for
-already-provided Scopecat-readable CSV bytes. It validates UTF-8 decoding,
-unique non-blank headers, rectangular string-valued rows, declared
-preview-column bindings, preview-row projection, and row-count mismatch
-findings. It does not observe files, compare integrity facts, parse legacy
-systems, infer schemas, infer scalar types, infer scan shape, invoke dataframe
-adapters, build plot series, define GUI behavior, or accept a public SDK.
-
-Legacy import acceptance has a slice-local implementation candidate for the
-first approved review-to-acceptance mutation for a normalized adapter-authored
-legacy manifest. It validates the embedded adapter manifest, requires approved
-acceptance, preflights one declared adapter-normalized primary-data file by
-sha256 and size, refuses existing targets, copies that normalized data into a
-new record directory, writes a deterministic imported-record manifest,
-preserves external source identity, and keeps linked context reference-only. It
-does not accept a stable import API, legacy readers in core, Scopecat
-export-package acceptance, existing-record append or update behavior, schema
-inference, recursive relation traversal, linked-context payload import, package
-integrity, or GUI behavior.
-
-Reference-only legacy import has a slice-local implementation candidate for
-the other side of that copy/reference decision. It validates an approved
-reference-only request for a normalized adapter-authored legacy manifest,
-preserves a lab-managed current external source reference with public-safe
-redacted display facts, keeps source openability, size, digest, and schema
-verification unobserved, reports copy and storage mutation as not performed,
-and keeps linked context reference-only. It does not copy primary data, write
-storage, observe or repair external references, preview or plot original
-legacy files, accept a stable import API, add legacy readers in core, accept
-Scopecat export packages, infer schemas, traverse relations recursively, or
-define GUI behavior.
-
-Reference-only source observation has a slice-local implementation candidate
-for the file-level check that can follow reference-only legacy import. It
-consumes reviewed reference-only import facts, validates continuity with the
-preserved external source reference, reads only one explicit relative path
-under a caller-provided external root, and reports unavailable, sha256
-mismatch, and size mismatch findings. It keeps declared preview metadata as an
-unverified adapter assertion and does not count rows, parse legacy data,
-verify schemas or preview metadata, copy data, repair references, mutate
-storage, or define GUI behavior.
-
-New-run measurement writer semantics has a slice-local implementation
-candidate for deriving a reviewable measurement-record summary from explicit
-writer events. It validates start/data/final event order, lifecycle state,
-progress counts, declared primary data references, and declared preview
-metadata without writing storage, observing source files, inferring schemas,
-streaming live events, controlling hardware, executing scans, or designing a
-GUI.
-
-Append-only measurement storage writer has a slice-local implementation
-candidate for the first approved filesystem mutation in the Measurement Records
-route. It writes one new measurement record directory under a caller-provided
-storage root from declared append chunks, preflights sha256 and size facts
-before mutation, refuses existing targets, and writes deterministic primary
-data plus manifest files. It does not accept final storage architecture,
-existing-record append or update behavior, import/export package behavior,
-schema inference, live service, GUI behavior, hardware control, or scan
-execution.
-
-Existing record append update has a slice-local implementation candidate for
-one approved mutation under an already-created measurement record directory.
-It first checks that the existing record directory exists without creating it,
-then acquires a direct record-local lock guard, preflights the current manifest and
-primary-data digest/size facts, reads one declared append chunk, writes only a
-new append segment and update receipt, and releases the guard. It leaves
-manifest replacement, primary-data merge or compaction, read-model refresh,
-distributed locking, lock identity, stale-lock repair, crash recovery, live
-service, GUI behavior, hardware control, and scan execution out of scope.
-
-Derived artifact source links has a slice-local implementation candidate for
-connecting one derived artifact to explicitly listed source measurements. It
-preserves artifact identity, direct source roles, relation states, primary-data
-references, and unavailable-source findings without reading artifacts or source
-data, validating checksums, writing storage, inferring schemas, traversing
-relations recursively, inferring analysis DAGs, judging scientific validity, or
-designing a GUI.
-
-Measurement source observation has a slice-local implementation candidate for
-checking one declared normalized primary-data file after storage or writer
-output exists. It reads only the explicit relative path under a caller-provided
-storage root, reports unavailable data or sha256 and size file-fact
-mismatches, and treats CSV row-count comparison as a data-level check for that
-validated normalized fixture. It preserves declared preview metadata without
-schema inference. It does not accept storage repair, recursive storage
-inspection, import/export packages, package integrity, live service, GUI
-behavior, hardware control, or scan execution.
-
-Measurement record handoff flow has a first composition candidate under review
-over the existing measurement-record slices. It consumes selected explicit
-accepted-record facts from the legacy import acceptance boundary, derives a
-source-observation request from those facts, adapts the accepted record into a
-selected measurement export summary, and previews an explicit handoff package
-manifest. Selected handoff facts in the raw JSON fixture are checked through a
-candidate-local contract module before adaptation. That module now delegates
-identical low-level value-shape checks to the contract-primitives candidate
-and identical handoff package route checks to the route-local
-`handoff_package_contracts` support module, while keeping accepted-record
-continuity and storage-display derivation local. This tests accepted-record
-path/materialization constraints, no-overwrite acceptance, accepted write-result
-kind/result/path/digest/size alignment, public-safe display references,
-accepted-record/measurement identity continuity, package-declared export-summary
-reference syntax, preview-metadata continuity, candidate-local package/export
-path topology, and linked-context handoff alignment across the route without
-accepting storage mutation, a shared measurement schema, final package format,
-package writer, package acceptance, GUI behavior, recursive traversal, schema
-inference, or final storage architecture.
-
-The handoff flow preserves accepted linked-context `reference` values as
-adapter-declared scalar text for local review. It does not interpret those
-values as Scopecat-managed paths. Topology validation applies only to fields the
-composition owns or transforms, such as `linked_context_export_refs[].path` and
-package `package_path` values.
-
-Handoff package writer has the first package-boundary write candidate in the
-measurement route. It copies declared primary data from caller-provided storage
-into the explicit package-relative
-`measurements/{measurement_record_id}/primary.csv` path and writes a
-deterministic `{package_id}/package-manifest.json` that the handoff package
-contents preview candidate can consume. The generated package directory is the
-portable handoff artifact; `package-manifest.json` is the portable
-contract/index inside that directory; and the function return is only a local
-write receipt. Linked context is preserved as reference-only manifest entries;
-linked-context payloads are not packaged. This is stronger than package preview
-because it performs file writes, owns the portable package projection, and
-rejects empty selected-measurement packages and package roots equal to or inside
-measurement storage, while still leaving arbitrary nested package paths,
-archive creation, package import acceptance, recursive linked-context capture,
-shared measurement schema, schema inference, and GUI behavior out of scope.
-
-Handoff package round trip has the first producer-to-reader compatibility
-candidate over the current directory package route. It writes a package through
-the writer, previews the generated manifest, opens the generated package
-through the read-view wrapper, and verifies reader-facing access to package
-identity, selected measurements, primary and preview table facts, declared plot
-series, and linked-context findings. It separately reports the writer receipt
-posture as local-only review data. This differs from the measurement-record
-handoff flow composition and the inspection workflow: the earlier composition
-checks semantic continuity across accepted-record and package-preview facts,
-the round trip checks the generated package artifact itself, and the inspection
-workflow checks an already available package as a receiving-side user action.
-It does not accept package import, archive behavior, receiving-side integrity
-verification, dataframe adapters, GUI behavior, final package format, or a
-shared measurement model.
-
-Contract primitives now have a narrow support candidate because the writer and
-composition work repeatedly needed the same low-level checks for managed
-identifiers, syntax-only relative path checks, exact generated package paths,
-selected-reference targets, redacted display references, sha256 digests, and
-package-root separation. This is intentionally below a domain model: it reduces
-duplicated validation code without accepting a shared measurement-record
-schema, final package schema, storage architecture, public API, GUI contract,
-or runtime redaction engine.
-
-Filesystem mutation helpers now have a similarly narrow support candidate
-because multiple write slices repeated no-overwrite target checks,
-symlink-parent rejection, partial-file cleanup, and multi-file rollback. The
-helpers centralize caller-root file write mechanics only. They do not decide
-storage layout, package format, import/export semantics, source digest
-preflight, record-directory topology, concurrent writer locking, redaction, or
-public API behavior; each slice still owns those domain contracts.
-
-Handoff package route contracts now have a route-local support module for the
-next layer above primitives: package identity, manifest item state/include
-semantics, selected primary-data topology, canonical primary-data bundle
-entries, and preview-ready metadata binding. Receiving-composition root and
-reviewed-fact checks are currently provisional route support because they have
-one direct workflow consumer. The module is still not a final package schema,
-storage architecture, or SDK object model.
-
-Handoff package route decision consolidation closes the current handoff
-discovery pass after the writer, reader, inspection, integrity, acceptance,
-composition, route-pressure, SDK, GUI, and route-local contract slices. It
-accepts the route posture as open-before-import, the package directory as the
-portable artifact, `package-manifest.json` as its portable contract/index,
-primary CSV data as first-class package data, declared preview metadata as the
-preview authority, Python use as table-first and plot-ready, GUI/local review
-as plot-first when declared plots exist, linked context as reference-only,
-integrity observation as separate from authenticity and acceptance, and
-explicit approval before receiving-side storage mutation. It also records the
-stop rule: future handoff work should name a concrete missing user workflow or
-changed authority boundary instead of restating already settled route
-boundaries.
-
-Calibration work continuation has a tiny assembler candidate for continuation
-state. It pressures episode context, planned steps, observed outputs, review
-gates, user-authored proposed writes, blocked steps, and available
-interventions, but has not earned executor, scheduler, write-back, or GUI
-ownership.
-
-Parameter state management has a slice-local implementation candidate for
-first-class parameter state lineages, purpose labels, seeded versus trusted
-states, reviewable diffs, committed states, and measurement references to
-selected parameter state versions. It validates a side-effect-free summary from
-explicit fixture input without writing parameters or inspecting current
-instrument state. It has not earned final branch/tag/commit semantics, schema
-migration, drift plotting, setup binding, hardware write-back, instrument
-state tracking, external JSON authority, rollback automation, or GUI behavior.
-
-Parameter write compatibility output has a slice-local implementation
-candidate for planning external compatibility JSON output from an accepted
-committed parameter state. It keeps Scopecat-managed parameter state as the
-authority, derives the plan from the review that created the source state,
-emits only trusted direct-scalar entries, reports untrusted or schema-limited
-skips as review findings, and does not write files, apply parameters to
-hardware, perform schema migration, or claim external JSON authority.
-
-Setup binding has a slice-local implementation candidate for
-sample/cooldown/session-specific binding snapshot versions, simple binding
-diffs, station-registry references, generated line/readout views, and
-measurement references while keeping parameter state, station management,
-generator execution, and hardware control separate. It validates selected
-station-registry references, declared generated-view references, non-executed
-project generator provenance, opaque user/project-defined inner payloads, and
-changed-binding review attention without claiming parameter invalidation. The
-fixture uses a measurement `inputs` list to group named input snapshots, but it
-does not earn a shared snapshot framework, final setup-binding schema,
-station-registry schema, setup-truth model, GUI behavior, or payload
-interpreter.
-
-Scan/data-shape fixtures currently support rectangular 2D grid table,
-declared and observed-only ragged/adaptive table pressure, trace-per-point
-table pressure with fixture-local trace CSV references, fixed-vector response
-pressure, complex fixed-vector response pressure, and sidecar-declared weak
-1D table pressure. Harder shapes such as generic ndarray values, complex trace
-responses, matrix heatmap analysis previews, and backend-specific binary
-containers remain known risks, not current requirements.
-
-Selected reference comparison has a slice-local implementation candidate for
-comparing a current measurement against a user-selected reference as recorded
-context. It reuses selected measurement IDs, declared preview metadata, named
-input snapshots, parameter state references, setup-binding references,
-selected artifacts, declared facts, recorded code context, code snapshot record
-identities, include-list file inventory, and precise finding vocabulary. It
-has not earned a comparison engine, user-judgment engine, fit-quality
-comparison, raw-data comparison, setup truth, publication-grade plotting,
-user-provided analysis conclusion model, Git-state comparison, dependency
-discovery, environment readiness, selected-version loading, code execution,
-semantic source diff, or GUI design.
-The first reference-selection model can start from ordinary user marks on
-measurement records.
-
-Experiment code recording has a slice-local summary candidate for a run/step
-code context from a messy external folder and a code snapshot record. The
-product concept is a point-in-time code snapshot for a declared recording
-scope; later selection can choose, promote, or restore
-one of those records. It uses minimal explicit include recording, strips
-notebook outputs before recording, validates recorded-root, step-input, and
-code snapshot record references, and does not inspect internal Git state or
-analyze unrecorded files. Code records should carry explicit capture-state
-posture for included items, such as content-captured, reference-only, missing,
-redacted, or excluded, before any comparison surface claims content equality or
-difference. It has not earned Git replacement implementation, internal Git
-analysis, default record-all tracking, package management, environment
-ownership, environment restoration, selected-version loading, execution,
-workflow/DAG nodes, component-level versioning, generated artifact
-regeneration, or GUI design.
-
-Managed code version has a slice-local summary candidate for turning a code
-snapshot record into a Scopecat-managed record with stable identity, exact
-inclusion-aligned file inventory, content-integrity hints, and materialization
-intent. Promotion to managed code version should not pretend that every prior
-recorded snapshot becomes part of one continuous managed-version history;
-reference-only prior records remain context until recaptured or otherwise
-observed. It does not read source files, inspect Git state, create archives,
-restore environments, materialize workspaces, import code, execute code, or
-accept final storage, archive, content-addressed store, restore, sync,
-selected-version loading, workflow/DAG, or GUI semantics.
-
-Comparable code surface has a slice-local summary candidate for comparing
-authority-explicit recorded and managed code fact sets without reading source
-files. It uses declared capture states and integrity hints to report
-same-observed, changed, missing, unverified, redacted, and not-compared
-findings. It does not accept a universal diff engine, semantic source review,
-Git diagnostics, environment readiness, restore, workspace materialization,
-code import, code execution, or workflow/DAG semantics.
-
-Workspace materialization intent has a slice-local summary candidate for
-planning where a selected managed code version would be materialized before
-writing files. It preserves selected-version identity, destination path plans,
-provenance labels, declared collision findings, redacted-file skips, and
-unavailable-file findings. It does not inspect the filesystem, create
-directories, write files, overwrite or merge destinations, restore
-environments, import code, execute code, or accept final managed-workspace or
-GUI semantics.
-
-Workspace materialization has a slice-local implementation candidate for
-approved writes from declared managed content into a caller-provided workspace
-root. It validates content size and sha256 digest hints before any write,
-creates target directories, writes content-available files with no-overwrite
-behavior, treats symlink targets as existing targets, and reports redacted or
-unavailable files without placeholders. It does not accept final managed
-workspace storage, Git checkout or merge semantics, dependency sync,
-environment restoration, code import, code execution, workflow/DAG behavior,
-prepared run context, or GUI semantics.
-
-Editable-folder observation has a slice-local implementation candidate for
-read-only observation of a selected editable workspace against a managed code
-version. It uses observed file size and sha256 facts to report same-observed,
-changed-observed, missing-expected, redacted, unavailable, and extra-file
-findings. The selected managed-version inventory stays the authoritative
-include list; extra workspace files are bounded, non-authoritative
-observations, and declared workspace-internal directories are ignored. It does
-not accept semantic source diff, Git diagnostics, workspace mutation,
-dependency sync, environment readiness, code import, code execution, prepared
-run context, or GUI semantics.
-
-Prepared run context has a slice-local implementation candidate for assembling
-selected managed code version, declared editable-workspace observation,
-parameter state, setup binding, station registry, measurement intent, and
-missing declared environment context into one manual run-preparation summary.
-It validates declared alignment between the selected editable workspace
-observation and selected managed code version, and reports workspace drift,
-workspace limitations, or missing environment context as review findings. It
-does not accept a shared context schema, run lifecycle model, restore behavior,
-environment readiness, hardware control, code import, code execution, executor,
-workflow/DAG behavior, or GUI semantics.
-The route-level consolidation in
-[`routes/experiment-code/README.md`](../routes/experiment-code/README.md)
-now treats recording, managed-version promotion, materialization planning,
-approved materialization, editable-folder observation, prepared-run
-composition, and reference-based rerun preparation as enough route evidence to
-pause broad experiment-code slice expansion until a new product authority
-question requires execution, managed storage, semantic diff, workflow/DAG
-support, or package projection.
-
-Declared environment inventory has a slice-local implementation candidate for
-summarizing explicit runtime hints, dependency-source references, package
-declarations, and external-tool hints as a declared environment context record.
-It validates declared source references and public-safe relative paths without
-reading files, resolving dependencies, installing packages, checking active
-runtimes, importing code, or executing code. Unavailable manifests, unpinned or
-unknown packages, and unverified external tools are review findings, not
-runnable-readiness, reproducibility, safety, compatibility, or run-blocking
-claims.
-
-Reference-based rerun preparation has a slice-local implementation candidate
-for starting from a user-selected reference measurement and seeding a proposed
-manual rerun context from its linked context records. It validates that selected
-rerun context is copied from explicit reference links, aligns editable
-workspace observation to the selected managed code version, and aligns the
-proposed run target to measurement intent. Workspace and declared-environment
-findings remain review facts, not reproducibility, cause-attribution,
-drift-correction, readiness, execution, or hardware-control claims.
-
-Environment readiness planning has a slice-local implementation candidate for
-turning a declared modern `uv`/`pyproject.toml` environment context and
-explicit check intentions into a reviewable plan. It validates the modern
-manifest fields and paths, lockfile path, dependency groups, external runtime
-notes, migration notes, planned check states, and review findings without
-reading dependency files, resolving or syncing dependencies, installing
-packages, probing runtimes, importing code, executing code, probing hardware,
-or claiming runnable readiness.
-
-Environment comparison has a slice-local implementation candidate for comparing
-selected-reference and current declared environment facts. It reports
-same-declared, changed, missing, unverified, and unsupported findings without
-reading manifests or lockfiles, resolving dependencies, syncing packages,
-probing runtimes, importing code, executing code, probing hardware, or claiming
-runnable readiness.
-
-Environment file observation has a slice-local implementation candidate for
-reading explicitly declared modern environment files under a caller-provided
-workspace root. It observes availability, sha256, and byte size for declared
-`pyproject.toml` and `uv.lock` files, and parses `pyproject.toml` only for a
-narrow declared manifest summary while skipping unparsed dependency entries and
-reporting malformed manifests as review findings without losing observed file
-facts. It does not scan workspaces, parse lockfiles into dependency graphs,
-resolve or sync dependencies, install packages, probe runtimes, import code,
-execute code, probe hardware, or claim runnable readiness.
-
-Environment review bundle has a slice-local implementation candidate for
-composing prepared/rerun context, declared environment comparison, file
-observation, and readiness-plan summaries into one review surface. It validates
-scope, selected-reference, environment identity, and finding source alignment
-through a candidate-local contract module before aggregating comparison,
-file-observation, and planned-check findings. It does this without performing
-fresh observation, resolving dependencies, syncing packages, installing
-packages, probing runtimes, importing or executing code, probing hardware,
-defining a shared environment schema, defining managed runners, making
-run-blocking decisions, or claiming runnable readiness.
-
-Modern manifest preflight has a slice-local implementation candidate for an
-optional `uv`/`pyproject.toml` review projection. It reads one explicitly
-approved `pyproject.toml` path under a caller-provided workspace root, parses
-declared project, `requires-python`, dependency name, skipped dependency entry,
-a synthetic `default` group from list-shaped `[project].dependencies`, and
-`[dependency-groups]` facts, and reports missing or malformed
-`requires-python`, read failures, malformed dependency-group values, normalized
-dependency-group-name collisions, and missing declared dependency groups as
-review findings. Dependency-group comparison uses normalized names while
-preserving original names for review display. It supports review/comparison
-surfaces; it is not a prerequisite for invoking `uv sync` and not Scopecat's general
-environment-manager abstraction. It does this without reading lockfiles,
-resolving dependencies, syncing packages, installing packages, probing
-runtimes, importing or executing code, probing hardware, defining a shared
-environment schema, defining managed runners, making run-blocking decisions,
-claiming manager-operation authority, or claiming runnable readiness.
-
-UV sync intent has a slice-local implementation candidate for an approved
-manager-operation intent. It validates one declared `uv` command request,
-prepared run context, declared environment reference, relative working
-directory, lock policy, command policy, and dependency-group continuity before
-projecting exact argv. The first policy emits `uv sync --locked
---no-default-groups` plus selected declared uv dependency groups, with project
-dependencies modeled separately from uv dependency groups, so the review
-surface is bounded without accepting arbitrary caller flags. It does this
-without inspecting the filesystem, reading manifests or lockfiles,
-resolving dependencies, executing `uv`, syncing packages, installing packages,
-probing runtimes, importing or executing code, probing hardware, defining a
-shared environment schema, defining a general manager abstraction, defining
-managed runners, making run-blocking decisions, or claiming runnable readiness.
-
-UV sync result has a slice-local implementation candidate for declared
-external manager-operation results. It validates a prior `uv_sync_intent`
-summary projection and a bounded external command result, then compares manager,
-operation, relative command cwd, and argv against the intent. It records
-execution state, exit code, timestamp/duration consistency, observer, nullable
-local execution cwd, and bounded stdout/stderr summaries, with raw output
-explicitly not recorded.
-Command mismatches, failures, and not-run outcomes are review findings. It does
-this without running `uv`, inspecting the filesystem, reading manifests or
-lockfiles, parsing dependency output, verifying sync or package installation,
-probing runtimes, importing or executing code, probing hardware, defining a
-shared environment schema, defining a general manager abstraction, defining
-managed runners, making run-blocking decisions, or claiming runnable readiness.
-
-Environment operation review bundle has a slice-local composition candidate for
-uv-specific operation review surfaces. It validates selected facts from prior
-modern manifest preflight, `uv_sync_intent`, and `uv_sync_result` summaries,
-then checks request identity, prepared-run context, declared environment,
-intent/result reference continuity, and command continuity. It surfaces child
-findings, non-success result status, and cross-summary mismatches as review
-findings without fresh filesystem inspection, manifest reads, lockfile reads,
-process execution, dependency-output parsing, verified sync or package
-installation, runtime probes, code import or execution, hardware probes, shared
-environment schema, general manager abstraction, managed runners, run-blocking
-decisions, or runnable-readiness claims.
-The route-level consolidation in
-[`routes/environment-operation/README.md`](../routes/environment-operation/README.md)
-now treats those uv-specific preflight, intent, result, review, and edge-case
-fixtures as enough route evidence to pause broad environment-operation slice
-expansion until a new product authority question requires execution, Pixi,
-runtime probing, package projection, or managed-runner validation.
+This document compares validated route and slice evidence to identify
+recurring candidate concepts, stable separations, and remaining design
+pressure. It does not accept a final schema, storage model, workflow model, GUI
+contract, export package format, executor design, relation graph, or warning
+taxonomy.
+
+## Evidence Owners
+
+This synthesis compares recurring pressure across the current discovery corpus.
+It intentionally points to owner indexes rather than repeating every slice or
+route inventory.
+Individual validation-result evidence is owned by
+[`../slices/README.md`](../slices/README.md) and linked route indexes; the
+recurring-concepts table below uses route and slice shorthand only.
+
+| Owner | Use For |
+| --- | --- |
+| [`../slices/README.md`](../slices/README.md) | Current slice inventory and maturity by route. |
+| [`../routes/README.md`](../routes/README.md) | Route owners and route-specific sequencing. |
+| [`../routes/measurement-records/README.md`](../routes/measurement-records/README.md) | Measurement-record import, export, storage, source observation, handoff, and shape pressure. |
+| [`../routes/measurement-records/handoff/README.md`](../routes/measurement-records/handoff/README.md) | Handoff package route map, artifact boundary, stable route concepts, and next work. |
+| [`../routes/measurement-records/handoff/decision.md`](../routes/measurement-records/handoff/decision.md) | Current handoff route decisions, deferrals, reopen triggers, and stop rule. |
+| [`../routes/measurement-records/import-source-decision.md`](../routes/measurement-records/import-source-decision.md) | Current import/source decisions, deferrals, reopen triggers, and stop rule. |
+| [`../routes/experiment-code/README.md`](../routes/experiment-code/README.md) | Experiment-code recording, managed code versions, workspace materialization, editable observation, and prepared-run context. |
+| [`../routes/environment-operation/README.md`](../routes/environment-operation/README.md) | Environment-operation review around manifest preflight, manager intent, declared external result, and local operation review. |
+| [`measurement-context-backlog.md`](measurement-context-backlog.md) | Shared backlog for context-shaped validation work across routes. |
+| [`shared-model-extraction-deferral.md`](shared-model-extraction-deferral.md) | Why shared model extraction remains deferred. |
+| [`../policies/README.md`](../policies/README.md) | Cross-route boundary vocabulary, artifact boundaries, and product posture. |
+
+## Route Evidence Summary
+
+Current route evidence is strong enough to compare recurring concepts, but not
+strong enough to promote a shared architecture package. Route-local sequencing
+and stop rules belong in route owners; this document only records cross-route
+pressure.
+
+| Evidence area | Current synthesis posture | Owner |
+| --- | --- | --- |
+| Measurement records | The strongest implementation-shaped boundary for primary recorded data, selected export, import/source separation, storage writing, source observation, running inspection, declared preview metadata, and package-facing handoff pressure. | [`../routes/measurement-records/README.md`](../routes/measurement-records/README.md) |
+| Handoff packages | A route-local open-before-import model has emerged: write/carry package, preview manifest, open/read package, inspect locally, optionally observe integrity, then optionally accept into local storage. Its package and field decisions remain route-local. | [`../routes/measurement-records/handoff/README.md`](../routes/measurement-records/handoff/README.md) |
+| Import/source | Adapter-normalized primary data, preserved external source references, reference-only observation, copy acceptance, storage writing, and existing-record append receipts are distinct authority boundaries. | [`../routes/measurement-records/import-source-decision.md`](../routes/measurement-records/import-source-decision.md) |
+| Experiment code | Current evidence supports record -> promote -> materialize -> observe -> prepare as adjacent responsibilities around code context, without accepting Git semantics, environment restoration, code loading, or execution. | [`../routes/experiment-code/README.md`](../routes/experiment-code/README.md) |
+| Environment operation | Current evidence supports approve intent -> record declared external result -> review locally for uv-specific operations, without accepting process execution, verified package state, runtime readiness, or a shared manager abstraction. | [`../routes/environment-operation/README.md`](../routes/environment-operation/README.md) |
+| Parameter state, setup binding, calibration, selected reference, and measurement context | These slices add repeated pressure for named point-in-time context records, selected references, comparison findings, proposed writes, and run-start inputs, but have not earned a shared context framework. | [`../slices/README.md`](../slices/README.md) and [`measurement-context-backlog.md`](measurement-context-backlog.md) |
 
 ## Version Terminology
 
@@ -888,6 +164,12 @@ Several separations now appear repeatedly enough to keep carrying forward:
   while available lab-managed network references can still be materialized into
   export packages. Package materialization paths are output of export planning
   or packaging, not pre-export input.
+- Analysis/review packages, shared lab references such as NAS paths, and future
+  offline execution migration are separate product purposes. A package that
+  helps someone inspect data does not automatically become a shared-storage
+  deployment model or a code/environment migration artifact; use
+  [`../policies/package-purpose-boundary.md`](../policies/package-purpose-boundary.md)
+  before adding package behavior that crosses those purposes.
 - Normal policies belong in structured state. Warnings should be reserved for
   degraded, missing, uncertain, risky, stale, unavailable, or review-needed
   conditions.
@@ -1058,74 +340,30 @@ The cross-slice comparison still does not earn:
 - fit quality, uncertainty, reproducibility, or user/domain scientific
   conclusions.
 
-## Recommended Next Step
+## Use This Synthesis
 
-Use this synthesis as the comparison point before promoting shared
-architecture.
+Use this document as the comparison point before promoting shared architecture.
+It should answer whether a concept is recurring cross-slice pressure, a stable
+separation, a route-local decision, or still only slice-local vocabulary.
 
-For the handoff route, read-only package use, package-local integrity
-observation, and explicit receiving-side acceptance are now composed in a
-validated local workflow. The route-level consolidation in
-[`routes/measurement-records/handoff/README.md`](../routes/measurement-records/handoff/README.md)
-is the route map, and
-[`routes/measurement-records/handoff/decision.md`](../routes/measurement-records/handoff/decision.md)
-is the closeout for current route decisions.
-[`policies/package-purpose-boundary.md`](../policies/package-purpose-boundary.md)
-keeps current handoff packages scoped to analysis/review unless a future slice
-explicitly changes that package purpose. Package-purpose work should choose
-the route first: return to handoff only when the desired artifact remains
-analysis/review oriented, and open a separate boundary for shared lab reference
-deployment or offline execution migration. Next handoff work should require a
-concrete missing workflow, such as archive/authenticity, notebook numeric
-ergonomics, inspectable linked-context payloads, storage import, analysis
-results, or a narrower shared-model extraction trigger.
-Before changing handoff-package fields or contracts, apply the route-local
-field-category checklist in
-[`routes/measurement-records/handoff/contract-checklist.md`](../routes/measurement-records/handoff/contract-checklist.md).
+For route sequencing, next-work choices, stop rules, and reopen triggers, use
+the route owners instead of this synthesis:
 
-For the import/source route, adapter-authored legacy manifests, adapter output
-boundary validation, normalized primary table reading, copy acceptance,
-reference-only import, reference-only source observation, storage writer
-behavior, first existing-record append receipt, and stored source observation
-are now consolidated in
-[`routes/measurement-records/import-source-decision.md`](../routes/measurement-records/import-source-decision.md).
-Use that route-level note before adding more import or source-reference
-behavior. Next work should be chosen by a new authority question: final
-adapter handoff transport, adoption of normalized table reading at a concrete
-route boundary, reference repair review, stronger existing-record update
-behavior, or a
-narrower shared-model extraction trigger.
+- [`../routes/measurement-records/README.md`](../routes/measurement-records/README.md)
+- [`../routes/measurement-records/handoff/README.md`](../routes/measurement-records/handoff/README.md)
+- [`../routes/measurement-records/handoff/decision.md`](../routes/measurement-records/handoff/decision.md)
+- [`../routes/measurement-records/import-source-decision.md`](../routes/measurement-records/import-source-decision.md)
+- [`../routes/experiment-code/README.md`](../routes/experiment-code/README.md)
+- [`../routes/environment-operation/README.md`](../routes/environment-operation/README.md)
 
-For the experiment-code route, recording, managed code version promotion,
-materialization planning, approved workspace materialization, editable-folder
-observation, prepared run context, and reference-based rerun preparation are
-now consolidated in
-[`routes/experiment-code/README.md`](../routes/experiment-code/README.md).
-Use that route-level note before adding more experiment-code behavior. Next
-work should be chosen by a new authority question: execution, managed storage,
-semantic diff, workflow/DAG support, or package projection.
+The next useful synthesis change should do one of three things:
 
-For the environment-operation route, uv-specific manifest preflight, command
-intent, external result recording, operation review, and edge-case fixture
-pressure are now consolidated in
-[`routes/environment-operation/README.md`](../routes/environment-operation/README.md).
-Use that route-level note before adding more environment-operation behavior.
-Next work should be chosen by a new authority question: execution, Pixi/Conda
-support, runtime probing, package projection, or managed-runner validation.
+- record pressure from more than one validated route or slice;
+- clarify a stable separation that keeps route contracts from collapsing into
+  each other;
+- name a shared-model extraction trigger with an immediate implementation need.
 
-Shared model extraction is currently deferred in
-[`shared-model-extraction-deferral.md`](shared-model-extraction-deferral.md).
-
-The next useful work is one of:
-
-- choose another validation slice and build a similarly narrow fixture or
-  implementation candidate;
-- add one early-adoption fixture only where it pressures a recurring concept
-  without assuming mature Scopecat ownership;
-- draft a small decision only for a concept that now has pressure from at least
-  two validated slices and an immediate implementation need.
-
-Do not consolidate the slice-local builders into shared domain code just
-because their vocabulary overlaps. Consolidation becomes justified when the
-next implementation task would otherwise duplicate behavior, tests, and
-boundary rules that have already been validated in multiple slices.
+Do not consolidate slice-local builders into shared domain code just because
+their vocabulary overlaps. Consolidation becomes justified when the next
+implementation task would otherwise duplicate behavior, tests, and boundary
+rules that have already been validated in multiple slices.
