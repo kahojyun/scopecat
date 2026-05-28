@@ -38,6 +38,32 @@ def _validate_source(source: dict[str, Any]) -> None:
             if case_id in selected_case_ids:
                 raise ValueError(f"duplicate validation_case_id: {case_id}")
             selected_case_ids[case_id] = incident["incident_id"]
+        _validate_attempt_history(incident)
+
+
+def _validate_attempt_history(incident: dict[str, Any]) -> None:
+    history = incident.get("fit_attempt_history", [])
+    if not history:
+        return
+
+    attempts = _records_by_key(history, "attempt_id")
+    current_attempt_id = incident["fit_attempt"].get("attempt_id")
+    if current_attempt_id and current_attempt_id not in attempts:
+        raise ValueError(f"current fit attempt is not in history: {current_attempt_id}")
+
+    selected_attempt_ids = incident["dataset_selection"].get("selected_attempt_ids")
+    if not incident["dataset_selection"]["selected"] and selected_attempt_ids:
+        raise ValueError("unselected incident cannot declare selected fit attempts")
+    if incident["dataset_selection"]["selected"] and not selected_attempt_ids:
+        raise ValueError("selected fit attempts cannot be empty")
+
+    seen = set()
+    for attempt_id in selected_attempt_ids or []:
+        if attempt_id in seen:
+            raise ValueError(f"duplicate selected_attempt_id: {attempt_id}")
+        seen.add(attempt_id)
+        if attempt_id not in attempts:
+            raise ValueError(f"selected fit attempt is not in history: {attempt_id}")
 
 
 def _case_id(incident_id: str) -> str:
@@ -50,7 +76,7 @@ def _fit_attempt(incident: dict[str, Any]) -> dict[str, Any]:
 
 def _queue_item(incident: dict[str, Any]) -> dict[str, Any]:
     fit_attempt = _fit_attempt(incident)
-    return {
+    item = {
         "incident_id": incident["incident_id"],
         "order": incident["order"],
         "state": incident["state"],
@@ -65,6 +91,11 @@ def _queue_item(incident: dict[str, Any]) -> dict[str, Any]:
         "selected_for_dataset": incident["dataset_selection"]["selected"],
         "source_authority": incident["authority"],
     }
+    if incident.get("fit_attempt_history"):
+        item["fit_attempt_history_count"] = len(incident["fit_attempt_history"])
+        item["current_fit_attempt_ref"] = fit_attempt.get("attempt_id")
+        item["selected_fit_attempt_refs"] = _selected_attempt_ids(incident)
+    return item
 
 
 def _recovery_actions(incidents: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -98,15 +129,68 @@ def _missing_selected_case_fields(incident: dict[str, Any]) -> list[str]:
     for field in ["attempt_id", "user_code_ref", "fit_config_ref"]:
         if not fit_attempt.get(field):
             missing.append(f"fit_attempt.{field}")
+    if incident.get("fit_attempt_history"):
+        attempts = {
+            attempt["attempt_id"]: attempt
+            for attempt in incident.get("fit_attempt_history", [])
+            if attempt.get("attempt_id")
+        }
+        for attempt_id in _selected_attempt_ids(incident):
+            attempt = attempts.get(attempt_id, {})
+            for field in ["user_code_ref", "fit_config_ref"]:
+                if not attempt.get(field):
+                    missing.append(f"fit_attempt_history.{attempt_id}.{field}")
+    if not incident.get("review_note_ref"):
+        missing.append("review_note_ref")
     if not incident.get("expected_replay_behavior"):
         missing.append("expected_replay_behavior")
     return missing
 
 
-def _dataset_candidate(incident: dict[str, Any]) -> dict[str, Any]:
-    fit_attempt = _fit_attempt(incident)
-    measurement_ref = incident.get("measurement_ref", {})
+def _selected_attempt_ids(incident: dict[str, Any]) -> list[str]:
+    if incident.get("fit_attempt_history") and not incident["dataset_selection"]["selected"]:
+        return []
+    selected = incident["dataset_selection"].get("selected_attempt_ids")
+    if selected is not None:
+        return list(selected)
+    attempt_id = incident.get("fit_attempt", {}).get("attempt_id")
+    return [attempt_id] if attempt_id else []
+
+
+def _attempts_by_id(incident: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {
+        attempt["attempt_id"]: attempt
+        for attempt in incident.get("fit_attempt_history", [])
+        if attempt.get("attempt_id")
+    }
+
+
+def _selected_attempt_records(incident: dict[str, Any]) -> list[dict[str, Any]]:
+    attempts = _attempts_by_id(incident)
+    return [attempts[attempt_id] for attempt_id in _selected_attempt_ids(incident)]
+
+
+def _primary_fit_attempt(incident: dict[str, Any]) -> dict[str, Any]:
+    if incident.get("fit_attempt_history"):
+        selected_attempts = _selected_attempt_records(incident)
+        if selected_attempts:
+            return selected_attempts[-1]
+    return _fit_attempt(incident)
+
+
+def _dataset_attempt_ref(attempt: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "attempt_id": attempt["attempt_id"],
+        "status": attempt["status"],
+        "user_code_ref": attempt.get("user_code_ref"),
+        "fit_config_ref": attempt.get("fit_config_ref"),
+    }
+
+
+def _dataset_candidate(incident: dict[str, Any]) -> dict[str, Any]:
+    fit_attempt = _primary_fit_attempt(incident)
+    measurement_ref = incident.get("measurement_ref", {})
+    candidate = {
         "validation_case_id": _case_id(incident["incident_id"]),
         "source_measurement_ref": measurement_ref.get("record_id"),
         "calibration_target": incident["calibration_target"],
@@ -119,6 +203,45 @@ def _dataset_candidate(incident: dict[str, Any]) -> dict[str, Any]:
         "expected_replay_behavior": incident.get("expected_replay_behavior"),
         "selection_reason": incident["dataset_selection"]["reason"],
     }
+    if incident.get("fit_attempt_history"):
+        candidate["source_fit_attempt_refs"] = _selected_attempt_ids(incident)
+        candidate["selected_fit_attempts"] = [
+            _dataset_attempt_ref(attempt) for attempt in _selected_attempt_records(incident)
+        ]
+    return candidate
+
+
+def _fit_attempt_history(incident: dict[str, Any]) -> dict[str, Any]:
+    attempts = []
+    for attempt in incident.get("fit_attempt_history", []):
+        attempts.append(
+            {
+                "attempt_id": attempt["attempt_id"],
+                "order": attempt["order"],
+                "status": attempt["status"],
+                "status_reason": attempt["status_reason"],
+                "user_code_ref": attempt.get("user_code_ref"),
+                "fit_config_ref": attempt.get("fit_config_ref"),
+                "config_labels": list(attempt.get("config_labels", [])),
+                "input_adjustments": list(attempt.get("input_adjustments", [])),
+                "output_ref": attempt.get("output_ref"),
+                "declared_diagnostics": copy.deepcopy(attempt.get("declared_diagnostics", {})),
+            }
+        )
+    return {
+        "incident_id": incident["incident_id"],
+        "current_fit_attempt_ref": incident["fit_attempt"].get("attempt_id"),
+        "selected_fit_attempt_refs": _selected_attempt_ids(incident),
+        "attempts": attempts,
+    }
+
+
+def _attempt_histories(incidents: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        _fit_attempt_history(incident)
+        for incident in incidents
+        if incident.get("fit_attempt_history")
+    ]
 
 
 def _attention(source: dict[str, Any]) -> list[dict[str, Any]]:
@@ -178,7 +301,7 @@ def build_fit_validation_dataset_summary(source: dict[str, Any]) -> dict[str, An
     incidents = list(source["fit_incidents"])
     candidates = [_dataset_candidate(incident) for incident in _selected_incidents(incidents)]
     attention = _attention(source)
-    return {
+    summary = {
         "summary_id": source["fixture_id"] + ".candidate",
         "queue": [_queue_item(incident) for incident in incidents],
         "recovery_actions": _recovery_actions(incidents),
@@ -193,7 +316,14 @@ def build_fit_validation_dataset_summary(source: dict[str, Any]) -> dict[str, An
                 "no automatic ROI or initial-guess selection",
                 "no remeasurement or hardware control",
                 "no parameter write-back",
+                "no replay harness",
+                "no dataset registry",
+                "no GUI workflow",
                 "no portable/public dataset package",
             ],
         },
     }
+    attempt_histories = _attempt_histories(incidents)
+    if attempt_histories:
+        summary["attempt_histories"] = attempt_histories
+    return summary

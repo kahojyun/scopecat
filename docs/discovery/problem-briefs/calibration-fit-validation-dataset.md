@@ -107,6 +107,7 @@ Initial labels should remain user-facing and workflow-oriented:
 | `signal_fit_failed` | Signal is visible but the current fit failed. |
 | `roi_adjusted_refit` | User changed ROI or selected points before refitting. |
 | `initial_guess_adjusted_refit` | User changed initial guess or bounds before refitting. |
+| `fit_repaired` | User-owned adjustment made a previously failed fit usable enough for review. |
 | `outlier_sensitive` | Fit result changes materially after outlier handling. |
 | `accepted_after_review` | User accepted the result after manual review. |
 | `rerun_required` | User decided the measurement should be repeated. |

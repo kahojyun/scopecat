@@ -94,6 +94,30 @@ Each incident should use synthetic identifiers and small declared facts:
 The fixture should not include real raw data, real paths, real hostnames, real
 sample labels, private identifiers, or sensitive lab values.
 
+## Repeated-Attempt Fixture Extension
+
+If the first fixture earns attempt-history pressure, add one second synthetic
+fixture for repeated user-owned fitting attempts on the same measurement.
+
+The fixture should cover:
+
+- a visible-signal default fit attempt that fails;
+- a later user adjustment to ROI, initial guess, bounds, or neighboring-fit
+  seed;
+- a current attempt that completes after user review or fails differently;
+- an explicit dataset-selection decision that names the selected fit attempts;
+- selected-attempt references that are non-empty and unique for selected
+  history-backed cases;
+- declared diagnostics, warning text, or fit-score-like facts only as
+  user-owned context, not Scopecat scoring.
+
+The summary may preserve attempt history so users can keep the experiment
+moving while retaining the original failure and adjusted refit as linked
+validation context. The extension should still avoid accepting a final
+fit-result schema, replay harness, dataset registry, GUI workflow, automatic ROI
+selection, automatic initial-guess generation, remeasurement, write-back, or
+hardware-control behavior.
+
 ## Candidate Summary Shape
 
 If the fixture earns a code-shaped experiment, the first candidate should be a
@@ -112,7 +136,10 @@ The summary may include:
 - `recovery_actions`: immediate user choices grouped by incident, without
   Scopecat choosing one;
 - `dataset_candidates`: selected incidents projected into minimal validation
-  case records;
+  case records, including selected fit-attempt references when history is
+  declared;
+- `attempt_histories`: optional user-owned fit attempt histories with declared
+  status, config labels, input adjustments, output references, and diagnostics;
 - `replay_context`: user-code reference, fit config, measurement/data
   reference, expected regression behavior, and missing prerequisites;
 - `dataset_draft`: lab-internal validation dataset identity, selected cases,
@@ -164,6 +191,7 @@ Do not include these in the first slice:
 - fitting implementation;
 - fit model selection;
 - Scopecat-defined score, pass/fail threshold, or scientific conclusion;
+- final attempt-history data model;
 - automatic ROI selection, outlier rejection, or initial-guess generation;
 - automatic remeasurement, retry, retune, or optimization;
 - Scopecat-decided parameter write-back;
