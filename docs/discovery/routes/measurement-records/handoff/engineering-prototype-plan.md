@@ -105,6 +105,7 @@ global domain layer. A plausible module split is:
 ```text
 scopecat/handoff/
   __main__.py
+  inspect.py
   package.py
   read_only.py
   tables.py
@@ -128,7 +129,10 @@ It provides:
 - `open_package(package_dir)` as the Python entrypoint;
 - route-local `HandoffPackage`, `HandoffMeasurement`, `HandoffTable`, and
   `HandoffPlotSeries` projections;
-- a stdlib smoke CLI via `python -m scopecat.handoff <package-dir>`;
+- a stdlib CLI via `python -m scopecat.handoff <package-dir>` for JSON
+  orientation and `--html-dir <dir>` for a local static inspection artifact;
+- `build_inspection_html()` and `write_inspection_artifact()` for local
+  review output generated from the route-local package projection;
 - regression coverage over the basic opener fixture and richer route-pressure
   fixtures, including multi-plot, table-only, shared-context, and degraded
   preview cases;
@@ -139,7 +143,10 @@ The prototype still delegates package manifest validation and package-local
 file opening to the validated `implementation_candidates.handoff_package_opener`
 candidate. That delegation is intentional for the first pass: it keeps the
 prototype focused on route-local module shape, read actions, and fixture
-composition before moving low-level opener behavior.
+composition before moving low-level opener behavior. The local inspection
+artifact is prototype-local review output; it is not a portable package
+member, public report, final GUI component model, dataframe adapter, package
+import record, or package-integrity verification.
 
 Promotion blockers still include:
 
@@ -148,8 +155,12 @@ Promotion blockers still include:
   contracts;
 - deciding which candidate summary fields are stable enough for the prototype
   view and which should remain historical validation shape;
-- deciding whether static HTML visual artifact generation is outside the first
-  read-only module or an optional local review adapter.
+- deciding whether the current stdlib HTML renderer remains enough for the
+  first accepted vertical or should be replaced by a template/rendering layer
+  before promotion;
+- deciding whether numeric conversion, dataframe adapters, or plotting-library
+  integration are needed before promotion, or should remain later SDK/notebook
+  pressure.
 
 ## Fixture Policy
 
@@ -240,7 +251,8 @@ decision or ADR.
 
 - Which candidate output fields are user-facing enough to preserve in the
   prototype view?
-- Should static HTML visual artifact generation remain outside the first
-  read-only module, or become an optional local review adapter?
+- Should the inspection artifact become the accepted local review surface for
+  the first vertical, or remain prototype-only while a future GUI/report layer
+  is validated separately?
 - Which route-local models should be kept as projections rather than promoted
   into shared measurement-record concepts?
