@@ -54,7 +54,7 @@ urgent, ready for implementation, or high leverage.
 referenced from another document, do not renumber it. Add a new row instead.
 
 Problem framing uses named problem-brief documents in
-[`../discovery/problem-briefs/`](../discovery/problem-briefs/), not durable pain
+[`../discovery/problem-briefs/`](../discovery/problem-briefs), not durable pain
 IDs.
 
 ## Source Handling

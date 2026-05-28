@@ -151,7 +151,7 @@ or local Scopecat UI surface. Effective portable/export boundaries include
 artifacts exported outside the repository or local workspace, externally
 shared, published, materialized as portable handoff artifacts, or otherwise
 generated to be carried away; see
-`docs/discovery/artifact-boundary-and-redaction-policy.md`. User labels,
+`docs/discovery/policies/artifact-boundary-and-redaction.md`. User labels,
 display names, notes, and descriptions are free text unless a slice explicitly
 introduces a redaction policy surface or generates a portable/export artifact.
 Repository fixtures should still be reviewed for safe wording, but

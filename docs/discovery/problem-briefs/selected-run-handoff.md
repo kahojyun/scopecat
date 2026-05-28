@@ -5,7 +5,7 @@
 Evidence-backed problem brief.
 
 Related spike summary:
-[`../selected-run-handoff-spike-summary.md`](../selected-run-handoff-spike-summary.md).
+[`../selected-run-handoff-spike-summary.md`](../slices/measurement-records/selected-run-handoff-spike-summary.md).
 
 ## User-Facing Failure
 
