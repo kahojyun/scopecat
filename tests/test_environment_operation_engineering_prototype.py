@@ -7,8 +7,14 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest import mock
 
-from scopecat.environment_operation import CommandRunResult, UvSyncIntent, execute_uv_sync
+from scopecat.environment_operation import (
+    CommandRunResult,
+    SubprocessUvRunner,
+    UvSyncIntent,
+    execute_uv_sync,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 INTENT_FIXTURE = ROOT / "tests" / "fixtures" / "uv_sync_intent" / "basic_uv_sync_intent"
@@ -149,6 +155,42 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "approval_id"):
             record.to_result_summary(mismatched)
 
+    def test_root_level_working_directory_intent_can_execute(self) -> None:
+        source = _load_tiny_uv_intent_summary()
+        source["sync_request"]["working_directory"] = "."
+        source["command_intent"]["working_directory"] = "."
+        intent = UvSyncIntent.from_summary(source)
+        with TemporaryDirectory() as tmp:
+            workspace_root = Path(tmp)
+            runner = FakeRunner(CommandRunResult(exit_code=0, stdout="", stderr=""))
+
+            execute_uv_sync(intent, workspace_root=workspace_root, runner=runner)
+
+        self.assertEqual(runner.calls[0]["cwd"], workspace_root.resolve())
+
+    def test_subprocess_runner_uses_resolved_uv_and_empty_child_environment(self) -> None:
+        runner = SubprocessUvRunner(uv_executable="/opt/scopecat-test/bin/uv")
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="ok",
+            stderr="",
+        )
+        with mock.patch.object(subprocess, "run", return_value=completed) as run:
+            result = runner.run(
+                ("uv", "sync", "--locked", "--no-default-groups"),
+                cwd=Path("/tmp"),
+                timeout_seconds=11,
+            )
+
+        self.assertEqual(result.exit_code, 0)
+        run.assert_called_once()
+        self.assertEqual(
+            run.call_args.args[0],
+            ("/opt/scopecat-test/bin/uv", "sync", "--locked", "--no-default-groups"),
+        )
+        self.assertEqual(run.call_args.kwargs["env"], {})
+
     def test_executes_real_uv_sync_against_tiny_workspace_fixture(self) -> None:
         intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
         with TemporaryDirectory() as tmp:
@@ -278,6 +320,18 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
         source = _load_intent_summary()
         source["command_intent"]["argv"] = ["uv", "pip", "install", "unsafe"]
         with self.assertRaisesRegex(ValueError, "bounded uv sync argv"):
+            UvSyncIntent.from_summary(source)
+
+        source = _load_intent_summary()
+        source["command_intent"]["argv"] = [
+            "uv",
+            "sync",
+            "--locked",
+            "--no-default-groups",
+            "--group",
+            "bad group",
+        ]
+        with self.assertRaisesRegex(ValueError, "group"):
             UvSyncIntent.from_summary(source)
 
         source = _load_intent_summary()

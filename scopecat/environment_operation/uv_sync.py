@@ -8,6 +8,8 @@ readiness.
 
 from __future__ import annotations
 
+import re
+import shutil
 import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -16,6 +18,7 @@ from typing import Any, Protocol
 
 OUTPUT_SUMMARY_LIMIT = 2000
 DEFAULT_TIMEOUT_SECONDS = 300
+DEPENDENCY_GROUP = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")
 
 
 @dataclass(frozen=True)
@@ -124,6 +127,9 @@ class CommandRunner(Protocol):
 class SubprocessUvRunner:
     """Default runner that executes uv through subprocess."""
 
+    def __init__(self, *, uv_executable: Path | str | None = None) -> None:
+        self._uv_executable = _resolve_uv_executable(uv_executable)
+
     def run(
         self,
         argv: tuple[str, ...],
@@ -131,9 +137,11 @@ class SubprocessUvRunner:
         cwd: Path,
         timeout_seconds: int,
     ) -> CommandRunResult:
+        launch_argv = (str(self._uv_executable), *argv[1:])
         completed = subprocess.run(
-            argv,
+            launch_argv,
             cwd=cwd,
+            env={},
             text=True,
             capture_output=True,
             timeout=timeout_seconds,
@@ -309,10 +317,10 @@ def execute_uv_sync(
         raise ValueError("timeout_seconds must be positive")
 
     command_cwd = _command_cwd(workspace_root, intent.working_directory)
-    runner = runner or SubprocessUvRunner()
     started = datetime.now(UTC)
 
     try:
+        runner = runner or SubprocessUvRunner()
         run_result = runner.run(
             intent.argv,
             cwd=command_cwd,
@@ -425,10 +433,11 @@ def _result_summary_attention() -> list[dict[str, str]]:
 
 
 def _validate_relative_path(value: str, owner: str) -> str:
+    if value == ".":
+        return value
     path = PurePosixPath(value)
     if (
         not value
-        or value == "."
         or "\\" in value
         or path.is_absolute()
         or any(part in {"", ".", ".."} for part in value.split("/"))
@@ -454,13 +463,20 @@ def _validate_uv_sync_argv(value: Any) -> tuple[str, ...]:
 
 
 def _valid_group_name(value: str) -> bool:
-    return (
-        bool(value)
-        and "/" not in value
-        and "\\" not in value
-        and value not in {".", ".."}
-        and not value.startswith("-")
-    )
+    return bool(DEPENDENCY_GROUP.fullmatch(value))
+
+
+def _resolve_uv_executable(value: Path | str | None) -> Path:
+    if value is None:
+        resolved = shutil.which("uv")
+        if resolved is None:
+            raise FileNotFoundError("uv executable was not found")
+        return Path(resolved).resolve()
+
+    path = Path(value)
+    if not path.is_absolute():
+        raise ValueError("uv_executable must be an absolute path")
+    return path.resolve()
 
 
 def _require_mapping(source: dict[str, Any], key: str) -> dict[str, Any]:

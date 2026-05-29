@@ -12,6 +12,11 @@ approved intent summary. It validates the workspace root and relative command
 directory, runs the command through a subprocess runner, records bounded output
 summaries, and returns a review-oriented execution record.
 
+The default subprocess runner resolves the local `uv` executable before launch,
+uses that resolved executable path for the child process, and passes an empty
+child environment. The approved intent shape still does not accept arbitrary
+environment-variable overrides.
+
 Execution records can be projected into a route-local result summary for later
 review composition. That projection carries the selected intent reference,
 bounded command result, result findings, and explicit non-claims. It remains a

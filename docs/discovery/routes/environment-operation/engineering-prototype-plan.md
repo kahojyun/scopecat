@@ -2,7 +2,7 @@
 
 ## Status
 
-Prototype milestone in progress, not an ADR.
+Prototype milestone implemented, not an ADR.
 
 This plan starts the engineering prototype for the environment-operation route.
 It follows the validated route posture:

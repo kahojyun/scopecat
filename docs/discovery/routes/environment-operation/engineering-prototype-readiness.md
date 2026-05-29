@@ -7,7 +7,7 @@ Engineering prototype readiness note, not an ADR.
 Artifact posture: `internal_validation_summary`. This note is internal project
 memory. It creates no portable package output, public contract, public SDK, or
 new redaction rule. Use
-[`policies/artifact-boundary-and-redaction.md`](../../../policies/artifact-boundary-and-redaction.md)
+[`policies/artifact-boundary-and-redaction.md`](../../policies/artifact-boundary-and-redaction.md)
 if any prototype output is promoted into a portable/export artifact.
 
 ## Readiness Judgment
