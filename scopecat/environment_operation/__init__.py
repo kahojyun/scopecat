@@ -11,6 +11,7 @@ from scopecat.environment_operation.uv_sync import (
     UvSyncExecutionRecord,
     UvSyncFinding,
     UvSyncIntent,
+    UvSyncResult,
     execute_uv_sync,
 )
 
@@ -22,6 +23,7 @@ __all__ = [
     "UvSyncExecutionRecord",
     "UvSyncFinding",
     "UvSyncIntent",
+    "UvSyncResult",
     "execute_uv_sync",
     "review_uv_sync_operation",
 ]

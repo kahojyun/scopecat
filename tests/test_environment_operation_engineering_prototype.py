@@ -13,6 +13,7 @@ from scopecat.environment_operation import (
     CommandRunResult,
     SubprocessUvRunner,
     UvSyncIntent,
+    UvSyncResult,
     execute_uv_sync,
 )
 
@@ -105,7 +106,7 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
             "not_recorded",
         )
 
-    def test_execution_record_projects_route_local_result_summary(self) -> None:
+    def test_execution_record_projects_route_local_typed_result_summary(self) -> None:
         intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
         with TemporaryDirectory() as tmp:
             workspace_root = Path(tmp)
@@ -119,7 +120,8 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
                 runner=runner,
             )
 
-        summary = record.to_result_summary(intent)
+        result = UvSyncResult.from_execution(intent, record)
+        summary = result.to_summary()
 
         self.assertEqual(
             summary["uv_sync_result_policy"]["result_authority"],
@@ -145,6 +147,7 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
                 "runnable_readiness_not_claimed",
             },
         )
+        self.assertEqual(record.to_result_summary(intent), summary)
 
     def test_result_summary_rejects_mismatched_intent_projection(self) -> None:
         intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())

@@ -23,8 +23,8 @@ runtime/package state.
 
 Status: implemented in `scopecat.environment_operation` with injected-runner
 tests, a real tiny `uv` success fixture, and a real locked-mode failure
-fixture. Execution records also project to a route-local result summary for
-downstream local review composition.
+fixture. Execution records promote to typed route-local `UvSyncResult` objects,
+which can project local result summaries for downstream review snapshots.
 
 The prototype should support:
 
@@ -37,10 +37,12 @@ The prototype should support:
 - completed-success, completed-failed, timed-out, and launch-failed execution
   states;
 - review findings for failure, timeout, and launch failure;
-- route-local result summaries that carry intent references, bounded command
-  results, findings, and explicit policy non-claims;
+- route-local `UvSyncResult` objects that carry intent references, bounded
+  command results, findings, and explicit policy non-claims;
+- route-local result-summary projection from `UvSyncResult` for review
+  snapshots and compatibility with discovery-style fixtures;
 - route-local operation reviews that align one selected intent with one
-  selected execution result summary and surface result or alignment findings;
+  selected typed execution result and surface result or alignment findings;
 - explicit non-claims for runtime readiness, dependency-state verification,
   code import/execution, hardware readiness, and run-start permission.
 
@@ -66,7 +68,7 @@ bounded `uv sync` command through an injectable runner, record bounded process
 facts, and surface failure/timeout as review findings without claiming runtime
 or run readiness. The current prototype satisfies that stop condition and adds
 repository-safe real-`uv` fixtures to verify the subprocess success and failure
-paths plus route-local result-summary and operation-review projections for
+paths plus typed result, summary projection, and operation-review flows for
 downstream review.
 
 The next milestone should be chosen only after this boundary is reviewed. Likely

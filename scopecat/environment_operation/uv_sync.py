@@ -8,6 +8,7 @@ readiness.
 
 from __future__ import annotations
 
+import copy
 import re
 import subprocess
 from dataclasses import dataclass
@@ -28,6 +29,21 @@ class UvSyncFinding:
     severity: str
     basis: str
     does_not_claim: str
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> UvSyncFinding:
+        if not isinstance(value, dict):
+            raise ValueError("uv sync result finding must be an object")
+        return cls(
+            code=_require_owned_text(value, "code", "uv sync result finding"),
+            severity=_require_owned_text(value, "severity", "uv sync result finding"),
+            basis=_require_owned_text(value, "basis", "uv sync result finding"),
+            does_not_claim=_require_owned_text(
+                value,
+                "does_not_claim",
+                "uv sync result finding",
+            ),
+        )
 
     def to_dict(self) -> dict[str, str]:
         return {
@@ -235,34 +251,7 @@ class UvSyncExecutionRecord:
         runtime-readiness result.
         """
 
-        self._validate_intent_alignment(intent)
-        return {
-            "uv_sync_result_policy": {
-                "summary_policy": "review_summary",
-                "result_authority": "scopecat_uv_sync_execution_result",
-                "prior_intent_source": "route_local_uv_sync_intent",
-                "manager_scope": "uv_only",
-                "command_result_shape": "bounded_uv_sync_execution_record",
-                "local_execution_cwd_authority": "local_review_path_internal",
-                "scopecat_process_execution": "performed",
-                "manifest_read": "not_performed",
-                "lockfile_read": "not_performed",
-                "output_parsing": "summary_only_no_dependency_parsing",
-                "dependency_resolution": "delegated_to_uv_not_performed_by_scopecat",
-                "dependency_sync": "manager_result_not_verified_by_scopecat",
-                "package_install": "manager_result_not_verified_by_scopecat",
-                "runtime_probe": "not_performed",
-                "code_import_execution": "not_performed",
-                "hardware_probe": "not_performed",
-                "readiness_claim": "not_claimed",
-                "shared_environment_schema": "not_defined",
-            },
-            "uv_sync_intent_ref": intent.to_result_intent_ref(),
-            "command_result": self._command_result_summary(),
-            "result_status": self.result_status,
-            "result_findings": [finding.to_dict() for finding in self.findings],
-            "attention": _result_summary_attention(),
-        }
+        return UvSyncResult.from_execution(intent, self).to_summary()
 
     def _command_result_summary(self) -> dict[str, Any]:
         return {
@@ -300,6 +289,115 @@ class UvSyncExecutionRecord:
             raise ValueError("execution record working_directory must match intent")
         if self.argv != intent.argv:
             raise ValueError("execution record argv must match intent")
+
+
+@dataclass(frozen=True)
+class UvSyncResult:
+    """Typed route-local projection of one approved uv sync execution result."""
+
+    intent_ref: dict[str, Any]
+    command_result: dict[str, Any]
+    result_status: str
+    findings: tuple[UvSyncFinding, ...]
+    attention: tuple[dict[str, str], ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "intent_ref", copy.deepcopy(self.intent_ref))
+        object.__setattr__(self, "command_result", copy.deepcopy(self.command_result))
+        object.__setattr__(self, "findings", tuple(self.findings))
+        object.__setattr__(
+            self,
+            "attention",
+            tuple(copy.deepcopy(item) for item in self.attention),
+        )
+
+    @classmethod
+    def from_execution(cls, intent: UvSyncIntent, record: UvSyncExecutionRecord) -> UvSyncResult:
+        """Create the typed result object from an execution record and selected intent."""
+
+        record._validate_intent_alignment(intent)
+        return cls(
+            intent_ref=intent.to_result_intent_ref(),
+            command_result=record._command_result_summary(),
+            result_status=record.result_status,
+            findings=record.findings,
+            attention=tuple(_result_summary_attention()),
+        )
+
+    @classmethod
+    def from_summary(cls, summary: dict[str, Any]) -> UvSyncResult:
+        """Rehydrate a typed result from a route-local summary edge projection."""
+
+        if not isinstance(summary, dict):
+            raise ValueError("uv sync result summary must be an object")
+        for key in (
+            "uv_sync_result_policy",
+            "uv_sync_intent_ref",
+            "command_result",
+            "result_status",
+            "result_findings",
+            "attention",
+        ):
+            if key not in summary:
+                raise ValueError(f"uv sync result summary must include {key}")
+
+        result_findings = summary["result_findings"]
+        if not isinstance(result_findings, list):
+            raise ValueError("uv sync result summary result_findings must be a list")
+        attention = summary["attention"]
+        if not isinstance(attention, list) or not all(isinstance(item, dict) for item in attention):
+            raise ValueError("uv sync result summary attention must be a list of objects")
+
+        return cls(
+            intent_ref=_require_owned_mapping(
+                summary,
+                "uv_sync_intent_ref",
+                "uv sync result summary",
+            ),
+            command_result=_require_owned_mapping(
+                summary,
+                "command_result",
+                "uv sync result summary",
+            ),
+            result_status=_require_owned_text(
+                summary,
+                "result_status",
+                "uv sync result summary",
+            ),
+            findings=tuple(UvSyncFinding.from_dict(item) for item in result_findings),
+            attention=tuple(copy.deepcopy(item) for item in attention),
+        )
+
+    def to_summary(self) -> dict[str, Any]:
+        """Project this typed result into the route-local review summary shape."""
+
+        return {
+            "uv_sync_result_policy": {
+                "summary_policy": "review_summary",
+                "result_authority": "scopecat_uv_sync_execution_result",
+                "prior_intent_source": "route_local_uv_sync_intent",
+                "manager_scope": "uv_only",
+                "command_result_shape": "bounded_uv_sync_execution_record",
+                "local_execution_cwd_authority": "local_review_path_internal",
+                "scopecat_process_execution": "performed",
+                "manifest_read": "not_performed",
+                "lockfile_read": "not_performed",
+                "output_parsing": "summary_only_no_dependency_parsing",
+                "dependency_resolution": "delegated_to_uv_not_performed_by_scopecat",
+                "dependency_sync": "manager_result_not_verified_by_scopecat",
+                "package_install": "manager_result_not_verified_by_scopecat",
+                "runtime_probe": "not_performed",
+                "code_import_execution": "not_performed",
+                "hardware_probe": "not_performed",
+                "readiness_claim": "not_claimed",
+                "shared_environment_schema": "not_defined",
+            },
+            "uv_sync_intent_ref": copy.deepcopy(self.intent_ref),
+            "command_result": copy.deepcopy(self.command_result),
+            "result_status": self.result_status,
+            "result_findings": [finding.to_dict() for finding in self.findings],
+            "attention": [copy.deepcopy(item) for item in self.attention],
+        }
 
 
 def execute_uv_sync(
@@ -490,6 +588,20 @@ def _require_text(source: dict[str, Any], key: str) -> str:
     value = source.get(key)
     if not isinstance(value, str) or not value:
         raise ValueError(f"{key} must be text")
+    return value
+
+
+def _require_owned_mapping(source: dict[str, Any], key: str, owner: str) -> dict[str, Any]:
+    value = source.get(key)
+    if not isinstance(value, dict):
+        raise ValueError(f"{owner} {key} must be an object")
+    return copy.deepcopy(value)
+
+
+def _require_owned_text(source: dict[str, Any], key: str, owner: str) -> str:
+    value = source.get(key)
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{owner} {key} must be text")
     return value
 
 

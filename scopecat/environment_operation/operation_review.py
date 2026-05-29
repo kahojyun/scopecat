@@ -6,7 +6,7 @@ import copy
 from dataclasses import dataclass
 from typing import Any
 
-from scopecat.environment_operation.uv_sync import UvSyncIntent
+from scopecat.environment_operation.uv_sync import UvSyncFinding, UvSyncIntent, UvSyncResult
 
 SUCCESS_STATUS = "uv_sync_completed_success"
 
@@ -22,15 +22,13 @@ class EnvironmentOperationFinding:
     does_not_claim: str
 
     @classmethod
-    def from_child_finding(cls, finding: dict[str, Any]) -> EnvironmentOperationFinding:
-        if not isinstance(finding, dict):
-            raise ValueError("result finding must be an object")
+    def from_child_finding(cls, finding: UvSyncFinding) -> EnvironmentOperationFinding:
         return cls(
-            code=_require_text(finding, "code", "result finding"),
-            severity=_require_text(finding, "severity", "result finding"),
-            basis=_require_text(finding, "basis", "result finding"),
+            code=finding.code,
+            severity=finding.severity,
+            basis=finding.basis,
             source="uv_sync_result",
-            does_not_claim=_require_text(finding, "does_not_claim", "result finding"),
+            does_not_claim=finding.does_not_claim,
         )
 
     def to_dict(self) -> dict[str, str]:
@@ -86,54 +84,28 @@ class EnvironmentOperationReview:
 
 def review_uv_sync_operation(
     intent: UvSyncIntent,
-    result_summary: dict[str, Any],
+    result: UvSyncResult,
     *,
     review_id: str | None = None,
 ) -> EnvironmentOperationReview:
-    """Review one route-local uv sync execution result summary."""
+    """Review one typed route-local uv sync execution result."""
 
-    parsed = _parse_result_summary(result_summary)
     intent_ref = intent.to_result_intent_ref()
-    result_ref = _result_ref(parsed)
-    findings = tuple(_operation_findings(intent, intent_ref, parsed, result_ref))
+    result_ref = _result_ref(result)
+    findings = tuple(_operation_findings(intent, intent_ref, result, result_ref))
     return EnvironmentOperationReview(
         review_id=review_id or f"{result_ref['result_id']}.review",
         intent_ref=intent_ref,
         result_ref=result_ref,
-        review_status=_review_status(parsed["result_status"], findings),
+        review_status=_review_status(result.result_status, findings),
         findings=findings,
         attention=tuple(_attention()),
     )
 
 
-def _parse_result_summary(value: dict[str, Any]) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError("uv sync result summary must be an object")
-    for key in (
-        "uv_sync_result_policy",
-        "uv_sync_intent_ref",
-        "command_result",
-        "result_status",
-        "result_findings",
-    ):
-        if key not in value:
-            raise ValueError(f"uv sync result summary must include {key}")
-    intent_ref = _require_mapping(value, "uv_sync_intent_ref", "uv sync result summary")
-    command_result = _require_mapping(value, "command_result", "uv sync result summary")
-    result_findings = value["result_findings"]
-    if not isinstance(result_findings, list):
-        raise ValueError("uv sync result summary result_findings must be a list")
-    return {
-        "intent_ref": intent_ref,
-        "command_result": command_result,
-        "result_status": _require_text(value, "result_status", "uv sync result summary"),
-        "result_findings": [copy.deepcopy(item) for item in result_findings],
-    }
-
-
-def _result_ref(parsed: dict[str, Any]) -> dict[str, Any]:
-    command_result = parsed["command_result"]
-    intent_ref = parsed["intent_ref"]
+def _result_ref(result: UvSyncResult) -> dict[str, Any]:
+    command_result = result.command_result
+    intent_ref = result.intent_ref
     command_intent = _require_mapping(intent_ref, "command_intent", "uv sync intent ref")
     return {
         "result_id": _require_text(command_result, "result_id", "uv sync command result"),
@@ -170,22 +142,22 @@ def _result_ref(parsed: dict[str, Any]) -> dict[str, Any]:
             command_result, "execution_state", "uv sync command result"
         ),
         "exit_code": command_result.get("exit_code"),
-        "result_status": parsed["result_status"],
-        "result_findings": copy.deepcopy(parsed["result_findings"]),
+        "result_status": result.result_status,
+        "result_findings": [finding.to_dict() for finding in result.findings],
     }
 
 
 def _operation_findings(
     intent: UvSyncIntent,
     intent_ref: dict[str, Any],
-    parsed: dict[str, Any],
+    result: UvSyncResult,
     result_ref: dict[str, Any],
 ) -> list[EnvironmentOperationFinding]:
     findings = []
     findings.extend(_alignment_findings(intent, intent_ref, result_ref))
-    for child_finding in parsed["result_findings"]:
+    for child_finding in result.findings:
         findings.append(EnvironmentOperationFinding.from_child_finding(child_finding))
-    if parsed["result_status"] != SUCCESS_STATUS:
+    if result.result_status != SUCCESS_STATUS:
         findings.append(
             EnvironmentOperationFinding(
                 code="uv_sync_result_not_success",

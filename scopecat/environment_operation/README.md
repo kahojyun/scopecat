@@ -17,14 +17,15 @@ absolute `uv_executable`. The subprocess runner uses that executable path for
 the child process and passes an empty child environment. The approved intent
 shape still does not accept arbitrary environment-variable overrides.
 
-Execution records can be projected into a route-local result summary for later
-review composition. That projection carries the selected intent reference,
-bounded command result, result findings, and explicit non-claims. It remains a
-local review surface, not a runtime-readiness result.
+Execution records can be promoted into a typed route-local `UvSyncResult` for
+later review composition. `UvSyncResult.to_summary()` projects that object into
+a local review snapshot carrying the selected intent reference, bounded command
+result, result findings, and explicit non-claims. The summary remains a local
+review surface, not a runtime-readiness result.
 
 Route-local operation reviews compose one selected `UvSyncIntent` with one
-selected execution result summary. They surface alignment mismatches and result
-findings as review items without deciding run permission or runtime readiness.
+selected `UvSyncResult`. They surface alignment mismatches and result findings
+as review items without deciding run permission or runtime readiness.
 
 It does not read or parse `pyproject.toml`, read or parse `uv.lock`, interpret
 dependency output, verify installed package state, probe Python runtimes, import
@@ -37,7 +38,9 @@ Current user-facing prototype surface:
 
 - `UvSyncIntent.from_summary(...)`;
 - `execute_uv_sync(..., uv_executable=...)` or `execute_uv_sync(..., runner=...)`;
-- `UvSyncExecutionRecord.to_result_summary(...)`;
+- `UvSyncResult.from_execution(...)`;
+- `UvSyncResult.to_summary(...)`;
+- `UvSyncExecutionRecord.to_result_summary(...)` as a compatibility projection;
 - `review_uv_sync_operation(...)`;
 - `SubprocessUvRunner`;
 - route projection objects exported from `scopecat.environment_operation`.
