@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import copy
+import json
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -644,6 +647,52 @@ class HandoffEngineeringPrototypeImportWorkflowTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "requires a fresh acceptance preflight"):
             review_import_workflow_retry(previous_summary, fresh_preflight=receipt)
+
+    def test_module_cli_summarizes_local_import_workflow_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            storage_root.mkdir()
+
+            run = run_import_workflow(
+                _import_workflow_source(
+                    operator_decision="needs_review",
+                    operator_reason="Ask the sender to confirm the linked context.",
+                    storage_acceptance_request=None,
+                ),
+                package_dir=package_dir,
+                storage_root=storage_root,
+            )
+            receipt_path = temp_root / "import-workflow-receipt.json"
+            receipt_path.write_text(json.dumps(run.to_dict()), encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "scopecat.handoff",
+                    "--receipt-summary",
+                    str(receipt_path),
+                ],
+                check=True,
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+        summary = json.loads(result.stdout)
+
+        self.assertEqual(summary["artifact_posture"], "local_import_workflow_receipt_summary")
+        self.assertEqual(summary["package_id"], "handoff-package-legacy-rabi-001")
+        self.assertEqual(summary["final_state"], "needs_operator_review")
+        self.assertEqual(
+            summary["next_action"], "complete_operator_review_before_storage_acceptance"
+        )
+        self.assertEqual(
+            summary["operator_reason"],
+            "Ask the sender to confirm the linked context.",
+        )
 
 
 if __name__ == "__main__":

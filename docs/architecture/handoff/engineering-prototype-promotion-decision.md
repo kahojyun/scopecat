@@ -252,6 +252,12 @@ fresh acceptance preflight. It can report whether the fresh preflight is ready
 for a retry request, but it does not prove destination freshness by itself,
 authorize storage acceptance, reuse prior preflight or storage-acceptance
 receipts, persist durable review state, or perform mutation.
+The local CLI now exposes that operator surface narrowly: the existing
+`python -m scopecat.handoff <package-dir>` package-orientation command remains
+read-only, and `python -m scopecat.handoff --receipt-summary <receipt.json>`
+summarizes a local import workflow receipt for continuation review. This CLI
+does not run package import, approve storage acceptance, persist review state,
+or become a public import API.
 
 It does not add final storage schema, conflict resolution, durable review-state
 persistence, existing-record update, stronger crash recovery, archive trust,
@@ -284,6 +290,7 @@ The promoted baseline includes:
   operator decisions;
 - read-only local import workflow receipt summary for operator continuation;
 - read-only retry review requiring a fresh acceptance preflight;
+- local CLI receipt-summary mode for operator continuation review;
 - representative regression coverage over basic and route-pressure fixtures.
 
 ## Explicit Non-Promotions

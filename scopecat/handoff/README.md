@@ -75,6 +75,11 @@ caller-provided fresh acceptance preflight. It can report that the fresh
 preflight is ready for retry or still blocked, but it does not authorize
 continuation, reuse prior preflight facts, approve storage acceptance, or write
 storage.
+The module CLI remains a local operator surface. `python -m scopecat.handoff
+<package-dir>` opens a package for read-only orientation; `python -m
+scopecat.handoff --receipt-summary <receipt.json>` summarizes a local import
+workflow receipt for continuation review. The CLI does not run package import,
+approve storage acceptance, or persist review state.
 
 The route-local writer uses a caller-provided `source_root` plus declared
 relative source paths for already-normalized primary data. That source-root
@@ -111,6 +116,12 @@ Current user-facing prototype surface:
 - `python -m scopecat.handoff <package-dir>`;
 - `write_inspection_artifact(...)` and `build_inspection_html(...)`;
 - route projection objects exported from `scopecat.handoff`.
+
+The CLI entrypoint supports:
+
+- `python -m scopecat.handoff <package-dir>`;
+- `python -m scopecat.handoff <package-dir> --html-dir <output-dir>`;
+- `python -m scopecat.handoff --receipt-summary <receipt.json>`.
 
 Modules with leading underscores are route-private implementation modules.
 They may be tested directly while the prototype hardens, but they are not
