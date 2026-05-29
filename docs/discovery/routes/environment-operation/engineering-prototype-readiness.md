@@ -23,6 +23,7 @@ validated uv sync intent summary
   -> approved local uv subprocess execution
   -> UvSyncExecutionRecord
   -> route-local result summary for downstream review
+  -> route-local operation review
 ```
 
 This does not promote the full environment-operation route, a public SDK,
@@ -33,10 +34,10 @@ readiness, or a shared environment-manager abstraction.
 
 | Criterion | Status | Assessment |
 | --- | --- | --- |
-| Route-local product-shaped API | Met | `UvSyncIntent.from_summary(...)`, `execute_uv_sync(..., uv_executable=...)` or `execute_uv_sync(..., runner=...)`, and `UvSyncExecutionRecord.to_result_summary(...)` exist under `scopecat.environment_operation`. |
+| Route-local product-shaped API | Met | `UvSyncIntent.from_summary(...)`, `execute_uv_sync(..., uv_executable=...)` or `execute_uv_sync(..., runner=...)`, `UvSyncExecutionRecord.to_result_summary(...)`, and `review_uv_sync_operation(...)` exist under `scopecat.environment_operation`. |
 | Actual external interaction boundary | Met | The prototype runs bounded `uv sync` commands through `SubprocessUvRunner` with caller-provided workspace root, relative cwd, explicit executable path, and timeout. |
 | Representative success and failure coverage | Met | Tests cover injected success/failure/timeout/launch-failure behavior plus real tiny `uv` success and missing-lock failure fixtures. |
-| Review projection and non-claims | Met | Execution records project to local result summaries with bounded output, findings, and explicit no runtime-readiness/package-state/code-execution claims. |
+| Review projection and non-claims | Met | Execution records project to local result summaries and operation reviews with bounded output, findings, alignment checks, and explicit no runtime-readiness/package-state/code-execution claims. |
 | Green repository verification | Met | Current milestone verification uses `uv run python -m unittest discover -s tests` and `uv run prek run --all-files`. |
 
 ## Keep As Implementation Shape
@@ -54,7 +55,7 @@ These choices are strong enough to carry into PR review:
 - bounded stdout/stderr summaries with raw output not recorded;
 - explicit execution states for success, failure, timeout, and launch failure;
 - review findings instead of run-blocking or readiness decisions;
-- route-local result-summary projection for later review composition.
+- route-local result-summary and operation-review projections.
 
 ## Keep Deferred
 
@@ -67,7 +68,7 @@ These are not blockers for this PR:
 - code import, notebook execution, or experiment-code execution;
 - hardware, driver, service, registry, or control-PC probing;
 - Pixi, Conda, or shared manager abstractions;
-- route-local operation review bundle over prototype result summaries;
+- optional manifest preflight context inside route-local operation review;
 - final public SDK names, CLI, GUI, or workflow/DAG integration.
 
 ## Discovery Candidate Posture

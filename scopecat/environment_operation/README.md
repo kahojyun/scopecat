@@ -22,6 +22,10 @@ review composition. That projection carries the selected intent reference,
 bounded command result, result findings, and explicit non-claims. It remains a
 local review surface, not a runtime-readiness result.
 
+Route-local operation reviews compose one selected `UvSyncIntent` with one
+selected execution result summary. They surface alignment mismatches and result
+findings as review items without deciding run permission or runtime readiness.
+
 It does not read or parse `pyproject.toml`, read or parse `uv.lock`, interpret
 dependency output, verify installed package state, probe Python runtimes, import
 selected experiment code, execute notebooks, contact hardware, or decide that a
@@ -34,6 +38,7 @@ Current user-facing prototype surface:
 - `UvSyncIntent.from_summary(...)`;
 - `execute_uv_sync(..., uv_executable=...)` or `execute_uv_sync(..., runner=...)`;
 - `UvSyncExecutionRecord.to_result_summary(...)`;
+- `review_uv_sync_operation(...)`;
 - `SubprocessUvRunner`;
 - route projection objects exported from `scopecat.environment_operation`.
 

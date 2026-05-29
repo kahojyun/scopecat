@@ -15,6 +15,10 @@ The first prototype milestone crosses one new authority boundary: Scopecat may
 run an already-approved, bounded `uv sync` command through a local subprocess
 runner.
 
+The second prototype milestone adds route-local review composition over the
+prototype execution result. It does not execute another process or inspect
+runtime/package state.
+
 ## First Milestone
 
 Status: implemented in `scopecat.environment_operation` with injected-runner
@@ -35,6 +39,8 @@ The prototype should support:
 - review findings for failure, timeout, and launch failure;
 - route-local result summaries that carry intent references, bounded command
   results, findings, and explicit policy non-claims;
+- route-local operation reviews that align one selected intent with one
+  selected execution result summary and surface result or alignment findings;
 - explicit non-claims for runtime readiness, dependency-state verification,
   code import/execution, hardware readiness, and run-start permission.
 
@@ -60,9 +66,10 @@ bounded `uv sync` command through an injectable runner, record bounded process
 facts, and surface failure/timeout as review findings without claiming runtime
 or run readiness. The current prototype satisfies that stop condition and adds
 repository-safe real-`uv` fixtures to verify the subprocess success and failure
-paths plus a route-local result-summary projection for downstream review.
+paths plus route-local result-summary and operation-review projections for
+downstream review.
 
 The next milestone should be chosen only after this boundary is reviewed. Likely
-follow-ups are a post-sync runtime probe, a route-local operation review bundle
-over prototype result summaries, or Pixi-specific pressure before extracting any
+follow-ups are a post-sync runtime probe, operation review with optional
+manifest preflight context, or Pixi-specific pressure before extracting any
 shared manager abstraction.
