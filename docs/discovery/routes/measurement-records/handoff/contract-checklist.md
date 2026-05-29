@@ -17,8 +17,8 @@ validator were explicit. Use this checklist to classify same-class fields
 together instead of fixing one reviewed example at a time.
 
 Historical discovery helpers live in
-`implementation_candidates/handoff_package_contracts/`. The promoted read-only
-implementation now owns its runtime handoff checks under route-private
+`implementation_candidates/handoff_package_contracts/`. The promoted local
+handoff implementation now owns its runtime handoff checks under route-private
 `scopecat/handoff/_contracts.py`. Treat the candidate helpers as discovery
 evidence unless a future slice explicitly reuses them as evidence. Slice
 policy, file-system effects, and workflow ordering stay local to each
@@ -63,7 +63,7 @@ before it is emitted:
 | Writer receipt | `source_path`, `package_write_request`, materialized paths | Local operation path | Writer validates them for the local operation and keeps them in the local write receipt, not the portable manifest. |
 | Receiving workflow roots | package root, storage root, local artifact output root and fixed artifact target | Managed filesystem boundary | Receiving workflow validates root separation and the concrete local artifact target before local artifact writes or storage acceptance. This is provisional preflight separation, not concurrent mutation protection or a storage architecture. |
 | Receiving reviewed facts | reviewed package id, preview classification, integrity classification | Route-local contract support | Receiving workflow validates reviewed facts against inspection and integrity-observation facts before acceptance. This is provisional fact continuity, not workflow orchestration or GUI state. |
-| Shared route helpers | package identity, package item shape, primary-data topology, preview-ready metadata, provisional receiving root separation, provisional reviewed fact continuity | Route-local contract support | The accepted read-only implementation uses route-private `scopecat/handoff/_contracts.py`. Historical `handoff_package_contracts` candidates remain discovery evidence for slices that have not been promoted. Do not use either surface to promote a final package schema, storage architecture, or SDK object model. |
+| Shared route helpers | package identity, package item shape, primary-data topology, preview-ready metadata, provisional receiving root separation, provisional reviewed fact continuity | Route-local contract support | The accepted local handoff implementation uses route-private `scopecat/handoff/_contracts.py`. Historical `handoff_package_contracts` candidates remain discovery evidence for slices that have not been promoted. Do not use either surface to promote a final package schema, storage architecture, or SDK object model. |
 
 ## Review Requirements
 

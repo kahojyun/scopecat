@@ -51,13 +51,13 @@ one of them to portable output.
 | Receiving mutation | Acceptance | Copy reviewed package primary data into new local storage records after explicit approval. |
 | Route-local support | Handoff package route contracts | Share repeated handoff-specific identity, package-path, preview-ready, and continuity checks where the same semantics already recur. |
 
-## Accepted Read-Only Baseline
+## Accepted Local Baseline
 
-The read-only handoff engineering prototype has been promoted as the accepted
-implementation baseline for the first open-before-import vertical. It tested
-route-local module boundaries, regression fixtures, and a thin local entrypoint
-without changing the accepted-for-now route decisions in
-[`decision.md`](decision.md).
+The handoff engineering prototype has been promoted as the accepted local
+implementation baseline for the first writer/reader/review vertical. It tested
+route-local module boundaries, regression fixtures, source-root package
+writing, read-only opening, local inspection, and workflow composition without
+changing the accepted-for-now route decisions in [`decision.md`](decision.md).
 
 The accepted local API is intentionally product-shaped rather than a direct
 wrapper around discovery candidate summaries: it exposes route-local package,
@@ -83,12 +83,12 @@ criteria.
 Use
 [`engineering-prototype-readiness.md`](../../../../architecture/handoff/engineering-prototype-readiness.md)
 for
-the current stop-criteria check and recommended promotion path.
+the current stop-criteria check and next decision gate.
 
 Use
 [`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md)
-for the decision that promotes the read-only handoff vertical as the accepted
-implementation baseline and stops the current broad prototype line.
+for the decision that promotes the handoff writer/reader/review vertical as the
+accepted implementation baseline and stops the current broad prototype line.
 
 ## Artifact Boundary
 

@@ -12,42 +12,53 @@ if any prototype output is promoted into a portable/export artifact.
 
 ## Readiness Judgment
 
-The read-only handoff package engineering prototype is ready to stop broad
-prototype expansion and move into a narrow promotion pass.
+The handoff package engineering prototype is ready to stop broad prototype
+expansion and move into a decision-gated implementation phase.
 
-The recommended promotion target is the first accepted read-only vertical:
+The accepted route-local boundary now covers the first directory-package
+workflow:
 
 ```text
-package directory
+caller-provided source root
+  -> source-root package writer
+  -> directory-shaped package subset
   -> manifest validation and preview classification
   -> read-only package open
   -> package, measurement, table, declared plot, linked-context, and finding access
-  -> local CLI or static HTML review surface
+  -> optional local static HTML inspection
+  -> local workflow receipt
 ```
 
 This does not promote final SDK names, package archive format, storage import,
-GUI architecture, dataframe dependency, plotting dependency, linked-context
-payload traversal, or a shared measurement-record domain model.
+package acceptance, GUI architecture, dataframe dependency, plotting
+dependency, package-integrity verification, linked-context payload traversal,
+or a shared measurement-record domain model.
 
 ## Stop Criteria Check
 
 | Criterion | Status | Assessment |
 | --- | --- | --- |
-| Usable local Python or CLI entrypoint | Met | `open_package(package_dir)` and `python -m scopecat.handoff <package-dir>` exist. |
-| Representative regression coverage | Met | Tests cover basic opener, richer route-pressure package, multi-plot, table-only, shared context, degraded preview, CLI, HTML artifact, symlink guardrails, and typed manifest boundary behavior. |
-| Documented contracts and non-claims | Met | The route plan, consolidation, decision note, and prototype README define read-only scope, artifact posture, dependency deferrals, and non-claims. |
+| Usable local Python or CLI entrypoint | Met | `open_package(package_dir)`, `write_package(...)`, `run_package_workflow(...)`, and `python -m scopecat.handoff <package-dir>` exist. |
+| Representative regression coverage | Met | Tests cover source-root writing, writer-to-reader round trip, local workflow composition, basic opener, richer route-pressure package, multi-plot, table-only, shared context, degraded preview, CLI, HTML artifact, symlink guardrails, and typed manifest/write boundaries. |
+| Documented contracts and non-claims | Met | The route plan, consolidation, decision note, and prototype README define directory-package subset scope, source-root writer scope, local workflow posture, artifact posture, dependency deferrals, and non-claims. |
 | Green repository verification | Met | Current milestone verification uses `uv run python -m unittest discover -s tests` and `uv run prek run --all-files`. |
-| Written promotion decision path | Met by this note | The next step is a narrow promotion pass, not additional broad discovery or GUI/dependency expansion. |
+| Written promotion decision path | Met by this note | The next step is a separate acceptance/import or storage-requirements decision, not additional broad handoff expansion. |
 
 ## Keep As Implementation Shape
 
 These choices are strong enough to carry into the promotion pass:
 
 - route-local `scopecat/handoff/` module boundary;
+- source-root package writer API that does not imply final Scopecat storage
+  architecture;
+- local writer -> reader -> optional inspection workflow composition;
 - raw JSON/dict validation at the package manifest boundary;
+- raw write-request validation and parsing at the writer boundary;
 - typed route-local manifest fragments after validation;
 - product-shaped `HandoffPackage`, `HandoffMeasurement`, `HandoffTable`,
   `HandoffPlotSeries`, `HandoffFinding`, and `HandoffLinkedContext`
+  projections;
+- local `HandoffPackageWriteReceipt` and `HandoffPackageWorkflowRun`
   projections;
 - manifest-only preview classification before package-local file reads;
 - package-directory and package-id continuity;
@@ -61,7 +72,7 @@ These choices are strong enough to carry into the promotion pass:
 
 ## Keep Deferred
 
-These are not blockers for promoting the read-only vertical:
+These are not blockers for the accepted local handoff vertical:
 
 - final public SDK naming and packaging metadata;
 - hard pandas/numpy dependency;
@@ -71,28 +82,26 @@ These are not blockers for promoting the read-only vertical:
   inference, trace opening, or array APIs;
 - archive extraction, compressed package format, signatures, authenticity, or
   trust policy;
-- storage import, acceptance, conflict handling, or existing-record update;
+- package receiving, import, acceptance, conflict handling, storage writes, or
+  existing-record update;
 - linked-context payload packaging, opening, recursive traversal, or import;
 - analysis/fit result model, execution, uncertainty, write-back, or import;
 - shared measurement-record domain model or cross-route lifecycle model.
 
-## Promotion Pass Scope
+## Current Phase Boundary
 
-The promotion pass should be small and mechanical:
+The current route boundary is strong enough for local package writing, opening,
+inspection, and workflow review. The next phase should not add more handoff
+surface area until it chooses one of these paths:
 
-- keep leading-underscore modules in `scopecat/handoff/` route-private unless
-  another concrete route needs the same behavior, lifecycle, and failure
-  semantics;
-- preserve the static HTML renderer as the first local review surface unless
-  maintainability problems appear;
-- document old implementation candidates as historical discovery evidence,
-  not runtime dependencies;
-- keep existing fixtures unless a cleaner regression fixture is needed for the
-  promoted route;
-- run the full repository test and hook commands before any promotion commit.
+- receiving/import acceptance: define what it means to accept a package into
+  Scopecat without yet committing to final storage layout;
+- storage requirements synthesis: compare source-root writer, legacy import,
+  existing-record update, handoff receiving, and source-observation needs
+  before accepting a storage/archive format.
 
-The pass should not add GUI, dataframe, plotting, import/acceptance, archive,
-or cross-route domain work.
+Do not start final archive, storage schema, or package-import implementation
+until one of those decision paths is explicit.
 
 ## Remaining Risks
 
@@ -105,14 +114,15 @@ or cross-route domain work.
   pressure should trigger a separate numeric/dataframe adapter decision.
 - The package format remains the tested directory-shaped subset, not a final
   sharing/archive format.
+- The writer and workflow prove local ergonomics, but they do not answer
+  package acceptance, trust, or durable storage conflict behavior.
 
 ## Recommendation
 
-The read-only handoff vertical has been promoted after one narrow promotion
-cleanup, with no further broad prototype expansion planned. Future handoff work
-should be triggered by the reopen conditions in
-[`decision.md`](../../discovery/routes/measurement-records/handoff/decision.md),
-not by restating the same route-level conclusions.
+The handoff writer/reader/inspection/workflow vertical is promoted as the
+current accepted local boundary. Future handoff work should be triggered by a
+named acceptance/import or storage-requirements decision, not by restating the
+same route-level conclusions.
 
 The promotion decision is recorded in
 [`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md).

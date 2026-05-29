@@ -295,6 +295,9 @@ the promotion decision is recorded in
 
 - Which old implementation candidates can be archived, left untouched as
   evidence, or ignored by future maintenance after branch merge?
-- Which separately scoped route extension should resume next: notebook
-  adapters, GUI review, storage acceptance, archive/trust, linked-context
-  payloads, or analysis/fit results?
+- Which decision path should resume next: package receiving/import acceptance,
+  or storage/archive requirements synthesis across multiple slices?
+- If receiving/import resumes first, what is the acceptance boundary before
+  durable storage writes, conflict policy, rollback, and trust behavior?
+- If storage/archive resumes first, which existing slices are sufficient to
+  decide the minimum directory/archive/storage contract?

@@ -13,21 +13,23 @@ portable/export artifact.
 
 ## Decision
 
-Promote the read-only handoff engineering prototype as the accepted baseline
-for the handoff route's first implementation vertical:
+Promote the handoff engineering prototype as the accepted baseline for the
+handoff route's first local implementation vertical:
 
 ```text
-package directory
+caller-provided source root
+  -> source-root package writer
+  -> directory-shaped package subset
   -> manifest validation and preview classification
   -> read-only package open
   -> package, measurement, table, declared plot, linked-context, and finding access
-  -> local CLI or static HTML review surface
+  -> local CLI, static HTML review surface, or local workflow receipt
 ```
 
 This promotion stops the current engineering prototype line. Further work on
 the same route should be either:
 
-- small maintenance on the accepted read-only vertical;
+- small maintenance on the accepted local handoff vertical;
 - PR/release preparation for the current branch;
 - a separately scoped route extension triggered by the reopen conditions in
   [`decision.md`](../../discovery/routes/measurement-records/handoff/decision.md).
@@ -72,6 +74,24 @@ ergonomics while continuing to defer archive format, package import or
 acceptance, final storage schema, signatures/authenticity, and package
 integrity verification.
 
+## Next Decision Gate
+
+Do not continue by expanding handoff surface area in place. The next
+engineering phase should choose one explicit path:
+
+- package receiving/import acceptance: define acceptance, rejection, conflict,
+  review, and rollback boundaries for an inbound package before writing into
+  any durable storage location;
+- storage/archive requirements synthesis: compare the needs from source-root
+  package writing, legacy import, existing-record update, source observation,
+  package receiving, and running inspection before accepting a storage or
+  archive format.
+
+The current workflow is enough to validate local writer/reader/review
+ergonomics. It is not evidence by itself for final storage schema, import
+acceptance, archive format, signatures, authenticity, or adversarial package
+trust policy.
+
 ## Accepted Baseline
 
 The promoted baseline includes:
@@ -115,7 +135,7 @@ This decision does not promote:
 
 Existing handoff implementation candidates remain historical discovery
 evidence. They should not be treated as runtime dependencies for the promoted
-read-only vertical.
+local handoff vertical.
 
 Do not rewrite old candidate validation results only to match the promoted
 implementation shape. Update old candidates only when preserving their
@@ -124,7 +144,7 @@ chooses to reuse one as evidence.
 
 ## Maintenance Rule
 
-Future changes to the accepted read-only vertical should preserve the current
+Future changes to the accepted local handoff vertical should preserve the current
 boundary:
 
 - raw JSON/dict handling stays at the manifest/package boundary;
