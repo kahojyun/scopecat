@@ -1,11 +1,12 @@
-# Environment Operation Prototype Module
+# Environment Operation Module
 
-Engineering prototype module for approved local environment-manager operations.
+Route-local module for approved local environment-manager operations.
 
-This module is route-local prototype code. It tests a production-shaped Python
-entrypoint over validated environment-operation discovery candidates without
-accepting final manager abstraction, runtime readiness, code execution,
-hardware readiness, workflow/DAG behavior, or GUI architecture.
+This module is the accepted route-local implementation baseline for the first
+approved `uv` execution/review vertical. The promoted boundary is owned by
+[`../../docs/architecture/environment-operation/engineering-prototype-promotion-decision.md`](../../docs/architecture/environment-operation/engineering-prototype-promotion-decision.md).
+It still does not accept final manager abstraction, runtime readiness, code
+execution, hardware readiness, workflow/DAG behavior, or GUI architecture.
 
 The first milestone executes one bounded `uv sync` command from a previously
 approved intent summary. It validates the workspace root and relative command
@@ -51,7 +52,7 @@ code, execute notebooks, contact hardware, or decide that a run can start.
 
 ## API Surface
 
-Current user-facing prototype surface:
+Current route-local surface:
 
 - `UvSyncIntent.from_summary(...)`;
 - `execute_uv_sync(..., uv_executable=...)` or `execute_uv_sync(..., runner=...)`;
@@ -70,5 +71,5 @@ Current user-facing prototype surface:
 - route projection objects exported from `scopecat.environment_operation`.
 
 Modules with leading underscores are route-private implementation modules.
-They may be tested directly while the prototype hardens, but they are not
-public SDK or cross-route domain APIs.
+They may be tested directly while the route-local implementation hardens, but
+they are not public SDK or cross-route domain APIs.
