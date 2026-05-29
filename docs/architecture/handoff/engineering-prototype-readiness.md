@@ -24,6 +24,7 @@ caller-provided source root
   -> directory-shaped package subset
   -> manifest validation and preview classification
   -> read-only integrity observation
+  -> approved read-only receiving gate
   -> read-only package open
   -> package, measurement, table, declared plot, linked-context, and finding access
   -> optional local static HTML inspection
@@ -39,8 +40,8 @@ traversal, or a shared measurement-record domain model.
 
 | Criterion | Status | Assessment |
 | --- | --- | --- |
-| Usable local Python or CLI entrypoint | Met | `open_package(package_dir)`, `observe_package_integrity(package_dir)`, `write_package(...)`, `run_package_workflow(...)`, and `python -m scopecat.handoff <package-dir>` exist. |
-| Representative regression coverage | Met | Tests cover source-root writing, writer-to-reader round trip, local workflow composition, read-only integrity observation, basic opener, richer route-pressure package, multi-plot, table-only, shared context, degraded preview, CLI, HTML artifact, symlink guardrails, and typed manifest/write boundaries. |
+| Usable local Python or CLI entrypoint | Met | `open_package(package_dir)`, `observe_package_integrity(package_dir)`, `run_receiving_gate(...)`, `write_package(...)`, `run_package_workflow(...)`, and `python -m scopecat.handoff <package-dir>` exist. |
+| Representative regression coverage | Met | Tests cover source-root writing, writer-to-reader round trip, local workflow composition, read-only integrity observation, read-only receiving gate, basic opener, richer route-pressure package, multi-plot, table-only, shared context, degraded preview, CLI, HTML artifact, symlink guardrails, and typed manifest/write boundaries. |
 | Documented contracts and non-claims | Met | The route plan, consolidation, decision note, and prototype README define directory-package subset scope, source-root writer scope, local workflow posture, artifact posture, dependency deferrals, and non-claims. |
 | Green repository verification | Met | Current milestone verification uses `uv run python -m unittest discover -s tests` and `uv run prek run --all-files`. |
 | Written promotion decision path | Met by this note | The next step is a separate acceptance/import or storage-requirements decision, not additional broad handoff expansion. |
@@ -55,6 +56,8 @@ These choices are strong enough to carry into the promotion pass:
 - local writer -> reader -> optional inspection workflow composition;
 - read-only package integrity observation over manifest-declared package
   members;
+- read-only receiving gate over explicit approval and reviewed package,
+  preview, and integrity facts;
 - raw JSON/dict validation at the package manifest boundary;
 - raw write-request validation and parsing at the writer boundary;
 - typed route-local manifest fragments after validation;
@@ -97,8 +100,8 @@ The current route boundary is strong enough for local package writing, opening,
 inspection, and workflow review. The next phase should not add more handoff
 surface area until it chooses one of these paths:
 
-- receiving/import acceptance: define what it means to accept a package into
-  Scopecat without yet committing to final storage layout;
+- receiving/import acceptance: define the first storage mutation after the
+  read-only receiving gate without yet committing to final storage layout;
 - storage requirements synthesis: compare source-root writer, legacy import,
   existing-record update, handoff receiving, and source-observation needs
   before accepting a storage/archive format.

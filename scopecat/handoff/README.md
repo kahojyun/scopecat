@@ -23,6 +23,9 @@ package projections consume typed route-local manifest fragments.
 it compares package-local regular files with paired manifest-declared
 digest/size facts where available. It does not verify signatures,
 authenticity, trust, archive contents, import acceptance, or storage mutation.
+`run_receiving_gate(...)` adds explicit review approval and reviewed fact
+continuity over the opened package plus integrity report. It has no destination
+or storage-mutation fields.
 
 The route-local writer uses a caller-provided `source_root` plus declared
 relative source paths for already-normalized primary data. That source-root
@@ -46,6 +49,7 @@ Current user-facing prototype surface:
 
 - `open_package(package_dir)`;
 - `observe_package_integrity(package_dir)`;
+- `run_receiving_gate(source, package_dir=...)`;
 - `write_package(source, source_root=..., package_root=...)`;
 - `run_package_workflow(source, source_root=..., package_root=...)`;
 - `python -m scopecat.handoff <package-dir>`;

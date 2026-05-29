@@ -88,10 +88,24 @@ It is intentionally read-only and does not verify signatures, authenticity,
 transport provenance, archive contents, import acceptance, or storage
 mutation.
 
+## Read-Only Receiving Gate
+
+The route-local implementation also includes `run_receiving_gate(...)` as the
+approved review gate before any import/acceptance mutation. It opens the
+package, observes integrity, requires `approval_state: approved`, and checks
+reviewed package id, preview classification, and integrity classification
+against observed facts.
+
+This gate can return `ready_for_acceptance_mutation` only when reviewed facts
+match and integrity is `declared_integrity_verified`. It can also return
+`blocked_before_acceptance` for reviewed packages that still need integrity
+review. The gate is read-only and intentionally accepts no destination,
+storage-root, selected-measurement materialization, or conflict-policy fields.
+
 ## Next Decision Gate
 
 Do not continue by expanding handoff surface area in place. After the
-read-only integrity gate, the next engineering phase should choose one
+read-only receiving gate, the next engineering phase should choose one
 explicit path:
 
 - package receiving/import acceptance: define acceptance, rejection, conflict,

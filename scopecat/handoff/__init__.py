@@ -18,6 +18,11 @@ from scopecat.handoff.package import (
     HandoffPackage,
 )
 from scopecat.handoff.read_only import open_package
+from scopecat.handoff.receiving import (
+    HandoffReceivingGateRun,
+    HandoffReceivingReviewRequest,
+    run_receiving_gate,
+)
 from scopecat.handoff.tables import HandoffPlotSeries, HandoffTable
 from scopecat.handoff.workflow import HandoffPackageWorkflowRun, run_package_workflow
 from scopecat.handoff.writer import HandoffPackageWriteReceipt, write_package
@@ -34,11 +39,14 @@ __all__ = [
     "HandoffPackageWorkflowRun",
     "HandoffPackageWriteReceipt",
     "HandoffPlotSeries",
+    "HandoffReceivingGateRun",
+    "HandoffReceivingReviewRequest",
     "HandoffTable",
     "build_inspection_html",
     "observe_package_integrity",
     "open_package",
     "run_package_workflow",
+    "run_receiving_gate",
     "write_inspection_artifact",
     "write_package",
 ]

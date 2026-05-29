@@ -56,9 +56,9 @@ one of them to portable output.
 The handoff engineering prototype has been promoted as the accepted local
 implementation baseline for the first writer/reader/review vertical. It tested
 route-local module boundaries, regression fixtures, source-root package
-writing, read-only opening, read-only integrity observation, local inspection,
-and workflow composition without changing the accepted-for-now route decisions
-in [`decision.md`](decision.md).
+writing, read-only opening, read-only integrity observation, approved
+read-only receiving gate, local inspection, and workflow composition without
+changing the accepted-for-now route decisions in [`decision.md`](decision.md).
 
 The accepted local API is intentionally product-shaped rather than a direct
 wrapper around discovery candidate summaries: it exposes route-local package,
@@ -77,6 +77,8 @@ import/acceptance.
 The promoted integrity observation step can gate a future receiving/import
 workflow, but it remains read-only and does not verify authenticity,
 signatures, or storage acceptance.
+The promoted receiving gate validates explicit approval and reviewed fact
+continuity without accepting destination or storage-mutation fields.
 
 Use
 [`engineering-prototype-plan.md`](../../../../architecture/handoff/engineering-prototype-plan.md)

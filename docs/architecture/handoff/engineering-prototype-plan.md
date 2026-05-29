@@ -136,6 +136,8 @@ It provides:
 - `observe_package_integrity(package_dir)` as the read-only receiving/import
   prerequisite for comparing package-local bytes with paired manifest-declared
   digest and size facts;
+- `run_receiving_gate(source, package_dir=...)` as the read-only approved
+  review gate before any receiving-side mutation;
 - `write_package(source, source_root=..., package_root=...)` as the
   source-root package writer entrypoint for declared normalized primary data;
 - `run_package_workflow(source, source_root=..., package_root=...)` as the
@@ -158,6 +160,9 @@ It provides:
 - route-local integrity observation for declared package members, including
   missing-member, symlink, non-regular-file, mismatch, verified, and
   undeclared-integrity states;
+- route-local receiving gate behavior for approved review, reviewed package
+  id, reviewed preview classification, and reviewed integrity classification
+  continuity;
 - typed manifest-preview fragments for identity, primary data, declared
   preview metadata, selected measurements, and linked-context references, so
   raw manifest dictionaries stay at the JSON validation/parsing boundary
@@ -195,6 +200,10 @@ verification, or final storage layout.
 Integrity observation is also read-only. It can gate a later receiving/import
 acceptance decision, but it does not make authenticity, signature, archive, or
 storage claims.
+The receiving gate is also read-only and intentionally has no destination,
+storage-root, or selected-measurement materialization fields. It only decides
+whether the reviewed package facts are ready for a separately scoped
+acceptance mutation.
 
 Promotion follow-up decisions resolved by
 [`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md):
