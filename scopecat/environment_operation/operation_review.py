@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from scopecat.environment_operation.uv_sync import UvSyncFinding, UvSyncIntent, UvSyncResult
@@ -41,18 +41,53 @@ class EnvironmentOperationFinding:
         }
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class EnvironmentOperationReview:
     """Local review projection for one selected environment operation result."""
 
     review_id: str
-    intent_ref: dict[str, Any]
-    result_ref: dict[str, Any]
+    _intent_ref: dict[str, Any] = field(repr=False)
+    _result_ref: dict[str, Any] = field(repr=False)
     review_status: str
     findings: tuple[EnvironmentOperationFinding, ...]
-    attention: tuple[dict[str, str], ...]
+    _attention: tuple[dict[str, str], ...] = field(repr=False)
+
+    def __init__(
+        self,
+        *,
+        review_id: str,
+        intent_ref: dict[str, Any],
+        result_ref: dict[str, Any],
+        review_status: str,
+        findings: tuple[EnvironmentOperationFinding, ...],
+        attention: tuple[dict[str, str], ...],
+    ) -> None:
+        object.__setattr__(self, "review_id", review_id)
+        object.__setattr__(self, "_intent_ref", copy.deepcopy(intent_ref))
+        object.__setattr__(self, "_result_ref", copy.deepcopy(result_ref))
+        object.__setattr__(self, "review_status", review_status)
+        object.__setattr__(self, "findings", tuple(findings))
+        object.__setattr__(
+            self,
+            "_attention",
+            tuple(copy.deepcopy(item) for item in attention),
+        )
+
+    @property
+    def intent_ref(self) -> dict[str, Any]:
+        return copy.deepcopy(self._intent_ref)
+
+    @property
+    def result_ref(self) -> dict[str, Any]:
+        return copy.deepcopy(self._result_ref)
+
+    @property
+    def attention(self) -> tuple[dict[str, str], ...]:
+        return tuple(copy.deepcopy(item) for item in self._attention)
 
     def to_dict(self) -> dict[str, Any]:
+        intent_ref = self.intent_ref
+        result_ref = self.result_ref
         return {
             "environment_operation_review_policy": {
                 "summary_policy": "review_summary",
@@ -71,14 +106,14 @@ class EnvironmentOperationReview:
                 "review_id": self.review_id,
                 "expected_manager": "uv",
                 "expected_operation": "sync",
-                "intent_request_id": self.intent_ref["request_id"],
-                "sync_result_id": self.result_ref["result_id"],
+                "intent_request_id": intent_ref["request_id"],
+                "sync_result_id": result_ref["result_id"],
             },
-            "sync_intent_ref": copy.deepcopy(self.intent_ref),
-            "sync_result_ref": copy.deepcopy(self.result_ref),
+            "sync_intent_ref": intent_ref,
+            "sync_result_ref": result_ref,
             "operation_review_status": self.review_status,
             "operation_review_findings": [finding.to_dict() for finding in self.findings],
-            "attention": [copy.deepcopy(item) for item in self.attention],
+            "attention": [copy.deepcopy(item) for item in self._attention],
         }
 
 
@@ -141,7 +176,7 @@ def _result_ref(result: UvSyncResult) -> dict[str, Any]:
         "execution_state": _require_text(
             command_result, "execution_state", "uv sync command result"
         ),
-        "exit_code": command_result.get("exit_code"),
+        "exit_code": _require_optional_int(command_result, "exit_code", "uv sync command result"),
         "result_status": result.result_status,
         "result_findings": [finding.to_dict() for finding in result.findings],
     }
@@ -272,3 +307,12 @@ def _require_text_list(value: dict[str, Any], key: str, owner: str) -> list[str]
     if not isinstance(item, list) or not all(isinstance(element, str) for element in item):
         raise ValueError(f"{owner} {key} must be a list of text")
     return list(item)
+
+
+def _require_optional_int(value: dict[str, Any], key: str, owner: str) -> int | None:
+    item = value.get(key)
+    if item is None:
+        return None
+    if isinstance(item, bool) or not isinstance(item, int):
+        raise ValueError(f"{owner} {key} must be an integer or null")
+    return item
