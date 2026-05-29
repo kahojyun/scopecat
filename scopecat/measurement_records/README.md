@@ -32,3 +32,18 @@ approved writer request
 It does not replace the creation manifest, refresh a read model, mark records
 complete or failed, merge existing primary data, or define final storage
 schema.
+
+The first read-view slice reads primary table facts through a writer receipt:
+
+```text
+read request
+  -> existing creation manifest continuity check
+  -> record-local writer receipt continuity check
+  -> writer-receipt-declared primary data digest and size check
+  -> normalized CSV string-row read
+  -> local read summary
+```
+
+It does not replace the creation manifest, refresh a read model, finalize
+lifecycle state, infer schema/scalar types, build plot series, or invoke a
+dataframe adapter.

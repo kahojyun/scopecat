@@ -190,3 +190,23 @@ It deliberately does not replace the creation manifest, refresh a read model,
 mark a record `complete` or `failed`, merge existing primary data, import
 packages, define conflict resolution beyond no-overwrite, or promote final
 storage schema.
+
+## Read View Checkpoint
+
+The first read-view slice is implemented in
+[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+It exposes a raw-dictionary entrypoint,
+`read_created_record_primary_table(...)`, and a typed request entrypoint,
+`read_created_record_primary_table_from_request(...)`.
+
+This slice consumes an existing creation manifest and a caller-provided
+record-local writer receipt path. It verifies record id, record directory,
+creation manifest path, writer receipt path, primary data path, digest, and
+size continuity before reading the writer-receipt-declared primary CSV as
+string-valued table rows. It reports row-count mismatch as a review finding
+and rejects malformed CSV, missing writer receipts, symlink targets, and
+continuity mismatches.
+
+It deliberately does not replace the creation manifest, refresh a read model,
+finalize lifecycle state, infer schema or scalar types, build plot series,
+invoke dataframe adapters, or promote final storage schema.
