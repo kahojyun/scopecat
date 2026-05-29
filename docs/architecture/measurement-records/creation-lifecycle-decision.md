@@ -210,3 +210,65 @@ continuity mismatches.
 It deliberately does not replace the creation manifest, refresh a read model,
 finalize lifecycle state, infer schema or scalar types, build plot series,
 invoke dataframe adapters, or promote final storage schema.
+
+## Lifecycle Finalization Decision
+
+Choose receipt-based lifecycle finalization as the next implementation
+boundary.
+
+The next slice should prove:
+
+```text
+creation manifest
+  -> writer receipt
+  -> read-view summary
+  -> approved finalization request
+  -> record-local finalization receipt
+  -> local finalization run receipt
+```
+
+This decision deliberately does not replace `record-manifest.json`. The
+creation manifest remains the durable shell record for this prototype phase.
+The finalization receipt records reviewed finalization evidence beside it so a
+later manifest-replacement or read-model-refresh decision has explicit input
+to consume.
+
+The first finalization states are:
+
+| State | Meaning |
+| --- | --- |
+| `complete` | Approved finalization says the writer receipt and read view agree that primary data exists, is digest/size checked, is readable as normalized CSV rows, and matches the expected row count. |
+| `failed` | Approved finalization records that the record should stop as failed, with an explicit operator reason and reviewed evidence. |
+
+`complete` should require a ready read view with no review findings. `failed`
+should require an operator reason and should not be inferred automatically
+from writer errors, missing files, row-count mismatch, or read failures. Those
+conditions may justify a failed finalization request, but the finalization
+state itself is still an approved review decision.
+
+The first implementation should:
+
+- require an approved finalization request;
+- consume the existing creation manifest, writer receipt, and read-view run;
+- require record id, record directory, creation manifest path, writer receipt
+  path, primary data path, digest, size, and row-count continuity;
+- write exactly one `finalization-receipt.json` under the record directory
+  with no-overwrite behavior;
+- return a local finalization run receipt;
+- reject a `complete` request when the read view has review findings;
+- require a single-line operator reason for `failed`;
+- leave the creation manifest unchanged.
+
+This decision does not accept:
+
+- manifest replacement or canonical lifecycle-state update;
+- read-model refresh;
+- final storage schema;
+- conflict policy beyond no-overwrite receipt creation;
+- crash recovery, stale-lock cleanup, or concurrent storage-root mutation;
+- import finalization semantics;
+- GUI-owned finalization review state.
+
+After this slice, choose a separate decision for manifest replacement/read
+model refresh if consumers need final lifecycle state without consulting the
+finalization receipt.

@@ -47,3 +47,19 @@ read request
 It does not replace the creation manifest, refresh a read model, finalize
 lifecycle state, infer schema/scalar types, build plot series, or invoke a
 dataframe adapter.
+
+The next accepted finalization boundary is receipt-based:
+
+```text
+creation manifest
+  -> writer receipt
+  -> read-view summary
+  -> approved finalization request
+  -> record-local finalization receipt
+  -> local finalization run receipt
+```
+
+It should write `finalization-receipt.json` without replacing
+`record-manifest.json`. `complete` requires ready read-view evidence; `failed`
+requires an explicit operator reason. Manifest replacement and read-model
+refresh remain separate decisions.
