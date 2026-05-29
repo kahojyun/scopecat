@@ -35,7 +35,7 @@ This promotion stops the current engineering prototype line. Further work on
 the same route should be either:
 
 - small maintenance on the accepted local handoff vertical;
-- PR/release preparation for the current branch;
+- PR/release preparation for this accepted implementation phase;
 - a separately scoped route extension triggered by the reopen conditions in
   [`decision.md`](../../discovery/routes/measurement-records/handoff/decision.md).
 
@@ -178,8 +178,8 @@ behavior without a new storage or import decision.
 
 ## Next Decision Gate
 
-Do not continue by expanding handoff surface area in place. The branch now has
-one complete receiving/import mutation chain:
+Do not continue by expanding handoff surface area in place. The accepted
+implementation boundary now has one complete receiving/import mutation chain:
 
 ```text
 read-only package open

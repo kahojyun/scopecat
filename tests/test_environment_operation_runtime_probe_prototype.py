@@ -392,6 +392,48 @@ class EnvironmentOperationRuntimeProbePrototypeTest(unittest.TestCase):
                 attention=result.attention,
             )
 
+    def test_runtime_probe_result_rejects_request_command_mismatch(self) -> None:
+        sync_intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
+        probe_intent = UvRuntimeProbeIntent.from_sync_result(
+            sync_intent,
+            _sync_result(sync_intent),
+        )
+        with TemporaryDirectory() as tmp:
+            workspace_root = Path(tmp)
+            (workspace_root / "project").mkdir()
+            result = execute_uv_runtime_probe(
+                probe_intent,
+                workspace_root=workspace_root,
+                runner=FakeRunner(
+                    CommandRunResult(
+                        exit_code=0,
+                        stdout=json.dumps(_runtime_facts()),
+                        stderr="",
+                    )
+                ),
+            ).to_result(probe_intent)
+
+        mismatches = {
+            "probe_request_id": "other-probe",
+            "approval_id": "other-approval",
+            "sync_request_id": "other-sync",
+            "sync_result_id": "other-sync-result",
+            "working_directory": "other-project",
+        }
+        for key, value in mismatches.items():
+            with self.subTest(key=key):
+                command_result = result.command_result
+                command_result[key] = value
+                with self.assertRaisesRegex(ValueError, f"{key} must match request ref"):
+                    UvRuntimeProbeResult(
+                        probe_request_ref=result.probe_request_ref,
+                        command_result=command_result,
+                        result_status=result.result_status,
+                        runtime_facts=result.runtime_facts,
+                        findings=result.findings,
+                        attention=result.attention,
+                    )
+
     def test_runtime_probe_result_rejects_inconsistent_facts_and_findings(self) -> None:
         sync_intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
         probe_intent = UvRuntimeProbeIntent.from_sync_result(

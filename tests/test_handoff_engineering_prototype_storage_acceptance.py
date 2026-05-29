@@ -147,6 +147,7 @@ def _storage_acceptance_source() -> dict:
             "record_manifest": "write_candidate_manifest",
             "collision_policy": "no_overwrite",
             "rollback": "best_effort_synchronous_cleanup",
+            "storage_root_concurrency": "not_supported",
             "archive_handling": "not_performed",
             "signature_validation": "not_performed",
             "linked_context_payload_import": "not_performed",
@@ -263,6 +264,14 @@ class HandoffEngineeringPrototypeStorageAcceptanceTest(unittest.TestCase):
         )
         self.assertEqual(summary["artifact_posture"], "local_storage_acceptance_receipt")
         self.assertTrue(summary["acceptance"]["performed"])
+        self.assertEqual(
+            summary["storage_acceptance_policy"]["storage_root_concurrency"],
+            "not_supported",
+        )
+        self.assertIn(
+            "concurrent_storage_root_mutation",
+            summary["workflow"]["does_not_claim"],
+        )
         self.assertEqual(manifest["schema"], "measurement_record_directory_candidate_v0")
         self.assertEqual(manifest["source"]["package_id"], "handoff-package-legacy-rabi-001")
         self.assertEqual(
@@ -406,6 +415,31 @@ class HandoffEngineeringPrototypeStorageAcceptanceTest(unittest.TestCase):
             storage_root.mkdir()
             with self.assertRaisesRegex(ValueError, "record ids must be unique"):
                 run_storage_acceptance(source, package_dir=PACKAGE, storage_root=storage_root)
+
+    def test_rejects_overlapping_storage_acceptance_record_dirs(self) -> None:
+        first_destination = HandoffAcceptanceDestination(
+            measurement_record_id="legacy-rabi-001",
+            destination_record_id="imported-legacy-rabi-001",
+            record_dir="records/imported-legacy-rabi-001",
+            primary_data_path="records/imported-legacy-rabi-001/primary.csv",
+            manifest_path="records/imported-legacy-rabi-001/record-manifest.json",
+            storage_schema="measurement_record_directory_candidate_v0",
+        )
+        nested_destination = HandoffAcceptanceDestination(
+            measurement_record_id="legacy-rabi-002",
+            destination_record_id="imported-legacy-rabi-002",
+            record_dir="records/imported-legacy-rabi-001/nested",
+            primary_data_path="records/imported-legacy-rabi-001/nested/primary.csv",
+            manifest_path="records/imported-legacy-rabi-001/nested/record-manifest.json",
+            storage_schema="measurement_record_directory_candidate_v0",
+        )
+
+        with self.assertRaisesRegex(ValueError, "record dirs must not overlap"):
+            HandoffStorageAcceptanceRequest(
+                request_id="accept-handoff-package-legacy-rabi-001",
+                requested_package_id="handoff-package-legacy-rabi-001",
+                approved_destinations=(first_destination, nested_destination),
+            )
 
     def test_rolls_back_primary_when_manifest_write_fails(self) -> None:
         import scopecat.handoff.storage_acceptance as storage_acceptance

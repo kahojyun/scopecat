@@ -10,6 +10,7 @@ from typing import Any
 
 from scopecat.handoff._contracts import (
     relative_path_parts,
+    validate_non_overlapping_relative_paths,
     validate_public_identifier,
     validate_relative_path,
     validate_strict_child_path,
@@ -422,6 +423,10 @@ def _validate_destination_tuple(
     target_paths = [path for item in destinations for path in item.target_paths]
     if len(set(target_paths)) != len(target_paths):
         raise ValueError(f"{owner} paths must be unique")
+    validate_non_overlapping_relative_paths(
+        [item.record_dir for item in destinations],
+        f"{owner} record dirs",
+    )
 
 
 def _parse_destination(source: Any) -> HandoffAcceptanceDestination:

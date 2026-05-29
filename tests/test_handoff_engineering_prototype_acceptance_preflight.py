@@ -328,6 +328,31 @@ class HandoffEngineeringPrototypeAcceptancePreflightTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "collision_policy"):
                 run_acceptance_preflight(source, package_dir=PACKAGE, storage_root=storage_root)
 
+    def test_rejects_overlapping_destination_record_dirs(self) -> None:
+        first_destination = HandoffAcceptanceDestination(
+            measurement_record_id="legacy-rabi-001",
+            destination_record_id="imported-legacy-rabi-001",
+            record_dir="records/imported-legacy-rabi-001",
+            primary_data_path="records/imported-legacy-rabi-001/primary.csv",
+            manifest_path="records/imported-legacy-rabi-001/record-manifest.json",
+            storage_schema="measurement_record_directory_candidate_v0",
+        )
+        nested_destination = HandoffAcceptanceDestination(
+            measurement_record_id="legacy-rabi-002",
+            destination_record_id="imported-legacy-rabi-002",
+            record_dir="records/imported-legacy-rabi-001/nested",
+            primary_data_path="records/imported-legacy-rabi-001/nested/primary.csv",
+            manifest_path="records/imported-legacy-rabi-001/nested/record-manifest.json",
+            storage_schema="measurement_record_directory_candidate_v0",
+        )
+
+        with self.assertRaisesRegex(ValueError, "record dirs must not overlap"):
+            HandoffAcceptancePreflightRequest(
+                request_id="preflight-handoff-package-legacy-rabi-001",
+                requested_package_id="handoff-package-legacy-rabi-001",
+                destinations=(first_destination, nested_destination),
+            )
+
     def test_rejects_destination_paths_outside_record_dir(self) -> None:
         source = _acceptance_preflight_source()
         source["acceptance_preflight_request"]["destinations"][0]["manifest_path"] = (

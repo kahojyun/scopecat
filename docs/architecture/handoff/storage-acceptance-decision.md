@@ -57,7 +57,8 @@ The first implementation should:
   `primary_data_path`;
 - write one `record-manifest.json` at each declared `manifest_path`;
 - keep linked context reference-only in the manifest;
-- use no-overwrite file creation for every written path;
+- use no-overwrite file creation for every written path under the
+  non-concurrent storage-root assumption below;
 - return a local receipt that reports performed writes and source package
   continuity.
 
@@ -81,9 +82,12 @@ The receipt should distinguish:
   not complete.
 
 Crash recovery, stale cleanup, lock files, transactional filesystem behavior,
-and concurrent storage-root mutation are still deferred. This rollback rule is
-only best-effort cleanup for synchronous failures observed by the current
-process; it is not a durability or crash-recovery guarantee.
+and concurrent storage-root mutation are still deferred. The storage root is
+assumed not to be mutated concurrently during this candidate operation. The
+no-overwrite checks and rollback rule are therefore ordinary single-operation
+guards, not race-safe storage semantics. This rollback rule is only best-effort
+cleanup for synchronous failures observed by the current process; it is not a
+durability or crash-recovery guarantee.
 
 ## Manifest Scope
 
@@ -112,7 +116,8 @@ This decision does not accept:
 - final storage schema or public storage API;
 - existing-record update or merge behavior;
 - overwrite, rename, dedupe, or conflict-resolution behavior;
-- lock files, stale-lock cleanup, crash recovery, or concurrency semantics;
+- lock files, stale-lock cleanup, crash recovery, or concurrent storage-root
+  mutation semantics;
 - package archive extraction, signatures, authenticity, trust policy, or
   adversarial package-root handling;
 - linked-context payload materialization;
@@ -129,15 +134,16 @@ run_acceptance_preflight(...)
 ```
 
 It proves successful copy plus manifest write, rejection of blocked or
-mismatched preflight facts, package/storage root continuity, no-overwrite
-collision behavior, and rollback after a simulated second-write failure.
+mismatched preflight facts, package/storage root continuity, ordinary
+no-overwrite collision behavior under a non-concurrent storage root, and
+rollback after a simulated second-write failure.
 
 ## Promotion Checkpoint
 
-This slice can be treated as complete for the current branch because it proves
-one approved mutation from a ready preflight into one candidate local record
-layout. The result is still a candidate storage acceptance receipt, not final
-storage architecture.
+This slice can be treated as complete for the current implementation phase
+because it proves one approved mutation from a ready preflight into one
+candidate local record layout. The result is still a candidate storage
+acceptance receipt, not final storage architecture.
 
 Do not use this completion as permission to add broader import behavior in
 place. Any next storage/import phase should first name the new decision it is

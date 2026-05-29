@@ -13,6 +13,7 @@ from typing import Any
 
 from scopecat.handoff._contracts import (
     relative_path_parts,
+    validate_non_overlapping_relative_paths,
     validate_public_identifier,
     validate_relative_path,
     validate_strict_child_path,
@@ -34,6 +35,7 @@ _EXPECTED_POLICY = {
     "record_manifest": "write_candidate_manifest",
     "collision_policy": "no_overwrite",
     "rollback": "best_effort_synchronous_cleanup",
+    "storage_root_concurrency": "not_supported",
     "archive_handling": "not_performed",
     "signature_validation": "not_performed",
     "linked_context_payload_import": "not_performed",
@@ -119,6 +121,7 @@ class HandoffStorageAcceptanceRun:
                     "existing_record_update",
                     "conflict_resolution",
                     "crash_recovery",
+                    "concurrent_storage_root_mutation",
                     "archive_extraction",
                     "signature_or_authenticity_validation",
                     "linked_context_payload_import",
@@ -634,6 +637,10 @@ def _validate_destination_tuple(
     target_paths = [path for item in destinations for path in item.target_paths]
     if len(set(target_paths)) != len(target_paths):
         raise ValueError(f"{owner} paths must be unique")
+    validate_non_overlapping_relative_paths(
+        [item.record_dir for item in destinations],
+        f"{owner} record dirs",
+    )
 
 
 def _parse_destination(source: Any) -> HandoffAcceptanceDestination:

@@ -810,8 +810,15 @@ def _validate_package_root_outside_source(
     try:
         package_root.relative_to(source_root)
     except ValueError:
-        return
-    raise ValueError(f"{owner} package root must stay outside source root")
+        pass
+    else:
+        raise ValueError(f"{owner} package root must stay outside source root")
+    try:
+        source_root.relative_to(package_root)
+    except ValueError:
+        pass
+    else:
+        raise ValueError(f"{owner} source root must stay outside package root")
 
 
 def _ensure_no_symlink_parents(root: Path, relative_path: str, label: str) -> None:

@@ -5,8 +5,8 @@
 Frozen engineering prototype readiness checkpoint, not an ADR.
 
 This document records the stop/readiness assessment that justified ending the
-prototype line. Do not update it to mirror routine API additions. Current
-accepted implementation boundaries live in
+prototype line. Do not update it to mirror later API additions or mutation-slice
+decisions. Current accepted implementation boundaries live in
 [`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md).
 
 Artifact posture: `internal_validation_summary`. This note is internal project
@@ -113,11 +113,6 @@ to choose one of these paths:
 
 Do not start final archive, storage schema, or package-import implementation
 until one of those decision paths is explicit.
-
-Later branch work chose and implemented the first candidate storage-acceptance
-slice. That superseding phase boundary is recorded in
-[`storage-acceptance-decision.md`](storage-acceptance-decision.md); this
-readiness note remains the historical checkpoint before that mutation slice.
 
 ## Remaining Risks
 

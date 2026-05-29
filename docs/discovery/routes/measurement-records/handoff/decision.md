@@ -77,8 +77,8 @@ payload use case appears.
 
 Integrity observation is separate from acceptance and authenticity. The route
 can compare declared package-local digest/size facts when asked, but signatures,
-archive authenticity, trust policy, and concurrent package-root mutation are
-separate authority questions.
+archive authenticity, trust policy, concurrent package-root mutation, and
+concurrent storage-root mutation are separate authority questions.
 
 Receiving-side storage mutation requires explicit approval and stays after
 read-only review. Acceptance/import is a distinct mutation step, not part of
@@ -114,7 +114,7 @@ Keep these out of the current route until a named user workflow requires them:
   restore, environment restore, dependency sync, managed-runner inputs, or
   runnable readiness;
 - final storage import API, existing-record update behavior, storage schema,
-  import conflict policy, and concurrency semantics;
+  import conflict policy, and storage concurrency semantics;
 - shared measurement-record domain models or cross-route object lifecycles.
 
 ## Reopen Triggers

@@ -254,8 +254,13 @@ class UvRuntimeProbeResult:
         attention: tuple[dict[str, str], ...],
     ) -> None:
         coerced_command_result = _coerce_probe_command_result(command_result)
+        coerced_probe_request_ref = _coerce_probe_request_ref(probe_request_ref)
         coerced_runtime_facts = _coerce_runtime_facts(runtime_facts)
         coerced_findings = _validate_probe_findings(findings)
+        _validate_probe_result_request_alignment(
+            coerced_probe_request_ref,
+            coerced_command_result,
+        )
         _validate_probe_result_consistency(
             coerced_command_result,
             result_status,
@@ -265,7 +270,7 @@ class UvRuntimeProbeResult:
         object.__setattr__(
             self,
             "_probe_request_ref",
-            _coerce_probe_request_ref(probe_request_ref),
+            coerced_probe_request_ref,
         )
         object.__setattr__(self, "_command_result", coerced_command_result)
         object.__setattr__(self, "result_status", result_status)
@@ -517,10 +522,22 @@ def _coerce_probe_request_ref(value: dict[str, Any]) -> dict[str, Any]:
     ):
         raise ValueError("uv runtime probe command does_not_claim must preserve boundary")
     return {
-        "probe_request_id": _require_text(value, "probe_request_id"),
-        "approval_id": _require_text(value, "approval_id"),
-        "sync_request_id": _require_text(value, "sync_request_id"),
-        "sync_result_id": _require_text(value, "sync_result_id"),
+        "probe_request_id": _validate_non_empty_text(
+            _require_text(value, "probe_request_id"),
+            "uv runtime probe request probe_request_id",
+        ),
+        "approval_id": _validate_non_empty_text(
+            _require_text(value, "approval_id"),
+            "uv runtime probe request approval_id",
+        ),
+        "sync_request_id": _validate_non_empty_text(
+            _require_text(value, "sync_request_id"),
+            "uv runtime probe request sync_request_id",
+        ),
+        "sync_result_id": _validate_non_empty_text(
+            _require_text(value, "sync_result_id"),
+            "uv runtime probe request sync_result_id",
+        ),
         "expected_manager": "uv",
         "working_directory": working_directory,
         "command_intent": {
@@ -552,11 +569,26 @@ def _coerce_probe_command_result(value: dict[str, Any]) -> dict[str, Any]:
     if _require_text(value, "execution_observer") != "scopecat_subprocess_executor":
         raise ValueError("uv runtime probe execution_observer must be Scopecat")
     return {
-        "probe_result_id": _require_text(value, "probe_result_id"),
-        "probe_request_id": _require_text(value, "probe_request_id"),
-        "approval_id": _require_text(value, "approval_id"),
-        "sync_request_id": _require_text(value, "sync_request_id"),
-        "sync_result_id": _require_text(value, "sync_result_id"),
+        "probe_result_id": _validate_non_empty_text(
+            _require_text(value, "probe_result_id"),
+            "uv runtime probe command_result probe_result_id",
+        ),
+        "probe_request_id": _validate_non_empty_text(
+            _require_text(value, "probe_request_id"),
+            "uv runtime probe command_result probe_request_id",
+        ),
+        "approval_id": _validate_non_empty_text(
+            _require_text(value, "approval_id"),
+            "uv runtime probe command_result approval_id",
+        ),
+        "sync_request_id": _validate_non_empty_text(
+            _require_text(value, "sync_request_id"),
+            "uv runtime probe command_result sync_request_id",
+        ),
+        "sync_result_id": _validate_non_empty_text(
+            _require_text(value, "sync_result_id"),
+            "uv runtime probe command_result sync_result_id",
+        ),
         "manager": "uv",
         "operation": "runtime_probe",
         "working_directory": _validate_relative_path(
@@ -619,6 +651,23 @@ def _validate_probe_result_consistency(
         finding.to_dict() for finding in expected_findings
     ):
         raise ValueError("uv runtime probe findings must match execution_state and output")
+
+
+def _validate_probe_result_request_alignment(
+    probe_request_ref: dict[str, Any],
+    command_result: dict[str, Any],
+) -> None:
+    for key in (
+        "probe_request_id",
+        "approval_id",
+        "sync_request_id",
+        "sync_result_id",
+        "working_directory",
+    ):
+        if probe_request_ref[key] != command_result[key]:
+            raise ValueError(f"uv runtime probe result {key} must match request ref")
+    if tuple(probe_request_ref["command_intent"]["argv"]) != tuple(command_result["argv"]):
+        raise ValueError("uv runtime probe result argv must match request ref")
 
 
 def _runtime_probe_findings(execution_state: str) -> list[UvRuntimeProbeFinding]:

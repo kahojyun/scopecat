@@ -155,6 +155,11 @@ class HandoffEngineeringPrototypeWriterTest(unittest.TestCase):
                 write_package(source, source_root=source_root, package_root=package_root)
             self.assertEqual(list(package_root.iterdir()), [])
 
+            package_parent = temp_root
+            with self.assertRaisesRegex(ValueError, "outside package root"):
+                write_package(source, source_root=source_root, package_root=package_parent)
+            self.assertEqual(list(package_parent.iterdir()), [source_root])
+
     def test_multiple_selected_measurements_round_trip_through_reader(self) -> None:
         source = _load_input()
         first_record = source["selected_measurements"][0]
