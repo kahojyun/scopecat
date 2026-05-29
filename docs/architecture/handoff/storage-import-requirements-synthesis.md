@@ -5,11 +5,15 @@
 Engineering requirements synthesis, not an ADR.
 
 This note compares current handoff storage acceptance with adjacent
-Measurement Records storage/import evidence. It names what can be decided
-before the durable measurement-record creation flow exists, and what must wait
-for that flow. It does not accept final storage schema, final import API,
+Measurement Records storage/import evidence. It names what could be decided
+before the durable measurement-record creation flow existed, and what had to
+wait for that flow. It does not accept final storage schema, final import API,
 existing-record update behavior, archive format, conflict policy, or shared
 measurement-record domain model.
+
+Follow-up decision: durable measurement-record creation now exists. The first
+durable import/storage boundary is recorded in
+[`durable-import-storage-decision.md`](durable-import-storage-decision.md).
 
 Artifact posture: `internal_validation_summary`. This note is internal project
 memory. It creates no portable package output, public contract, public SDK, or
@@ -151,7 +155,7 @@ storage acceptance plus local review receipts.
 
 ## Next Gate
 
-The next implementation phase should choose one of two named gates:
+This synthesis originally named two possible gates:
 
 - Measurement-record creation lifecycle: define durable record identity,
   initial storage state, lifecycle/progress state, and creation failure
@@ -160,6 +164,10 @@ The next implementation phase should choose one of two named gates:
 - Durable import/storage decision: after creation semantics exist, define how
   package acceptance creates or updates records, what conflict policy applies,
   and what recovery guarantees are required.
+
+The first gate is now implemented by the Measurement Records prototype line.
+The second gate is now decided by
+[`durable-import-storage-decision.md`](durable-import-storage-decision.md).
 
 Do not implement broader handoff storage import as an incremental extension of
 `measurement_record_directory_candidate_v0`. Treat that layout as evidence for

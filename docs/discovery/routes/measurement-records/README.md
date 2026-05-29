@@ -59,8 +59,9 @@ Prefer one of these only when the named workflow exists:
 | Need | Next Boundary |
 | --- | --- |
 | Create durable measurement-record shells before writer/import integration | Start from [`architecture/measurement-records/creation-lifecycle-decision.md`](../../../architecture/measurement-records/creation-lifecycle-decision.md). |
+| Import reviewed normalized primary data into durable storage | Start from [`architecture/handoff/durable-import-storage-decision.md`](../../../architecture/handoff/durable-import-storage-decision.md): create a new measurement record through the existing receipt/read-model pipeline. |
 | Read or preview stored/package-local normalized data through one contract | Adopt [`slices/measurement-records/normalized-primary-table-validation-result.md`](../../slices/measurement-records/normalized-primary-table-validation-result.md) at that concrete consumer boundary. |
-| Add durable storage editing beyond append receipts | Validate stronger existing-record update behavior: manifest replacement, read-model refresh, stale-lock cleanup, crash recovery, conflict policy, or in-progress record semantics. |
+| Add durable storage editing beyond append receipts | Validate stronger existing-record update behavior: existing-record import/update, stale-lock cleanup, crash recovery, conflict policy, or in-progress record semantics. |
 | Accept adapter-produced input through a real workflow | Extend [`adapter-output-boundary-validation-result.md`](../../slices/measurement-records/adapter-output-boundary-validation-result.md) into a concrete transport, discovery, trust, and failure model. |
 | Recover moved reference-only records | Validate reference repair/review without automatic path discovery by default. |
 | Continue handoff package behavior | Start from [`routes/measurement-records/handoff/decision.md`](handoff/decision.md), not the import/source route. |
