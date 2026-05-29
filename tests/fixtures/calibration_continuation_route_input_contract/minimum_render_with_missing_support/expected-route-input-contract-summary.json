@@ -1,0 +1,254 @@
+{
+  "summary_id": "calibration-continuation-route-input-contract-minimum-render-with-missing-support.expected",
+  "status": "expected_validation_output",
+  "source_fixture": "route-input-contract-input.json",
+  "reference_semantics": {
+    "status": "fixture_references_are_synthetic",
+    "artifact_posture": "internal_validation_summary",
+    "contract_guard": "This is not a GUI contract, notebook integration contract, runner contract, remote-execution contract, replay harness, dataset registry, portable/public dataset package, fitting API, fit model selection, score model, reference resolver, write-back path, or hardware-control contract."
+  },
+  "candidate_summary": {
+    "summary_id": "calibration-continuation-route-input-contract-minimum-render-with-missing-support.candidate",
+    "route_context": {
+      "route_id": "calibration-continuation-route-qA-0001",
+      "episode_id": "cal-episode-08001",
+      "target_group": "qA",
+      "current_step_id": "step-2-rabi-amplitude",
+      "source": "fixture_declared"
+    },
+    "input_contract": [
+      {
+        "input_id": "route-input-work-continuation-08001",
+        "family": "calibration_work_continuation_summary",
+        "role": "current_calibration_state",
+        "required_for": "route_render",
+        "include_state": "selected",
+        "state": "available",
+        "owner": "calibration_work_continuation",
+        "reference": {
+          "summary_id": "calibration-work-continuation-rabi-review.candidate",
+          "step_ids": [
+            "step-1-readout-response",
+            "step-2-rabi-amplitude",
+            "step-3-t1-check"
+          ],
+          "current_step_id": "step-2-rabi-amplitude"
+        }
+      },
+      {
+        "input_id": "route-input-fit-interaction-08002",
+        "family": "fit_recovery_interaction_summary",
+        "role": "fit_recovery_user_actions",
+        "required_for": "route_render",
+        "include_state": "selected",
+        "state": "available",
+        "owner": "calibration_fit_recovery_interaction_recording",
+        "reference": {
+          "summary_id": "calibration-fit-recovery-interaction-recording-no-signal-and-visible-refit.candidate",
+          "selected_review_incident_id": "incident-rabi-visible-refit-07002",
+          "outcome_states": [
+            "requires_remeasurement",
+            "can_continue"
+          ]
+        }
+      },
+      {
+        "input_id": "route-input-review-state-08003",
+        "family": "fit_recovery_review_state_summary",
+        "role": "local_review_projection",
+        "required_for": "review_quality",
+        "include_state": "selected",
+        "state": "available",
+        "owner": "calibration_fit_recovery_review_state",
+        "reference": {
+          "summary_id": "calibration-fit-recovery-review-state-no-signal-and-visible-refit.candidate",
+          "surface_kind": "local_review_state"
+        }
+      },
+      {
+        "input_id": "route-input-setup-binding-08004",
+        "family": "setup_binding_ref",
+        "role": "target_binding_context",
+        "required_for": "review_quality",
+        "include_state": "unavailable",
+        "state": "missing_supporting_input",
+        "owner": "setup_binding",
+        "missing_reason": "Setup binding has not been selected for this route fixture; the minimum route-shape contract is satisfied but target context is incomplete."
+      },
+      {
+        "input_id": "route-input-measurement-preview-08005",
+        "family": "measurement_preview_refs",
+        "role": "current_step_preview_context",
+        "required_for": "review_quality",
+        "include_state": "unavailable",
+        "state": "missing_supporting_input",
+        "owner": "measurement_records",
+        "missing_reason": "Measurement preview references are not available in this fixture; show missing preview attention instead of reading payloads."
+      },
+      {
+        "input_id": "route-input-parameter-state-08006",
+        "family": "parameter_state_ref",
+        "role": "current_parameter_context",
+        "required_for": "reference_context",
+        "include_state": "reference_only",
+        "state": "reference_only",
+        "owner": "parameter_state_management",
+        "reference": {
+          "state_id": "parameter-state:qA-before-rabi-review",
+          "summary_ref": "parameter-state-summary-qA-0008"
+        }
+      },
+      {
+        "input_id": "route-input-validation-dataset-08007",
+        "family": "validation_dataset_draft_ref",
+        "role": "fit_validation_context",
+        "required_for": "reference_context",
+        "include_state": "reference_only",
+        "state": "reference_only",
+        "owner": "calibration_fit_validation_dataset",
+        "reference": {
+          "dataset_id": "fit-validation-dataset-qA-0005",
+          "posture": "lab_internal_validation_dataset_draft"
+        }
+      },
+      {
+        "input_id": "route-input-prepared-run-context-08008",
+        "family": "prepared_run_context_ref",
+        "role": "rerun_preparation_context",
+        "required_for": "optional_context",
+        "include_state": "optional_not_selected",
+        "state": "optional_not_selected",
+        "owner": "prepared_run_context",
+        "missing_reason": "Prepared rerun context is not needed for this route input-contract fixture."
+      }
+    ],
+    "route_readiness": {
+      "state": "minimum_contract_satisfied_with_attention",
+      "minimum_route_available": true,
+      "unavailable_minimum_input_ids": [],
+      "missing_supporting_input_ids": [
+        "route-input-setup-binding-08004",
+        "route-input-measurement-preview-08005"
+      ]
+    },
+    "missing_context": [
+      {
+        "code": "route_input_unavailable",
+        "input_id": "route-input-setup-binding-08004",
+        "family": "setup_binding_ref",
+        "required_for": "review_quality",
+        "severity": "review",
+        "message": "Setup binding has not been selected for this route fixture; the minimum route-shape contract is satisfied but target context is incomplete.",
+        "does_not_claim": "upstream_productization_required"
+      },
+      {
+        "code": "route_input_unavailable",
+        "input_id": "route-input-measurement-preview-08005",
+        "family": "measurement_preview_refs",
+        "required_for": "review_quality",
+        "severity": "review",
+        "message": "Measurement preview references are not available in this fixture; show missing preview attention instead of reading payloads.",
+        "does_not_claim": "upstream_productization_required"
+      }
+    ],
+    "attention": [
+      {
+        "code": "route_input_unavailable",
+        "input_id": "route-input-setup-binding-08004",
+        "family": "setup_binding_ref",
+        "required_for": "review_quality",
+        "severity": "review",
+        "message": "Setup binding has not been selected for this route fixture; the minimum route-shape contract is satisfied but target context is incomplete.",
+        "does_not_claim": "upstream_productization_required"
+      },
+      {
+        "code": "route_input_unavailable",
+        "input_id": "route-input-measurement-preview-08005",
+        "family": "measurement_preview_refs",
+        "required_for": "review_quality",
+        "severity": "review",
+        "message": "Measurement preview references are not available in this fixture; show missing preview attention instead of reading payloads.",
+        "does_not_claim": "upstream_productization_required"
+      },
+      {
+        "code": "route_input_reference_only",
+        "input_id": "route-input-parameter-state-08006",
+        "family": "parameter_state_ref",
+        "severity": "info",
+        "message": "Route carries this input as an owned-by-other-slice reference.",
+        "does_not_claim": "reference_payload_observed"
+      },
+      {
+        "code": "route_input_reference_only",
+        "input_id": "route-input-validation-dataset-08007",
+        "family": "validation_dataset_draft_ref",
+        "severity": "info",
+        "message": "Route carries this input as an owned-by-other-slice reference.",
+        "does_not_claim": "reference_payload_observed"
+      },
+      {
+        "code": "optional_route_input_not_selected",
+        "input_id": "route-input-prepared-run-context-08008",
+        "family": "prepared_run_context_ref",
+        "severity": "info",
+        "message": "Prepared rerun context is not needed for this route input-contract fixture.",
+        "does_not_claim": "route_blocked"
+      }
+    ],
+    "boundary": {
+      "summary_posture": "internal_validation_summary",
+      "non_claims": [
+        "no GUI implementation",
+        "no notebook integration",
+        "no calibration execution",
+        "no fit execution",
+        "no fit model selection",
+        "no Scopecat-defined score",
+        "no measurement payload read",
+        "no reference resolution",
+        "no automatic ROI or initial-guess selection",
+        "no automatic outlier rejection",
+        "no automatic remeasurement, retry, retune, or optimization",
+        "no parameter write-back",
+        "no local executor or notebook execution",
+        "no runner design",
+        "no remote execution",
+        "no replay harness",
+        "no dataset registry",
+        "no portable/public dataset package",
+        "no handoff artifact",
+        "no lab-sharing bundle",
+        "no hardware control"
+      ]
+    }
+  },
+  "boundary_notes": [
+    "The contract defines route inputs, not upstream productization requirements.",
+    "Unavailable review-quality inputs become attention while selected route-render inputs satisfy the minimum route-shape contract.",
+    "Reference-only inputs are carried without reading or validating payloads.",
+    "The candidate does not execute calibration, fitting, replay, write-back, or hardware actions."
+  ],
+  "decisions_not_earned": [
+    "GUI implementation",
+    "notebook integration",
+    "runner framework",
+    "remote execution",
+    "calibration execution",
+    "fitting API",
+    "fit model selection",
+    "score model",
+    "measurement payload reading",
+    "reference resolution",
+    "automatic ROI selection",
+    "automatic initial-guess selection",
+    "automatic remeasurement",
+    "automatic retry or retune",
+    "parameter write-back",
+    "replay harness",
+    "dataset registry",
+    "portable/public dataset package",
+    "handoff artifact",
+    "lab-sharing bundle",
+    "hardware control"
+  ]
+}
