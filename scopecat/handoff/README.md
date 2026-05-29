@@ -38,6 +38,13 @@ observes only those exact paths for no-overwrite collisions and summarizes
 whether an acceptance mutation request could be prepared. It still performs no
 storage mutation, package acceptance, conflict resolution, manifest write, or
 rollback behavior.
+`run_storage_acceptance(...)` performs the first narrow acceptance mutation
+after a ready preflight and approved storage acceptance request. It copies
+package primary data into declared candidate record paths, writes a small
+candidate record manifest, and applies best-effort synchronous rollback if a
+later write fails. It does not define final storage schema, existing-record
+updates, conflict resolution, crash recovery, archive trust, or linked-context
+payload import.
 
 The route-local writer uses a caller-provided `source_root` plus declared
 relative source paths for already-normalized primary data. That source-root
@@ -64,6 +71,7 @@ Current user-facing prototype surface:
 - `run_receiving_gate(source, package_dir=...)`;
 - `run_import_plan(source, package_dir=...)`;
 - `run_acceptance_preflight(source, package_dir=..., storage_root=...)`;
+- `run_storage_acceptance(source, package_dir=..., storage_root=...)`;
 - `write_package(source, source_root=..., package_root=...)`;
 - `run_package_workflow(source, source_root=..., package_root=...)`;
 - `python -m scopecat.handoff <package-dir>`;

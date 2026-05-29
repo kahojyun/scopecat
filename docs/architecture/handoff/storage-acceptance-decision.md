@@ -118,13 +118,13 @@ This decision does not accept:
 
 ## Next Implementation Check
 
-Implement the smallest route-local function that proves this mutation:
+The smallest route-local function that proves this mutation is now:
 
 ```text
 run_acceptance_preflight(...)
   -> run_storage_acceptance(...)
 ```
 
-The tests should prove successful copy plus manifest write, rejection of
-blocked or mismatched preflight facts, no-overwrite collision behavior, and
-rollback after a simulated second-write failure.
+The tests should continue to prove successful copy plus manifest write,
+rejection of blocked or mismatched preflight facts, no-overwrite collision
+behavior, and rollback after a simulated second-write failure.

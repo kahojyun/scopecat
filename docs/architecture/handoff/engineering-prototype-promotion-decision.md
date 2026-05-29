@@ -152,6 +152,23 @@ The first mutation implementation slice after this preflight is chosen in
 rollback and storage-acceptance implementation scope there rather than
 expanding this promotion snapshot.
 
+## Storage Acceptance Slice
+
+The route-local implementation now includes `run_storage_acceptance(...)` as
+the first narrow storage mutation after a ready acceptance preflight. The
+owning scope is
+[`storage-acceptance-decision.md`](storage-acceptance-decision.md): copy
+package primary data into declared candidate record paths, write a small
+candidate record manifest, and apply best-effort synchronous rollback after
+write failure.
+
+This still does not promote final storage schema, existing-record update,
+conflict resolution, crash recovery, archive trust, or linked-context payload
+import.
+
+After this slice, the next engineering phase should not broaden mutation
+behavior without a new storage or import decision.
+
 ## Next Decision Gate
 
 Do not continue by expanding handoff surface area in place. After the
@@ -195,6 +212,7 @@ The promoted baseline includes:
 - local static HTML as the first review artifact;
 - non-mutating import planning after a ready receiving gate;
 - destination acceptance preflight over exact declared no-overwrite paths;
+- narrow storage acceptance mutation with best-effort synchronous rollback;
 - representative regression coverage over basic and route-pressure fixtures.
 
 ## Explicit Non-Promotions

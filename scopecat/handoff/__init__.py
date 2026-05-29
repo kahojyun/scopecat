@@ -37,6 +37,11 @@ from scopecat.handoff.receiving import (
     HandoffReceivingReviewRequest,
     run_receiving_gate,
 )
+from scopecat.handoff.storage_acceptance import (
+    HandoffStorageAcceptanceRequest,
+    HandoffStorageAcceptanceRun,
+    run_storage_acceptance,
+)
 from scopecat.handoff.tables import HandoffPlotSeries, HandoffTable
 from scopecat.handoff.workflow import HandoffPackageWorkflowRun, run_package_workflow
 from scopecat.handoff.writer import HandoffPackageWriteReceipt, write_package
@@ -63,6 +68,8 @@ __all__ = [
     "HandoffPlotSeries",
     "HandoffReceivingGateRun",
     "HandoffReceivingReviewRequest",
+    "HandoffStorageAcceptanceRequest",
+    "HandoffStorageAcceptanceRun",
     "HandoffTable",
     "build_inspection_html",
     "observe_package_integrity",
@@ -71,6 +78,7 @@ __all__ = [
     "run_import_plan",
     "run_package_workflow",
     "run_receiving_gate",
+    "run_storage_acceptance",
     "write_inspection_artifact",
     "write_package",
 ]
