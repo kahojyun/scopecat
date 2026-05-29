@@ -226,6 +226,11 @@ authority. It records approved, rejected, and needs-review operator decisions;
 surfaces destination collision, destination guardrail, preflight block, storage
 block, and rollback states; and calls the existing storage-acceptance mutation
 only when the operator decision is approved.
+Rejected and needs-review decisions carry a required single-line
+`operator_reason` as local review state. That reason is operator-facing context
+for continuing or abandoning the receiving workflow; it is not a package
+member, candidate storage manifest field, portable/export artifact, public SDK
+contract, or runtime redaction surface.
 
 It does not add final storage schema, conflict resolution, durable review-state
 persistence, existing-record update, stronger crash recovery, archive trust,

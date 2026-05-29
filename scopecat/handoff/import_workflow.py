@@ -51,6 +51,7 @@ class HandoffImportWorkflowRequest:
     request_id: str
     requested_package_id: str
     operator_decision: str
+    operator_reason: str | None = None
     storage_acceptance_request: HandoffStorageAcceptanceRequest | None = None
 
     def __post_init__(self) -> None:
@@ -62,12 +63,15 @@ class HandoffImportWorkflowRequest:
         if self.operator_decision not in _DECISIONS:
             raise ValueError("import workflow operator_decision is unsupported")
         if self.operator_decision == "approved_for_storage_acceptance":
+            if self.operator_reason is not None:
+                raise ValueError("approved import workflow must not carry operator_reason")
             if not isinstance(
                 self.storage_acceptance_request,
                 HandoffStorageAcceptanceRequest,
             ):
                 raise ValueError("approved import workflow requires storage_acceptance_request")
             return
+        _validate_operator_reason(self.operator_reason)
         if self.storage_acceptance_request is not None:
             raise ValueError(
                 "storage_acceptance_request is allowed only for approved import workflows"
@@ -82,6 +86,7 @@ class HandoffImportWorkflowRequest:
             "request_id": self.request_id,
             "requested_package_id": self.requested_package_id,
             "operator_decision": self.operator_decision,
+            "operator_reason": self.operator_reason,
             "storage_acceptance_request": (
                 None
                 if self.storage_acceptance_request is None
@@ -146,6 +151,7 @@ class HandoffImportWorkflowRun:
             "request": self.request.to_dict(),
             "review_state": {
                 "operator_decision": self.request.operator_decision,
+                "operator_reason": self.request.operator_reason,
                 "mutation_approved": self.request.mutation_approved,
                 "final_state": self.classification,
                 "next_action": self._next_action(),
@@ -313,6 +319,7 @@ def _parse_request(source: Any) -> HandoffImportWorkflowRequest:
             "request_id",
             "requested_package_id",
             "operator_decision",
+            "operator_reason",
             "storage_acceptance_request",
         },
         "import_workflow_request",
@@ -333,8 +340,29 @@ def _parse_request(source: Any) -> HandoffImportWorkflowRequest:
             request["operator_decision"],
             "import_workflow_request.operator_decision",
         ),
+        operator_reason=_parse_operator_reason(request["operator_reason"]),
         storage_acceptance_request=storage_acceptance_request,
     )
+
+
+def _parse_operator_reason(source: Any) -> str | None:
+    if source is None:
+        return None
+    if not isinstance(source, str):
+        raise ValueError("import_workflow_request.operator_reason must be a string")
+    return _validate_operator_reason(source)
+
+
+def _validate_operator_reason(reason: str | None) -> str:
+    if reason is None:
+        raise ValueError("rejected or needs-review import workflow requires operator_reason")
+    if not reason.strip():
+        raise ValueError("import workflow operator_reason must not be empty")
+    if len(reason) > 500:
+        raise ValueError("import workflow operator_reason must be at most 500 characters")
+    if any(ord(character) < 32 for character in reason):
+        raise ValueError("import workflow operator_reason must be single-line text")
+    return reason
 
 
 def _parse_optional_storage_request(source: Any) -> HandoffStorageAcceptanceRequest | None:

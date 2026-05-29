@@ -55,7 +55,9 @@ records an explicit operator decision of approve, reject, or needs-review, and
 calls `run_storage_acceptance(...)` only for the approved decision. It surfaces
 destination collisions, guardrail blocks, rejections, needs-review state, and
 rollback outcomes as workflow classifications without broadening storage shape
-or adding conflict resolution.
+or adding conflict resolution. Rejection and needs-review decisions require a
+single-line `operator_reason` copied only into the local workflow receipt; it
+is not written to the package or candidate storage manifest.
 
 The route-local writer uses a caller-provided `source_root` plus declared
 relative source paths for already-normalized primary data. That source-root

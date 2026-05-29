@@ -133,6 +133,7 @@ def _storage_acceptance_request() -> dict:
 def _import_workflow_source(
     *,
     operator_decision: str = "approved_for_storage_acceptance",
+    operator_reason: str | None = None,
     storage_acceptance_request: dict | None = None,
 ) -> dict:
     if (
@@ -160,6 +161,7 @@ def _import_workflow_source(
             "request_id": "workflow-handoff-package-legacy-rabi-001",
             "requested_package_id": "handoff-package-legacy-rabi-001",
             "operator_decision": operator_decision,
+            "operator_reason": operator_reason,
             "storage_acceptance_request": storage_acceptance_request,
         },
     }
@@ -217,6 +219,7 @@ class HandoffEngineeringPrototypeImportWorkflowTest(unittest.TestCase):
             run = run_import_workflow(
                 _import_workflow_source(
                     operator_decision="rejected_after_review",
+                    operator_reason="Package contents do not match the expected run.",
                     storage_acceptance_request=None,
                 ),
                 package_dir=package_dir,
@@ -233,6 +236,10 @@ class HandoffEngineeringPrototypeImportWorkflowTest(unittest.TestCase):
             summary["review_state"]["next_action"],
             "record_rejection_without_storage_mutation",
         )
+        self.assertEqual(
+            summary["review_state"]["operator_reason"],
+            "Package contents do not match the expected run.",
+        )
 
     def test_needs_review_workflow_does_not_accept_storage(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -244,6 +251,7 @@ class HandoffEngineeringPrototypeImportWorkflowTest(unittest.TestCase):
             run = run_import_workflow(
                 _import_workflow_source(
                     operator_decision="needs_review",
+                    operator_reason="Ask the sender to confirm the linked context.",
                     storage_acceptance_request=None,
                 ),
                 package_dir=package_dir,
@@ -256,6 +264,10 @@ class HandoffEngineeringPrototypeImportWorkflowTest(unittest.TestCase):
         self.assertEqual(
             summary["review_state"]["next_action"],
             "complete_operator_review_before_storage_acceptance",
+        )
+        self.assertEqual(
+            summary["request"]["operator_reason"],
+            "Ask the sender to confirm the linked context.",
         )
 
     def test_approved_workflow_surfaces_destination_collision(self) -> None:
@@ -338,7 +350,39 @@ class HandoffEngineeringPrototypeImportWorkflowTest(unittest.TestCase):
             run_import_workflow(
                 _import_workflow_source(
                     operator_decision="needs_review",
+                    operator_reason="Review is still pending.",
                     storage_acceptance_request=_storage_acceptance_request(),
+                ),
+                package_dir=PACKAGE,
+                storage_root=PACKAGE.parent,
+            )
+
+    def test_rejected_workflow_requires_operator_reason(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires operator_reason"):
+            run_import_workflow(
+                _import_workflow_source(
+                    operator_decision="rejected_after_review",
+                    storage_acceptance_request=None,
+                ),
+                package_dir=PACKAGE,
+                storage_root=PACKAGE.parent,
+            )
+
+    def test_approved_workflow_rejects_operator_reason(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must not carry operator_reason"):
+            run_import_workflow(
+                _import_workflow_source(operator_reason="No review note needed for approval."),
+                package_dir=PACKAGE,
+                storage_root=PACKAGE.parent,
+            )
+
+    def test_operator_reason_is_local_single_line_text(self) -> None:
+        with self.assertRaisesRegex(ValueError, "single-line"):
+            run_import_workflow(
+                _import_workflow_source(
+                    operator_decision="needs_review",
+                    operator_reason="first line\nsecond line",
+                    storage_acceptance_request=None,
                 ),
                 package_dir=PACKAGE,
                 storage_root=PACKAGE.parent,
