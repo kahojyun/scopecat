@@ -70,6 +70,11 @@ small operator continuation summary with package id, measurement ids, final
 state, next action, and operator reason. It is read-only and does not
 authorize retry, reuse prior preflight facts, reopen packages, or mutate
 storage.
+`review_import_workflow_retry(...)` compares that local receipt summary with a
+caller-provided fresh acceptance preflight. It can report that the fresh
+preflight is ready for retry or still blocked, but it does not authorize
+continuation, reuse prior preflight facts, approve storage acceptance, or write
+storage.
 
 The route-local writer uses a caller-provided `source_root` plus declared
 relative source paths for already-normalized primary data. That source-root
@@ -100,6 +105,7 @@ Current user-facing prototype surface:
 - `run_import_workflow(source, package_dir=..., storage_root=...)`;
 - `approve_import(...)`, `reject_import(...)`, and `mark_import_needs_review(...)`;
 - `summarize_import_workflow_receipt(receipt)`;
+- `review_import_workflow_retry(previous_summary, fresh_preflight=...)`;
 - `write_package(source, source_root=..., package_root=...)`;
 - `run_package_workflow(source, source_root=..., package_root=...)`;
 - `python -m scopecat.handoff <package-dir>`;

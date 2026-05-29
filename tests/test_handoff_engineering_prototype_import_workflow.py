@@ -11,6 +11,8 @@ from scopecat.handoff import (
     approve_import,
     mark_import_needs_review,
     reject_import,
+    review_import_workflow_retry,
+    run_acceptance_preflight,
     run_import_workflow,
     summarize_import_workflow_receipt,
 )
@@ -133,6 +135,21 @@ def _acceptance_preflight_source() -> dict:
             "destinations": [_destination()],
         },
     }
+
+
+def _changed_destination_acceptance_preflight_source() -> dict:
+    source = _acceptance_preflight_source()
+    source["acceptance_preflight_request"]["destinations"] = [
+        {
+            "measurement_record_id": "legacy-rabi-001",
+            "destination_record_id": "imported-legacy-rabi-002",
+            "record_dir": "records/imported-legacy-rabi-002",
+            "primary_data_path": "records/imported-legacy-rabi-002/primary.csv",
+            "manifest_path": "records/imported-legacy-rabi-002/record-manifest.json",
+            "storage_schema": "measurement_record_directory_candidate_v0",
+        }
+    ]
+    return source
 
 
 def _storage_acceptance_request() -> dict:
@@ -528,6 +545,105 @@ class HandoffEngineeringPrototypeImportWorkflowTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "must not carry storage_acceptance"):
             summarize_import_workflow_receipt(rejected)
+
+    def test_retry_after_destination_collision_requires_fresh_preflight(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            (storage_root / "records" / "imported-legacy-rabi-001").mkdir(parents=True)
+
+            blocked_run = run_import_workflow(
+                _import_workflow_source(),
+                package_dir=package_dir,
+                storage_root=storage_root,
+            )
+            previous_summary = summarize_import_workflow_receipt(blocked_run.to_dict())
+            fresh_preflight = run_acceptance_preflight(
+                _changed_destination_acceptance_preflight_source(),
+                package_dir=package_dir,
+                storage_root=storage_root,
+            )
+
+            retry_review = review_import_workflow_retry(
+                previous_summary,
+                fresh_preflight=fresh_preflight,
+            )
+            retry_summary = retry_review.to_dict()
+            changed_primary_exists = (
+                storage_root / "records" / "imported-legacy-rabi-002" / "primary.csv"
+            ).exists()
+
+        self.assertEqual(retry_review.classification, "fresh_preflight_ready_for_retry")
+        self.assertTrue(retry_review.retry_allowed)
+        self.assertFalse(changed_primary_exists)
+        self.assertEqual(
+            retry_summary["retry_review_policy"]["prior_receipt_reuse"],
+            "not_allowed",
+        )
+        self.assertIn("reuse_prior_preflight", retry_summary["does_not_claim"])
+
+    def test_retry_after_rollback_requires_fresh_preflight(self) -> None:
+        import scopecat.handoff.storage_acceptance as storage_acceptance
+
+        real_write_new_file = storage_acceptance._write_new_file
+
+        def write_then_fail(root: Path, relative_path: str, content: bytes, *, label: str):
+            if relative_path.endswith("record-manifest.json"):
+                raise OSError("simulated manifest write failure")
+            return real_write_new_file(root, relative_path, content, label=label)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            storage_root.mkdir()
+
+            with mock.patch.object(
+                storage_acceptance,
+                "_write_new_file",
+                side_effect=write_then_fail,
+            ):
+                rolled_back_run = run_import_workflow(
+                    _import_workflow_source(),
+                    package_dir=package_dir,
+                    storage_root=storage_root,
+                )
+            previous_summary = summarize_import_workflow_receipt(rolled_back_run.to_dict())
+            fresh_preflight = run_acceptance_preflight(
+                _acceptance_preflight_source(),
+                package_dir=package_dir,
+                storage_root=storage_root,
+            )
+
+            retry_review = review_import_workflow_retry(
+                previous_summary,
+                fresh_preflight=fresh_preflight,
+            )
+            records_exist = (storage_root / "records").exists()
+
+        self.assertEqual(previous_summary.final_state, "rolled_back_after_write_failure")
+        self.assertEqual(retry_review.classification, "fresh_preflight_ready_for_retry")
+        self.assertTrue(retry_review.retry_allowed)
+        self.assertFalse(records_exist)
+
+    def test_retry_review_rejects_prior_receipt_as_fresh_preflight(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            storage_root.mkdir()
+
+            run = run_import_workflow(
+                _import_workflow_source(),
+                package_dir=package_dir,
+                storage_root=storage_root,
+            )
+            receipt = run.to_dict()
+            previous_summary = summarize_import_workflow_receipt(receipt)
+
+        with self.assertRaisesRegex(ValueError, "requires a fresh acceptance preflight"):
+            review_import_workflow_retry(previous_summary, fresh_preflight=receipt)
 
 
 if __name__ == "__main__":

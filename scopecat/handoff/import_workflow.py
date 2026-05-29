@@ -341,6 +341,81 @@ class HandoffImportWorkflowReceiptSummary:
         }
 
 
+@dataclass(frozen=True)
+class HandoffImportWorkflowRetryReview:
+    """Read-only review of a retry attempt against a fresh preflight."""
+
+    previous_summary: HandoffImportWorkflowReceiptSummary
+    preflight: HandoffAcceptancePreflightRun
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.previous_summary, HandoffImportWorkflowReceiptSummary):
+            raise ValueError("retry review requires typed import workflow receipt summary")
+        if not isinstance(self.preflight, HandoffAcceptancePreflightRun):
+            raise ValueError("retry review requires a fresh acceptance preflight")
+        if self.previous_summary.package_id != self.preflight.import_plan.package.package_id:
+            raise ValueError("retry review package id must match fresh preflight")
+        if (
+            self.previous_summary.measurement_ids
+            != self.preflight.import_plan.package.measurement_ids
+        ):
+            raise ValueError("retry review measurement ids must match fresh preflight")
+
+    @property
+    def retry_allowed(self) -> bool:
+        return self.classification == "fresh_preflight_ready_for_retry"
+
+    @property
+    def classification(self) -> str:
+        if self.previous_summary.final_state == "accepted_into_storage":
+            return "retry_not_applicable_after_acceptance"
+        if self.previous_summary.final_state == "rejected_after_review":
+            return "retry_not_applicable_after_rejection"
+        if self.previous_summary.final_state == "needs_operator_review":
+            return "retry_waiting_for_operator_review"
+        if self.preflight.classification == "ready_for_acceptance_mutation_request":
+            return "fresh_preflight_ready_for_retry"
+        return f"retry_blocked_by_{self.preflight.classification}"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "artifact_posture": "local_import_workflow_retry_review",
+            "retry_review_policy": {
+                "source": "local_import_workflow_receipt_summary",
+                "fresh_preflight": "required",
+                "storage_mutation": "not_performed",
+                "continuation_authority": "not_granted",
+                "prior_receipt_reuse": "not_allowed",
+            },
+            "classification": self.classification,
+            "retry_allowed": self.retry_allowed,
+            "package_id": self.previous_summary.package_id,
+            "measurement_ids": list(self.previous_summary.measurement_ids),
+            "previous": {
+                "final_state": self.previous_summary.final_state,
+                "next_action": self.previous_summary.next_action,
+                "operator_decision": self.previous_summary.operator_decision,
+                "operator_reason": self.previous_summary.operator_reason,
+            },
+            "fresh_preflight": {
+                "classification": self.preflight.classification,
+                "allowed": self.preflight.acceptance_preflight_allowed,
+                "destination_observation": [
+                    item.to_dict() for item in self.preflight.destination_observations
+                ],
+            },
+            "does_not_claim": [
+                "storage_mutation",
+                "storage_acceptance_approval",
+                "reuse_prior_preflight",
+                "reuse_prior_storage_acceptance",
+                "destination_freshness_proof",
+                "durable_review_state",
+                "public_import_api",
+            ],
+        }
+
+
 def run_import_workflow(
     source: dict[str, Any],
     *,
@@ -393,6 +468,19 @@ def run_import_workflow_from_preflight(
         request=request,
         preflight=preflight,
         storage_acceptance=storage_acceptance,
+    )
+
+
+def review_import_workflow_retry(
+    previous_summary: HandoffImportWorkflowReceiptSummary,
+    *,
+    fresh_preflight: HandoffAcceptancePreflightRun,
+) -> HandoffImportWorkflowRetryReview:
+    """Review a retry attempt using a fresh preflight without authorizing mutation."""
+
+    return HandoffImportWorkflowRetryReview(
+        previous_summary=previous_summary,
+        preflight=fresh_preflight,
     )
 
 

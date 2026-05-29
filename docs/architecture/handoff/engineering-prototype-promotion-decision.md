@@ -246,6 +246,12 @@ state, next action, and operator reason for operator continuation. It is
 read-only: it does not authorize retry, reuse prior preflight facts, reopen
 packages, recheck destinations, persist durable review state, or perform
 storage mutation.
+The route also includes `review_import_workflow_retry(...)` as a read-only
+continuation check over a prior local receipt summary and a caller-provided
+fresh acceptance preflight. It can report whether the fresh preflight is ready
+for a retry request, but it does not prove destination freshness by itself,
+authorize storage acceptance, reuse prior preflight or storage-acceptance
+receipts, persist durable review state, or perform mutation.
 
 It does not add final storage schema, conflict resolution, durable review-state
 persistence, existing-record update, stronger crash recovery, archive trust,
@@ -277,6 +283,7 @@ The promoted baseline includes:
 - local import workflow receipt over explicit approve/reject/needs-review
   operator decisions;
 - read-only local import workflow receipt summary for operator continuation;
+- read-only retry review requiring a fresh acceptance preflight;
 - representative regression coverage over basic and route-pressure fixtures.
 
 ## Explicit Non-Promotions
