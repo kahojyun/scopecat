@@ -21,6 +21,7 @@ from scopecat.environment_operation.uv_sync import (
     UvSyncResult,
     execute_uv_sync,
 )
+from scopecat.environment_operation.workflow import UvSyncOperationRun, run_uv_sync_operation
 
 __all__ = [
     "CommandRunResult",
@@ -34,8 +35,10 @@ __all__ = [
     "UvSyncExecutionRecord",
     "UvSyncFinding",
     "UvSyncIntent",
+    "UvSyncOperationRun",
     "UvSyncResult",
     "execute_uv_runtime_probe",
     "execute_uv_sync",
     "review_uv_sync_operation",
+    "run_uv_sync_operation",
 ]

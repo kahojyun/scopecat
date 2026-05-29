@@ -13,6 +13,7 @@ Keep durable statements in the narrowest owner:
 - evidence claims: [`evidence/evidence-register.md`](evidence/evidence-register.md)
 - evidence interpretation: [`evidence/method.md`](evidence/method.md)
 - discovery navigation: [`discovery/README.md`](discovery/README.md)
+- architecture notes: [`architecture/README.md`](architecture/README.md)
 - problem framing: [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md)
 - adoption routes: [`discovery/routes/adoption-routes.md`](discovery/routes/adoption-routes.md)
 - discovery slices: [`discovery/slices/README.md`](discovery/slices/README.md)
@@ -22,7 +23,10 @@ Keep durable statements in the narrowest owner:
 - research inputs: [`evidence/research/README.md`](evidence/research/README.md)
 
 Create validation, decision, architecture, or user docs only when there is a
-specific durable owner and content for them.
+specific durable owner and content for them. Architecture notes are for
+engineering-boundary ownership after discovery evidence starts turning into
+implementation work; they should link back to discovery evidence instead of
+copying it wholesale.
 
 ## Editing Rules
 

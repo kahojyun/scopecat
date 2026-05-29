@@ -7,7 +7,7 @@ Engineering prototype readiness note, not an ADR.
 Artifact posture: `internal_validation_summary`. This note is internal project
 memory. It creates no portable package output, public contract, public SDK, or
 new redaction rule. Use
-[`policies/artifact-boundary-and-redaction.md`](../../policies/artifact-boundary-and-redaction.md)
+[`discovery/policies/artifact-boundary-and-redaction.md`](../../discovery/policies/artifact-boundary-and-redaction.md)
 if any prototype output is promoted into a portable/export artifact.
 
 ## Readiness Judgment
@@ -28,6 +28,7 @@ validated uv sync intent summary
   -> route-local UvRuntimeProbeIntent
   -> approved local uv runtime probe execution
   -> route-local UvRuntimeProbeResult
+  -> route-local UvSyncOperationRun workflow summary
 ```
 
 `UvSyncResult.to_summary()` remains a one-way route-local review-snapshot
@@ -42,7 +43,7 @@ hardware readiness, or a shared environment-manager abstraction.
 
 | Criterion | Status | Assessment |
 | --- | --- | --- |
-| Route-local product-shaped API | Met | `UvSyncIntent.from_summary(...)`, `execute_uv_sync(..., uv_executable=...)` or `execute_uv_sync(..., runner=...)`, `UvSyncResult.from_execution(...)`, `UvSyncResult.to_summary(...)`, compatibility `UvSyncExecutionRecord.to_result_summary(...)`, and `review_uv_sync_operation(...)` exist under `scopecat.environment_operation`. |
+| Route-local product-shaped API | Met | `UvSyncIntent.from_summary(...)`, `execute_uv_sync(..., uv_executable=...)` or `execute_uv_sync(..., runner=...)`, `UvSyncResult.from_execution(...)`, `UvSyncResult.to_summary(...)`, compatibility `UvSyncExecutionRecord.to_result_summary(...)`, `review_uv_sync_operation(...)`, `UvRuntimeProbeIntent.from_sync_result(...)`, `execute_uv_runtime_probe(...)`, and the composed `run_uv_sync_operation(...)` workflow exist under `scopecat.environment_operation`. |
 | Actual external interaction boundary | Met | The prototype runs bounded `uv sync` commands through `SubprocessUvRunner` with caller-provided workspace root, relative cwd, explicit executable path, and timeout. |
 | Representative success and failure coverage | Met | Tests cover injected sync success/failure/timeout/launch-failure behavior, real tiny `uv` success and missing-lock failure fixtures, runtime-probe process failure/timeout/launch failure, invalid JSON, output-shape rejection, raw-output rejection, non-virtual-environment findings, and a real post-sync probe fixture. |
 | Review projection and non-claims | Met | Execution records promote to typed local results, which project local result summaries and feed operation reviews with bounded output, findings, alignment checks, and explicit no runtime-readiness/package-state/code-execution claims. |
@@ -72,6 +73,9 @@ These choices are strong enough to carry into PR review:
   `uv run --locked --no-sync python -c <stdlib probe>`;
 - interpreter fact capture for Python version, implementation, executable,
   prefix, base prefix, and virtual-environment status.
+- route-local `run_uv_sync_operation(...)` composition that executes approved
+  sync, reviews the typed result, conditionally probes only successful
+  review-clean sync results, and records skipped probe state explicitly.
 
 ## Keep Deferred
 
