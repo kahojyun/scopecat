@@ -2,7 +2,13 @@
 
 ## Status
 
-Engineering prototype plan, not accepted architecture.
+Frozen engineering prototype plan, not accepted architecture.
+
+This document is a historical plan snapshot. Do not update it to mirror every
+new promoted API. Current accepted implementation boundaries live in
+[`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md);
+current exported API details live in
+[`../../../scopecat/handoff/README.md`](../../../scopecat/handoff/README.md).
 
 Artifact posture: `internal_validation_summary`. This plan is internal project
 memory. It creates no portable package output, public contract, or new
@@ -127,83 +133,17 @@ when their semantics already match the handoff route. New shared helpers should
 remain route-local unless at least two concrete implementation consumers need
 the same behavior, failure semantics, and tests.
 
-## Initial Implementation Status
+## Outcome
 
-The first engineering-prototype pass now exists under `scopecat/handoff/`.
-It provides:
+The plan answered the intended engineering question: a route-local
+`scopecat/handoff/` boundary can carry the handoff package reader/review
+workflow without promoting a shared measurement-record domain model, final
+package/archive format, final storage schema, GUI architecture, dataframe
+dependency, or production plotting stack.
 
-- `open_package(package_dir)` as the Python entrypoint;
-- `observe_package_integrity(package_dir)` as the read-only receiving/import
-  prerequisite for comparing package-local bytes with paired manifest-declared
-  digest and size facts;
-- `run_receiving_gate(source, package_dir=...)` as the read-only approved
-  review gate before any receiving-side mutation;
-- `write_package(source, source_root=..., package_root=...)` as the
-  source-root package writer entrypoint for declared normalized primary data;
-- `run_package_workflow(source, source_root=..., package_root=...)` as the
-  local writer -> reader -> optional inspection composition entrypoint;
-- route-local `HandoffPackage`, `HandoffMeasurement`, `HandoffTable`, and
-  `HandoffFinding`, `HandoffLinkedContext`, and `HandoffPlotSeries`
-  projections;
-- route-local `HandoffPackageWriteReceipt` projection for local write review;
-- route-local `HandoffPackageWorkflowRun` projection for local workflow review;
-- a stdlib CLI via `python -m scopecat.handoff <package-dir>` for JSON
-  orientation and `--html-dir <dir>` for a local static inspection artifact;
-- `build_inspection_html()` and `write_inspection_artifact()` for local
-  review output generated from the route-local package projection;
-- route-local read-only opener behavior for package manifest loading,
-  package-local primary CSV reads, symlink guardrails, declared preview-table
-  projection, and declared plot-series construction;
-- route-local handoff contract and manifest-preview helpers for package
-  identity, package-relative primary-data topology, preview-ready metadata,
-  linked-context references, package classification, and review findings;
-- route-local integrity observation for declared package members, including
-  missing-member, symlink, non-regular-file, mismatch, verified, and
-  undeclared-integrity states;
-- route-local receiving gate behavior for approved review, reviewed package
-  id, reviewed preview classification, and reviewed integrity classification
-  continuity;
-- typed manifest-preview fragments for identity, primary data, declared
-  preview metadata, selected measurements, and linked-context references, so
-  raw manifest dictionaries stay at the JSON validation/parsing boundary
-  instead of flowing through classification, review-finding construction, or
-  opener internals;
-- product-shaped package state rather than candidate-shaped summary wrapping:
-  manifest-preview findings, linked-context references, declared digest/size
-  facts, primary/preview tables, and plot series are exposed as route-local
-  objects, with `as_open_summary()` kept only as a copy-safe prototype
-  snapshot;
-- regression coverage over the basic opener fixture and richer route-pressure
-  fixtures, including multi-plot, table-only, shared-context, and degraded
-  preview cases;
-- a local `scopecat/ruff.toml` that applies stricter lint only to the
-  prototype/product-shaped package.
-
-The prototype no longer delegates read-only opening, manifest-preview
-classification, package writing, or handoff contract checks to
-`implementation_candidates`.
-Those discovery candidates remain historical validation evidence. The local
-inspection artifact is prototype-local review output; it is not a portable
-package member, public report, final GUI component model, dataframe adapter,
-package import record, or package-integrity verification.
-
-The writer uses `source_root` terminology at the promoted API boundary. That
-keeps the current workflow testable without accepting final Scopecat storage
-architecture or archive format.
-Writer request dictionaries are boundary input only: the promoted writer
-validates and parses them into route-local write-source objects before
-preflight, manifest generation, package writes, or receipt serialization.
-The workflow composition is deliberately orchestration-only: it proves the
-accepted package subset can be written, reopened, and optionally inspected
-without promoting archive creation, package import/acceptance, integrity
-verification, or final storage layout.
-Integrity observation is also read-only. It can gate a later receiving/import
-acceptance decision, but it does not make authenticity, signature, archive, or
-storage claims.
-The receiving gate is also read-only and intentionally has no destination,
-storage-root, or selected-measurement materialization fields. It only decides
-whether the reviewed package facts are ready for a separately scoped
-acceptance mutation.
+This section intentionally does not list every promoted API. Maintain the
+current accepted boundary in the promotion decision and the current exported
+surface in the module README.
 
 Promotion follow-up decisions resolved by
 [`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md):

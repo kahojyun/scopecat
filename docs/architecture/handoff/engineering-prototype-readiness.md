@@ -2,7 +2,12 @@
 
 ## Status
 
-Engineering prototype readiness note, not an ADR.
+Frozen engineering prototype readiness checkpoint, not an ADR.
+
+This document records the stop/readiness assessment that justified ending the
+prototype line. Do not update it to mirror routine API additions. Current
+accepted implementation boundaries live in
+[`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md).
 
 Artifact posture: `internal_validation_summary`. This note is internal project
 memory. It creates no portable package output, public contract, public SDK, or
@@ -15,8 +20,8 @@ if any prototype output is promoted into a portable/export artifact.
 The handoff package engineering prototype is ready to stop broad prototype
 expansion and move into a decision-gated implementation phase.
 
-The accepted route-local boundary now covers the first directory-package
-workflow:
+At this checkpoint, the accepted route-local boundary covered the first
+directory-package workflow:
 
 ```text
 caller-provided source root
@@ -125,10 +130,16 @@ until one of those decision paths is explicit.
 
 ## Recommendation
 
-The handoff writer/reader/inspection/workflow vertical is promoted as the
-current accepted local boundary. Future handoff work should be triggered by a
-named acceptance/import or storage-requirements decision, not by restating the
-same route-level conclusions.
+The handoff writer/reader/inspection/workflow vertical was promoted as the
+accepted local boundary at this checkpoint. Future handoff work should be
+triggered by a named acceptance/import or storage-requirements decision, not by
+restating the same route-level conclusions.
 
 The promotion decision is recorded in
 [`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md).
+
+## Freeze Rule
+
+This readiness note is complete. If a later handoff phase needs its own
+readiness assessment, create a new phase-specific readiness note rather than
+editing this checkpoint.

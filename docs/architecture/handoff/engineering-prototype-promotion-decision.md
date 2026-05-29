@@ -4,6 +4,11 @@
 
 Engineering promotion decision, not an ADR.
 
+This is the canonical handoff implementation-boundary note. Update this file
+when an accepted boundary or next decision gate changes. Keep live API syntax
+in [`../../../scopecat/handoff/README.md`](../../../scopecat/handoff/README.md)
+and leave the prototype plan/readiness notes as frozen snapshots.
+
 Artifact posture: `internal_validation_summary`. This note is internal project
 memory. It creates no portable package output, public contract, public SDK, or
 new redaction rule. Use

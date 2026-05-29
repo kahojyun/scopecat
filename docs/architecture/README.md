@@ -12,8 +12,8 @@ user documentation and does not replace discovery validation evidence.
 
 | Document | Use For |
 | --- | --- |
-| [`environment-operation/engineering-prototype-plan.md`](environment-operation/engineering-prototype-plan.md) | Implemented route-local `uv sync` execution, review, runtime-probe, and workflow composition plan. |
-| [`environment-operation/engineering-prototype-readiness.md`](environment-operation/engineering-prototype-readiness.md) | Current readiness judgment and keep/defer boundaries for the environment-operation engineering vertical. |
-| [`handoff/engineering-prototype-plan.md`](handoff/engineering-prototype-plan.md) | Implemented handoff package reader, integrity observation, receiving gate, inspection, source-root writer, workflow composition, scope, fixture policy, and deferred boundaries. |
-| [`handoff/engineering-prototype-readiness.md`](handoff/engineering-prototype-readiness.md) | Readiness judgment and keep/defer boundaries for the handoff writer/reader/integrity/receiving-gate/inspection/workflow vertical. |
-| [`handoff/engineering-prototype-promotion-decision.md`](handoff/engineering-prototype-promotion-decision.md) | Promotion decision for the accepted handoff reader, source-root writer, and workflow composition boundary. |
+| [`environment-operation/engineering-prototype-plan.md`](environment-operation/engineering-prototype-plan.md) | Frozen historical environment-operation prototype plan: objective, scope, non-claims, and stop conditions. |
+| [`environment-operation/engineering-prototype-readiness.md`](environment-operation/engineering-prototype-readiness.md) | Current environment-operation implementation-boundary checkpoint and next decision gate. |
+| [`handoff/engineering-prototype-plan.md`](handoff/engineering-prototype-plan.md) | Frozen historical handoff prototype plan: objective, scope, fixture policy, stop conditions, and promotion criteria. |
+| [`handoff/engineering-prototype-readiness.md`](handoff/engineering-prototype-readiness.md) | Frozen readiness checkpoint that ended the broad handoff prototype line. |
+| [`handoff/engineering-prototype-promotion-decision.md`](handoff/engineering-prototype-promotion-decision.md) | Canonical accepted handoff implementation boundary and next decision gate. |

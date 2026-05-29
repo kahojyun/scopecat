@@ -13,22 +13,16 @@ model, portable/export package projection, or GUI contract.
 Engineering-phase notes have been promoted under
 [`architecture/README.md`](../../../architecture/README.md). Keep validation
 evidence and route discovery synthesis here; keep current
-implementation-boundary guidance in the architecture notes.
+implementation-boundary guidance in the architecture notes. This route note is
+not a live API inventory.
 
-The first engineering prototype milestone is recorded in
+The engineering prototype line is recorded in
 [`engineering-prototype-plan.md`](../../../architecture/environment-operation/engineering-prototype-plan.md)
 and assessed in
 [`engineering-prototype-readiness.md`](../../../architecture/environment-operation/engineering-prototype-readiness.md).
-That prototype intentionally crosses only one new boundary: running an already
-approved, bounded `uv sync` command through a local subprocess runner. It still
-does not accept runtime readiness, package-state verification, code execution,
-hardware readiness, or shared manager abstractions.
-
-The post-sync runtime probe prototype adds a second external interaction:
-running `uv run --locked --no-sync python -c ...` to record bounded interpreter
-facts after a successful sync result. It does not repair or resync the
-environment, verify package state, import experiment code, or decide run
-readiness.
+The plan is a frozen milestone snapshot; the readiness note currently owns the
+accepted implementation boundary and next decision gate until a separate
+promotion or next-stage decision exists.
 
 ## Route Shape
 
@@ -199,14 +193,11 @@ contract:
 
 ## Recommended Next Work
 
-The current route is ready to pause broad slice expansion. The active
-engineering route is the `uv sync` execution/review prototype plus bounded
-post-sync runtime probe described in
-[`engineering-prototype-plan.md`](../../../architecture/environment-operation/engineering-prototype-plan.md)
-and assessed in
+The current route is ready to pause broad slice expansion. The implementation
+boundary and next decision gate are assessed in
 [`engineering-prototype-readiness.md`](../../../architecture/environment-operation/engineering-prototype-readiness.md).
-After that prototype line, the next work should depend on the product question being
-answered:
+After that checkpoint, the next work should depend on the product question
+being answered:
 
 1. **If execution review is the priority**, add optional manifest preflight or
    prepared-context references to the route-local operation review.

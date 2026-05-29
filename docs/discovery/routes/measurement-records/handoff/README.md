@@ -54,47 +54,27 @@ one of them to portable output.
 ## Accepted Local Baseline
 
 The handoff engineering prototype has been promoted as the accepted local
-implementation baseline for the first writer/reader/review vertical. It tested
-route-local module boundaries, regression fixtures, source-root package
-writing, read-only opening, read-only integrity observation, approved
-read-only receiving gate, local inspection, and workflow composition without
-changing the accepted-for-now route decisions in [`decision.md`](decision.md).
-
-The accepted local API is intentionally product-shaped rather than a direct
-wrapper around discovery candidate summaries: it exposes route-local package,
-measurement, table, plot, finding, and linked-context objects while keeping
-candidate outputs as historical validation evidence.
-
-The promoted writer extension uses a caller-provided `source_root` plus
-declared relative source paths for normalized primary data. That keeps package
-writing testable without accepting final Scopecat storage architecture.
-The older discovery writer candidate and fixtures may still use storage-root
-wording because they are historical validation evidence, not the promoted
-engineering contract.
-The promoted workflow composition only chains writer, reader, and optional
-local inspection; it does not promote archive format or package
-import/acceptance.
-The promoted integrity observation step can gate a future receiving/import
-workflow, but it remains read-only and does not verify authenticity,
-signatures, or storage acceptance.
-The promoted receiving gate validates explicit approval and reviewed fact
-continuity without accepting destination or storage-mutation fields.
+implementation baseline without changing the accepted-for-now route decisions
+in [`decision.md`](decision.md). This discovery note does not track the live
+API inventory. Current accepted implementation boundaries live in the
+architecture promotion decision, and current exported API details live in the
+module README.
 
 Use
 [`engineering-prototype-plan.md`](../../../../architecture/handoff/engineering-prototype-plan.md)
-for the
-prototype objective, scope, fixture policy, stop conditions, and promotion
-criteria.
+for the frozen historical prototype objective, scope, fixture policy, stop
+conditions, and promotion criteria.
 
 Use
 [`engineering-prototype-readiness.md`](../../../../architecture/handoff/engineering-prototype-readiness.md)
-for
-the current stop-criteria check and next decision gate.
+for the frozen stop-criteria checkpoint that ended the prototype line.
 
 Use
 [`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md)
-for the decision that promotes the handoff writer/reader/review vertical as the
-accepted implementation baseline and stops the current broad prototype line.
+for the canonical accepted implementation boundary and next decision gate.
+
+Use [`../../../../../scopecat/handoff/README.md`](../../../../../scopecat/handoff/README.md)
+for the current route-local Python API surface.
 
 ## Artifact Boundary
 

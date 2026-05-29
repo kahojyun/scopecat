@@ -2,9 +2,17 @@
 
 ## Status
 
-Prototype milestone implemented, not an ADR.
+Frozen engineering prototype plan, not an ADR.
 
-This plan starts the engineering prototype for the environment-operation route.
+This document records the prototype objective, scope, non-claims, and stop
+conditions that launched the environment-operation engineering vertical. Do
+not update it to mirror routine API additions. Current implementation-boundary
+guidance lives in
+[`engineering-prototype-readiness.md`](engineering-prototype-readiness.md);
+the current route-local Python surface lives in
+[`../../../scopecat/environment_operation/README.md`](../../../scopecat/environment_operation/README.md).
+
+This plan started the engineering prototype for the environment-operation route.
 It follows the validated route posture:
 
 ```text
@@ -24,45 +32,18 @@ The third prototype milestone adds a post-sync interpreter fact probe using
 facts after a successful sync result without repairing the environment,
 verifying package state, importing experiment code, or deciding run readiness.
 
-## Implemented Scope
+## Outcome
 
-Status: implemented in `scopecat.environment_operation` with injected-runner
-tests, a real tiny `uv` success fixture, and a real locked-mode failure
-fixture. Execution records promote to typed route-local `UvSyncResult` objects,
-which can project local result summaries for downstream review snapshots.
-Post-sync runtime probe records promote to typed route-local
-`UvRuntimeProbeResult` objects, which can project local result summaries for
-downstream review snapshots.
+The prototype line produced route-local `uv sync` execution, typed local
+result/review projection, bounded post-sync runtime probing, and one composed
+workflow entrypoint under `scopecat.environment_operation`.
 
-The prototype should support:
-
-- route-local `UvSyncIntent` objects built from validated intent summaries;
-- validation that the command is exactly the bounded `uv sync --locked
-  --no-default-groups [--group name ...]` shape;
-- caller-provided workspace root plus declared relative working directory;
-- local subprocess execution with explicit executable path and timeout;
-- bounded stdout/stderr summaries with raw output not recorded;
-- completed-success, completed-failed, timed-out, and launch-failed execution
-  states;
-- review findings for failure, timeout, and launch failure;
-- route-local `UvSyncResult` objects that carry intent references, bounded
-  command results, findings, and explicit policy non-claims;
-- one-way route-local result-summary projection from `UvSyncResult` for review
-  snapshots and edge inspection;
-- route-local operation reviews that align one selected intent with one
-  selected typed execution result and surface result or alignment findings;
-- route-local `UvRuntimeProbeIntent` objects built from successful aligned
-  `UvSyncResult` objects;
-- validation that the runtime probe command is exactly the bounded
-  `uv run --locked --no-sync python -c <stdlib probe>` shape;
-- local subprocess execution of the runtime probe with explicit executable path
-  and timeout;
-- small interpreter facts for Python version, implementation, executable,
-  prefix, base prefix, and virtual-environment status;
-- review findings when the probe fails, times out, cannot launch, emits invalid
-  JSON, or reports a non-virtual-environment Python;
-- explicit non-claims for runtime readiness, dependency-state verification,
-  code import/execution, hardware readiness, and run-start permission.
+The accepted shape keeps the same boundary that this plan requested:
+Scopecat may execute an already-approved bounded `uv sync`, optionally run a
+bounded interpreter-fact probe after a successful aligned sync result, and
+record local review summaries. It still does not claim runtime readiness,
+dependency-state verification, experiment-code import/execution, hardware
+readiness, or run-start permission.
 
 ## Still Out Of Scope
 
@@ -101,3 +82,9 @@ The next milestone should be chosen only after this boundary is reviewed. Likely
 follow-ups are operation review with optional manifest/prepared-context
 references, package-state pressure, selected experiment-code import pressure,
 or Pixi-specific pressure before extracting any shared manager abstraction.
+
+## Freeze Rule
+
+This plan is complete. If a later environment-operation phase needs its own
+scope, fixture policy, or stop criteria, create a phase-specific plan rather
+than expanding this snapshot.
