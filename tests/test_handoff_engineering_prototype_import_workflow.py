@@ -7,7 +7,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from scopecat.handoff import run_import_workflow, summarize_import_workflow_receipt
+from scopecat.handoff import (
+    approve_import,
+    mark_import_needs_review,
+    reject_import,
+    run_import_workflow,
+    summarize_import_workflow_receipt,
+)
 from scopecat.handoff.acceptance_preflight import HandoffAcceptanceDestination
 from scopecat.handoff.import_workflow import (
     HandoffApprovedImportDecision,
@@ -387,7 +393,7 @@ class HandoffEngineeringPrototypeImportWorkflowTest(unittest.TestCase):
         request = HandoffImportWorkflowRequest(
             request_id="workflow-handoff-package-legacy-rabi-001",
             requested_package_id="handoff-package-legacy-rabi-001",
-            decision=HandoffApprovedImportDecision(_typed_storage_acceptance_request()),
+            decision=approve_import(_typed_storage_acceptance_request()),
         )
         summary = request.to_dict()
 
@@ -404,9 +410,7 @@ class HandoffEngineeringPrototypeImportWorkflowTest(unittest.TestCase):
         rejected_request = HandoffImportWorkflowRequest(
             request_id="workflow-handoff-package-legacy-rabi-rejected",
             requested_package_id="handoff-package-legacy-rabi-001",
-            decision=HandoffRejectedImportDecision(
-                "Package contents do not match the expected run."
-            ),
+            decision=reject_import("Package contents do not match the expected run."),
         )
 
         self.assertFalse(rejected_request.mutation_approved)
@@ -419,11 +423,24 @@ class HandoffEngineeringPrototypeImportWorkflowTest(unittest.TestCase):
         needs_review_request = HandoffImportWorkflowRequest(
             request_id="workflow-handoff-package-legacy-rabi-review",
             requested_package_id="handoff-package-legacy-rabi-001",
-            decision=HandoffNeedsReviewImportDecision(
-                "Ask the sender to confirm the linked context."
-            ),
+            decision=mark_import_needs_review("Ask the sender to confirm the linked context."),
         )
         self.assertEqual(needs_review_request.operator_decision, "needs_review")
+
+    def test_decision_helpers_match_typed_decision_objects(self) -> None:
+        storage_request = _typed_storage_acceptance_request()
+
+        self.assertEqual(
+            approve_import(storage_request), HandoffApprovedImportDecision(storage_request)
+        )
+        self.assertEqual(
+            reject_import("Package contents do not match the expected run."),
+            HandoffRejectedImportDecision("Package contents do not match the expected run."),
+        )
+        self.assertEqual(
+            mark_import_needs_review("Ask the sender to confirm the linked context."),
+            HandoffNeedsReviewImportDecision("Ask the sender to confirm the linked context."),
+        )
 
     def test_rejects_storage_acceptance_request_without_approval_decision(self) -> None:
         with self.assertRaisesRegex(ValueError, "allowed only for approved"):

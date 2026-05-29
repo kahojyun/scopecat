@@ -236,7 +236,10 @@ The typed request path represents those mutually exclusive choices with
 `HandoffNeedsReviewImportDecision` instead of a string plus unrelated optional
 fields. The raw dictionary adapter keeps the serialized
 `operator_decision`/`operator_reason` shape at the public edge and still
-validates untrusted input.
+validates untrusted input. The route also exposes small decision-helper
+functions, `approve_import(...)`, `reject_import(...)`, and
+`mark_import_needs_review(...)`, as ergonomic shorthand over those typed
+decision objects; they do not change workflow or receipt serialization.
 The companion `summarize_import_workflow_receipt(...)` helper validates a
 local workflow receipt and extracts the package id, measurement ids, final
 state, next action, and operator reason for operator continuation. It is

@@ -62,7 +62,9 @@ Typed callers should construct `HandoffApprovedImportDecision`,
 `HandoffRejectedImportDecision`, or `HandoffNeedsReviewImportDecision` and pass
 one of those to `HandoffImportWorkflowRequest`; the raw dictionary adapter
 keeps the serialized `operator_decision`/`operator_reason` shape only at the
-public edge.
+public edge. The helper functions `approve_import(...)`, `reject_import(...)`,
+and `mark_import_needs_review(...)` are the preferred shorthand for building
+those typed decisions.
 `summarize_import_workflow_receipt(...)` reads that local receipt back into a
 small operator continuation summary with package id, measurement ids, final
 state, next action, and operator reason. It is read-only and does not
@@ -96,6 +98,7 @@ Current user-facing prototype surface:
 - `run_acceptance_preflight(source, package_dir=..., storage_root=...)`;
 - `run_storage_acceptance(source, package_dir=..., storage_root=...)`;
 - `run_import_workflow(source, package_dir=..., storage_root=...)`;
+- `approve_import(...)`, `reject_import(...)`, and `mark_import_needs_review(...)`;
 - `summarize_import_workflow_receipt(receipt)`;
 - `write_package(source, source_root=..., package_root=...)`;
 - `run_package_workflow(source, source_root=..., package_root=...)`;

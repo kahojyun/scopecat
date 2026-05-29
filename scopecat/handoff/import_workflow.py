@@ -119,6 +119,26 @@ HandoffImportWorkflowDecision: TypeAlias = (
 )
 
 
+def approve_import(
+    storage_acceptance_request: HandoffStorageAcceptanceRequest,
+) -> HandoffApprovedImportDecision:
+    """Build the typed approval decision for candidate storage acceptance."""
+
+    return HandoffApprovedImportDecision(storage_acceptance_request)
+
+
+def reject_import(reason: str) -> HandoffRejectedImportDecision:
+    """Build the typed rejection decision with local operator context."""
+
+    return HandoffRejectedImportDecision(reason)
+
+
+def mark_import_needs_review(reason: str) -> HandoffNeedsReviewImportDecision:
+    """Build the typed needs-review decision with local operator context."""
+
+    return HandoffNeedsReviewImportDecision(reason)
+
+
 @dataclass(frozen=True)
 class HandoffImportWorkflowRequest:
     """Operator decision for the local receiving/import workflow."""
