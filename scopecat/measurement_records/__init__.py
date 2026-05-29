@@ -6,6 +6,12 @@ from scopecat.measurement_records.creation import (
     create_measurement_record,
     create_measurement_record_from_request,
 )
+from scopecat.measurement_records.finalization import (
+    MeasurementRecordFinalizationRequest,
+    MeasurementRecordFinalizationRun,
+    finalize_measurement_record,
+    finalize_measurement_record_from_read_view,
+)
 from scopecat.measurement_records.read_view import (
     MeasurementRecordReadRequest,
     MeasurementRecordReadRun,
@@ -23,6 +29,8 @@ from scopecat.measurement_records.writer_integration import (
 __all__ = [
     "MeasurementRecordCreationRequest",
     "MeasurementRecordCreationRun",
+    "MeasurementRecordFinalizationRequest",
+    "MeasurementRecordFinalizationRun",
     "MeasurementRecordReadRequest",
     "MeasurementRecordReadRun",
     "MeasurementRecordWriterChunk",
@@ -30,6 +38,8 @@ __all__ = [
     "MeasurementRecordWriterRun",
     "create_measurement_record",
     "create_measurement_record_from_request",
+    "finalize_measurement_record",
+    "finalize_measurement_record_from_read_view",
     "read_created_record_primary_table",
     "read_created_record_primary_table_from_request",
     "write_created_record_primary_data",

@@ -272,3 +272,23 @@ This decision does not accept:
 After this slice, choose a separate decision for manifest replacement/read
 model refresh if consumers need final lifecycle state without consulting the
 finalization receipt.
+
+## Finalization Implementation Checkpoint
+
+The first receipt-based finalization slice is implemented in
+[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+It exposes a raw-dictionary entrypoint, `finalize_measurement_record(...)`,
+and a typed request entrypoint,
+`finalize_measurement_record_from_read_view(...)`.
+
+This slice consumes a ready read view, validates continuity with the creation
+manifest and writer receipt, and writes exactly one record-local
+`finalization-receipt.json` under no-overwrite behavior. `complete`
+finalization requires a ready read view with no findings. `failed`
+finalization requires an explicit single-line operator reason and remains an
+approved review decision, not an automatic consequence of writer or read
+errors.
+
+It deliberately leaves `record-manifest.json` unchanged and does not refresh a
+read model, define canonical lifecycle-state storage, implement crash
+recovery, or accept import finalization semantics.
