@@ -19,6 +19,10 @@ validation inputs, not runtime dependencies for this route.
 Raw manifest dictionaries are validated at the package boundary. After that,
 manifest preview classification, review findings, opener internals, and
 package projections consume typed route-local manifest fragments.
+`observe_package_integrity(...)` is a read-only receiving/import prerequisite:
+it compares package-local regular files with paired manifest-declared
+digest/size facts where available. It does not verify signatures,
+authenticity, trust, archive contents, import acceptance, or storage mutation.
 
 The route-local writer uses a caller-provided `source_root` plus declared
 relative source paths for already-normalized primary data. That source-root
@@ -41,6 +45,7 @@ final storage layout.
 Current user-facing prototype surface:
 
 - `open_package(package_dir)`;
+- `observe_package_integrity(package_dir)`;
 - `write_package(source, source_root=..., package_root=...)`;
 - `run_package_workflow(source, source_root=..., package_root=...)`;
 - `python -m scopecat.handoff <package-dir>`;

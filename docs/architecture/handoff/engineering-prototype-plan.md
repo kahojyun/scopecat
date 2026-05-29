@@ -133,6 +133,9 @@ The first engineering-prototype pass now exists under `scopecat/handoff/`.
 It provides:
 
 - `open_package(package_dir)` as the Python entrypoint;
+- `observe_package_integrity(package_dir)` as the read-only receiving/import
+  prerequisite for comparing package-local bytes with paired manifest-declared
+  digest and size facts;
 - `write_package(source, source_root=..., package_root=...)` as the
   source-root package writer entrypoint for declared normalized primary data;
 - `run_package_workflow(source, source_root=..., package_root=...)` as the
@@ -152,6 +155,9 @@ It provides:
 - route-local handoff contract and manifest-preview helpers for package
   identity, package-relative primary-data topology, preview-ready metadata,
   linked-context references, package classification, and review findings;
+- route-local integrity observation for declared package members, including
+  missing-member, symlink, non-regular-file, mismatch, verified, and
+  undeclared-integrity states;
 - typed manifest-preview fragments for identity, primary data, declared
   preview metadata, selected measurements, and linked-context references, so
   raw manifest dictionaries stay at the JSON validation/parsing boundary
@@ -186,6 +192,9 @@ The workflow composition is deliberately orchestration-only: it proves the
 accepted package subset can be written, reopened, and optionally inspected
 without promoting archive creation, package import/acceptance, integrity
 verification, or final storage layout.
+Integrity observation is also read-only. It can gate a later receiving/import
+acceptance decision, but it does not make authenticity, signature, archive, or
+storage claims.
 
 Promotion follow-up decisions resolved by
 [`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md):

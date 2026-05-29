@@ -74,10 +74,25 @@ ergonomics while continuing to defer archive format, package import or
 acceptance, final storage schema, signatures/authenticity, and package
 integrity verification.
 
+## Read-Only Integrity Gate
+
+The route-local implementation now includes
+`observe_package_integrity(package_dir)` as the first receiving/import
+prerequisite. It reuses the promoted manifest validation boundary, collects
+manifest-declared package members, and compares package-local regular files to
+paired digest and size facts where present.
+
+This observation can produce `declared_integrity_verified`,
+`integrity_review_required`, or `integrity_observed_with_undeclared_members`.
+It is intentionally read-only and does not verify signatures, authenticity,
+transport provenance, archive contents, import acceptance, or storage
+mutation.
+
 ## Next Decision Gate
 
-Do not continue by expanding handoff surface area in place. The next
-engineering phase should choose one explicit path:
+Do not continue by expanding handoff surface area in place. After the
+read-only integrity gate, the next engineering phase should choose one
+explicit path:
 
 - package receiving/import acceptance: define acceptance, rejection, conflict,
   review, and rollback boundaries for an inbound package before writing into

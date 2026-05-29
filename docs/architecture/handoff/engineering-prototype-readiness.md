@@ -23,6 +23,7 @@ caller-provided source root
   -> source-root package writer
   -> directory-shaped package subset
   -> manifest validation and preview classification
+  -> read-only integrity observation
   -> read-only package open
   -> package, measurement, table, declared plot, linked-context, and finding access
   -> optional local static HTML inspection
@@ -31,15 +32,15 @@ caller-provided source root
 
 This does not promote final SDK names, package archive format, storage import,
 package acceptance, GUI architecture, dataframe dependency, plotting
-dependency, package-integrity verification, linked-context payload traversal,
-or a shared measurement-record domain model.
+dependency, signature/authenticity verification, linked-context payload
+traversal, or a shared measurement-record domain model.
 
 ## Stop Criteria Check
 
 | Criterion | Status | Assessment |
 | --- | --- | --- |
-| Usable local Python or CLI entrypoint | Met | `open_package(package_dir)`, `write_package(...)`, `run_package_workflow(...)`, and `python -m scopecat.handoff <package-dir>` exist. |
-| Representative regression coverage | Met | Tests cover source-root writing, writer-to-reader round trip, local workflow composition, basic opener, richer route-pressure package, multi-plot, table-only, shared context, degraded preview, CLI, HTML artifact, symlink guardrails, and typed manifest/write boundaries. |
+| Usable local Python or CLI entrypoint | Met | `open_package(package_dir)`, `observe_package_integrity(package_dir)`, `write_package(...)`, `run_package_workflow(...)`, and `python -m scopecat.handoff <package-dir>` exist. |
+| Representative regression coverage | Met | Tests cover source-root writing, writer-to-reader round trip, local workflow composition, read-only integrity observation, basic opener, richer route-pressure package, multi-plot, table-only, shared context, degraded preview, CLI, HTML artifact, symlink guardrails, and typed manifest/write boundaries. |
 | Documented contracts and non-claims | Met | The route plan, consolidation, decision note, and prototype README define directory-package subset scope, source-root writer scope, local workflow posture, artifact posture, dependency deferrals, and non-claims. |
 | Green repository verification | Met | Current milestone verification uses `uv run python -m unittest discover -s tests` and `uv run prek run --all-files`. |
 | Written promotion decision path | Met by this note | The next step is a separate acceptance/import or storage-requirements decision, not additional broad handoff expansion. |
@@ -52,6 +53,8 @@ These choices are strong enough to carry into the promotion pass:
 - source-root package writer API that does not imply final Scopecat storage
   architecture;
 - local writer -> reader -> optional inspection workflow composition;
+- read-only package integrity observation over manifest-declared package
+  members;
 - raw JSON/dict validation at the package manifest boundary;
 - raw write-request validation and parsing at the writer boundary;
 - typed route-local manifest fragments after validation;

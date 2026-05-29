@@ -5,6 +5,12 @@ from scopecat.handoff.inspect import (
     build_inspection_html,
     write_inspection_artifact,
 )
+from scopecat.handoff.integrity import (
+    HandoffIntegrityMemberObservation,
+    HandoffIntegrityOwnerRef,
+    HandoffPackageIntegrityReport,
+    observe_package_integrity,
+)
 from scopecat.handoff.package import (
     HandoffFinding,
     HandoffLinkedContext,
@@ -19,14 +25,18 @@ from scopecat.handoff.writer import HandoffPackageWriteReceipt, write_package
 __all__ = [
     "HANDOFF_INSPECTION_ARTIFACT_NAME",
     "HandoffFinding",
+    "HandoffIntegrityMemberObservation",
+    "HandoffIntegrityOwnerRef",
     "HandoffLinkedContext",
     "HandoffMeasurement",
     "HandoffPackage",
+    "HandoffPackageIntegrityReport",
     "HandoffPackageWorkflowRun",
     "HandoffPackageWriteReceipt",
     "HandoffPlotSeries",
     "HandoffTable",
     "build_inspection_html",
+    "observe_package_integrity",
     "open_package",
     "run_package_workflow",
     "write_inspection_artifact",
