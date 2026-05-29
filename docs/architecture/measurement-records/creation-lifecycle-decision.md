@@ -169,3 +169,24 @@ symlink-parent rejection, initial manifest writing, local receipt projection,
 and best-effort rollback when manifest writing fails. It keeps `record_id`
 caller-declared and public-safe; it does not generate UUIDs, allocate
 namespace ids, or parse record ids for meaning.
+
+## Writer Integration Checkpoint
+
+The first writer-integration slice is also implemented in
+[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+It exposes a raw-dictionary entrypoint,
+`write_created_record_primary_data(...)`, and a typed request entrypoint,
+`write_created_record_primary_data_from_request(...)`.
+
+This slice consumes an existing creation manifest, verifies record id, record
+directory, manifest path, lifecycle state, and `primary_data: not_recorded`
+continuity, preflights declared chunk digest and size facts, then writes
+primary data plus a record-local writer receipt under no-overwrite behavior.
+It proves unapproved no-mutation, target collision blocking, malformed path
+rejection, digest mismatch rejection before mutation, and rollback when the
+writer receipt fails after primary data is written.
+
+It deliberately does not replace the creation manifest, refresh a read model,
+mark a record `complete` or `failed`, merge existing primary data, import
+packages, define conflict resolution beyond no-overwrite, or promote final
+storage schema.
