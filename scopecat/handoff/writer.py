@@ -58,6 +58,85 @@ _PACKAGE_PREVIEW_POLICY = {
     "shared_measurement_schema": "not_defined",
 }
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+_SOURCE_KEYS = {
+    "package_write_policy",
+    "package_write_request",
+    "package_identity",
+    "selected_measurements",
+    "linked_context",
+}
+_PACKAGE_WRITE_REQUEST_KEYS = {
+    "request_id",
+    "approval_state",
+    "package_dir",
+    "manifest_path",
+    "collision_policy",
+}
+_PACKAGE_IDENTITY_KEYS = {
+    "package_id",
+    "display_name",
+    "created_by",
+    "source_export_summary_id",
+    "display_path",
+    "local_path_redacted",
+}
+_SELECTED_MEASUREMENT_KEYS = {
+    "measurement_record_id",
+    "legacy_data_id",
+    "label",
+    "experiment_type",
+    "target",
+    "primary_data",
+    "declared_preview_metadata",
+    "default_bundle",
+}
+_PRIMARY_DATA_KEYS = {
+    "kind",
+    "label",
+    "source_path",
+    "expected_digest",
+    "expected_size_bytes",
+    "package_path",
+    "include_status",
+    "relation",
+    "authority",
+    "format",
+    "package_state",
+    "reason",
+}
+_PREVIEW_METADATA_KEYS = {
+    "status",
+    "metadata_authority",
+    "data_shape",
+    "declared_columns",
+    "plot_candidates",
+}
+_PREVIEW_DATA_SHAPE_KEYS = {"kind", "axis_order"}
+_PREVIEW_COLUMN_KEYS = {"name", "role", "label", "unit"}
+_PREVIEW_PLOT_CANDIDATE_KEYS = {"x", "y", "source"}
+_DEFAULT_BUNDLE_ITEM_KEYS = {
+    "item_id",
+    "kind",
+    "label",
+    "package_path",
+    "include_status",
+    "relation",
+    "authority",
+    "package_state",
+    "reason",
+}
+_LINKED_CONTEXT_KEYS = {
+    "link_id",
+    "kind",
+    "label",
+    "package_path",
+    "include_status",
+    "relation",
+    "authority",
+    "package_state",
+    "reason",
+    "linked_measurement_record_ids",
+}
 
 
 @dataclass(frozen=True)
@@ -348,6 +427,96 @@ def _validate_policy(source: dict[str, Any]) -> None:
             raise ValueError(f"handoff package writer policy {key} must be {expected}")
 
 
+def _require_mapping(value: Any, owner: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{owner} must be an object")
+    return value
+
+
+def _require_keys(value: dict[str, Any], expected_keys: set[str], owner: str) -> None:
+    if set(value) != expected_keys:
+        raise ValueError(f"{owner} fields are unsupported")
+
+
+def _validate_source_shape(source: dict[str, Any]) -> None:
+    _require_keys(_require_mapping(source, "handoff package writer source"), _SOURCE_KEYS, "source")
+    _require_keys(
+        _require_mapping(source["package_write_request"], "package_write_request"),
+        _PACKAGE_WRITE_REQUEST_KEYS,
+        "package_write_request",
+    )
+    _require_keys(
+        _require_mapping(source["package_identity"], "package_identity"),
+        _PACKAGE_IDENTITY_KEYS,
+        "package_identity",
+    )
+    selected_measurements = source["selected_measurements"]
+    if not isinstance(selected_measurements, list):
+        raise ValueError("selected_measurements must be a list")
+    for record in selected_measurements:
+        _validate_selected_measurement_shape(record)
+    linked_context = source["linked_context"]
+    if not isinstance(linked_context, list):
+        raise ValueError("linked_context must be a list")
+    for item in linked_context:
+        _require_keys(
+            _require_mapping(item, "linked_context item"),
+            _LINKED_CONTEXT_KEYS,
+            "linked_context item",
+        )
+
+
+def _validate_selected_measurement_shape(record: Any) -> None:
+    record = _require_mapping(record, "selected_measurement")
+    _require_keys(record, _SELECTED_MEASUREMENT_KEYS, "selected_measurement")
+    _require_keys(
+        _require_mapping(record["primary_data"], "selected_measurement.primary_data"),
+        _PRIMARY_DATA_KEYS,
+        "selected_measurement.primary_data",
+    )
+    preview = _require_mapping(
+        record["declared_preview_metadata"],
+        "selected_measurement.declared_preview_metadata",
+    )
+    _require_keys(
+        preview,
+        _PREVIEW_METADATA_KEYS,
+        "selected_measurement.declared_preview_metadata",
+    )
+    _require_keys(
+        _require_mapping(preview["data_shape"], "selected_measurement.data_shape"),
+        _PREVIEW_DATA_SHAPE_KEYS,
+        "selected_measurement.data_shape",
+    )
+    declared_columns = preview["declared_columns"]
+    if not isinstance(declared_columns, list):
+        raise ValueError("declared_columns must be a list")
+    for column in declared_columns:
+        _require_keys(
+            _require_mapping(column, "declared_columns item"),
+            _PREVIEW_COLUMN_KEYS,
+            "declared_columns item",
+        )
+    plot_candidates = preview["plot_candidates"]
+    if not isinstance(plot_candidates, list):
+        raise ValueError("plot_candidates must be a list")
+    for candidate in plot_candidates:
+        _require_keys(
+            _require_mapping(candidate, "plot_candidates item"),
+            _PREVIEW_PLOT_CANDIDATE_KEYS,
+            "plot_candidates item",
+        )
+    default_bundle = record["default_bundle"]
+    if not isinstance(default_bundle, list):
+        raise ValueError("default_bundle must be a list")
+    for item in default_bundle:
+        _require_keys(
+            _require_mapping(item, "default_bundle item"),
+            _DEFAULT_BUNDLE_ITEM_KEYS,
+            "default_bundle item",
+        )
+
+
 def _validate_write_request(source: dict[str, Any]) -> None:
     request = source["package_write_request"]
     if request["approval_state"] != "approved":
@@ -510,6 +679,7 @@ def _validate_destination_topology(source: dict[str, Any]) -> None:
 
 
 def _validate_references(source: dict[str, Any]) -> None:
+    _validate_source_shape(source)
     _validate_policy(source)
     validate_handoff_package_identity(source["package_identity"], display_path="required")
     _validate_write_request(source)

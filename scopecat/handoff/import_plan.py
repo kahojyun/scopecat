@@ -138,8 +138,8 @@ class HandoffImportPlanRun:
     def to_dict(self) -> dict[str, Any]:
         steps = [
             "open_package",
-            *(["write_inspection_artifact"] if self.inspection_receipt is not None else []),
             "run_receiving_gate",
+            *(["write_inspection_artifact"] if self.inspection_receipt is not None else []),
             "build_import_plan",
         ]
         return {
@@ -202,7 +202,7 @@ def run_import_plan(
             output_dir=Path(inspection_output_dir),
             overwrite=overwrite_inspection,
         )
-    return build_import_plan(
+    return _build_import_plan_run(
         request,
         receiving_gate=receiving_gate,
         inspection_receipt=inspection_receipt,
@@ -213,11 +213,23 @@ def build_import_plan(
     request: HandoffImportPlanRequest,
     *,
     receiving_gate: HandoffReceivingGateRun,
-    inspection_receipt: dict[str, Any] | None = None,
 ) -> HandoffImportPlanRun:
     """Build an import plan from typed route-local prior workflow state."""
 
+    return _build_import_plan_run(request, receiving_gate=receiving_gate)
+
+
+def _build_import_plan_run(
+    request: HandoffImportPlanRequest,
+    *,
+    receiving_gate: HandoffReceivingGateRun,
+    inspection_receipt: dict[str, Any] | None = None,
+) -> HandoffImportPlanRun:
+    """Build an import plan result from typed prior state and local receipt."""
+
     package = receiving_gate.package
+    if inspection_receipt is not None:
+        _validate_inspection_receipt(inspection_receipt, package_id=package.package_id)
     selected_measurement_ids = request.measurement_ids_for(package)
     measurement_plans: tuple[HandoffMeasurementImportPlan, ...] = ()
     linked_context_plans: tuple[HandoffLinkedContextImportPlan, ...] = ()
@@ -242,6 +254,20 @@ def build_import_plan(
         linked_context_plans=linked_context_plans,
         inspection_receipt=inspection_receipt,
     )
+
+
+def _validate_inspection_receipt(receipt: dict[str, Any], *, package_id: str) -> None:
+    if not isinstance(receipt, dict):
+        raise ValueError("inspection receipt must be an object")
+    if receipt.get("artifact_posture") != "review_summary":
+        raise ValueError("inspection receipt posture is unsupported")
+    if receipt.get("package_id") != package_id:
+        raise ValueError("inspection receipt package_id must match import plan package")
+    html_artifact = receipt.get("html_artifact")
+    if not isinstance(html_artifact, dict):
+        raise ValueError("inspection receipt html_artifact must be an object")
+    if html_artifact.get("portable_package_member") is not False:
+        raise ValueError("inspection receipt must stay local to review")
 
 
 def _require_mapping(value: Any, owner: str) -> dict[str, Any]:

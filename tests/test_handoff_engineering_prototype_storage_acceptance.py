@@ -290,6 +290,82 @@ class HandoffEngineeringPrototypeStorageAcceptanceTest(unittest.TestCase):
         self.assertFalse(run.accepted)
         self.assertFalse(summary["acceptance"]["performed"])
 
+    def test_rejects_destination_mismatch_even_when_preflight_is_blocked(self) -> None:
+        mismatched_destination = HandoffAcceptanceDestination(
+            measurement_record_id="legacy-rabi-001",
+            destination_record_id="imported-legacy-rabi-001",
+            record_dir="records/imported-legacy-rabi-001",
+            primary_data_path="records/imported-legacy-rabi-001/different.csv",
+            manifest_path="records/imported-legacy-rabi-001/record-manifest.json",
+            storage_schema="measurement_record_directory_candidate_v0",
+        )
+        request = HandoffStorageAcceptanceRequest(
+            request_id="accept-handoff-package-legacy-rabi-001",
+            requested_package_id="handoff-package-legacy-rabi-001",
+            approved_destinations=(mismatched_destination,),
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            (storage_root / "records" / "imported-legacy-rabi-001").mkdir(parents=True)
+
+            with self.assertRaisesRegex(ValueError, "destinations must match"):
+                run_storage_acceptance_from_preflight(
+                    request,
+                    preflight=_acceptance_preflight_run(package_dir, storage_root),
+                    package_dir=package_dir,
+                    storage_root=storage_root,
+                )
+
+    def test_rejects_package_dir_mismatch_from_typed_preflight(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            other_package_dir = temp_root / "other-package"
+            shutil.copytree(package_dir, other_package_dir)
+            storage_root = temp_root / "storage"
+            storage_root.mkdir()
+            preflight = _acceptance_preflight_run(package_dir, storage_root)
+
+            with self.assertRaisesRegex(ValueError, "package_dir must match"):
+                run_storage_acceptance_from_preflight(
+                    _storage_acceptance_request(),
+                    preflight=preflight,
+                    package_dir=other_package_dir,
+                    storage_root=storage_root,
+                )
+
+    def test_rejects_storage_root_mismatch_from_typed_preflight(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            other_storage_root = temp_root / "other-storage"
+            storage_root.mkdir()
+            other_storage_root.mkdir()
+            preflight = _acceptance_preflight_run(package_dir, storage_root)
+
+            with self.assertRaisesRegex(ValueError, "storage_root must match"):
+                run_storage_acceptance_from_preflight(
+                    _storage_acceptance_request(),
+                    preflight=preflight,
+                    package_dir=package_dir,
+                    storage_root=other_storage_root,
+                )
+
+    def test_rejects_invalid_typed_acceptance_destination(self) -> None:
+        with self.assertRaisesRegex(ValueError, "storage_schema is unsupported"):
+            HandoffAcceptanceDestination(
+                measurement_record_id="legacy-rabi-001",
+                destination_record_id="imported-legacy-rabi-001",
+                record_dir="records/imported-legacy-rabi-001",
+                primary_data_path="records/imported-legacy-rabi-001/primary.csv",
+                manifest_path="records/imported-legacy-rabi-001/record-manifest.json",
+                storage_schema="final_storage_schema_not_accepted",
+            )
+
     def test_rejects_storage_acceptance_destination_mismatch(self) -> None:
         source = _storage_acceptance_source()
         source["storage_acceptance_request"]["approved_destinations"][0]["primary_data_path"] = (
@@ -311,6 +387,24 @@ class HandoffEngineeringPrototypeStorageAcceptanceTest(unittest.TestCase):
             storage_root = Path(temp_dir) / "storage"
             storage_root.mkdir()
             with self.assertRaisesRegex(ValueError, "requires approved request"):
+                run_storage_acceptance(source, package_dir=PACKAGE, storage_root=storage_root)
+
+    def test_rejects_duplicate_storage_acceptance_destination_record_ids(self) -> None:
+        source = _storage_acceptance_source()
+        second_destination = {
+            "measurement_record_id": "legacy-rabi-002",
+            "destination_record_id": "imported-legacy-rabi-001",
+            "record_dir": "records/imported-legacy-rabi-002",
+            "primary_data_path": "records/imported-legacy-rabi-002/primary.csv",
+            "manifest_path": "records/imported-legacy-rabi-002/record-manifest.json",
+            "storage_schema": "measurement_record_directory_candidate_v0",
+        }
+        source["storage_acceptance_request"]["approved_destinations"].append(second_destination)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            storage_root.mkdir()
+            with self.assertRaisesRegex(ValueError, "record ids must be unique"):
                 run_storage_acceptance(source, package_dir=PACKAGE, storage_root=storage_root)
 
     def test_rolls_back_primary_when_manifest_write_fails(self) -> None:

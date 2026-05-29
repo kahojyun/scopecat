@@ -242,6 +242,43 @@ class HandoffEngineeringPrototypeAcceptancePreflightTest(unittest.TestCase):
             "destination_collision",
         )
 
+    def test_preflight_treats_broken_symlink_destination_as_collision(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            (storage_root / "records").mkdir(parents=True)
+            (storage_root / "records" / "imported-legacy-rabi-001").symlink_to("missing-record")
+
+            run = build_acceptance_preflight(
+                _acceptance_preflight_request(),
+                import_plan=_import_plan_run(package_dir),
+                storage_root=storage_root,
+            )
+            target_states = run.destination_observations[0].target_states
+
+        self.assertEqual(run.classification, "blocked_by_destination_collision")
+        self.assertEqual(target_states[0]["state"], "exists")
+
+    def test_preflight_blocks_symlink_destination_parent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            storage_root.mkdir()
+            (temp_root / "external-records").mkdir()
+            (storage_root / "records").symlink_to(temp_root / "external-records")
+
+            run = build_acceptance_preflight(
+                _acceptance_preflight_request(),
+                import_plan=_import_plan_run(package_dir),
+                storage_root=storage_root,
+            )
+            target_states = run.destination_observations[0].target_states
+
+        self.assertEqual(run.classification, "blocked_by_destination_guardrail")
+        self.assertEqual(target_states[0]["state"], "blocked_by_symlink_parent")
+
     def test_preflight_blocks_when_import_plan_is_not_ready(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)

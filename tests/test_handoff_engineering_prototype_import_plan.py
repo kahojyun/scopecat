@@ -144,8 +144,8 @@ class HandoffEngineeringPrototypeImportPlanTest(unittest.TestCase):
             summary["workflow"]["steps"],
             [
                 "open_package",
-                "write_inspection_artifact",
                 "run_receiving_gate",
+                "write_inspection_artifact",
                 "build_import_plan",
             ],
         )

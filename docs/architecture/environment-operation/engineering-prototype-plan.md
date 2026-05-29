@@ -32,19 +32,6 @@ The third prototype milestone adds a post-sync interpreter fact probe using
 facts after a successful sync result without repairing the environment,
 verifying package state, importing experiment code, or deciding run readiness.
 
-## Outcome
-
-The prototype line produced route-local `uv sync` execution, typed local
-result/review projection, bounded post-sync runtime probing, and one composed
-workflow entrypoint under `scopecat.environment_operation`.
-
-The accepted shape keeps the same boundary that this plan requested:
-Scopecat may execute an already-approved bounded `uv sync`, optionally run a
-bounded interpreter-fact probe after a successful aligned sync result, and
-record local review summaries. It still does not claim runtime readiness,
-dependency-state verification, experiment-code import/execution, hardware
-readiness, or run-start permission.
-
 ## Still Out Of Scope
 
 This prototype does not:
@@ -66,17 +53,13 @@ This prototype does not:
 Stop this milestone when Scopecat can prepare a route-local intent, execute the
 bounded `uv sync` command through an injectable runner, record bounded process
 facts, and surface failure/timeout as review findings without claiming runtime
-or run readiness. The current prototype satisfies that stop condition and adds
-repository-safe real-`uv` fixtures to verify the subprocess success and failure
-paths plus typed result, summary projection, and operation-review flows for
-downstream review.
+or run readiness.
 
 Stop the post-sync runtime probe milestone when Scopecat can derive a bounded
 probe intent from a successful sync result, run `uv run --locked --no-sync`
 through an injectable runner, record bounded interpreter facts, and surface
 failure/system-Python signals as review findings without claiming package state
-or run readiness. The current prototype satisfies that stop condition with
-injected-runner coverage and a real tiny-`uv` fixture.
+or run readiness.
 
 The next milestone should be chosen only after this boundary is reviewed. Likely
 follow-ups are operation review with optional manifest/prepared-context

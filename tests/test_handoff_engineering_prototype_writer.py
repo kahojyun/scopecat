@@ -96,6 +96,33 @@ class HandoffEngineeringPrototypeWriterTest(unittest.TestCase):
     def test_storage_named_policy_is_rejected_at_promoted_boundary(self) -> None:
         self.assertRejected(_load_storage_named_input(), "expected shape")
 
+    def test_rejects_unsupported_raw_writer_fields(self) -> None:
+        cases = [
+            ("top_level", ("storage_root",)),
+            ("package_write_request", ("package_write_request", "destination_record_id")),
+            ("package_identity", ("package_identity", "local_path")),
+            ("selected_measurement", ("selected_measurements", 0, "storage_record")),
+            ("primary_data", ("selected_measurements", 0, "primary_data", "local_path")),
+            (
+                "preview_metadata",
+                ("selected_measurements", 0, "declared_preview_metadata", "schema_inference"),
+            ),
+            (
+                "default_bundle",
+                ("selected_measurements", 0, "default_bundle", 0, "payload_path"),
+            ),
+            ("linked_context", ("linked_context", 0, "payload")),
+        ]
+
+        for label, path in cases:
+            with self.subTest(label=label):
+                source = _load_input()
+                target = source
+                for part in path[:-1]:
+                    target = target[part]
+                target[path[-1]] = "unsupported"
+                self.assertRejected(source, "fields are unsupported")
+
     def test_source_digest_must_match_before_any_write(self) -> None:
         source = _load_input()
         source["selected_measurements"][0]["primary_data"]["expected_digest"] = (

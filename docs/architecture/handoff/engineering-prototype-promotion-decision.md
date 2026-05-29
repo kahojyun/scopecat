@@ -137,10 +137,12 @@ caller-provided storage root plus declared relative destination paths, and
 observes only those exact paths for `no_overwrite` collision status.
 
 The preflight can return `ready_for_acceptance_mutation_request` only when the
-import plan is ready and no declared destination path exists. It returns
-`blocked_by_destination_collision` when a declared record directory, primary
-data path, or manifest path already exists, and
-`blocked_before_acceptance_preflight` when the import plan itself is not ready.
+import plan is ready and declared destinations are available under the observed
+storage root. It returns `blocked_by_destination_collision` when a declared
+record directory, primary data path, or manifest path already exists,
+`blocked_by_destination_guardrail` when destination parent shape would block
+the later mutation, and `blocked_before_acceptance_preflight` when the import
+plan itself is not ready.
 
 This is still not package acceptance. It does not write records, create
 manifests, choose final storage schema, resolve collisions, define rollback,
@@ -157,10 +159,7 @@ expanding this promotion snapshot.
 The route-local implementation now includes `run_storage_acceptance(...)` as
 the first narrow storage mutation after a ready acceptance preflight. The
 owning scope is
-[`storage-acceptance-decision.md`](storage-acceptance-decision.md): copy
-package primary data into declared candidate record paths, write a small
-candidate record manifest, and apply best-effort synchronous rollback after
-write failure.
+[`storage-acceptance-decision.md`](storage-acceptance-decision.md).
 
 This still does not promote final storage schema, existing-record update,
 conflict resolution, crash recovery, archive trust, or linked-context payload
@@ -170,9 +169,9 @@ This slice is now implemented and covered as the first mutation checkpoint. It
 proves the read-only receiving path can hand off to one explicitly approved
 candidate storage write while preserving reviewed package, preflight, and
 destination facts across the mutation boundary. It also proves blocked
-preflight rejection, destination-fact mismatch rejection, no-overwrite file
-creation, and best-effort synchronous rollback after a simulated write
-failure.
+preflight rejection, destination/root mismatch rejection, no-overwrite file
+creation, and best-effort synchronous rollback. Mutation details and rollback
+scope are owned by the storage-acceptance decision.
 
 After this slice, the next engineering phase should not broaden mutation
 behavior without a new storage or import decision.

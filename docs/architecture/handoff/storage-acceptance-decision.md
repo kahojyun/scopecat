@@ -36,10 +36,11 @@ layout for this mutation, not the final Scopecat storage schema.
 The mutation is allowed only after a ready route-local acceptance preflight.
 It must preserve the preflight's package id, measurement ids, destination
 record ids, relative record directories, primary data paths, manifest paths,
-storage schema, and `no_overwrite` collision posture. The mutation request may
-approve the write; it may not introduce new destination paths, new selected
-measurements, overwrite behavior, linked-context payload import, archive
-handling, or storage-schema choices.
+storage schema, observed package root, observed storage root, and
+`no_overwrite` collision posture. The mutation request may approve the write;
+it may not introduce new destination paths, new selected measurements,
+overwrite behavior, linked-context payload import, archive handling, or
+storage-schema choices.
 
 ## First Mutation Contract
 
@@ -50,6 +51,7 @@ The first implementation should:
   request dictionaries parsed only at the public API boundary;
 - reject blocked preflight classifications;
 - reject destination facts that do not match the preflight exactly;
+- reject package or storage roots that do not match the preflight exactly;
 - require an existing caller-provided storage root;
 - copy each selected package primary data file into its declared
   `primary_data_path`;
@@ -126,8 +128,8 @@ run_acceptance_preflight(...)
 ```
 
 It proves successful copy plus manifest write, rejection of blocked or
-mismatched preflight facts, no-overwrite collision behavior, and rollback
-after a simulated second-write failure.
+mismatched preflight facts, package/storage root continuity, no-overwrite
+collision behavior, and rollback after a simulated second-write failure.
 
 ## Promotion Checkpoint
 

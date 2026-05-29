@@ -28,7 +28,7 @@ write package
   -> open/read package
   -> inspect plot/table/context locally
   -> optionally observe integrity
-  -> optionally accept into local storage
+  -> optionally run candidate storage acceptance
 ```
 
 The package directory is the carried artifact. Local receipts, summaries,
@@ -48,7 +48,7 @@ one of them to portable output.
 | Preview/view pressure | Preview shape view, visual review, GUI view state, visual artifact, preview consumption, route pressure fixture | Test declared preview metadata, plot-first local review, GUI-ready local state, table drilldown, richer fixture pressure, and local static review output without accepting live GUI or plotting architecture. |
 | Receiving composition | Inspection workflow, receiving workflow | Compose existing local review, integrity observation, and approved acceptance in the intended order. |
 | Integrity observation | Integrity observation | Compare package-local observed sha256/byte-size facts to declared package facts where present. |
-| Receiving mutation | Acceptance | Copy reviewed package primary data into new local storage records after explicit approval. |
+| Receiving mutation | Acceptance | Copy reviewed package primary data into candidate local records after explicit approval, without accepting final storage architecture. |
 | Route-local support | Handoff package route contracts | Share repeated handoff-specific identity, package-path, preview-ready, and continuity checks where the same semantics already recur. |
 
 ## Accepted Local Baseline

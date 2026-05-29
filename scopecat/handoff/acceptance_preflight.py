@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,35 @@ class HandoffAcceptanceDestination:
     manifest_path: str
     storage_schema: str
 
+    def __post_init__(self) -> None:
+        validate_public_identifier(
+            self.measurement_record_id,
+            "acceptance destination measurement_record_id",
+        )
+        validate_public_identifier(
+            self.destination_record_id,
+            "acceptance destination destination_record_id",
+        )
+        validate_relative_path(self.record_dir, "acceptance record_dir")
+        validate_strict_child_path(
+            self.primary_data_path,
+            self.record_dir,
+            "acceptance primary_data_path",
+        )
+        validate_strict_child_path(
+            self.manifest_path,
+            self.record_dir,
+            "acceptance manifest_path",
+        )
+        if self.primary_data_path == self.manifest_path:
+            raise ValueError("acceptance destination paths must be unique")
+        validate_public_identifier(
+            self.storage_schema,
+            "acceptance destination storage_schema",
+        )
+        if self.storage_schema != "measurement_record_directory_candidate_v0":
+            raise ValueError("acceptance destination storage_schema is unsupported")
+
     @property
     def target_paths(self) -> tuple[str, ...]:
         return (self.record_dir, self.primary_data_path, self.manifest_path)
@@ -63,6 +93,17 @@ class HandoffAcceptancePreflightRequest:
     request_id: str
     requested_package_id: str
     destinations: tuple[HandoffAcceptanceDestination, ...]
+
+    def __post_init__(self) -> None:
+        validate_public_identifier(
+            self.request_id,
+            "acceptance_preflight_request.request_id",
+        )
+        validate_public_identifier(
+            self.requested_package_id,
+            "acceptance_preflight_request.requested_package_id",
+        )
+        _validate_destination_tuple(self.destinations, "acceptance destinations")
 
     @property
     def measurement_ids(self) -> tuple[str, ...]:
@@ -94,9 +135,15 @@ class HandoffDestinationObservation:
         return any(item["state"] == "exists" for item in self.target_states)
 
     @property
+    def has_blocked_target(self) -> bool:
+        return any(item["state"] != "available" for item in self.target_states)
+
+    @property
     def classification(self) -> str:
         if self.has_collision:
             return "destination_collision"
+        if self.has_blocked_target:
+            return "destination_unavailable"
         return "destination_available"
 
     def to_dict(self) -> dict[str, Any]:
@@ -114,14 +161,20 @@ class HandoffAcceptancePreflightRun:
     request: HandoffAcceptancePreflightRequest
     import_plan: HandoffImportPlanRun
     destination_observations: tuple[HandoffDestinationObservation, ...]
+    package_dir: str
+    storage_root: str
 
     @property
     def has_collision(self) -> bool:
         return any(observation.has_collision for observation in self.destination_observations)
 
     @property
+    def has_blocked_destination(self) -> bool:
+        return any(observation.has_blocked_target for observation in self.destination_observations)
+
+    @property
     def acceptance_preflight_allowed(self) -> bool:
-        return self.import_plan.import_plan_allowed and not self.has_collision
+        return self.import_plan.import_plan_allowed and not self.has_blocked_destination
 
     @property
     def classification(self) -> str:
@@ -129,6 +182,8 @@ class HandoffAcceptancePreflightRun:
             return "blocked_before_acceptance_preflight"
         if self.has_collision:
             return "blocked_by_destination_collision"
+        if self.has_blocked_destination:
+            return "blocked_by_destination_guardrail"
         return "ready_for_acceptance_mutation_request"
 
     def to_dict(self) -> dict[str, Any]:
@@ -166,6 +221,8 @@ class HandoffAcceptancePreflightRun:
                 "classification": (
                     "destination_collision"
                     if self.has_collision
+                    else "destination_unavailable"
+                    if self.has_blocked_destination
                     else "declared_destinations_available"
                 ),
                 "observed_paths": [
@@ -210,9 +267,9 @@ def build_acceptance_preflight(
 
     _validate_against_import_plan(request=request, import_plan=import_plan)
 
+    root = _existing_storage_root(Path(storage_root))
     destination_observations: tuple[HandoffDestinationObservation, ...] = ()
     if import_plan.import_plan_allowed:
-        root = _existing_storage_root(Path(storage_root))
         destination_observations = tuple(
             _observe_destination(root, destination) for destination in request.destinations
         )
@@ -221,6 +278,8 @@ def build_acceptance_preflight(
         request=request,
         import_plan=import_plan,
         destination_observations=destination_observations,
+        package_dir=import_plan.receiving_gate.package_dir,
+        storage_root=str(root),
     )
 
 
@@ -233,10 +292,18 @@ def _existing_storage_root(storage_root: Path) -> Path:
 
 
 def _target_state(storage_root: Path, relative_path: str) -> dict[str, str]:
-    target = storage_root.joinpath(*relative_path_parts(relative_path, "acceptance target path"))
+    path_parts = relative_path_parts(relative_path, "acceptance target path")
+    current = storage_root
+    for part in path_parts[:-1]:
+        current = current / part
+        if current.is_symlink():
+            return {"path": relative_path, "state": "blocked_by_symlink_parent"}
+        if os.path.lexists(current) and not current.is_dir():
+            return {"path": relative_path, "state": "blocked_by_non_directory_parent"}
+    target = storage_root.joinpath(*path_parts)
     return {
         "path": relative_path,
-        "state": "exists" if target.exists() else "available",
+        "state": "exists" if os.path.lexists(target) else "available",
     }
 
 
@@ -334,18 +401,27 @@ def _parse_destinations(source: Any) -> tuple[HandoffAcceptanceDestination, ...]
     if not isinstance(source, list):
         raise ValueError("acceptance destinations must be a list")
     destinations = tuple(_parse_destination(item) for item in source)
+    _validate_destination_tuple(destinations, "acceptance destinations")
+    return destinations
+
+
+def _validate_destination_tuple(
+    destinations: tuple[HandoffAcceptanceDestination, ...],
+    owner: str,
+) -> None:
     if not destinations:
-        raise ValueError("acceptance destinations must not be empty")
+        raise ValueError(f"{owner} must not be empty")
+    if not all(isinstance(item, HandoffAcceptanceDestination) for item in destinations):
+        raise ValueError(f"{owner} must be typed acceptance destinations")
     measurement_ids = [item.measurement_record_id for item in destinations]
     if len(set(measurement_ids)) != len(measurement_ids):
-        raise ValueError("acceptance destination measurement ids must be unique")
+        raise ValueError(f"{owner} measurement ids must be unique")
     destination_record_ids = [item.destination_record_id for item in destinations]
     if len(set(destination_record_ids)) != len(destination_record_ids):
-        raise ValueError("acceptance destination record ids must be unique")
+        raise ValueError(f"{owner} record ids must be unique")
     target_paths = [path for item in destinations for path in item.target_paths]
     if len(set(target_paths)) != len(target_paths):
-        raise ValueError("acceptance destination paths must be unique")
-    return destinations
+        raise ValueError(f"{owner} paths must be unique")
 
 
 def _parse_destination(source: Any) -> HandoffAcceptanceDestination:

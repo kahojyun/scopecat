@@ -56,6 +56,7 @@ class HandoffReceivingGateRun:
     request: HandoffReceivingReviewRequest
     package: HandoffPackage
     integrity_report: HandoffPackageIntegrityReport
+    package_dir: str
 
     @property
     def acceptance_allowed(self) -> bool:
@@ -125,6 +126,7 @@ def run_receiving_gate_from_request(
 
     package = open_package(package_dir)
     integrity_report = observe_package_integrity(package_dir)
+    resolved_package_dir = str(Path(package_dir).resolve())
     _validate_reviewed_facts(
         request=request,
         package=package,
@@ -134,6 +136,7 @@ def run_receiving_gate_from_request(
         request=request,
         package=package,
         integrity_report=integrity_report,
+        package_dir=resolved_package_dir,
     )
 
 

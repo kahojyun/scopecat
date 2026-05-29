@@ -1,12 +1,12 @@
 # Handoff Prototype Module
 
-Engineering prototype module for read-only Scopecat-authored handoff package
-use.
+Engineering prototype module for Scopecat-authored handoff package use and the
+first candidate receiving-side storage acceptance slice.
 
 This module is route-local prototype code. It tests a production-shaped Python
 entrypoint over validated handoff discovery candidates without accepting final
-public SDK names, package format, storage import behavior, GUI architecture,
-plotting stack, or shared measurement-record domain model.
+public SDK names, package format, final storage import behavior, GUI
+architecture, plotting stack, or shared measurement-record domain model.
 
 The runtime API exposes route-local objects rather than discovery candidate
 summary dictionaries. `as_open_summary()` exists as a copy-safe prototype

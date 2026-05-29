@@ -50,6 +50,20 @@ class HandoffStorageAcceptanceRequest:
     requested_package_id: str
     approved_destinations: tuple[HandoffAcceptanceDestination, ...]
 
+    def __post_init__(self) -> None:
+        validate_public_identifier(
+            self.request_id,
+            "storage_acceptance_request.request_id",
+        )
+        validate_public_identifier(
+            self.requested_package_id,
+            "storage_acceptance_request.requested_package_id",
+        )
+        _validate_destination_tuple(
+            self.approved_destinations,
+            "storage acceptance destinations",
+        )
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "request_id": self.request_id,
@@ -159,11 +173,16 @@ def run_storage_acceptance_from_preflight(
     """Accept storage from an already typed acceptance preflight."""
 
     root = _existing_storage_root(Path(storage_root))
+    package_root = _existing_package_root(Path(package_dir))
     _validate_against_preflight(request=request, preflight=preflight)
+    _validate_roots_against_preflight(
+        package_root=package_root,
+        storage_root=root,
+        preflight=preflight,
+    )
     if not preflight.acceptance_preflight_allowed:
         return HandoffStorageAcceptanceRun(request=request, preflight=preflight)
 
-    package_root = _existing_package_root(Path(package_dir))
     files, write_results = _planned_files(
         package_root=package_root,
         request=request,
@@ -570,15 +589,27 @@ def _parse_destinations(source: Any) -> tuple[HandoffAcceptanceDestination, ...]
     if not isinstance(source, list):
         raise ValueError("storage acceptance destinations must be a list")
     destinations = tuple(_parse_destination(item) for item in source)
+    _validate_destination_tuple(destinations, "storage acceptance destinations")
+    return destinations
+
+
+def _validate_destination_tuple(
+    destinations: tuple[HandoffAcceptanceDestination, ...],
+    owner: str,
+) -> None:
     if not destinations:
-        raise ValueError("storage acceptance destinations must not be empty")
+        raise ValueError(f"{owner} must not be empty")
+    if not all(isinstance(item, HandoffAcceptanceDestination) for item in destinations):
+        raise ValueError(f"{owner} must be typed acceptance destinations")
     measurement_ids = [item.measurement_record_id for item in destinations]
     if len(set(measurement_ids)) != len(measurement_ids):
-        raise ValueError("storage acceptance destination measurement ids must be unique")
+        raise ValueError(f"{owner} measurement ids must be unique")
+    destination_record_ids = [item.destination_record_id for item in destinations]
+    if len(set(destination_record_ids)) != len(destination_record_ids):
+        raise ValueError(f"{owner} record ids must be unique")
     target_paths = [path for item in destinations for path in item.target_paths]
     if len(set(target_paths)) != len(target_paths):
-        raise ValueError("storage acceptance destination paths must be unique")
-    return destinations
+        raise ValueError(f"{owner} paths must be unique")
 
 
 def _parse_destination(source: Any) -> HandoffAcceptanceDestination:
@@ -641,10 +672,17 @@ def _validate_against_preflight(
 ) -> None:
     if request.requested_package_id != preflight.import_plan.package.package_id:
         raise ValueError("requested package id must match acceptance preflight package")
-    preflight_destinations = tuple(
-        observation.destination for observation in preflight.destination_observations
-    )
-    if not preflight.acceptance_preflight_allowed:
-        return
-    if request.approved_destinations != preflight_destinations:
+    if request.approved_destinations != preflight.request.destinations:
         raise ValueError("storage acceptance destinations must match acceptance preflight")
+
+
+def _validate_roots_against_preflight(
+    *,
+    package_root: Path,
+    storage_root: Path,
+    preflight: HandoffAcceptancePreflightRun,
+) -> None:
+    if str(package_root) != preflight.package_dir:
+        raise ValueError("storage acceptance package_dir must match acceptance preflight")
+    if str(storage_root) != preflight.storage_root:
+        raise ValueError("storage acceptance storage_root must match acceptance preflight")
