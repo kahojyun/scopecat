@@ -26,9 +26,9 @@ validated uv sync intent summary
   -> route-local operation review
 ```
 
-`UvSyncResult.to_summary()` remains the route-local review-snapshot projection
-for fixture compatibility and edge inspection. The internal review API consumes
-the typed result object instead of a raw dictionary summary.
+`UvSyncResult.to_summary()` remains a one-way route-local review-snapshot
+projection for fixture snapshots and edge inspection. The internal review API
+consumes the typed result object instead of a raw dictionary summary.
 
 This does not promote the full environment-operation route, a public SDK,
 runtime readiness, package-state verification, code execution, hardware

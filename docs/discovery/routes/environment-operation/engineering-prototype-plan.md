@@ -39,8 +39,8 @@ The prototype should support:
 - review findings for failure, timeout, and launch failure;
 - route-local `UvSyncResult` objects that carry intent references, bounded
   command results, findings, and explicit policy non-claims;
-- route-local result-summary projection from `UvSyncResult` for review
-  snapshots and compatibility with discovery-style fixtures;
+- one-way route-local result-summary projection from `UvSyncResult` for review
+  snapshots and edge inspection;
 - route-local operation reviews that align one selected intent with one
   selected typed execution result and surface result or alignment findings;
 - explicit non-claims for runtime readiness, dependency-state verification,

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import json
 import subprocess
 import unittest
@@ -153,7 +152,15 @@ class EnvironmentOperationReviewPrototypeTest(unittest.TestCase):
             "extra",
         ]
 
-        review = review_uv_sync_operation(intent, UvSyncResult.from_summary(summary))
+        mismatched = UvSyncResult(
+            intent_ref=summary["uv_sync_intent_ref"],
+            command_result=summary["command_result"],
+            result_status=result.result_status,
+            findings=result.findings,
+            attention=result.attention,
+        )
+
+        review = review_uv_sync_operation(intent, mismatched)
         summary = review.to_dict()
 
         self.assertEqual(summary["operation_review_status"], "operation_review_has_findings")
@@ -162,65 +169,23 @@ class EnvironmentOperationReviewPrototypeTest(unittest.TestCase):
             ["sync_result_intent_ref_mismatch", "sync_result_command_mismatch"],
         )
 
-    def test_result_summary_edge_projection_requires_expected_shape(self) -> None:
-        with self.assertRaisesRegex(ValueError, "command_result"):
-            UvSyncResult.from_summary(
-                {
-                    "uv_sync_result_policy": {},
-                    "uv_sync_intent_ref": {},
-                    "result_status": "uv_sync_completed_success",
-                    "result_findings": [],
-                },
-            )
-
-        intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
-        result_summary = _result(
-            intent,
-            CommandRunResult(exit_code=0, stdout="ok", stderr=""),
-        ).to_summary()
-        result_summary["result_findings"] = ["not-a-finding"]
-        with self.assertRaisesRegex(ValueError, "uv sync result finding"):
-            UvSyncResult.from_summary(result_summary)
-
-    def test_result_summary_edge_projection_rejects_policy_and_status_drift(self) -> None:
-        intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
-        summary = _result(
-            intent,
-            CommandRunResult(exit_code=0, stdout="ok", stderr=""),
-        ).to_summary()
-
-        bad_policy = copy.deepcopy(summary)
-        bad_policy["uv_sync_result_policy"]["readiness_claim"] = "claimed"
-        with self.assertRaisesRegex(ValueError, "policy"):
-            UvSyncResult.from_summary(bad_policy)
-
-        bad_status = copy.deepcopy(summary)
-        bad_status["command_result"]["execution_state"] = "completed_failed"
-        bad_status["command_result"]["exit_code"] = 1
-        with self.assertRaisesRegex(ValueError, "result_status"):
-            UvSyncResult.from_summary(bad_status)
-
-        bad_findings = copy.deepcopy(summary)
-        bad_findings["result_findings"] = [
-            {
-                "code": "uv_sync_process_failed",
-                "severity": "review",
-                "basis": "The Scopecat-run uv sync process exited with a non-zero status.",
-                "does_not_claim": "synchronized_or_installed_environment",
-            }
-        ]
-        with self.assertRaisesRegex(ValueError, "result_findings"):
-            UvSyncResult.from_summary(bad_findings)
-
     def test_review_surfaces_result_identifier_mismatch(self) -> None:
         intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
-        summary = _result(
+        result = _result(
             intent,
             CommandRunResult(exit_code=0, stdout="ok", stderr=""),
-        ).to_summary()
+        )
+        summary = result.to_summary()
         summary["command_result"]["intent_request_id"] = "request-other"
+        mismatched = UvSyncResult(
+            intent_ref=summary["uv_sync_intent_ref"],
+            command_result=summary["command_result"],
+            result_status=result.result_status,
+            findings=result.findings,
+            attention=result.attention,
+        )
 
-        review = review_uv_sync_operation(intent, UvSyncResult.from_summary(summary))
+        review = review_uv_sync_operation(intent, mismatched)
 
         self.assertEqual(
             [finding.code for finding in review.findings],
@@ -260,20 +225,6 @@ class EnvironmentOperationReviewPrototypeTest(unittest.TestCase):
                 findings=({"code": "raw-dict"},),  # type: ignore[arg-type]
                 attention=result.attention,
             )
-
-    def test_review_can_consume_result_rehydrated_from_summary_edge(self) -> None:
-        intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
-        summary = _result(
-            intent,
-            CommandRunResult(exit_code=0, stdout="ok", stderr=""),
-        ).to_summary()
-
-        review = review_uv_sync_operation(intent, UvSyncResult.from_summary(summary))
-
-        self.assertEqual(
-            review.to_dict()["operation_review_status"],
-            "uv_sync_completed_success_with_review_limits",
-        )
 
 
 if __name__ == "__main__":

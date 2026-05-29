@@ -36,21 +36,6 @@ class UvSyncFinding:
     basis: str
     does_not_claim: str
 
-    @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> UvSyncFinding:
-        if not isinstance(value, dict):
-            raise ValueError("uv sync result finding must be an object")
-        return cls(
-            code=_require_owned_text(value, "code", "uv sync result finding"),
-            severity=_require_owned_text(value, "severity", "uv sync result finding"),
-            basis=_require_owned_text(value, "basis", "uv sync result finding"),
-            does_not_claim=_require_owned_text(
-                value,
-                "does_not_claim",
-                "uv sync result finding",
-            ),
-        )
-
     def to_dict(self) -> dict[str, str]:
         return {
             "code": self.code,
@@ -342,67 +327,6 @@ class UvSyncResult:
             attention=tuple(_result_summary_attention()),
         )
 
-    @classmethod
-    def from_summary(cls, summary: dict[str, Any]) -> UvSyncResult:
-        """Rehydrate a typed result from a route-local summary edge projection."""
-
-        if not isinstance(summary, dict):
-            raise ValueError("uv sync result summary must be an object")
-        for key in (
-            "uv_sync_result_policy",
-            "uv_sync_intent_ref",
-            "command_result",
-            "result_status",
-            "result_findings",
-            "attention",
-        ):
-            if key not in summary:
-                raise ValueError(f"uv sync result summary must include {key}")
-
-        policy = _require_owned_mapping(
-            summary,
-            "uv_sync_result_policy",
-            "uv sync result summary",
-        )
-        if policy != _result_summary_policy():
-            raise ValueError("uv sync result summary policy must match uv sync result policy")
-
-        result_findings = summary["result_findings"]
-        if not isinstance(result_findings, list):
-            raise ValueError("uv sync result summary result_findings must be a list")
-        attention = summary["attention"]
-        if not isinstance(attention, list) or not all(isinstance(item, dict) for item in attention):
-            raise ValueError("uv sync result summary attention must be a list of objects")
-        if attention != _result_summary_attention():
-            raise ValueError("uv sync result summary attention must match uv sync result attention")
-
-        intent_ref = _require_owned_mapping(
-            summary,
-            "uv_sync_intent_ref",
-            "uv sync result summary",
-        )
-        command_result = _require_owned_mapping(
-            summary,
-            "command_result",
-            "uv sync result summary",
-        )
-        result_status = _require_owned_text(
-            summary,
-            "result_status",
-            "uv sync result summary",
-        )
-        findings = tuple(UvSyncFinding.from_dict(item) for item in result_findings)
-        _validate_summary_command_result(command_result)
-        _validate_summary_consistency(command_result, result_status, findings)
-
-        return cls(
-            intent_ref=intent_ref,
-            command_result=command_result,
-            result_status=result_status,
-            findings=findings,
-            attention=tuple(copy.deepcopy(item) for item in attention),
-        )
-
     def to_summary(self) -> dict[str, Any]:
         """Project this typed result into the route-local review summary shape."""
 
@@ -598,52 +522,8 @@ def _validate_attention(
         if not isinstance(item, dict):
             raise ValueError("uv sync result attention entries must be objects")
         for key in ("code", "severity", "basis", "does_not_claim"):
-            _require_owned_text(item, key, "uv sync result attention")
+            _require_text(item, key)
     return validated
-
-
-def _validate_summary_command_result(command_result: dict[str, Any]) -> None:
-    if _require_owned_text(command_result, "manager", "uv sync command result") != "uv":
-        raise ValueError("uv sync command result manager must be uv")
-    if _require_owned_text(command_result, "operation", "uv sync command result") != "sync":
-        raise ValueError("uv sync command result operation must be sync")
-    _validate_uv_sync_argv(command_result.get("argv"))
-    _require_owned_text(command_result, "result_id", "uv sync command result")
-    _require_owned_text(command_result, "intent_request_id", "uv sync command result")
-    _require_owned_text(command_result, "approval_id", "uv sync command result")
-    _validate_relative_path(
-        _require_owned_text(command_result, "working_directory", "uv sync command result"),
-        "uv sync command result working_directory",
-    )
-
-
-def _validate_summary_consistency(
-    command_result: dict[str, Any],
-    result_status: str,
-    findings: tuple[UvSyncFinding, ...],
-) -> None:
-    execution_state = _require_owned_text(
-        command_result,
-        "execution_state",
-        "uv sync command result",
-    )
-    expected_status = _result_status_for_execution_state(execution_state)
-    if result_status != expected_status:
-        raise ValueError("uv sync result_status must match execution_state")
-
-    exit_code = command_result.get("exit_code")
-    if execution_state == "completed_success" and exit_code != 0:
-        raise ValueError("completed uv sync success must have exit_code 0")
-    if execution_state == "completed_failed" and (not isinstance(exit_code, int) or exit_code == 0):
-        raise ValueError("failed uv sync process must have non-zero exit_code")
-    if execution_state in {"timed_out", "launch_failed"} and exit_code is not None:
-        raise ValueError("non-completed uv sync process must not have exit_code")
-
-    expected_findings = tuple(_findings(execution_state))
-    if tuple(finding.to_dict() for finding in findings) != tuple(
-        finding.to_dict() for finding in expected_findings
-    ):
-        raise ValueError("uv sync result_findings must match execution_state")
 
 
 def _validate_relative_path(value: str, owner: str) -> str:
@@ -704,20 +584,6 @@ def _require_text(source: dict[str, Any], key: str) -> str:
     value = source.get(key)
     if not isinstance(value, str) or not value:
         raise ValueError(f"{key} must be text")
-    return value
-
-
-def _require_owned_mapping(source: dict[str, Any], key: str, owner: str) -> dict[str, Any]:
-    value = source.get(key)
-    if not isinstance(value, dict):
-        raise ValueError(f"{owner} {key} must be an object")
-    return copy.deepcopy(value)
-
-
-def _require_owned_text(source: dict[str, Any], key: str, owner: str) -> str:
-    value = source.get(key)
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"{owner} {key} must be text")
     return value
 
 
