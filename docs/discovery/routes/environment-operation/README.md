@@ -33,6 +33,7 @@ result, review locally**:
 optional manifest preflight
   -> bounded manager operation intent
   -> declared external manager result or typed route-local execution result
+  -> optional typed route-local post-sync runtime probe result
   -> local operation review bundle
 ```
 
@@ -40,7 +41,8 @@ The route is currently uv-specific. `uv` remains authoritative for lockfile
 semantics, dependency resolution, synchronization, and package installation.
 Scopecat owns the local review records around the operation: explicit approval,
 bounded argv construction, declared external result recording, the first
-route-local approved `uv sync` subprocess wrapper, and composition of prior
+route-local approved `uv sync` subprocess wrapper, the bounded post-sync
+`uv run --locked --no-sync` interpreter-fact probe, and composition of prior
 summaries or typed route-local results into review surfaces.
 
 In the wider route model, environment operation records support selected
@@ -133,9 +135,9 @@ These are not cleanup tasks for the current route. They are separate product
 authority questions:
 
 1. **Execution wrapper expansion**: if Scopecat execution grows beyond the
-   current minimal `uv sync` prototype, validate cancellation, executable
-   selection UI, approved environment variables, richer output capture, and
-   failure classification separately.
+   current bounded `uv sync` and post-sync interpreter-probe prototypes,
+   validate cancellation, executable selection UI, approved environment
+   variables, richer output capture, and failure classification separately.
 2. **Runtime readiness review**: if users need "can this run now?", validate
    package-state observation, experiment-code import, and run-readiness
    decisions separately from the current interpreter fact probe.
@@ -185,10 +187,11 @@ contract:
 ## Recommended Next Work
 
 The current route is ready to pause broad slice expansion. The active
-engineering route is the minimal `uv sync` execution prototype described in
+engineering route is the `uv sync` execution/review prototype plus bounded
+post-sync runtime probe described in
 [`engineering-prototype-plan.md`](engineering-prototype-plan.md) and assessed in
 [`engineering-prototype-readiness.md`](engineering-prototype-readiness.md).
-After that milestone, the next work should depend on the product question being
+After that prototype line, the next work should depend on the product question being
 answered:
 
 1. **If execution review is the priority**, add optional manifest preflight or

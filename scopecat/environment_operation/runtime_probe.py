@@ -90,6 +90,14 @@ class UvRuntimeProbeIntent:
     working_directory: str
     argv: tuple[str, ...]
 
+    def __post_init__(self) -> None:
+        if self.argv != RUNTIME_PROBE_ARGV:
+            raise ValueError("runtime probe intent argv must be bounded probe argv")
+        _validate_relative_path(
+            self.working_directory,
+            "uv runtime probe intent working_directory",
+        )
+
     @classmethod
     def from_sync_result(
         cls,
@@ -229,7 +237,14 @@ class UvRuntimeProbeResult:
         attention: tuple[dict[str, str], ...],
     ) -> None:
         coerced_command_result = _coerce_probe_command_result(command_result)
-        _validate_probe_result_consistency(coerced_command_result, result_status)
+        coerced_runtime_facts = _coerce_runtime_facts(runtime_facts)
+        coerced_findings = _validate_probe_findings(findings)
+        _validate_probe_result_consistency(
+            coerced_command_result,
+            result_status,
+            coerced_runtime_facts,
+            coerced_findings,
+        )
         object.__setattr__(
             self,
             "_probe_request_ref",
@@ -237,8 +252,8 @@ class UvRuntimeProbeResult:
         )
         object.__setattr__(self, "_command_result", coerced_command_result)
         object.__setattr__(self, "result_status", result_status)
-        object.__setattr__(self, "_runtime_facts", _coerce_runtime_facts(runtime_facts))
-        object.__setattr__(self, "findings", _validate_probe_findings(findings))
+        object.__setattr__(self, "_runtime_facts", coerced_runtime_facts)
+        object.__setattr__(self, "findings", coerced_findings)
         object.__setattr__(self, "_attention", _validate_attention(attention))
 
     @property
@@ -283,6 +298,8 @@ class UvRuntimeProbeResult:
                 "prior_sync_result_source": "route_local_uv_sync_result",
                 "manager_scope": "uv_only",
                 "command_result_shape": "bounded_uv_runtime_probe_execution_record",
+                "local_path_authority": "local_review_path_internal",
+                "runtime_path_authority": "local_review_path_internal",
                 "scopecat_process_execution": "performed",
                 "uv_sync": "not_performed_by_probe",
                 "lockfile_update": "not_performed",
@@ -315,6 +332,8 @@ def execute_uv_runtime_probe(
 
     if timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be positive")
+    if intent.argv != RUNTIME_PROBE_ARGV:
+        raise ValueError("runtime probe intent argv must be bounded probe argv")
 
     command_cwd = _command_cwd(workspace_root, intent.working_directory)
     started = datetime.now(UTC)
@@ -547,6 +566,8 @@ def _coerce_probe_command_result(value: dict[str, Any]) -> dict[str, Any]:
 def _validate_probe_result_consistency(
     command_result: dict[str, Any],
     result_status: str,
+    runtime_facts: dict[str, Any] | None,
+    findings: tuple[UvRuntimeProbeFinding, ...],
 ) -> None:
     execution_state = command_result["execution_state"]
     if result_status != _runtime_probe_status_for_execution_state(execution_state):
@@ -558,6 +579,26 @@ def _validate_probe_result_consistency(
         raise ValueError("failed uv runtime probe must have non-zero exit_code")
     if execution_state in {"timed_out", "launch_failed"} and exit_code is not None:
         raise ValueError("non-completed uv runtime probe must not have exit_code")
+
+    expected_runtime_facts, parse_findings = _runtime_facts_from_stdout(
+        command_result["stdout_summary"],
+        execution_state,
+        command_result["output_capture"]["stdout_truncated"],
+    )
+    if runtime_facts != expected_runtime_facts:
+        raise ValueError("uv runtime probe runtime_facts must match command output")
+
+    expected_findings = tuple(
+        [
+            *_runtime_probe_findings(execution_state),
+            *parse_findings,
+            *_runtime_fact_findings(runtime_facts),
+        ]
+    )
+    if tuple(finding.to_dict() for finding in findings) != tuple(
+        finding.to_dict() for finding in expected_findings
+    ):
+        raise ValueError("uv runtime probe findings must match execution_state and output")
 
 
 def _runtime_probe_findings(execution_state: str) -> list[UvRuntimeProbeFinding]:
@@ -627,13 +668,19 @@ def _validate_probe_findings(
 def _validate_attention(
     attention: tuple[dict[str, str], ...],
 ) -> tuple[dict[str, str], ...]:
-    validated = tuple(copy.deepcopy(item) for item in attention)
-    for item in validated:
+    normalized = []
+    for item in tuple(copy.deepcopy(item) for item in attention):
         if not isinstance(item, dict):
             raise ValueError("uv runtime probe attention entries must be objects")
-        for key in ("code", "severity", "basis", "does_not_claim"):
-            _require_text(item, key)
-    return validated
+        normalized.append(
+            {
+                "code": _require_text(item, "code"),
+                "severity": _require_text(item, "severity"),
+                "basis": _require_text(item, "basis"),
+                "does_not_claim": _require_text(item, "does_not_claim"),
+            }
+        )
+    return tuple(normalized)
 
 
 def _require_string(source: dict[str, Any], key: str) -> str:

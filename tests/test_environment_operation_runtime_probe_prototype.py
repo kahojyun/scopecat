@@ -16,6 +16,7 @@ from scopecat.environment_operation import (
     execute_uv_runtime_probe,
     execute_uv_sync,
 )
+from scopecat.environment_operation.runtime_probe import RUNTIME_PROBE_ARGV
 
 ROOT = Path(__file__).resolve().parents[1]
 INTENT_FIXTURE = ROOT / "tests" / "fixtures" / "uv_sync_intent" / "basic_uv_sync_intent"
@@ -92,6 +93,27 @@ def _runtime_facts(*, is_virtual_environment: bool = True) -> dict[str, object]:
     }
 
 
+def _mutated_sync_result(
+    result: UvSyncResult,
+    *,
+    intent_ref_updates: dict[str, object] | None = None,
+    command_result_updates: dict[str, object] | None = None,
+) -> UvSyncResult:
+    intent_ref = result.intent_ref
+    command_result = result.command_result
+    if intent_ref_updates:
+        intent_ref.update(intent_ref_updates)
+    if command_result_updates:
+        command_result.update(command_result_updates)
+    return UvSyncResult(
+        intent_ref=intent_ref,
+        command_result=command_result,
+        result_status=result.result_status,
+        findings=result.findings,
+        attention=result.attention,
+    )
+
+
 class EnvironmentOperationRuntimeProbePrototypeTest(unittest.TestCase):
     def test_builds_runtime_probe_intent_from_successful_sync_result(self) -> None:
         sync_intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
@@ -103,8 +125,12 @@ class EnvironmentOperationRuntimeProbePrototypeTest(unittest.TestCase):
         self.assertEqual(probe_intent.probe_request_id, f"{sync_intent.request_id}.runtime-probe")
         self.assertEqual(probe_intent.approval_id, sync_intent.approval_id)
         self.assertEqual(probe_intent.sync_result_id, sync_result.command_result["result_id"])
+        self.assertEqual(probe_intent.argv, RUNTIME_PROBE_ARGV)
+        self.assertEqual(len(probe_intent.argv), 7)
         self.assertEqual(probe_intent.argv[:4], ("uv", "run", "--locked", "--no-sync"))
         self.assertEqual(probe_intent.argv[4:6], ("python", "-c"))
+        self.assertIn("platform.python_version()", probe_intent.argv[6])
+        self.assertIn("sys.prefix != sys.base_prefix", probe_intent.argv[6])
         self.assertEqual(
             request_ref["command_intent"]["does_not_claim"],
             "experiment_code_executed_or_run_readiness",
@@ -112,13 +138,82 @@ class EnvironmentOperationRuntimeProbePrototypeTest(unittest.TestCase):
 
     def test_runtime_probe_intent_requires_successful_sync_result(self) -> None:
         sync_intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
-        failed_sync_result = _sync_result(
-            sync_intent,
+        cases = [
             CommandRunResult(exit_code=1, stdout="", stderr="sync failed"),
-        )
+            subprocess.TimeoutExpired(cmd=list(sync_intent.argv), timeout=1),
+            FileNotFoundError("uv executable was not found"),
+        ]
 
-        with self.assertRaisesRegex(ValueError, "successful uv sync result"):
-            UvRuntimeProbeIntent.from_sync_result(sync_intent, failed_sync_result)
+        for sync_runner_result in cases:
+            with self.subTest(sync_runner_result=type(sync_runner_result).__name__):
+                sync_result = _sync_result(sync_intent, sync_runner_result)
+                with self.assertRaisesRegex(ValueError, "successful uv sync result"):
+                    UvRuntimeProbeIntent.from_sync_result(sync_intent, sync_result)
+
+    def test_runtime_probe_intent_rejects_mismatched_sync_result(self) -> None:
+        sync_intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
+        sync_result = _sync_result(sync_intent)
+        cases = [
+            _mutated_sync_result(sync_result, intent_ref_updates={"request_id": "other"}),
+            _mutated_sync_result(
+                sync_result,
+                command_result_updates={"intent_request_id": "other"},
+            ),
+            _mutated_sync_result(sync_result, command_result_updates={"approval_id": "other"}),
+            _mutated_sync_result(
+                sync_result,
+                intent_ref_updates={
+                    "working_directory": "other-project",
+                    "command_intent": {
+                        **sync_result.intent_ref["command_intent"],
+                        "working_directory": "other-project",
+                    },
+                },
+                command_result_updates={"working_directory": "other-project"},
+            ),
+            _mutated_sync_result(
+                sync_result,
+                intent_ref_updates={
+                    "command_intent": {
+                        **sync_result.intent_ref["command_intent"],
+                        "argv": [
+                            "uv",
+                            "sync",
+                            "--locked",
+                            "--no-default-groups",
+                            "--group",
+                            "extra",
+                        ],
+                    },
+                },
+                command_result_updates={
+                    "argv": [
+                        "uv",
+                        "sync",
+                        "--locked",
+                        "--no-default-groups",
+                        "--group",
+                        "extra",
+                    ]
+                },
+            ),
+        ]
+
+        for mismatched_result in cases:
+            with self.subTest(command_result=mismatched_result.command_result):
+                with self.assertRaisesRegex(ValueError, "sync result"):
+                    UvRuntimeProbeIntent.from_sync_result(sync_intent, mismatched_result)
+
+    def test_runtime_probe_intent_rejects_broadened_argv(self) -> None:
+        with self.assertRaisesRegex(ValueError, "bounded probe argv"):
+            UvRuntimeProbeIntent(
+                probe_request_id="probe",
+                approval_id="approval",
+                sync_request_id="sync",
+                sync_result_id="sync-result",
+                working_directory="project",
+                argv=("uv", "run", "python"),
+            )
 
     def test_executes_runtime_probe_through_injected_runner(self) -> None:
         sync_intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
@@ -163,6 +258,10 @@ class EnvironmentOperationRuntimeProbePrototypeTest(unittest.TestCase):
         self.assertEqual(
             summary["uv_runtime_probe_result_policy"]["readiness_claim"],
             "not_claimed",
+        )
+        self.assertEqual(
+            summary["uv_runtime_probe_result_policy"]["runtime_path_authority"],
+            "local_review_path_internal",
         )
         self.assertEqual(summary["runtime_facts"]["is_virtual_environment"], True)
         self.assertEqual(summary["command_result"]["output_capture"]["raw_output"], "not_recorded")
@@ -227,6 +326,8 @@ class EnvironmentOperationRuntimeProbePrototypeTest(unittest.TestCase):
         probe_request_ref["command_intent"]["extra_secret"] = "not exported"
         command_result["raw_stdout"] = "not exported"
         command_result["output_capture"]["raw_stdout"] = "not exported"
+        attention = result.attention
+        attention = ({**attention[0], "extra_secret": "not exported"}, *attention[1:])
 
         summary = UvRuntimeProbeResult(
             probe_request_ref=probe_request_ref,
@@ -234,7 +335,7 @@ class EnvironmentOperationRuntimeProbePrototypeTest(unittest.TestCase):
             result_status=result.result_status,
             runtime_facts=result.runtime_facts,
             findings=result.findings,
-            attention=result.attention,
+            attention=attention,
         ).to_summary()
 
         self.assertNotIn("extra_secret", summary["uv_runtime_probe_request_ref"])
@@ -244,6 +345,91 @@ class EnvironmentOperationRuntimeProbePrototypeTest(unittest.TestCase):
         )
         self.assertNotIn("raw_stdout", summary["command_result"])
         self.assertNotIn("raw_stdout", summary["command_result"]["output_capture"])
+        self.assertNotIn("extra_secret", summary["attention"][0])
+
+    def test_runtime_probe_result_rejects_raw_output_capture(self) -> None:
+        sync_intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
+        probe_intent = UvRuntimeProbeIntent.from_sync_result(
+            sync_intent,
+            _sync_result(sync_intent),
+        )
+        with TemporaryDirectory() as tmp:
+            workspace_root = Path(tmp)
+            (workspace_root / "project").mkdir()
+            result = execute_uv_runtime_probe(
+                probe_intent,
+                workspace_root=workspace_root,
+                runner=FakeRunner(
+                    CommandRunResult(
+                        exit_code=0,
+                        stdout=json.dumps(_runtime_facts()),
+                        stderr="",
+                    )
+                ),
+            ).to_result(probe_intent)
+
+        command_result = result.command_result
+        command_result["output_capture"]["raw_output"] = "secret raw log"
+
+        with self.assertRaisesRegex(ValueError, "raw output must not be recorded"):
+            UvRuntimeProbeResult(
+                probe_request_ref=result.probe_request_ref,
+                command_result=command_result,
+                result_status=result.result_status,
+                runtime_facts=result.runtime_facts,
+                findings=result.findings,
+                attention=result.attention,
+            )
+
+    def test_runtime_probe_result_rejects_inconsistent_facts_and_findings(self) -> None:
+        sync_intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
+        probe_intent = UvRuntimeProbeIntent.from_sync_result(
+            sync_intent,
+            _sync_result(sync_intent),
+        )
+        with TemporaryDirectory() as tmp:
+            workspace_root = Path(tmp)
+            (workspace_root / "project").mkdir()
+            result = execute_uv_runtime_probe(
+                probe_intent,
+                workspace_root=workspace_root,
+                runner=FakeRunner(
+                    CommandRunResult(
+                        exit_code=0,
+                        stdout=json.dumps(_runtime_facts()),
+                        stderr="",
+                    )
+                ),
+            ).to_result(probe_intent)
+
+        failed_command_result = result.command_result
+        failed_command_result["execution_state"] = "completed_failed"
+        failed_command_result["exit_code"] = 1
+        failed_command_result["stdout_summary"] = ""
+        with self.assertRaisesRegex(ValueError, "runtime_facts must match command output"):
+            UvRuntimeProbeResult(
+                probe_request_ref=result.probe_request_ref,
+                command_result=failed_command_result,
+                result_status="uv_runtime_probe_completed_failed",
+                runtime_facts=result.runtime_facts,
+                findings=(),
+                attention=result.attention,
+            )
+
+        system_python_facts = _runtime_facts(is_virtual_environment=False)
+        system_python_facts["prefix"] = "/usr"
+        system_python_facts["base_prefix"] = "/usr"
+        system_python_command_result = result.command_result
+        system_python_command_result["stdout_summary"] = json.dumps(system_python_facts)
+        with self.assertRaisesRegex(ValueError, "findings must match"):
+            UvRuntimeProbeResult(
+                probe_request_ref=result.probe_request_ref,
+                command_result=system_python_command_result,
+                result_status=result.result_status,
+                runtime_facts=system_python_facts,
+                findings=(),
+                attention=result.attention,
+            )
 
     def test_runtime_probe_failure_timeout_and_launch_failure_are_review_findings(self) -> None:
         sync_intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())

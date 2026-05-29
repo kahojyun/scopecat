@@ -33,6 +33,12 @@ to collect small interpreter facts. The probe records whether Python reported a
 virtual environment, but it does not repair the environment, inspect packages,
 import experiment code, or decide run readiness.
 
+Runtime probe summaries may include local interpreter paths such as
+`sys.executable`, `sys.prefix`, `sys.base_prefix`, and the local execution cwd.
+Those path facts are local review facts only. If this output is later promoted
+to a portable/export artifact, that promotion needs a separate boundary and
+redaction decision.
+
 It does not read or parse `pyproject.toml`, read or parse `uv.lock`, interpret
 dependency output, verify installed package state, import selected experiment
 code, execute notebooks, contact hardware, or decide that a run can start.

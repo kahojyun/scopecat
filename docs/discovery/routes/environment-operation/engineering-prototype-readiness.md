@@ -44,7 +44,7 @@ hardware readiness, or a shared environment-manager abstraction.
 | --- | --- | --- |
 | Route-local product-shaped API | Met | `UvSyncIntent.from_summary(...)`, `execute_uv_sync(..., uv_executable=...)` or `execute_uv_sync(..., runner=...)`, `UvSyncResult.from_execution(...)`, `UvSyncResult.to_summary(...)`, compatibility `UvSyncExecutionRecord.to_result_summary(...)`, and `review_uv_sync_operation(...)` exist under `scopecat.environment_operation`. |
 | Actual external interaction boundary | Met | The prototype runs bounded `uv sync` commands through `SubprocessUvRunner` with caller-provided workspace root, relative cwd, explicit executable path, and timeout. |
-| Representative success and failure coverage | Met | Tests cover injected success/failure/timeout/launch-failure behavior plus real tiny `uv` success and missing-lock failure fixtures. |
+| Representative success and failure coverage | Met | Tests cover injected sync success/failure/timeout/launch-failure behavior, real tiny `uv` success and missing-lock failure fixtures, runtime-probe process failure/timeout/launch failure, invalid JSON, output-shape rejection, raw-output rejection, non-virtual-environment findings, and a real post-sync probe fixture. |
 | Review projection and non-claims | Met | Execution records promote to typed local results, which project local result summaries and feed operation reviews with bounded output, findings, alignment checks, and explicit no runtime-readiness/package-state/code-execution claims. |
 | Post-sync runtime probe | Met | `UvRuntimeProbeIntent.from_sync_result(...)`, `execute_uv_runtime_probe(...)`, and `UvRuntimeProbeResult.to_summary(...)` record bounded interpreter facts via `uv run --locked --no-sync` without environment repair, package-state verification, experiment-code execution, or run-readiness claims. |
 | Green repository verification | Met | Current milestone verification uses `uv run python -m unittest discover -s tests` and `uv run prek run --all-files`. |
@@ -100,9 +100,10 @@ requires it, or if a future route extension explicitly chooses one as evidence.
 
 ## Recommendation
 
-Keep this PR focused on the first approved `uv sync` execution boundary. After
-rebasing onto the latest `origin/main`, the branch should be ready for review
-once repository verification remains green.
+Keep this PR focused on the approved `uv sync` execution/review boundary plus
+the bounded post-sync runtime probe. After rebasing onto the latest
+`origin/main`, the branch should be ready for review once repository
+verification remains green.
 
 Future environment-operation work should be triggered by a new boundary
 question: broader review-bundle integration with optional manifest or
