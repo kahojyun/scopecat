@@ -5,6 +5,13 @@ from scopecat.environment_operation.operation_review import (
     EnvironmentOperationReview,
     review_uv_sync_operation,
 )
+from scopecat.environment_operation.runtime_probe import (
+    UvRuntimeProbeExecutionRecord,
+    UvRuntimeProbeFinding,
+    UvRuntimeProbeIntent,
+    UvRuntimeProbeResult,
+    execute_uv_runtime_probe,
+)
 from scopecat.environment_operation.uv_sync import (
     CommandRunResult,
     SubprocessUvRunner,
@@ -20,10 +27,15 @@ __all__ = [
     "EnvironmentOperationFinding",
     "EnvironmentOperationReview",
     "SubprocessUvRunner",
+    "UvRuntimeProbeExecutionRecord",
+    "UvRuntimeProbeFinding",
+    "UvRuntimeProbeIntent",
+    "UvRuntimeProbeResult",
     "UvSyncExecutionRecord",
     "UvSyncFinding",
     "UvSyncIntent",
     "UvSyncResult",
+    "execute_uv_runtime_probe",
     "execute_uv_sync",
     "review_uv_sync_operation",
 ]

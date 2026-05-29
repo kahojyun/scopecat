@@ -12,8 +12,9 @@ if any prototype output is promoted into a portable/export artifact.
 
 ## Readiness Judgment
 
-The environment-operation engineering prototype is ready to stop broad
-expansion for the first execution boundary and move to PR review.
+The environment-operation engineering prototype has completed the first
+execution/review boundary and now includes a bounded post-sync runtime probe
+milestone.
 
 The accepted prototype target is the first route-local execution vertical:
 
@@ -24,6 +25,9 @@ validated uv sync intent summary
   -> UvSyncExecutionRecord
   -> route-local UvSyncResult
   -> route-local operation review
+  -> route-local UvRuntimeProbeIntent
+  -> approved local uv runtime probe execution
+  -> route-local UvRuntimeProbeResult
 ```
 
 `UvSyncResult.to_summary()` remains a one-way route-local review-snapshot
@@ -31,8 +35,8 @@ projection for fixture snapshots and edge inspection. The internal review API
 consumes the typed result object instead of a raw dictionary summary.
 
 This does not promote the full environment-operation route, a public SDK,
-runtime readiness, package-state verification, code execution, hardware
-readiness, or a shared environment-manager abstraction.
+runtime readiness, package-state verification, experiment-code execution,
+hardware readiness, or a shared environment-manager abstraction.
 
 ## Stop Criteria Check
 
@@ -40,8 +44,9 @@ readiness, or a shared environment-manager abstraction.
 | --- | --- | --- |
 | Route-local product-shaped API | Met | `UvSyncIntent.from_summary(...)`, `execute_uv_sync(..., uv_executable=...)` or `execute_uv_sync(..., runner=...)`, `UvSyncResult.from_execution(...)`, `UvSyncResult.to_summary(...)`, compatibility `UvSyncExecutionRecord.to_result_summary(...)`, and `review_uv_sync_operation(...)` exist under `scopecat.environment_operation`. |
 | Actual external interaction boundary | Met | The prototype runs bounded `uv sync` commands through `SubprocessUvRunner` with caller-provided workspace root, relative cwd, explicit executable path, and timeout. |
-| Representative success and failure coverage | Met | Tests cover injected success/failure/timeout/launch-failure behavior plus real tiny `uv` success and missing-lock failure fixtures. |
+| Representative success and failure coverage | Met | Tests cover injected sync success/failure/timeout/launch-failure behavior, real tiny `uv` success and missing-lock failure fixtures, runtime-probe process failure/timeout/launch failure, invalid JSON, output-shape rejection, raw-output rejection, non-virtual-environment findings, and a real post-sync probe fixture. |
 | Review projection and non-claims | Met | Execution records promote to typed local results, which project local result summaries and feed operation reviews with bounded output, findings, alignment checks, and explicit no runtime-readiness/package-state/code-execution claims. |
+| Post-sync runtime probe | Met | `UvRuntimeProbeIntent.from_sync_result(...)`, `execute_uv_runtime_probe(...)`, and `UvRuntimeProbeResult.to_summary(...)` record bounded interpreter facts via `uv run --locked --no-sync` without environment repair, package-state verification, experiment-code execution, or run-readiness claims. |
 | Green repository verification | Met | Current milestone verification uses `uv run python -m unittest discover -s tests` and `uv run prek run --all-files`. |
 
 ## Keep As Implementation Shape
@@ -61,13 +66,19 @@ These choices are strong enough to carry into PR review:
 - review findings instead of run-blocking or readiness decisions;
 - route-local typed result, result-summary projection, and operation-review
   flow.
+- route-local runtime probe intent/result objects derived from successful sync
+  results;
+- bounded runtime probe argv shape, currently
+  `uv run --locked --no-sync python -c <stdlib probe>`;
+- interpreter fact capture for Python version, implementation, executable,
+  prefix, base prefix, and virtual-environment status.
 
 ## Keep Deferred
 
 These are not blockers for this PR:
 
-- post-sync runtime probing;
 - installed package or virtual-environment state verification;
+- runtime readiness beyond bounded interpreter fact capture;
 - parsing `pyproject.toml`, `uv.lock`, or uv dependency output;
 - dependency graph interpretation or package-change summaries;
 - code import, notebook execution, or experiment-code execution;
@@ -89,12 +100,13 @@ requires it, or if a future route extension explicitly chooses one as evidence.
 
 ## Recommendation
 
-Keep this PR focused on the first approved `uv sync` execution boundary. After
-rebasing onto the latest `origin/main`, the branch should be ready for review
-once repository verification remains green.
+Keep this PR focused on the approved `uv sync` execution/review boundary plus
+the bounded post-sync runtime probe. After rebasing onto the latest
+`origin/main`, the branch should be ready for review once repository
+verification remains green.
 
 Future environment-operation work should be triggered by a new boundary
-question: runtime probing, broader review-bundle integration with optional
-manifest or prepared-context references, Pixi/Conda pressure, or selected
-experiment-code execution. Those should be separate PRs, not additional
-broadening of this prototype line.
+question: broader review-bundle integration with optional manifest or
+prepared-context references, package-state pressure, Pixi/Conda pressure, or
+selected experiment-code execution. Those should be separate PRs, not
+additional broadening of this prototype line.
