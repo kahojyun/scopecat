@@ -63,3 +63,21 @@ It writes `finalization-receipt.json` without replacing
 `record-manifest.json`. `complete` requires ready read-view evidence; `failed`
 requires an explicit operator reason. Manifest replacement and read-model
 refresh remain separate decisions.
+
+The next accepted boundary is derived read-model projection:
+
+```text
+creation manifest
+  -> writer receipt
+  -> read-view summary
+  -> finalization receipt
+  -> approved projection request
+  -> record-local record-read-model.json
+  -> local projection run receipt
+```
+
+`record-read-model.json` is a local convenience summary, not canonical storage
+authority. Receipts and the creation manifest win over a stale or conflicting
+projection. The first projection slice should use no-overwrite behavior and
+must not replace the manifest, mutate receipts, refresh an existing read
+model, or define final storage schema.

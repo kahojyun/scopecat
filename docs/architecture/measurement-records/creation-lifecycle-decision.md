@@ -292,3 +292,66 @@ errors.
 It deliberately leaves `record-manifest.json` unchanged and does not refresh a
 read model, define canonical lifecycle-state storage, implement crash
 recovery, or accept import finalization semantics.
+
+## Read Model Projection Decision
+
+Choose derived read-model projection before manifest replacement.
+
+The next slice should prove:
+
+```text
+creation manifest
+  -> writer receipt
+  -> read-view summary
+  -> finalization receipt
+  -> approved projection request
+  -> record-local read model
+  -> local projection run receipt
+```
+
+The projected read model is a convenience surface for local consumers that need
+one current-state summary. It is not canonical storage authority. Until a
+separate manifest-replacement decision exists, `record-manifest.json` remains
+the durable shell, writer and finalization receipts remain authoritative
+evidence, and receipt contents win over a stale or conflicting read model.
+
+The first projected file should be named `record-read-model.json`. It may
+summarize:
+
+- record id and record directory;
+- creation manifest path and digest;
+- writer receipt path, primary data path, primary data digest, byte count, and
+  declared row count;
+- read-view status, observed row count, and review findings;
+- final lifecycle state from `finalization-receipt.json`;
+- failed finalization reason when the final state is `failed`;
+- source receipt paths and projection non-claims.
+
+The first implementation should:
+
+- require an approved projection request;
+- consume the existing creation manifest, writer receipt, read-view run, and
+  finalization receipt;
+- require record id, record directory, manifest path, writer receipt path,
+  primary data path, digest, size, row-count, and finalization continuity;
+- write exactly one `record-read-model.json` under the record directory with
+  no-overwrite behavior;
+- return a local projection run receipt;
+- leave the creation manifest, writer receipt, primary data, and finalization
+  receipt unchanged.
+
+This decision does not accept:
+
+- replacing, rewriting, or atomically swapping `record-manifest.json`;
+- treating `record-read-model.json` as canonical authority;
+- refreshing or overwriting an existing read model;
+- stale read-model detection, repair, or cleanup;
+- conflict policy beyond no-overwrite projection creation;
+- crash recovery, lock identity, concurrent refresh, or transactional
+  durability;
+- public storage schema, export schema, database index, or GUI review state.
+
+Manifest replacement remains a later decision because it needs atomic replace
+semantics, stale projection handling, conflict policy, crash recovery, and
+clear authority rules. This projection slice only unblocks consumers that need
+a compact current-state summary after receipt-based finalization.
