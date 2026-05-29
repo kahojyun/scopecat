@@ -14,6 +14,9 @@ INTENT_FIXTURE = ROOT / "tests" / "fixtures" / "uv_sync_intent" / "basic_uv_sync
 TINY_UV_WORKSPACE = (
     ROOT / "tests" / "fixtures" / "environment_operation_execution" / "tiny_uv_workspace"
 )
+MISSING_LOCK_WORKSPACE = (
+    ROOT / "tests" / "fixtures" / "environment_operation_execution" / "missing_lock_workspace"
+)
 ENVIRONMENT_OPERATION_MODULE = ROOT / "scopecat" / "environment_operation"
 
 
@@ -127,6 +130,26 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
         self.assertEqual(record.execution_state, "completed_failed")
         self.assertEqual(record.exit_code, 1)
         self.assertEqual(record.stderr_summary, "lockfile needs update")
+        self.assertEqual([finding.code for finding in record.findings], ["uv_sync_process_failed"])
+        self.assertEqual(record.findings[0].does_not_claim, "synchronized_or_installed_environment")
+
+    def test_real_locked_uv_failure_is_review_finding_not_runtime_truth(self) -> None:
+        intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
+        with TemporaryDirectory() as tmp:
+            workspace_root = Path(tmp) / "workspace"
+            shutil.copytree(MISSING_LOCK_WORKSPACE, workspace_root)
+
+            record = execute_uv_sync(
+                intent,
+                workspace_root=workspace_root,
+                result_id="uv-sync-result-missing-lock-real-001",
+                timeout_seconds=60,
+            )
+
+        self.assertEqual(record.result_status, "uv_sync_completed_failed")
+        self.assertEqual(record.execution_state, "completed_failed")
+        self.assertNotEqual(record.exit_code, 0)
+        self.assertIn("lockfile", record.stderr_summary)
         self.assertEqual([finding.code for finding in record.findings], ["uv_sync_process_failed"])
         self.assertEqual(record.findings[0].does_not_claim, "synchronized_or_installed_environment")
 

@@ -18,7 +18,8 @@ runner.
 ## First Milestone
 
 Status: implemented in `scopecat.environment_operation` with injected-runner
-tests and a real tiny `uv` workspace fixture.
+tests, a real tiny `uv` success fixture, and a real locked-mode failure
+fixture.
 
 The prototype should support:
 
@@ -55,9 +56,10 @@ Stop this milestone when Scopecat can prepare a route-local intent, execute the
 bounded `uv sync` command through an injectable runner, record bounded process
 facts, and surface failure/timeout as review findings without claiming runtime
 or run readiness. The current prototype satisfies that stop condition and adds
-one repository-safe real-`uv` fixture to verify the subprocess path.
+repository-safe real-`uv` fixtures to verify the subprocess success and failure
+paths.
 
 The next milestone should be chosen only after this boundary is reviewed. Likely
-follow-ups are a post-sync runtime probe, additional execution-result hardening
-against real manager failures, or Pixi-specific pressure before extracting any
+follow-ups are a post-sync runtime probe, a clearer operation-result projection
+for downstream review bundles, or Pixi-specific pressure before extracting any
 shared manager abstraction.
