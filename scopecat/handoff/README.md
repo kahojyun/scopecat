@@ -20,11 +20,20 @@ Raw manifest dictionaries are validated at the package boundary. After that,
 opener internals consume typed route-local manifest fragments and package
 projection objects.
 
+The route-local writer uses a caller-provided `source_root` plus declared
+relative source paths for already-normalized primary data. That source-root
+boundary deliberately avoids accepting final Scopecat storage architecture.
+The writer materializes the current directory-shaped package subset, preflights
+declared sha256/size facts, writes with no-overwrite behavior, and returns a
+local review receipt. It does not create archives, import packages, mutate the
+source root, or decide package acceptance.
+
 ## API Surface
 
 Current user-facing prototype surface:
 
 - `open_package(package_dir)`;
+- `write_package(source, source_root=..., package_root=...)`;
 - `python -m scopecat.handoff <package-dir>`;
 - `write_inspection_artifact(...)` and `build_inspection_html(...)`;
 - route projection objects exported from `scopecat.handoff`.

@@ -133,9 +133,12 @@ The first engineering-prototype pass now exists under `scopecat/handoff/`.
 It provides:
 
 - `open_package(package_dir)` as the Python entrypoint;
+- `write_package(source, source_root=..., package_root=...)` as the
+  source-root package writer entrypoint for declared normalized primary data;
 - route-local `HandoffPackage`, `HandoffMeasurement`, `HandoffTable`, and
   `HandoffFinding`, `HandoffLinkedContext`, and `HandoffPlotSeries`
   projections;
+- route-local `HandoffPackageWriteReceipt` projection for local write review;
 - a stdlib CLI via `python -m scopecat.handoff <package-dir>` for JSON
   orientation and `--html-dir <dir>` for a local static inspection artifact;
 - `build_inspection_html()` and `write_inspection_artifact()` for local
@@ -162,11 +165,16 @@ It provides:
   prototype/product-shaped package.
 
 The prototype no longer delegates read-only opening, manifest-preview
-classification, or handoff contract checks to `implementation_candidates`.
+classification, package writing, or handoff contract checks to
+`implementation_candidates`.
 Those discovery candidates remain historical validation evidence. The local
 inspection artifact is prototype-local review output; it is not a portable
 package member, public report, final GUI component model, dataframe adapter,
 package import record, or package-integrity verification.
+
+The writer uses `source_root` terminology at the promoted API boundary. That
+keeps the current workflow testable without accepting final Scopecat storage
+architecture or archive format.
 
 Promotion follow-up decisions resolved by
 [`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md):

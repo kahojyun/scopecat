@@ -13,6 +13,7 @@ from scopecat.handoff.package import (
 )
 from scopecat.handoff.read_only import open_package
 from scopecat.handoff.tables import HandoffPlotSeries, HandoffTable
+from scopecat.handoff.writer import HandoffPackageWriteReceipt, write_package
 
 __all__ = [
     "HANDOFF_INSPECTION_ARTIFACT_NAME",
@@ -20,9 +21,11 @@ __all__ = [
     "HandoffLinkedContext",
     "HandoffMeasurement",
     "HandoffPackage",
+    "HandoffPackageWriteReceipt",
     "HandoffPlotSeries",
     "HandoffTable",
     "build_inspection_html",
     "open_package",
     "write_inspection_artifact",
+    "write_package",
 ]

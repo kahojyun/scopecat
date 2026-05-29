@@ -34,6 +34,27 @@ the same route should be either:
 
 It should not continue as broad prototype expansion.
 
+## Source-Root Writer Extension
+
+The next promoted route-local extension is a package writer that starts from a
+caller-provided `source_root` plus declared relative paths for normalized
+primary data. This deliberately replaces the discovery candidate's
+storage-root wording at the accepted API boundary: the writer can validate and
+copy source files without accepting final Scopecat storage architecture.
+
+The accepted writer behavior is narrow:
+
+- require an approved package write request and no-overwrite collision policy;
+- copy only declared primary CSV data after sha256 and size preflight;
+- write the current directory-shaped package subset and deterministic manifest;
+- keep linked context reference-only;
+- return a local write receipt;
+- prove generated packages open through the accepted read-only reader.
+
+This extension still does not promote archive format, package import or
+acceptance, final storage schema, signatures/authenticity, linked-context
+payload packaging, or a shared measurement-record domain model.
+
 ## Accepted Baseline
 
 The promoted baseline includes:
