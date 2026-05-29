@@ -355,3 +355,24 @@ Manifest replacement remains a later decision because it needs atomic replace
 semantics, stale projection handling, conflict policy, crash recovery, and
 clear authority rules. This projection slice only unblocks consumers that need
 a compact current-state summary after receipt-based finalization.
+
+## Read Model Projection Implementation Checkpoint
+
+The first derived read-model projection slice is implemented in
+[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+It exposes a raw-dictionary entrypoint,
+`project_measurement_record_read_model(...)`, and a typed request entrypoint,
+`project_measurement_record_read_model_from_read_view(...)`.
+
+This slice consumes a read view, re-reads and verifies the creation manifest
+and writer receipt against that read view, reads a record-local
+`finalization-receipt.json`, verifies finalization evidence continuity, and
+writes exactly one record-local `record-read-model.json` under no-overwrite
+behavior. The read model summarizes final lifecycle state, source receipt
+paths and digests, primary data facts, table preview data, and review findings.
+
+It deliberately keeps `record-read-model.json` as a derived local convenience
+surface. It does not replace `record-manifest.json`, mutate receipts, overwrite
+or refresh an existing read model, define canonical storage authority, accept
+public export schema, implement stale projection repair, or define crash
+recovery.

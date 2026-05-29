@@ -81,3 +81,10 @@ authority. Receipts and the creation manifest win over a stale or conflicting
 projection. The first projection slice should use no-overwrite behavior and
 must not replace the manifest, mutate receipts, refresh an existing read
 model, or define final storage schema.
+
+This projection slice is now implemented through
+`project_measurement_record_read_model(...)` and
+`project_measurement_record_read_model_from_read_view(...)`. It writes one
+record-local `record-read-model.json` from the creation manifest, writer
+receipt, read view, and finalization receipt, leaving all source artifacts
+unchanged.

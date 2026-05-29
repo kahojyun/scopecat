@@ -12,6 +12,12 @@ from scopecat.measurement_records.finalization import (
     finalize_measurement_record,
     finalize_measurement_record_from_read_view,
 )
+from scopecat.measurement_records.read_model_projection import (
+    MeasurementRecordReadModelProjectionRequest,
+    MeasurementRecordReadModelProjectionRun,
+    project_measurement_record_read_model,
+    project_measurement_record_read_model_from_read_view,
+)
 from scopecat.measurement_records.read_view import (
     MeasurementRecordReadRequest,
     MeasurementRecordReadRun,
@@ -31,6 +37,8 @@ __all__ = [
     "MeasurementRecordCreationRun",
     "MeasurementRecordFinalizationRequest",
     "MeasurementRecordFinalizationRun",
+    "MeasurementRecordReadModelProjectionRequest",
+    "MeasurementRecordReadModelProjectionRun",
     "MeasurementRecordReadRequest",
     "MeasurementRecordReadRun",
     "MeasurementRecordWriterChunk",
@@ -40,6 +48,8 @@ __all__ = [
     "create_measurement_record_from_request",
     "finalize_measurement_record",
     "finalize_measurement_record_from_read_view",
+    "project_measurement_record_read_model",
+    "project_measurement_record_read_model_from_read_view",
     "read_created_record_primary_table",
     "read_created_record_primary_table_from_request",
     "write_created_record_primary_data",
