@@ -47,6 +47,32 @@ one of them to portable output.
 | Receiving mutation | Acceptance | Copy reviewed package primary data into new local storage records after explicit approval. |
 | Route-local support | Handoff package route contracts | Share repeated handoff-specific identity, package-path, preview-ready, and continuity checks where the same semantics already recur. |
 
+## Accepted Read-Only Baseline
+
+The read-only handoff engineering prototype has been promoted as the accepted
+implementation baseline for the first open-before-import vertical. It tested
+route-local module boundaries, regression fixtures, and a thin local entrypoint
+without changing the accepted-for-now route decisions in
+[`decision.md`](decision.md).
+
+The accepted local API is intentionally product-shaped rather than a direct
+wrapper around discovery candidate summaries: it exposes route-local package,
+measurement, table, plot, finding, and linked-context objects while keeping
+candidate outputs as historical validation evidence.
+
+Use [`engineering-prototype-plan.md`](engineering-prototype-plan.md) for the
+prototype objective, scope, fixture policy, stop conditions, and promotion
+criteria.
+
+Use
+[`engineering-prototype-readiness.md`](engineering-prototype-readiness.md) for
+the current stop-criteria check and recommended promotion path.
+
+Use
+[`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md)
+for the decision that promotes the read-only handoff vertical as the accepted
+implementation baseline and stops the current broad prototype line.
+
 ## Artifact Boundary
 
 | Surface | Boundary posture | Redaction/reference responsibility |
@@ -85,7 +111,8 @@ These concepts have enough repeated pressure to carry forward in handoff work:
 Keep these concepts local to their current candidates until a narrower
 implementation need makes them worth promoting:
 
-- final SDK object names and package-open API;
+- final public SDK names and package-open API beyond the accepted local
+  `open_package(package_dir)` entrypoint;
 - pandas/numpy adapter behavior and hard dataframe dependencies;
 - live GUI routing, component hierarchy, and interactive selection;
 - production plotting library and publication-grade rendering;
