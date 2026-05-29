@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import unittest
 from pathlib import Path
@@ -10,6 +11,9 @@ from scopecat.environment_operation import CommandRunResult, UvSyncIntent, execu
 
 ROOT = Path(__file__).resolve().parents[1]
 INTENT_FIXTURE = ROOT / "tests" / "fixtures" / "uv_sync_intent" / "basic_uv_sync_intent"
+TINY_UV_WORKSPACE = (
+    ROOT / "tests" / "fixtures" / "environment_operation_execution" / "tiny_uv_workspace"
+)
 ENVIRONMENT_OPERATION_MODULE = ROOT / "scopecat" / "environment_operation"
 
 
@@ -17,6 +21,16 @@ def _load_intent_summary() -> dict:
     return json.loads(
         (INTENT_FIXTURE / "expected-uv-sync-intent-summary.json").read_text(encoding="utf-8")
     )["candidate_summary"]
+
+
+def _load_tiny_uv_intent_summary() -> dict:
+    summary = _load_intent_summary()
+    summary["sync_request"]["dependency_groups"] = []
+    summary["command_intent"]["argv"] = ["uv", "sync", "--locked", "--no-default-groups"]
+    summary["command_intent"]["dependency_group_selection"]["requested_groups"] = []
+    summary["command_intent"]["dependency_group_selection"]["group_matches"] = []
+    summary["command_intent"]["dependency_group_selection"]["command_dependency_groups"] = []
+    return summary
 
 
 class FakeRunner:
@@ -73,6 +87,26 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
             summary["command_result"]["output_capture"]["raw_output"],
             "not_recorded",
         )
+
+    def test_executes_real_uv_sync_against_tiny_workspace_fixture(self) -> None:
+        intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
+        with TemporaryDirectory() as tmp:
+            workspace_root = Path(tmp) / "workspace"
+            shutil.copytree(TINY_UV_WORKSPACE, workspace_root)
+
+            record = execute_uv_sync(
+                intent,
+                workspace_root=workspace_root,
+                result_id="uv-sync-result-tiny-real-001",
+                timeout_seconds=60,
+            )
+
+        self.assertEqual(record.result_status, "uv_sync_completed_success")
+        self.assertEqual(record.execution_state, "completed_success")
+        self.assertEqual(record.exit_code, 0)
+        self.assertEqual(record.findings, ())
+        self.assertFalse(record.stdout_truncated)
+        self.assertFalse(record.stderr_truncated)
 
     def test_failed_uv_process_is_review_finding_not_readiness_claim(self) -> None:
         intent = UvSyncIntent.from_summary(_load_intent_summary())

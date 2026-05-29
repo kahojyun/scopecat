@@ -17,6 +17,9 @@ runner.
 
 ## First Milestone
 
+Status: implemented in `scopecat.environment_operation` with injected-runner
+tests and a real tiny `uv` workspace fixture.
+
 The prototype should support:
 
 - route-local `UvSyncIntent` objects built from validated intent summaries;
@@ -51,9 +54,10 @@ This prototype does not:
 Stop this milestone when Scopecat can prepare a route-local intent, execute the
 bounded `uv sync` command through an injectable runner, record bounded process
 facts, and surface failure/timeout as review findings without claiming runtime
-or run readiness.
+or run readiness. The current prototype satisfies that stop condition and adds
+one repository-safe real-`uv` fixture to verify the subprocess path.
 
 The next milestone should be chosen only after this boundary is reviewed. Likely
-follow-ups are a post-sync runtime probe, a real local fixture that runs `uv`
-against a tiny project, or Pixi-specific pressure before extracting any shared
-manager abstraction.
+follow-ups are a post-sync runtime probe, additional execution-result hardening
+against real manager failures, or Pixi-specific pressure before extracting any
+shared manager abstraction.
