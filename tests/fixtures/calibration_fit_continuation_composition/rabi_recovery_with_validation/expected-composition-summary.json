@@ -1,0 +1,92 @@
+{
+  "summary_id": "calibration-fit-continuation-composition-rabi-recovery.expected",
+  "status": "expected_validation_output",
+  "source_fixture": "composition-input.json",
+  "reference_semantics": {
+    "status": "fixture_references_are_synthetic",
+    "artifact_posture": "internal_validation_summary",
+    "contract_guard": "This is not a runner contract, replay harness, dataset registry, GUI workflow, fitting API, score model, write-back path, or hardware-control contract."
+  },
+  "candidate_summary": {
+    "composition_id": "calibration-fit-continuation-composition-rabi-recovery.candidate",
+    "episode_id": "cal-episode-05001",
+    "target_group": "qA",
+    "recovery": {
+      "fit_incident_id": "incident-rabi-recovered-for-continuation",
+      "fit_family": "rabi_amplitude",
+      "chosen_recovery_action": "accept_after_refit",
+      "recovery_action_id": "incident-rabi-recovered-for-continuation:accept_after_refit",
+      "source": "fixture_declared"
+    },
+    "continuation_effect": {
+      "status": "can_continue",
+      "current_step_id": "step-2-rabi-amplitude",
+      "current_step_lifecycle_state": "completed",
+      "next_step_id": "step-3-t1-check",
+      "next_step_lifecycle_state": "pending",
+      "continuation_blocked": false
+    },
+    "validation_preservation": {
+      "dataset_id": "fit-validation-dataset-qA-0003",
+      "dataset_posture": "lab_internal_validation_dataset_draft",
+      "ready_for_lab_internal_validation": true,
+      "validation_case_id": "validation-case-rabi-recovered-for-continuation",
+      "source_measurement_ref": "measurement:run-05002",
+      "fit_incident_measurement_ref": "measurement:run-05002",
+      "current_step_output_ref": "measurement:run-05002",
+      "selected_fit_attempt_refs": [
+        "fit-attempt:rabi-05002-default-failed",
+        "fit-attempt:rabi-05002-roi-refit-accepted"
+      ],
+      "selected_fit_attempts": [
+        {
+          "attempt_id": "fit-attempt:rabi-05002-default-failed",
+          "status": "fit_failed_exception",
+          "user_code_ref": "code:rabi-fit-helper-v2",
+          "fit_config_ref": "fit-config:rabi-default-roi"
+        },
+        {
+          "attempt_id": "fit-attempt:rabi-05002-roi-refit-accepted",
+          "status": "completed_after_user_adjustment",
+          "user_code_ref": "code:rabi-fit-helper-v2",
+          "fit_config_ref": "fit-config:rabi-adjusted-roi-and-guess"
+        }
+      ]
+    },
+    "linked_summary_ids": {
+      "continuation": "calibration-continuation-rabi-recovery-can-continue.candidate",
+      "fit_validation": "calibration-fit-validation-dataset-composed-rabi-recovery.candidate"
+    },
+    "attention": [],
+    "boundary": {
+      "summary_posture": "internal_validation_summary",
+      "non_claims": [
+        "no fit execution",
+        "no Scopecat-defined score",
+        "no automatic ROI or initial-guess selection",
+        "no replay harness",
+        "no dataset registry",
+        "no GUI workflow",
+        "no parameter write-back",
+        "no hardware control"
+      ]
+    }
+  },
+  "boundary_notes": [
+    "Composition links existing read summaries; it does not execute either workflow.",
+    "Recovery action is fixture-declared user choice, not Scopecat advice.",
+    "Selected fit attempts remain lab-internal validation context, not replay execution.",
+    "Continuation can proceed because the downstream step is pending and no linked attention remains."
+  ],
+  "decisions_not_earned": [
+    "runner framework",
+    "replay harness",
+    "dataset registry",
+    "GUI workflow",
+    "fitting API",
+    "score model",
+    "automatic ROI selection",
+    "parameter write-back",
+    "hardware control"
+  ]
+}
