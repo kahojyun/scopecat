@@ -81,6 +81,23 @@ class UvSyncIntent:
             argv=_validate_uv_sync_argv(command.get("argv")),
         )
 
+    def to_result_intent_ref(self) -> dict[str, Any]:
+        """Return the intent projection carried by downstream result reviews."""
+
+        return {
+            "request_id": self.request_id,
+            "approval_id": self.approval_id,
+            "expected_manager": "uv",
+            "working_directory": self.working_directory,
+            "command_intent": {
+                "manager": "uv",
+                "operation": "sync",
+                "working_directory": self.working_directory,
+                "argv": list(self.argv),
+                "does_not_claim": "process_executed_or_environment_synchronized",
+            },
+        }
+
 
 @dataclass(frozen=True)
 class CommandRunResult:
@@ -203,6 +220,80 @@ class UvSyncExecutionRecord:
             "findings": [finding.to_dict() for finding in self.findings],
         }
 
+    def to_result_summary(self, intent: UvSyncIntent) -> dict[str, Any]:
+        """Project execution into a route-local uv sync result summary.
+
+        This shape is intended for downstream local review composition. It is
+        route-local prototype output, not a portable/public artifact or a
+        runtime-readiness result.
+        """
+
+        self._validate_intent_alignment(intent)
+        return {
+            "uv_sync_result_policy": {
+                "summary_policy": "review_summary",
+                "result_authority": "scopecat_uv_sync_execution_result",
+                "prior_intent_source": "route_local_uv_sync_intent",
+                "manager_scope": "uv_only",
+                "command_result_shape": "bounded_uv_sync_execution_record",
+                "local_execution_cwd_authority": "local_review_path_internal",
+                "scopecat_process_execution": "performed",
+                "manifest_read": "not_performed",
+                "lockfile_read": "not_performed",
+                "output_parsing": "summary_only_no_dependency_parsing",
+                "dependency_resolution": "delegated_to_uv_not_performed_by_scopecat",
+                "dependency_sync": "manager_result_not_verified_by_scopecat",
+                "package_install": "manager_result_not_verified_by_scopecat",
+                "runtime_probe": "not_performed",
+                "code_import_execution": "not_performed",
+                "hardware_probe": "not_performed",
+                "readiness_claim": "not_claimed",
+                "shared_environment_schema": "not_defined",
+            },
+            "uv_sync_intent_ref": intent.to_result_intent_ref(),
+            "command_result": self._command_result_summary(),
+            "result_status": self.result_status,
+            "result_findings": [finding.to_dict() for finding in self.findings],
+            "attention": _result_summary_attention(),
+        }
+
+    def _command_result_summary(self) -> dict[str, Any]:
+        return {
+            "result_id": self.result_id,
+            "intent_request_id": self.intent_request_id,
+            "approval_id": self.approval_id,
+            "manager": "uv",
+            "operation": "sync",
+            "working_directory": self.working_directory,
+            "local_execution_cwd": self.local_execution_cwd,
+            "argv": list(self.argv),
+            "execution_state": self.execution_state,
+            "exit_code": self.exit_code,
+            "started_at": self.started_at,
+            "completed_at": self.completed_at,
+            "duration_ms": self.duration_ms,
+            "stdout_summary": self.stdout_summary,
+            "stderr_summary": self.stderr_summary,
+            "output_capture": {
+                "stdout": "bounded_summary",
+                "stderr": "bounded_summary",
+                "raw_output": "not_recorded",
+                "stdout_truncated": self.stdout_truncated,
+                "stderr_truncated": self.stderr_truncated,
+            },
+            "execution_observer": "scopecat_subprocess_executor",
+        }
+
+    def _validate_intent_alignment(self, intent: UvSyncIntent) -> None:
+        if self.intent_request_id != intent.request_id:
+            raise ValueError("execution record intent_request_id must match intent")
+        if self.approval_id != intent.approval_id:
+            raise ValueError("execution record approval_id must match intent")
+        if self.working_directory != intent.working_directory:
+            raise ValueError("execution record working_directory must match intent")
+        if self.argv != intent.argv:
+            raise ValueError("execution record argv must match intent")
+
 
 def execute_uv_sync(
     intent: UvSyncIntent,
@@ -308,6 +399,29 @@ def _findings(execution_state: str) -> list[UvSyncFinding]:
             )
         ]
     return []
+
+
+def _result_summary_attention() -> list[dict[str, str]]:
+    return [
+        {
+            "code": "uv_sync_executed_by_scopecat",
+            "severity": "review",
+            "basis": "Scopecat launched the approved uv sync command through a local subprocess.",
+            "does_not_claim": "verified_synchronized_environment",
+        },
+        {
+            "code": "bounded_output_summary_only",
+            "severity": "review",
+            "basis": "stdout and stderr are retained as bounded summaries, not raw logs.",
+            "does_not_claim": "dependency_graph_or_package_change_set",
+        },
+        {
+            "code": "runnable_readiness_not_claimed",
+            "severity": "review",
+            "basis": "The execution result does not inspect interpreters, packages, or experiment code.",
+            "does_not_claim": "run_can_start",
+        },
+    ]
 
 
 def _validate_relative_path(value: str, owner: str) -> str:

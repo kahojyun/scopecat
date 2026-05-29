@@ -19,7 +19,8 @@ runner.
 
 Status: implemented in `scopecat.environment_operation` with injected-runner
 tests, a real tiny `uv` success fixture, and a real locked-mode failure
-fixture.
+fixture. Execution records also project to a route-local result summary for
+downstream local review composition.
 
 The prototype should support:
 
@@ -32,6 +33,8 @@ The prototype should support:
 - completed-success, completed-failed, timed-out, and launch-failed execution
   states;
 - review findings for failure, timeout, and launch failure;
+- route-local result summaries that carry intent references, bounded command
+  results, findings, and explicit policy non-claims;
 - explicit non-claims for runtime readiness, dependency-state verification,
   code import/execution, hardware readiness, and run-start permission.
 
@@ -57,9 +60,9 @@ bounded `uv sync` command through an injectable runner, record bounded process
 facts, and surface failure/timeout as review findings without claiming runtime
 or run readiness. The current prototype satisfies that stop condition and adds
 repository-safe real-`uv` fixtures to verify the subprocess success and failure
-paths.
+paths plus a route-local result-summary projection for downstream review.
 
 The next milestone should be chosen only after this boundary is reviewed. Likely
-follow-ups are a post-sync runtime probe, a clearer operation-result projection
-for downstream review bundles, or Pixi-specific pressure before extracting any
+follow-ups are a post-sync runtime probe, a route-local operation review bundle
+over prototype result summaries, or Pixi-specific pressure before extracting any
 shared manager abstraction.

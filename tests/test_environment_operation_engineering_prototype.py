@@ -4,6 +4,7 @@ import json
 import shutil
 import subprocess
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -91,6 +92,63 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
             "not_recorded",
         )
 
+    def test_execution_record_projects_route_local_result_summary(self) -> None:
+        intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
+        with TemporaryDirectory() as tmp:
+            workspace_root = Path(tmp)
+            (workspace_root / "project").mkdir()
+            runner = FakeRunner(CommandRunResult(exit_code=0, stdout="ok", stderr=""))
+
+            record = execute_uv_sync(
+                intent,
+                workspace_root=workspace_root,
+                result_id="uv-sync-result-projection-001",
+                runner=runner,
+            )
+
+        summary = record.to_result_summary(intent)
+
+        self.assertEqual(
+            summary["uv_sync_result_policy"]["result_authority"],
+            "scopecat_uv_sync_execution_result",
+        )
+        self.assertEqual(
+            summary["uv_sync_result_policy"]["dependency_sync"],
+            "manager_result_not_verified_by_scopecat",
+        )
+        self.assertEqual(
+            summary["uv_sync_intent_ref"]["command_intent"]["argv"],
+            ["uv", "sync", "--locked", "--no-default-groups"],
+        )
+        self.assertEqual(summary["command_result"]["result_id"], "uv-sync-result-projection-001")
+        self.assertEqual(summary["command_result"]["execution_state"], "completed_success")
+        self.assertEqual(summary["result_status"], "uv_sync_completed_success")
+        self.assertEqual(summary["result_findings"], [])
+        self.assertEqual(
+            {item["code"] for item in summary["attention"]},
+            {
+                "uv_sync_executed_by_scopecat",
+                "bounded_output_summary_only",
+                "runnable_readiness_not_claimed",
+            },
+        )
+
+    def test_result_summary_rejects_mismatched_intent_projection(self) -> None:
+        intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
+        with TemporaryDirectory() as tmp:
+            workspace_root = Path(tmp)
+            (workspace_root / "project").mkdir()
+            record = execute_uv_sync(
+                intent,
+                workspace_root=workspace_root,
+                runner=FakeRunner(CommandRunResult(exit_code=0, stdout="", stderr="")),
+            )
+
+        mismatched = replace(intent, approval_id="approval-other")
+
+        with self.assertRaisesRegex(ValueError, "approval_id"):
+            record.to_result_summary(mismatched)
+
     def test_executes_real_uv_sync_against_tiny_workspace_fixture(self) -> None:
         intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
         with TemporaryDirectory() as tmp:
@@ -132,6 +190,13 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
         self.assertEqual(record.stderr_summary, "lockfile needs update")
         self.assertEqual([finding.code for finding in record.findings], ["uv_sync_process_failed"])
         self.assertEqual(record.findings[0].does_not_claim, "synchronized_or_installed_environment")
+
+        summary = record.to_result_summary(intent)
+        self.assertEqual(summary["result_status"], "uv_sync_completed_failed")
+        self.assertEqual(
+            [finding["code"] for finding in summary["result_findings"]],
+            ["uv_sync_process_failed"],
+        )
 
     def test_real_locked_uv_failure_is_review_finding_not_runtime_truth(self) -> None:
         intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
