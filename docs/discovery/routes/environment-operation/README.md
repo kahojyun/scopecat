@@ -10,6 +10,13 @@ environment-manager interface, process executor, runtime probe, managed-runner
 contract, dependency resolver, package installer, workflow/DAG model,
 portable/export package projection, or GUI contract.
 
+The first engineering prototype milestone has started separately in
+[`engineering-prototype-plan.md`](engineering-prototype-plan.md). That
+prototype intentionally crosses only one new boundary: running an already
+approved, bounded `uv sync` command through a local subprocess runner. It still
+does not accept runtime readiness, package-state verification, code execution,
+hardware readiness, or shared manager abstractions.
+
 ## Route Shape
 
 The validated environment-operation posture is **approve intent, record
@@ -153,8 +160,10 @@ contract:
 
 ## Recommended Next Work
 
-The current route is ready to pause broad slice expansion. The next work should
-depend on the product question being answered:
+The current route is ready to pause broad slice expansion. The active
+engineering route is the minimal `uv sync` execution prototype described in
+[`engineering-prototype-plan.md`](engineering-prototype-plan.md). After that
+milestone, the next work should depend on the product question being answered:
 
 1. **If execution is the priority**, validate a minimal manager execution
    wrapper as its own authority boundary.
