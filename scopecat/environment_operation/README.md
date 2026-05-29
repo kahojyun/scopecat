@@ -27,10 +27,15 @@ Route-local operation reviews compose one selected `UvSyncIntent` with one
 selected `UvSyncResult`. They surface alignment mismatches and result findings
 as review items without deciding run permission or runtime readiness.
 
+The runtime probe milestone builds a bounded `UvRuntimeProbeIntent` from one
+successful `UvSyncResult`, then runs `uv run --locked --no-sync python -c ...`
+to collect small interpreter facts. The probe records whether Python reported a
+virtual environment, but it does not repair the environment, inspect packages,
+import experiment code, or decide run readiness.
+
 It does not read or parse `pyproject.toml`, read or parse `uv.lock`, interpret
-dependency output, verify installed package state, probe Python runtimes, import
-selected experiment code, execute notebooks, contact hardware, or decide that a
-run can start.
+dependency output, verify installed package state, import selected experiment
+code, execute notebooks, contact hardware, or decide that a run can start.
 
 ## API Surface
 
@@ -42,6 +47,11 @@ Current user-facing prototype surface:
 - `UvSyncResult.to_summary(...)`;
 - `UvSyncExecutionRecord.to_result_summary(...)` as a compatibility projection;
 - `review_uv_sync_operation(...)`;
+- `UvRuntimeProbeIntent.from_sync_result(...)`;
+- `execute_uv_runtime_probe(..., uv_executable=...)` or
+  `execute_uv_runtime_probe(..., runner=...)`;
+- `UvRuntimeProbeExecutionRecord.to_result(...)`;
+- `UvRuntimeProbeResult.to_summary(...)`;
 - `SubprocessUvRunner`;
 - route projection objects exported from `scopecat.environment_operation`.
 

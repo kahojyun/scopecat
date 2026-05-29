@@ -19,12 +19,20 @@ The second prototype milestone adds route-local review composition over the
 prototype execution result. It does not execute another process or inspect
 runtime/package state.
 
+The third prototype milestone adds a post-sync interpreter fact probe using
+`uv run --locked --no-sync python -c ...`. It records bounded Python runtime
+facts after a successful sync result without repairing the environment,
+verifying package state, importing experiment code, or deciding run readiness.
+
 ## Implemented Scope
 
 Status: implemented in `scopecat.environment_operation` with injected-runner
 tests, a real tiny `uv` success fixture, and a real locked-mode failure
 fixture. Execution records promote to typed route-local `UvSyncResult` objects,
 which can project local result summaries for downstream review snapshots.
+Post-sync runtime probe records promote to typed route-local
+`UvRuntimeProbeResult` objects, which can project local result summaries for
+downstream review snapshots.
 
 The prototype should support:
 
@@ -43,6 +51,16 @@ The prototype should support:
   snapshots and edge inspection;
 - route-local operation reviews that align one selected intent with one
   selected typed execution result and surface result or alignment findings;
+- route-local `UvRuntimeProbeIntent` objects built from successful aligned
+  `UvSyncResult` objects;
+- validation that the runtime probe command is exactly the bounded
+  `uv run --locked --no-sync python -c <stdlib probe>` shape;
+- local subprocess execution of the runtime probe with explicit executable path
+  and timeout;
+- small interpreter facts for Python version, implementation, executable,
+  prefix, base prefix, and virtual-environment status;
+- review findings when the probe fails, times out, cannot launch, emits invalid
+  JSON, or reports a non-virtual-environment Python;
 - explicit non-claims for runtime readiness, dependency-state verification,
   code import/execution, hardware readiness, and run-start permission.
 
@@ -53,7 +71,8 @@ This prototype does not:
 - parse `pyproject.toml` or `uv.lock`;
 - interpret dependency output;
 - verify synchronized environments or installed package state;
-- probe Python runtimes or virtual environments;
+- verify full Python runtime readiness beyond the bounded interpreter fact
+  probe;
 - import, load, or execute selected experiment code;
 - run notebooks;
 - contact hardware, drivers, firmware utilities, services, or registries;
@@ -71,7 +90,14 @@ repository-safe real-`uv` fixtures to verify the subprocess success and failure
 paths plus typed result, summary projection, and operation-review flows for
 downstream review.
 
+Stop the post-sync runtime probe milestone when Scopecat can derive a bounded
+probe intent from a successful sync result, run `uv run --locked --no-sync`
+through an injectable runner, record bounded interpreter facts, and surface
+failure/system-Python signals as review findings without claiming package state
+or run readiness. The current prototype satisfies that stop condition with
+injected-runner coverage and a real tiny-`uv` fixture.
+
 The next milestone should be chosen only after this boundary is reviewed. Likely
-follow-ups are a post-sync runtime probe, operation review with optional
-manifest preflight context, or Pixi-specific pressure before extracting any
-shared manager abstraction.
+follow-ups are operation review with optional manifest/prepared-context
+references, package-state pressure, selected experiment-code import pressure,
+or Pixi-specific pressure before extracting any shared manager abstraction.
