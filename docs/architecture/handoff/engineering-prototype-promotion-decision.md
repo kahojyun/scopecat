@@ -198,7 +198,8 @@ The next engineering phase should choose one explicit path:
 - storage/archive requirements synthesis: compare the needs from source-root
   package writing, legacy import, existing-record update, source observation,
   package receiving, and running inspection before accepting a storage or
-  archive format;
+  archive format. The current synthesis is recorded in
+  [`storage-import-requirements-synthesis.md`](storage-import-requirements-synthesis.md);
 - durable import/storage decision: define conflict policy, existing-record
   update or merge behavior, stronger rollback/crash recovery expectations, and
   the storage API boundary before writing beyond the current candidate layout.

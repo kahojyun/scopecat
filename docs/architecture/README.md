@@ -19,3 +19,4 @@ user documentation and does not replace discovery validation evidence.
 | [`handoff/engineering-prototype-readiness.md`](handoff/engineering-prototype-readiness.md) | Frozen readiness checkpoint that ended the broad handoff prototype line. |
 | [`handoff/engineering-prototype-promotion-decision.md`](handoff/engineering-prototype-promotion-decision.md) | Canonical accepted handoff implementation boundary, first mutation checkpoint, and next decision gate. |
 | [`handoff/storage-acceptance-decision.md`](handoff/storage-acceptance-decision.md) | Completed first handoff storage-acceptance implementation slice, rollback rule, and deferred storage decisions. |
+| [`handoff/storage-import-requirements-synthesis.md`](handoff/storage-import-requirements-synthesis.md) | Decision-prep synthesis for what handoff storage/import can do before durable measurement-record creation exists. |

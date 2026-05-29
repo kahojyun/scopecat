@@ -120,6 +120,9 @@ boundaries live in
 [`engineering-prototype-promotion-decision.md`](../../../architecture/handoff/engineering-prototype-promotion-decision.md)
 and the first candidate storage mutation boundary lives in
 [`storage-acceptance-decision.md`](../../../architecture/handoff/storage-acceptance-decision.md).
+The current storage/import requirements synthesis before durable
+measurement-record creation lives in
+[`storage-import-requirements-synthesis.md`](../../../architecture/handoff/storage-import-requirements-synthesis.md).
 
 | Document | Use For |
 | --- | --- |
