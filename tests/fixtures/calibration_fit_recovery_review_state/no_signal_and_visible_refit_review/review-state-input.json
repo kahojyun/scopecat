@@ -1,0 +1,193 @@
+{
+  "fixture_id": "calibration-fit-recovery-review-state-no-signal-and-visible-refit",
+  "fixture_status": "synthetic_public_safe",
+  "user_job": "Show a compact review state for fit recovery incidents before implementing a GUI.",
+  "review_surface": {
+    "surface_id": "fit-recovery-review-surface-qA-0001",
+    "surface_kind": "local_review_state",
+    "selected_incident_id": "incident-no-signal-readout-06001",
+    "source": "fixture_declared"
+  },
+  "recovery_workflow_input": {
+    "fixture_id": "calibration-fit-recovery-workflow-no-signal-and-visible-refit",
+    "fixture_status": "synthetic_public_safe",
+    "user_job": "Keep calibration moving after fit trouble while preserving useful visible-signal fit failures for later lab-internal validation.",
+    "workflow_context": {
+      "episode_id": "cal-episode-06001",
+      "target_group": "qA",
+      "operator_intent": "Recover fit failures without losing useful validation cases.",
+      "source": "fixture_declared"
+    },
+    "dataset_draft": {
+      "dataset_id": "fit-validation-dataset-qA-0004",
+      "label": "qA recovery workflow validation draft",
+      "posture": "lab_internal_validation_dataset_draft"
+    },
+    "fit_recovery_incidents": [
+      {
+        "incident_id": "incident-no-signal-readout-06001",
+        "order": 1,
+        "state": "no_signal_remeasurement_needed",
+        "signal_assessment": {
+          "classification": "no_clear_signal",
+          "evidence": [
+            "flat_response",
+            "no_resonator_dip_visible"
+          ],
+          "source": "fixture_declared_user_review"
+        },
+        "measurement_ref": {
+          "record_id": "measurement:run-06001",
+          "label": "Readout scan without visible response",
+          "preview_metadata_ref": "preview:readout-06001"
+        },
+        "calibration_target": "qA.readout.frequency",
+        "fit_family": "readout_resonator",
+        "continuation": {
+          "current_step_id": "step-1-readout-response",
+          "next_step_id": "step-2-rabi-amplitude",
+          "blocked_reason": "User needs to adjust parameters and remeasure before fit recovery is useful.",
+          "authority": "fixture_declared"
+        },
+        "fit_attempt": {
+          "attempt_id": "fit-attempt:readout-06001-no-signal",
+          "status": "not_fit_no_clear_signal",
+          "status_reason": "User review found no clear signal to fit.",
+          "user_code_ref": "code:readout-fit-helper-v1",
+          "fit_config_ref": "fit-config:readout-default-window",
+          "output_ref": "artifact:readout-no-signal-preview-06001"
+        },
+        "fit_attempt_history": [],
+        "labels": [
+          "no_clear_signal",
+          "remeasure_after_parameter_adjustment",
+          "withhold_from_validation_dataset"
+        ],
+        "recovery": {
+          "available_actions": [
+            "adjust_parameters_remeasure",
+            "skip_target"
+          ],
+          "chosen_action": "adjust_parameters_remeasure",
+          "authority": "fixture_declared_user_choice"
+        },
+        "dataset_selection": {
+          "selected": false,
+          "reason": "No clear signal should be remeasured before becoming validation data."
+        },
+        "review_note_ref": "note:readout-no-signal-remeasure",
+        "expected_replay_behavior": null,
+        "authority": "fixture_declared_user_review"
+      },
+      {
+        "incident_id": "incident-rabi-visible-refit-06002",
+        "order": 2,
+        "state": "visible_signal_fit_recovered",
+        "signal_assessment": {
+          "classification": "visible_signal",
+          "evidence": [
+            "visible_oscillation",
+            "default_fit_exception"
+          ],
+          "source": "fixture_declared_user_review"
+        },
+        "measurement_ref": {
+          "record_id": "measurement:run-06002",
+          "label": "Rabi amplitude scan with visible oscillation",
+          "preview_metadata_ref": "preview:rabi-06002"
+        },
+        "calibration_target": "qA.drive_amplitude",
+        "fit_family": "rabi_amplitude",
+        "continuation": {
+          "current_step_id": "step-2-rabi-amplitude",
+          "next_step_id": "step-3-t1-check",
+          "blocked_reason": "Visible-signal fit needs user accepted refit before continuation.",
+          "authority": "fixture_declared"
+        },
+        "fit_attempt": {
+          "attempt_id": "fit-attempt:rabi-06002-roi-guess-refit-accepted",
+          "status": "completed_after_user_adjustment",
+          "status_reason": "User narrowed ROI and seeded the initial guess from visible oscillation.",
+          "user_code_ref": "code:rabi-fit-helper-v2",
+          "fit_config_ref": "fit-config:rabi-adjusted-roi-and-guess",
+          "output_ref": "artifact:rabi-fit-adjusted-preview-06002"
+        },
+        "fit_attempt_history": [
+          {
+            "attempt_id": "fit-attempt:rabi-06002-default-failed",
+            "order": 1,
+            "status": "fit_failed_exception",
+            "status_reason": "Default fit missed the visible oscillation region.",
+            "user_code_ref": "code:rabi-fit-helper-v2",
+            "fit_config_ref": "fit-config:rabi-default-roi",
+            "config_labels": [
+              "default_roi",
+              "default_initial_guess"
+            ],
+            "input_adjustments": [],
+            "output_ref": "artifact:rabi-default-fit-exception-preview-06002",
+            "declared_diagnostics": {
+              "fit_quality_facts": [
+                "visible_oscillation",
+                "exception_before_result"
+              ],
+              "score_policy": "user_declared_no_threshold"
+            }
+          },
+          {
+            "attempt_id": "fit-attempt:rabi-06002-roi-guess-refit-accepted",
+            "order": 2,
+            "status": "completed_after_user_adjustment",
+            "status_reason": "Adjusted ROI and initial guess completed and were accepted by the user.",
+            "user_code_ref": "code:rabi-fit-helper-v2",
+            "fit_config_ref": "fit-config:rabi-adjusted-roi-and-guess",
+            "config_labels": [
+              "adjusted_roi",
+              "adjusted_initial_guess"
+            ],
+            "input_adjustments": [
+              "roi_narrowed_to_visible_oscillation",
+              "initial_guess_seeded_from_visible_period"
+            ],
+            "output_ref": "artifact:rabi-fit-adjusted-preview-06002",
+            "declared_diagnostics": {
+              "fit_quality_facts": [
+                "completed_without_exception",
+                "manual_review_accepted"
+              ],
+              "score_policy": "user_declared_no_threshold"
+            }
+          }
+        ],
+        "labels": [
+          "visible_signal",
+          "default_fit_failed",
+          "roi_adjusted_refit",
+          "initial_guess_adjusted_refit",
+          "selected_for_validation_dataset"
+        ],
+        "recovery": {
+          "available_actions": [
+            "adjust_roi_refit",
+            "adjust_initial_guess_refit",
+            "accept_after_refit",
+            "add_to_validation_dataset"
+          ],
+          "chosen_action": "accept_after_refit",
+          "authority": "fixture_declared_user_choice"
+        },
+        "dataset_selection": {
+          "selected": true,
+          "selected_attempt_ids": [
+            "fit-attempt:rabi-06002-default-failed",
+            "fit-attempt:rabi-06002-roi-guess-refit-accepted"
+          ],
+          "reason": "The default failure and accepted adjusted refit should remain paired for fit-code improvement."
+        },
+        "review_note_ref": "note:rabi-visible-refit-accepted",
+        "expected_replay_behavior": "Improved user code should either complete the visible-signal default case or make the required ROI and initial-guess adjustment explicit.",
+        "authority": "fixture_declared_user_review"
+      }
+    ]
+  }
+}
