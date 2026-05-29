@@ -7,7 +7,7 @@ Engineering prototype readiness note, not an ADR.
 Artifact posture: `internal_validation_summary`. This note is internal project
 memory. It creates no portable package output, public contract, public SDK, or
 new redaction rule. Use
-[`policies/artifact-boundary-and-redaction.md`](../../../policies/artifact-boundary-and-redaction.md)
+[`discovery/policies/artifact-boundary-and-redaction.md`](../../discovery/policies/artifact-boundary-and-redaction.md)
 if any prototype output is promoted into a portable/export artifact.
 
 ## Readiness Judgment
@@ -110,7 +110,8 @@ or cross-route domain work.
 
 The read-only handoff vertical has been promoted after one narrow promotion
 cleanup, with no further broad prototype expansion planned. Future handoff work
-should be triggered by the reopen conditions in [`decision.md`](decision.md),
+should be triggered by the reopen conditions in
+[`decision.md`](../../discovery/routes/measurement-records/handoff/decision.md),
 not by restating the same route-level conclusions.
 
 The promotion decision is recorded in

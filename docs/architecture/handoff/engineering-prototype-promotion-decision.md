@@ -7,7 +7,7 @@ Engineering promotion decision, not an ADR.
 Artifact posture: `internal_validation_summary`. This note is internal project
 memory. It creates no portable package output, public contract, public SDK, or
 new redaction rule. Use
-[`policies/artifact-boundary-and-redaction.md`](../../../policies/artifact-boundary-and-redaction.md)
+[`discovery/policies/artifact-boundary-and-redaction.md`](../../discovery/policies/artifact-boundary-and-redaction.md)
 if any accepted implementation output is later promoted into a
 portable/export artifact.
 
@@ -30,7 +30,7 @@ the same route should be either:
 - small maintenance on the accepted read-only vertical;
 - PR/release preparation for the current branch;
 - a separately scoped route extension triggered by the reopen conditions in
-  [`decision.md`](decision.md).
+  [`decision.md`](../../discovery/routes/measurement-records/handoff/decision.md).
 
 It should not continue as broad prototype expansion.
 

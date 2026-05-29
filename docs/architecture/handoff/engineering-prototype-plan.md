@@ -7,7 +7,7 @@ Engineering prototype plan, not accepted architecture.
 Artifact posture: `internal_validation_summary`. This plan is internal project
 memory. It creates no portable package output, public contract, or new
 redaction rule. Use
-[`policies/artifact-boundary-and-redaction.md`](../../../policies/artifact-boundary-and-redaction.md)
+[`discovery/policies/artifact-boundary-and-redaction.md`](../../discovery/policies/artifact-boundary-and-redaction.md)
 when a prototype output is promoted into a portable/export artifact.
 
 ## Objective
@@ -40,23 +40,26 @@ packaging before proving read-only use.
 
 ## Discovery Evidence Reused
 
-The prototype starts from the route decisions in [`decision.md`](decision.md)
-and the consolidation in [`README.md`](README.md). The most relevant slice
+The prototype starts from the route decisions in
+[`decision.md`](../../discovery/routes/measurement-records/handoff/decision.md)
+and the consolidation in
+[`README.md`](../../discovery/routes/measurement-records/handoff/README.md).
+The most relevant slice
 evidence is:
 
-- [`contents-preview-validation-result.md`](../../../slices/measurement-records/handoff/contents-preview-validation-result.md)
-- [`opener-validation-result.md`](../../../slices/measurement-records/handoff/opener-validation-result.md)
-- [`read-view-validation-result.md`](../../../slices/measurement-records/handoff/read-view-validation-result.md)
-- [`sdk-view-model-validation-result.md`](../../../slices/measurement-records/handoff/sdk-view-model-validation-result.md)
-- [`sdk-ergonomics-spike-validation-result.md`](../../../slices/measurement-records/handoff/sdk-ergonomics-spike-validation-result.md)
-- [`preview-shape-view-validation-result.md`](../../../slices/measurement-records/handoff/preview-shape-view-validation-result.md)
-- [`visual-review-validation-result.md`](../../../slices/measurement-records/handoff/visual-review-validation-result.md)
-- [`gui-view-state-validation-result.md`](../../../slices/measurement-records/handoff/gui-view-state-validation-result.md)
-- [`visual-artifact-validation-result.md`](../../../slices/measurement-records/handoff/visual-artifact-validation-result.md)
-- [`inspection-workflow-validation-result.md`](../../../slices/measurement-records/handoff/inspection-workflow-validation-result.md)
-- [`route-pressure-validation-result.md`](../../../slices/measurement-records/handoff/route-pressure-validation-result.md)
-- [`writer-validation-result.md`](../../../slices/measurement-records/handoff/writer-validation-result.md)
-- [`round-trip-validation-result.md`](../../../slices/measurement-records/handoff/round-trip-validation-result.md)
+- [`contents-preview-validation-result.md`](../../discovery/slices/measurement-records/handoff/contents-preview-validation-result.md)
+- [`opener-validation-result.md`](../../discovery/slices/measurement-records/handoff/opener-validation-result.md)
+- [`read-view-validation-result.md`](../../discovery/slices/measurement-records/handoff/read-view-validation-result.md)
+- [`sdk-view-model-validation-result.md`](../../discovery/slices/measurement-records/handoff/sdk-view-model-validation-result.md)
+- [`sdk-ergonomics-spike-validation-result.md`](../../discovery/slices/measurement-records/handoff/sdk-ergonomics-spike-validation-result.md)
+- [`preview-shape-view-validation-result.md`](../../discovery/slices/measurement-records/handoff/preview-shape-view-validation-result.md)
+- [`visual-review-validation-result.md`](../../discovery/slices/measurement-records/handoff/visual-review-validation-result.md)
+- [`gui-view-state-validation-result.md`](../../discovery/slices/measurement-records/handoff/gui-view-state-validation-result.md)
+- [`visual-artifact-validation-result.md`](../../discovery/slices/measurement-records/handoff/visual-artifact-validation-result.md)
+- [`inspection-workflow-validation-result.md`](../../discovery/slices/measurement-records/handoff/inspection-workflow-validation-result.md)
+- [`route-pressure-validation-result.md`](../../discovery/slices/measurement-records/handoff/route-pressure-validation-result.md)
+- [`writer-validation-result.md`](../../discovery/slices/measurement-records/handoff/writer-validation-result.md)
+- [`round-trip-validation-result.md`](../../discovery/slices/measurement-records/handoff/round-trip-validation-result.md)
 
 The evidence should be preserved as historical validation. Prototype fixtures
 may reuse or reshape selected repository-safe cases without rewriting old

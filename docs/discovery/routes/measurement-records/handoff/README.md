@@ -12,6 +12,10 @@ archive format, signature model, or shared measurement-record domain model.
 For the current accepted-for-now route decisions, deferred decisions, reopen
 triggers, and stop rule, read
 [`routes/measurement-records/handoff/decision.md`](decision.md).
+Engineering-phase handoff notes have been promoted under
+[`architecture/README.md`](../../../../architecture/README.md). Keep validation
+evidence and route discovery synthesis here; keep implementation-boundary
+guidance in the architecture notes.
 
 ## Route Shape
 
@@ -60,16 +64,19 @@ wrapper around discovery candidate summaries: it exposes route-local package,
 measurement, table, plot, finding, and linked-context objects while keeping
 candidate outputs as historical validation evidence.
 
-Use [`engineering-prototype-plan.md`](engineering-prototype-plan.md) for the
+Use
+[`engineering-prototype-plan.md`](../../../../architecture/handoff/engineering-prototype-plan.md)
+for the
 prototype objective, scope, fixture policy, stop conditions, and promotion
 criteria.
 
 Use
-[`engineering-prototype-readiness.md`](engineering-prototype-readiness.md) for
+[`engineering-prototype-readiness.md`](../../../../architecture/handoff/engineering-prototype-readiness.md)
+for
 the current stop-criteria check and recommended promotion path.
 
 Use
-[`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md)
+[`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md)
 for the decision that promotes the read-only handoff vertical as the accepted
 implementation baseline and stops the current broad prototype line.
 
