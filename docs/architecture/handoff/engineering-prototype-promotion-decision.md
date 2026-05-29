@@ -147,11 +147,18 @@ manifests, choose final storage schema, resolve collisions, define rollback,
 or import linked-context payloads. It only answers whether a later explicit
 mutation request has enough reviewed destination facts to be considered.
 
+The first mutation implementation slice after this preflight is chosen in
+[`storage-acceptance-decision.md`](storage-acceptance-decision.md). Keep
+rollback and storage-acceptance implementation scope there rather than
+expanding this promotion snapshot.
+
 ## Next Decision Gate
 
 Do not continue by expanding handoff surface area in place. After the
 read-only receiving gate, non-mutating import plan, and destination acceptance
-preflight, the next engineering phase should choose one explicit path:
+preflight, the next engineering phase should follow the first mutation boundary
+in [`storage-acceptance-decision.md`](storage-acceptance-decision.md) or choose
+one explicit alternative path:
 
 - package receiving/import acceptance: define acceptance, rejection, conflict,
   review, and rollback boundaries for an inbound package before writing into

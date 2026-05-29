@@ -17,3 +17,4 @@ user documentation and does not replace discovery validation evidence.
 | [`handoff/engineering-prototype-plan.md`](handoff/engineering-prototype-plan.md) | Frozen historical handoff prototype plan: objective, scope, fixture policy, stop conditions, and promotion criteria. |
 | [`handoff/engineering-prototype-readiness.md`](handoff/engineering-prototype-readiness.md) | Frozen readiness checkpoint that ended the broad handoff prototype line. |
 | [`handoff/engineering-prototype-promotion-decision.md`](handoff/engineering-prototype-promotion-decision.md) | Canonical accepted handoff implementation boundary and next decision gate. |
+| [`handoff/storage-acceptance-decision.md`](handoff/storage-acceptance-decision.md) | First handoff storage-acceptance implementation slice, rollback rule, and deferred storage decisions. |
