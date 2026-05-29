@@ -78,6 +78,8 @@ class HandoffStorageAcceptanceRun:
     @property
     def classification(self) -> str:
         if self.write_error is not None:
+            if not self.rollback_performed:
+                return "blocked_before_acceptance"
             return "rolled_back_after_write_failure"
         if not self.preflight.acceptance_preflight_allowed:
             return "blocked_before_acceptance"
@@ -144,18 +146,18 @@ def run_storage_acceptance(
         return HandoffStorageAcceptanceRun(request=request, preflight=preflight)
 
     package_root = _existing_package_root(Path(package_dir))
+    files, write_results = _planned_files(
+        package_root=package_root,
+        request=request,
+        preflight=preflight,
+    )
     try:
-        files, write_results = _planned_files(
-            package_root=package_root,
-            request=request,
-            preflight=preflight,
-        )
         _write_new_files_transaction(root, files, label="handoff storage acceptance")
-    except Exception as exc:
+    except _StorageWriteFailure as exc:
         return HandoffStorageAcceptanceRun(
             request=request,
             preflight=preflight,
-            rollback_performed=True,
+            rollback_performed=exc.rollback_performed,
             write_error=str(exc),
         )
 
@@ -292,22 +294,31 @@ def _rollback_written_files(root: Path, written_paths: list[str], created_dirs: 
     _remove_created_dirs(root, created_dirs)
 
 
+class _StorageWriteFailure(RuntimeError):
+    def __init__(self, message: str, *, rollback_performed: bool) -> None:
+        super().__init__(message)
+        self.rollback_performed = rollback_performed
+
+
 def _write_new_files_transaction(
     root: Path,
     files: list[tuple[str, bytes]],
     *,
     label: str,
 ) -> None:
-    _reject_existing_paths(root, [relative_path for relative_path, _content in files], label)
+    try:
+        _reject_existing_paths(root, [relative_path for relative_path, _content in files], label)
+    except Exception as exc:
+        raise _StorageWriteFailure(str(exc), rollback_performed=False) from exc
     written_paths: list[str] = []
     created_dirs: list[str] = []
     try:
         for relative_path, content in files:
             created_dirs.extend(_write_new_file(root, relative_path, content, label=label))
             written_paths.append(relative_path)
-    except Exception:
+    except Exception as exc:
         _rollback_written_files(root, written_paths, created_dirs)
-        raise
+        raise _StorageWriteFailure(str(exc), rollback_performed=bool(written_paths)) from exc
 
 
 def _read_package_member(package_root: Path, relative_path: str) -> bytes:
@@ -342,6 +353,20 @@ def _integrity_fact(
     raise ValueError("accepted package primary data integrity observation is missing")
 
 
+def _validate_copied_content_against_integrity(
+    *,
+    integrity_fact: dict[str, Any],
+    digest: str,
+    size_bytes: int,
+) -> None:
+    if integrity_fact.get("comparison") != "verified":
+        raise ValueError("accepted package primary data integrity must match declared facts")
+    if integrity_fact.get("observed_digest") != digest:
+        raise ValueError("accepted package primary data digest must match preflight integrity")
+    if integrity_fact.get("observed_size_bytes") != size_bytes:
+        raise ValueError("accepted package primary data size must match preflight integrity")
+
+
 def _manifest_bytes(
     *,
     preflight: HandoffAcceptancePreflightRun,
@@ -349,6 +374,7 @@ def _manifest_bytes(
     measurement: HandoffMeasurement,
     primary_digest: str,
     primary_size_bytes: int,
+    integrity_fact: dict[str, Any],
 ) -> bytes:
     manifest = {
         "schema": destination.storage_schema,
@@ -384,10 +410,7 @@ def _manifest_bytes(
                 for candidate in measurement.declared_preview_plot_candidates
             ],
         },
-        "source_integrity": _integrity_fact(
-            preflight=preflight,
-            package_path=measurement.primary_package_path,
-        ),
+        "source_integrity": copy.deepcopy(integrity_fact),
         "linked_context": [item.to_dict() for item in measurement.linked_context],
         "does_not_claim": [
             "final_storage_schema",
@@ -417,12 +440,22 @@ def _planned_files(
         primary_content = _read_package_member(package_root, measurement.primary_package_path)
         primary_digest = _sha256(primary_content)
         primary_size = len(primary_content)
+        integrity_fact = _integrity_fact(
+            preflight=preflight,
+            package_path=measurement.primary_package_path,
+        )
+        _validate_copied_content_against_integrity(
+            integrity_fact=integrity_fact,
+            digest=primary_digest,
+            size_bytes=primary_size,
+        )
         manifest_content = _manifest_bytes(
             preflight=preflight,
             destination=destination,
             measurement=measurement,
             primary_digest=primary_digest,
             primary_size_bytes=primary_size,
+            integrity_fact=integrity_fact,
         )
         files.extend(
             [

@@ -269,6 +269,61 @@ class HandoffEngineeringPrototypeStorageAcceptanceTest(unittest.TestCase):
         self.assertIn("simulated manifest write failure", summary["acceptance"]["write_error"])
         self.assertFalse(records_exist)
 
+    def test_rejects_package_primary_data_changed_after_preflight(self) -> None:
+        import scopecat.handoff.storage_acceptance as storage_acceptance
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            storage_root.mkdir()
+
+            with mock.patch.object(
+                storage_acceptance,
+                "_read_package_member",
+                return_value=b"changed after integrity observation\n",
+            ):
+                with self.assertRaisesRegex(ValueError, "digest must match preflight"):
+                    run_storage_acceptance(
+                        _storage_acceptance_source(),
+                        package_dir=package_dir,
+                        storage_root=storage_root,
+                    )
+            records_exist = (storage_root / "records").exists()
+
+        self.assertFalse(records_exist)
+
+    def test_late_target_collision_blocks_without_rollback_claim(self) -> None:
+        import scopecat.handoff.storage_acceptance as storage_acceptance
+
+        def reject_after_preflight(root: Path, relative_paths: list[str], label: str) -> None:
+            raise ValueError("handoff storage acceptance target already exists")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            storage_root.mkdir()
+
+            with mock.patch.object(
+                storage_acceptance,
+                "_reject_existing_paths",
+                side_effect=reject_after_preflight,
+            ):
+                run = run_storage_acceptance(
+                    _storage_acceptance_source(),
+                    package_dir=package_dir,
+                    storage_root=storage_root,
+                )
+            summary = run.to_dict()
+            records_exist = (storage_root / "records").exists()
+
+        self.assertEqual(run.classification, "blocked_before_acceptance")
+        self.assertFalse(run.rollback_performed)
+        self.assertFalse(summary["acceptance"]["performed"])
+        self.assertIn("target already exists", summary["acceptance"]["write_error"])
+        self.assertFalse(records_exist)
+
 
 if __name__ == "__main__":
     unittest.main()
