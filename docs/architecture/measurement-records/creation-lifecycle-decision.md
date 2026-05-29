@@ -482,3 +482,65 @@ It deliberately treats the previous read model only as an overwrite guard. It
 does not replace `record-manifest.json`, mutate receipts, repair primary data,
 accept broad overwrite, define concurrent refresh, implement lock identity, or
 promote canonical storage authority.
+
+## Manifest Replacement Decision
+
+Do not replace `record-manifest.json` in the current measurement-record
+prototype line.
+
+The accepted authority model remains:
+
+```text
+record-manifest.json
+  -> immutable creation shell and origin identity
+writer-receipt.json
+  -> authoritative primary-data materialization evidence
+finalization-receipt.json
+  -> authoritative lifecycle finalization evidence
+record-read-model.json
+  -> derived convenience projection, refreshable by approved atomic replace
+```
+
+`record-manifest.json` should continue to describe the created record shell:
+record id, record directory, initial lifecycle state, creation provenance, and
+explicit non-claims. Current lifecycle state, primary-data facts, and compact
+consumer summaries should come from receipts and derived read models, not from
+manifest mutation.
+
+This decision is intentionally conservative. Manifest replacement would create
+a second canonical-current-state surface beside receipts and read models. That
+would require authority rules for conflicts, atomic manifest swap semantics,
+lock identity, stale read-model invalidation, crash recovery, and import/update
+merge policy. The current prototype evidence does not need those costs yet:
+writer integration, finalization, projection, catalog, and refresh are already
+covered by receipt authority plus derived projections.
+
+The next implementation slice should not implement manifest replacement.
+Future work should revisit manifest replacement only after a separate route
+proves a concrete need that receipts plus refreshed read models cannot satisfy,
+such as:
+
+- existing-record update that must publish a single canonical current manifest;
+- import or handoff merge that requires canonical primary-data membership
+  inside `record-manifest.json`;
+- archival/export packaging that refuses derived projections as the summary
+  surface;
+- multi-writer coordination that requires lock identity and canonical current
+  state in one atomically replaced file.
+
+Any future manifest replacement decision must define at least:
+
+- manifest schema versioning and compatibility with creation manifests;
+- expected-current manifest digest or equivalent conflict guard;
+- temporary-file naming and atomic replacement semantics;
+- whether refreshed read models become stale before or after manifest replace;
+- crash recovery, partial-write cleanup, and stale-lock handling;
+- receipt-versus-manifest conflict authority;
+- import/update merge semantics;
+- public/export boundary posture if replacement manifests leave the local
+  workspace.
+
+Until that later decision exists, a stale or missing read model should be
+handled by read-model refresh, not by replacing the creation manifest. A stale
+or conflicting receipt should remain a review finding or route-specific error,
+not a manifest repair trigger.

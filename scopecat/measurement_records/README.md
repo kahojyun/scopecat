@@ -109,3 +109,8 @@ This refresh slice is now implemented through
 `refresh_measurement_record_read_model_from_read_view(...)`. It supports
 caller-declared `missing` and `replace_existing` target conditions; replacing
 an existing read model requires the expected current digest.
+
+Manifest replacement is not accepted for this prototype line.
+`record-manifest.json` remains the immutable creation shell and origin
+identity. Current lifecycle state, primary-data facts, and compact consumer
+summaries are carried by receipts and refreshed read models instead.
