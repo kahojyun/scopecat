@@ -198,6 +198,51 @@ class HandoffImportWorkflowRun:
         return "review_storage_acceptance_error_before_retry"
 
 
+@dataclass(frozen=True)
+class HandoffImportWorkflowReceiptSummary:
+    """Read-only operator summary of a local import workflow receipt."""
+
+    package_id: str
+    measurement_ids: tuple[str, ...]
+    final_state: str
+    next_action: str
+    operator_decision: str
+    operator_reason: str | None
+    mutation_approved: bool
+    preflight_classification: str
+    storage_acceptance_performed: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "artifact_posture": "local_import_workflow_receipt_summary",
+            "summary_policy": {
+                "source": "local_import_workflow_receipt",
+                "authority": "read_only_operator_continuation_summary",
+                "storage_mutation": "not_performed",
+                "continuation_authority": "fresh_workflow_request_required",
+                "portable_export": "not_produced",
+            },
+            "package_id": self.package_id,
+            "measurement_ids": list(self.measurement_ids),
+            "final_state": self.final_state,
+            "next_action": self.next_action,
+            "operator_decision": self.operator_decision,
+            "operator_reason": self.operator_reason,
+            "mutation_approved": self.mutation_approved,
+            "preflight_classification": self.preflight_classification,
+            "storage_acceptance_performed": self.storage_acceptance_performed,
+            "does_not_claim": [
+                "storage_mutation",
+                "continuation_authorization",
+                "fresh_preflight",
+                "destination_recheck",
+                "package_reopen",
+                "durable_review_state",
+                "public_import_api",
+            ],
+        }
+
+
 def run_import_workflow(
     source: dict[str, Any],
     *,
@@ -253,6 +298,97 @@ def run_import_workflow_from_preflight(
     )
 
 
+def summarize_import_workflow_receipt(
+    receipt: dict[str, Any],
+) -> HandoffImportWorkflowReceiptSummary:
+    """Summarize a local import workflow receipt without authorizing continuation."""
+
+    receipt = _require_mapping(receipt, "handoff import workflow receipt")
+    _require_keys(
+        receipt,
+        {
+            "artifact_posture",
+            "import_workflow_policy",
+            "workflow",
+            "request",
+            "review_state",
+            "package",
+            "preflight",
+            "storage_acceptance",
+        },
+        "handoff import workflow receipt",
+    )
+    if receipt["artifact_posture"] != "local_import_workflow_receipt":
+        raise ValueError("handoff import workflow receipt posture is unsupported")
+    if receipt["import_workflow_policy"] != _EXPECTED_POLICY:
+        raise ValueError("handoff import workflow receipt policy is unsupported")
+
+    workflow = _require_mapping(receipt["workflow"], "handoff import workflow receipt.workflow")
+    review_state = _require_mapping(
+        receipt["review_state"],
+        "handoff import workflow receipt.review_state",
+    )
+    package = _require_mapping(receipt["package"], "handoff import workflow receipt.package")
+    preflight = _require_mapping(
+        receipt["preflight"],
+        "handoff import workflow receipt.preflight",
+    )
+
+    final_state = _read_public_id(review_state, "final_state", "review_state.final_state")
+    workflow_classification = _read_public_id(
+        workflow,
+        "classification",
+        "workflow.classification",
+    )
+    if final_state != workflow_classification:
+        raise ValueError("handoff import workflow receipt final state is inconsistent")
+
+    operator_decision = _read_public_id(
+        review_state,
+        "operator_decision",
+        "review_state.operator_decision",
+    )
+    if operator_decision not in _DECISIONS:
+        raise ValueError("handoff import workflow receipt operator decision is unsupported")
+    operator_reason = _parse_operator_reason(review_state.get("operator_reason"))
+    if operator_decision == "approved_for_storage_acceptance":
+        if operator_reason is not None:
+            raise ValueError("approved import workflow receipt must not carry operator_reason")
+    else:
+        _validate_operator_reason(operator_reason)
+
+    mutation_approved = _read_bool(
+        review_state,
+        "mutation_approved",
+        "review_state.mutation_approved",
+    )
+    if mutation_approved != (operator_decision == "approved_for_storage_acceptance"):
+        raise ValueError("handoff import workflow receipt mutation approval is inconsistent")
+
+    storage_acceptance = receipt["storage_acceptance"]
+    storage_acceptance_performed = _storage_acceptance_performed(
+        storage_acceptance,
+        mutation_approved=mutation_approved,
+        final_state=final_state,
+    )
+
+    return HandoffImportWorkflowReceiptSummary(
+        package_id=_read_public_id(package, "package_id", "package.package_id"),
+        measurement_ids=_read_measurement_ids(package),
+        final_state=final_state,
+        next_action=_read_public_id(review_state, "next_action", "review_state.next_action"),
+        operator_decision=operator_decision,
+        operator_reason=operator_reason,
+        mutation_approved=mutation_approved,
+        preflight_classification=_read_public_id(
+            preflight,
+            "classification",
+            "preflight.classification",
+        ),
+        storage_acceptance_performed=storage_acceptance_performed,
+    )
+
+
 def _validate_against_preflight(
     *,
     request: HandoffImportWorkflowRequest,
@@ -283,6 +419,58 @@ def _require_mapping(value: Any, owner: str) -> dict[str, Any]:
 def _require_keys(value: dict[str, Any], expected_keys: set[str], owner: str) -> None:
     if set(value) != expected_keys:
         raise ValueError(f"{owner} fields are unsupported")
+
+
+def _read_public_id(source: dict[str, Any], key: str, owner: str) -> str:
+    return validate_public_identifier(source.get(key), owner)
+
+
+def _read_bool(source: dict[str, Any], key: str, owner: str) -> bool:
+    value = source.get(key)
+    if not isinstance(value, bool):
+        raise ValueError(f"{owner} must be a boolean")
+    return value
+
+
+def _read_measurement_ids(package: dict[str, Any]) -> tuple[str, ...]:
+    measurement_ids = package.get("measurement_ids")
+    if not isinstance(measurement_ids, list):
+        raise ValueError("package.measurement_ids must be a list")
+    return tuple(
+        validate_public_identifier(item, "package.measurement_ids item") for item in measurement_ids
+    )
+
+
+def _storage_acceptance_performed(
+    storage_acceptance: Any,
+    *,
+    mutation_approved: bool,
+    final_state: str,
+) -> bool:
+    if not mutation_approved:
+        if storage_acceptance is not None:
+            raise ValueError(
+                "non-approved import workflow receipt must not carry storage_acceptance"
+            )
+        return False
+    storage_receipt = _require_mapping(
+        storage_acceptance,
+        "handoff import workflow receipt.storage_acceptance",
+    )
+    acceptance = _require_mapping(
+        storage_receipt.get("acceptance"),
+        "handoff import workflow receipt.storage_acceptance.acceptance",
+    )
+    performed = _read_bool(
+        acceptance,
+        "performed",
+        "storage_acceptance.acceptance.performed",
+    )
+    if final_state == "accepted_into_storage" and not performed:
+        raise ValueError("accepted import workflow receipt must report performed storage")
+    if final_state != "accepted_into_storage" and performed:
+        raise ValueError("blocked import workflow receipt must not report performed storage")
+    return performed
 
 
 def _parse_source(

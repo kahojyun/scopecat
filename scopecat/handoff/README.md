@@ -58,6 +58,11 @@ rollback outcomes as workflow classifications without broadening storage shape
 or adding conflict resolution. Rejection and needs-review decisions require a
 single-line `operator_reason` copied only into the local workflow receipt; it
 is not written to the package or candidate storage manifest.
+`summarize_import_workflow_receipt(...)` reads that local receipt back into a
+small operator continuation summary with package id, measurement ids, final
+state, next action, and operator reason. It is read-only and does not
+authorize retry, reuse prior preflight facts, reopen packages, or mutate
+storage.
 
 The route-local writer uses a caller-provided `source_root` plus declared
 relative source paths for already-normalized primary data. That source-root
@@ -86,6 +91,7 @@ Current user-facing prototype surface:
 - `run_acceptance_preflight(source, package_dir=..., storage_root=...)`;
 - `run_storage_acceptance(source, package_dir=..., storage_root=...)`;
 - `run_import_workflow(source, package_dir=..., storage_root=...)`;
+- `summarize_import_workflow_receipt(receipt)`;
 - `write_package(source, source_root=..., package_root=...)`;
 - `run_package_workflow(source, source_root=..., package_root=...)`;
 - `python -m scopecat.handoff <package-dir>`;

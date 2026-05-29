@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import copy
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from scopecat.handoff import run_import_workflow
+from scopecat.handoff import run_import_workflow, summarize_import_workflow_receipt
 from scopecat.handoff.import_workflow import HandoffImportWorkflowRequest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -208,6 +209,16 @@ class HandoffEngineeringPrototypeImportWorkflowTest(unittest.TestCase):
             "use_local_storage_acceptance_receipt",
         )
         self.assertTrue(summary["storage_acceptance"]["acceptance"]["performed"])
+        receipt_summary = summarize_import_workflow_receipt(summary).to_dict()
+        self.assertEqual(
+            receipt_summary["artifact_posture"], "local_import_workflow_receipt_summary"
+        )
+        self.assertEqual(receipt_summary["package_id"], "handoff-package-legacy-rabi-001")
+        self.assertEqual(receipt_summary["measurement_ids"], ["legacy-rabi-001"])
+        self.assertEqual(receipt_summary["final_state"], "accepted_into_storage")
+        self.assertEqual(receipt_summary["next_action"], "use_local_storage_acceptance_receipt")
+        self.assertTrue(receipt_summary["storage_acceptance_performed"])
+        self.assertIn("continuation_authorization", receipt_summary["does_not_claim"])
 
     def test_rejected_workflow_records_review_state_without_storage_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -240,6 +251,13 @@ class HandoffEngineeringPrototypeImportWorkflowTest(unittest.TestCase):
             summary["review_state"]["operator_reason"],
             "Package contents do not match the expected run.",
         )
+        receipt_summary = summarize_import_workflow_receipt(summary)
+        self.assertEqual(receipt_summary.final_state, "rejected_after_review")
+        self.assertEqual(
+            receipt_summary.operator_reason,
+            "Package contents do not match the expected run.",
+        )
+        self.assertFalse(receipt_summary.storage_acceptance_performed)
 
     def test_needs_review_workflow_does_not_accept_storage(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -387,6 +405,50 @@ class HandoffEngineeringPrototypeImportWorkflowTest(unittest.TestCase):
                 package_dir=PACKAGE,
                 storage_root=PACKAGE.parent,
             )
+
+    def test_receipt_summary_rejects_inconsistent_final_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            storage_root.mkdir()
+
+            run = run_import_workflow(
+                _import_workflow_source(),
+                package_dir=package_dir,
+                storage_root=storage_root,
+            )
+            receipt = copy.deepcopy(run.to_dict())
+            receipt["review_state"]["final_state"] = "blocked_before_storage_acceptance"
+
+        with self.assertRaisesRegex(ValueError, "final state is inconsistent"):
+            summarize_import_workflow_receipt(receipt)
+
+    def test_receipt_summary_rejects_nonapproved_storage_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            storage_root.mkdir()
+
+            approved = run_import_workflow(
+                _import_workflow_source(),
+                package_dir=package_dir,
+                storage_root=storage_root,
+            ).to_dict()
+            rejected = run_import_workflow(
+                _import_workflow_source(
+                    operator_decision="rejected_after_review",
+                    operator_reason="Package contents do not match the expected run.",
+                    storage_acceptance_request=None,
+                ),
+                package_dir=package_dir,
+                storage_root=storage_root,
+            ).to_dict()
+            rejected["storage_acceptance"] = approved["storage_acceptance"]
+
+        with self.assertRaisesRegex(ValueError, "must not carry storage_acceptance"):
+            summarize_import_workflow_receipt(rejected)
 
 
 if __name__ == "__main__":

@@ -231,6 +231,12 @@ Rejected and needs-review decisions carry a required single-line
 for continuing or abandoning the receiving workflow; it is not a package
 member, candidate storage manifest field, portable/export artifact, public SDK
 contract, or runtime redaction surface.
+The companion `summarize_import_workflow_receipt(...)` helper validates a
+local workflow receipt and extracts the package id, measurement ids, final
+state, next action, and operator reason for operator continuation. It is
+read-only: it does not authorize retry, reuse prior preflight facts, reopen
+packages, recheck destinations, persist durable review state, or perform
+storage mutation.
 
 It does not add final storage schema, conflict resolution, durable review-state
 persistence, existing-record update, stronger crash recovery, archive trust,
@@ -261,6 +267,7 @@ The promoted baseline includes:
 - narrow storage acceptance mutation with best-effort synchronous rollback;
 - local import workflow receipt over explicit approve/reject/needs-review
   operator decisions;
+- read-only local import workflow receipt summary for operator continuation;
 - representative regression coverage over basic and route-pressure fixtures.
 
 ## Explicit Non-Promotions
