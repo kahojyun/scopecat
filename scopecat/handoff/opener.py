@@ -9,13 +9,13 @@ import stat
 from pathlib import Path
 from typing import Any
 
-from scopecat.handoff.contracts import (
+from scopecat.handoff._contracts import (
     relative_path_parts as _relative_parts,
 )
-from scopecat.handoff.contracts import (
+from scopecat.handoff._contracts import (
     validate_public_identifier,
 )
-from scopecat.handoff.manifest_preview import (
+from scopecat.handoff._manifest_preview import (
     HandoffManifestMeasurement,
     HandoffManifestPreviewMetadata,
     preview_handoff_manifest,

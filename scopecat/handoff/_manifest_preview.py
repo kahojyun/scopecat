@@ -1,4 +1,4 @@
-"""Manifest-only preview for route-local handoff package opening."""
+"""Route-private manifest preview for handoff package opening."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import copy
 from dataclasses import dataclass
 from typing import Any
 
-from scopecat.handoff.contracts import (
+from scopecat.handoff._contracts import (
     MANIFEST_AUTHORITY,
     validate_handoff_package_identity,
     validate_handoff_preview_ready_metadata,

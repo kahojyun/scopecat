@@ -5,8 +5,8 @@ import json
 import unittest
 from pathlib import Path
 
-from scopecat.handoff.contracts import validate_package_primary_data_path
-from scopecat.handoff.manifest_preview import preview_handoff_manifest
+from scopecat.handoff._contracts import validate_package_primary_data_path
+from scopecat.handoff._manifest_preview import preview_handoff_manifest
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = (

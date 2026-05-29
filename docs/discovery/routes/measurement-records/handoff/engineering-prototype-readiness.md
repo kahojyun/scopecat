@@ -80,10 +80,9 @@ These are not blockers for promoting the read-only vertical:
 
 The promotion pass should be small and mechanical:
 
-- mark which `scopecat/handoff/` APIs are prototype-private versus acceptable
-  route-private implementation APIs;
-- keep `contracts.py` route-private unless another concrete route needs the
-  same behavior, lifecycle, and failure semantics;
+- keep leading-underscore modules in `scopecat/handoff/` route-private unless
+  another concrete route needs the same behavior, lifecycle, and failure
+  semantics;
 - preserve the static HTML renderer as the first local review surface unless
   maintainability problems appear;
 - document old implementation candidates as historical discovery evidence,
@@ -99,7 +98,7 @@ or cross-route domain work.
 
 - The static HTML renderer is acceptable for the first local review surface,
   but should not become a public report format by accident.
-- `contracts.py` still contains low-level validation primitives. This is fine
+- `_contracts.py` still contains low-level validation primitives. This is fine
   while route-private, but promotion should avoid exporting it as a general
   domain library.
 - The current primary table is string-valued by design. Notebook computation

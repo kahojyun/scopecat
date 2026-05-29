@@ -1,4 +1,4 @@
-"""Route-local handoff package contract helpers."""
+"""Route-private handoff package contract helpers."""
 
 from __future__ import annotations
 

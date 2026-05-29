@@ -105,6 +105,8 @@ global domain layer. A plausible module split is:
 ```text
 scopecat/handoff/
   __main__.py
+  _contracts.py
+  _manifest_preview.py
   inspect.py
   opener.py
   package.py

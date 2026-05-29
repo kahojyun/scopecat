@@ -19,3 +19,16 @@ validation inputs, not runtime dependencies for this route.
 Raw manifest dictionaries are validated at the package boundary. After that,
 opener internals consume typed route-local manifest fragments and package
 projection objects.
+
+## API Surface
+
+Current user-facing prototype surface:
+
+- `open_package(package_dir)`;
+- `python -m scopecat.handoff <package-dir>`;
+- `write_inspection_artifact(...)` and `build_inspection_html(...)`;
+- route projection objects exported from `scopecat.handoff`.
+
+Modules with leading underscores are route-private implementation modules.
+They may be tested directly while the prototype hardens, but they are not
+public SDK or cross-route domain APIs.
