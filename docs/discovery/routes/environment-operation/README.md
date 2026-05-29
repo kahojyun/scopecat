@@ -53,7 +53,7 @@ workflow.
 | Operation intent | UV sync intent | Construct one bounded `uv sync --locked --no-default-groups` argv from declared context and approval fields without reading files or running uv. |
 | External result recording | UV sync result | Record a declared external uv outcome, bounded summaries, command facts, and result status without executing uv or verifying package state. |
 | Route-local execution prototype | UV sync execution prototype | Run an approved bounded `uv sync` command through a local subprocess runner and record bounded process facts without verifying package state or runtime readiness. |
-| Operation review composition | Environment operation review bundle | Compose prior manifest preflight, uv sync intent, and uv sync result summaries into one local review surface with alignment findings and explicit non-claims. |
+| Operation review composition | Environment operation review bundle plus route-local prototype review | Compose prior discovery summaries into one local review surface, and align selected `UvSyncIntent`/`UvSyncResult` prototype objects before broader review-bundle integration. |
 | Edge-case pressure | Operation review edge cases | Confirm manifest findings, uv failure, uv not-run, and deliberately inconsistent command projections remain review findings, not run blockers or readiness claims. |
 
 ## Boundary Map

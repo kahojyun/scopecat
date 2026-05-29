@@ -277,7 +277,7 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
         self.assertEqual(record.result_status, "uv_sync_completed_failed")
         self.assertEqual(record.execution_state, "completed_failed")
         self.assertNotEqual(record.exit_code, 0)
-        self.assertIn("lockfile", record.stderr_summary)
+        self.assertFalse(record.stderr_truncated)
         self.assertEqual([finding.code for finding in record.findings], ["uv_sync_process_failed"])
         self.assertEqual(record.findings[0].does_not_claim, "synchronized_or_installed_environment")
 

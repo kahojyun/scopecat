@@ -11,7 +11,7 @@ from __future__ import annotations
 import copy
 import re
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
@@ -19,6 +19,12 @@ from typing import Any, Protocol
 OUTPUT_SUMMARY_LIMIT = 2000
 DEFAULT_TIMEOUT_SECONDS = 300
 DEPENDENCY_GROUP = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")
+RESULT_STATUS_BY_EXECUTION_STATE = {
+    "completed_success": "uv_sync_completed_success",
+    "completed_failed": "uv_sync_completed_failed",
+    "timed_out": "uv_sync_timed_out",
+    "launch_failed": "uv_sync_launch_failed",
+}
 
 
 @dataclass(frozen=True)
@@ -192,13 +198,7 @@ class UvSyncExecutionRecord:
 
     @property
     def result_status(self) -> str:
-        if self.execution_state == "completed_success":
-            return "uv_sync_completed_success"
-        if self.execution_state == "timed_out":
-            return "uv_sync_timed_out"
-        if self.execution_state == "launch_failed":
-            return "uv_sync_launch_failed"
-        return "uv_sync_completed_failed"
+        return _result_status_for_execution_state(self.execution_state)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -291,25 +291,43 @@ class UvSyncExecutionRecord:
             raise ValueError("execution record argv must match intent")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class UvSyncResult:
     """Typed route-local projection of one approved uv sync execution result."""
 
-    intent_ref: dict[str, Any]
-    command_result: dict[str, Any]
+    _intent_ref: dict[str, Any] = field(repr=False)
+    _command_result: dict[str, Any] = field(repr=False)
     result_status: str
     findings: tuple[UvSyncFinding, ...]
-    attention: tuple[dict[str, str], ...]
+    _attention: tuple[dict[str, str], ...] = field(repr=False)
 
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "intent_ref", copy.deepcopy(self.intent_ref))
-        object.__setattr__(self, "command_result", copy.deepcopy(self.command_result))
-        object.__setattr__(self, "findings", tuple(self.findings))
-        object.__setattr__(
-            self,
-            "attention",
-            tuple(copy.deepcopy(item) for item in self.attention),
-        )
+    def __init__(
+        self,
+        *,
+        intent_ref: dict[str, Any],
+        command_result: dict[str, Any],
+        result_status: str,
+        findings: tuple[UvSyncFinding, ...],
+        attention: tuple[dict[str, str], ...],
+    ) -> None:
+        _validate_result_status(result_status)
+        object.__setattr__(self, "_intent_ref", copy.deepcopy(intent_ref))
+        object.__setattr__(self, "_command_result", copy.deepcopy(command_result))
+        object.__setattr__(self, "result_status", result_status)
+        object.__setattr__(self, "findings", _validate_typed_findings(findings))
+        object.__setattr__(self, "_attention", _validate_attention(attention))
+
+    @property
+    def intent_ref(self) -> dict[str, Any]:
+        return copy.deepcopy(self._intent_ref)
+
+    @property
+    def command_result(self) -> dict[str, Any]:
+        return copy.deepcopy(self._command_result)
+
+    @property
+    def attention(self) -> tuple[dict[str, str], ...]:
+        return tuple(copy.deepcopy(item) for item in self._attention)
 
     @classmethod
     def from_execution(cls, intent: UvSyncIntent, record: UvSyncExecutionRecord) -> UvSyncResult:
@@ -341,30 +359,47 @@ class UvSyncResult:
             if key not in summary:
                 raise ValueError(f"uv sync result summary must include {key}")
 
+        policy = _require_owned_mapping(
+            summary,
+            "uv_sync_result_policy",
+            "uv sync result summary",
+        )
+        if policy != _result_summary_policy():
+            raise ValueError("uv sync result summary policy must match uv sync result policy")
+
         result_findings = summary["result_findings"]
         if not isinstance(result_findings, list):
             raise ValueError("uv sync result summary result_findings must be a list")
         attention = summary["attention"]
         if not isinstance(attention, list) or not all(isinstance(item, dict) for item in attention):
             raise ValueError("uv sync result summary attention must be a list of objects")
+        if attention != _result_summary_attention():
+            raise ValueError("uv sync result summary attention must match uv sync result attention")
+
+        intent_ref = _require_owned_mapping(
+            summary,
+            "uv_sync_intent_ref",
+            "uv sync result summary",
+        )
+        command_result = _require_owned_mapping(
+            summary,
+            "command_result",
+            "uv sync result summary",
+        )
+        result_status = _require_owned_text(
+            summary,
+            "result_status",
+            "uv sync result summary",
+        )
+        findings = tuple(UvSyncFinding.from_dict(item) for item in result_findings)
+        _validate_summary_command_result(command_result)
+        _validate_summary_consistency(command_result, result_status, findings)
 
         return cls(
-            intent_ref=_require_owned_mapping(
-                summary,
-                "uv_sync_intent_ref",
-                "uv sync result summary",
-            ),
-            command_result=_require_owned_mapping(
-                summary,
-                "command_result",
-                "uv sync result summary",
-            ),
-            result_status=_require_owned_text(
-                summary,
-                "result_status",
-                "uv sync result summary",
-            ),
-            findings=tuple(UvSyncFinding.from_dict(item) for item in result_findings),
+            intent_ref=intent_ref,
+            command_result=command_result,
+            result_status=result_status,
+            findings=findings,
             attention=tuple(copy.deepcopy(item) for item in attention),
         )
 
@@ -372,31 +407,12 @@ class UvSyncResult:
         """Project this typed result into the route-local review summary shape."""
 
         return {
-            "uv_sync_result_policy": {
-                "summary_policy": "review_summary",
-                "result_authority": "scopecat_uv_sync_execution_result",
-                "prior_intent_source": "route_local_uv_sync_intent",
-                "manager_scope": "uv_only",
-                "command_result_shape": "bounded_uv_sync_execution_record",
-                "local_execution_cwd_authority": "local_review_path_internal",
-                "scopecat_process_execution": "performed",
-                "manifest_read": "not_performed",
-                "lockfile_read": "not_performed",
-                "output_parsing": "summary_only_no_dependency_parsing",
-                "dependency_resolution": "delegated_to_uv_not_performed_by_scopecat",
-                "dependency_sync": "manager_result_not_verified_by_scopecat",
-                "package_install": "manager_result_not_verified_by_scopecat",
-                "runtime_probe": "not_performed",
-                "code_import_execution": "not_performed",
-                "hardware_probe": "not_performed",
-                "readiness_claim": "not_claimed",
-                "shared_environment_schema": "not_defined",
-            },
-            "uv_sync_intent_ref": copy.deepcopy(self.intent_ref),
-            "command_result": copy.deepcopy(self.command_result),
+            "uv_sync_result_policy": _result_summary_policy(),
+            "uv_sync_intent_ref": self.intent_ref,
+            "command_result": self.command_result,
             "result_status": self.result_status,
             "result_findings": [finding.to_dict() for finding in self.findings],
-            "attention": [copy.deepcopy(item) for item in self.attention],
+            "attention": [copy.deepcopy(item) for item in self._attention],
         }
 
 
@@ -528,6 +544,106 @@ def _result_summary_attention() -> list[dict[str, str]]:
             "does_not_claim": "run_can_start",
         },
     ]
+
+
+def _result_summary_policy() -> dict[str, str]:
+    return {
+        "summary_policy": "review_summary",
+        "result_authority": "scopecat_uv_sync_execution_result",
+        "prior_intent_source": "route_local_uv_sync_intent",
+        "manager_scope": "uv_only",
+        "command_result_shape": "bounded_uv_sync_execution_record",
+        "local_execution_cwd_authority": "local_review_path_internal",
+        "scopecat_process_execution": "performed",
+        "manifest_read": "not_performed",
+        "lockfile_read": "not_performed",
+        "output_parsing": "summary_only_no_dependency_parsing",
+        "dependency_resolution": "delegated_to_uv_not_performed_by_scopecat",
+        "dependency_sync": "manager_result_not_verified_by_scopecat",
+        "package_install": "manager_result_not_verified_by_scopecat",
+        "runtime_probe": "not_performed",
+        "code_import_execution": "not_performed",
+        "hardware_probe": "not_performed",
+        "readiness_claim": "not_claimed",
+        "shared_environment_schema": "not_defined",
+    }
+
+
+def _result_status_for_execution_state(execution_state: str) -> str:
+    try:
+        return RESULT_STATUS_BY_EXECUTION_STATE[execution_state]
+    except KeyError as exc:
+        raise ValueError("uv sync execution_state must be recognized") from exc
+
+
+def _validate_result_status(value: str) -> None:
+    if value not in RESULT_STATUS_BY_EXECUTION_STATE.values():
+        raise ValueError("uv sync result_status must be recognized")
+
+
+def _validate_typed_findings(
+    findings: tuple[UvSyncFinding, ...],
+) -> tuple[UvSyncFinding, ...]:
+    validated = tuple(findings)
+    if not all(isinstance(finding, UvSyncFinding) for finding in validated):
+        raise ValueError("uv sync result findings must be UvSyncFinding objects")
+    return validated
+
+
+def _validate_attention(
+    attention: tuple[dict[str, str], ...],
+) -> tuple[dict[str, str], ...]:
+    validated = tuple(copy.deepcopy(item) for item in attention)
+    for item in validated:
+        if not isinstance(item, dict):
+            raise ValueError("uv sync result attention entries must be objects")
+        for key in ("code", "severity", "basis", "does_not_claim"):
+            _require_owned_text(item, key, "uv sync result attention")
+    return validated
+
+
+def _validate_summary_command_result(command_result: dict[str, Any]) -> None:
+    if _require_owned_text(command_result, "manager", "uv sync command result") != "uv":
+        raise ValueError("uv sync command result manager must be uv")
+    if _require_owned_text(command_result, "operation", "uv sync command result") != "sync":
+        raise ValueError("uv sync command result operation must be sync")
+    _validate_uv_sync_argv(command_result.get("argv"))
+    _require_owned_text(command_result, "result_id", "uv sync command result")
+    _require_owned_text(command_result, "intent_request_id", "uv sync command result")
+    _require_owned_text(command_result, "approval_id", "uv sync command result")
+    _validate_relative_path(
+        _require_owned_text(command_result, "working_directory", "uv sync command result"),
+        "uv sync command result working_directory",
+    )
+
+
+def _validate_summary_consistency(
+    command_result: dict[str, Any],
+    result_status: str,
+    findings: tuple[UvSyncFinding, ...],
+) -> None:
+    execution_state = _require_owned_text(
+        command_result,
+        "execution_state",
+        "uv sync command result",
+    )
+    expected_status = _result_status_for_execution_state(execution_state)
+    if result_status != expected_status:
+        raise ValueError("uv sync result_status must match execution_state")
+
+    exit_code = command_result.get("exit_code")
+    if execution_state == "completed_success" and exit_code != 0:
+        raise ValueError("completed uv sync success must have exit_code 0")
+    if execution_state == "completed_failed" and (not isinstance(exit_code, int) or exit_code == 0):
+        raise ValueError("failed uv sync process must have non-zero exit_code")
+    if execution_state in {"timed_out", "launch_failed"} and exit_code is not None:
+        raise ValueError("non-completed uv sync process must not have exit_code")
+
+    expected_findings = tuple(_findings(execution_state))
+    if tuple(finding.to_dict() for finding in findings) != tuple(
+        finding.to_dict() for finding in expected_findings
+    ):
+        raise ValueError("uv sync result_findings must match execution_state")
 
 
 def _validate_relative_path(value: str, owner: str) -> str:

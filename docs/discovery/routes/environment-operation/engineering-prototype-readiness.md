@@ -94,6 +94,7 @@ rebasing onto the latest `origin/main`, the branch should be ready for review
 once repository verification remains green.
 
 Future environment-operation work should be triggered by a new boundary
-question: runtime probing, operation review over prototype results, Pixi/Conda
-pressure, or selected experiment-code execution. Those should be separate PRs,
-not additional broadening of this prototype line.
+question: runtime probing, broader review-bundle integration with optional
+manifest or prepared-context references, Pixi/Conda pressure, or selected
+experiment-code execution. Those should be separate PRs, not additional
+broadening of this prototype line.

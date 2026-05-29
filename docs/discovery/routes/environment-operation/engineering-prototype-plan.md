@@ -19,7 +19,7 @@ The second prototype milestone adds route-local review composition over the
 prototype execution result. It does not execute another process or inspect
 runtime/package state.
 
-## First Milestone
+## Implemented Scope
 
 Status: implemented in `scopecat.environment_operation` with injected-runner
 tests, a real tiny `uv` success fixture, and a real locked-mode failure
