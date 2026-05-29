@@ -49,6 +49,13 @@ candidate record manifest, and applies best-effort synchronous rollback if a
 later write fails. It does not define final storage schema, existing-record
 updates, conflict resolution, crash recovery, archive trust, or linked-context
 payload import.
+`run_import_workflow(...)` wraps the receiving/import chain in one
+operator-facing local session receipt. It always runs the acceptance preflight,
+records an explicit operator decision of approve, reject, or needs-review, and
+calls `run_storage_acceptance(...)` only for the approved decision. It surfaces
+destination collisions, guardrail blocks, rejections, needs-review state, and
+rollback outcomes as workflow classifications without broadening storage shape
+or adding conflict resolution.
 
 The route-local writer uses a caller-provided `source_root` plus declared
 relative source paths for already-normalized primary data. That source-root
@@ -76,6 +83,7 @@ Current user-facing prototype surface:
 - `run_import_plan(source, package_dir=...)`;
 - `run_acceptance_preflight(source, package_dir=..., storage_root=...)`;
 - `run_storage_acceptance(source, package_dir=..., storage_root=...)`;
+- `run_import_workflow(source, package_dir=..., storage_root=...)`;
 - `write_package(source, source_root=..., package_root=...)`;
 - `run_package_workflow(source, source_root=..., package_root=...)`;
 - `python -m scopecat.handoff <package-dir>`;

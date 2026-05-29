@@ -1,0 +1,433 @@
+"""Operator-facing receiving/import workflow composition."""
+
+from __future__ import annotations
+
+import copy
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from scopecat.handoff._contracts import (
+    validate_public_identifier,
+    validate_relative_path,
+    validate_strict_child_path,
+)
+from scopecat.handoff.acceptance_preflight import (
+    HandoffAcceptanceDestination,
+    HandoffAcceptancePreflightRun,
+    run_acceptance_preflight,
+)
+from scopecat.handoff.storage_acceptance import (
+    HandoffStorageAcceptanceRequest,
+    HandoffStorageAcceptanceRun,
+    run_storage_acceptance_from_preflight,
+)
+
+_EXPECTED_SCHEMA = "scopecat.handoff_import_workflow.v0"
+_EXPECTED_POLICY = {
+    "workflow_authority": "operator_import_workflow_review",
+    "acceptance_preflight": "required_before_operator_decision_receipt",
+    "operator_decision": "explicit_approve_reject_or_needs_review",
+    "storage_acceptance": "only_after_approved_operator_decision",
+    "review_state": "local_session_receipt",
+    "storage_schema": "candidate_storage_acceptance_only",
+    "conflict_resolution": "not_performed",
+    "final_storage_schema": "not_defined",
+    "archive_handling": "not_performed",
+    "signature_validation": "not_performed",
+    "linked_context_payload_import": "not_performed",
+}
+_DECISIONS = {
+    "approved_for_storage_acceptance",
+    "rejected_after_review",
+    "needs_review",
+}
+
+
+@dataclass(frozen=True)
+class HandoffImportWorkflowRequest:
+    """Operator decision for the local receiving/import workflow."""
+
+    request_id: str
+    requested_package_id: str
+    operator_decision: str
+    storage_acceptance_request: HandoffStorageAcceptanceRequest | None = None
+
+    def __post_init__(self) -> None:
+        validate_public_identifier(self.request_id, "import_workflow_request.request_id")
+        validate_public_identifier(
+            self.requested_package_id,
+            "import_workflow_request.requested_package_id",
+        )
+        if self.operator_decision not in _DECISIONS:
+            raise ValueError("import workflow operator_decision is unsupported")
+        if self.operator_decision == "approved_for_storage_acceptance":
+            if not isinstance(
+                self.storage_acceptance_request,
+                HandoffStorageAcceptanceRequest,
+            ):
+                raise ValueError("approved import workflow requires storage_acceptance_request")
+            return
+        if self.storage_acceptance_request is not None:
+            raise ValueError(
+                "storage_acceptance_request is allowed only for approved import workflows"
+            )
+
+    @property
+    def mutation_approved(self) -> bool:
+        return self.operator_decision == "approved_for_storage_acceptance"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "request_id": self.request_id,
+            "requested_package_id": self.requested_package_id,
+            "operator_decision": self.operator_decision,
+            "storage_acceptance_request": (
+                None
+                if self.storage_acceptance_request is None
+                else self.storage_acceptance_request.to_dict()
+            ),
+        }
+
+
+@dataclass(frozen=True)
+class HandoffImportWorkflowRun:
+    """Local session receipt for an operator-facing handoff import workflow."""
+
+    request: HandoffImportWorkflowRequest
+    preflight: HandoffAcceptancePreflightRun
+    storage_acceptance: HandoffStorageAcceptanceRun | None = None
+
+    @property
+    def classification(self) -> str:
+        if self.request.operator_decision == "rejected_after_review":
+            return "rejected_after_review"
+        if self.request.operator_decision == "needs_review":
+            return "needs_operator_review"
+        if self.storage_acceptance is None:
+            return "blocked_before_storage_acceptance"
+        if self.storage_acceptance.classification == "accepted_into_storage":
+            return "accepted_into_storage"
+        if self.storage_acceptance.classification == "rolled_back_after_write_failure":
+            return "rolled_back_after_write_failure"
+        if self.preflight.classification == "blocked_by_destination_collision":
+            return "blocked_by_destination_collision"
+        if self.preflight.classification == "blocked_by_destination_guardrail":
+            return "blocked_by_destination_guardrail"
+        if self.preflight.classification == "blocked_before_acceptance_preflight":
+            return "blocked_before_acceptance_preflight"
+        return "blocked_before_storage_acceptance"
+
+    @property
+    def accepted(self) -> bool:
+        return self.classification == "accepted_into_storage"
+
+    def to_dict(self) -> dict[str, Any]:
+        storage_summary = (
+            None if self.storage_acceptance is None else self.storage_acceptance.to_dict()
+        )
+        return {
+            "artifact_posture": "local_import_workflow_receipt",
+            "import_workflow_policy": copy.deepcopy(_EXPECTED_POLICY),
+            "workflow": {
+                "classification": self.classification,
+                "steps": self._steps(),
+                "does_not_claim": [
+                    "final_storage_schema",
+                    "broad_import_workflow",
+                    "existing_record_update",
+                    "conflict_resolution",
+                    "crash_recovery",
+                    "archive_extraction",
+                    "signature_or_authenticity_validation",
+                    "linked_context_payload_import",
+                ],
+            },
+            "request": self.request.to_dict(),
+            "review_state": {
+                "operator_decision": self.request.operator_decision,
+                "mutation_approved": self.request.mutation_approved,
+                "final_state": self.classification,
+                "next_action": self._next_action(),
+            },
+            "package": {
+                "package_id": self.preflight.import_plan.package.package_id,
+                "preview_classification": self.preflight.import_plan.package.preview_classification,
+                "measurement_ids": list(self.preflight.import_plan.package.measurement_ids),
+            },
+            "preflight": {
+                "classification": self.preflight.classification,
+                "allowed": self.preflight.acceptance_preflight_allowed,
+                "destination_observation": [
+                    item.to_dict() for item in self.preflight.destination_observations
+                ],
+            },
+            "storage_acceptance": storage_summary,
+        }
+
+    def _steps(self) -> list[str]:
+        steps = [
+            "run_acceptance_preflight",
+            "record_operator_decision",
+        ]
+        if self.request.mutation_approved:
+            steps.append("run_storage_acceptance")
+        return steps
+
+    def _next_action(self) -> str:
+        if self.classification == "accepted_into_storage":
+            return "use_local_storage_acceptance_receipt"
+        if self.classification == "rejected_after_review":
+            return "record_rejection_without_storage_mutation"
+        if self.classification == "needs_operator_review":
+            return "complete_operator_review_before_storage_acceptance"
+        if self.classification == "blocked_by_destination_collision":
+            return "choose_available_destinations_before_storage_acceptance"
+        if self.classification == "blocked_by_destination_guardrail":
+            return "repair_destination_guardrail_before_storage_acceptance"
+        if self.classification == "rolled_back_after_write_failure":
+            return "review_rollback_and_retry_with_fresh_preflight"
+        if self.classification == "blocked_before_acceptance_preflight":
+            return "resolve_receiving_gate_or_import_plan_before_storage_acceptance"
+        return "review_storage_acceptance_error_before_retry"
+
+
+def run_import_workflow(
+    source: dict[str, Any],
+    *,
+    package_dir: str | Path,
+    storage_root: str | Path,
+) -> HandoffImportWorkflowRun:
+    """Run the local receiving/import workflow through one operator decision."""
+
+    request, preflight_source = _parse_source(source)
+    preflight = run_acceptance_preflight(
+        preflight_source,
+        package_dir=package_dir,
+        storage_root=storage_root,
+    )
+    return run_import_workflow_from_preflight(
+        request,
+        preflight=preflight,
+        package_dir=package_dir,
+        storage_root=storage_root,
+    )
+
+
+def run_import_workflow_from_preflight(
+    request: HandoffImportWorkflowRequest,
+    *,
+    preflight: HandoffAcceptancePreflightRun,
+    package_dir: str | Path,
+    storage_root: str | Path,
+) -> HandoffImportWorkflowRun:
+    """Run the operator workflow from an already typed acceptance preflight."""
+
+    _validate_against_preflight(request=request, preflight=preflight)
+    _validate_roots_against_preflight(
+        package_dir=package_dir,
+        storage_root=storage_root,
+        preflight=preflight,
+    )
+    storage_acceptance: HandoffStorageAcceptanceRun | None = None
+    if request.mutation_approved:
+        storage_request = request.storage_acceptance_request
+        if storage_request is None:
+            raise ValueError("approved import workflow requires storage_acceptance_request")
+        storage_acceptance = run_storage_acceptance_from_preflight(
+            storage_request,
+            preflight=preflight,
+            package_dir=package_dir,
+            storage_root=storage_root,
+        )
+    return HandoffImportWorkflowRun(
+        request=request,
+        preflight=preflight,
+        storage_acceptance=storage_acceptance,
+    )
+
+
+def _validate_against_preflight(
+    *,
+    request: HandoffImportWorkflowRequest,
+    preflight: HandoffAcceptancePreflightRun,
+) -> None:
+    if request.requested_package_id != preflight.import_plan.package.package_id:
+        raise ValueError("import workflow package id must match acceptance preflight")
+
+
+def _validate_roots_against_preflight(
+    *,
+    package_dir: str | Path,
+    storage_root: str | Path,
+    preflight: HandoffAcceptancePreflightRun,
+) -> None:
+    if str(Path(package_dir).resolve()) != preflight.package_dir:
+        raise ValueError("import workflow package_dir must match acceptance preflight")
+    if str(Path(storage_root).resolve()) != preflight.storage_root:
+        raise ValueError("import workflow storage_root must match acceptance preflight")
+
+
+def _require_mapping(value: Any, owner: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{owner} must be an object")
+    return value
+
+
+def _require_keys(value: dict[str, Any], expected_keys: set[str], owner: str) -> None:
+    if set(value) != expected_keys:
+        raise ValueError(f"{owner} fields are unsupported")
+
+
+def _parse_source(
+    source: dict[str, Any],
+) -> tuple[HandoffImportWorkflowRequest, dict[str, Any]]:
+    source = _require_mapping(source, "handoff import workflow source")
+    _require_keys(
+        source,
+        {
+            "import_workflow_schema",
+            "import_workflow_policy",
+            "acceptance_preflight_source",
+            "import_workflow_request",
+        },
+        "handoff import workflow source",
+    )
+    if source["import_workflow_schema"] != _EXPECTED_SCHEMA:
+        raise ValueError("import_workflow_schema is unsupported")
+    if source["import_workflow_policy"] != _EXPECTED_POLICY:
+        raise ValueError("import_workflow_policy is unsupported")
+    request = _parse_request(source["import_workflow_request"])
+    preflight_source = _require_mapping(
+        source["acceptance_preflight_source"],
+        "acceptance_preflight_source",
+    )
+    return request, copy.deepcopy(preflight_source)
+
+
+def _parse_request(source: Any) -> HandoffImportWorkflowRequest:
+    request = _require_mapping(source, "import_workflow_request")
+    _require_keys(
+        request,
+        {
+            "request_id",
+            "requested_package_id",
+            "operator_decision",
+            "storage_acceptance_request",
+        },
+        "import_workflow_request",
+    )
+    storage_acceptance_request = _parse_optional_storage_request(
+        request["storage_acceptance_request"]
+    )
+    return HandoffImportWorkflowRequest(
+        request_id=validate_public_identifier(
+            request["request_id"],
+            "import_workflow_request.request_id",
+        ),
+        requested_package_id=validate_public_identifier(
+            request["requested_package_id"],
+            "import_workflow_request.requested_package_id",
+        ),
+        operator_decision=validate_public_identifier(
+            request["operator_decision"],
+            "import_workflow_request.operator_decision",
+        ),
+        storage_acceptance_request=storage_acceptance_request,
+    )
+
+
+def _parse_optional_storage_request(source: Any) -> HandoffStorageAcceptanceRequest | None:
+    if source is None:
+        return None
+    request = _require_mapping(source, "storage_acceptance_request")
+    _require_keys(
+        request,
+        {
+            "request_id",
+            "approval_state",
+            "requested_package_id",
+            "approved_destinations",
+        },
+        "storage_acceptance_request",
+    )
+    if request["approval_state"] != "approved":
+        raise ValueError("handoff import workflow requires approved storage request")
+    return HandoffStorageAcceptanceRequest(
+        request_id=validate_public_identifier(
+            request["request_id"],
+            "storage_acceptance_request.request_id",
+        ),
+        requested_package_id=validate_public_identifier(
+            request["requested_package_id"],
+            "storage_acceptance_request.requested_package_id",
+        ),
+        approved_destinations=_parse_destinations(request["approved_destinations"]),
+    )
+
+
+def _parse_destinations(source: Any) -> tuple[HandoffAcceptanceDestination, ...]:
+    if not isinstance(source, list):
+        raise ValueError("storage acceptance destinations must be a list")
+    if not source:
+        raise ValueError("storage acceptance destinations must not be empty")
+    destinations = tuple(_parse_destination(item) for item in source)
+    measurement_ids = [item.measurement_record_id for item in destinations]
+    if len(set(measurement_ids)) != len(measurement_ids):
+        raise ValueError("storage acceptance destinations measurement ids must be unique")
+    destination_record_ids = [item.destination_record_id for item in destinations]
+    if len(set(destination_record_ids)) != len(destination_record_ids):
+        raise ValueError("storage acceptance destinations record ids must be unique")
+    return destinations
+
+
+def _parse_destination(source: Any) -> HandoffAcceptanceDestination:
+    destination = _require_mapping(source, "storage acceptance destination")
+    _require_keys(
+        destination,
+        {
+            "measurement_record_id",
+            "destination_record_id",
+            "record_dir",
+            "primary_data_path",
+            "manifest_path",
+            "storage_schema",
+        },
+        "storage acceptance destination",
+    )
+    record_dir = validate_relative_path(
+        destination["record_dir"],
+        "storage acceptance destination record_dir",
+    )
+    primary_data_path = validate_strict_child_path(
+        destination["primary_data_path"],
+        record_dir,
+        "storage acceptance destination primary_data_path",
+    )
+    manifest_path = validate_strict_child_path(
+        destination["manifest_path"],
+        record_dir,
+        "storage acceptance destination manifest_path",
+    )
+    if primary_data_path == manifest_path:
+        raise ValueError("storage acceptance destination paths must be unique")
+    storage_schema = validate_public_identifier(
+        destination["storage_schema"],
+        "storage acceptance destination storage_schema",
+    )
+    if storage_schema != "measurement_record_directory_candidate_v0":
+        raise ValueError("storage acceptance destination storage_schema is unsupported")
+    return HandoffAcceptanceDestination(
+        measurement_record_id=validate_public_identifier(
+            destination["measurement_record_id"],
+            "storage acceptance destination measurement_record_id",
+        ),
+        destination_record_id=validate_public_identifier(
+            destination["destination_record_id"],
+            "storage acceptance destination destination_record_id",
+        ),
+        record_dir=record_dir,
+        primary_data_path=primary_data_path,
+        manifest_path=manifest_path,
+        storage_schema=storage_schema,
+    )

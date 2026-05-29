@@ -209,6 +209,29 @@ not evidence by itself for final storage schema, broad import workflow,
 existing-record update, archive format, signatures, authenticity, or
 adversarial package trust policy.
 
+## Import Workflow Hardening Slice
+
+The route-local implementation now includes `run_import_workflow(...)` as a
+local operator-facing receipt over the accepted receiving/import chain:
+
+```text
+acceptance preflight
+  -> explicit operator decision
+  -> optional approved candidate storage acceptance
+  -> local workflow receipt
+```
+
+This slice hardens the current candidate workflow without broadening storage
+authority. It records approved, rejected, and needs-review operator decisions;
+surfaces destination collision, destination guardrail, preflight block, storage
+block, and rollback states; and calls the existing storage-acceptance mutation
+only when the operator decision is approved.
+
+It does not add final storage schema, conflict resolution, durable review-state
+persistence, existing-record update, stronger crash recovery, archive trust,
+signatures/authenticity, linked-context payload import, GUI ownership, or a
+public import API. Those remain separate reopen triggers.
+
 ## Accepted Baseline
 
 The promoted baseline includes:
@@ -231,6 +254,8 @@ The promoted baseline includes:
 - non-mutating import planning after a ready receiving gate;
 - destination acceptance preflight over exact declared no-overwrite paths;
 - narrow storage acceptance mutation with best-effort synchronous rollback;
+- local import workflow receipt over explicit approve/reject/needs-review
+  operator decisions;
 - representative regression coverage over basic and route-pressure fixtures.
 
 ## Explicit Non-Promotions

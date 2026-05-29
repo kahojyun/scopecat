@@ -14,6 +14,11 @@ from scopecat.handoff.import_plan import (
     HandoffMeasurementImportPlan,
     run_import_plan,
 )
+from scopecat.handoff.import_workflow import (
+    HandoffImportWorkflowRequest,
+    HandoffImportWorkflowRun,
+    run_import_workflow,
+)
 from scopecat.handoff.inspect import (
     HANDOFF_INSPECTION_ARTIFACT_NAME,
     build_inspection_html,
@@ -55,6 +60,8 @@ __all__ = [
     "HandoffFinding",
     "HandoffImportPlanRequest",
     "HandoffImportPlanRun",
+    "HandoffImportWorkflowRequest",
+    "HandoffImportWorkflowRun",
     "HandoffIntegrityMemberObservation",
     "HandoffIntegrityOwnerRef",
     "HandoffLinkedContext",
@@ -76,6 +83,7 @@ __all__ = [
     "open_package",
     "run_acceptance_preflight",
     "run_import_plan",
+    "run_import_workflow",
     "run_package_workflow",
     "run_receiving_gate",
     "run_storage_acceptance",
