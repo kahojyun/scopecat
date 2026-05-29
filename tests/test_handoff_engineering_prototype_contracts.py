@@ -71,6 +71,17 @@ class HandoffEngineeringPrototypeContractsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "axes must reference declared columns"):
             preview_handoff_manifest(manifest)
 
+    def test_manifest_preview_rejects_non_packaged_primary_data(self) -> None:
+        manifest = _load_manifest()
+        primary = manifest["selected_measurements"][0]["primary_data"]
+        primary["include_status"] = "visible_excluded"
+        primary["package_state"] = "not_packaged_visible_reference"
+        primary["package_path"] = None
+        primary["reason"] = "Primary data was not packaged."
+
+        with self.assertRaisesRegex(ValueError, "primary_data"):
+            preview_handoff_manifest(manifest)
+
     def test_primary_data_path_contract_is_canonical_for_handoff_route(self) -> None:
         validate_package_primary_data_path(
             "measurements/legacy-rabi-001/primary.csv",

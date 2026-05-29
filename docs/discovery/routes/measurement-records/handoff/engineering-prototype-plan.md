@@ -165,17 +165,13 @@ inspection artifact is prototype-local review output; it is not a portable
 package member, public report, final GUI component model, dataframe adapter,
 package import record, or package-integrity verification.
 
-Promotion blockers still include:
+Promotion follow-up decisions resolved by
+[`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md):
 
-- deciding whether the route-local contract helpers should stay private to
-  the handoff prototype or become accepted handoff route contracts before
-  promotion;
-- deciding whether the current stdlib HTML renderer remains enough for the
-  first accepted vertical or should be replaced by a template/rendering layer
-  before promotion;
-- deciding whether numeric conversion, dataframe adapters, or plotting-library
-  integration are needed before promotion, or should remain later SDK/notebook
-  pressure.
+- leading-underscore helper modules stay route-private;
+- static HTML remains the first local review surface;
+- numeric conversion, dataframe adapters, and plotting-library integration
+  remain deferred until a concrete notebook or GUI workflow requires them.
 
 ## Fixture Policy
 
@@ -262,14 +258,15 @@ If multiple routes later need the same lifecycle, validation behavior, and
 failure semantics, reconsider shared model extraction with a narrower accepted
 decision or ADR.
 
-Current stop-criteria assessment and promotion recommendation are recorded in
-[`engineering-prototype-readiness.md`](engineering-prototype-readiness.md).
+Current stop-criteria assessment is recorded in
+[`engineering-prototype-readiness.md`](engineering-prototype-readiness.md);
+the promotion decision is recorded in
+[`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md).
 
-## Open Questions
+## Remaining Follow-Up Questions
 
-- Which route-local APIs should remain private implementation details during
-  the promotion pass?
-- Should route-local contract helpers stay private to handoff or become
-  accepted handoff route contracts before promotion?
 - Which old implementation candidates can be archived, left untouched as
-  evidence, or ignored by future maintenance?
+  evidence, or ignored by future maintenance after branch merge?
+- Which separately scoped route extension should resume next: notebook
+  adapters, GUI review, storage acceptance, archive/trust, linked-context
+  payloads, or analysis/fit results?

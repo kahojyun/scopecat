@@ -58,10 +58,11 @@ They do not infer scan shape, table schema, scalar types, scientific meaning,
 or plot candidates from raw files.
 
 Python/package use is **table-first and plot-ready**. Notebook and script users
-should be able to discover measurements, get dataframe-like primary tables,
-and get declared plot records or arrays without importing the package into
-Scopecat storage. Optional pandas/numpy adapters are useful pressure, but hard
-dataframe dependencies and final public SDK names remain deferred.
+should be able to discover measurements and get useful table/plot facts without
+importing the package into Scopecat storage. The promoted read-only baseline
+provides string-valued primary tables and declared plot records. Dataframe-like
+tables, arrays, optional pandas/numpy adapters, hard dataframe dependencies,
+and final public SDK names remain deferred SDK/notebook pressure.
 
 GUI/local review use is **plot-first when a plot is declared**. Experimental
 users commonly orient by the primary plot and structured context first, with

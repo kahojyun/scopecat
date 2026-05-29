@@ -183,6 +183,14 @@ def _findings_for_measurement(
     return tuple(findings)
 
 
+def _require_all_measurements_preview_ready(
+    measurements: tuple[HandoffManifestMeasurement, ...],
+) -> None:
+    for measurement in measurements:
+        if measurement.preview_metadata.status != "preview_ready":
+            raise ValueError("handoff package opener requires preview_ready metadata")
+
+
 def _opened_measurement(
     package_dir: Path,
     measurement: HandoffManifestMeasurement,
@@ -191,8 +199,6 @@ def _opened_measurement(
     package_findings: tuple[HandoffFinding, ...],
 ) -> HandoffMeasurement:
     preview = measurement.preview_metadata
-    if preview.status != "preview_ready":
-        raise ValueError("handoff package opener requires preview_ready metadata")
     primary = measurement.primary_data
     content = _read_regular_package_file(
         package_dir,
@@ -241,6 +247,7 @@ def open_handoff_package(package_dir: Path) -> HandoffPackage:
     manifest = _load_manifest(package_dir)
     preview = preview_handoff_manifest(manifest)
     _validate_package_dir_identity(package_dir, preview.package_id)
+    _require_all_measurements_preview_ready(preview.measurements)
     linked_context = tuple(
         HandoffLinkedContext(
             link_id=item.link_id,

@@ -375,11 +375,6 @@ def _validate_manifest(source: dict[str, Any]) -> None:
 
 def _package_classification(source: dict[str, Any]) -> str:
     if any(
-        record["primary_data"]["package_state"] != "packaged"
-        for record in source["selected_measurements"]
-    ):
-        return "blocked_pending_package_review"
-    if any(
         record["declared_preview_metadata"]["status"] != "preview_ready"
         for record in source["selected_measurements"]
     ):
@@ -410,7 +405,6 @@ def _findings(source: dict[str, Any]) -> tuple[HandoffFinding, ...]:
         if item["package_state"] != "packaged":
             findings.append(
                 HandoffFinding(
-                    measurement_record_id=item["linked_measurement_record_ids"][0],
                     subject_type="linked_context",
                     subject_id=item["link_id"],
                     severity="review",

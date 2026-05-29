@@ -108,10 +108,10 @@ or cross-route domain work.
 
 ## Recommendation
 
-Promote the read-only handoff vertical after one narrow promotion cleanup and
-no further broad prototype expansion. Future handoff work should be triggered
-by the reopen conditions in [`decision.md`](decision.md), not by restating the
-same route-level conclusions.
+The read-only handoff vertical has been promoted after one narrow promotion
+cleanup, with no further broad prototype expansion planned. Future handoff work
+should be triggered by the reopen conditions in [`decision.md`](decision.md),
+not by restating the same route-level conclusions.
 
 The promotion decision is recorded in
 [`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md).

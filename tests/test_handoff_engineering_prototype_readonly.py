@@ -256,10 +256,29 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
                 measurement.findings[0].subject_id,
                 "pressure-shared-setup-snapshot",
             )
+            self.assertIsNone(measurement.findings[0].measurement_record_id)
 
     def test_degraded_route_pressure_package_remains_not_openable(self) -> None:
         with self.assertRaisesRegex(ValueError, "requires preview_ready metadata"):
             open_package(DEGRADED_PACKAGE)
+
+    def test_degraded_preview_is_rejected_before_any_primary_file_read(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            package_dir = Path(temp_dir) / RICHER_PACKAGE.name
+            shutil.copytree(RICHER_PACKAGE, package_dir)
+            manifest = _load_manifest(package_dir)
+            later_preview = manifest["selected_measurements"][1]["declared_preview_metadata"]
+            later_preview["status"] = "degraded_preview"
+            later_preview["data_shape"] = None
+            later_preview["declared_columns"] = []
+            later_preview["plot_candidates"] = []
+            later_preview["warning_code"] = "preview_metadata_missing"
+            later_preview["message"] = "Declared preview metadata is not available."
+            _write_manifest(package_dir, manifest)
+            (package_dir / "measurements" / "pressure-rabi-001" / "primary.csv").unlink()
+
+            with self.assertRaisesRegex(ValueError, "requires preview_ready metadata"):
+                open_package(package_dir)
 
 
 if __name__ == "__main__":

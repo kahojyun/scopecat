@@ -47,14 +47,15 @@ one of them to portable output.
 | Receiving mutation | Acceptance | Copy reviewed package primary data into new local storage records after explicit approval. |
 | Route-local support | Handoff package route contracts | Share repeated handoff-specific identity, package-path, preview-ready, and continuity checks where the same semantics already recur. |
 
-## Current Engineering Prototype
+## Accepted Read-Only Baseline
 
-The route is entering an engineering prototype phase for read-only handoff
-package use. The prototype tests route-local module boundaries, regression
-fixtures, and a thin local entrypoint without changing the accepted-for-now
-route decisions in [`decision.md`](decision.md).
+The read-only handoff engineering prototype has been promoted as the accepted
+implementation baseline for the first open-before-import vertical. It tested
+route-local module boundaries, regression fixtures, and a thin local entrypoint
+without changing the accepted-for-now route decisions in
+[`decision.md`](decision.md).
 
-The current prototype API is intentionally product-shaped rather than a direct
+The accepted local API is intentionally product-shaped rather than a direct
 wrapper around discovery candidate summaries: it exposes route-local package,
 measurement, table, plot, finding, and linked-context objects while keeping
 candidate outputs as historical validation evidence.
@@ -110,7 +111,8 @@ These concepts have enough repeated pressure to carry forward in handoff work:
 Keep these concepts local to their current candidates until a narrower
 implementation need makes them worth promoting:
 
-- final SDK object names and package-open API;
+- final public SDK names and package-open API beyond the accepted local
+  `open_package(package_dir)` entrypoint;
 - pandas/numpy adapter behavior and hard dataframe dependencies;
 - live GUI routing, component hierarchy, and interactive selection;
 - production plotting library and publication-grade rendering;
