@@ -155,7 +155,8 @@ The next implementation phase should choose one of two named gates:
 
 - Measurement-record creation lifecycle: define durable record identity,
   initial storage state, lifecycle/progress state, and creation failure
-  semantics.
+  semantics. The prototype-start decision is recorded in
+  [`../measurement-records/creation-lifecycle-decision.md`](../measurement-records/creation-lifecycle-decision.md).
 - Durable import/storage decision: after creation semantics exist, define how
   package acceptance creates or updates records, what conflict policy applies,
   and what recovery guarantees are required.

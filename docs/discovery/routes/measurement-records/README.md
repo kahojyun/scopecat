@@ -58,6 +58,7 @@ Prefer one of these only when the named workflow exists:
 
 | Need | Next Boundary |
 | --- | --- |
+| Create durable measurement-record shells before writer/import integration | Start from [`architecture/measurement-records/creation-lifecycle-decision.md`](../../../architecture/measurement-records/creation-lifecycle-decision.md). |
 | Read or preview stored/package-local normalized data through one contract | Adopt [`slices/measurement-records/normalized-primary-table-validation-result.md`](../../slices/measurement-records/normalized-primary-table-validation-result.md) at that concrete consumer boundary. |
 | Add durable storage editing beyond append receipts | Validate stronger existing-record update behavior: manifest replacement, read-model refresh, stale-lock cleanup, crash recovery, conflict policy, or in-progress record semantics. |
 | Accept adapter-produced input through a real workflow | Extend [`adapter-output-boundary-validation-result.md`](../../slices/measurement-records/adapter-output-boundary-validation-result.md) into a concrete transport, discovery, trust, and failure model. |

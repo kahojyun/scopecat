@@ -15,6 +15,7 @@ user documentation and does not replace discovery validation evidence.
 | [`environment-operation/engineering-prototype-plan.md`](environment-operation/engineering-prototype-plan.md) | Frozen historical environment-operation prototype plan: objective, scope, non-claims, and stop conditions. |
 | [`environment-operation/engineering-prototype-readiness.md`](environment-operation/engineering-prototype-readiness.md) | Frozen readiness checkpoint that ended the broad environment-operation prototype line. |
 | [`environment-operation/engineering-prototype-promotion-decision.md`](environment-operation/engineering-prototype-promotion-decision.md) | Canonical accepted environment-operation implementation boundary and next decision gate. |
+| [`measurement-records/creation-lifecycle-decision.md`](measurement-records/creation-lifecycle-decision.md) | Prototype-start decision for the first durable measurement-record creation lifecycle boundary. |
 | [`handoff/engineering-prototype-plan.md`](handoff/engineering-prototype-plan.md) | Frozen historical handoff prototype plan: objective, scope, fixture policy, stop conditions, and promotion criteria. |
 | [`handoff/engineering-prototype-readiness.md`](handoff/engineering-prototype-readiness.md) | Frozen readiness checkpoint that ended the broad handoff prototype line. |
 | [`handoff/engineering-prototype-promotion-decision.md`](handoff/engineering-prototype-promotion-decision.md) | Canonical accepted handoff implementation boundary, first mutation checkpoint, and next decision gate. |
