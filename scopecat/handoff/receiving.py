@@ -39,6 +39,21 @@ class HandoffReceivingReviewRequest:
     reviewed_preview_classification: str
     reviewed_integrity_classification: str
 
+    def __post_init__(self) -> None:
+        validate_public_identifier(self.request_id, "receiving_review_request.request_id")
+        validate_public_identifier(
+            self.reviewed_package_id,
+            "receiving_review_request.review.reviewed_package_id",
+        )
+        validate_public_identifier(
+            self.reviewed_preview_classification,
+            "receiving_review_request.review.reviewed_preview_classification",
+        )
+        validate_public_identifier(
+            self.reviewed_integrity_classification,
+            "receiving_review_request.review.reviewed_integrity_classification",
+        )
+
     def to_dict(self) -> dict[str, str]:
         return {
             "request_id": self.request_id,

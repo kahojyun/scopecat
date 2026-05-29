@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scopecat.handoff import run_receiving_gate
+from scopecat.handoff import HandoffReceivingReviewRequest, run_receiving_gate
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = (
@@ -144,6 +144,15 @@ class HandoffEngineeringPrototypeReceivingTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "fields are unsupported"):
             run_receiving_gate(source, package_dir=PACKAGE)
+
+    def test_typed_receiving_review_request_validates_identifiers(self) -> None:
+        with self.assertRaisesRegex(ValueError, "public-safe identifier"):
+            HandoffReceivingReviewRequest(
+                request_id="receive/handoff",
+                reviewed_package_id="handoff-package-legacy-rabi-001",
+                reviewed_preview_classification="needs_review_before_acceptance",
+                reviewed_integrity_classification="declared_integrity_verified",
+            )
 
 
 if __name__ == "__main__":

@@ -29,6 +29,7 @@ from scopecat.environment_operation.uv_sync import (
     _require_mapping,
     _require_text,
     _summarize_output,
+    _validate_non_empty_text,
     _validate_relative_path,
 )
 
@@ -91,6 +92,22 @@ class UvRuntimeProbeIntent:
     argv: tuple[str, ...]
 
     def __post_init__(self) -> None:
+        _validate_non_empty_text(
+            self.probe_request_id,
+            "uv runtime probe intent probe_request_id",
+        )
+        _validate_non_empty_text(
+            self.approval_id,
+            "uv runtime probe intent approval_id",
+        )
+        _validate_non_empty_text(
+            self.sync_request_id,
+            "uv runtime probe intent sync_request_id",
+        )
+        _validate_non_empty_text(
+            self.sync_result_id,
+            "uv runtime probe intent sync_result_id",
+        )
         if self.argv != RUNTIME_PROBE_ARGV:
             raise ValueError("runtime probe intent argv must be bounded probe argv")
         _validate_relative_path(

@@ -215,6 +215,17 @@ class EnvironmentOperationRuntimeProbePrototypeTest(unittest.TestCase):
                 argv=("uv", "run", "python"),
             )
 
+    def test_runtime_probe_intent_rejects_empty_typed_ids(self) -> None:
+        with self.assertRaisesRegex(ValueError, "probe_request_id"):
+            UvRuntimeProbeIntent(
+                probe_request_id="",
+                approval_id="approval",
+                sync_request_id="sync",
+                sync_result_id="sync-result",
+                working_directory="project",
+                argv=RUNTIME_PROBE_ARGV,
+            )
+
     def test_executes_runtime_probe_through_injected_runner(self) -> None:
         sync_intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
         probe_intent = UvRuntimeProbeIntent.from_sync_result(
