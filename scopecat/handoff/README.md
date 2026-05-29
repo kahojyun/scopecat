@@ -83,6 +83,10 @@ measurement into `MeasurementRecordImportSource` and
 durable import pipeline. The first handoff integration should not extend
 `measurement_record_directory_candidate_v0`, import linked-context payloads,
 or batch multiple package measurements in one durable import operation.
+`run_handoff_durable_import_from_plan(...)` implements that route for a ready
+single-measurement `HandoffImportPlanRun`; `run_handoff_durable_import(...)`
+is the raw edge that runs the import plan first and then delegates mutation to
+the durable Measurement Records import pipeline.
 The module CLI remains a local operator surface. `python -m scopecat.handoff
 <package-dir>` opens a package for read-only orientation; `python -m
 scopecat.handoff --receipt-summary <receipt.json>` summarizes a local import
@@ -119,6 +123,9 @@ Current user-facing prototype surface:
 - `approve_import(...)`, `reject_import(...)`, and `mark_import_needs_review(...)`;
 - `summarize_import_workflow_receipt(receipt)`;
 - `review_import_workflow_retry(previous_summary, fresh_preflight=...)`;
+- `run_handoff_durable_import(source, package_dir=..., storage_root=...)`;
+- `run_handoff_durable_import_from_plan(request, import_plan=..., storage_root=...)`;
+- `build_durable_import_request_from_handoff_plan(request, import_plan=...)`;
 - `write_package(source, source_root=..., package_root=...)`;
 - `run_package_workflow(source, source_root=..., package_root=...)`;
 - `python -m scopecat.handoff <package-dir>`;

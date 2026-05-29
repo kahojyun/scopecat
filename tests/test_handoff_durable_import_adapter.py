@@ -1,0 +1,259 @@
+from __future__ import annotations
+
+import json
+import shutil
+import tempfile
+import unittest
+from pathlib import Path
+
+from scopecat.handoff import (
+    HandoffDurableImportDestination,
+    HandoffDurableImportRequest,
+    HandoffImportPlanRequest,
+    HandoffReceivingReviewRequest,
+    build_durable_import_request_from_handoff_plan,
+    run_handoff_durable_import,
+    run_handoff_durable_import_from_plan,
+)
+from scopecat.handoff.durable_import import (
+    HANDOFF_DURABLE_IMPORT_POLICY,
+    HANDOFF_DURABLE_IMPORT_SCHEMA,
+)
+from scopecat.handoff.import_plan import build_import_plan
+from scopecat.handoff.receiving import run_receiving_gate_from_request
+
+ROOT = Path(__file__).resolve().parents[1]
+PACKAGE = (
+    ROOT
+    / "tests"
+    / "fixtures"
+    / "handoff_package_opener"
+    / "basic_package"
+    / "package"
+    / "handoff-package-legacy-rabi-001"
+)
+
+
+def _receiving_gate_source() -> dict:
+    return {
+        "receiving_gate_schema": "scopecat.handoff_receiving_gate.v0",
+        "receiving_gate_policy": {
+            "workflow_authority": "approved_receiving_review_request",
+            "package_open": "read_only_declared_preview",
+            "integrity_observation": "read_only_package_local_member_observation",
+            "acceptance_gate": "require_approved_review_and_declared_integrity_verified",
+            "storage_mutation": "not_performed",
+            "import_acceptance": "not_performed",
+            "archive_handling": "not_performed",
+            "signature_validation": "not_performed",
+            "package_root_concurrency": "not_supported",
+            "schema_inference": "not_performed",
+            "dataframe_adapter": "not_defined",
+            "interactive_gui": "not_defined",
+            "shared_measurement_schema": "not_defined",
+        },
+        "receiving_review_request": {
+            "request_id": "receive-handoff-package-legacy-rabi-001",
+            "review": {
+                "approval_state": "approved",
+                "reviewed_package_id": "handoff-package-legacy-rabi-001",
+                "reviewed_preview_classification": "needs_review_before_acceptance",
+                "reviewed_integrity_classification": "declared_integrity_verified",
+            },
+        },
+    }
+
+
+def _import_plan_source() -> dict:
+    return {
+        "import_plan_schema": "scopecat.handoff_import_plan.v0",
+        "import_plan_policy": {
+            "workflow_authority": "approved_import_planning_request",
+            "package_open": "read_only_declared_preview",
+            "inspection_artifact": "optional_local_static_review_artifact",
+            "receiving_gate": "required_before_import_plan",
+            "import_plan": "non_mutating_measurement_acceptance_plan",
+            "storage_mutation": "not_performed",
+            "import_acceptance": "not_performed",
+            "archive_handling": "not_performed",
+            "signature_validation": "not_performed",
+            "conflict_detection": "not_performed",
+            "final_storage_schema": "not_defined",
+            "rollback": "not_defined",
+        },
+        "receiving_gate_source": _receiving_gate_source(),
+        "import_plan_request": {
+            "request_id": "plan-import-handoff-package-legacy-rabi-001",
+            "approval_state": "approved",
+            "requested_package_id": "handoff-package-legacy-rabi-001",
+            "measurement_scope": {
+                "selection": "all_measurements",
+            },
+        },
+    }
+
+
+def _copy_package(temp_root: Path) -> Path:
+    package_dir = temp_root / PACKAGE.name
+    shutil.copytree(PACKAGE, package_dir)
+    return package_dir
+
+
+def _receiving_request() -> HandoffReceivingReviewRequest:
+    return HandoffReceivingReviewRequest(
+        request_id="receive-handoff-package-legacy-rabi-001",
+        reviewed_package_id="handoff-package-legacy-rabi-001",
+        reviewed_preview_classification="needs_review_before_acceptance",
+        reviewed_integrity_classification="declared_integrity_verified",
+    )
+
+
+def _import_plan_request() -> HandoffImportPlanRequest:
+    return HandoffImportPlanRequest(
+        request_id="plan-import-handoff-package-legacy-rabi-001",
+        requested_package_id="handoff-package-legacy-rabi-001",
+        measurement_selection="all_measurements",
+    )
+
+
+def _destination() -> HandoffDurableImportDestination:
+    return HandoffDurableImportDestination(
+        record_id="imported-legacy-rabi-001",
+        record_dir="records/imported-legacy-rabi-001",
+        primary_data_path="records/imported-legacy-rabi-001/primary.csv",
+        writer_receipt_path="records/imported-legacy-rabi-001/writer-receipt.json",
+        finalization_receipt_path="records/imported-legacy-rabi-001/finalization-receipt.json",
+        read_model_path="records/imported-legacy-rabi-001/record-read-model.json",
+    )
+
+
+def _request(**overrides: object) -> HandoffDurableImportRequest:
+    values = {
+        "request_id": "durably-import-handoff-package-legacy-rabi-001",
+        "approval_state": "approved",
+        "requested_package_id": "handoff-package-legacy-rabi-001",
+        "measurement_record_id": "legacy-rabi-001",
+        "destination": _destination(),
+    }
+    values.update(overrides)
+    return HandoffDurableImportRequest(**values)
+
+
+def _raw_source(**request_overrides: object) -> dict:
+    return {
+        "handoff_durable_import_schema": HANDOFF_DURABLE_IMPORT_SCHEMA,
+        "handoff_durable_import_policy": HANDOFF_DURABLE_IMPORT_POLICY,
+        "import_plan_source": _import_plan_source(),
+        "handoff_durable_import_request": _request(**request_overrides).to_dict(),
+    }
+
+
+def _import_plan_run(package_dir: Path):
+    receiving_gate = run_receiving_gate_from_request(
+        _receiving_request(),
+        package_dir=package_dir,
+    )
+    return build_import_plan(
+        _import_plan_request(),
+        receiving_gate=receiving_gate,
+    )
+
+
+class HandoffDurableImportAdapterTest(unittest.TestCase):
+    def test_imports_ready_single_measurement_plan_as_durable_record(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            storage_root.mkdir()
+
+            run = run_handoff_durable_import_from_plan(
+                _request(),
+                import_plan=_import_plan_run(package_dir),
+                storage_root=storage_root,
+            )
+            record_dir = storage_root / "records" / "imported-legacy-rabi-001"
+            manifest = json.loads((record_dir / "record-manifest.json").read_text())
+            read_model = json.loads((record_dir / "record-read-model.json").read_text())
+            summary = run.to_dict()
+
+        self.assertEqual(run.classification, "imported_handoff_measurement_record")
+        self.assertTrue(run.imported)
+        self.assertEqual(manifest["creation"]["source_kind"], "handoff")
+        self.assertEqual(manifest["record"]["label"], "Rabi calibration follow-up")
+        self.assertEqual(read_model["primary_data"]["observed_row_count"], 5)
+        self.assertEqual(
+            summary["durable_import_request"]["import_source"],
+            {
+                "source_kind": "handoff_package",
+                "source_id": "handoff-package-legacy-rabi-001",
+                "source_item_id": "legacy-rabi-001",
+                "content_ref": "measurements/legacy-rabi-001/primary.csv",
+                "declared_digest": (
+                    "sha256:e7407c74b4bb35e1cc350ae2cc4829981c5b48ac7db4364366f0b30802eab887"
+                ),
+                "size_bytes": 73,
+                "rows_recorded": 5,
+                "primary_data_format": "csv_table",
+            },
+        )
+        self.assertIn("linked_context_payload_import", summary["workflow"]["does_not_claim"])
+
+    def test_raw_source_runs_import_plan_then_durable_import(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            storage_root.mkdir()
+
+            run = run_handoff_durable_import(
+                _raw_source(),
+                package_dir=package_dir,
+                storage_root=storage_root,
+            )
+
+        self.assertEqual(run.classification, "imported_handoff_measurement_record")
+        self.assertEqual(
+            run.durable_import_run.classification if run.durable_import_run else None,
+            "imported_new_record",
+        )
+
+    def test_blocked_import_plan_does_not_mutate_storage(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            storage_root.mkdir()
+            (package_dir / "measurements" / "legacy-rabi-001" / "primary.csv").write_text(
+                "drive_frequency,signal\n5.00,0.99\n",
+                encoding="utf-8",
+            )
+            source = _raw_source()
+            source["import_plan_source"]["receiving_gate_source"]["receiving_review_request"][
+                "review"
+            ]["reviewed_integrity_classification"] = "integrity_review_required"
+
+            run = run_handoff_durable_import(
+                source,
+                package_dir=package_dir,
+                storage_root=storage_root,
+            )
+
+            self.assertFalse((storage_root / "records").exists())
+
+        self.assertEqual(run.classification, "blocked_before_handoff_durable_import")
+        self.assertIsNone(run.durable_import_request)
+
+    def test_rejects_package_id_mismatch_before_mapping(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            package_dir = _copy_package(Path(temp_dir))
+
+            with self.assertRaisesRegex(ValueError, "package id"):
+                build_durable_import_request_from_handoff_plan(
+                    _request(requested_package_id="different-package-id"),
+                    import_plan=_import_plan_run(package_dir),
+                )
+
+
+if __name__ == "__main__":
+    unittest.main()

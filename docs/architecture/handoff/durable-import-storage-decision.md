@@ -272,3 +272,35 @@ This handoff integration does not accept:
 - adapter transport/discovery or stable public adapter API;
 - conflict policy beyond the durable import new-record no-overwrite behavior;
 - GUI import review state or durable cross-session operator decisions.
+
+## Handoff Integration Implementation Checkpoint
+
+The first handoff-to-durable adapter is implemented in
+`scopecat.handoff.durable_import`.
+
+It exposes:
+
+- `HandoffDurableImportDestination` for the caller-declared durable record
+  paths;
+- `HandoffDurableImportRequest` for the package id, selected package
+  measurement id, approval state, and destination;
+- `build_durable_import_request_from_handoff_plan(...)` for the read-only
+  mapping into `MeasurementRecordDurableImportRequest`;
+- `run_handoff_durable_import_from_plan(...)` for typed composition from a
+  ready import plan;
+- `run_handoff_durable_import(...)` for the raw edge that runs the import plan
+  and then delegates to durable import.
+
+The adapter blocks before durable mutation when the import plan is not ready or
+the handoff durable import request is not approved. When it proceeds, it
+requires exactly one planned measurement, requires the requested measurement id
+to match that plan, requires declared digest and size facts, verifies observed
+and declared primary-data size agreement, maps the package primary-data facts
+to `MeasurementRecordImportSource(source_kind="handoff_package")`, and calls
+`import_measurement_record_from_request(...)` with the package directory as the
+content root.
+
+Tests cover successful import, raw-edge composition, blocked-plan no-mutation
+behavior, and package-id mismatch validation. The adapter continues to leave
+no-overwrite, rollback, finalization, and read-model projection semantics to
+the Measurement Records durable import pipeline.

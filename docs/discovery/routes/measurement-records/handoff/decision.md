@@ -132,9 +132,10 @@ Do more handoff work only when one of these concrete triggers appears:
   acceptance slice:
   use the accepted new-record durable import path in
   [`durable-import-storage-decision.md`](../../../../architecture/handoff/durable-import-storage-decision.md).
-  Existing-record update, batch import, conflict handling beyond no-overwrite,
-  and stronger recovery still need separate decisions. The older candidate
-  mutation boundary is recorded in
+  The first single-measurement handoff adapter is implemented through that
+  path; existing-record update, batch import, conflict handling beyond
+  no-overwrite, and stronger recovery still need separate decisions. The older
+  candidate mutation boundary is recorded in
   [`storage-acceptance-decision.md`](../../../../architecture/handoff/storage-acceptance-decision.md).
 - Analysis or fit results need first-class display:
   validate a read-only analysis-result model before executing fits or
