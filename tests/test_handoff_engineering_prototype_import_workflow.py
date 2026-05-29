@@ -8,7 +8,14 @@ from pathlib import Path
 from unittest import mock
 
 from scopecat.handoff import run_import_workflow, summarize_import_workflow_receipt
-from scopecat.handoff.import_workflow import HandoffImportWorkflowRequest
+from scopecat.handoff.acceptance_preflight import HandoffAcceptanceDestination
+from scopecat.handoff.import_workflow import (
+    HandoffApprovedImportDecision,
+    HandoffImportWorkflowRequest,
+    HandoffNeedsReviewImportDecision,
+    HandoffRejectedImportDecision,
+)
+from scopecat.handoff.storage_acceptance import HandoffStorageAcceptanceRequest
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = (
@@ -129,6 +136,23 @@ def _storage_acceptance_request() -> dict:
         "requested_package_id": "handoff-package-legacy-rabi-001",
         "approved_destinations": [_destination()],
     }
+
+
+def _typed_storage_acceptance_request() -> HandoffStorageAcceptanceRequest:
+    return HandoffStorageAcceptanceRequest(
+        request_id="accept-handoff-package-legacy-rabi-001",
+        requested_package_id="handoff-package-legacy-rabi-001",
+        approved_destinations=(
+            HandoffAcceptanceDestination(
+                measurement_record_id="legacy-rabi-001",
+                destination_record_id="imported-legacy-rabi-001",
+                record_dir="records/imported-legacy-rabi-001",
+                primary_data_path="records/imported-legacy-rabi-001/primary.csv",
+                manifest_path="records/imported-legacy-rabi-001/record-manifest.json",
+                storage_schema="measurement_record_directory_candidate_v0",
+            ),
+        ),
+    )
 
 
 def _import_workflow_source(
@@ -357,11 +381,49 @@ class HandoffEngineeringPrototypeImportWorkflowTest(unittest.TestCase):
 
     def test_approved_workflow_requires_storage_acceptance_request(self) -> None:
         with self.assertRaisesRegex(ValueError, "requires storage_acceptance_request"):
-            HandoffImportWorkflowRequest(
-                request_id="workflow-handoff-package-legacy-rabi-001",
-                requested_package_id="handoff-package-legacy-rabi-001",
-                operator_decision="approved_for_storage_acceptance",
-            )
+            HandoffApprovedImportDecision(None)
+
+    def test_typed_request_uses_operator_decision_objects(self) -> None:
+        request = HandoffImportWorkflowRequest(
+            request_id="workflow-handoff-package-legacy-rabi-001",
+            requested_package_id="handoff-package-legacy-rabi-001",
+            decision=HandoffApprovedImportDecision(_typed_storage_acceptance_request()),
+        )
+        summary = request.to_dict()
+
+        self.assertTrue(request.mutation_approved)
+        self.assertEqual(request.operator_decision, "approved_for_storage_acceptance")
+        self.assertEqual(request.operator_reason, None)
+        self.assertEqual(
+            summary["storage_acceptance_request"]["approved_destinations"][0][
+                "measurement_record_id"
+            ],
+            "legacy-rabi-001",
+        )
+
+        rejected_request = HandoffImportWorkflowRequest(
+            request_id="workflow-handoff-package-legacy-rabi-rejected",
+            requested_package_id="handoff-package-legacy-rabi-001",
+            decision=HandoffRejectedImportDecision(
+                "Package contents do not match the expected run."
+            ),
+        )
+
+        self.assertFalse(rejected_request.mutation_approved)
+        self.assertEqual(rejected_request.operator_decision, "rejected_after_review")
+        self.assertEqual(
+            rejected_request.to_dict()["operator_reason"],
+            "Package contents do not match the expected run.",
+        )
+
+        needs_review_request = HandoffImportWorkflowRequest(
+            request_id="workflow-handoff-package-legacy-rabi-review",
+            requested_package_id="handoff-package-legacy-rabi-001",
+            decision=HandoffNeedsReviewImportDecision(
+                "Ask the sender to confirm the linked context."
+            ),
+        )
+        self.assertEqual(needs_review_request.operator_decision, "needs_review")
 
     def test_rejects_storage_acceptance_request_without_approval_decision(self) -> None:
         with self.assertRaisesRegex(ValueError, "allowed only for approved"):

@@ -231,6 +231,12 @@ Rejected and needs-review decisions carry a required single-line
 for continuing or abandoning the receiving workflow; it is not a package
 member, candidate storage manifest field, portable/export artifact, public SDK
 contract, or runtime redaction surface.
+The typed request path represents those mutually exclusive choices with
+`HandoffApprovedImportDecision`, `HandoffRejectedImportDecision`, and
+`HandoffNeedsReviewImportDecision` instead of a string plus unrelated optional
+fields. The raw dictionary adapter keeps the serialized
+`operator_decision`/`operator_reason` shape at the public edge and still
+validates untrusted input.
 The companion `summarize_import_workflow_receipt(...)` helper validates a
 local workflow receipt and extracts the package id, measurement ids, final
 state, next action, and operator reason for operator continuation. It is

@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeAlias
 
 from scopecat.handoff._contracts import (
     validate_public_identifier,
@@ -45,14 +45,87 @@ _DECISIONS = {
 
 
 @dataclass(frozen=True)
+class HandoffApprovedImportDecision:
+    """Typed approval for candidate storage acceptance."""
+
+    storage_acceptance_request: HandoffStorageAcceptanceRequest
+
+    def __post_init__(self) -> None:
+        if not isinstance(
+            self.storage_acceptance_request,
+            HandoffStorageAcceptanceRequest,
+        ):
+            raise ValueError("approved import decision requires storage_acceptance_request")
+
+    @property
+    def operator_decision(self) -> str:
+        return "approved_for_storage_acceptance"
+
+    @property
+    def operator_reason(self) -> None:
+        return None
+
+    @property
+    def mutation_approved(self) -> bool:
+        return True
+
+
+@dataclass(frozen=True)
+class HandoffRejectedImportDecision:
+    """Typed rejection with local operator context."""
+
+    operator_reason: str
+
+    def __post_init__(self) -> None:
+        _validate_operator_reason(self.operator_reason)
+
+    @property
+    def operator_decision(self) -> str:
+        return "rejected_after_review"
+
+    @property
+    def storage_acceptance_request(self) -> None:
+        return None
+
+    @property
+    def mutation_approved(self) -> bool:
+        return False
+
+
+@dataclass(frozen=True)
+class HandoffNeedsReviewImportDecision:
+    """Typed needs-review state with local operator context."""
+
+    operator_reason: str
+
+    def __post_init__(self) -> None:
+        _validate_operator_reason(self.operator_reason)
+
+    @property
+    def operator_decision(self) -> str:
+        return "needs_review"
+
+    @property
+    def storage_acceptance_request(self) -> None:
+        return None
+
+    @property
+    def mutation_approved(self) -> bool:
+        return False
+
+
+HandoffImportWorkflowDecision: TypeAlias = (
+    HandoffApprovedImportDecision | HandoffRejectedImportDecision | HandoffNeedsReviewImportDecision
+)
+
+
+@dataclass(frozen=True)
 class HandoffImportWorkflowRequest:
     """Operator decision for the local receiving/import workflow."""
 
     request_id: str
     requested_package_id: str
-    operator_decision: str
-    operator_reason: str | None = None
-    storage_acceptance_request: HandoffStorageAcceptanceRequest | None = None
+    decision: HandoffImportWorkflowDecision
 
     def __post_init__(self) -> None:
         validate_public_identifier(self.request_id, "import_workflow_request.request_id")
@@ -60,26 +133,31 @@ class HandoffImportWorkflowRequest:
             self.requested_package_id,
             "import_workflow_request.requested_package_id",
         )
-        if self.operator_decision not in _DECISIONS:
-            raise ValueError("import workflow operator_decision is unsupported")
-        if self.operator_decision == "approved_for_storage_acceptance":
-            if self.operator_reason is not None:
-                raise ValueError("approved import workflow must not carry operator_reason")
-            if not isinstance(
-                self.storage_acceptance_request,
-                HandoffStorageAcceptanceRequest,
-            ):
-                raise ValueError("approved import workflow requires storage_acceptance_request")
-            return
-        _validate_operator_reason(self.operator_reason)
-        if self.storage_acceptance_request is not None:
-            raise ValueError(
-                "storage_acceptance_request is allowed only for approved import workflows"
-            )
+        if not isinstance(
+            self.decision,
+            (
+                HandoffApprovedImportDecision,
+                HandoffRejectedImportDecision,
+                HandoffNeedsReviewImportDecision,
+            ),
+        ):
+            raise ValueError("import workflow request requires a typed operator decision")
+
+    @property
+    def operator_decision(self) -> str:
+        return self.decision.operator_decision
+
+    @property
+    def operator_reason(self) -> str | None:
+        return self.decision.operator_reason
+
+    @property
+    def storage_acceptance_request(self) -> HandoffStorageAcceptanceRequest | None:
+        return self.decision.storage_acceptance_request
 
     @property
     def mutation_approved(self) -> bool:
-        return self.operator_decision == "approved_for_storage_acceptance"
+        return self.decision.mutation_approved
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -512,6 +590,11 @@ def _parse_request(source: Any) -> HandoffImportWorkflowRequest:
         },
         "import_workflow_request",
     )
+    operator_decision = validate_public_identifier(
+        request["operator_decision"],
+        "import_workflow_request.operator_decision",
+    )
+    operator_reason = _parse_operator_reason(request["operator_reason"])
     storage_acceptance_request = _parse_optional_storage_request(
         request["storage_acceptance_request"]
     )
@@ -524,13 +607,31 @@ def _parse_request(source: Any) -> HandoffImportWorkflowRequest:
             request["requested_package_id"],
             "import_workflow_request.requested_package_id",
         ),
-        operator_decision=validate_public_identifier(
-            request["operator_decision"],
-            "import_workflow_request.operator_decision",
+        decision=_parse_decision(
+            operator_decision=operator_decision,
+            operator_reason=operator_reason,
+            storage_acceptance_request=storage_acceptance_request,
         ),
-        operator_reason=_parse_operator_reason(request["operator_reason"]),
-        storage_acceptance_request=storage_acceptance_request,
     )
+
+
+def _parse_decision(
+    *,
+    operator_decision: str,
+    operator_reason: str | None,
+    storage_acceptance_request: HandoffStorageAcceptanceRequest | None,
+) -> HandoffImportWorkflowDecision:
+    if operator_decision == "approved_for_storage_acceptance":
+        if operator_reason is not None:
+            raise ValueError("approved import workflow must not carry operator_reason")
+        return HandoffApprovedImportDecision(storage_acceptance_request)
+    if storage_acceptance_request is not None:
+        raise ValueError("storage_acceptance_request is allowed only for approved import workflows")
+    if operator_decision == "rejected_after_review":
+        return HandoffRejectedImportDecision(operator_reason)
+    if operator_decision == "needs_review":
+        return HandoffNeedsReviewImportDecision(operator_reason)
+    raise ValueError("import workflow operator_decision is unsupported")
 
 
 def _parse_operator_reason(source: Any) -> str | None:

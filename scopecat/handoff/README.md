@@ -58,6 +58,11 @@ rollback outcomes as workflow classifications without broadening storage shape
 or adding conflict resolution. Rejection and needs-review decisions require a
 single-line `operator_reason` copied only into the local workflow receipt; it
 is not written to the package or candidate storage manifest.
+Typed callers should construct `HandoffApprovedImportDecision`,
+`HandoffRejectedImportDecision`, or `HandoffNeedsReviewImportDecision` and pass
+one of those to `HandoffImportWorkflowRequest`; the raw dictionary adapter
+keeps the serialized `operator_decision`/`operator_reason` shape only at the
+public edge.
 `summarize_import_workflow_receipt(...)` reads that local receipt back into a
 small operator continuation summary with package id, measurement ids, final
 state, next action, and operator reason. It is read-only and does not
