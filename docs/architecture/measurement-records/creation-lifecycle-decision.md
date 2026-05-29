@@ -376,3 +376,23 @@ surface. It does not replace `record-manifest.json`, mutate receipts, overwrite
 or refresh an existing read model, define canonical storage authority, accept
 public export schema, implement stale projection repair, or define crash
 recovery.
+
+## Read Model Catalog Implementation Checkpoint
+
+The first read-only catalog slice is implemented in
+[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+It exposes a raw-dictionary entrypoint,
+`catalog_measurement_record_read_models(...)`, and a typed request entrypoint,
+`catalog_measurement_record_read_models_from_request(...)`.
+
+This slice scans a caller-declared records directory for record-local
+`record-read-model.json` files, validates the projected read-model shape,
+returns compact catalog entries, and reports missing, malformed, conflicting,
+or source-digest-stale projections as review findings. Source consistency is
+limited to the creation manifest, writer receipt, and finalization receipt
+digests already declared by the projected read model.
+
+It deliberately performs no storage mutation. It does not refresh or repair
+read models, replace manifests, revalidate primary data, define conflict
+resolution, create a database index, promote public export schema, or define
+canonical storage authority.

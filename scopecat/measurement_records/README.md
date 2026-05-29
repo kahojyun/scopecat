@@ -88,3 +88,11 @@ This projection slice is now implemented through
 record-local `record-read-model.json` from the creation manifest, writer
 receipt, read view, and finalization receipt, leaving all source artifacts
 unchanged.
+
+The first read-only catalog slice is implemented through
+`catalog_measurement_record_read_models(...)` and
+`catalog_measurement_record_read_models_from_request(...)`. It scans projected
+read models under a caller-declared records directory, returns compact catalog
+entries, and reports missing, malformed, conflicting, or source-digest-stale
+projections as review findings. It does not refresh read models, repair
+storage, replace manifests, or revalidate primary data.
