@@ -136,6 +136,7 @@ class HandoffManifestLinkedContext:
     kind: str
     label: str
     package_state: str
+    reason: str | None
     linked_measurement_record_ids: tuple[str, ...]
 
 
@@ -223,6 +224,7 @@ def _linked_context_from_manifest(
             kind=item["kind"],
             label=item["label"],
             package_state=item["package_state"],
+            reason=item["reason"],
             linked_measurement_record_ids=tuple(item["linked_measurement_record_ids"]),
         )
         for item in source["linked_context"]
@@ -373,43 +375,50 @@ def _validate_manifest(source: dict[str, Any]) -> None:
     _validate_unique_package_paths(source)
 
 
-def _package_classification(source: dict[str, Any]) -> str:
-    if any(
-        record["declared_preview_metadata"]["status"] != "preview_ready"
-        for record in source["selected_measurements"]
-    ):
+def _package_classification(
+    *,
+    measurements: tuple[HandoffManifestMeasurement, ...],
+    linked_context: tuple[HandoffManifestLinkedContext, ...],
+) -> str:
+    if any(measurement.preview_metadata.status != "preview_ready" for measurement in measurements):
         return "needs_review_before_acceptance"
-    if any(item["package_state"] != "packaged" for item in source["linked_context"]):
+    if any(item.package_state != "packaged" for item in linked_context):
         return "needs_review_before_acceptance"
     return "preview_ready_for_opening"
 
 
-def _findings(source: dict[str, Any]) -> tuple[HandoffFinding, ...]:
+def _findings(
+    *,
+    measurements: tuple[HandoffManifestMeasurement, ...],
+    linked_context: tuple[HandoffManifestLinkedContext, ...],
+) -> tuple[HandoffFinding, ...]:
     findings = []
-    for record in source["selected_measurements"]:
-        preview = record["declared_preview_metadata"]
-        if preview["status"] == "degraded_preview":
+    for measurement in measurements:
+        preview = measurement.preview_metadata
+        if preview.status == "degraded_preview":
+            if preview.warning_code is None or preview.message is None:
+                raise ValueError("degraded preview requires warning_code and message")
             findings.append(
                 HandoffFinding(
-                    measurement_record_id=record["measurement_record_id"],
+                    measurement_record_id=measurement.measurement_record_id,
                     subject_type="preview_metadata",
-                    subject_id=preview["metadata_authority"],
+                    subject_id=preview.metadata_authority,
                     severity="review",
-                    code=preview["warning_code"],
-                    basis=preview["message"],
+                    code=preview.warning_code,
+                    basis=preview.message,
                     does_not_claim="packaged_data_unreadable_or_invalid",
                 )
             )
 
-    for item in source["linked_context"]:
-        if item["package_state"] != "packaged":
+    for item in linked_context:
+        if item.package_state != "packaged":
             findings.append(
                 HandoffFinding(
                     subject_type="linked_context",
-                    subject_id=item["link_id"],
+                    subject_id=item.link_id,
                     severity="review",
-                    code=f"linked_context_{item['package_state']}",
-                    basis=item["reason"],
+                    code=f"linked_context_{item.package_state}",
+                    basis=item.reason,
                     does_not_claim="package_integrity_or_import_acceptance_failure",
                 )
             )
@@ -421,10 +430,19 @@ def preview_handoff_manifest(source: dict[str, Any]) -> HandoffManifestPreview:
     """Validate and classify a handoff package manifest without opening files."""
 
     _validate_manifest(source)
+    identity = _identity_from_manifest(source)
+    measurements = _measurements_from_manifest(source)
+    linked_context = _linked_context_from_manifest(source)
     return HandoffManifestPreview(
-        identity=_identity_from_manifest(source),
-        classification=_package_classification(source),
-        measurements=_measurements_from_manifest(source),
-        linked_context=_linked_context_from_manifest(source),
-        findings=_findings(source),
+        identity=identity,
+        classification=_package_classification(
+            measurements=measurements,
+            linked_context=linked_context,
+        ),
+        measurements=measurements,
+        linked_context=linked_context,
+        findings=_findings(
+            measurements=measurements,
+            linked_context=linked_context,
+        ),
     )

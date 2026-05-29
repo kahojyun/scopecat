@@ -151,8 +151,9 @@ It provides:
   linked-context references, package classification, and review findings;
 - typed manifest-preview fragments for identity, primary data, declared
   preview metadata, selected measurements, and linked-context references, so
-  raw manifest dictionaries stay at the JSON validation boundary instead of
-  flowing through opener internals;
+  raw manifest dictionaries stay at the JSON validation/parsing boundary
+  instead of flowing through classification, review-finding construction, or
+  opener internals;
 - product-shaped package state rather than candidate-shaped summary wrapping:
   manifest-preview findings, linked-context references, declared digest/size
   facts, primary/preview tables, and plot series are exposed as route-local

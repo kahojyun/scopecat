@@ -17,8 +17,8 @@ inside this module. Discovery implementation candidates remain historical
 validation inputs, not runtime dependencies for this route.
 
 Raw manifest dictionaries are validated at the package boundary. After that,
-opener internals consume typed route-local manifest fragments and package
-projection objects.
+manifest preview classification, review findings, opener internals, and
+package projections consume typed route-local manifest fragments.
 
 The route-local writer uses a caller-provided `source_root` plus declared
 relative source paths for already-normalized primary data. That source-root
