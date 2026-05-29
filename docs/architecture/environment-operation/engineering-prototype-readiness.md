@@ -2,12 +2,14 @@
 
 ## Status
 
-Engineering prototype readiness note, not an ADR.
+Frozen engineering prototype readiness checkpoint, not an ADR.
 
-This is the current implementation-boundary checkpoint for the
-environment-operation vertical until a separate promotion or next-stage
-decision exists. Update it when the accepted boundary, deferred boundary, or
-recommended next decision gate changes. Keep routine API inventory in
+This document records the stop/readiness assessment that justified ending the
+environment-operation prototype line. Do not update it to mirror later API
+additions or route extensions. Current accepted implementation boundaries live
+in
+[`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md).
+Keep routine API inventory in
 [`../../../scopecat/environment_operation/README.md`](../../../scopecat/environment_operation/README.md)
 and leave the prototype plan as a frozen scope snapshot.
 
@@ -19,9 +21,9 @@ if any prototype output is promoted into a portable/export artifact.
 
 ## Readiness Judgment
 
-The environment-operation engineering prototype has completed the first
-execution/review boundary and now includes a bounded post-sync runtime probe
-milestone.
+The environment-operation engineering prototype completed the first
+execution/review boundary and included a bounded post-sync runtime probe
+milestone before promotion.
 
 The accepted prototype target is the first route-local execution vertical:
 
@@ -111,10 +113,10 @@ requires it, or if a future route extension explicitly chooses one as evidence.
 
 ## Recommendation
 
-Keep this PR focused on the approved `uv sync` execution/review boundary plus
-the bounded post-sync runtime probe. After rebasing onto the latest
-`origin/main`, the branch should be ready for review once repository
-verification remains green.
+The approved `uv sync` execution/review boundary plus the bounded post-sync
+runtime probe has been promoted as the accepted local boundary. Future
+environment-operation work should start from
+[`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md).
 
 Future environment-operation work should be triggered by a new boundary
 question: broader review-bundle integration with optional manifest or
@@ -122,10 +124,8 @@ prepared-context references, package-state pressure, Pixi/Conda pressure, or
 selected experiment-code execution. Those should be separate PRs, not
 additional broadening of this prototype line.
 
-## Update Rule
+## Freeze Rule
 
-Do not update this note for every internal helper, private module, or API
-spelling change. Update it only when the implementation boundary, non-claims,
-or next decision gate changes. If environment-operation receives a later
-promotion decision, move the canonical accepted-boundary language there and
-freeze this readiness note as the checkpoint that ended the prototype line.
+This readiness note is complete. If a later environment-operation phase needs
+its own readiness assessment, create a new phase-specific readiness note rather
+than editing this checkpoint.
