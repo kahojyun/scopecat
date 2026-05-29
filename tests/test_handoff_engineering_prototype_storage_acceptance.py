@@ -500,6 +500,110 @@ class HandoffEngineeringPrototypeStorageAcceptanceTest(unittest.TestCase):
         self.assertIn("target already exists", summary["acceptance"]["write_error"])
         self.assertFalse(records_exist)
 
+    def test_late_record_dir_collision_blocks_without_write(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            storage_root.mkdir()
+            preflight = _acceptance_preflight_run(package_dir, storage_root)
+            (storage_root / "records" / "imported-legacy-rabi-001").mkdir(parents=True)
+
+            run = run_storage_acceptance_from_preflight(
+                _storage_acceptance_request(),
+                preflight=preflight,
+                package_dir=package_dir,
+                storage_root=storage_root,
+            )
+            summary = run.to_dict()
+            primary_exists = (
+                storage_root / "records" / "imported-legacy-rabi-001" / "primary.csv"
+            ).exists()
+
+        self.assertEqual(run.classification, "blocked_before_acceptance")
+        self.assertFalse(run.rollback_performed)
+        self.assertFalse(summary["acceptance"]["performed"])
+        self.assertIn("target already exists", summary["acceptance"]["write_error"])
+        self.assertFalse(primary_exists)
+
+    def test_late_symlink_parent_collision_blocks_without_write(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            storage_root.mkdir()
+            preflight = _acceptance_preflight_run(package_dir, storage_root)
+            (temp_root / "external-records").mkdir()
+            (storage_root / "records").symlink_to(temp_root / "external-records")
+
+            run = run_storage_acceptance_from_preflight(
+                _storage_acceptance_request(),
+                preflight=preflight,
+                package_dir=package_dir,
+                storage_root=storage_root,
+            )
+            summary = run.to_dict()
+            external_primary_exists = (
+                temp_root / "external-records" / "imported-legacy-rabi-001" / "primary.csv"
+            ).exists()
+
+        self.assertEqual(run.classification, "blocked_before_acceptance")
+        self.assertFalse(run.rollback_performed)
+        self.assertFalse(summary["acceptance"]["performed"])
+        self.assertIn("parent is a symlink", summary["acceptance"]["write_error"])
+        self.assertFalse(external_primary_exists)
+
+    def test_rolls_back_when_first_file_write_fails_after_create(self) -> None:
+        import scopecat.handoff.storage_acceptance as storage_acceptance
+
+        class FailingHandle:
+            def __init__(self, file_fd: int) -> None:
+                self.file_fd = file_fd
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback) -> None:
+                storage_acceptance.os.close(self.file_fd)
+
+            def write(self, content: bytes) -> None:
+                raise OSError("simulated first write failure")
+
+        def failing_fdopen(file_fd: int, mode: str):
+            return FailingHandle(file_fd)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            storage_root.mkdir()
+            preflight = _acceptance_preflight_run(package_dir, storage_root)
+            files = [("records/imported-legacy-rabi-001/primary.csv", b"partial")]
+            write_results = [{"path": files[0][0], "kind": "primary_data", "state": "written"}]
+
+            with (
+                mock.patch.object(
+                    storage_acceptance,
+                    "_planned_files",
+                    return_value=(files, write_results),
+                ),
+                mock.patch.object(storage_acceptance.os, "fdopen", side_effect=failing_fdopen),
+            ):
+                run = run_storage_acceptance_from_preflight(
+                    _storage_acceptance_request(),
+                    preflight=preflight,
+                    package_dir=package_dir,
+                    storage_root=storage_root,
+                )
+            summary = run.to_dict()
+            records_exist = (storage_root / "records").exists()
+
+        self.assertEqual(run.classification, "rolled_back_after_write_failure")
+        self.assertTrue(run.rollback_performed)
+        self.assertFalse(summary["acceptance"]["performed"])
+        self.assertIn("simulated first write failure", summary["acceptance"]["write_error"])
+        self.assertFalse(records_exist)
+
 
 if __name__ == "__main__":
     unittest.main()

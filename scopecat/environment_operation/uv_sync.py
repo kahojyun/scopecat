@@ -54,6 +54,12 @@ class UvSyncIntent:
     working_directory: str
     argv: tuple[str, ...]
 
+    def __post_init__(self) -> None:
+        _validate_non_empty_text(self.request_id, "request_id")
+        _validate_non_empty_text(self.approval_id, "approval_id")
+        _validate_relative_path(self.working_directory, "working_directory")
+        object.__setattr__(self, "argv", _validate_uv_sync_argv(self.argv))
+
     @classmethod
     def from_summary(cls, summary: dict[str, Any]) -> UvSyncIntent:
         """Build a route-local intent from a validated discovery-style summary."""
@@ -660,7 +666,7 @@ def _validate_relative_path(value: str, owner: str) -> str:
 
 
 def _validate_uv_sync_argv(value: Any) -> tuple[str, ...]:
-    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+    if not isinstance(value, (list, tuple)) or not all(isinstance(item, str) for item in value):
         raise ValueError("command_intent argv must be a list of strings")
     argv = tuple(value)
     if len(argv) < 4 or argv[:4] != ("uv", "sync", "--locked", "--no-default-groups"):
@@ -673,6 +679,12 @@ def _validate_uv_sync_argv(value: Any) -> tuple[str, ...]:
         if remaining[index] != "--group" or not _valid_group_name(remaining[index + 1]):
             raise ValueError("command_intent argv groups must use --group name pairs")
     return argv
+
+
+def _validate_non_empty_text(value: Any, owner: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{owner} must be text")
+    return value
 
 
 def _valid_group_name(value: str) -> bool:

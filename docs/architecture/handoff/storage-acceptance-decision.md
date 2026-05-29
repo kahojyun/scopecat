@@ -87,7 +87,8 @@ process; it is not a durability or crash-recovery guarantee.
 
 ## Manifest Scope
 
-The first accepted manifest should be intentionally small. It should carry:
+The first candidate record manifest should be intentionally small. It should
+carry:
 
 - `schema`: `measurement_record_directory_candidate_v0`;
 - destination record id and measurement record id;

@@ -38,11 +38,36 @@ class HandoffImportPlanRequest:
     measurement_selection: str
     requested_measurement_ids: tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        validate_public_identifier(self.request_id, "import_plan_request.request_id")
+        validate_public_identifier(
+            self.requested_package_id,
+            "import_plan_request.requested_package_id",
+        )
+        validate_public_identifier(
+            self.measurement_selection,
+            "import_plan_request.measurement_scope.selection",
+        )
+        if self.measurement_selection == "all_measurements":
+            if self.requested_measurement_ids:
+                raise ValueError("all_measurements scope must not carry measurement ids")
+            return
+        if self.measurement_selection != "selected_measurements":
+            raise ValueError("measurement scope selection is unsupported")
+        if not self.requested_measurement_ids:
+            raise ValueError("measurement_record_ids must not be empty")
+        for item in self.requested_measurement_ids:
+            validate_public_identifier(item, "measurement_record_ids item")
+        if len(set(self.requested_measurement_ids)) != len(self.requested_measurement_ids):
+            raise ValueError("measurement_record_ids must be unique")
+
     def measurement_ids_for(self, package: HandoffPackage) -> tuple[str, ...]:
         if self.requested_package_id != package.package_id:
             raise ValueError("requested package id must match opened package")
         if self.measurement_selection == "all_measurements":
             return package.measurement_ids
+        if self.measurement_selection != "selected_measurements":
+            raise ValueError("measurement scope selection is unsupported")
         missing = set(self.requested_measurement_ids) - set(package.measurement_ids)
         if missing:
             raise ValueError("requested measurement ids must exist in opened package")

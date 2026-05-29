@@ -188,8 +188,16 @@ def run_storage_acceptance_from_preflight(
         request=request,
         preflight=preflight,
     )
+    guard_paths = [
+        path for destination in request.approved_destinations for path in destination.target_paths
+    ]
     try:
-        _write_new_files_transaction(root, files, label="handoff storage acceptance")
+        _write_new_files_transaction(
+            root,
+            files,
+            guard_paths=guard_paths,
+            label="handoff storage acceptance",
+        )
     except _StorageWriteFailure as exc:
         return HandoffStorageAcceptanceRun(
             request=request,
@@ -308,12 +316,17 @@ def _write_new_file(root: Path, relative_path: str, content: bytes, *, label: st
         created_file = True
         with os.fdopen(file_fd, "wb") as handle:
             handle.write(content)
-    except Exception:
+    except Exception as exc:
         if created_file:
             try:
                 _path_under(root, relative_path).unlink()
             except FileNotFoundError:
                 pass
+            _remove_created_dirs(root, created_dirs)
+            raise _StorageWriteFailure(
+                f"{label} target write failed after file creation: {exc}",
+                rollback_performed=True,
+            ) from exc
         _remove_created_dirs(root, created_dirs)
         raise
     finally:
@@ -341,10 +354,15 @@ def _write_new_files_transaction(
     root: Path,
     files: list[tuple[str, bytes]],
     *,
+    guard_paths: list[str] | None = None,
     label: str,
 ) -> None:
     try:
-        _reject_existing_paths(root, [relative_path for relative_path, _content in files], label)
+        _reject_existing_paths(
+            root,
+            guard_paths or [relative_path for relative_path, _content in files],
+            label,
+        )
     except Exception as exc:
         raise _StorageWriteFailure(str(exc), rollback_performed=False) from exc
     written_paths: list[str] = []
@@ -353,6 +371,12 @@ def _write_new_files_transaction(
         for relative_path, content in files:
             created_dirs.extend(_write_new_file(root, relative_path, content, label=label))
             written_paths.append(relative_path)
+    except _StorageWriteFailure as exc:
+        _rollback_written_files(root, written_paths, created_dirs)
+        raise _StorageWriteFailure(
+            str(exc),
+            rollback_performed=exc.rollback_performed or bool(written_paths),
+        ) from exc
     except Exception as exc:
         _rollback_written_files(root, written_paths, created_dirs)
         raise _StorageWriteFailure(str(exc), rollback_performed=bool(written_paths)) from exc

@@ -115,6 +115,12 @@ data-level observation, or that adapters own legacy parsing.
 
 ### Handoff Package Route
 
+These rows are historical discovery evidence. Current accepted implementation
+boundaries live in
+[`engineering-prototype-promotion-decision.md`](../../../architecture/handoff/engineering-prototype-promotion-decision.md)
+and the first candidate storage mutation boundary lives in
+[`storage-acceptance-decision.md`](../../../architecture/handoff/storage-acceptance-decision.md).
+
 | Document | Use For |
 | --- | --- |
 | [`contents-preview-validation-result.md`](../../slices/measurement-records/handoff/contents-preview-validation-result.md) | Manifest-only orientation before read-only package use. |

@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from scopecat.handoff import HANDOFF_INSPECTION_ARTIFACT_NAME, run_import_plan
+from scopecat.handoff.import_plan import HandoffImportPlanRequest
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = (
@@ -196,6 +197,21 @@ class HandoffEngineeringPrototypeImportPlanTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "requested measurement ids"):
             run_import_plan(source, package_dir=PACKAGE)
+
+    def test_typed_import_plan_request_rejects_unsupported_selection(self) -> None:
+        with self.assertRaisesRegex(ValueError, "selection is unsupported"):
+            HandoffImportPlanRequest(
+                request_id="plan-import-handoff-package-legacy-rabi-001",
+                requested_package_id="handoff-package-legacy-rabi-001",
+                measurement_selection="unsupported_selection",
+            )
+
+        with self.assertRaisesRegex(ValueError, "must not be empty"):
+            HandoffImportPlanRequest(
+                request_id="plan-import-handoff-package-legacy-rabi-001",
+                requested_package_id="handoff-package-legacy-rabi-001",
+                measurement_selection="selected_measurements",
+            )
 
 
 if __name__ == "__main__":

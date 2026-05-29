@@ -101,9 +101,9 @@ These are not blockers for the accepted local handoff vertical:
 
 ## Current Phase Boundary
 
-The current route boundary is strong enough for local package writing, opening,
-inspection, and workflow review. The next phase should not add more handoff
-surface area until it chooses one of these paths:
+At this checkpoint, the route boundary was strong enough for local package
+writing, opening, inspection, and workflow review. The next phase was expected
+to choose one of these paths:
 
 - receiving/import acceptance: define the first storage mutation after the
   read-only receiving gate without yet committing to final storage layout;
@@ -113,6 +113,11 @@ surface area until it chooses one of these paths:
 
 Do not start final archive, storage schema, or package-import implementation
 until one of those decision paths is explicit.
+
+Later branch work chose and implemented the first candidate storage-acceptance
+slice. That superseding phase boundary is recorded in
+[`storage-acceptance-decision.md`](storage-acceptance-decision.md); this
+readiness note remains the historical checkpoint before that mutation slice.
 
 ## Remaining Risks
 

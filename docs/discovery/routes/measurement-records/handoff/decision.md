@@ -28,7 +28,7 @@ write package
   -> open/read package locally
   -> inspect plot/table/context locally
   -> optionally observe integrity
-  -> optionally accept into local storage
+  -> optionally run candidate storage acceptance
 ```
 
 The package directory is the portable artifact. `package-manifest.json` is the
@@ -59,12 +59,11 @@ or plot candidates from raw files.
 
 Python/package use is **table-first and plot-ready**. Notebook and script users
 should be able to discover measurements and get useful table/plot facts without
-importing the package into Scopecat storage. The promoted local implementation
-baseline provides source-root package writing, read-only opening,
-string-valued primary tables, declared plot records, local inspection, and a
-local workflow receipt. Dataframe-like tables, arrays, optional pandas/numpy
-adapters, hard dataframe dependencies, and final public SDK names remain
-deferred SDK/notebook pressure.
+importing the package into Scopecat storage. Dataframe-like tables, arrays,
+optional pandas/numpy adapters, hard dataframe dependencies, and final public
+SDK names remain deferred SDK/notebook pressure. Current implementation
+baseline details live in
+[`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md).
 
 GUI/local review use is **plot-first when a plot is declared**. Experimental
 users commonly orient by the primary plot and structured context first, with
@@ -129,9 +128,11 @@ Do more handoff work only when one of these concrete triggers appears:
 - GUI review needs inspectable context content:
   validate one concrete linked-context payload category and how it appears
   beside the measurement.
-- Users need accepted packages to become durable local records:
+- Users need durable/final local records beyond the candidate storage
+  acceptance slice:
   design final storage import behavior, conflict handling, and existing-record
-  update policy.
+  update policy. The current candidate mutation boundary is recorded in
+  [`storage-acceptance-decision.md`](../../../../architecture/handoff/storage-acceptance-decision.md).
 - Analysis or fit results need first-class display:
   validate a read-only analysis-result model before executing fits or
   accepting write-back.
