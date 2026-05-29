@@ -67,6 +67,11 @@ Use
 [`engineering-prototype-readiness.md`](engineering-prototype-readiness.md) for
 the current stop-criteria check and recommended promotion path.
 
+Use
+[`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md)
+for the decision that promotes the read-only handoff vertical as the accepted
+implementation baseline and stops the current broad prototype line.
+
 ## Artifact Boundary
 
 | Surface | Boundary posture | Redaction/reference responsibility |
