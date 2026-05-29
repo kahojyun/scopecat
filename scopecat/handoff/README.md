@@ -32,6 +32,12 @@ measurement import plan. It names the package members that would be considered
 for a later acceptance mutation, but it accepts no destination path, performs
 no conflict detection, writes no storage records, and does not decide final
 storage schema or rollback policy.
+`run_acceptance_preflight(...)` takes that ready import-plan boundary plus a
+caller-provided storage root and declared relative destination paths. It
+observes only those exact paths for no-overwrite collisions and summarizes
+whether an acceptance mutation request could be prepared. It still performs no
+storage mutation, package acceptance, conflict resolution, manifest write, or
+rollback behavior.
 
 The route-local writer uses a caller-provided `source_root` plus declared
 relative source paths for already-normalized primary data. That source-root
@@ -57,6 +63,7 @@ Current user-facing prototype surface:
 - `observe_package_integrity(package_dir)`;
 - `run_receiving_gate(source, package_dir=...)`;
 - `run_import_plan(source, package_dir=...)`;
+- `run_acceptance_preflight(source, package_dir=..., storage_root=...)`;
 - `write_package(source, source_root=..., package_root=...)`;
 - `run_package_workflow(source, source_root=..., package_root=...)`;
 - `python -m scopecat.handoff <package-dir>`;

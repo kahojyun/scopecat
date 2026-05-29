@@ -1,5 +1,12 @@
 """Read-only handoff package engineering prototype."""
 
+from scopecat.handoff.acceptance_preflight import (
+    HandoffAcceptanceDestination,
+    HandoffAcceptancePreflightRequest,
+    HandoffAcceptancePreflightRun,
+    HandoffDestinationObservation,
+    run_acceptance_preflight,
+)
 from scopecat.handoff.import_plan import (
     HandoffImportPlanRequest,
     HandoffImportPlanRun,
@@ -36,6 +43,10 @@ from scopecat.handoff.writer import HandoffPackageWriteReceipt, write_package
 
 __all__ = [
     "HANDOFF_INSPECTION_ARTIFACT_NAME",
+    "HandoffAcceptanceDestination",
+    "HandoffAcceptancePreflightRequest",
+    "HandoffAcceptancePreflightRun",
+    "HandoffDestinationObservation",
     "HandoffFinding",
     "HandoffImportPlanRequest",
     "HandoffImportPlanRun",
@@ -56,6 +67,7 @@ __all__ = [
     "build_inspection_html",
     "observe_package_integrity",
     "open_package",
+    "run_acceptance_preflight",
     "run_import_plan",
     "run_package_workflow",
     "run_receiving_gate",

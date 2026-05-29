@@ -128,12 +128,30 @@ promote storage mutation, package acceptance, archive extraction, conflict
 detection, final storage schema, rollback behavior, signatures/authenticity,
 or linked-context payload import.
 
+## Acceptance Preflight
+
+The route-local implementation now includes `run_acceptance_preflight(...)` as
+the first destination-aware receiving/import check. It consumes a ready
+non-mutating import plan, requires an approved preflight request, accepts a
+caller-provided storage root plus declared relative destination paths, and
+observes only those exact paths for `no_overwrite` collision status.
+
+The preflight can return `ready_for_acceptance_mutation_request` only when the
+import plan is ready and no declared destination path exists. It returns
+`blocked_by_destination_collision` when a declared record directory, primary
+data path, or manifest path already exists, and
+`blocked_before_acceptance_preflight` when the import plan itself is not ready.
+
+This is still not package acceptance. It does not write records, create
+manifests, choose final storage schema, resolve collisions, define rollback,
+or import linked-context payloads. It only answers whether a later explicit
+mutation request has enough reviewed destination facts to be considered.
+
 ## Next Decision Gate
 
 Do not continue by expanding handoff surface area in place. After the
-read-only receiving gate and non-mutating import plan, the next engineering
-phase should choose one
-explicit path:
+read-only receiving gate, non-mutating import plan, and destination acceptance
+preflight, the next engineering phase should choose one explicit path:
 
 - package receiving/import acceptance: define acceptance, rejection, conflict,
   review, and rollback boundaries for an inbound package before writing into
@@ -144,9 +162,10 @@ explicit path:
   archive format.
 
 The current workflow is enough to validate local writer/reader/review
-ergonomics plus non-mutating receiving/import planning. It is not evidence by
-itself for final storage schema, import acceptance, archive format,
-signatures, authenticity, or adversarial package trust policy.
+ergonomics plus non-mutating receiving/import planning and destination
+preflight. It is not evidence by itself for final storage schema, import
+acceptance, archive format, signatures, authenticity, or adversarial package
+trust policy.
 
 ## Accepted Baseline
 
@@ -168,6 +187,7 @@ The promoted baseline includes:
 - linked context as visible reference-only review state;
 - local static HTML as the first review artifact;
 - non-mutating import planning after a ready receiving gate;
+- destination acceptance preflight over exact declared no-overwrite paths;
 - representative regression coverage over basic and route-pressure fixtures.
 
 ## Explicit Non-Promotions
