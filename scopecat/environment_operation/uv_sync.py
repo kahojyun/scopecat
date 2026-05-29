@@ -8,9 +8,10 @@ readiness.
 
 from __future__ import annotations
 
+import copy
 import re
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
@@ -18,6 +19,12 @@ from typing import Any, Protocol
 OUTPUT_SUMMARY_LIMIT = 2000
 DEFAULT_TIMEOUT_SECONDS = 300
 DEPENDENCY_GROUP = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")
+RESULT_STATUS_BY_EXECUTION_STATE = {
+    "completed_success": "uv_sync_completed_success",
+    "completed_failed": "uv_sync_completed_failed",
+    "timed_out": "uv_sync_timed_out",
+    "launch_failed": "uv_sync_launch_failed",
+}
 
 
 @dataclass(frozen=True)
@@ -176,13 +183,7 @@ class UvSyncExecutionRecord:
 
     @property
     def result_status(self) -> str:
-        if self.execution_state == "completed_success":
-            return "uv_sync_completed_success"
-        if self.execution_state == "timed_out":
-            return "uv_sync_timed_out"
-        if self.execution_state == "launch_failed":
-            return "uv_sync_launch_failed"
-        return "uv_sync_completed_failed"
+        return _result_status_for_execution_state(self.execution_state)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -235,34 +236,7 @@ class UvSyncExecutionRecord:
         runtime-readiness result.
         """
 
-        self._validate_intent_alignment(intent)
-        return {
-            "uv_sync_result_policy": {
-                "summary_policy": "review_summary",
-                "result_authority": "scopecat_uv_sync_execution_result",
-                "prior_intent_source": "route_local_uv_sync_intent",
-                "manager_scope": "uv_only",
-                "command_result_shape": "bounded_uv_sync_execution_record",
-                "local_execution_cwd_authority": "local_review_path_internal",
-                "scopecat_process_execution": "performed",
-                "manifest_read": "not_performed",
-                "lockfile_read": "not_performed",
-                "output_parsing": "summary_only_no_dependency_parsing",
-                "dependency_resolution": "delegated_to_uv_not_performed_by_scopecat",
-                "dependency_sync": "manager_result_not_verified_by_scopecat",
-                "package_install": "manager_result_not_verified_by_scopecat",
-                "runtime_probe": "not_performed",
-                "code_import_execution": "not_performed",
-                "hardware_probe": "not_performed",
-                "readiness_claim": "not_claimed",
-                "shared_environment_schema": "not_defined",
-            },
-            "uv_sync_intent_ref": intent.to_result_intent_ref(),
-            "command_result": self._command_result_summary(),
-            "result_status": self.result_status,
-            "result_findings": [finding.to_dict() for finding in self.findings],
-            "attention": _result_summary_attention(),
-        }
+        return UvSyncResult.from_execution(intent, self).to_summary()
 
     def _command_result_summary(self) -> dict[str, Any]:
         return {
@@ -300,6 +274,77 @@ class UvSyncExecutionRecord:
             raise ValueError("execution record working_directory must match intent")
         if self.argv != intent.argv:
             raise ValueError("execution record argv must match intent")
+
+
+@dataclass(frozen=True, init=False)
+class UvSyncResult:
+    """Typed route-local projection of one approved uv sync execution result."""
+
+    _intent_ref: dict[str, Any] = field(repr=False)
+    _command_result: dict[str, Any] = field(repr=False)
+    result_status: str
+    findings: tuple[UvSyncFinding, ...]
+    _attention: tuple[dict[str, str], ...] = field(repr=False)
+
+    def __init__(
+        self,
+        *,
+        intent_ref: dict[str, Any],
+        command_result: dict[str, Any],
+        result_status: str,
+        findings: tuple[UvSyncFinding, ...],
+        attention: tuple[dict[str, str], ...],
+    ) -> None:
+        _validate_result_status(result_status)
+        coerced_findings = _validate_typed_findings(findings)
+        coerced_command_result = _coerce_command_result(command_result)
+        _validate_result_consistency(
+            coerced_command_result,
+            result_status,
+            coerced_findings,
+        )
+        object.__setattr__(self, "_intent_ref", _coerce_result_intent_ref(intent_ref))
+        object.__setattr__(self, "_command_result", coerced_command_result)
+        object.__setattr__(self, "result_status", result_status)
+        object.__setattr__(self, "findings", coerced_findings)
+        object.__setattr__(self, "_attention", _validate_attention(attention))
+
+    @property
+    def intent_ref(self) -> dict[str, Any]:
+        return copy.deepcopy(self._intent_ref)
+
+    @property
+    def command_result(self) -> dict[str, Any]:
+        return copy.deepcopy(self._command_result)
+
+    @property
+    def attention(self) -> tuple[dict[str, str], ...]:
+        return tuple(copy.deepcopy(item) for item in self._attention)
+
+    @classmethod
+    def from_execution(cls, intent: UvSyncIntent, record: UvSyncExecutionRecord) -> UvSyncResult:
+        """Create the typed result object from an execution record and selected intent."""
+
+        record._validate_intent_alignment(intent)
+        return cls(
+            intent_ref=intent.to_result_intent_ref(),
+            command_result=record._command_result_summary(),
+            result_status=record.result_status,
+            findings=record.findings,
+            attention=tuple(_result_summary_attention()),
+        )
+
+    def to_summary(self) -> dict[str, Any]:
+        """Project this typed result into the route-local review summary shape."""
+
+        return {
+            "uv_sync_result_policy": _result_summary_policy(),
+            "uv_sync_intent_ref": self.intent_ref,
+            "command_result": self.command_result,
+            "result_status": self.result_status,
+            "result_findings": [finding.to_dict() for finding in self.findings],
+            "attention": [copy.deepcopy(item) for item in self._attention],
+        }
 
 
 def execute_uv_sync(
@@ -432,6 +477,174 @@ def _result_summary_attention() -> list[dict[str, str]]:
     ]
 
 
+def _result_summary_policy() -> dict[str, str]:
+    return {
+        "summary_policy": "review_summary",
+        "result_authority": "scopecat_uv_sync_execution_result",
+        "prior_intent_source": "route_local_uv_sync_intent",
+        "manager_scope": "uv_only",
+        "command_result_shape": "bounded_uv_sync_execution_record",
+        "local_execution_cwd_authority": "local_review_path_internal",
+        "scopecat_process_execution": "performed",
+        "manifest_read": "not_performed",
+        "lockfile_read": "not_performed",
+        "output_parsing": "summary_only_no_dependency_parsing",
+        "dependency_resolution": "delegated_to_uv_not_performed_by_scopecat",
+        "dependency_sync": "manager_result_not_verified_by_scopecat",
+        "package_install": "manager_result_not_verified_by_scopecat",
+        "runtime_probe": "not_performed",
+        "code_import_execution": "not_performed",
+        "hardware_probe": "not_performed",
+        "readiness_claim": "not_claimed",
+        "shared_environment_schema": "not_defined",
+    }
+
+
+def _result_status_for_execution_state(execution_state: str) -> str:
+    try:
+        return RESULT_STATUS_BY_EXECUTION_STATE[execution_state]
+    except KeyError as exc:
+        raise ValueError("uv sync execution_state must be recognized") from exc
+
+
+def _validate_result_status(value: str) -> None:
+    if value not in RESULT_STATUS_BY_EXECUTION_STATE.values():
+        raise ValueError("uv sync result_status must be recognized")
+
+
+def _validate_typed_findings(
+    findings: tuple[UvSyncFinding, ...],
+) -> tuple[UvSyncFinding, ...]:
+    validated = tuple(findings)
+    if not all(isinstance(finding, UvSyncFinding) for finding in validated):
+        raise ValueError("uv sync result findings must be UvSyncFinding objects")
+    return validated
+
+
+def _validate_attention(
+    attention: tuple[dict[str, str], ...],
+) -> tuple[dict[str, str], ...]:
+    validated = tuple(copy.deepcopy(item) for item in attention)
+    for item in validated:
+        if not isinstance(item, dict):
+            raise ValueError("uv sync result attention entries must be objects")
+        for key in ("code", "severity", "basis", "does_not_claim"):
+            _require_text(item, key)
+    return validated
+
+
+def _coerce_result_intent_ref(value: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError("uv sync result intent_ref must be an object")
+    command_intent = _require_mapping(value, "command_intent")
+    working_directory = _validate_relative_path(
+        _require_text(value, "working_directory"),
+        "uv sync result intent_ref working_directory",
+    )
+    command_working_directory = _validate_relative_path(
+        _require_text(command_intent, "working_directory"),
+        "uv sync result command_intent working_directory",
+    )
+    if _require_text(value, "expected_manager") != "uv":
+        raise ValueError("uv sync result intent_ref expected_manager must be uv")
+    if _require_text(command_intent, "manager") != "uv":
+        raise ValueError("uv sync result command_intent manager must be uv")
+    if _require_text(command_intent, "operation") != "sync":
+        raise ValueError("uv sync result command_intent operation must be sync")
+    if command_working_directory != working_directory:
+        raise ValueError("uv sync result command_intent working_directory must match intent_ref")
+    if (
+        _require_text(command_intent, "does_not_claim")
+        != "process_executed_or_environment_synchronized"
+    ):
+        raise ValueError("uv sync result command_intent does_not_claim must preserve boundary")
+
+    return {
+        "request_id": _require_text(value, "request_id"),
+        "approval_id": _require_text(value, "approval_id"),
+        "expected_manager": "uv",
+        "working_directory": working_directory,
+        "command_intent": {
+            "manager": "uv",
+            "operation": "sync",
+            "working_directory": working_directory,
+            "argv": list(_validate_uv_sync_argv(command_intent.get("argv"))),
+            "does_not_claim": "process_executed_or_environment_synchronized",
+        },
+    }
+
+
+def _coerce_command_result(value: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError("uv sync command_result must be an object")
+    if _require_text(value, "manager") != "uv":
+        raise ValueError("uv sync command_result manager must be uv")
+    if _require_text(value, "operation") != "sync":
+        raise ValueError("uv sync command_result operation must be sync")
+    output_capture = _require_mapping(value, "output_capture")
+    if output_capture.get("stdout") != "bounded_summary":
+        raise ValueError("uv sync command_result stdout capture must be bounded_summary")
+    if output_capture.get("stderr") != "bounded_summary":
+        raise ValueError("uv sync command_result stderr capture must be bounded_summary")
+    if output_capture.get("raw_output") != "not_recorded":
+        raise ValueError("uv sync command_result raw output must not be recorded")
+    if _require_text(value, "execution_observer") != "scopecat_subprocess_executor":
+        raise ValueError("uv sync command_result execution_observer must be Scopecat")
+
+    return {
+        "result_id": _require_text(value, "result_id"),
+        "intent_request_id": _require_text(value, "intent_request_id"),
+        "approval_id": _require_text(value, "approval_id"),
+        "manager": "uv",
+        "operation": "sync",
+        "working_directory": _validate_relative_path(
+            _require_text(value, "working_directory"),
+            "uv sync command_result working_directory",
+        ),
+        "local_execution_cwd": _require_text(value, "local_execution_cwd"),
+        "argv": list(_validate_uv_sync_argv(value.get("argv"))),
+        "execution_state": _require_text(value, "execution_state"),
+        "exit_code": _require_optional_int(value, "exit_code"),
+        "started_at": _require_text(value, "started_at"),
+        "completed_at": _require_text(value, "completed_at"),
+        "duration_ms": _require_nonnegative_int(value, "duration_ms"),
+        "stdout_summary": _require_string(value, "stdout_summary"),
+        "stderr_summary": _require_string(value, "stderr_summary"),
+        "output_capture": {
+            "stdout": "bounded_summary",
+            "stderr": "bounded_summary",
+            "raw_output": "not_recorded",
+            "stdout_truncated": _require_bool(output_capture, "stdout_truncated"),
+            "stderr_truncated": _require_bool(output_capture, "stderr_truncated"),
+        },
+        "execution_observer": "scopecat_subprocess_executor",
+    }
+
+
+def _validate_result_consistency(
+    command_result: dict[str, Any],
+    result_status: str,
+    findings: tuple[UvSyncFinding, ...],
+) -> None:
+    execution_state = command_result["execution_state"]
+    if result_status != _result_status_for_execution_state(execution_state):
+        raise ValueError("uv sync result_status must match execution_state")
+
+    exit_code = command_result["exit_code"]
+    if execution_state == "completed_success" and exit_code != 0:
+        raise ValueError("completed uv sync success must have exit_code 0")
+    if execution_state == "completed_failed" and (not isinstance(exit_code, int) or exit_code == 0):
+        raise ValueError("failed uv sync process must have non-zero exit_code")
+    if execution_state in {"timed_out", "launch_failed"} and exit_code is not None:
+        raise ValueError("non-completed uv sync process must not have exit_code")
+
+    expected_findings = tuple(_findings(execution_state))
+    if tuple(finding.to_dict() for finding in findings) != tuple(
+        finding.to_dict() for finding in expected_findings
+    ):
+        raise ValueError("uv sync result findings must match execution_state")
+
+
 def _validate_relative_path(value: str, owner: str) -> str:
     if value == ".":
         return value
@@ -490,6 +703,36 @@ def _require_text(source: dict[str, Any], key: str) -> str:
     value = source.get(key)
     if not isinstance(value, str) or not value:
         raise ValueError(f"{key} must be text")
+    return value
+
+
+def _require_string(source: dict[str, Any], key: str) -> str:
+    value = source.get(key)
+    if not isinstance(value, str):
+        raise ValueError(f"{key} must be a string")
+    return value
+
+
+def _require_bool(source: dict[str, Any], key: str) -> bool:
+    value = source.get(key)
+    if not isinstance(value, bool):
+        raise ValueError(f"{key} must be boolean")
+    return value
+
+
+def _require_optional_int(source: dict[str, Any], key: str) -> int | None:
+    value = source.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{key} must be an integer or null")
+    return value
+
+
+def _require_nonnegative_int(source: dict[str, Any], key: str) -> int:
+    value = source.get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{key} must be a nonnegative integer")
     return value
 
 

@@ -26,7 +26,7 @@ result, review locally**:
 ```text
 optional manifest preflight
   -> bounded manager operation intent
-  -> declared external manager result or route-local execution result
+  -> declared external manager result or typed route-local execution result
   -> local operation review bundle
 ```
 
@@ -35,7 +35,7 @@ semantics, dependency resolution, synchronization, and package installation.
 Scopecat owns the local review records around the operation: explicit approval,
 bounded argv construction, declared external result recording, the first
 route-local approved `uv sync` subprocess wrapper, and composition of prior
-summaries into one `review_summary` surface.
+summaries or typed route-local results into review surfaces.
 
 In the wider route model, environment operation records support selected
 prepared-run and declared-environment identity references. They can explain
@@ -53,7 +53,7 @@ workflow.
 | Operation intent | UV sync intent | Construct one bounded `uv sync --locked --no-default-groups` argv from declared context and approval fields without reading files or running uv. |
 | External result recording | UV sync result | Record a declared external uv outcome, bounded summaries, command facts, and result status without executing uv or verifying package state. |
 | Route-local execution prototype | UV sync execution prototype | Run an approved bounded `uv sync` command through a local subprocess runner and record bounded process facts without verifying package state or runtime readiness. |
-| Operation review composition | Environment operation review bundle | Compose prior manifest preflight, uv sync intent, and uv sync result summaries into one local review surface with alignment findings and explicit non-claims. |
+| Operation review composition | Environment operation review bundle plus route-local prototype review | Compose prior discovery summaries into one local review surface, and align selected `UvSyncIntent`/`UvSyncResult` prototype objects before broader review-bundle integration. |
 | Edge-case pressure | Operation review edge cases | Confirm manifest findings, uv failure, uv not-run, and deliberately inconsistent command projections remain review findings, not run blockers or readiness claims. |
 
 ## Boundary Map
@@ -63,7 +63,8 @@ workflow.
 | Manifest preflight summary | Local `review_summary` | Optional structured manifest facts for comparison/review; not required before manager intent. |
 | UV sync intent summary | Local `review_summary` | Approved command intent and exact argv; no process execution or environment observation. |
 | UV sync result summary | Local `review_summary` | Declared external outcome and bounded output summaries; no verified dependency sync or installed package truth. |
-| UV sync execution result | Route-local prototype `review_summary` | Scopecat-run approved `uv sync` subprocess result with bounded output summaries; no verified dependency sync, package state, runtime readiness, or run permission. |
+| UV sync execution result | Route-local typed prototype object with `review_summary` projection | Scopecat-run approved `uv sync` subprocess result with bounded output summaries; no verified dependency sync, package state, runtime readiness, or run permission. |
+| UV sync operation review | Route-local prototype `review_summary` | Aligns one selected intent with one selected typed execution result and aggregates result/alignment findings; no runtime readiness, run-blocking decision, or package-state truth. |
 | Operation review bundle | Local `review_summary` | Aligns selected prior facts and aggregates review findings; does not become runtime readiness, run permission, or portable output. |
 | Handoff/package references | Future reference-only package entries unless separately validated | May reference code/environment records, but does not own code packaging, environment restoration, sync, or runnable readiness. |
 
@@ -85,6 +86,8 @@ route:
   a prerequisite for manager execution;
 - local operation review bundles that aggregate child findings and
   cross-summary mismatches without creating run-blocking decisions.
+- route-local operation reviews that align typed prototype execution results
+  with selected intents before any broader review-bundle or runtime-probe work.
 
 ## External Managers Own
 
@@ -176,8 +179,8 @@ engineering route is the minimal `uv sync` execution prototype described in
 After that milestone, the next work should depend on the product question being
 answered:
 
-1. **If execution review is the priority**, validate a route-local operation
-   review bundle over prototype execution-result summaries.
+1. **If execution review is the priority**, add optional manifest preflight or
+   prepared-context references to the route-local operation review.
 2. **If multi-manager support is the priority**, validate Pixi-specific
    operation intent/result slices before extracting shared manager contracts.
 3. **If run readiness is the priority**, validate a post-sync runtime probe
