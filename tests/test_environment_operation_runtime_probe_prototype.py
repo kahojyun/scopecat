@@ -431,6 +431,37 @@ class EnvironmentOperationRuntimeProbePrototypeTest(unittest.TestCase):
                 attention=result.attention,
             )
 
+    def test_runtime_probe_result_rejects_internally_inconsistent_runtime_facts(self) -> None:
+        sync_intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
+        probe_intent = UvRuntimeProbeIntent.from_sync_result(
+            sync_intent,
+            _sync_result(sync_intent),
+        )
+        facts = _runtime_facts()
+        facts["base_prefix"] = facts["prefix"]
+        with TemporaryDirectory() as tmp:
+            workspace_root = Path(tmp)
+            (workspace_root / "project").mkdir()
+
+            record = execute_uv_runtime_probe(
+                probe_intent,
+                workspace_root=workspace_root,
+                runner=FakeRunner(
+                    CommandRunResult(
+                        exit_code=0,
+                        stdout=json.dumps(facts),
+                        stderr="",
+                    )
+                ),
+            )
+
+        self.assertEqual(record.result_status, "uv_runtime_probe_completed_success")
+        self.assertIsNone(record.runtime_facts)
+        self.assertEqual(
+            [finding.code for finding in record.findings],
+            ["runtime_probe_output_shape_invalid"],
+        )
+
     def test_runtime_probe_failure_timeout_and_launch_failure_are_review_findings(self) -> None:
         sync_intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
         probe_intent = UvRuntimeProbeIntent.from_sync_result(
@@ -496,6 +527,64 @@ class EnvironmentOperationRuntimeProbePrototypeTest(unittest.TestCase):
         self.assertEqual(
             [finding.code for finding in record.findings],
             ["runtime_probe_output_not_json"],
+        )
+
+    def test_runtime_probe_invalid_shape_is_review_finding_not_runtime_truth(self) -> None:
+        sync_intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
+        probe_intent = UvRuntimeProbeIntent.from_sync_result(
+            sync_intent,
+            _sync_result(sync_intent),
+        )
+        with TemporaryDirectory() as tmp:
+            workspace_root = Path(tmp)
+            (workspace_root / "project").mkdir()
+
+            record = execute_uv_runtime_probe(
+                probe_intent,
+                workspace_root=workspace_root,
+                runner=FakeRunner(
+                    CommandRunResult(
+                        exit_code=0,
+                        stdout=json.dumps({"python_version": "3.12.8"}),
+                        stderr="",
+                    )
+                ),
+            )
+
+        self.assertEqual(record.result_status, "uv_runtime_probe_completed_success")
+        self.assertIsNone(record.runtime_facts)
+        self.assertEqual(
+            [finding.code for finding in record.findings],
+            ["runtime_probe_output_shape_invalid"],
+        )
+
+    def test_runtime_probe_truncated_stdout_is_review_finding_not_runtime_truth(self) -> None:
+        sync_intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
+        probe_intent = UvRuntimeProbeIntent.from_sync_result(
+            sync_intent,
+            _sync_result(sync_intent),
+        )
+        with TemporaryDirectory() as tmp:
+            workspace_root = Path(tmp)
+            (workspace_root / "project").mkdir()
+
+            record = execute_uv_runtime_probe(
+                probe_intent,
+                workspace_root=workspace_root,
+                runner=FakeRunner(
+                    CommandRunResult(
+                        exit_code=0,
+                        stdout=json.dumps(_runtime_facts()) + ("x" * 2200),
+                        stderr="",
+                    )
+                ),
+            )
+
+        self.assertEqual(record.result_status, "uv_runtime_probe_completed_success")
+        self.assertIsNone(record.runtime_facts)
+        self.assertEqual(
+            [finding.code for finding in record.findings],
+            ["runtime_probe_stdout_truncated"],
         )
 
     def test_executes_real_runtime_probe_after_real_uv_sync_fixture(self) -> None:

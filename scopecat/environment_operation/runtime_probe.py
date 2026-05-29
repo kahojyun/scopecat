@@ -460,7 +460,7 @@ def _coerce_runtime_facts(value: dict[str, Any] | None) -> dict[str, Any] | None
         return None
     if not isinstance(value, dict):
         raise ValueError("runtime_facts must be an object")
-    return {
+    facts = {
         "python_version": _require_text(value, "python_version"),
         "python_implementation": _require_text(value, "python_implementation"),
         "executable": _require_text(value, "executable"),
@@ -468,6 +468,9 @@ def _coerce_runtime_facts(value: dict[str, Any] | None) -> dict[str, Any] | None
         "base_prefix": _require_text(value, "base_prefix"),
         "is_virtual_environment": _require_bool(value, "is_virtual_environment"),
     }
+    if facts["is_virtual_environment"] != (facts["prefix"] != facts["base_prefix"]):
+        raise ValueError("runtime_facts virtual environment flag must match prefix facts")
+    return facts
 
 
 def _coerce_probe_request_ref(value: dict[str, Any]) -> dict[str, Any]:
