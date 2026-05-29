@@ -19,6 +19,10 @@ validation inputs, not runtime dependencies for this route.
 Raw manifest dictionaries are validated at the package boundary. After that,
 manifest preview classification, review findings, opener internals, and
 package projections consume typed route-local manifest fragments.
+Raw workflow dictionaries are accepted only at public `run_*` edge adapters.
+Internal receiving/import/preflight/storage composition should pass typed
+route-local request and run objects rather than serializing prior workflow
+state back into nested dictionaries.
 `observe_package_integrity(...)` is a read-only receiving/import prerequisite:
 it compares package-local regular files with paired manifest-declared
 digest/size facts where available. It does not verify signatures,

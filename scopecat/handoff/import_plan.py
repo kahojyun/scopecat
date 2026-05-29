@@ -10,7 +10,6 @@ from typing import Any
 from scopecat.handoff._contracts import validate_public_identifier
 from scopecat.handoff.inspect import write_inspection_artifact
 from scopecat.handoff.package import HandoffLinkedContext, HandoffMeasurement, HandoffPackage
-from scopecat.handoff.read_only import open_package
 from scopecat.handoff.receiving import HandoffReceivingGateRun, run_receiving_gate
 
 _EXPECTED_SCHEMA = "scopecat.handoff_import_plan.v0"
@@ -195,15 +194,30 @@ def run_import_plan(
     """Build a non-mutating import plan for a reviewed handoff package."""
 
     request, receiving_gate_source = _parse_source(source)
-    package = open_package(package_dir)
+    receiving_gate = run_receiving_gate(receiving_gate_source, package_dir=package_dir)
     inspection_receipt = None
     if inspection_output_dir is not None:
         inspection_receipt = write_inspection_artifact(
-            package,
+            receiving_gate.package,
             output_dir=Path(inspection_output_dir),
             overwrite=overwrite_inspection,
         )
-    receiving_gate = run_receiving_gate(receiving_gate_source, package_dir=package_dir)
+    return build_import_plan(
+        request,
+        receiving_gate=receiving_gate,
+        inspection_receipt=inspection_receipt,
+    )
+
+
+def build_import_plan(
+    request: HandoffImportPlanRequest,
+    *,
+    receiving_gate: HandoffReceivingGateRun,
+    inspection_receipt: dict[str, Any] | None = None,
+) -> HandoffImportPlanRun:
+    """Build an import plan from typed route-local prior workflow state."""
+
+    package = receiving_gate.package
     selected_measurement_ids = request.measurement_ids_for(package)
     measurement_plans: tuple[HandoffMeasurementImportPlan, ...] = ()
     linked_context_plans: tuple[HandoffLinkedContextImportPlan, ...] = ()

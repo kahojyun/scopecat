@@ -8,6 +8,20 @@ from pathlib import Path
 from unittest import mock
 
 from scopecat.handoff import run_storage_acceptance
+from scopecat.handoff.acceptance_preflight import (
+    HandoffAcceptanceDestination,
+    HandoffAcceptancePreflightRequest,
+    build_acceptance_preflight,
+)
+from scopecat.handoff.import_plan import HandoffImportPlanRequest, build_import_plan
+from scopecat.handoff.receiving import (
+    HandoffReceivingReviewRequest,
+    run_receiving_gate_from_request,
+)
+from scopecat.handoff.storage_acceptance import (
+    HandoffStorageAcceptanceRequest,
+    run_storage_acceptance_from_preflight,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = (
@@ -148,10 +162,73 @@ def _storage_acceptance_source() -> dict:
     }
 
 
+def _receiving_request() -> HandoffReceivingReviewRequest:
+    return HandoffReceivingReviewRequest(
+        request_id="receive-handoff-package-legacy-rabi-001",
+        reviewed_package_id="handoff-package-legacy-rabi-001",
+        reviewed_preview_classification="needs_review_before_acceptance",
+        reviewed_integrity_classification="declared_integrity_verified",
+    )
+
+
+def _import_plan_request() -> HandoffImportPlanRequest:
+    return HandoffImportPlanRequest(
+        request_id="plan-import-handoff-package-legacy-rabi-001",
+        requested_package_id="handoff-package-legacy-rabi-001",
+        measurement_selection="all_measurements",
+    )
+
+
+def _acceptance_destination() -> HandoffAcceptanceDestination:
+    return HandoffAcceptanceDestination(
+        measurement_record_id="legacy-rabi-001",
+        destination_record_id="imported-legacy-rabi-001",
+        record_dir="records/imported-legacy-rabi-001",
+        primary_data_path="records/imported-legacy-rabi-001/primary.csv",
+        manifest_path="records/imported-legacy-rabi-001/record-manifest.json",
+        storage_schema="measurement_record_directory_candidate_v0",
+    )
+
+
+def _acceptance_preflight_request() -> HandoffAcceptancePreflightRequest:
+    return HandoffAcceptancePreflightRequest(
+        request_id="preflight-handoff-package-legacy-rabi-001",
+        requested_package_id="handoff-package-legacy-rabi-001",
+        destinations=(_acceptance_destination(),),
+    )
+
+
+def _storage_acceptance_request() -> HandoffStorageAcceptanceRequest:
+    return HandoffStorageAcceptanceRequest(
+        request_id="accept-handoff-package-legacy-rabi-001",
+        requested_package_id="handoff-package-legacy-rabi-001",
+        approved_destinations=(_acceptance_destination(),),
+    )
+
+
 def _copy_package(temp_root: Path) -> Path:
     package_dir = temp_root / PACKAGE.name
     shutil.copytree(PACKAGE, package_dir)
     return package_dir
+
+
+def _import_plan_run(package_dir: Path):
+    receiving_gate = run_receiving_gate_from_request(
+        _receiving_request(),
+        package_dir=package_dir,
+    )
+    return build_import_plan(
+        _import_plan_request(),
+        receiving_gate=receiving_gate,
+    )
+
+
+def _acceptance_preflight_run(package_dir: Path, storage_root: Path):
+    return build_acceptance_preflight(
+        _acceptance_preflight_request(),
+        import_plan=_import_plan_run(package_dir),
+        storage_root=storage_root,
+    )
 
 
 class HandoffEngineeringPrototypeStorageAcceptanceTest(unittest.TestCase):
@@ -162,8 +239,9 @@ class HandoffEngineeringPrototypeStorageAcceptanceTest(unittest.TestCase):
             storage_root = temp_root / "storage"
             storage_root.mkdir()
 
-            run = run_storage_acceptance(
-                _storage_acceptance_source(),
+            run = run_storage_acceptance_from_preflight(
+                _storage_acceptance_request(),
+                preflight=_acceptance_preflight_run(package_dir, storage_root),
                 package_dir=package_dir,
                 storage_root=storage_root,
             )
@@ -200,8 +278,9 @@ class HandoffEngineeringPrototypeStorageAcceptanceTest(unittest.TestCase):
             storage_root = temp_root / "storage"
             (storage_root / "records" / "imported-legacy-rabi-001").mkdir(parents=True)
 
-            run = run_storage_acceptance(
-                _storage_acceptance_source(),
+            run = run_storage_acceptance_from_preflight(
+                _storage_acceptance_request(),
+                preflight=_acceptance_preflight_run(package_dir, storage_root),
                 package_dir=package_dir,
                 storage_root=storage_root,
             )
@@ -255,8 +334,9 @@ class HandoffEngineeringPrototypeStorageAcceptanceTest(unittest.TestCase):
                 "_write_new_file",
                 side_effect=write_then_fail,
             ):
-                run = run_storage_acceptance(
-                    _storage_acceptance_source(),
+                run = run_storage_acceptance_from_preflight(
+                    _storage_acceptance_request(),
+                    preflight=_acceptance_preflight_run(package_dir, storage_root),
                     package_dir=package_dir,
                     storage_root=storage_root,
                 )
@@ -284,8 +364,9 @@ class HandoffEngineeringPrototypeStorageAcceptanceTest(unittest.TestCase):
                 return_value=b"changed after integrity observation\n",
             ):
                 with self.assertRaisesRegex(ValueError, "digest must match preflight"):
-                    run_storage_acceptance(
-                        _storage_acceptance_source(),
+                    run_storage_acceptance_from_preflight(
+                        _storage_acceptance_request(),
+                        preflight=_acceptance_preflight_run(package_dir, storage_root),
                         package_dir=package_dir,
                         storage_root=storage_root,
                     )
@@ -310,8 +391,9 @@ class HandoffEngineeringPrototypeStorageAcceptanceTest(unittest.TestCase):
                 "_reject_existing_paths",
                 side_effect=reject_after_preflight,
             ):
-                run = run_storage_acceptance(
-                    _storage_acceptance_source(),
+                run = run_storage_acceptance_from_preflight(
+                    _storage_acceptance_request(),
+                    preflight=_acceptance_preflight_run(package_dir, storage_root),
                     package_dir=package_dir,
                     storage_root=storage_root,
                 )

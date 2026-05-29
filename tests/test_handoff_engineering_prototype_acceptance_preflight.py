@@ -6,6 +6,16 @@ import unittest
 from pathlib import Path
 
 from scopecat.handoff import run_acceptance_preflight
+from scopecat.handoff.acceptance_preflight import (
+    HandoffAcceptanceDestination,
+    HandoffAcceptancePreflightRequest,
+    build_acceptance_preflight,
+)
+from scopecat.handoff.import_plan import HandoffImportPlanRequest, build_import_plan
+from scopecat.handoff.receiving import (
+    HandoffReceivingReviewRequest,
+    run_receiving_gate_from_request,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = (
@@ -117,10 +127,57 @@ def _acceptance_preflight_source() -> dict:
     }
 
 
+def _receiving_request() -> HandoffReceivingReviewRequest:
+    return HandoffReceivingReviewRequest(
+        request_id="receive-handoff-package-legacy-rabi-001",
+        reviewed_package_id="handoff-package-legacy-rabi-001",
+        reviewed_preview_classification="needs_review_before_acceptance",
+        reviewed_integrity_classification="declared_integrity_verified",
+    )
+
+
+def _import_plan_request() -> HandoffImportPlanRequest:
+    return HandoffImportPlanRequest(
+        request_id="plan-import-handoff-package-legacy-rabi-001",
+        requested_package_id="handoff-package-legacy-rabi-001",
+        measurement_selection="all_measurements",
+    )
+
+
+def _acceptance_destination() -> HandoffAcceptanceDestination:
+    return HandoffAcceptanceDestination(
+        measurement_record_id="legacy-rabi-001",
+        destination_record_id="imported-legacy-rabi-001",
+        record_dir="records/imported-legacy-rabi-001",
+        primary_data_path="records/imported-legacy-rabi-001/primary.csv",
+        manifest_path="records/imported-legacy-rabi-001/record-manifest.json",
+        storage_schema="measurement_record_directory_candidate_v0",
+    )
+
+
+def _acceptance_preflight_request() -> HandoffAcceptancePreflightRequest:
+    return HandoffAcceptancePreflightRequest(
+        request_id="preflight-handoff-package-legacy-rabi-001",
+        requested_package_id="handoff-package-legacy-rabi-001",
+        destinations=(_acceptance_destination(),),
+    )
+
+
 def _copy_package(temp_root: Path) -> Path:
     package_dir = temp_root / PACKAGE.name
     shutil.copytree(PACKAGE, package_dir)
     return package_dir
+
+
+def _import_plan_run(package_dir: Path):
+    receiving_gate = run_receiving_gate_from_request(
+        _receiving_request(),
+        package_dir=package_dir,
+    )
+    return build_import_plan(
+        _import_plan_request(),
+        receiving_gate=receiving_gate,
+    )
 
 
 class HandoffEngineeringPrototypeAcceptancePreflightTest(unittest.TestCase):
@@ -131,9 +188,9 @@ class HandoffEngineeringPrototypeAcceptancePreflightTest(unittest.TestCase):
             storage_root = temp_root / "storage"
             storage_root.mkdir()
 
-            run = run_acceptance_preflight(
-                _acceptance_preflight_source(),
-                package_dir=package_dir,
+            run = build_acceptance_preflight(
+                _acceptance_preflight_request(),
+                import_plan=_import_plan_run(package_dir),
                 storage_root=storage_root,
             )
             summary = run.to_dict()
@@ -167,9 +224,9 @@ class HandoffEngineeringPrototypeAcceptancePreflightTest(unittest.TestCase):
             storage_root = temp_root / "storage"
             (storage_root / "records" / "imported-legacy-rabi-001").mkdir(parents=True)
 
-            run = run_acceptance_preflight(
-                _acceptance_preflight_source(),
-                package_dir=package_dir,
+            run = build_acceptance_preflight(
+                _acceptance_preflight_request(),
+                import_plan=_import_plan_run(package_dir),
                 storage_root=storage_root,
             )
             summary = run.to_dict()
@@ -195,14 +252,24 @@ class HandoffEngineeringPrototypeAcceptancePreflightTest(unittest.TestCase):
             )
             storage_root = temp_root / "storage"
             storage_root.mkdir()
-            source = _acceptance_preflight_source()
-            source["import_plan_source"]["receiving_gate_source"]["receiving_review_request"][
-                "review"
-            ]["reviewed_integrity_classification"] = "integrity_review_required"
-
-            run = run_acceptance_preflight(
-                source,
+            blocked_receiving_request = HandoffReceivingReviewRequest(
+                request_id="receive-handoff-package-legacy-rabi-001",
+                reviewed_package_id="handoff-package-legacy-rabi-001",
+                reviewed_preview_classification="needs_review_before_acceptance",
+                reviewed_integrity_classification="integrity_review_required",
+            )
+            blocked_receiving_gate = run_receiving_gate_from_request(
+                blocked_receiving_request,
                 package_dir=package_dir,
+            )
+            blocked_import_plan = build_import_plan(
+                _import_plan_request(),
+                receiving_gate=blocked_receiving_gate,
+            )
+
+            run = build_acceptance_preflight(
+                _acceptance_preflight_request(),
+                import_plan=blocked_import_plan,
                 storage_root=storage_root,
             )
             summary = run.to_dict()

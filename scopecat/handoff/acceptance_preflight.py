@@ -193,6 +193,21 @@ def run_acceptance_preflight(
 
     request, import_plan_source = _parse_source(source)
     import_plan = run_import_plan(import_plan_source, package_dir=package_dir)
+    return build_acceptance_preflight(
+        request,
+        import_plan=import_plan,
+        storage_root=storage_root,
+    )
+
+
+def build_acceptance_preflight(
+    request: HandoffAcceptancePreflightRequest,
+    *,
+    import_plan: HandoffImportPlanRun,
+    storage_root: str | Path,
+) -> HandoffAcceptancePreflightRun:
+    """Build an acceptance preflight from a typed import plan."""
+
     _validate_against_import_plan(request=request, import_plan=import_plan)
 
     destination_observations: tuple[HandoffDestinationObservation, ...] = ()

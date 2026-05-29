@@ -113,6 +113,16 @@ def run_receiving_gate(
     """Open, integrity-observe, and gate a reviewed package without mutation."""
 
     request = _parse_request(source)
+    return run_receiving_gate_from_request(request, package_dir=package_dir)
+
+
+def run_receiving_gate_from_request(
+    request: HandoffReceivingReviewRequest,
+    *,
+    package_dir: str | Path,
+) -> HandoffReceivingGateRun:
+    """Run the receiving gate from an already parsed route-local request."""
+
     package = open_package(package_dir)
     integrity_report = observe_package_integrity(package_dir)
     _validate_reviewed_facts(

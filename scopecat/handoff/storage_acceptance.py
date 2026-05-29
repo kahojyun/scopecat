@@ -141,6 +141,24 @@ def run_storage_acceptance(
         package_dir=package_dir,
         storage_root=root,
     )
+    return run_storage_acceptance_from_preflight(
+        request,
+        preflight=preflight,
+        package_dir=package_dir,
+        storage_root=root,
+    )
+
+
+def run_storage_acceptance_from_preflight(
+    request: HandoffStorageAcceptanceRequest,
+    *,
+    preflight: HandoffAcceptancePreflightRun,
+    package_dir: str | Path,
+    storage_root: str | Path,
+) -> HandoffStorageAcceptanceRun:
+    """Accept storage from an already typed acceptance preflight."""
+
+    root = _existing_storage_root(Path(storage_root))
     _validate_against_preflight(request=request, preflight=preflight)
     if not preflight.acceptance_preflight_allowed:
         return HandoffStorageAcceptanceRun(request=request, preflight=preflight)
