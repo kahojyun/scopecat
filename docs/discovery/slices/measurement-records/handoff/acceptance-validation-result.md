@@ -4,6 +4,12 @@
 
 Implementation candidate validated.
 
+Document role: historical discovery validation result. It records what this
+slice earned and what it did not establish. Later engineering implementation
+decisions are owned by
+[`storage-acceptance-decision.md`](../../../../architecture/handoff/storage-acceptance-decision.md);
+do not update this result to mirror live API or receipt changes.
+
 This result validates the first approved receiving-side storage mutation
 intended to run after read-only review of a directory-shaped handoff package.
 It verifies approval plus reviewed package identity/classification; it does
@@ -39,8 +45,8 @@ storage through a small, explicit mutation boundary:
 - require generated local record paths of the form
   `records/{measurement_record_id}/primary.csv` and
   `records/{measurement_record_id}/record-manifest.json`;
-- refuse existing record directories and storage targets with no-overwrite
-  behavior;
+- refuse existing record directories and storage targets with ordinary
+  no-overwrite behavior under a non-concurrent storage-root assumption;
 - copy package-local primary CSV bytes into local storage;
 - write deterministic candidate-local record manifests beside the copied data;
 - preserve linked context as reference-only manifest facts;
@@ -62,6 +68,7 @@ It does not:
 - extract archives or accept archive paths;
 - validate package-declared checksums, signatures, or package integrity;
 - support concurrent package-root modification during acceptance;
+- support concurrent storage-root modification during acceptance;
 - infer schemas, scalar types, dataframe behavior, or plotting behavior;
 - define a live GUI flow, stable SDK method names, final storage schema, or
   shared measurement-record domain model.
@@ -70,13 +77,14 @@ The copied primary-data digest and size in the local record manifest are facts
 about the bytes copied into storage. They are not claims that the source
 package's declared integrity metadata was verified.
 
-The filesystem write mechanics now use the shared filesystem mutation helper
-candidate. This slice still owns the acceptance boundary, reviewed package
-continuity checks, new-record-directory requirement, and local manifest shape.
+This result owns only the acceptance boundary, reviewed package continuity
+checks, new-record-directory requirement, and local manifest shape validated by
+the discovery slice. It does not establish race-safe no-overwrite semantics,
+locks, atomic publish behavior, or crash recovery.
 
 ## Result
 
-The handoff package route now has separate validated steps for:
+At this checkpoint, the handoff package route had separate validated steps for:
 
 - producing a directory package;
 - opening and reviewing it read-only;
@@ -84,8 +92,8 @@ The handoff package route now has separate validated steps for:
 - accepting the reviewed package into local storage through an explicit
   approved mutation.
 
-This gives the route a complete prototype loop while preserving the main
-engineering boundary: inspection remains read-only; acceptance is the first
+This gave the route a complete prototype loop while preserving the main
+engineering boundary: inspection remained read-only; acceptance was the first
 receiving-side write; and final importer, GUI, storage architecture, archive,
-integrity, concurrent package handling, dataframe, and shared-schema decisions
-remain separate.
+integrity, concurrent package/storage handling, dataframe, and shared-schema
+decisions remained separate.

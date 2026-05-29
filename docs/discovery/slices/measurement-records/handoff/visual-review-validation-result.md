@@ -4,6 +4,12 @@
 
 Implementation candidate validated.
 
+Document role: historical discovery validation result. It records what this
+slice earned and what it did not establish. Current handoff implementation
+boundaries are owned by
+[`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md);
+do not update this result to mirror live API or route changes.
+
 This result validates a plot-first local review view model over the read-only
 handoff package read view. It is not accepted architecture, a GUI contract, a
 rendered plotting surface, a dataframe adapter, final SDK, package import
@@ -64,9 +70,10 @@ This candidate does not:
 
 ## Result
 
-The open-before-import route now has a view-model candidate for the way many
-experimental users naturally inspect packages: start with plots and structured
-context, then drill into tables or raw package data only when needed.
+At this checkpoint, the open-before-import route had a view-model candidate for
+the way many experimental users naturally inspect packages: start with plots
+and structured context, then drill into tables or raw package data only when
+needed.
 
 This is different from the read-view candidate, which answers whether code can
 open the package and access table/plot objects. The visual review candidate

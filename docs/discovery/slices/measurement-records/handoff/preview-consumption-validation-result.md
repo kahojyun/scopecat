@@ -4,6 +4,12 @@
 
 Implementation candidate validated.
 
+Document role: historical discovery validation result. It records what this
+slice earned and what it did not establish. Current handoff implementation
+boundaries are owned by
+[`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md);
+do not update this result to mirror live API or route changes.
+
 This result validates a narrow composition of existing read-only handoff
 package consumers. It is not accepted Scopecat architecture, a final SDK, GUI
 contract, plotting layer, dataframe API, importer, storage model, package
@@ -44,15 +50,15 @@ shape contracts, visual-review facts, table access, SDK names, dataframe
 adapters, or GUI behavior. It only checks whether existing projections can be
 coordinated into one local receipt for early package review/use.
 
-The first fixture proves the current one-dimensional declared-table package
+The first fixture proved the slice's one-dimensional declared-table package
 route. Richer preview affordances remain pressure from the declared
 scan/data-shape fixtures and should be connected to real package-route
 fixtures only when a later slice needs that behavior.
 
 ## Result
 
-The receiving-side package route now has a preview-aware consumption
-composition candidate. Later SDK or GUI work can use it as evidence for how to
-route users toward plot-first review, review findings, or table
+At this checkpoint, the receiving-side package route had a preview-aware
+consumption composition candidate. Later SDK or GUI work can use it as evidence
+for how to route users toward plot-first review, review findings, or table
 drilldown without prematurely finalizing rendering, dataframe, or import
 behavior.

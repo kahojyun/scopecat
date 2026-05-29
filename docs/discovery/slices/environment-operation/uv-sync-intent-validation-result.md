@@ -7,6 +7,12 @@ Implementation candidate validated.
 Summary posture: `review_summary`. Fixture and expected-output artifacts are
 repository-safe discovery artifacts, not portable/public/export artifacts.
 
+Document role: historical discovery validation result. It records what this
+slice earned before route-local execution/probe ownership moved into the
+engineering prototype. Current implementation-boundary guidance lives in
+[`engineering-prototype-readiness.md`](../../../architecture/environment-operation/engineering-prototype-readiness.md);
+do not update this result to mirror live API, runner, or workflow changes.
+
 This result validates a narrow Experiment Code Context operation-intent slice:
 **UV Sync Intent**.
 

@@ -28,7 +28,7 @@ write package
   -> open/read package locally
   -> inspect plot/table/context locally
   -> optionally observe integrity
-  -> optionally accept into local storage
+  -> optionally run candidate storage acceptance
 ```
 
 The package directory is the portable artifact. `package-manifest.json` is the
@@ -59,10 +59,11 @@ or plot candidates from raw files.
 
 Python/package use is **table-first and plot-ready**. Notebook and script users
 should be able to discover measurements and get useful table/plot facts without
-importing the package into Scopecat storage. The promoted read-only baseline
-provides string-valued primary tables and declared plot records. Dataframe-like
-tables, arrays, optional pandas/numpy adapters, hard dataframe dependencies,
-and final public SDK names remain deferred SDK/notebook pressure.
+importing the package into Scopecat storage. Dataframe-like tables, arrays,
+optional pandas/numpy adapters, hard dataframe dependencies, and final public
+SDK names remain deferred SDK/notebook pressure. Current implementation
+baseline details live in
+[`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md).
 
 GUI/local review use is **plot-first when a plot is declared**. Experimental
 users commonly orient by the primary plot and structured context first, with
@@ -76,8 +77,8 @@ payload use case appears.
 
 Integrity observation is separate from acceptance and authenticity. The route
 can compare declared package-local digest/size facts when asked, but signatures,
-archive authenticity, trust policy, and concurrent package-root mutation are
-separate authority questions.
+archive authenticity, trust policy, concurrent package-root mutation, and
+concurrent storage-root mutation are separate authority questions.
 
 Receiving-side storage mutation requires explicit approval and stays after
 read-only review. Acceptance/import is a distinct mutation step, not part of
@@ -113,7 +114,7 @@ Keep these out of the current route until a named user workflow requires them:
   restore, environment restore, dependency sync, managed-runner inputs, or
   runnable readiness;
 - final storage import API, existing-record update behavior, storage schema,
-  import conflict policy, and concurrency semantics;
+  import conflict policy, and storage concurrency semantics;
 - shared measurement-record domain models or cross-route object lifecycles.
 
 ## Reopen Triggers
@@ -127,9 +128,11 @@ Do more handoff work only when one of these concrete triggers appears:
 - GUI review needs inspectable context content:
   validate one concrete linked-context payload category and how it appears
   beside the measurement.
-- Users need accepted packages to become durable local records:
+- Users need durable/final local records beyond the candidate storage
+  acceptance slice:
   design final storage import behavior, conflict handling, and existing-record
-  update policy.
+  update policy. The current candidate mutation boundary is recorded in
+  [`storage-acceptance-decision.md`](../../../../architecture/handoff/storage-acceptance-decision.md).
 - Analysis or fit results need first-class display:
   validate a read-only analysis-result model before executing fits or
   accepting write-back.

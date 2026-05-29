@@ -12,6 +12,10 @@ archive format, signature model, or shared measurement-record domain model.
 For the current accepted-for-now route decisions, deferred decisions, reopen
 triggers, and stop rule, read
 [`routes/measurement-records/handoff/decision.md`](decision.md).
+Engineering-phase handoff notes have been promoted under
+[`architecture/README.md`](../../../../architecture/README.md). Keep validation
+evidence and route discovery synthesis here; keep implementation-boundary
+guidance in the architecture notes.
 
 ## Route Shape
 
@@ -24,7 +28,7 @@ write package
   -> open/read package
   -> inspect plot/table/context locally
   -> optionally observe integrity
-  -> optionally accept into local storage
+  -> optionally run candidate storage acceptance
 ```
 
 The package directory is the carried artifact. Local receipts, summaries,
@@ -44,34 +48,46 @@ one of them to portable output.
 | Preview/view pressure | Preview shape view, visual review, GUI view state, visual artifact, preview consumption, route pressure fixture | Test declared preview metadata, plot-first local review, GUI-ready local state, table drilldown, richer fixture pressure, and local static review output without accepting live GUI or plotting architecture. |
 | Receiving composition | Inspection workflow, receiving workflow | Compose existing local review, integrity observation, and approved acceptance in the intended order. |
 | Integrity observation | Integrity observation | Compare package-local observed sha256/byte-size facts to declared package facts where present. |
-| Receiving mutation | Acceptance | Copy reviewed package primary data into new local storage records after explicit approval. |
+| Receiving mutation | Acceptance | Copy reviewed package primary data into candidate local records after explicit approval, without accepting final storage architecture. |
 | Route-local support | Handoff package route contracts | Share repeated handoff-specific identity, package-path, preview-ready, and continuity checks where the same semantics already recur. |
 
-## Accepted Read-Only Baseline
+## Engineering Coverage
 
-The read-only handoff engineering prototype has been promoted as the accepted
-implementation baseline for the first open-before-import vertical. It tested
-route-local module boundaries, regression fixtures, and a thin local entrypoint
-without changing the accepted-for-now route decisions in
-[`decision.md`](decision.md).
+Freezing the validation results does not mean every discovery candidate became a
+live engineering surface. Use this matrix when deciding whether to update an
+old validation result, the architecture notes, or the module README.
 
-The accepted local API is intentionally product-shaped rather than a direct
-wrapper around discovery candidate summaries: it exposes route-local package,
-measurement, table, plot, finding, and linked-context objects while keeping
-candidate outputs as historical validation evidence.
+| Discovery slice group | Engineering coverage | Current owner |
+| --- | --- | --- |
+| Writer, contents preview, opener, read view, tables, integrity observation, inspection artifact, receiving gate, import plan, acceptance preflight, storage acceptance, package workflow | Promoted into route-local engineering code. The implementation may harden internals beyond the original candidate, but the live boundary belongs to the module and architecture docs. | [`scopecat/handoff/README.md`](../../../../../scopecat/handoff/README.md), [`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md), [`storage-acceptance-decision.md`](../../../../architecture/handoff/storage-acceptance-decision.md) |
+| Round trip and route-pressure fixtures | Partially retained as compatibility and fixture pressure. They inform engineering tests and accepted route posture, but they are not separate live product APIs. | Engineering tests plus this route README; validation results stay historical. |
+| Preview shape view, preview consumption, visual review, GUI view state, SDK view model, SDK ergonomics | Retained as UX/API pressure only. Some concepts are reflected in `HandoffPackage`, `HandoffTable`, `HandoffPlotSeries`, and `build_inspection_html(...)`, but no final GUI state API, SDK view model, pandas/numpy adapter contract, or plotting layer has been promoted. | Historical validation results and future narrower decisions if a concrete workflow reopens them. |
+| Acceptance/import storage layout | Promoted only as the first candidate storage acceptance mutation, not as final storage architecture, archive format, existing-record update, or conflict policy. | [`storage-acceptance-decision.md`](../../../../architecture/handoff/storage-acceptance-decision.md) |
 
-Use [`engineering-prototype-plan.md`](engineering-prototype-plan.md) for the
-prototype objective, scope, fixture policy, stop conditions, and promotion
-criteria.
+## Accepted Local Baseline
+
+The handoff engineering prototype has been promoted as the accepted local
+implementation baseline without changing the accepted-for-now route decisions
+in [`decision.md`](decision.md). This discovery note does not track the live
+API inventory. Current accepted implementation boundaries live in the
+architecture promotion decision, and current exported API details live in the
+module README.
 
 Use
-[`engineering-prototype-readiness.md`](engineering-prototype-readiness.md) for
-the current stop-criteria check and recommended promotion path.
+[`engineering-prototype-plan.md`](../../../../architecture/handoff/engineering-prototype-plan.md)
+for the frozen historical prototype objective, scope, fixture policy, stop
+conditions, and promotion criteria.
 
 Use
-[`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md)
-for the decision that promotes the read-only handoff vertical as the accepted
-implementation baseline and stops the current broad prototype line.
+[`engineering-prototype-readiness.md`](../../../../architecture/handoff/engineering-prototype-readiness.md)
+for the frozen stop-criteria checkpoint that ended the prototype line.
+
+Use
+[`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md)
+for the canonical accepted implementation boundary and next decision gate.
+
+Use [`../../../../../scopecat/handoff/README.md`](../../../../../scopecat/handoff/README.md)
+for the current route-local Python API surface.
 
 ## Artifact Boundary
 

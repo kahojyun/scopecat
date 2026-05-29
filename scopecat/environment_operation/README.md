@@ -27,6 +27,12 @@ Route-local operation reviews compose one selected `UvSyncIntent` with one
 selected `UvSyncResult`. They surface alignment mismatches and result findings
 as review items without deciding run permission or runtime readiness.
 
+The route-level workflow entrypoint composes that validated vertical into one
+call: execute approved sync, project the typed result, review it, and run the
+bounded runtime probe only when the sync result is successful and review-clean.
+If sync fails, has findings, or the caller disables probing, the workflow
+returns a skipped probe state instead of inventing readiness.
+
 The runtime probe milestone builds a bounded `UvRuntimeProbeIntent` from one
 successful `UvSyncResult`, then runs `uv run --locked --no-sync python -c ...`
 to collect small interpreter facts. The probe records whether Python reported a
@@ -58,6 +64,8 @@ Current user-facing prototype surface:
   `execute_uv_runtime_probe(..., runner=...)`;
 - `UvRuntimeProbeExecutionRecord.to_result(...)`;
 - `UvRuntimeProbeResult.to_summary(...)`;
+- `run_uv_sync_operation(...)`;
+- `UvSyncOperationRun.to_summary(...)`;
 - `SubprocessUvRunner`;
 - route projection objects exported from `scopecat.environment_operation`.
 

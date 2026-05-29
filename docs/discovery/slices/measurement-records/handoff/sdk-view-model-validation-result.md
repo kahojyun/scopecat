@@ -4,6 +4,12 @@
 
 Implementation candidate validated.
 
+Document role: historical discovery validation result. It records what this
+slice earned and what it did not establish. Current handoff implementation
+boundaries are owned by
+[`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md);
+do not update this result to mirror live API or route changes.
+
 This result validates a thin Python-facing view model over the existing
 read-only handoff package route. It is not accepted Scopecat architecture, a
 final public SDK, a dataframe dependency decision, GUI component model, fitting
@@ -64,17 +70,18 @@ slice should decide whether scan/data-shape metadata becomes part of the SDK
 surface.
 
 Fit and analysis results are reserved as future read-only extension points.
-The current object model returns empty analysis/fit collections so downstream
-code can see where those results would attach without committing to an engine
-or write-back flow.
+The object model returned empty analysis/fit collections so downstream code
+could see where those results would attach without committing to an engine or
+write-back flow.
 
 ## Result
 
-The handoff package route now has a validated notebook-oriented entry surface:
-open a package, discover measurements, access primary data as table records or
-pandas, and select declared primary/saved plot specs for matplotlib-like or GUI
-use. The SDK-side plot shape also covers direct long-table heatmap binding, but
-the current package manifest route still supplies declared two-axis plot
-series, and this slice does not infer broader scan/data-shape semantics. This
-validates the next UX layer without collapsing package reading, GUI rendering,
-fitting, storage import, or writable analysis into one model.
+At this checkpoint, the handoff package route had a validated notebook-oriented
+entry surface: open a package, discover measurements, access primary data as
+table records or pandas, and select declared primary/saved plot specs for
+matplotlib-like or GUI use. The SDK-side plot shape also covers direct
+long-table heatmap binding, but the package manifest route still supplied
+declared two-axis plot series, and this slice does not infer broader
+scan/data-shape semantics. This validated the next UX layer without collapsing
+package reading, GUI rendering, fitting, storage import, or writable analysis
+into one model.

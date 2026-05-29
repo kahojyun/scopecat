@@ -360,6 +360,19 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "environment overrides"):
             UvSyncIntent.from_summary(source)
 
+    def test_typed_intent_rejects_unbounded_argv_before_runner(self) -> None:
+        runner = FakeRunner(CommandRunResult(exit_code=0, stdout="", stderr=""))
+
+        with self.assertRaisesRegex(ValueError, "bounded uv sync argv"):
+            UvSyncIntent(
+                request_id="uv-sync-request-unsafe",
+                approval_id="approval-unsafe",
+                working_directory="project",
+                argv=("uv", "run", "python", "-c", "print('unsafe')"),
+            )
+
+        self.assertEqual(runner.calls, [])
+
     def test_execution_cwd_must_stay_inside_existing_workspace_root(self) -> None:
         source = _load_intent_summary()
         source["sync_request"]["working_directory"] = "../outside"

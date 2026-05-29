@@ -10,19 +10,19 @@ environment-manager interface, general process executor, runtime readiness,
 managed-runner contract, dependency resolver, package installer, workflow/DAG
 model, portable/export package projection, or GUI contract.
 
-The first engineering prototype milestone is recorded in
-[`engineering-prototype-plan.md`](engineering-prototype-plan.md) and assessed in
-[`engineering-prototype-readiness.md`](engineering-prototype-readiness.md).
-That prototype intentionally crosses only one new boundary: running an already
-approved, bounded `uv sync` command through a local subprocess runner. It still
-does not accept runtime readiness, package-state verification, code execution,
-hardware readiness, or shared manager abstractions.
+Engineering-phase notes have been promoted under
+[`architecture/README.md`](../../../architecture/README.md). Keep validation
+evidence and route discovery synthesis here; keep current
+implementation-boundary guidance in the architecture notes. This route note is
+not a live API inventory.
 
-The post-sync runtime probe prototype adds a second external interaction:
-running `uv run --locked --no-sync python -c ...` to record bounded interpreter
-facts after a successful sync result. It does not repair or resync the
-environment, verify package state, import experiment code, or decide run
-readiness.
+The engineering prototype line is recorded in
+[`engineering-prototype-plan.md`](../../../architecture/environment-operation/engineering-prototype-plan.md)
+and assessed in
+[`engineering-prototype-readiness.md`](../../../architecture/environment-operation/engineering-prototype-readiness.md).
+The plan is a frozen milestone snapshot; the readiness note currently owns the
+accepted implementation boundary and next decision gate until a separate
+promotion or next-stage decision exists.
 
 ## Route Shape
 
@@ -64,7 +64,22 @@ workflow.
 | Route-local execution prototype | UV sync execution prototype | Run an approved bounded `uv sync` command through a local subprocess runner and record bounded process facts without verifying package state or runtime readiness. |
 | Route-local runtime probe prototype | UV runtime probe prototype | Run a bounded `uv run --locked --no-sync python -c ...` probe after a successful sync result and record interpreter facts without repairing the environment, importing experiment code, or claiming run readiness. |
 | Operation review composition | Environment operation review bundle plus route-local prototype review | Compose prior discovery summaries into one local review surface, and align selected `UvSyncIntent`/`UvSyncResult` prototype objects before broader review-bundle integration. |
+| Route-local workflow composition | UV sync operation workflow | Execute the approved sync, project the typed result, review it, and conditionally run the bounded runtime probe in one route-local entrypoint without adding readiness, package-state, code-execution, or shared-manager claims. |
 | Edge-case pressure | Operation review edge cases | Confirm manifest findings, uv failure, uv not-run, and deliberately inconsistent command projections remain review findings, not run blockers or readiness claims. |
+
+## Engineering Coverage
+
+Freezing the validation results does not mean every discovery candidate became a
+live engineering surface. Use this matrix when deciding whether to update an
+old validation result, the architecture note, or the module README.
+
+| Discovery slice group | Engineering coverage | Current owner |
+| --- | --- | --- |
+| UV sync intent | Promoted as `UvSyncIntent.from_summary(...)` and the bounded argv/source-continuity contract for approved local execution. | [`scopecat/environment_operation/README.md`](../../../../scopecat/environment_operation/README.md), [`engineering-prototype-readiness.md`](../../../architecture/environment-operation/engineering-prototype-readiness.md) |
+| UV sync result | Partially promoted. The live path records Scopecat-run typed execution results and projects them to review summaries; the old declared-external-result fixture remains historical evidence, not the main runtime boundary. | Module README and readiness note; validation result stays historical. |
+| Environment operation review bundle | Partially promoted. Route-local operation review now aligns typed `UvSyncIntent`/`UvSyncResult` objects; the old bundle over prior summary dictionaries remains evidence for review composition and edge-case wording. | Module README and readiness note; validation result stays historical. |
+| Modern manifest preflight | Historical only for the current engineering prototype. The live environment-operation module does not read `pyproject.toml`, parse manifests, parse lockfiles, or require manifest preflight before execution. | Historical validation result; future manifest/readiness decision if reopened. |
+| Route-local execution, runtime probe, and workflow composition | New engineering coverage beyond the original discovery candidates. These are current implementation boundaries, not backfilled discovery slice claims. | Module README and readiness note. |
 
 ## Boundary Map
 
@@ -76,6 +91,7 @@ workflow.
 | UV sync execution result | Route-local typed prototype object with `review_summary` projection | Scopecat-run approved `uv sync` subprocess result with bounded output summaries; no verified dependency sync, package state, runtime readiness, or run permission. |
 | UV sync operation review | Route-local prototype `review_summary` | Aligns one selected intent with one selected typed execution result and aggregates result/alignment findings; no runtime readiness, run-blocking decision, or package-state truth. |
 | UV runtime probe result | Route-local typed prototype object with `review_summary` projection | Scopecat-run bounded post-sync interpreter fact probe that may carry local cwd/interpreter path facts for local review only; no package-state truth, experiment-code execution, hardware readiness, run permission, or portable/export projection. |
+| UV sync operation run | Route-local typed workflow object with `review_summary` projection | Composes one sync execution result, operation review, and optional runtime probe result; skipped probes remain explicit review state and do not become run readiness. |
 | Operation review bundle | Local `review_summary` | Aligns selected prior facts and aggregates review findings; does not become runtime readiness, run permission, or portable output. |
 | Handoff/package references | Future reference-only package entries unless separately validated | May reference code/environment records, but does not own code packaging, environment restoration, sync, or runnable readiness. |
 
@@ -103,6 +119,9 @@ route:
 - route-local operation reviews that align typed prototype execution results
   with selected intents before broader review-bundle integration or
   runtime-readiness work.
+- route-local workflow composition that runs the accepted sync-review-probe
+  vertical and records when the runtime probe was not requested or not
+  eligible.
 
 ## External Managers Own
 
@@ -188,13 +207,11 @@ contract:
 
 ## Recommended Next Work
 
-The current route is ready to pause broad slice expansion. The active
-engineering route is the `uv sync` execution/review prototype plus bounded
-post-sync runtime probe described in
-[`engineering-prototype-plan.md`](engineering-prototype-plan.md) and assessed in
-[`engineering-prototype-readiness.md`](engineering-prototype-readiness.md).
-After that prototype line, the next work should depend on the product question being
-answered:
+The current route is ready to pause broad slice expansion. The implementation
+boundary and next decision gate are assessed in
+[`engineering-prototype-readiness.md`](../../../architecture/environment-operation/engineering-prototype-readiness.md).
+After that checkpoint, the next work should depend on the product question
+being answered:
 
 1. **If execution review is the priority**, add optional manifest preflight or
    prepared-context references to the route-local operation review.

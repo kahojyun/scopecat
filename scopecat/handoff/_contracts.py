@@ -86,6 +86,15 @@ def validate_strict_child_path(value: Any, parent: str, owner: str) -> str:
     return value
 
 
+def validate_non_overlapping_relative_paths(paths: list[str], owner: str) -> None:
+    path_parts = [(path, relative_path_parts(path, owner)) for path in paths]
+    for left_index, (left_path, left_parts) in enumerate(path_parts):
+        for right_path, right_parts in path_parts[left_index + 1 :]:
+            shared_length = min(len(left_parts), len(right_parts))
+            if left_parts[:shared_length] == right_parts[:shared_length]:
+                raise ValueError(f"{owner} must not overlap: {left_path}, {right_path}")
+
+
 def validate_public_identifier(value: Any, owner: str) -> str:
     if (
         not isinstance(value, str)

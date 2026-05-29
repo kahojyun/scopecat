@@ -4,10 +4,17 @@
 
 Engineering prototype readiness note, not an ADR.
 
+This is the current implementation-boundary checkpoint for the
+environment-operation vertical until a separate promotion or next-stage
+decision exists. Update it when the accepted boundary, deferred boundary, or
+recommended next decision gate changes. Keep routine API inventory in
+[`../../../scopecat/environment_operation/README.md`](../../../scopecat/environment_operation/README.md)
+and leave the prototype plan as a frozen scope snapshot.
+
 Artifact posture: `internal_validation_summary`. This note is internal project
 memory. It creates no portable package output, public contract, public SDK, or
 new redaction rule. Use
-[`policies/artifact-boundary-and-redaction.md`](../../policies/artifact-boundary-and-redaction.md)
+[`discovery/policies/artifact-boundary-and-redaction.md`](../../discovery/policies/artifact-boundary-and-redaction.md)
 if any prototype output is promoted into a portable/export artifact.
 
 ## Readiness Judgment
@@ -28,6 +35,7 @@ validated uv sync intent summary
   -> route-local UvRuntimeProbeIntent
   -> approved local uv runtime probe execution
   -> route-local UvRuntimeProbeResult
+  -> route-local UvSyncOperationRun workflow summary
 ```
 
 `UvSyncResult.to_summary()` remains a one-way route-local review-snapshot
@@ -42,7 +50,7 @@ hardware readiness, or a shared environment-manager abstraction.
 
 | Criterion | Status | Assessment |
 | --- | --- | --- |
-| Route-local product-shaped API | Met | `UvSyncIntent.from_summary(...)`, `execute_uv_sync(..., uv_executable=...)` or `execute_uv_sync(..., runner=...)`, `UvSyncResult.from_execution(...)`, `UvSyncResult.to_summary(...)`, compatibility `UvSyncExecutionRecord.to_result_summary(...)`, and `review_uv_sync_operation(...)` exist under `scopecat.environment_operation`. |
+| Route-local product-shaped API | Met | The route-local sync, result/review projection, runtime-probe, and composed workflow surface exists under `scopecat.environment_operation`; keep the live API list in the module README. |
 | Actual external interaction boundary | Met | The prototype runs bounded `uv sync` commands through `SubprocessUvRunner` with caller-provided workspace root, relative cwd, explicit executable path, and timeout. |
 | Representative success and failure coverage | Met | Tests cover injected sync success/failure/timeout/launch-failure behavior, real tiny `uv` success and missing-lock failure fixtures, runtime-probe process failure/timeout/launch failure, invalid JSON, output-shape rejection, raw-output rejection, non-virtual-environment findings, and a real post-sync probe fixture. |
 | Review projection and non-claims | Met | Execution records promote to typed local results, which project local result summaries and feed operation reviews with bounded output, findings, alignment checks, and explicit no runtime-readiness/package-state/code-execution claims. |
@@ -72,6 +80,9 @@ These choices are strong enough to carry into PR review:
   `uv run --locked --no-sync python -c <stdlib probe>`;
 - interpreter fact capture for Python version, implementation, executable,
   prefix, base prefix, and virtual-environment status.
+- route-local `run_uv_sync_operation(...)` composition that executes approved
+  sync, reviews the typed result, conditionally probes only successful
+  review-clean sync results, and records skipped probe state explicitly.
 
 ## Keep Deferred
 
@@ -110,3 +121,11 @@ question: broader review-bundle integration with optional manifest or
 prepared-context references, package-state pressure, Pixi/Conda pressure, or
 selected experiment-code execution. Those should be separate PRs, not
 additional broadening of this prototype line.
+
+## Update Rule
+
+Do not update this note for every internal helper, private module, or API
+spelling change. Update it only when the implementation boundary, non-claims,
+or next decision gate changes. If environment-operation receives a later
+promotion decision, move the canonical accepted-boundary language there and
+freeze this readiness note as the checkpoint that ended the prototype line.

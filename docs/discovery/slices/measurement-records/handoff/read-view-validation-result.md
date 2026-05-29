@@ -4,6 +4,12 @@
 
 Implementation candidate validated.
 
+Document role: historical discovery validation result. It records what this
+slice earned and what it did not establish. Current handoff implementation
+boundaries are owned by
+[`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md);
+do not update this result to mirror live API or route changes.
+
 This result validates a thin reader-facing object view over the read-only
 handoff package opener. It is a use-case prototype, not an accepted SDK,
 GUI contract, dataframe adapter, or shared measurement model.
@@ -64,9 +70,10 @@ This candidate does not:
 
 ## Result
 
-The open-before-import route now has a user-facing read prototype after
-manifest preview and read-only opener validation. The next UX question can be
-asked against reader tasks instead of raw nested summary fields.
+At this checkpoint, the open-before-import route had a user-facing read
+prototype after manifest preview and read-only opener validation. The next UX
+question could be asked against reader tasks instead of raw nested summary
+fields.
 
 Future work can add optional dataframe adapters or GUI bindings only after a
 specific workflow needs them. Such adapters should wrap the table-like object

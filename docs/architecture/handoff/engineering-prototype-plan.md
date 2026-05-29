@@ -2,12 +2,18 @@
 
 ## Status
 
-Engineering prototype plan, not accepted architecture.
+Frozen engineering prototype plan, not accepted architecture.
+
+This document is a historical plan snapshot. Do not update it to mirror every
+new promoted API. Current accepted implementation boundaries live in
+[`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md);
+current exported API details live in
+[`../../../scopecat/handoff/README.md`](../../../scopecat/handoff/README.md).
 
 Artifact posture: `internal_validation_summary`. This plan is internal project
 memory. It creates no portable package output, public contract, or new
 redaction rule. Use
-[`policies/artifact-boundary-and-redaction.md`](../../../policies/artifact-boundary-and-redaction.md)
+[`discovery/policies/artifact-boundary-and-redaction.md`](../../discovery/policies/artifact-boundary-and-redaction.md)
 when a prototype output is promoted into a portable/export artifact.
 
 ## Objective
@@ -40,23 +46,26 @@ packaging before proving read-only use.
 
 ## Discovery Evidence Reused
 
-The prototype starts from the route decisions in [`decision.md`](decision.md)
-and the consolidation in [`README.md`](README.md). The most relevant slice
+The prototype starts from the route decisions in
+[`decision.md`](../../discovery/routes/measurement-records/handoff/decision.md)
+and the consolidation in
+[`README.md`](../../discovery/routes/measurement-records/handoff/README.md).
+The most relevant slice
 evidence is:
 
-- [`contents-preview-validation-result.md`](../../../slices/measurement-records/handoff/contents-preview-validation-result.md)
-- [`opener-validation-result.md`](../../../slices/measurement-records/handoff/opener-validation-result.md)
-- [`read-view-validation-result.md`](../../../slices/measurement-records/handoff/read-view-validation-result.md)
-- [`sdk-view-model-validation-result.md`](../../../slices/measurement-records/handoff/sdk-view-model-validation-result.md)
-- [`sdk-ergonomics-spike-validation-result.md`](../../../slices/measurement-records/handoff/sdk-ergonomics-spike-validation-result.md)
-- [`preview-shape-view-validation-result.md`](../../../slices/measurement-records/handoff/preview-shape-view-validation-result.md)
-- [`visual-review-validation-result.md`](../../../slices/measurement-records/handoff/visual-review-validation-result.md)
-- [`gui-view-state-validation-result.md`](../../../slices/measurement-records/handoff/gui-view-state-validation-result.md)
-- [`visual-artifact-validation-result.md`](../../../slices/measurement-records/handoff/visual-artifact-validation-result.md)
-- [`inspection-workflow-validation-result.md`](../../../slices/measurement-records/handoff/inspection-workflow-validation-result.md)
-- [`route-pressure-validation-result.md`](../../../slices/measurement-records/handoff/route-pressure-validation-result.md)
-- [`writer-validation-result.md`](../../../slices/measurement-records/handoff/writer-validation-result.md)
-- [`round-trip-validation-result.md`](../../../slices/measurement-records/handoff/round-trip-validation-result.md)
+- [`contents-preview-validation-result.md`](../../discovery/slices/measurement-records/handoff/contents-preview-validation-result.md)
+- [`opener-validation-result.md`](../../discovery/slices/measurement-records/handoff/opener-validation-result.md)
+- [`read-view-validation-result.md`](../../discovery/slices/measurement-records/handoff/read-view-validation-result.md)
+- [`sdk-view-model-validation-result.md`](../../discovery/slices/measurement-records/handoff/sdk-view-model-validation-result.md)
+- [`sdk-ergonomics-spike-validation-result.md`](../../discovery/slices/measurement-records/handoff/sdk-ergonomics-spike-validation-result.md)
+- [`preview-shape-view-validation-result.md`](../../discovery/slices/measurement-records/handoff/preview-shape-view-validation-result.md)
+- [`visual-review-validation-result.md`](../../discovery/slices/measurement-records/handoff/visual-review-validation-result.md)
+- [`gui-view-state-validation-result.md`](../../discovery/slices/measurement-records/handoff/gui-view-state-validation-result.md)
+- [`visual-artifact-validation-result.md`](../../discovery/slices/measurement-records/handoff/visual-artifact-validation-result.md)
+- [`inspection-workflow-validation-result.md`](../../discovery/slices/measurement-records/handoff/inspection-workflow-validation-result.md)
+- [`route-pressure-validation-result.md`](../../discovery/slices/measurement-records/handoff/route-pressure-validation-result.md)
+- [`writer-validation-result.md`](../../discovery/slices/measurement-records/handoff/writer-validation-result.md)
+- [`round-trip-validation-result.md`](../../discovery/slices/measurement-records/handoff/round-trip-validation-result.md)
 
 The evidence should be preserved as historical validation. Prototype fixtures
 may reuse or reshape selected repository-safe cases without rewriting old
@@ -124,46 +133,17 @@ when their semantics already match the handoff route. New shared helpers should
 remain route-local unless at least two concrete implementation consumers need
 the same behavior, failure semantics, and tests.
 
-## Initial Implementation Status
+## Outcome
 
-The first engineering-prototype pass now exists under `scopecat/handoff/`.
-It provides:
+The plan answered the intended engineering question: a route-local
+`scopecat/handoff/` boundary can carry the handoff package reader/review
+workflow without promoting a shared measurement-record domain model, final
+package/archive format, final storage schema, GUI architecture, dataframe
+dependency, or production plotting stack.
 
-- `open_package(package_dir)` as the Python entrypoint;
-- route-local `HandoffPackage`, `HandoffMeasurement`, `HandoffTable`, and
-  `HandoffFinding`, `HandoffLinkedContext`, and `HandoffPlotSeries`
-  projections;
-- a stdlib CLI via `python -m scopecat.handoff <package-dir>` for JSON
-  orientation and `--html-dir <dir>` for a local static inspection artifact;
-- `build_inspection_html()` and `write_inspection_artifact()` for local
-  review output generated from the route-local package projection;
-- route-local read-only opener behavior for package manifest loading,
-  package-local primary CSV reads, symlink guardrails, declared preview-table
-  projection, and declared plot-series construction;
-- route-local handoff contract and manifest-preview helpers for package
-  identity, package-relative primary-data topology, preview-ready metadata,
-  linked-context references, package classification, and review findings;
-- typed manifest-preview fragments for identity, primary data, declared
-  preview metadata, selected measurements, and linked-context references, so
-  raw manifest dictionaries stay at the JSON validation boundary instead of
-  flowing through opener internals;
-- product-shaped package state rather than candidate-shaped summary wrapping:
-  manifest-preview findings, linked-context references, declared digest/size
-  facts, primary/preview tables, and plot series are exposed as route-local
-  objects, with `as_open_summary()` kept only as a copy-safe prototype
-  snapshot;
-- regression coverage over the basic opener fixture and richer route-pressure
-  fixtures, including multi-plot, table-only, shared-context, and degraded
-  preview cases;
-- a local `scopecat/ruff.toml` that applies stricter lint only to the
-  prototype/product-shaped package.
-
-The prototype no longer delegates read-only opening, manifest-preview
-classification, or handoff contract checks to `implementation_candidates`.
-Those discovery candidates remain historical validation evidence. The local
-inspection artifact is prototype-local review output; it is not a portable
-package member, public report, final GUI component model, dataframe adapter,
-package import record, or package-integrity verification.
+This section intentionally does not list every promoted API. Maintain the
+current accepted boundary in the promotion decision and the current exported
+surface in the module README.
 
 Promotion follow-up decisions resolved by
 [`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md):
@@ -177,6 +157,12 @@ Promotion follow-up decisions resolved by
 
 Discovery fixtures and expected outputs remain validation evidence. Prototype
 fixtures become engineering regression assets.
+
+The promoted writer fixtures live under
+`tests/fixtures/handoff_engineering_prototype_writer/` and use source-root
+terminology directly. The older discovery candidate writer fixtures remain
+under `tests/fixtures/handoff_package_writer/` as historical evidence for the
+candidate shape and are not translated in promoted writer tests.
 
 When existing fixtures do not match the prototype shape:
 
@@ -267,6 +253,9 @@ the promotion decision is recorded in
 
 - Which old implementation candidates can be archived, left untouched as
   evidence, or ignored by future maintenance after branch merge?
-- Which separately scoped route extension should resume next: notebook
-  adapters, GUI review, storage acceptance, archive/trust, linked-context
-  payloads, or analysis/fit results?
+- Which decision path should resume next: package receiving/import acceptance,
+  or storage/archive requirements synthesis across multiple slices?
+- If receiving/import resumes first, what is the acceptance boundary before
+  durable storage writes, conflict policy, rollback, and trust behavior?
+- If storage/archive resumes first, which existing slices are sufficient to
+  decide the minimum directory/archive/storage contract?

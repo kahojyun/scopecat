@@ -4,6 +4,15 @@
 
 Implementation candidate validated.
 
+Document role: historical discovery validation result. It records what this
+slice earned and what it did not establish. Current handoff implementation
+boundaries are owned by
+[`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md)
+and
+[`storage-acceptance-decision.md`](../../../../architecture/handoff/storage-acceptance-decision.md);
+do not update this result to mirror live API, storage, or receiving-workflow
+changes.
+
 This result validates a receiving-side composition workflow for an existing
 directory-shaped handoff package. It composes the already validated inspection,
 integrity-observation, and acceptance candidates. It is not accepted
@@ -19,7 +28,7 @@ Fixture:
 Implementation candidate:
 [`../../implementation_candidates/handoff_package_receiving_workflow/`](../../../../../implementation_candidates/handoff_package_receiving_workflow)
 
-The candidate reuses the existing openable package fixture and the current
+The candidate reuses the existing openable package fixture and the slice
 acceptance destination shape. This keeps the question focused on workflow
 continuity and acceptance gating rather than new package or storage semantics.
 
@@ -70,8 +79,8 @@ reopens the package.
 
 ## Result
 
-The handoff route now has a complete receiving-side prototype composition:
-read-only inspection, read-only integrity observation, explicit approval, and
-storage acceptance through the existing mutation slice. This validates the
-workflow order without collapsing inspection, integrity, and acceptance into
-one shared domain model.
+At this checkpoint, the handoff route had a complete receiving-side prototype
+composition: read-only inspection, read-only integrity observation, explicit
+approval, and storage acceptance through the existing mutation slice. This
+validates the workflow order without collapsing inspection, integrity, and
+acceptance into one shared domain model.

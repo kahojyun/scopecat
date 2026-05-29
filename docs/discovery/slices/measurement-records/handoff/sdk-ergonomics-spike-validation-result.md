@@ -4,6 +4,12 @@
 
 Script-shaped fixture pressure validated.
 
+Document role: historical discovery validation result. It records what this
+slice earned and what it did not establish. Current handoff implementation
+boundaries are owned by
+[`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md);
+do not update this result to mirror live API or route changes.
+
 This result validates notebook-style use of the existing handoff package SDK
 view model. It is not accepted Scopecat architecture, a final public SDK, a
 hard pandas/numpy dependency, plotting library, fitting engine, writable
@@ -32,7 +38,7 @@ array dependencies.
 
 ## What This Earned
 
-The current SDK view model supports the first notebook-style handoff use case:
+The SDK view model supported the first notebook-style handoff use case:
 
 - open a package and discover measurement ids in package order;
 - access measurements by id or position;
@@ -68,13 +74,13 @@ This spike does not:
 
 ## Result
 
-The handoff route now has notebook-oriented pressure beyond object-level SDK
-unit tests. A user can naturally open a handoff package, discover measurements,
-get dataframe-like tables, get plot-ready records/arrays, and keep contextual
-review findings visible without requiring package import or final GUI/plotting
-decisions.
+At this checkpoint, the handoff route had notebook-oriented pressure beyond
+object-level SDK unit tests. A user could naturally open a handoff package,
+discover measurements, get dataframe-like tables, get plot-ready
+records/arrays, and keep contextual review findings visible without requiring
+package import or final GUI/plotting decisions.
 
-Further SDK work should now require a concrete missing notebook action, such
-as numeric dtype conversion, a chosen plotting helper, or read-only analysis
+Further SDK work should require a concrete missing notebook action, such as
+numeric dtype conversion, a chosen plotting helper, or read-only analysis
 result display. Those should remain separate from import/storage and GUI
 implementation work.

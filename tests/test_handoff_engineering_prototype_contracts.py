@@ -45,6 +45,11 @@ class HandoffEngineeringPrototypeContractsTest(unittest.TestCase):
             ("drive_frequency", "signal"),
         )
         self.assertEqual(preview.linked_context[0].link_id, "package-legacy-001-parameter-snapshot")
+        self.assertEqual(
+            preview.linked_context[0].reason,
+            "The accepted legacy import preserved this linked context as a reference-only fact; "
+            "the package writer does not include its payload.",
+        )
 
     def test_manifest_preview_fragments_are_copy_safe(self) -> None:
         manifest = _load_manifest()
@@ -58,6 +63,11 @@ class HandoffEngineeringPrototypeContractsTest(unittest.TestCase):
 
         self.assertEqual(
             preview.measurements[0].preview_metadata.declared_column_names[0], "drive_frequency"
+        )
+        self.assertEqual(
+            preview.findings[0].basis,
+            "The accepted legacy import preserved this linked context as a reference-only fact; "
+            "the package writer does not include its payload.",
         )
 
     def test_preview_contract_rejects_plot_candidates_outside_declared_columns(self) -> None:
