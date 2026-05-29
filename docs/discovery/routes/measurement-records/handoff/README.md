@@ -70,6 +70,9 @@ writing testable without accepting final Scopecat storage architecture.
 The older discovery writer candidate and fixtures may still use storage-root
 wording because they are historical validation evidence, not the promoted
 engineering contract.
+The promoted workflow composition only chains writer, reader, and optional
+local inspection; it does not promote archive format or package
+import/acceptance.
 
 Use
 [`engineering-prototype-plan.md`](../../../../architecture/handoff/engineering-prototype-plan.md)

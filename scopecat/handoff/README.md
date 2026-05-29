@@ -31,6 +31,10 @@ Raw write-request dictionaries are accepted only at `write_package(...)`; the
 writer validates and parses them into route-local write-source objects before
 filesystem preflight, manifest generation, package writes, or receipt
 serialization.
+`run_package_workflow(...)` composes the promoted writer, reader, and optional
+local inspection artifact into one route-local review workflow. It does not
+create archives, import or accept packages, verify package integrity, or decide
+final storage layout.
 
 ## API Surface
 
@@ -38,6 +42,7 @@ Current user-facing prototype surface:
 
 - `open_package(package_dir)`;
 - `write_package(source, source_root=..., package_root=...)`;
+- `run_package_workflow(source, source_root=..., package_root=...)`;
 - `python -m scopecat.handoff <package-dir>`;
 - `write_inspection_artifact(...)` and `build_inspection_html(...)`;
 - route projection objects exported from `scopecat.handoff`.

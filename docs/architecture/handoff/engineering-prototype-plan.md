@@ -135,10 +135,13 @@ It provides:
 - `open_package(package_dir)` as the Python entrypoint;
 - `write_package(source, source_root=..., package_root=...)` as the
   source-root package writer entrypoint for declared normalized primary data;
+- `run_package_workflow(source, source_root=..., package_root=...)` as the
+  local writer -> reader -> optional inspection composition entrypoint;
 - route-local `HandoffPackage`, `HandoffMeasurement`, `HandoffTable`, and
   `HandoffFinding`, `HandoffLinkedContext`, and `HandoffPlotSeries`
   projections;
 - route-local `HandoffPackageWriteReceipt` projection for local write review;
+- route-local `HandoffPackageWorkflowRun` projection for local workflow review;
 - a stdlib CLI via `python -m scopecat.handoff <package-dir>` for JSON
   orientation and `--html-dir <dir>` for a local static inspection artifact;
 - `build_inspection_html()` and `write_inspection_artifact()` for local
@@ -179,6 +182,10 @@ architecture or archive format.
 Writer request dictionaries are boundary input only: the promoted writer
 validates and parses them into route-local write-source objects before
 preflight, manifest generation, package writes, or receipt serialization.
+The workflow composition is deliberately orchestration-only: it proves the
+accepted package subset can be written, reopened, and optionally inspected
+without promoting archive creation, package import/acceptance, integrity
+verification, or final storage layout.
 
 Promotion follow-up decisions resolved by
 [`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md):

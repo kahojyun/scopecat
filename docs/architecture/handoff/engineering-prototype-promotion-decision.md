@@ -60,6 +60,18 @@ This extension still does not promote archive format, package import or
 acceptance, final storage schema, signatures/authenticity, linked-context
 payload packaging, or a shared measurement-record domain model.
 
+## Local Workflow Composition
+
+The accepted route also exposes a narrow local workflow composition:
+`run_package_workflow(...)` runs the promoted source-root writer, reopens the
+written package with the promoted reader, and can optionally write the local
+inspection HTML artifact outside the package tree.
+
+This is not a new package lifecycle decision. It proves writer/reader/review
+ergonomics while continuing to defer archive format, package import or
+acceptance, final storage schema, signatures/authenticity, and package
+integrity verification.
+
 ## Accepted Baseline
 
 The promoted baseline includes:
