@@ -26,6 +26,12 @@ authenticity, trust, archive contents, import acceptance, or storage mutation.
 `run_receiving_gate(...)` adds explicit review approval and reviewed fact
 continuity over the opened package plus integrity report. It has no destination
 or storage-mutation fields.
+`run_import_plan(...)` composes read-only package open, optional local
+inspection artifact generation, the receiving gate, and a non-mutating
+measurement import plan. It names the package members that would be considered
+for a later acceptance mutation, but it accepts no destination path, performs
+no conflict detection, writes no storage records, and does not decide final
+storage schema or rollback policy.
 
 The route-local writer uses a caller-provided `source_root` plus declared
 relative source paths for already-normalized primary data. That source-root
@@ -50,6 +56,7 @@ Current user-facing prototype surface:
 - `open_package(package_dir)`;
 - `observe_package_integrity(package_dir)`;
 - `run_receiving_gate(source, package_dir=...)`;
+- `run_import_plan(source, package_dir=...)`;
 - `write_package(source, source_root=..., package_root=...)`;
 - `run_package_workflow(source, source_root=..., package_root=...)`;
 - `python -m scopecat.handoff <package-dir>`;

@@ -107,10 +107,32 @@ match and integrity is `declared_integrity_verified`. It can also return
 review. The gate is read-only and intentionally accepts no destination,
 storage-root, selected-measurement materialization, or conflict-policy fields.
 
+## Non-Mutating Import Plan
+
+The route-local implementation now includes `run_import_plan(...)` as the
+first post-gate receiving/import planning artifact. It composes read-only
+package open, optional local inspection artifact generation, the receiving
+gate, and a non-mutating plan over selected package measurements.
+
+The plan can become `ready_for_import_acceptance_decision` only when the
+receiving gate is ready for acceptance mutation. It lists package-local
+primary data members and linked-context reference handling for a later
+acceptance decision, while leaving destination record identity, storage
+schema, conflict policy, acceptance mutation, and rollback policy explicitly
+unassigned. If the receiving gate is blocked, the plan records
+`blocked_before_import_acceptance` and does not produce measurement import
+actions.
+
+This is a planning boundary, not an import implementation. It still does not
+promote storage mutation, package acceptance, archive extraction, conflict
+detection, final storage schema, rollback behavior, signatures/authenticity,
+or linked-context payload import.
+
 ## Next Decision Gate
 
 Do not continue by expanding handoff surface area in place. After the
-read-only receiving gate, the next engineering phase should choose one
+read-only receiving gate and non-mutating import plan, the next engineering
+phase should choose one
 explicit path:
 
 - package receiving/import acceptance: define acceptance, rejection, conflict,
@@ -122,9 +144,9 @@ explicit path:
   archive format.
 
 The current workflow is enough to validate local writer/reader/review
-ergonomics. It is not evidence by itself for final storage schema, import
-acceptance, archive format, signatures, authenticity, or adversarial package
-trust policy.
+ergonomics plus non-mutating receiving/import planning. It is not evidence by
+itself for final storage schema, import acceptance, archive format,
+signatures, authenticity, or adversarial package trust policy.
 
 ## Accepted Baseline
 
@@ -145,6 +167,7 @@ The promoted baseline includes:
   `measurements/{measurement_record_id}/primary.csv`;
 - linked context as visible reference-only review state;
 - local static HTML as the first review artifact;
+- non-mutating import planning after a ready receiving gate;
 - representative regression coverage over basic and route-pressure fixtures.
 
 ## Explicit Non-Promotions
