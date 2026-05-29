@@ -41,10 +41,15 @@ caller-provided `source_root` plus declared relative paths for normalized
 primary data. This deliberately replaces the discovery candidate's
 storage-root wording at the accepted API boundary: the writer can validate and
 copy source files without accepting final Scopecat storage architecture.
+Promoted regression fixtures now use the source-root policy directly; the old
+storage-root writer candidate fixture remains only as discovery evidence and a
+negative compatibility check at the promoted boundary.
 
 The accepted writer behavior is narrow:
 
 - require an approved package write request and no-overwrite collision policy;
+- parse raw write-request dictionaries into route-local write-source objects at
+  the API boundary;
 - copy only declared primary CSV data after sha256 and size preflight;
 - write the current directory-shaped package subset and deterministic manifest;
 - keep linked context reference-only;

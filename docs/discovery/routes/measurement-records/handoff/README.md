@@ -67,6 +67,9 @@ candidate outputs as historical validation evidence.
 The promoted writer extension uses a caller-provided `source_root` plus
 declared relative source paths for normalized primary data. That keeps package
 writing testable without accepting final Scopecat storage architecture.
+The older discovery writer candidate and fixtures may still use storage-root
+wording because they are historical validation evidence, not the promoted
+engineering contract.
 
 Use
 [`engineering-prototype-plan.md`](../../../../architecture/handoff/engineering-prototype-plan.md)

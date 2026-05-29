@@ -27,6 +27,10 @@ The writer materializes the current directory-shaped package subset, preflights
 declared sha256/size facts, writes with no-overwrite behavior, and returns a
 local review receipt. It does not create archives, import packages, mutate the
 source root, or decide package acceptance.
+Raw write-request dictionaries are accepted only at `write_package(...)`; the
+writer validates and parses them into route-local write-source objects before
+filesystem preflight, manifest generation, package writes, or receipt
+serialization.
 
 ## API Surface
 

@@ -10,20 +10,19 @@ from pathlib import Path
 from scopecat.handoff import open_package, write_package
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURE = ROOT / "tests" / "fixtures" / "handoff_package_writer" / "basic_package"
-SOURCE_ROOT = FIXTURE / "storage"
+FIXTURE = ROOT / "tests" / "fixtures" / "handoff_engineering_prototype_writer" / "basic_package"
+SOURCE_ROOT = FIXTURE / "source"
+LEGACY_CANDIDATE_FIXTURE = ROOT / "tests" / "fixtures" / "handoff_package_writer" / "basic_package"
 
 
 def _load_input() -> dict:
-    source = json.loads((FIXTURE / "package-writer-input.json").read_text(encoding="utf-8"))
-    policy = source["package_write_policy"]
-    policy["source_authority"] = "caller_provided_source_root_plus_declared_relative_paths"
-    policy["source_mutation"] = policy.pop("storage_mutation")
-    return source
+    return json.loads((FIXTURE / "package-writer-input.json").read_text(encoding="utf-8"))
 
 
 def _load_storage_named_input() -> dict:
-    return json.loads((FIXTURE / "package-writer-input.json").read_text(encoding="utf-8"))
+    return json.loads(
+        (LEGACY_CANDIDATE_FIXTURE / "package-writer-input.json").read_text(encoding="utf-8")
+    )
 
 
 def _sha256_digest(content: bytes) -> str:

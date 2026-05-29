@@ -101,6 +101,210 @@ class HandoffPackageWriteReceipt:
         }
 
 
+@dataclass(frozen=True)
+class _PackageIdentity:
+    package_id: str
+    display_name: str
+    created_by: str
+    source_export_summary_id: str
+    display_path: str
+    local_path_redacted: bool
+
+    def to_manifest(self) -> dict[str, Any]:
+        return {
+            "package_id": self.package_id,
+            "display_name": self.display_name,
+            "created_by": self.created_by,
+            "source_export_summary_id": self.source_export_summary_id,
+            "local_path_redacted": self.local_path_redacted,
+        }
+
+
+@dataclass(frozen=True)
+class _WriteRequest:
+    request_id: str
+    package_dir: str
+    manifest_path: str
+
+    def actual_package_path(self, package_path: str) -> str:
+        return f"{self.package_dir}/{package_path}"
+
+
+@dataclass(frozen=True)
+class _PrimaryData:
+    kind: str
+    label: str
+    source_path: str
+    expected_digest: str
+    expected_size_bytes: int
+    package_path: str
+    include_status: str
+    relation: str
+    authority: str
+    format: str
+    package_state: str
+    reason: str | None
+
+    def to_manifest(self, *, digest: str, size: int) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "label": self.label,
+            "package_path": self.package_path,
+            "include_status": self.include_status,
+            "relation": self.relation,
+            "authority": self.authority,
+            "format": self.format,
+            "package_state": self.package_state,
+            "reason": self.reason,
+            "digest": digest,
+            "size_bytes": size,
+        }
+
+
+@dataclass(frozen=True)
+class _PreviewColumn:
+    name: str
+    role: str
+    label: str
+    unit: str
+
+    def to_manifest(self) -> dict[str, str]:
+        return {
+            "name": self.name,
+            "role": self.role,
+            "label": self.label,
+            "unit": self.unit,
+        }
+
+
+@dataclass(frozen=True)
+class _PreviewPlotCandidate:
+    x: str
+    y: str
+    source: str
+
+    def to_manifest(self) -> dict[str, str]:
+        return {
+            "x": self.x,
+            "y": self.y,
+            "source": self.source,
+        }
+
+
+@dataclass(frozen=True)
+class _PreviewMetadata:
+    status: str
+    metadata_authority: str
+    data_shape_kind: str
+    data_shape_axis_order: tuple[str, ...]
+    declared_columns: tuple[_PreviewColumn, ...]
+    plot_candidates: tuple[_PreviewPlotCandidate, ...]
+
+    def to_manifest(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "metadata_authority": self.metadata_authority,
+            "data_shape": {
+                "kind": self.data_shape_kind,
+                "axis_order": list(self.data_shape_axis_order),
+            },
+            "declared_columns": [column.to_manifest() for column in self.declared_columns],
+            "plot_candidates": [candidate.to_manifest() for candidate in self.plot_candidates],
+        }
+
+
+@dataclass(frozen=True)
+class _BundleItem:
+    item_id: str
+    kind: str
+    label: str
+    package_path: str
+    include_status: str
+    relation: str
+    authority: str
+    package_state: str
+    reason: str | None
+
+    def to_manifest(self) -> dict[str, Any]:
+        return {
+            "item_id": self.item_id,
+            "kind": self.kind,
+            "label": self.label,
+            "package_path": self.package_path,
+            "include_status": self.include_status,
+            "relation": self.relation,
+            "authority": self.authority,
+            "package_state": self.package_state,
+            "reason": self.reason,
+        }
+
+
+@dataclass(frozen=True)
+class _SelectedMeasurement:
+    measurement_record_id: str
+    legacy_data_id: int
+    label: str
+    experiment_type: str
+    target: str
+    primary_data: _PrimaryData
+    declared_preview_metadata: _PreviewMetadata
+    default_bundle: tuple[_BundleItem, ...]
+
+    def to_manifest(self, *, digest: str, size: int) -> dict[str, Any]:
+        return {
+            "measurement_record_id": self.measurement_record_id,
+            "legacy_data_id": self.legacy_data_id,
+            "label": self.label,
+            "experiment_type": self.experiment_type,
+            "target": self.target,
+            "primary_data": self.primary_data.to_manifest(digest=digest, size=size),
+            "declared_preview_metadata": self.declared_preview_metadata.to_manifest(),
+            "default_bundle": [item.to_manifest() for item in self.default_bundle],
+        }
+
+
+@dataclass(frozen=True)
+class _LinkedContext:
+    link_id: str
+    kind: str
+    label: str
+    package_path: str | None
+    include_status: str
+    relation: str
+    authority: str
+    package_state: str
+    reason: str
+    linked_measurement_record_ids: tuple[str, ...]
+
+    def to_manifest(self) -> dict[str, Any]:
+        return {
+            "link_id": self.link_id,
+            "kind": self.kind,
+            "label": self.label,
+            "package_path": self.package_path,
+            "include_status": self.include_status,
+            "relation": self.relation,
+            "authority": self.authority,
+            "package_state": self.package_state,
+            "reason": self.reason,
+            "linked_measurement_record_ids": list(self.linked_measurement_record_ids),
+        }
+
+
+@dataclass(frozen=True)
+class _PackageWriteSource:
+    identity: _PackageIdentity
+    request: _WriteRequest
+    selected_measurements: tuple[_SelectedMeasurement, ...]
+    linked_context: tuple[_LinkedContext, ...]
+
+
+@dataclass(frozen=True)
+class _CopiedSource:
+    record: _SelectedMeasurement
+    content: bytes
+
+
 def write_package(
     source: dict[str, Any],
     *,
@@ -109,7 +313,7 @@ def write_package(
 ) -> HandoffPackageWriteReceipt:
     """Write a directory-shaped handoff package from declared normalized sources."""
 
-    _validate_references(source)
+    write_source = _parse_write_source(source)
     source_root_resolved = _existing_directory_root(source_root, "handoff package source")
     package_root_resolved = _existing_directory_root(package_root, "handoff package destination")
     _validate_package_root_outside_source(
@@ -118,19 +322,21 @@ def write_package(
         owner="handoff package writer",
     )
 
-    copied_sources = _preflight_sources(source, source_root_resolved)
-    _ensure_new_targets(source, package_root_resolved)
-    request = source["package_write_request"]
-    manifest_content = _manifest_bytes(source, copied_sources)
+    copied_sources = _preflight_sources(write_source, source_root_resolved)
+    _ensure_new_targets(write_source, package_root_resolved)
+    manifest_content = _manifest_bytes(write_source, copied_sources)
 
     files = [
-        (_actual_package_path(source, record["primary_data"]["package_path"]), content)
-        for record, content in copied_sources
+        (
+            write_source.request.actual_package_path(copied.record.primary_data.package_path),
+            copied.content,
+        )
+        for copied in copied_sources
     ]
-    files.append((request["manifest_path"], manifest_content))
+    files.append((write_source.request.manifest_path, manifest_content))
     _write_new_files_transaction(package_root_resolved, files, label="handoff package")
 
-    return _write_receipt(source, copied_sources, manifest_content)
+    return _write_receipt(write_source, copied_sources, manifest_content)
 
 
 def _validate_policy(source: dict[str, Any]) -> None:
@@ -312,6 +518,110 @@ def _validate_references(source: dict[str, Any]) -> None:
     _validate_destination_topology(source)
 
 
+def _parse_write_source(source: dict[str, Any]) -> _PackageWriteSource:
+    _validate_references(source)
+    identity = source["package_identity"]
+    request = source["package_write_request"]
+    return _PackageWriteSource(
+        identity=_PackageIdentity(
+            package_id=identity["package_id"],
+            display_name=identity["display_name"],
+            created_by=identity["created_by"],
+            source_export_summary_id=identity["source_export_summary_id"],
+            display_path=identity["display_path"],
+            local_path_redacted=identity["local_path_redacted"],
+        ),
+        request=_WriteRequest(
+            request_id=request["request_id"],
+            package_dir=request["package_dir"],
+            manifest_path=request["manifest_path"],
+        ),
+        selected_measurements=tuple(
+            _parse_selected_measurement(record) for record in source["selected_measurements"]
+        ),
+        linked_context=tuple(_parse_linked_context(item) for item in source["linked_context"]),
+    )
+
+
+def _parse_selected_measurement(record: dict[str, Any]) -> _SelectedMeasurement:
+    primary = record["primary_data"]
+    preview = record["declared_preview_metadata"]
+    shape = preview["data_shape"]
+    return _SelectedMeasurement(
+        measurement_record_id=record["measurement_record_id"],
+        legacy_data_id=record["legacy_data_id"],
+        label=record["label"],
+        experiment_type=record["experiment_type"],
+        target=record["target"],
+        primary_data=_PrimaryData(
+            kind=primary["kind"],
+            label=primary["label"],
+            source_path=primary["source_path"],
+            expected_digest=primary["expected_digest"],
+            expected_size_bytes=primary["expected_size_bytes"],
+            package_path=primary["package_path"],
+            include_status=primary["include_status"],
+            relation=primary["relation"],
+            authority=primary["authority"],
+            format=primary["format"],
+            package_state=primary["package_state"],
+            reason=primary["reason"],
+        ),
+        declared_preview_metadata=_PreviewMetadata(
+            status=preview["status"],
+            metadata_authority=preview["metadata_authority"],
+            data_shape_kind=shape["kind"],
+            data_shape_axis_order=tuple(shape["axis_order"]),
+            declared_columns=tuple(
+                _PreviewColumn(
+                    name=column["name"],
+                    role=column["role"],
+                    label=column["label"],
+                    unit=column["unit"],
+                )
+                for column in preview["declared_columns"]
+            ),
+            plot_candidates=tuple(
+                _PreviewPlotCandidate(
+                    x=candidate["x"],
+                    y=candidate["y"],
+                    source=candidate["source"],
+                )
+                for candidate in preview["plot_candidates"]
+            ),
+        ),
+        default_bundle=tuple(
+            _BundleItem(
+                item_id=item["item_id"],
+                kind=item["kind"],
+                label=item["label"],
+                package_path=item["package_path"],
+                include_status=item["include_status"],
+                relation=item["relation"],
+                authority=item["authority"],
+                package_state=item["package_state"],
+                reason=item["reason"],
+            )
+            for item in record["default_bundle"]
+        ),
+    )
+
+
+def _parse_linked_context(item: dict[str, Any]) -> _LinkedContext:
+    return _LinkedContext(
+        link_id=item["link_id"],
+        kind=item["kind"],
+        label=item["label"],
+        package_path=item["package_path"],
+        include_status=item["include_status"],
+        relation=item["relation"],
+        authority=item["authority"],
+        package_state=item["package_state"],
+        reason=item["reason"],
+        linked_measurement_record_ids=tuple(item["linked_measurement_record_ids"]),
+    )
+
+
 def _existing_directory_root(root: Path, label: str) -> Path:
     if root.is_symlink():
         raise ValueError(f"{label} root must not be a symlink")
@@ -382,9 +692,9 @@ def _open_parent_dir_fd(root: Path, relative_path: str, *, create: bool) -> tupl
         raise
 
 
-def _read_source_file(source_root: Path, record: dict[str, Any]) -> bytes:
-    primary = record["primary_data"]
-    source_path = primary["source_path"]
+def _read_source_file(source_root: Path, record: _SelectedMeasurement) -> bytes:
+    primary = record.primary_data
+    source_path = primary.source_path
     _ensure_no_symlink_parents(source_root, source_path, "source")
     try:
         parent_fd, _created_dirs = _open_parent_dir_fd(source_root, source_path, create=False)
@@ -403,25 +713,23 @@ def _read_source_file(source_root: Path, record: dict[str, Any]) -> bytes:
             source_stat = os.fstat(handle.fileno())
             if not stat.S_ISREG(source_stat.st_mode):
                 raise ValueError("handoff package source file is unavailable")
-            if source_stat.st_size != primary["expected_size_bytes"]:
+            if source_stat.st_size != primary.expected_size_bytes:
                 raise ValueError("handoff package source size does not match")
             content = handle.read()
     finally:
         os.close(parent_fd)
     digest = _sha256(content)
-    if digest != primary["expected_digest"]:
+    if digest != primary.expected_digest:
         raise ValueError("handoff package source digest does not match")
-    if len(content) != primary["expected_size_bytes"]:
+    if len(content) != primary.expected_size_bytes:
         raise ValueError("handoff package source size does not match")
     return content
 
 
-def _preflight_sources(
-    source: dict[str, Any], source_root: Path
-) -> list[tuple[dict[str, Any], bytes]]:
+def _preflight_sources(source: _PackageWriteSource, source_root: Path) -> list[_CopiedSource]:
     return [
-        (record, _read_source_file(source_root, record))
-        for record in source["selected_measurements"]
+        _CopiedSource(record=record, content=_read_source_file(source_root, record))
+        for record in source.selected_measurements
     ]
 
 
@@ -436,16 +744,16 @@ def _reject_existing_paths(root: Path, relative_paths: list[str], label: str) ->
         _ensure_no_symlink_parents(root, relative_path, label)
 
 
-def _ensure_new_targets(source: dict[str, Any], package_root: Path) -> None:
-    request = source["package_write_request"]
-    if _target_exists(package_root, request["package_dir"]):
+def _ensure_new_targets(source: _PackageWriteSource, package_root: Path) -> None:
+    request = source.request
+    if _target_exists(package_root, request.package_dir):
         raise ValueError("handoff package target already exists")
     _reject_existing_paths(
         package_root,
-        [request["manifest_path"]]
+        [request.manifest_path]
         + [
-            _actual_package_path(source, record["primary_data"]["package_path"])
-            for record in source["selected_measurements"]
+            request.actual_package_path(record.primary_data.package_path)
+            for record in source.selected_measurements
         ],
         "handoff package",
     )
@@ -516,183 +824,93 @@ def _write_new_files_transaction(
         raise
 
 
-def _manifest_measurement(record: dict[str, Any], digest: str, size: int) -> dict[str, Any]:
-    primary = record["primary_data"]
-    return {
-        "measurement_record_id": record["measurement_record_id"],
-        "legacy_data_id": record["legacy_data_id"],
-        "label": record["label"],
-        "experiment_type": record["experiment_type"],
-        "target": record["target"],
-        "primary_data": {
-            "kind": primary["kind"],
-            "label": primary["label"],
-            "package_path": primary["package_path"],
-            "include_status": primary["include_status"],
-            "relation": primary["relation"],
-            "authority": primary["authority"],
-            "format": primary["format"],
-            "package_state": primary["package_state"],
-            "reason": primary["reason"],
-            "digest": digest,
-            "size_bytes": size,
-        },
-        "declared_preview_metadata": _manifest_preview_metadata(
-            record["declared_preview_metadata"]
-        ),
-        "default_bundle": [_manifest_default_bundle_item(record["default_bundle"][0])],
-    }
-
-
-def _manifest_preview_metadata(preview: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "status": preview["status"],
-        "metadata_authority": preview["metadata_authority"],
-        "data_shape": {
-            "kind": preview["data_shape"]["kind"],
-            "axis_order": list(preview["data_shape"]["axis_order"]),
-        },
-        "declared_columns": [
-            {
-                "name": column["name"],
-                "role": column["role"],
-                "label": column["label"],
-                "unit": column["unit"],
-            }
-            for column in preview["declared_columns"]
-        ],
-        "plot_candidates": [
-            {
-                "x": candidate["x"],
-                "y": candidate["y"],
-                "source": candidate["source"],
-            }
-            for candidate in preview["plot_candidates"]
-        ],
-    }
-
-
-def _manifest_default_bundle_item(item: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "item_id": item["item_id"],
-        "kind": item["kind"],
-        "label": item["label"],
-        "package_path": item["package_path"],
-        "include_status": item["include_status"],
-        "relation": item["relation"],
-        "authority": item["authority"],
-        "package_state": item["package_state"],
-        "reason": item["reason"],
-    }
-
-
-def _manifest_linked_context(item: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "link_id": item["link_id"],
-        "kind": item["kind"],
-        "label": item["label"],
-        "package_path": item["package_path"],
-        "include_status": item["include_status"],
-        "relation": item["relation"],
-        "authority": item["authority"],
-        "package_state": item["package_state"],
-        "reason": item["reason"],
-        "linked_measurement_record_ids": list(item["linked_measurement_record_ids"]),
-    }
-
-
 def _manifest_bytes(
-    source: dict[str, Any],
-    copied_sources: list[tuple[dict[str, Any], bytes]],
+    source: _PackageWriteSource,
+    copied_sources: list[_CopiedSource],
 ) -> bytes:
     digest_by_id = {
-        record["measurement_record_id"]: _sha256(content) for record, content in copied_sources
+        copied.record.measurement_record_id: _sha256(copied.content) for copied in copied_sources
     }
     size_by_id = {
-        record["measurement_record_id"]: len(content) for record, content in copied_sources
+        copied.record.measurement_record_id: len(copied.content) for copied in copied_sources
     }
     manifest = {
         "package_preview_policy": copy.deepcopy(_PACKAGE_PREVIEW_POLICY),
-        "package_identity": {
-            "package_id": source["package_identity"]["package_id"],
-            "display_name": source["package_identity"]["display_name"],
-            "created_by": source["package_identity"]["created_by"],
-            "source_export_summary_id": source["package_identity"]["source_export_summary_id"],
-            "local_path_redacted": source["package_identity"]["local_path_redacted"],
-        },
+        "package_identity": source.identity.to_manifest(),
         "selected_measurements": [
-            _manifest_measurement(
-                record,
-                digest_by_id[record["measurement_record_id"]],
-                size_by_id[record["measurement_record_id"]],
+            record.to_manifest(
+                digest=digest_by_id[record.measurement_record_id],
+                size=size_by_id[record.measurement_record_id],
             )
-            for record in source["selected_measurements"]
+            for record in source.selected_measurements
         ],
-        "linked_context": [_manifest_linked_context(item) for item in source["linked_context"]],
+        "linked_context": [item.to_manifest() for item in source.linked_context],
     }
     preview_handoff_manifest(manifest)
     return json.dumps(manifest, indent=2, sort_keys=True).encode("utf-8") + b"\n"
 
 
-def _package_contents(source: dict[str, Any]) -> list[dict[str, Any]]:
+def _package_contents(source: _PackageWriteSource) -> list[dict[str, Any]]:
     contents = []
-    for record in source["selected_measurements"]:
-        item = record["default_bundle"][0]
+    for record in source.selected_measurements:
+        item = record.default_bundle[0]
         contents.append(
             {
                 "owner_type": "selected_measurement",
-                "owner_id": record["measurement_record_id"],
-                "item_id": item["item_id"],
-                "kind": item["kind"],
-                "label": item["label"],
-                "package_path": item["package_path"],
-                "include_status": item["include_status"],
-                "relation": item["relation"],
-                "authority": item["authority"],
-                "package_state": item["package_state"],
-                "reason": item["reason"],
+                "owner_id": record.measurement_record_id,
+                "item_id": item.item_id,
+                "kind": item.kind,
+                "label": item.label,
+                "package_path": item.package_path,
+                "include_status": item.include_status,
+                "relation": item.relation,
+                "authority": item.authority,
+                "package_state": item.package_state,
+                "reason": item.reason,
             }
         )
-    for item in source["linked_context"]:
+    for item in source.linked_context:
         contents.append(
             {
                 "owner_type": "linked_context",
-                "owner_id": item["link_id"],
-                "item_id": item["link_id"],
-                "kind": item["kind"],
-                "label": item["label"],
-                "package_path": item["package_path"],
-                "include_status": item["include_status"],
-                "relation": item["relation"],
-                "authority": item["authority"],
-                "package_state": item["package_state"],
-                "reason": item["reason"],
+                "owner_id": item.link_id,
+                "item_id": item.link_id,
+                "kind": item.kind,
+                "label": item.label,
+                "package_path": item.package_path,
+                "include_status": item.include_status,
+                "relation": item.relation,
+                "authority": item.authority,
+                "package_state": item.package_state,
+                "reason": item.reason,
             }
         )
     return contents
 
 
 def _write_receipt(
-    source: dict[str, Any],
-    copied_sources: list[tuple[dict[str, Any], bytes]],
+    source: _PackageWriteSource,
+    copied_sources: list[_CopiedSource],
     manifest_content: bytes,
 ) -> HandoffPackageWriteReceipt:
-    request = source["package_write_request"]
-    copied_by_id = {record["measurement_record_id"]: content for record, content in copied_sources}
+    request = source.request
+    copied_by_id = {
+        copied.record.measurement_record_id: copied.content for copied in copied_sources
+    }
     write_results = [
         {
-            "path": _actual_package_path(source, record["primary_data"]["package_path"]),
+            "path": request.actual_package_path(record.primary_data.package_path),
             "kind": "primary_data",
             "result": "written",
-            "bytes_written": len(copied_by_id[record["measurement_record_id"]]),
-            "digest": _sha256(copied_by_id[record["measurement_record_id"]]),
+            "bytes_written": len(copied_by_id[record.measurement_record_id]),
+            "digest": _sha256(copied_by_id[record.measurement_record_id]),
             "does_not_claim": "schema_or_scientific_validity",
         }
-        for record in source["selected_measurements"]
+        for record in source.selected_measurements
     ]
     write_results.append(
         {
-            "path": request["manifest_path"],
+            "path": request.manifest_path,
             "kind": "package_manifest",
             "result": "written",
             "bytes_written": len(manifest_content),
@@ -702,31 +920,30 @@ def _write_receipt(
     )
     selected_measurements = [
         {
-            "measurement_record_id": record["measurement_record_id"],
-            "legacy_data_id": record["legacy_data_id"],
-            "label": record["label"],
-            "experiment_type": record["experiment_type"],
-            "target": record["target"],
-            "source_path": record["primary_data"]["source_path"],
+            "measurement_record_id": record.measurement_record_id,
+            "legacy_data_id": record.legacy_data_id,
+            "label": record.label,
+            "experiment_type": record.experiment_type,
+            "target": record.target,
+            "source_path": record.primary_data.source_path,
             "primary_data": {
-                "package_path": record["primary_data"]["package_path"],
-                "digest": _sha256(copied_by_id[record["measurement_record_id"]]),
-                "size_bytes": len(copied_by_id[record["measurement_record_id"]]),
-                "format": record["primary_data"]["format"],
+                "package_path": record.primary_data.package_path,
+                "digest": _sha256(copied_by_id[record.measurement_record_id]),
+                "size_bytes": len(copied_by_id[record.measurement_record_id]),
+                "format": record.primary_data.format,
             },
             "classification": "primary_data_packaged",
         }
-        for record in source["selected_measurements"]
+        for record in source.selected_measurements
     ]
-    identity = source["package_identity"]
     return HandoffPackageWriteReceipt(
-        package_id=identity["package_id"],
-        display_name=identity["display_name"],
-        source_export_summary_id=identity["source_export_summary_id"],
-        display_path=identity["display_path"],
-        request_id=request["request_id"],
-        package_dir=request["package_dir"],
-        manifest_path=request["manifest_path"],
+        package_id=source.identity.package_id,
+        display_name=source.identity.display_name,
+        source_export_summary_id=source.identity.source_export_summary_id,
+        display_path=source.identity.display_path,
+        request_id=request.request_id,
+        package_dir=request.package_dir,
+        manifest_path=request.manifest_path,
         selected_measurements=tuple(selected_measurements),
         package_contents=tuple(_package_contents(source)),
         write_results=tuple(write_results),

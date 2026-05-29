@@ -175,6 +175,9 @@ package import record, or package-integrity verification.
 The writer uses `source_root` terminology at the promoted API boundary. That
 keeps the current workflow testable without accepting final Scopecat storage
 architecture or archive format.
+Writer request dictionaries are boundary input only: the promoted writer
+validates and parses them into route-local write-source objects before
+preflight, manifest generation, package writes, or receipt serialization.
 
 Promotion follow-up decisions resolved by
 [`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md):
@@ -188,6 +191,12 @@ Promotion follow-up decisions resolved by
 
 Discovery fixtures and expected outputs remain validation evidence. Prototype
 fixtures become engineering regression assets.
+
+The promoted writer fixtures live under
+`tests/fixtures/handoff_engineering_prototype_writer/` and use source-root
+terminology directly. The older discovery candidate writer fixtures remain
+under `tests/fixtures/handoff_package_writer/` as historical evidence for the
+candidate shape and are not translated in promoted writer tests.
 
 When existing fixtures do not match the prototype shape:
 
