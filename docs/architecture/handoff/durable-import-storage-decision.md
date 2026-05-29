@@ -155,3 +155,34 @@ Stop the first durable import prototype when tests prove:
 After that, choose separate decisions for existing-record import/update,
 adapter transport/discovery, handoff package trust/archive behavior, or
 stronger recovery semantics.
+
+## Implementation Checkpoint
+
+The first durable new-record import slice is implemented in
+[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+It exposes a raw-dictionary entrypoint, `import_measurement_record(...)`, and a
+typed request entrypoint, `import_measurement_record_from_request(...)`.
+
+This slice consumes reviewed normalized primary-data source facts, validates
+declared digest, byte size, row count, and format before storage mutation, then
+composes the existing Measurement Records operations:
+
+```text
+create_measurement_record_from_request
+  -> write_created_record_primary_data_from_request
+  -> read_created_record_primary_table_from_request
+  -> finalize_measurement_record_from_read_view
+  -> project_measurement_record_read_model_from_read_view
+```
+
+It creates one new record, writes one primary CSV and writer receipt,
+finalizes the record as `complete`, projects `record-read-model.json`, and
+returns a local durable import receipt with each pipeline step
+classification. It proves unapproved no-mutation behavior, source fact
+mismatch blocking before mutation, no-overwrite destination blocking,
+row-count/finalization rollback, and projection-failure rollback.
+
+It deliberately does not import into an existing record, attach to an existing
+created shell, merge primary data, replace manifests, import linked-context
+payloads, define adapter transport/discovery, or add conflict policy beyond
+new-record no-overwrite behavior.

@@ -6,6 +6,13 @@ from scopecat.measurement_records.creation import (
     create_measurement_record,
     create_measurement_record_from_request,
 )
+from scopecat.measurement_records.durable_import import (
+    MeasurementRecordDurableImportRequest,
+    MeasurementRecordDurableImportRun,
+    MeasurementRecordImportSource,
+    import_measurement_record,
+    import_measurement_record_from_request,
+)
 from scopecat.measurement_records.finalization import (
     MeasurementRecordFinalizationRequest,
     MeasurementRecordFinalizationRun,
@@ -49,8 +56,11 @@ __all__ = [
     "MeasurementRecordCatalogRun",
     "MeasurementRecordCreationRequest",
     "MeasurementRecordCreationRun",
+    "MeasurementRecordDurableImportRequest",
+    "MeasurementRecordDurableImportRun",
     "MeasurementRecordFinalizationRequest",
     "MeasurementRecordFinalizationRun",
+    "MeasurementRecordImportSource",
     "MeasurementRecordReadModelProjectionRequest",
     "MeasurementRecordReadModelProjectionRun",
     "MeasurementRecordReadModelRefreshRequest",
@@ -66,6 +76,8 @@ __all__ = [
     "create_measurement_record_from_request",
     "finalize_measurement_record",
     "finalize_measurement_record_from_read_view",
+    "import_measurement_record",
+    "import_measurement_record_from_request",
     "project_measurement_record_read_model",
     "project_measurement_record_read_model_from_read_view",
     "read_created_record_primary_table",

@@ -114,3 +114,11 @@ Manifest replacement is not accepted for this prototype line.
 `record-manifest.json` remains the immutable creation shell and origin
 identity. Current lifecycle state, primary-data facts, and compact consumer
 summaries are carried by receipts and refreshed read models instead.
+
+The first durable import slice is implemented through
+`import_measurement_record(...)` and `import_measurement_record_from_request(...)`.
+It consumes reviewed normalized primary-data facts, creates a new record,
+writes primary data through the writer integration, finalizes the record,
+projects a read model, and returns a local durable import receipt. It does not
+import into existing records, attach to pre-created shells, merge primary data,
+replace manifests, or import linked-context payloads.
