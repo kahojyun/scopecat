@@ -118,13 +118,26 @@ This decision does not accept:
 
 ## Next Implementation Check
 
-The smallest route-local function that proves this mutation is now:
+The first route-local mutation checkpoint is implemented through:
 
 ```text
 run_acceptance_preflight(...)
   -> run_storage_acceptance(...)
 ```
 
-The tests should continue to prove successful copy plus manifest write,
-rejection of blocked or mismatched preflight facts, no-overwrite collision
-behavior, and rollback after a simulated second-write failure.
+It proves successful copy plus manifest write, rejection of blocked or
+mismatched preflight facts, no-overwrite collision behavior, and rollback
+after a simulated second-write failure.
+
+## Promotion Checkpoint
+
+This slice can be treated as complete for the current branch because it proves
+one approved mutation from a ready preflight into one candidate local record
+layout. The result is still a candidate storage acceptance receipt, not final
+storage architecture.
+
+Do not use this completion as permission to add broader import behavior in
+place. Any next storage/import phase should first name the new decision it is
+making: user-facing import workflow, final storage/archive requirements,
+conflict and existing-record update policy, stronger recovery semantics, or
+linked-context payload materialization.

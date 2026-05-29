@@ -166,30 +166,49 @@ This still does not promote final storage schema, existing-record update,
 conflict resolution, crash recovery, archive trust, or linked-context payload
 import.
 
+This slice is now implemented and covered as the first mutation checkpoint. It
+proves the read-only receiving path can hand off to one explicitly approved
+candidate storage write while preserving reviewed package, preflight, and
+destination facts across the mutation boundary. It also proves blocked
+preflight rejection, destination-fact mismatch rejection, no-overwrite file
+creation, and best-effort synchronous rollback after a simulated write
+failure.
+
 After this slice, the next engineering phase should not broaden mutation
 behavior without a new storage or import decision.
 
 ## Next Decision Gate
 
-Do not continue by expanding handoff surface area in place. After the
-read-only receiving gate, non-mutating import plan, and destination acceptance
-preflight, the next engineering phase should follow the first mutation boundary
-in [`storage-acceptance-decision.md`](storage-acceptance-decision.md) or choose
-one explicit alternative path:
+Do not continue by expanding handoff surface area in place. The branch now has
+one complete receiving/import mutation chain:
 
-- package receiving/import acceptance: define acceptance, rejection, conflict,
-  review, and rollback boundaries for an inbound package before writing into
-  any durable storage location;
+```text
+read-only package open
+  -> integrity observation
+  -> approved receiving gate
+  -> non-mutating import plan
+  -> destination acceptance preflight
+  -> approved candidate storage acceptance
+```
+
+The next engineering phase should choose one explicit path:
+
+- import workflow hardening: define acceptance/rejection UX, review-state
+  persistence, and operator-facing error recovery around the existing candidate
+  mutation without broadening storage shape;
 - storage/archive requirements synthesis: compare the needs from source-root
   package writing, legacy import, existing-record update, source observation,
   package receiving, and running inspection before accepting a storage or
-  archive format.
+  archive format;
+- durable import/storage decision: define conflict policy, existing-record
+  update or merge behavior, stronger rollback/crash recovery expectations, and
+  the storage API boundary before writing beyond the current candidate layout.
 
 The current workflow is enough to validate local writer/reader/review
-ergonomics plus non-mutating receiving/import planning and destination
-preflight. It is not evidence by itself for final storage schema, import
-acceptance, archive format, signatures, authenticity, or adversarial package
-trust policy.
+ergonomics plus a first explicitly approved candidate storage mutation. It is
+not evidence by itself for final storage schema, broad import workflow,
+existing-record update, archive format, signatures, authenticity, or
+adversarial package trust policy.
 
 ## Accepted Baseline
 
@@ -227,7 +246,8 @@ This decision does not promote:
   inference, trace opening, or array API;
 - archive extraction, compressed package format, signatures, authenticity,
   trust policy, or adversarial package-root race handling;
-- storage import, acceptance, conflict policy, or existing-record update;
+- final storage import API, broad package acceptance workflow, conflict
+  policy, or existing-record update;
 - linked-context payload packaging, opening, recursive traversal, or import;
 - analysis/fit result model, fit execution, uncertainty, write-back, or result
   import;
@@ -265,7 +285,8 @@ capabilities, such as:
 - notebook computation requiring numeric/dataframe adapters;
 - GUI review requiring interaction beyond static HTML;
 - external sharing requiring archive/signature/trust behavior;
-- durable local import requiring storage acceptance and conflict policy;
+- durable local import beyond the candidate storage acceptance slice,
+  especially conflict policy, update/merge behavior, or stronger recovery;
 - inspectable linked-context payloads;
 - analysis or fit results becoming first-class read-only display facts;
 - another route needing identical lifecycle and failure semantics, justifying
