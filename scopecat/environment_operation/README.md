@@ -12,10 +12,10 @@ approved intent summary. It validates the workspace root and relative command
 directory, runs the command through a subprocess runner, records bounded output
 summaries, and returns a review-oriented execution record.
 
-The default subprocess runner resolves the local `uv` executable before launch,
-uses that resolved executable path for the child process, and passes an empty
-child environment. The approved intent shape still does not accept arbitrary
-environment-variable overrides.
+Real subprocess execution requires either an injected runner or an explicit
+absolute `uv_executable`. The subprocess runner uses that executable path for
+the child process and passes an empty child environment. The approved intent
+shape still does not accept arbitrary environment-variable overrides.
 
 Execution records can be projected into a route-local result summary for later
 review composition. That projection carries the selected intent reference,
@@ -32,7 +32,7 @@ run can start.
 Current user-facing prototype surface:
 
 - `UvSyncIntent.from_summary(...)`;
-- `execute_uv_sync(...)`;
+- `execute_uv_sync(..., uv_executable=...)` or `execute_uv_sync(..., runner=...)`;
 - `UvSyncExecutionRecord.to_result_summary(...)`;
 - `SubprocessUvRunner`;
 - route projection objects exported from `scopecat.environment_operation`.

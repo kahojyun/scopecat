@@ -9,7 +9,6 @@ readiness.
 from __future__ import annotations
 
 import re
-import shutil
 import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -127,7 +126,7 @@ class CommandRunner(Protocol):
 class SubprocessUvRunner:
     """Default runner that executes uv through subprocess."""
 
-    def __init__(self, *, uv_executable: Path | str | None = None) -> None:
+    def __init__(self, *, uv_executable: Path | str) -> None:
         self._uv_executable = _resolve_uv_executable(uv_executable)
 
     def run(
@@ -310,6 +309,7 @@ def execute_uv_sync(
     result_id: str | None = None,
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     runner: CommandRunner | None = None,
+    uv_executable: Path | str | None = None,
 ) -> UvSyncExecutionRecord:
     """Execute an approved uv sync intent under a caller-provided workspace root."""
 
@@ -320,7 +320,7 @@ def execute_uv_sync(
     started = datetime.now(UTC)
 
     try:
-        runner = runner or SubprocessUvRunner()
+        runner = runner or _default_subprocess_runner(uv_executable)
         run_result = runner.run(
             intent.argv,
             cwd=command_cwd,
@@ -466,13 +466,13 @@ def _valid_group_name(value: str) -> bool:
     return bool(DEPENDENCY_GROUP.fullmatch(value))
 
 
-def _resolve_uv_executable(value: Path | str | None) -> Path:
-    if value is None:
-        resolved = shutil.which("uv")
-        if resolved is None:
-            raise FileNotFoundError("uv executable was not found")
-        return Path(resolved).resolve()
+def _default_subprocess_runner(uv_executable: Path | str | None) -> SubprocessUvRunner:
+    if uv_executable is None:
+        raise ValueError("uv_executable is required when runner is not provided")
+    return SubprocessUvRunner(uv_executable=uv_executable)
 
+
+def _resolve_uv_executable(value: Path | str) -> Path:
     path = Path(value)
     if not path.is_absolute():
         raise ValueError("uv_executable must be an absolute path")

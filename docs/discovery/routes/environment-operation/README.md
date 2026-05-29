@@ -79,8 +79,8 @@ route:
 - declared external result status, execution state, exit code, observer, and
   bounded stdout/stderr summaries as review facts;
 - route-local approved `uv sync` subprocess execution with relative cwd,
-  timeout, launch/failure/timeout classification, bounded stdout/stderr
-  summaries, and no ambient child process environment;
+  explicit executable path, timeout, launch/failure/timeout classification,
+  bounded stdout/stderr summaries, and no ambient child process environment;
 - optional manifest preflight as structured review/comparison support, not as
   a prerequisite for manager execution;
 - local operation review bundles that aggregate child findings and
@@ -104,7 +104,7 @@ slices:
 
 - uv-specific command policies such as `--locked` and
   `--no-default-groups`;
-- the current `SubprocessUvRunner` executable-resolution and empty child
+- the current `SubprocessUvRunner` explicit executable path and empty child
   environment policy;
 - the current `pyproject.toml` manifest projection shape;
 - operation review finding wording and status vocabulary;

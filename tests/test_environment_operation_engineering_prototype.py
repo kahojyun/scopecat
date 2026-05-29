@@ -43,6 +43,13 @@ def _load_tiny_uv_intent_summary() -> dict:
     return summary
 
 
+def _uv_executable() -> Path:
+    resolved = shutil.which("uv")
+    if resolved is None:
+        raise unittest.SkipTest("uv executable not available")
+    return Path(resolved)
+
+
 class FakeRunner:
     def __init__(self, result: CommandRunResult | BaseException) -> None:
         self.result = result
@@ -191,6 +198,15 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
         )
         self.assertEqual(run.call_args.kwargs["env"], {})
 
+    def test_default_subprocess_execution_requires_explicit_uv_executable(self) -> None:
+        intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
+        with TemporaryDirectory() as tmp:
+            workspace_root = Path(tmp)
+            (workspace_root / "project").mkdir()
+
+            with self.assertRaisesRegex(ValueError, "uv_executable"):
+                execute_uv_sync(intent, workspace_root=workspace_root)
+
     def test_executes_real_uv_sync_against_tiny_workspace_fixture(self) -> None:
         intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
         with TemporaryDirectory() as tmp:
@@ -202,6 +218,7 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
                 workspace_root=workspace_root,
                 result_id="uv-sync-result-tiny-real-001",
                 timeout_seconds=60,
+                uv_executable=_uv_executable(),
             )
 
         self.assertEqual(record.result_status, "uv_sync_completed_success")
@@ -251,6 +268,7 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
                 workspace_root=workspace_root,
                 result_id="uv-sync-result-missing-lock-real-001",
                 timeout_seconds=60,
+                uv_executable=_uv_executable(),
             )
 
         self.assertEqual(record.result_status, "uv_sync_completed_failed")

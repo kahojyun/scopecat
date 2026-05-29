@@ -28,7 +28,7 @@ The prototype should support:
 - validation that the command is exactly the bounded `uv sync --locked
   --no-default-groups [--group name ...]` shape;
 - caller-provided workspace root plus declared relative working directory;
-- local subprocess execution with explicit timeout;
+- local subprocess execution with explicit executable path and timeout;
 - bounded stdout/stderr summaries with raw output not recorded;
 - completed-success, completed-failed, timed-out, and launch-failed execution
   states;

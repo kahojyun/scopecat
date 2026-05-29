@@ -97,7 +97,7 @@ relationship among measurement, experiment code, and environment is:
 | --- | --- | --- |
 | Measurement record | User-facing evidence, selection, export, import, handoff, inspection, and selected-reference anchor for comparison or rerun work. | Does not own code recording, environment sync, runtime readiness, or execution. |
 | Experiment code context | Linked run/step context describing recorded code, managed code version, materialized workspace, or editable observation. | Does not own environment restoration, runnable readiness, Git semantics, import, or execution. |
-| Declared environment or environment operation record | Linked runtime/manager context describing declared environment facts, approved manager intent, declared external result, and local operation review. | Does not own package-state truth, manager execution, code loading, measurement storage, or run readiness. |
+| Declared environment or environment operation record | Linked runtime/manager context describing declared environment facts, approved manager intent, declared external result, route-local approved `uv sync` execution result, and local operation review. | Does not own package-state truth, general manager execution, code loading, measurement storage, or run readiness. |
 | Prepared run context | Local composition surface joining selected code/workspace, parameter/setup/station context, measurement intent, declared environment context, and separately validated environment review findings for manual run preparation. | Does not become a shared run-context schema, runner, restore contract, hardware-control contract, or reproducibility claim. |
 
 This keeps the current architecture reference-based: measurement explains why
