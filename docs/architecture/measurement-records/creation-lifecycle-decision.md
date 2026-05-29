@@ -2,13 +2,15 @@
 
 ## Status
 
-Engineering prototype-start decision, not an ADR.
+Engineering prototype decision, not an ADR.
 
-This note starts the first Measurement Records engineering prototype for
-durable record creation. It uses existing discovery and handoff evidence
-rather than opening a new broad discovery pass. It defines the smallest
-creation lifecycle boundary needed before later storage/import decisions can
-choose conflict policy, existing-record import, or stronger recovery behavior.
+This note owns the first Measurement Records engineering prototype for durable
+record creation. It uses existing discovery and handoff evidence rather than
+opening a new broad discovery pass. It defines the smallest creation lifecycle
+boundary needed before later storage/import decisions can choose conflict
+policy, existing-record import, or stronger recovery behavior. Keep live API
+syntax in
+[`../../../scopecat/measurement_records/README.md`](../../../scopecat/measurement_records/README.md).
 
 Artifact posture: `internal_validation_summary`. This note is internal project
 memory. It creates no portable package output, public contract, public SDK, or
@@ -152,3 +154,18 @@ After that, choose a separate next decision:
 
 Do not expand the creation prototype into final storage/import behavior in the
 same slice.
+
+## Implementation Checkpoint
+
+The first prototype is implemented in
+[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+It exposes a raw-dictionary entrypoint,
+`create_measurement_record(...)`, and a typed request entrypoint,
+`create_measurement_record_from_request(...)`.
+
+The implemented slice proves approved creation, unapproved no-mutation,
+preexisting destination blocking, malformed id/path rejection before mutation,
+symlink-parent rejection, initial manifest writing, local receipt projection,
+and best-effort rollback when manifest writing fails. It keeps `record_id`
+caller-declared and public-safe; it does not generate UUIDs, allocate
+namespace ids, or parse record ids for meaning.
