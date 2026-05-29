@@ -84,7 +84,7 @@ locks, atomic publish behavior, or crash recovery.
 
 ## Result
 
-The handoff package route now has separate validated steps for:
+At this checkpoint, the handoff package route had separate validated steps for:
 
 - producing a directory package;
 - opening and reviewing it read-only;
@@ -92,8 +92,8 @@ The handoff package route now has separate validated steps for:
 - accepting the reviewed package into local storage through an explicit
   approved mutation.
 
-This gives the route a complete prototype loop while preserving the main
-engineering boundary: inspection remains read-only; acceptance is the first
+This gave the route a complete prototype loop while preserving the main
+engineering boundary: inspection remained read-only; acceptance was the first
 receiving-side write; and final importer, GUI, storage architecture, archive,
 integrity, concurrent package/storage handling, dataframe, and shared-schema
-decisions remain separate.
+decisions remained separate.

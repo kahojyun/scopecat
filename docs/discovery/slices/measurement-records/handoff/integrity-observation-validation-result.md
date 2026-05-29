@@ -4,6 +4,12 @@
 
 Implementation candidate validated.
 
+Document role: historical discovery validation result. It records what this
+slice earned and what it did not establish. Current handoff implementation
+boundaries are owned by
+[`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md);
+do not update this result to mirror live API, integrity, or workflow changes.
+
 This result validates a read-only receiving-side integrity observation for an
 already expanded directory-shaped handoff package. It compares package-local
 files against manifest-declared digest and size facts where those facts are
@@ -67,7 +73,7 @@ or whether the manifest itself is trusted.
 
 ## Result
 
-The handoff package route now has a separate read-only integrity-observation
-step that can sit between package preview/open/review and later acceptance.
-This keeps package acceptance explicit while allowing the receiver to catch
-missing or modified package members before storage mutation.
+At this checkpoint, the handoff package route had a separate read-only
+integrity-observation step that can sit between package preview/open/review and
+later acceptance. This keeps package acceptance explicit while allowing the
+receiver to catch missing or modified package members before storage mutation.

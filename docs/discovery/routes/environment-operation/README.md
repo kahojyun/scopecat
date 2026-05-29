@@ -67,6 +67,20 @@ workflow.
 | Route-local workflow composition | UV sync operation workflow | Execute the approved sync, project the typed result, review it, and conditionally run the bounded runtime probe in one route-local entrypoint without adding readiness, package-state, code-execution, or shared-manager claims. |
 | Edge-case pressure | Operation review edge cases | Confirm manifest findings, uv failure, uv not-run, and deliberately inconsistent command projections remain review findings, not run blockers or readiness claims. |
 
+## Engineering Coverage
+
+Freezing the validation results does not mean every discovery candidate became a
+live engineering surface. Use this matrix when deciding whether to update an
+old validation result, the architecture note, or the module README.
+
+| Discovery slice group | Engineering coverage | Current owner |
+| --- | --- | --- |
+| UV sync intent | Promoted as `UvSyncIntent.from_summary(...)` and the bounded argv/source-continuity contract for approved local execution. | [`scopecat/environment_operation/README.md`](../../../../scopecat/environment_operation/README.md), [`engineering-prototype-readiness.md`](../../../architecture/environment-operation/engineering-prototype-readiness.md) |
+| UV sync result | Partially promoted. The live path records Scopecat-run typed execution results and projects them to review summaries; the old declared-external-result fixture remains historical evidence, not the main runtime boundary. | Module README and readiness note; validation result stays historical. |
+| Environment operation review bundle | Partially promoted. Route-local operation review now aligns typed `UvSyncIntent`/`UvSyncResult` objects; the old bundle over prior summary dictionaries remains evidence for review composition and edge-case wording. | Module README and readiness note; validation result stays historical. |
+| Modern manifest preflight | Historical only for the current engineering prototype. The live environment-operation module does not read `pyproject.toml`, parse manifests, parse lockfiles, or require manifest preflight before execution. | Historical validation result; future manifest/readiness decision if reopened. |
+| Route-local execution, runtime probe, and workflow composition | New engineering coverage beyond the original discovery candidates. These are current implementation boundaries, not backfilled discovery slice claims. | Module README and readiness note. |
+
 ## Boundary Map
 
 | Surface | Boundary posture | Responsibility |

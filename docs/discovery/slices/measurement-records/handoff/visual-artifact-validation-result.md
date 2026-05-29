@@ -4,6 +4,12 @@
 
 Implementation candidate validated.
 
+Document role: historical discovery validation result. It records what this
+slice earned and what it did not establish. Current handoff implementation
+boundaries are owned by
+[`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md);
+do not update this result to mirror live API or route changes.
+
 This result validates a local static HTML review artifact over the plot-first
 handoff package visual-review model. The slice is a UX-flow check for
 open-before-import package inspection: given a visual-review model, Scopecat can
@@ -54,9 +60,9 @@ file.
 Visual browser QA is not claimed for this slice. Validation stops at
 deterministic HTML generation, write behavior, and narrow render-state checks.
 
-Current rendering assumption: static HTML artifacts are prototype-local review
-surfaces generated from Scopecat-owned view models. Narrow stdlib string
-rendering is acceptable while the artifact remains single-file,
+Rendering assumption at this checkpoint: static HTML artifacts are
+prototype-local review surfaces generated from Scopecat-owned view models.
+Narrow stdlib string rendering is acceptable while the artifact remains single-file,
 non-interactive, and covered by escaping and structure-position tests. If this
 route grows into a maintained GUI/report surface, adds multiple templates,
 richer navigation, interactivity, or broader model inputs, it should move to an
@@ -80,7 +86,7 @@ The candidate deliberately leaves these decisions to later product slices:
 
 ## Result
 
-The open-before-import route now has a local static review artifact after the
-plot-first view model. This tests whether the model can support a natural
-package inspection surface before committing to a live GUI framework or package
-import workflow.
+At this checkpoint, the open-before-import route had a local static review
+artifact after the plot-first view model. This tested whether the model could
+support a natural package inspection surface before committing to a live GUI
+framework or package import workflow.

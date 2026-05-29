@@ -4,6 +4,12 @@
 
 Implementation candidate validated.
 
+Document role: historical discovery validation result. It records what this
+slice earned and what it did not establish. Current handoff implementation
+boundaries are owned by
+[`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md);
+do not update this result to mirror live API or route changes.
+
 This result validates a narrow read-only consumer of declared preview
 plot/view metadata. It is not accepted Scopecat architecture, a final
 data-shape schema, storage mapping, dataframe or array API, plotting layer,
@@ -28,13 +34,13 @@ The candidate shows that the handoff package read-only route can preserve
 declared preview metadata and expose a reader-facing preview projection without
 importing the scan-shape spike as a final product schema:
 
-- the opener now carries manifest-declared `data_shape` into opened
+- the opener carried manifest-declared `data_shape` into opened
   `declared_preview` facts;
 - the read view exposes copy-safe declared preview shape and plot-candidate
   facts;
 - the preview projection normalizes declared preview affordance, axis order,
   column metadata, and plot-candidate bindings;
-- the current package route is proven for the existing one-dimensional
+- the package route was proven for the existing one-dimensional
   declared-table package fixture;
 - richer scan/data-shape fixtures provide input pressure for preview
   affordances such as heatmap, ragged line-family, trace-family,
@@ -61,13 +67,14 @@ The measurement record owns declared acquisition or scan semantics. The primary
 data item owns physical table/file facts. This slice owns only the declared
 reader projection that binds those facts into preview affordances.
 
-The scan/data-shape fixtures remain concept evidence. Only the current
-one-dimensional package fixture is opened through the package route; richer
+The scan/data-shape fixtures remain concept evidence. Only the
+one-dimensional package fixture was opened through the package route; richer
 fixture cases are pressure examples for the preview projection normalizer.
 
 ## Result
 
-The receiving-side package route now has a first declared preview projection
-consumer. Future SDK or GUI slices can ask whether declared metadata offers a
-preview table, heatmap, ragged line-family, trace-family, component-pair, or
-complex component-pair candidate without inferring shape from data files.
+At this checkpoint, the receiving-side package route had a first declared
+preview projection consumer. Future SDK or GUI slices can ask whether declared
+metadata offers a preview table, heatmap, ragged line-family, trace-family,
+component-pair, or complex component-pair candidate without inferring shape
+from data files.

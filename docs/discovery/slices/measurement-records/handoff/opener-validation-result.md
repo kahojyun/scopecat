@@ -4,6 +4,12 @@
 
 Implementation candidate validated.
 
+Document role: historical discovery validation result. It records what this
+slice earned and what it did not establish. Current handoff implementation
+boundaries are owned by
+[`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md);
+do not update this result to mirror live API or route changes.
+
 This result validates the second receiving-side handoff step after manifest
 preview: **read-only handoff package open**.
 
@@ -68,7 +74,8 @@ This candidate is read-only. It does not:
 
 ## Result
 
-The open-before-import UX now has two validated receiving-side steps:
+At this checkpoint, the open-before-import UX had two validated receiving-side
+steps:
 
 1. manifest-only package contents preview for quick orientation;
 2. read-only package open for immediate package-local primary-data use and

@@ -4,6 +4,12 @@
 
 Implementation candidate validated.
 
+Document role: historical discovery validation result. It records what this
+slice earned and what it did not establish. Current handoff implementation
+boundaries are owned by
+[`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md);
+do not update this result to mirror live API or route changes.
+
 This result validates a narrow local GUI-ready view-state projection over
 existing read-only handoff package projections. It is not accepted Scopecat
 architecture, a live GUI framework, final GUI contract, plotting library,
@@ -27,7 +33,7 @@ consumes the existing preview-consumption and visual-review projections.
 
 ## What This Earned
 
-The GUI view-state model shows that the current read-only handoff package
+The GUI view-state model shows that the validated read-only handoff package
 route can be shaped into local state a future GUI could consume:
 
 - measurement-list navigation;
@@ -63,8 +69,8 @@ This candidate does not:
 
 ## Result
 
-The handoff route now has a minimal GUI-facing pressure check after route
-consolidation. The validated user posture remains plot-first: a future GUI can
-start from measurement navigation and a selected-measurement primary surface
-without requiring package import, dataframe conversion, or rendering decisions
-to be settled first.
+At this checkpoint, the handoff route had a minimal GUI-facing pressure check
+after route consolidation. The validated user posture remained plot-first: a
+future GUI could start from measurement navigation and a selected-measurement
+primary surface without requiring package import, dataframe conversion, or
+rendering decisions to be settled first.

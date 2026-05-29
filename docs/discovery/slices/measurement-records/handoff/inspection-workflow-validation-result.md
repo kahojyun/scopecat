@@ -4,9 +4,15 @@
 
 Implementation candidate validated.
 
+Document role: historical discovery validation result. It records what this
+slice earned and what it did not establish. Current handoff implementation
+boundaries are owned by
+[`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md);
+do not update this result to mirror live API, artifact, or workflow changes.
+
 This result validates a receiving-side local inspection workflow for a
 directory-shaped handoff package. Given a package directory and a local artifact
-output directory, Scopecat can reuse the current read-only opener/read-view
+output directory, Scopecat can reuse the validated read-only opener/read-view
 route, project the package into the plot-first visual-review model, write a
 local static HTML review artifact, and return an inspection receipt.
 
@@ -55,8 +61,8 @@ This candidate deliberately leaves these decisions to later product slices:
 
 ## Result
 
-The open-before-import receiving path now has a validated local inspection
-workflow over existing package-use layers. This is different from the
-writer-to-reader round trip: round trip verifies producer compatibility, while
-inspection workflow validates the user-facing action of opening an already
-available package and producing a local review surface.
+At this checkpoint, the open-before-import receiving path had a validated local
+inspection workflow over existing package-use layers. This is different from
+the writer-to-reader round trip: round trip verifies producer compatibility,
+while inspection workflow validates the user-facing action of opening an
+already available package and producing a local review surface.
