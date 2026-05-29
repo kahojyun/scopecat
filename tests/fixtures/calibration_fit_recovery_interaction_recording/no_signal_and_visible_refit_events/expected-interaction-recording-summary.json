@@ -1,0 +1,159 @@
+{
+  "summary_id": "calibration-fit-recovery-interaction-recording-no-signal-and-visible-refit.expected",
+  "status": "expected_validation_output",
+  "source_fixture": "interaction-recording-input.json",
+  "reference_semantics": {
+    "status": "fixture_references_are_synthetic",
+    "artifact_posture": "internal_validation_summary",
+    "contract_guard": "This is not a GUI contract, notebook integration contract, runner contract, remote-execution contract, handoff artifact, lab-sharing bundle, replay harness, dataset registry, portable/public dataset package, fitting API, fit model selection, score model, write-back path, or hardware-control contract."
+  },
+  "candidate_summary": {
+    "summary_id": "calibration-fit-recovery-interaction-recording-no-signal-and-visible-refit.candidate",
+    "recording_context": {
+      "interaction_session_id": "fit-recovery-interaction-session-qA-0001",
+      "episode_id": "cal-episode-07001",
+      "target_group": "qA",
+      "source": "fixture_declared"
+    },
+    "applied_events": [
+      {
+        "event_id": "interaction-event-classify-no-signal-07001",
+        "order": 1,
+        "event_type": "classify_signal",
+        "incident_id": "incident-no-signal-readout-07001",
+        "authority": "fixture_declared_user_review"
+      },
+      {
+        "event_id": "interaction-event-choose-remeasure-07002",
+        "order": 2,
+        "event_type": "choose_recovery_action",
+        "incident_id": "incident-no-signal-readout-07001",
+        "authority": "fixture_declared_user_choice"
+      },
+      {
+        "event_id": "interaction-event-record-no-signal-note-07003",
+        "order": 3,
+        "event_type": "record_review_context",
+        "incident_id": "incident-no-signal-readout-07001",
+        "authority": "fixture_declared_user_review"
+      },
+      {
+        "event_id": "interaction-event-accept-visible-refit-07004",
+        "order": 4,
+        "event_type": "choose_recovery_action",
+        "incident_id": "incident-rabi-visible-refit-07002",
+        "authority": "fixture_declared_user_choice"
+      },
+      {
+        "event_id": "interaction-event-record-visible-replay-07005",
+        "order": 5,
+        "event_type": "record_review_context",
+        "incident_id": "incident-rabi-visible-refit-07002",
+        "authority": "fixture_declared_user_review"
+      },
+      {
+        "event_id": "interaction-event-select-visible-case-07006",
+        "order": 6,
+        "event_type": "select_validation_case",
+        "incident_id": "incident-rabi-visible-refit-07002",
+        "authority": "fixture_declared_user_choice"
+      },
+      {
+        "event_id": "interaction-event-select-review-card-07007",
+        "order": 7,
+        "event_type": "select_review_incident",
+        "incident_id": "incident-rabi-visible-refit-07002",
+        "authority": "fixture_declared_user_navigation"
+      }
+    ],
+    "projected_workflow_summary_id": "calibration-fit-recovery-interaction-recording-projected-workflow.candidate",
+    "projected_review_state_summary_id": "calibration-fit-recovery-interaction-recording-no-signal-and-visible-refit.review-state.candidate",
+    "selected_review_incident_id": "incident-rabi-visible-refit-07002",
+    "recorded_review_context": [
+      {
+        "incident_id": "incident-no-signal-readout-07001",
+        "review_note_ref": "note:readout-no-signal-remeasure",
+        "expected_replay_behavior_recorded": false
+      },
+      {
+        "incident_id": "incident-rabi-visible-refit-07002",
+        "review_note_ref": "note:rabi-visible-refit-accepted",
+        "expected_replay_behavior_recorded": true
+      }
+    ],
+    "interaction_outcomes": [
+      {
+        "incident_id": "incident-no-signal-readout-07001",
+        "signal_classification": "no_clear_signal",
+        "chosen_action": "adjust_parameters_remeasure",
+        "continuation_status": "requires_remeasurement",
+        "can_continue": false,
+        "dataset_offer_state": "withheld_for_remeasurement",
+        "dataset_control_enabled": false,
+        "dataset_control_selected": false,
+        "review_card_severity": "blocking"
+      },
+      {
+        "incident_id": "incident-rabi-visible-refit-07002",
+        "signal_classification": "visible_signal",
+        "chosen_action": "accept_after_refit",
+        "continuation_status": "can_continue",
+        "can_continue": true,
+        "dataset_offer_state": "selected_for_lab_validation",
+        "dataset_control_enabled": true,
+        "dataset_control_selected": true,
+        "review_card_severity": "ready_with_dataset_case"
+      }
+    ],
+    "missing_context": [],
+    "attention": [],
+    "boundary": {
+      "summary_posture": "internal_validation_summary",
+      "non_claims": [
+        "no GUI implementation",
+        "no notebook integration",
+        "no fit execution",
+        "no fit model selection",
+        "no Scopecat-defined score",
+        "no automatic ROI or initial-guess selection",
+        "no automatic remeasurement, retry, retune, or optimization",
+        "no remeasurement or hardware control",
+        "no parameter write-back",
+        "no local executor or notebook execution",
+        "no runner design",
+        "no remote execution",
+        "no replay harness",
+        "no dataset registry",
+        "no portable/public dataset package",
+        "no handoff artifact",
+        "no lab-sharing bundle"
+      ]
+    }
+  },
+  "boundary_notes": [
+    "Interaction events are fixture-declared user actions, not GUI events captured by Scopecat.",
+    "The candidate projects event results into existing recovery workflow and review-state summaries.",
+    "Dataset selection remains lab-internal validation state without creating a registry entry or portable/public dataset package.",
+    "Recorded replay expectations are user-owned context, not a replay harness or fit-code invocation."
+  ],
+  "decisions_not_earned": [
+    "GUI implementation",
+    "notebook integration",
+    "runner framework",
+    "remote execution",
+    "handoff artifact",
+    "lab-sharing bundle",
+    "replay harness",
+    "dataset registry",
+    "portable/public dataset package",
+    "fitting API",
+    "fit model selection",
+    "score model",
+    "automatic ROI selection",
+    "automatic initial-guess selection",
+    "automatic remeasurement",
+    "automatic retry or retune",
+    "parameter write-back",
+    "hardware control"
+  ]
+}
