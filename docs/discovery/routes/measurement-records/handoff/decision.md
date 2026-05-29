@@ -130,8 +130,11 @@ Do more handoff work only when one of these concrete triggers appears:
   beside the measurement.
 - Users need durable/final local records beyond the candidate storage
   acceptance slice:
-  design final storage import behavior, conflict handling, and existing-record
-  update policy. The current candidate mutation boundary is recorded in
+  use the accepted new-record durable import path in
+  [`durable-import-storage-decision.md`](../../../../architecture/handoff/durable-import-storage-decision.md).
+  Existing-record update, batch import, conflict handling beyond no-overwrite,
+  and stronger recovery still need separate decisions. The older candidate
+  mutation boundary is recorded in
   [`storage-acceptance-decision.md`](../../../../architecture/handoff/storage-acceptance-decision.md).
 - Analysis or fit results need first-class display:
   validate a read-only analysis-result model before executing fits or

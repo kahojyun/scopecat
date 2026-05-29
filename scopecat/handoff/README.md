@@ -75,6 +75,14 @@ caller-provided fresh acceptance preflight. It can report that the fresh
 preflight is ready for retry or still blocked, but it does not authorize
 continuation, reuse prior preflight facts, approve storage acceptance, or write
 storage.
+Durable Measurement Records import is a separate boundary from candidate
+handoff storage acceptance. When a reviewed handoff package feeds durable
+storage, the accepted path is to adapt exactly one ready import-plan
+measurement into `MeasurementRecordImportSource` and
+`MeasurementRecordDurableImportRequest`, then use the Measurement Records
+durable import pipeline. The first handoff integration should not extend
+`measurement_record_directory_candidate_v0`, import linked-context payloads,
+or batch multiple package measurements in one durable import operation.
 The module CLI remains a local operator surface. `python -m scopecat.handoff
 <package-dir>` opens a package for read-only orientation; `python -m
 scopecat.handoff --receipt-summary <receipt.json>` summarizes a local import

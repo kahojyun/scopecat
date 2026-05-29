@@ -186,3 +186,89 @@ It deliberately does not import into an existing record, attach to an existing
 created shell, merge primary data, replace manifests, import linked-context
 payloads, define adapter transport/discovery, or add conflict policy beyond
 new-record no-overwrite behavior.
+
+## Handoff Package Integration Decision
+
+Use the ready handoff import plan as the only handoff-side input boundary for
+durable import source facts.
+
+The next slice should prove:
+
+```text
+open handoff package
+  -> observe package integrity
+  -> approved receiving gate
+  -> ready non-mutating import plan
+  -> caller-declared durable record destination
+  -> MeasurementRecordImportSource
+  -> MeasurementRecordDurableImportRequest
+```
+
+The handoff package route should not call the older candidate storage
+acceptance path when the target is durable Measurement Records storage. It
+should adapt one ready import-plan measurement into the already implemented
+durable import request shape, then let the Measurement Records durable import
+pipeline perform creation, primary-data writing, read view, finalization, and
+read-model projection.
+
+For the first implementation, support exactly one selected package
+measurement. Multi-measurement packages should remain representable in the
+read-only import plan, but durable import should require a caller to choose one
+measurement and one destination record per operation. Batch import needs its
+own rollback and partial-success decision.
+
+## Handoff Fact Mapping
+
+The adapter from handoff package review to durable import should map:
+
+| Durable import field | Handoff source |
+| --- | --- |
+| `source_kind` | `handoff_package` |
+| `source_id` | opened package id |
+| `source_item_id` | package measurement record id |
+| `content_ref` | measurement primary package path |
+| `declared_digest` | measurement declared primary-data digest after integrity observation |
+| `size_bytes` | measurement observed primary-data byte size, requiring agreement with declared size when present |
+| `rows_recorded` | opened primary table row count |
+| `primary_data_format` | measurement primary format, currently `csv_table` |
+| `label` and `experiment_type` | package measurement label and experiment type |
+| `creation_source_kind` | `handoff` |
+
+Package integrity remains a precondition. It may be referenced in the local
+adapter receipt, but it does not become signature, authenticity, trust, or
+archive validation. Linked context remains reference-only review context. The
+first adapter should not copy linked-context payloads into storage or encode
+them into the durable import source facts beyond non-claim summaries.
+
+## First Handoff Integration Contract
+
+The first handoff integration implementation should:
+
+- require a ready `HandoffImportPlanRun`;
+- require exactly one planned measurement import;
+- require a caller-declared durable destination: `record_id`, `record_dir`,
+  `primary_data_path`, `writer_receipt_path`, `finalization_receipt_path`, and
+  `read_model_path`;
+- verify the selected measurement still belongs to the package and import
+  plan;
+- reject package measurements without declared digest or size facts;
+- construct `MeasurementRecordImportSource` and
+  `MeasurementRecordDurableImportRequest`;
+- optionally call `import_measurement_record_from_request(...)` when the
+  caller asks for a composed operation;
+- preserve no-overwrite and rollback behavior inside the durable import
+  pipeline rather than reimplementing storage mutation in the handoff module;
+- return a local handoff integration receipt that reports package id,
+  measurement id, destination facts, durable import classification, and
+  explicit non-claims.
+
+This handoff integration does not accept:
+
+- multiple-measurement durable batch import;
+- importing into existing records or attaching to pre-created shells;
+- using `measurement_record_directory_candidate_v0`;
+- linked-context payload materialization;
+- archive extraction, signatures, authenticity, or trust policy;
+- adapter transport/discovery or stable public adapter API;
+- conflict policy beyond the durable import new-record no-overwrite behavior;
+- GUI import review state or durable cross-session operator decisions.
