@@ -1,0 +1,235 @@
+{
+  "fixture_id": "calibration-fit-continuation-composition-rabi-recovery",
+  "fixture_status": "synthetic_public_safe",
+  "user_job": "Continue calibration after a user-owned Rabi refit while preserving the failed and adjusted fit attempts for lab-internal validation.",
+  "composition_links": {
+    "current_step_id": "step-2-rabi-amplitude",
+    "next_step_id": "step-3-t1-check",
+    "fit_incident_id": "incident-rabi-recovered-for-continuation",
+    "recovery_action_id": "incident-rabi-recovered-for-continuation:accept_after_refit",
+    "validation_case_id": "validation-case-rabi-recovered-for-continuation",
+    "selected_attempt_ids": [
+      "fit-attempt:rabi-05002-default-failed",
+      "fit-attempt:rabi-05002-roi-refit-accepted"
+    ]
+  },
+  "continuation_input": {
+    "fixture_id": "calibration-continuation-rabi-recovery-can-continue",
+    "fixture_status": "synthetic_public_safe",
+    "user_job": "Resume calibration after a user accepted an adjusted Rabi refit.",
+    "observed_at": "2026-05-28T10:30:00Z",
+    "declared_intent": {
+      "episode_id": "cal-episode-05001",
+      "label": "qA tune-up after Rabi refit",
+      "target_group": "qA",
+      "operator_intent": "Review Rabi amplitude recovery and continue to T1 after user acceptance.",
+      "execution_context": {
+        "kind": "local_user_python",
+        "label": "notebook-like local session",
+        "authority": "fixture_declared"
+      }
+    },
+    "declared_step_plan": [
+      {
+        "planned_step_id": "step-1-resonator-check",
+        "order": 1,
+        "label": "Resonator response check",
+        "target": "qA",
+        "purpose": "Verify readout response before pulse calibration.",
+        "user_authored_entrypoint": "calibration_helpers.check_resonator",
+        "continuation_policy": "continue_on_success"
+      },
+      {
+        "planned_step_id": "step-2-rabi-amplitude",
+        "order": 2,
+        "label": "Rabi amplitude recovery",
+        "target": "qA",
+        "purpose": "Recover a visible-signal Rabi fit by user-adjusted ROI and initial guess.",
+        "user_authored_entrypoint": "calibration_helpers.measure_rabi",
+        "continuation_policy": "continue_after_user_accepted_refit"
+      },
+      {
+        "planned_step_id": "step-3-t1-check",
+        "order": 3,
+        "label": "T1 check",
+        "target": "qA",
+        "purpose": "Measure T1 after the Rabi recovery is accepted.",
+        "user_authored_entrypoint": "calibration_helpers.measure_t1",
+        "continuation_policy": "requires_prior_review_acceptance"
+      }
+    ],
+    "observed_records": {
+      "measurements": [
+        {
+          "record_id": "measurement:run-05001",
+          "produced_by_step": "step-1-resonator-check",
+          "measurement_id": "run-05001",
+          "legacy_data_id": 5001,
+          "label": "qA resonator response check",
+          "path": "source/calibration-composition/resonator-response-source.csv",
+          "status": "completed",
+          "authority": "fixture_observed_record"
+        },
+        {
+          "record_id": "measurement:run-05002",
+          "produced_by_step": "step-2-rabi-amplitude",
+          "measurement_id": "run-05002",
+          "legacy_data_id": 5002,
+          "label": "qA Rabi amplitude scan with accepted refit",
+          "path": "source/calibration-composition/rabi-amplitude-source.csv",
+          "status": "completed",
+          "authority": "fixture_observed_record"
+        }
+      ],
+      "parameter_snapshots": [
+        {
+          "record_id": "snapshot:params-before-step-1",
+          "related_step": "step-1-resonator-check",
+          "label": "Parameters before resonator check",
+          "path": "snapshots/params-before-step-1.json",
+          "timing": "before_step",
+          "authority": "fixture_observed_record"
+        },
+        {
+          "record_id": "snapshot:params-before-step-2",
+          "related_step": "step-2-rabi-amplitude",
+          "label": "Parameters before Rabi amplitude scan",
+          "path": "snapshots/params-before-step-2.json",
+          "timing": "before_step",
+          "authority": "fixture_observed_record"
+        }
+      ],
+      "fit_previews": [
+        {
+          "record_id": "fit-preview:rabi-refit-accepted",
+          "related_step": "step-2-rabi-amplitude",
+          "source_measurement": "run-05002",
+          "label": "Rabi amplitude adjusted refit preview",
+          "path": "artifacts/rabi-refit-accepted.json",
+          "status": "accepted_after_user_adjustment",
+          "durable_analysis_result": false,
+          "quality_score": 0.86,
+          "quality_threshold": 0.8,
+          "authority": "fixture_observed_record"
+        }
+      ],
+      "proposed_writes": [],
+      "applied_writes": [],
+      "notes": [
+        {
+          "note_id": "note-rabi-recovery-accepted",
+          "related_step": "step-2-rabi-amplitude",
+          "text": "User accepted adjusted Rabi refit and selected the failed/default attempt history for validation.",
+          "authority": "fixture_operator_note"
+        }
+      ]
+    },
+    "known_review_state": [],
+    "known_blocking": []
+  },
+  "fit_validation_input": {
+    "fixture_id": "calibration-fit-validation-dataset-composed-rabi-recovery",
+    "user_job": "Preserve a failed default Rabi fit and accepted adjusted refit while calibration continues.",
+    "dataset_draft": {
+      "dataset_id": "fit-validation-dataset-qA-0003",
+      "label": "qA continuation-linked fit validation draft",
+      "posture": "lab_internal_validation_dataset_draft"
+    },
+    "fit_incidents": [
+      {
+        "incident_id": "incident-rabi-recovered-for-continuation",
+        "order": 1,
+        "state": "fit_repaired_after_adjustment",
+        "measurement_ref": {
+          "record_id": "measurement:run-05002",
+          "label": "Rabi amplitude scan with accepted adjusted refit",
+          "preview_metadata_ref": "preview:rabi-amplitude-05002"
+        },
+        "calibration_target": "qA.drive_amplitude",
+        "fit_family": "rabi_amplitude",
+        "fit_attempt": {
+          "attempt_id": "fit-attempt:rabi-05002-roi-refit-accepted",
+          "status": "completed_after_user_adjustment",
+          "status_reason": "Adjusted ROI and initial guess completed without exception.",
+          "user_code_ref": "code:rabi-fit-helper-v2",
+          "fit_config_ref": "fit-config:rabi-adjusted-roi-and-guess",
+          "output_ref": "artifact:rabi-fit-adjusted-preview-05002"
+        },
+        "fit_attempt_history": [
+          {
+            "attempt_id": "fit-attempt:rabi-05002-default-failed",
+            "order": 1,
+            "status": "fit_failed_exception",
+            "status_reason": "Default initial guess missed the visible oscillation region.",
+            "user_code_ref": "code:rabi-fit-helper-v2",
+            "fit_config_ref": "fit-config:rabi-default-roi",
+            "config_labels": [
+              "default_roi",
+              "default_initial_guess"
+            ],
+            "input_adjustments": [],
+            "output_ref": "artifact:rabi-default-fit-exception-preview-05002",
+            "declared_diagnostics": {
+              "fit_quality_facts": [
+                "visible_oscillation",
+                "exception_before_result"
+              ],
+              "score_policy": "user_declared_no_threshold"
+            }
+          },
+          {
+            "attempt_id": "fit-attempt:rabi-05002-roi-refit-accepted",
+            "order": 2,
+            "status": "completed_after_user_adjustment",
+            "status_reason": "User narrowed the ROI and changed the initial guess.",
+            "user_code_ref": "code:rabi-fit-helper-v2",
+            "fit_config_ref": "fit-config:rabi-adjusted-roi-and-guess",
+            "config_labels": [
+              "adjusted_roi",
+              "adjusted_initial_guess"
+            ],
+            "input_adjustments": [
+              "roi_narrowed_to_visible_oscillation",
+              "initial_guess_seeded_from_neighboring_period"
+            ],
+            "output_ref": "artifact:rabi-fit-adjusted-preview-05002",
+            "declared_diagnostics": {
+              "fit_quality_facts": [
+                "completed_without_exception",
+                "manual_review_accepted"
+              ],
+              "score_policy": "user_declared_no_threshold"
+            }
+          }
+        ],
+        "labels": [
+          "signal_fit_failed",
+          "roi_adjusted_refit",
+          "initial_guess_adjusted_refit",
+          "fit_repaired",
+          "add_to_validation_dataset"
+        ],
+        "recovery": {
+          "available_actions": [
+            "adjust_roi_refit",
+            "adjust_initial_guess_refit",
+            "accept_after_refit",
+            "add_to_validation_dataset"
+          ],
+          "chosen_action": "accept_after_refit"
+        },
+        "dataset_selection": {
+          "selected": true,
+          "selected_attempt_ids": [
+            "fit-attempt:rabi-05002-default-failed",
+            "fit-attempt:rabi-05002-roi-refit-accepted"
+          ],
+          "reason": "The failed default fit and accepted adjusted refit should remain linked while calibration continues."
+        },
+        "review_note_ref": "note:rabi-recovery-accepted",
+        "expected_replay_behavior": "Improved user code should cover the default visible-signal failure or make the required ROI and initial-guess adjustment explicit.",
+        "authority": "fixture_declared_user_review"
+      }
+    ]
+  }
+}
