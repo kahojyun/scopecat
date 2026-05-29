@@ -96,3 +96,16 @@ read models under a caller-declared records directory, returns compact catalog
 entries, and reports missing, malformed, conflicting, or source-digest-stale
 projections as review findings. It does not refresh read models, repair
 storage, replace manifests, or revalidate primary data.
+
+The next accepted boundary is explicit read-model refresh. It should recompute
+`record-read-model.json` from the creation manifest, writer receipt, read view,
+and finalization receipt, write a temporary record-local model, then atomically
+replace only the derived read model. The previous read model is an overwrite
+guard, not source evidence. Refresh must not replace manifests, mutate
+receipts, repair primary data, or define canonical storage authority.
+
+This refresh slice is now implemented through
+`refresh_measurement_record_read_model(...)` and
+`refresh_measurement_record_read_model_from_read_view(...)`. It supports
+caller-declared `missing` and `replace_existing` target conditions; replacing
+an existing read model requires the expected current digest.

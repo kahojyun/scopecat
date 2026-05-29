@@ -396,3 +396,89 @@ It deliberately performs no storage mutation. It does not refresh or repair
 read models, replace manifests, revalidate primary data, define conflict
 resolution, create a database index, promote public export schema, or define
 canonical storage authority.
+
+## Read Model Refresh Decision
+
+Choose explicit, approved read-model refresh with atomic replacement of the
+derived `record-read-model.json` only.
+
+The next slice should prove:
+
+```text
+creation manifest
+  -> writer receipt
+  -> read-view summary
+  -> finalization receipt
+  -> approved refresh request
+  -> temporary record-local read model
+  -> atomic replacement of record-read-model.json
+  -> local refresh run receipt
+```
+
+Refresh recomputes the read model from authoritative prototype inputs: the
+creation manifest, writer receipt, read view, and finalization receipt. It
+must not trust the previous read model as source evidence. The previous
+`record-read-model.json` is only an overwrite guard and stale-state target.
+Receipts and the creation manifest continue to win over the projected read
+model after refresh.
+
+The first refresh implementation should:
+
+- require an approved refresh request;
+- consume the same authoritative inputs as the projection slice;
+- require record id, record directory, manifest path, writer receipt path,
+  primary data path, digest, size, row-count, and finalization continuity;
+- require the caller to declare the expected target condition as `missing` or
+  `replace_existing`;
+- for `replace_existing`, require an expected current
+  `record-read-model.json` digest before replacement;
+- write a temporary read model under the same record directory;
+- atomically replace `record-read-model.json` only after the temporary model is
+  complete;
+- best-effort remove the temporary file on synchronous failure;
+- leave the creation manifest, writer receipt, primary data, and finalization
+  receipt unchanged.
+
+Refresh is allowed when the catalog reports a missing, malformed, conflicting,
+or source-digest-stale read model, but the refresh operation itself should
+validate against the authoritative inputs rather than against the catalog
+finding. If the authoritative inputs no longer agree, refresh should block
+before replacement.
+
+This decision does not accept:
+
+- replacing, rewriting, or atomically swapping `record-manifest.json`;
+- treating `record-read-model.json` as canonical storage authority;
+- repairing or mutating writer receipts, finalization receipts, primary data,
+  or creation manifests;
+- accepting broad overwrite without an expected current target condition;
+- lock identity, stale-lock cleanup, concurrent refresh, or distributed
+  transaction semantics;
+- public storage schema, export schema, database index refresh, or GUI review
+  state.
+
+If refresh fails before atomic replacement, the previous read model should
+remain in place when it existed. If refresh fails after a successful atomic
+replacement, the operation should report that replacement occurred and should
+not attempt rollback in the first slice. Stronger crash recovery and lock
+identity remain separate storage-hardening decisions.
+
+## Read Model Refresh Implementation Checkpoint
+
+The first read-model refresh slice is implemented in
+[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+It exposes a raw-dictionary entrypoint,
+`refresh_measurement_record_read_model(...)`, and a typed request entrypoint,
+`refresh_measurement_record_read_model_from_read_view(...)`.
+
+This slice recomputes `record-read-model.json` from a read view plus the
+authoritative creation manifest, writer receipt, and finalization receipt. It
+requires an approved refresh request and a caller-declared target condition:
+`missing` or `replace_existing`. `replace_existing` requires an expected
+current read-model digest. Refresh writes a temporary record-local model and
+uses atomic replacement for the final `record-read-model.json`.
+
+It deliberately treats the previous read model only as an overwrite guard. It
+does not replace `record-manifest.json`, mutate receipts, repair primary data,
+accept broad overwrite, define concurrent refresh, implement lock identity, or
+promote canonical storage authority.

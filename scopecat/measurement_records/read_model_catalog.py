@@ -363,7 +363,7 @@ def _validate_entry_against_scan(
     policy = _require_dict(model, "read_model_policy")
     if policy.get("canonical_storage_authority") != "not_claimed":
         raise ValueError("Projected read model claims canonical storage authority.")
-    if policy.get("refresh") != "not_performed":
+    if policy.get("refresh") not in {"not_performed", "performed_by_approved_refresh"}:
         raise ValueError("Projected read model claims refresh behavior.")
 
 
