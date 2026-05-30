@@ -11,6 +11,12 @@ acceptance, reference-only import, reference-only source observation,
 append-only storage writer, existing-record append receipt, and measurement
 source observation slices.
 
+Later durable Measurement Records import work supersedes the copy-acceptance
+slice for active new-record import. Keep this document as discovery route
+evidence for source/reference separation and historical copy acceptance; use
+[`durable-import-storage-decision.md`](../../../architecture/handoff/durable-import-storage-decision.md)
+for the current durable new-record import boundary.
+
 It does not accept a stable import API, adapter API, legacy reader, final
 storage schema, full existing-record update behavior, reference repair,
 package format, GUI contract, dataframe API, schema-inference engine, or
@@ -58,10 +64,12 @@ sha256, and byte size for one explicit external source reference. It does not
 earn data parsing, row counts, schema validation, preview verification, plot
 readiness, repair, or import acceptance.
 
-Copy acceptance owns one approved copy-into-new-record mutation for reviewed
-adapter-normalized primary data. The copied file is Scopecat-readable only
-because the adapter output is normalized, not because the legacy source exists
-or was observed.
+The historical copy-acceptance slice owned one approved copy-into-new-record
+mutation for reviewed adapter-normalized primary data. The copied file was
+Scopecat-readable only because the adapter output was normalized, not because
+the legacy source existed or was observed. Active new-record import now goes
+through the durable Measurement Records creation, writer, finalization, and
+read-model pipeline.
 
 Stored source observation is a separate read-only check over a declared
 normalized primary-data file under a caller-provided storage root. Its current
@@ -113,7 +121,7 @@ plus declared output file facts.
 | Adapter normalization | Adapter-authored legacy import manifest | Validate reviewed adapter-authored manifest facts with adapter-normalized primary data and external source identity. |
 | Adapter-produced input boundary | Adapter output boundary | Validate one file-shaped adapter-produced boundary as transport pressure, including declared manifest, primary-data, and linked-context file facts. |
 | Normalized table reading | Normalized primary table | Validate already-provided normalized CSV bytes into string-valued table facts and declared preview rows without file observation or schema inference. |
-| Copy acceptance | Legacy import acceptance | Copy one reviewed adapter-normalized primary file into a new record after approval and file preflight. |
+| Copy acceptance | Legacy import acceptance | Historically copied one reviewed adapter-normalized primary file into a new record after approval and file preflight; active new-record import is owned by durable Measurement Records import. |
 | Reference preservation | Reference-only legacy import | Preserve one lab-managed external source reference without source observation or storage mutation. |
 | External file observation | Reference-only source observation | Check availability, sha256, and byte size for one preserved external source reference. |
 | New-record writing | New-run writer, append-only storage writer | Represent writer events and write one new storage record from declared chunks. |

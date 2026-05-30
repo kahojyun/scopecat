@@ -39,7 +39,8 @@ durable creation lifecycle?
 
 ## Evidence Compared
 
-The current handoff implementation accepts one candidate storage mutation in
+At the time of this synthesis, the handoff implementation accepted one
+candidate storage mutation in
 [`storage-acceptance-decision.md`](storage-acceptance-decision.md). That slice
 requires explicit approval, exact destination fact continuity, no-overwrite
 creation, and best-effort synchronous rollback for

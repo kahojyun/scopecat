@@ -95,7 +95,7 @@ data-level observation, or that adapters own legacy parsing.
 | [`normalized-primary-table-validation-result.md`](../../slices/measurement-records/normalized-primary-table-validation-result.md) | Normalized primary CSV table read candidate over already-provided bytes. |
 | [`adapter-authored-legacy-import-validation-result.md`](../../slices/measurement-records/adapter-authored-legacy-import-validation-result.md) | Normalized adapter-authored legacy import manifest candidate. |
 | [`adapter-output-boundary-validation-result.md`](../../slices/measurement-records/adapter-output-boundary-validation-result.md) | File-shaped adapter-produced input boundary as transport pressure. |
-| [`legacy-import-acceptance-validation-result.md`](../../slices/measurement-records/legacy-import-acceptance-validation-result.md) | Approved copy-into-new-record acceptance candidate. |
+| [`legacy-import-acceptance-validation-result.md`](../../slices/measurement-records/legacy-import-acceptance-validation-result.md) | Historical approved copy-into-new-record acceptance candidate; active new-record import is owned by durable Measurement Records import. |
 | [`reference-only-legacy-import-validation-result.md`](../../slices/measurement-records/reference-only-legacy-import-validation-result.md) | Reference-only acceptance candidate for preserving external source references. |
 | [`reference-only-source-observation-validation-result.md`](../../slices/measurement-records/reference-only-source-observation-validation-result.md) | File-level observation candidate for preserved external source references. |
 | [`new-run-measurement-writer-validation-result.md`](../../slices/measurement-records/new-run-measurement-writer-validation-result.md) | Side-effect-free writer-event summary candidate. |
@@ -120,11 +120,13 @@ data-level observation, or that adapters own legacy parsing.
 These rows are historical discovery evidence. Current accepted implementation
 boundaries live in
 [`engineering-prototype-promotion-decision.md`](../../../architecture/handoff/engineering-prototype-promotion-decision.md)
-and the first candidate storage mutation boundary lives in
+and the historical first candidate storage mutation boundary lives in
 [`storage-acceptance-decision.md`](../../../architecture/handoff/storage-acceptance-decision.md).
-The current storage/import requirements synthesis before durable
+The historical storage/import requirements synthesis from before durable
 measurement-record creation lives in
 [`storage-import-requirements-synthesis.md`](../../../architecture/handoff/storage-import-requirements-synthesis.md).
+The active durable handoff import boundary lives in
+[`durable-import-storage-decision.md`](../../../architecture/handoff/durable-import-storage-decision.md).
 
 | Document | Use For |
 | --- | --- |

@@ -4,7 +4,13 @@
 
 Implementation candidate validated.
 
-This result validates a narrow Measurement Records slice:
+Document role: historical discovery validation result. It records the old
+copy-into-new-record acceptance candidate for reviewed adapter-authored
+manifests. The current durable new-record import boundary is owned by
+[`durable-import-storage-decision.md`](../../../architecture/handoff/durable-import-storage-decision.md);
+do not update this result to mirror live durable import API or receipt changes.
+
+This result validates an old narrow Measurement Records slice:
 **Legacy Import Acceptance**.
 
 It does not accept a stable public adapter or import API, LabRAD, DataVault, or
@@ -12,6 +18,7 @@ Labber reader, Scopecat export-package acceptance flow, existing-record update
 path, linked-context payload import, schema inference engine, recursive
 relation traversal, final storage architecture, package integrity contract, or
 GUI workflow.
+It is not the active durable Measurement Records new-record import route.
 
 ## Fixture
 
@@ -80,12 +87,17 @@ It does not:
 
 ## Result
 
-Legacy import acceptance is a useful next step after the normalized manifest
-slice because it tests the first explicit storage mutation for old lab records
-without pulling legacy parsers into Scopecat core. It is also separate from
+Legacy import acceptance was a useful next step after the normalized manifest
+slice because it tested the first explicit storage mutation for old lab records
+without pulling legacy parsers into Scopecat core. It remains separate from
 incoming-record import preview and handoff package contents preview: this
 fixture starts from an adapter-authored manifest plus approval, not an
 external incoming-record manifest or a Scopecat-authored export package.
+
+For current new-record import, use the durable import decision and prototype
+instead. That route creates a Measurement Record through the durable creation,
+writer, finalization, read-model, and local receipt pipeline instead of
+extending this candidate imported-record manifest shape.
 
 The candidate is intentionally small. It copies one primary-data file and
 writes one imported-record manifest under a caller-provided storage root after
@@ -94,8 +106,9 @@ separately, and stronger update behavior remains a separate storage problem.
 
 ## Follow-Up
 
-Stop this slice at copy-into-new-record acceptance unless the next workflow
-needs a harder storage or adapter boundary.
+Stop this slice at historical copy-into-new-record acceptance unless a future
+workflow explicitly needs legacy-specific adapter acceptance pressure not
+covered by durable import.
 
 Likely follow-up slices should stay separate:
 
