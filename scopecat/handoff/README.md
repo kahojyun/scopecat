@@ -36,6 +36,13 @@ measurement import plan. It names the package members that would be considered
 for a later acceptance mutation, but it accepts no destination path, performs
 no conflict detection, writes no storage records, and does not decide final
 storage schema or rollback policy.
+Linked context entries may carry a small `context_reference` object with a
+public-safe reference id, kind, family, and explicit reference-only
+materialization posture. This lets packages keep selected experiment-code,
+prepared-run, environment-operation, parameter, or setup context visible during
+open/import planning without packaging those payloads, resolving references,
+restoring environments, or importing linked context into durable Measurement
+Records storage.
 Durable Measurement Records import is a separate boundary from candidate
 handoff storage acceptance. When a reviewed handoff package feeds durable
 storage, the accepted path is to adapt exactly one ready import-plan

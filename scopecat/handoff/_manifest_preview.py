@@ -138,6 +138,7 @@ class HandoffManifestLinkedContext:
     package_state: str
     reason: str | None
     linked_measurement_record_ids: tuple[str, ...]
+    context_reference: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -226,6 +227,7 @@ def _linked_context_from_manifest(
             package_state=item["package_state"],
             reason=item["reason"],
             linked_measurement_record_ids=tuple(item["linked_measurement_record_ids"]),
+            context_reference=copy.deepcopy(item.get("context_reference")),
         )
         for item in source["linked_context"]
     )
@@ -346,6 +348,32 @@ def _validate_linked_context(source: dict[str, Any]) -> None:
             selected_ids=selected_ids,
             owner=f"linked context {link_id}",
         )
+        _validate_context_reference(item)
+
+
+def _validate_context_reference(item: dict[str, Any]) -> None:
+    reference = item.get("context_reference")
+    if reference is None:
+        return
+    if not isinstance(reference, dict):
+        raise ValueError("linked context context_reference must be an object")
+    if set(reference) != {
+        "reference_id",
+        "reference_kind",
+        "reference_family",
+        "materialization",
+        "payload_import",
+    }:
+        raise ValueError("linked context context_reference fields are unsupported")
+    validate_public_identifier(reference["reference_id"], "linked context reference_id")
+    validate_public_identifier(reference["reference_kind"], "linked context reference_kind")
+    validate_public_identifier(reference["reference_family"], "linked context reference_family")
+    if reference["reference_kind"] != item["kind"]:
+        raise ValueError("linked context reference_kind must match kind")
+    if reference["materialization"] != "reference_only":
+        raise ValueError("linked context context_reference materialization must be reference_only")
+    if reference["payload_import"] != "not_performed":
+        raise ValueError("linked context context_reference payload_import must be not_performed")
 
 
 def _package_contents(source: dict[str, Any]) -> list[dict[str, Any]]:

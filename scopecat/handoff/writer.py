@@ -137,6 +137,14 @@ _LINKED_CONTEXT_KEYS = {
     "reason",
     "linked_measurement_record_ids",
 }
+_OPTIONAL_LINKED_CONTEXT_KEYS = {"context_reference"}
+_CONTEXT_REFERENCE_KEYS = {
+    "reference_id",
+    "reference_kind",
+    "reference_family",
+    "materialization",
+    "payload_import",
+}
 
 
 @dataclass(frozen=True)
@@ -354,9 +362,10 @@ class _LinkedContext:
     package_state: str
     reason: str
     linked_measurement_record_ids: tuple[str, ...]
+    context_reference: dict[str, str] | None = None
 
     def to_manifest(self) -> dict[str, Any]:
-        return {
+        result = {
             "link_id": self.link_id,
             "kind": self.kind,
             "label": self.label,
@@ -368,6 +377,9 @@ class _LinkedContext:
             "reason": self.reason,
             "linked_measurement_record_ids": list(self.linked_measurement_record_ids),
         }
+        if self.context_reference is not None:
+            result["context_reference"] = dict(self.context_reference)
+        return result
 
 
 @dataclass(frozen=True)
@@ -459,11 +471,17 @@ def _validate_source_shape(source: dict[str, Any]) -> None:
     if not isinstance(linked_context, list):
         raise ValueError("linked_context must be a list")
     for item in linked_context:
-        _require_keys(
-            _require_mapping(item, "linked_context item"),
-            _LINKED_CONTEXT_KEYS,
-            "linked_context item",
-        )
+        item = _require_mapping(item, "linked_context item")
+        keys = set(item)
+        allowed_keys = _LINKED_CONTEXT_KEYS | _OPTIONAL_LINKED_CONTEXT_KEYS
+        if not _LINKED_CONTEXT_KEYS.issubset(keys) or not keys.issubset(allowed_keys):
+            raise ValueError("linked_context item fields are unsupported")
+        if "context_reference" in item:
+            _require_keys(
+                _require_mapping(item["context_reference"], "linked_context context_reference"),
+                _CONTEXT_REFERENCE_KEYS,
+                "linked_context context_reference",
+            )
 
 
 def _validate_selected_measurement_shape(record: Any) -> None:
@@ -649,6 +667,31 @@ def _validate_linked_context(source: dict[str, Any]) -> None:
             selected_ids=selected_ids,
             owner="handoff package linked context",
         )
+        _validate_context_reference(item)
+
+
+def _validate_context_reference(item: dict[str, Any]) -> None:
+    reference = item.get("context_reference")
+    if reference is None:
+        return
+    validate_public_identifier(
+        reference["reference_id"],
+        "handoff package linked context reference_id",
+    )
+    validate_public_identifier(
+        reference["reference_kind"],
+        "handoff package linked context reference_kind",
+    )
+    validate_public_identifier(
+        reference["reference_family"],
+        "handoff package linked context reference_family",
+    )
+    if reference["reference_kind"] != item["kind"]:
+        raise ValueError("handoff package linked context reference_kind must match kind")
+    if reference["materialization"] != "reference_only":
+        raise ValueError("handoff package linked context reference must stay reference_only")
+    if reference["payload_import"] != "not_performed":
+        raise ValueError("handoff package linked context payload import must not be performed")
 
 
 def _paths_overlap(left: str, right: str) -> bool:
@@ -778,6 +821,7 @@ def _parse_selected_measurement(record: dict[str, Any]) -> _SelectedMeasurement:
 
 
 def _parse_linked_context(item: dict[str, Any]) -> _LinkedContext:
+    context_reference = item.get("context_reference")
     return _LinkedContext(
         link_id=item["link_id"],
         kind=item["kind"],
@@ -789,6 +833,7 @@ def _parse_linked_context(item: dict[str, Any]) -> _LinkedContext:
         package_state=item["package_state"],
         reason=item["reason"],
         linked_measurement_record_ids=tuple(item["linked_measurement_record_ids"]),
+        context_reference=dict(context_reference) if context_reference is not None else None,
     )
 
 

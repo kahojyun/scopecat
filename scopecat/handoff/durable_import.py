@@ -210,6 +210,9 @@ class HandoffDurableImportRun:
                     plan.measurement.measurement_record_id
                     for plan in self.import_plan.measurement_plans
                 ],
+                "linked_context": [
+                    plan.to_dict() for plan in self.import_plan.linked_context_plans
+                ],
             },
             "durable_import_request": (
                 None

@@ -256,6 +256,7 @@ def open_handoff_package(package_dir: Path) -> HandoffPackage:
             package_state=item.package_state,
             materialization="reference_only",
             linked_measurement_record_ids=item.linked_measurement_record_ids,
+            context_reference=item.context_reference,
         )
         for item in preview.linked_context
     )

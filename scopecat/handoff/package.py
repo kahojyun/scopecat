@@ -59,6 +59,7 @@ class HandoffLinkedContext:
     package_state: str
     materialization: str
     linked_measurement_record_ids: tuple[str, ...]
+    context_reference: dict[str, str] | None = None
 
     @classmethod
     def from_manifest_item(cls, item: dict[str, Any]) -> HandoffLinkedContext:
@@ -69,10 +70,11 @@ class HandoffLinkedContext:
             package_state=item["package_state"],
             materialization="reference_only",
             linked_measurement_record_ids=tuple(item["linked_measurement_record_ids"]),
+            context_reference=copy.deepcopy(item.get("context_reference")),
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "link_id": self.link_id,
             "kind": self.kind,
             "label": self.label,
@@ -80,6 +82,9 @@ class HandoffLinkedContext:
             "materialization": self.materialization,
             "linked_measurement_record_ids": list(self.linked_measurement_record_ids),
         }
+        if self.context_reference is not None:
+            result["context_reference"] = copy.deepcopy(self.context_reference)
+        return result
 
 
 @dataclass(frozen=True)

@@ -20,6 +20,7 @@ from scopecat.handoff import (
     run_handoff_durable_import,
     run_handoff_durable_import_from_plan,
     summarize_handoff_durable_import_receipt,
+    write_package,
 )
 from scopecat.handoff.durable_import import (
     HANDOFF_DURABLE_IMPORT_POLICY,
@@ -37,6 +38,9 @@ PACKAGE = (
     / "basic_package"
     / "package"
     / "handoff-package-legacy-rabi-001"
+)
+WRITER_FIXTURE = (
+    ROOT / "tests" / "fixtures" / "handoff_engineering_prototype_writer" / "basic_package"
 )
 
 
@@ -105,6 +109,10 @@ def _copy_package(temp_root: Path) -> Path:
     return package_dir
 
 
+def _writer_source() -> dict:
+    return json.loads((WRITER_FIXTURE / "package-writer-input.json").read_text(encoding="utf-8"))
+
+
 def _receiving_request() -> HandoffReceivingReviewRequest:
     return HandoffReceivingReviewRequest(
         request_id="receive-handoff-package-legacy-rabi-001",
@@ -166,6 +174,104 @@ def _import_plan_run(package_dir: Path):
 
 
 class HandoffDurableImportAdapterTest(unittest.TestCase):
+    def test_writer_to_durable_import_carries_experiment_context_as_references(self) -> None:
+        source = _writer_source()
+        source["linked_context"].extend(
+            [
+                {
+                    "link_id": "package-legacy-001-managed-code-version",
+                    "kind": "managed_code_version",
+                    "label": "Selected calibration code version",
+                    "package_path": None,
+                    "include_status": "visible_excluded",
+                    "relation": "run_start_context",
+                    "authority": "scopecat_export_manifest",
+                    "package_state": "not_packaged_visible_reference",
+                    "reason": (
+                        "The package carries this code context as a reference-only "
+                        "review fact; code payloads are not packaged."
+                    ),
+                    "linked_measurement_record_ids": ["legacy-rabi-001"],
+                    "context_reference": {
+                        "reference_id": "managed-code-version-rabi-001",
+                        "reference_kind": "managed_code_version",
+                        "reference_family": "experiment_code",
+                        "materialization": "reference_only",
+                        "payload_import": "not_performed",
+                    },
+                },
+                {
+                    "link_id": "package-legacy-001-environment-review",
+                    "kind": "uv_sync_operation_review",
+                    "label": "Selected environment operation review",
+                    "package_path": None,
+                    "include_status": "visible_excluded",
+                    "relation": "run_start_context",
+                    "authority": "scopecat_export_manifest",
+                    "package_state": "not_packaged_visible_reference",
+                    "reason": (
+                        "The package carries this environment context as a "
+                        "reference-only review fact; environment restoration is not "
+                        "performed."
+                    ),
+                    "linked_measurement_record_ids": ["legacy-rabi-001"],
+                    "context_reference": {
+                        "reference_id": "uv-sync-operation-review-rabi-001",
+                        "reference_kind": "uv_sync_operation_review",
+                        "reference_family": "environment_operation",
+                        "materialization": "reference_only",
+                        "payload_import": "not_performed",
+                    },
+                },
+            ]
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_root = temp_root / "packages"
+            storage_root = temp_root / "storage"
+            package_root.mkdir()
+            storage_root.mkdir()
+            write_package(
+                source,
+                source_root=WRITER_FIXTURE / "source",
+                package_root=package_root,
+            )
+            package_dir = package_root / "handoff-package-legacy-rabi-001"
+
+            import_plan = _import_plan_run(package_dir)
+            run = run_handoff_durable_import_from_plan(
+                _request(),
+                import_plan=import_plan,
+                storage_root=storage_root,
+            )
+            summary = run.to_dict()
+
+        self.assertEqual(run.classification, "imported_handoff_measurement_record")
+        linked_context = summary["import_plan"]["linked_context"]
+        context_by_id = {item["link_id"]: item for item in linked_context}
+        self.assertEqual(
+            context_by_id["package-legacy-001-managed-code-version"]["context_reference"],
+            {
+                "reference_id": "managed-code-version-rabi-001",
+                "reference_kind": "managed_code_version",
+                "reference_family": "experiment_code",
+                "materialization": "reference_only",
+                "payload_import": "not_performed",
+            },
+        )
+        self.assertEqual(
+            context_by_id["package-legacy-001-environment-review"]["context_reference"][
+                "reference_family"
+            ],
+            "environment_operation",
+        )
+        self.assertNotIn(
+            "context_reference",
+            json.dumps(summary["durable_import_request"], sort_keys=True),
+        )
+        self.assertIn("linked_context_payload_import", summary["workflow"]["does_not_claim"])
+
     def test_imports_ready_single_measurement_plan_as_durable_record(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
