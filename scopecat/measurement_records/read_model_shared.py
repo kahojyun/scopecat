@@ -86,7 +86,7 @@ def _validate_finalization_receipt(
     if final_state not in {"complete", "failed"}:
         raise ValueError("read model projection finalization state is unsupported")
     evidence = _require_dict(finalization, "evidence")
-    writer_ref = read_view.to_dict()["writer_receipt"]
+    writer_ref = _writer_receipt_ref(read_view.writer_receipt)
     if evidence.get("read_view_classification") != read_view.classification:
         raise ValueError("read model projection read view classification must match finalization")
     if evidence.get("primary_data_path") != writer_ref["primary_data_path"]:
@@ -110,8 +110,8 @@ def _read_model(
     finalization_receipt: dict[str, Any],
     finalization_receipt_digest: str,
 ) -> dict[str, Any]:
-    manifest_ref = read_view.to_dict()["record_manifest"]
-    writer_ref = read_view.to_dict()["writer_receipt"]
+    manifest_ref = _manifest_ref(read_view.record_manifest)
+    writer_ref = _writer_receipt_ref(read_view.writer_receipt)
     finalization = _require_dict(finalization_receipt, "finalization")
     final_state = finalization["final_state"]
     finalization_entry = {
@@ -175,6 +175,32 @@ def _read_model(
             "projection_kind": "derived_local_summary",
         },
         "does_not_claim": list(READ_MODEL_DOES_NOT_CLAIM),
+    }
+
+
+def _manifest_ref(manifest: dict[str, Any]) -> dict[str, Any]:
+    record = _require_dict(manifest, "record")
+    storage = _require_dict(manifest, "storage")
+    return {
+        "schema": manifest.get("schema"),
+        "record_id": record.get("record_id"),
+        "lifecycle_state": record.get("lifecycle_state"),
+        "record_dir": storage.get("record_dir"),
+        "manifest_path": storage.get("manifest_path"),
+    }
+
+
+def _writer_receipt_ref(receipt: dict[str, Any]) -> dict[str, Any]:
+    record = _require_dict(receipt, "record")
+    primary_data = _require_dict(receipt, "primary_data")
+    writer_request = _require_dict(receipt, "writer_request")
+    return {
+        "schema": receipt.get("schema"),
+        "record_id": record.get("record_id"),
+        "writer_receipt_path": writer_request.get("writer_receipt_path"),
+        "primary_data_path": primary_data.get("path"),
+        "primary_data_digest": primary_data.get("digest"),
+        "rows_recorded": primary_data.get("rows_recorded"),
     }
 
 
