@@ -128,14 +128,17 @@ Do more handoff work only when one of these concrete triggers appears:
 - GUI review needs inspectable context content:
   validate one concrete linked-context payload category and how it appears
   beside the measurement.
-- Users need durable/final local records beyond the candidate storage
-  acceptance slice:
-  use the accepted new-record durable import path in
+- Users need durable/final local records beyond the implemented
+  single-measurement new-record path:
+  reopen from the accepted durable import path in
   [`durable-import-storage-decision.md`](../../../../architecture/handoff/durable-import-storage-decision.md).
-  The first single-measurement handoff adapter is implemented through that
-  path; existing-record update, batch import, conflict handling beyond
-  no-overwrite, and stronger recovery still need separate decisions. The older
-  candidate mutation boundary is recorded in
+  The current trigger is satisfied for reviewed handoff package to
+  single-measurement new durable record import, receipt summary, retry review,
+  and CLI receipt summary. Existing-record update, batch import, conflict
+  handling beyond no-overwrite, stronger recovery/concurrency, linked-context
+  payload import, package trust/archive handling, public adapter transport, and
+  GUI durable review state still need separate decisions. The older candidate
+  mutation boundary is recorded in
   [`storage-acceptance-decision.md`](../../../../architecture/handoff/storage-acceptance-decision.md).
 - Analysis or fit results need first-class display:
   validate a read-only analysis-result model before executing fits or

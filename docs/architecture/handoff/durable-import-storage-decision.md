@@ -345,3 +345,28 @@ It deliberately does not create a durable import request, reuse the prior
 receipt or import plan as authority, prove destination freshness, approve
 storage mutation, or persist durable GUI review state. A retry still requires a
 fresh handoff durable import request with caller-declared destination facts.
+
+## Current Trigger Closure
+
+The durable/final local-record trigger is satisfied for the current scoped
+workflow:
+
+```text
+reviewed handoff package
+  -> ready single-measurement import plan
+  -> caller-declared new durable record destination
+  -> Measurement Records durable new-record import
+  -> local receipt summary and retry review
+```
+
+The implemented boundary covers one package measurement imported as one new
+Measurement Records record with no-overwrite behavior, finalization, read-model
+projection, local handoff receipt summary, local retry review, and CLI receipt
+summary support.
+
+Further work in this area should open a separate decision and name the missing
+user workflow. In particular, existing-record update, attach-to-created-shell,
+multi-measurement batch import, conflict handling beyond no-overwrite, stronger
+recovery/concurrency semantics, linked-context payload import, package
+trust/archive behavior, public adapter transport, and GUI durable review state
+remain outside the current trigger.
