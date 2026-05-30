@@ -204,6 +204,7 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
             {
                 "context_reference_count": 0,
                 "reference_family_counts": {},
+                "prepared_run_context_ids": [],
                 "untyped_linked_context_ids": ["package-legacy-001-parameter-snapshot"],
             },
         )
@@ -280,6 +281,10 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
         )
         self.assertEqual(summary["untyped_linked_context_ids"], [])
         self.assertEqual(summary["context_reference_count"], 4)
+        self.assertEqual(
+            summary["prepared_run_context_ids"],
+            ["prepared-run-context-rabi-001"],
+        )
         self.assertEqual(
             summary["context_references"][1]["reference_id"],
             "managed-code-version-rabi-001",

@@ -8,6 +8,7 @@ from typing import Any
 
 from scopecat.handoff._contracts import (
     MANIFEST_AUTHORITY,
+    validate_context_reference,
     validate_handoff_package_identity,
     validate_handoff_preview_ready_metadata,
     validate_manifest_primary_data,
@@ -355,25 +356,11 @@ def _validate_context_reference(item: dict[str, Any]) -> None:
     reference = item.get("context_reference")
     if reference is None:
         return
-    if not isinstance(reference, dict):
-        raise ValueError("linked context context_reference must be an object")
-    if set(reference) != {
-        "reference_id",
-        "reference_kind",
-        "reference_family",
-        "materialization",
-        "payload_import",
-    }:
-        raise ValueError("linked context context_reference fields are unsupported")
-    validate_public_identifier(reference["reference_id"], "linked context reference_id")
-    validate_public_identifier(reference["reference_kind"], "linked context reference_kind")
-    validate_public_identifier(reference["reference_family"], "linked context reference_family")
-    if reference["reference_kind"] != item["kind"]:
-        raise ValueError("linked context reference_kind must match kind")
-    if reference["materialization"] != "reference_only":
-        raise ValueError("linked context context_reference materialization must be reference_only")
-    if reference["payload_import"] != "not_performed":
-        raise ValueError("linked context context_reference payload_import must be not_performed")
+    validate_context_reference(
+        reference,
+        item_kind=item["kind"],
+        owner="linked context",
+    )
 
 
 def _package_contents(source: dict[str, Any]) -> list[dict[str, Any]]:

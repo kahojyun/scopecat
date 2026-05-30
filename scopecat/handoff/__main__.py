@@ -30,6 +30,7 @@ def _summary(package_dir: Path, *, html_dir: Path | None = None) -> dict[str, ob
         "context_reference_summary": {
             "context_reference_count": context_summary["context_reference_count"],
             "reference_family_counts": context_summary["reference_family_counts"],
+            "prepared_run_context_ids": context_summary["prepared_run_context_ids"],
             "untyped_linked_context_ids": context_summary["untyped_linked_context_ids"],
         },
         "html_artifact": artifact["html_artifact"] if artifact is not None else None,

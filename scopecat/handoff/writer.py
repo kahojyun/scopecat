@@ -14,6 +14,7 @@ from typing import Any
 from scopecat.handoff._contracts import (
     MANIFEST_AUTHORITY,
     relative_path_parts,
+    validate_context_reference,
     validate_handoff_package_identity,
     validate_handoff_preview_ready_metadata,
     validate_non_negative_integer,
@@ -674,24 +675,11 @@ def _validate_context_reference(item: dict[str, Any]) -> None:
     reference = item.get("context_reference")
     if reference is None:
         return
-    validate_public_identifier(
-        reference["reference_id"],
-        "handoff package linked context reference_id",
+    validate_context_reference(
+        reference,
+        item_kind=item["kind"],
+        owner="handoff package linked context",
     )
-    validate_public_identifier(
-        reference["reference_kind"],
-        "handoff package linked context reference_kind",
-    )
-    validate_public_identifier(
-        reference["reference_family"],
-        "handoff package linked context reference_family",
-    )
-    if reference["reference_kind"] != item["kind"]:
-        raise ValueError("handoff package linked context reference_kind must match kind")
-    if reference["materialization"] != "reference_only":
-        raise ValueError("handoff package linked context reference must stay reference_only")
-    if reference["payload_import"] != "not_performed":
-        raise ValueError("handoff package linked context payload import must not be performed")
 
 
 def _paths_overlap(left: str, right: str) -> bool:

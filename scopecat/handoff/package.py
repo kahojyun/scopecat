@@ -108,6 +108,14 @@ class HandoffContextReferenceSummary:
             counts[family] = counts.get(family, 0) + 1
         return dict(sorted(counts.items()))
 
+    @property
+    def prepared_run_context_ids(self) -> tuple[str, ...]:
+        return tuple(
+            item["reference_id"]
+            for item in self.context_references
+            if item["reference_family"] == "prepared_run"
+        )
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_context_reference_summary",
@@ -125,6 +133,7 @@ class HandoffContextReferenceSummary:
             "measurement_ids": list(self.measurement_ids),
             "context_reference_count": self.context_reference_count,
             "reference_family_counts": self.family_counts,
+            "prepared_run_context_ids": list(self.prepared_run_context_ids),
             "context_references": [copy.deepcopy(item) for item in self.context_references],
             "untyped_linked_context_ids": list(self.untyped_linked_context_ids),
             "does_not_claim": [

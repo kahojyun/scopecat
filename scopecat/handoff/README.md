@@ -48,6 +48,9 @@ compact local review summary: context reference count, family counts, typed
 reference entries, and linked-context ids that have no managed reference
 metadata. It does not resolve references, import payloads, restore
 environments, materialize code, mutate storage, or produce a portable export.
+The `prepared_run` family is reserved for `prepared_run_context` references;
+the summary exposes those ids directly so receiving-side review can identify
+the selected manual run-preparation context without treating it as payload.
 Durable Measurement Records import is a separate boundary from candidate
 handoff storage acceptance. When a reviewed handoff package feeds durable
 storage, the accepted path is to adapt exactly one ready import-plan

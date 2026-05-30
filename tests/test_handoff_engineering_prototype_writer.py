@@ -243,7 +243,19 @@ class HandoffEngineeringPrototypeWriterTest(unittest.TestCase):
             "payload_import": "copy_payload",
         }
 
-        self.assertRejected(source, "payload import")
+        self.assertRejected(source, "payload_import")
+
+    def test_prepared_run_context_reference_family_requires_prepared_run_kind(self) -> None:
+        source = _load_input()
+        source["linked_context"][0]["context_reference"] = {
+            "reference_id": "prepared-run-context-rabi-001",
+            "reference_kind": "parameter_state",
+            "reference_family": "prepared_run",
+            "materialization": "reference_only",
+            "payload_import": "not_performed",
+        }
+
+        self.assertRejected(source, "prepared_run references")
 
 
 if __name__ == "__main__":

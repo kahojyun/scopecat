@@ -376,6 +376,11 @@ reference counts, family counts, managed reference entries, and linked-context
 ids that do not yet carry managed reference metadata. The summary is useful for
 receiving-side orientation before import planning or durable import, but it is
 not continuation authority and does not become a public package schema.
+The `prepared_run` reference family is narrowed to `prepared_run_context`
+references and the summary exposes selected prepared-run context ids directly.
+This keeps manual run-preparation continuity visible while preserving the
+prepared-run route's existing non-claims around restore, readiness, execution,
+environment sync, and GUI state.
 
 This checkpoint does not package experiment code, prepared-run payloads,
 environment files, parameter payloads, or setup payloads. It does not resolve

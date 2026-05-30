@@ -333,6 +333,45 @@ def validate_handoff_preview_column(column: dict[str, Any], owner: str) -> None:
     validate_public_identifier(column["unit"], f"{owner} unit")
 
 
+def validate_context_reference(
+    reference: Any,
+    *,
+    item_kind: str,
+    owner: str,
+) -> dict[str, str]:
+    """Validate managed reference metadata for reference-only linked context."""
+
+    if not isinstance(reference, dict):
+        raise ValueError(f"{owner} context_reference must be an object")
+    expected_keys = {
+        "reference_id",
+        "reference_kind",
+        "reference_family",
+        "materialization",
+        "payload_import",
+    }
+    if set(reference) != expected_keys:
+        raise ValueError(f"{owner} context_reference fields are unsupported")
+    validate_public_identifier(reference["reference_id"], f"{owner} reference_id")
+    validate_public_identifier(reference["reference_kind"], f"{owner} reference_kind")
+    validate_public_identifier(reference["reference_family"], f"{owner} reference_family")
+    if reference["reference_kind"] != item_kind:
+        raise ValueError(f"{owner} reference_kind must match kind")
+    if reference["materialization"] != "reference_only":
+        raise ValueError(f"{owner} context_reference materialization must be reference_only")
+    if reference["payload_import"] != "not_performed":
+        raise ValueError(f"{owner} context_reference payload_import must be not_performed")
+    if reference["reference_family"] == "prepared_run" and item_kind != "prepared_run_context":
+        raise ValueError(f"{owner} prepared_run references must use prepared_run_context kind")
+    return {
+        "reference_id": reference["reference_id"],
+        "reference_kind": reference["reference_kind"],
+        "reference_family": reference["reference_family"],
+        "materialization": reference["materialization"],
+        "payload_import": reference["payload_import"],
+    }
+
+
 def validate_handoff_preview_ready_metadata(
     preview: dict[str, Any],
     *,
