@@ -8,6 +8,7 @@ import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from types import TracebackType
 from typing import Any
 
 from scopecat.measurement_records.creation import (
@@ -323,17 +324,20 @@ def import_measurement_record_from_request(
         )
 
     creation_run = writer_run = read_view_run = finalization_run = projection_run = None
-    mutation_started = False
-    try:
+    guard = _DurableImportMutationGuard(storage, request)
+    with guard:
+        guard.stage("preflight")
         _preflight_source(request, content)
+        guard.stage("creation")
         creation_run = create_measurement_record_from_request(
             _creation_request(request),
             storage_root=storage,
         )
         if not creation_run.created:
             raise _DurableImportFailure(_classification_error("creation", creation_run))
-        mutation_started = True
+        guard.mark_mutation_started(creation_run)
 
+        guard.stage("writer")
         writer_run = write_created_record_primary_data_from_request(
             _writer_request(request),
             content_root=content,
@@ -342,10 +346,12 @@ def import_measurement_record_from_request(
         if not writer_run.written:
             raise _DurableImportFailure(_classification_error("writer", writer_run))
 
+        guard.stage("read_view")
         read_view_run = read_created_record_primary_table_from_request(
             _read_request(request),
             storage_root=storage,
         )
+        guard.stage("finalization")
         finalization_run = finalize_measurement_record_from_read_view(
             _finalization_request(request),
             read_view=read_view_run,
@@ -354,6 +360,7 @@ def import_measurement_record_from_request(
         if not finalization_run.finalized:
             raise _DurableImportFailure(_classification_error("finalization", finalization_run))
 
+        guard.stage("projection")
         projection_run = project_measurement_record_read_model_from_read_view(
             _projection_request(request),
             read_view=read_view_run,
@@ -362,10 +369,8 @@ def import_measurement_record_from_request(
         )
         if not projection_run.projected:
             raise _DurableImportFailure(_classification_error("projection", projection_run))
-    except _DurableImportFailure as exc:
-        rollback_performed, partial_commit = _rollback_new_record(
-            storage, request, mutation_started
-        )
+
+    if guard.import_error is not None:
         return MeasurementRecordDurableImportRun(
             request=request,
             storage_root=storage,
@@ -375,9 +380,9 @@ def import_measurement_record_from_request(
             read_view_run=read_view_run,
             finalization_run=finalization_run,
             projection_run=projection_run,
-            rollback_performed=rollback_performed,
-            partial_commit=partial_commit,
-            import_error=str(exc),
+            rollback_performed=guard.rollback_performed,
+            partial_commit=guard.partial_commit,
+            import_error=guard.import_error,
         )
 
     return MeasurementRecordDurableImportRun(
@@ -525,10 +530,55 @@ def _projection_request(
     )
 
 
+@dataclass
+class _DurableImportMutationGuard:
+    storage_root: Path
+    request: MeasurementRecordDurableImportRequest
+    current_stage: str = "preflight"
+    mutation_started: bool = False
+    creation_run: Any | None = None
+    rollback_performed: bool = False
+    partial_commit: bool = False
+    import_error: str | None = None
+
+    def __enter__(self) -> _DurableImportMutationGuard:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> bool:
+        if exc is None:
+            return False
+        if exc_type is not None and not issubclass(exc_type, Exception):
+            return False
+        if isinstance(exc, _DurableImportFailure):
+            self.import_error = str(exc)
+        else:
+            self.import_error = f"durable import {self.current_stage} step failed: {exc}"
+        self.rollback_performed, self.partial_commit = _rollback_new_record(
+            self.storage_root,
+            self.request,
+            self.mutation_started,
+            self.creation_run,
+        )
+        return True
+
+    def stage(self, name: str) -> None:
+        self.current_stage = name
+
+    def mark_mutation_started(self, creation_run: Any) -> None:
+        self.mutation_started = True
+        self.creation_run = creation_run
+
+
 def _rollback_new_record(
     storage_root: Path,
     request: MeasurementRecordDurableImportRequest,
     mutation_started: bool,
+    creation_run: Any | None,
 ) -> tuple[bool, bool]:
     if not mutation_started:
         return False, False
@@ -536,10 +586,39 @@ def _rollback_new_record(
     try:
         shutil.rmtree(record_path)
     except FileNotFoundError:
-        return True, False
+        partial_commit = _remove_empty_created_parent_dirs(storage_root, request, creation_run)
+        return True, partial_commit
     except OSError:
         return False, True
-    return True, False
+    partial_commit = _remove_empty_created_parent_dirs(storage_root, request, creation_run)
+    return True, partial_commit
+
+
+def _remove_empty_created_parent_dirs(
+    storage_root: Path,
+    request: MeasurementRecordDurableImportRequest,
+    creation_run: Any | None,
+) -> bool:
+    partial_commit = False
+    record_dir = request.record_dir
+    for relative_path in reversed(_created_paths(creation_run)):
+        if relative_path == record_dir or relative_path.endswith("/record-manifest.json"):
+            continue
+        path = _path_under(storage_root, relative_path)
+        if not path.exists():
+            continue
+        try:
+            path.rmdir()
+        except OSError:
+            partial_commit = True
+    return partial_commit
+
+
+def _created_paths(creation_run: Any | None) -> tuple[str, ...]:
+    paths = getattr(creation_run, "created_paths", ())
+    if not isinstance(paths, tuple):
+        return ()
+    return tuple(path for path in paths if isinstance(path, str))
 
 
 def _classification_error(owner: str, run: Any) -> str:

@@ -26,6 +26,10 @@ def _digest(path: Path) -> str:
     return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
 
 
+def _digest_bytes(content: bytes) -> str:
+    return f"sha256:{hashlib.sha256(content).hexdigest()}"
+
+
 def _source(**overrides: object) -> MeasurementRecordImportSource:
     path = CHUNK_FIXTURE / "chunks" / "chunk-1.csv"
     values = {
@@ -181,10 +185,43 @@ class MeasurementRecordDurableImportPrototypeTest(unittest.TestCase):
             )
 
             self.assertFalse((storage_root / "records" / "run-3101-rabi").exists())
+            self.assertFalse((storage_root / "records").exists())
 
         self.assertEqual(run.classification, "rolled_back_after_import_failure")
         self.assertTrue(run.rollback_performed)
         self.assertIn("finalization", run.import_error or "")
+
+    def test_read_view_failure_after_write_rolls_back_and_returns_receipt(self) -> None:
+        malformed_csv = b"time,signal\n0\n"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            source_dir = content_root / "chunks"
+            source_dir.mkdir(parents=True)
+            (source_dir / "malformed.csv").write_bytes(malformed_csv)
+
+            run = import_measurement_record_from_request(
+                _request(
+                    import_source=_source(
+                        content_ref="chunks/malformed.csv",
+                        declared_digest=_digest_bytes(malformed_csv),
+                        size_bytes=len(malformed_csv),
+                        rows_recorded=1,
+                    )
+                ),
+                content_root=content_root,
+                storage_root=storage_root,
+            )
+
+            self.assertFalse((storage_root / "records" / "run-3101-rabi").exists())
+            self.assertFalse((storage_root / "records").exists())
+
+        self.assertEqual(run.classification, "rolled_back_after_import_failure")
+        self.assertTrue(run.rollback_performed)
+        self.assertFalse(run.partial_commit)
+        self.assertIn("read_view", run.import_error or "")
+        self.assertIn("rows must match", run.import_error or "")
 
     def test_projection_failure_rolls_back_new_record(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
