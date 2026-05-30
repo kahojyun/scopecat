@@ -38,6 +38,7 @@ from scopecat.measurement_records.writer_integration import (
 )
 
 RUNNING_INSPECTION_SCHEMA = "scopecat.measurement_record_running_inspection.v0"
+RUNNING_INSPECTION_SUMMARY_SCHEMA = "scopecat.measurement_record_running_inspection_summary.v0"
 RUNNING_INSPECTION_POLICY = {
     "record_authority": "existing_in_progress_creation_manifest",
     "writer_receipt_authority": "record_local_writer_receipt",
@@ -237,6 +238,55 @@ def inspect_running_measurement_record_from_request(
         progress=progress,
         review_findings=tuple(findings),
     )
+
+
+def summarize_running_measurement_inspection(
+    run: MeasurementRecordRunningInspectionRun,
+    *,
+    latest_row_limit: int = 3,
+) -> dict[str, Any]:
+    """Project a compact local summary from a running-inspection run."""
+
+    _validate_positive_integer(latest_row_limit, "running inspection latest_row_limit")
+    rows = run.table["rows"]
+    latest_rows = rows[-latest_row_limit:]
+    finding_codes = [finding["code"] for finding in run.review_findings]
+    return {
+        "summary_schema": RUNNING_INSPECTION_SUMMARY_SCHEMA,
+        "artifact_posture": "local_record_running_inspection_summary",
+        "summary_policy": {
+            "input_authority": "running_inspection_run",
+            "storage_mutation": "not_performed",
+            "continuation_authority": "not_granted",
+            "gui_state": "not_persisted",
+            "fit_or_range_selection": "not_recorded",
+            "redaction_boundary": "local_workspace_only",
+        },
+        "record": {
+            "record_id": run.request.record_id,
+            "record_dir": run.request.record_dir,
+            "lifecycle_state": run.record_manifest["record"]["lifecycle_state"],
+        },
+        "inspection": {
+            "classification": run.classification,
+            "visible_rows_recorded": run.progress["visible_rows_recorded"],
+            "expected_total_rows": run.progress["expected_total_rows"],
+            "remaining_rows": run.progress["remaining_rows"],
+            "append_receipts_observed": run.progress["append_receipts_observed"],
+            "latest_row_limit": latest_row_limit,
+            "latest_visible_rows": copy.deepcopy(latest_rows),
+            "review_finding_codes": finding_codes,
+            "next_action": _summary_next_action(run),
+        },
+        "does_not_claim": [
+            "storage_mutation",
+            "manifest_replacement",
+            "read_model_refresh",
+            "primary_data_compaction",
+            "saved_monitor_or_gui_state",
+            "saved_fit_or_range_selection",
+        ],
+    }
 
 
 def _parse_source(source: dict[str, Any]) -> MeasurementRecordRunningInspectionRequest:
@@ -615,3 +665,11 @@ def _require_dict(value: dict[str, Any], field: str) -> dict[str, Any]:
 
 def _require_text(value: dict[str, Any], field: str) -> str:
     return validate_text(value.get(field), field)
+
+
+def _summary_next_action(run: MeasurementRecordRunningInspectionRun) -> str:
+    if run.review_findings:
+        return "review_running_inspection_findings"
+    if run.progress["remaining_rows"] == 0:
+        return "ready_for_later_finalization_decision"
+    return "continue_monitoring_in_progress_record"

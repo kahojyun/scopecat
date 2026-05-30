@@ -45,6 +45,7 @@ IN_PROGRESS_UPDATE_POLICY = {
     "workflow_authority": "approved_in_progress_update_request",
     "record_authority": "existing_in_progress_creation_manifest",
     "writer_receipt_authority": "record_local_writer_receipt",
+    "previous_update_receipt_authority": "caller_declared_for_second_and_later_appends",
     "storage_authority": "caller_provided_storage_root",
     "update_behavior": "append_segment_and_receipt_only",
     "primary_data_materialization": "not_merged",
@@ -122,6 +123,7 @@ class MeasurementRecordInProgressUpdateRequest:
     record_id: str
     record_dir: str
     writer_receipt_path: str
+    previous_update_receipt_path: str | None
     append_segment_path: str
     update_receipt_path: str
     primary_data_format: str
@@ -139,6 +141,11 @@ class MeasurementRecordInProgressUpdateRequest:
             self.writer_receipt_path,
             "in-progress update writer_receipt_path",
         )
+        if self.previous_update_receipt_path is not None:
+            validate_relative_path(
+                self.previous_update_receipt_path,
+                "in-progress update previous_update_receipt_path",
+            )
         validate_relative_path(
             self.append_segment_path,
             "in-progress update append_segment_path",
@@ -164,6 +171,12 @@ class MeasurementRecordInProgressUpdateRequest:
             (self.update_receipt_path, "in-progress update update_receipt_path"),
         ):
             _validate_strict_child_path(path, self.record_dir, owner)
+        if self.previous_update_receipt_path is not None:
+            _validate_strict_child_path(
+                self.previous_update_receipt_path,
+                self.record_dir,
+                "in-progress update previous_update_receipt_path",
+            )
         _validate_non_overlapping_paths(
             (
                 self.append_segment_path,
@@ -189,6 +202,7 @@ class MeasurementRecordInProgressUpdateRequest:
             "record_dir": self.record_dir,
             "creation_manifest_path": self.manifest_path,
             "writer_receipt_path": self.writer_receipt_path,
+            "previous_update_receipt_path": self.previous_update_receipt_path,
             "append_segment_path": self.append_segment_path,
             "update_receipt_path": self.update_receipt_path,
             "primary_data_format": self.primary_data_format,
@@ -206,6 +220,7 @@ class MeasurementRecordInProgressUpdateRun:
     content_root: Path
     record_manifest: dict[str, Any] | None = None
     writer_receipt: dict[str, Any] | None = None
+    previous_update_receipt: dict[str, Any] | None = None
     write_results: tuple[dict[str, Any], ...] = ()
     rollback_performed: bool = False
     update_error: str | None = None
@@ -241,6 +256,7 @@ class MeasurementRecordInProgressUpdateRun:
             "request": self.request.to_dict(),
             "record_manifest": _manifest_ref(self.record_manifest),
             "writer_receipt": _writer_receipt_ref(self.writer_receipt),
+            "previous_update_receipt": _update_receipt_ref(self.previous_update_receipt),
             "in_progress_update": {
                 "performed": self.updated,
                 "rollback_performed": self.rollback_performed,
@@ -281,6 +297,7 @@ def append_in_progress_measurement_record_from_request(
     storage = _existing_directory_root(Path(storage_root), "in-progress update storage root")
     manifest = _read_creation_manifest(storage, request)
     writer_receipt = _read_writer_receipt(storage, request)
+    previous_update_receipt = _read_previous_update_receipt(storage, request, writer_receipt)
     _preflight_current_primary(storage, request, writer_receipt)
     if not request.approved:
         return MeasurementRecordInProgressUpdateRun(
@@ -289,6 +306,7 @@ def append_in_progress_measurement_record_from_request(
             content_root=content,
             record_manifest=manifest,
             writer_receipt=writer_receipt,
+            previous_update_receipt=previous_update_receipt,
         )
 
     try:
@@ -297,6 +315,7 @@ def append_in_progress_measurement_record_from_request(
         receipt_content = _update_receipt_bytes(
             request=request,
             writer_receipt=writer_receipt,
+            previous_update_receipt=previous_update_receipt,
             segment_digest=segment_digest,
             segment_size=len(segment_content),
         )
@@ -317,6 +336,7 @@ def append_in_progress_measurement_record_from_request(
             content_root=content,
             record_manifest=manifest,
             writer_receipt=writer_receipt,
+            previous_update_receipt=previous_update_receipt,
             rollback_performed=exc.rollback_performed,
             update_error=str(exc),
         )
@@ -327,6 +347,7 @@ def append_in_progress_measurement_record_from_request(
         content_root=content,
         record_manifest=manifest,
         writer_receipt=writer_receipt,
+        previous_update_receipt=previous_update_receipt,
         write_results=(
             {
                 "path": request.append_segment_path,
@@ -361,6 +382,11 @@ def _parse_source(source: dict[str, Any]) -> MeasurementRecordInProgressUpdateRe
         record_id=_require_text(request, "record_id"),
         record_dir=_require_text(request, "record_dir"),
         writer_receipt_path=_require_text(request, "writer_receipt_path"),
+        previous_update_receipt_path=_optional_text(
+            request,
+            "previous_update_receipt_path",
+            default=None,
+        ),
         append_segment_path=_require_text(request, "append_segment_path"),
         update_receipt_path=_require_text(request, "update_receipt_path"),
         primary_data_format=_require_text(request, "primary_data_format"),
@@ -453,8 +479,56 @@ def _read_writer_receipt(
         primary_data.get("rows_recorded"),
         "writer receipt primary_data rows_recorded",
     )
-    if primary_data["rows_recorded"] != request.append_chunk.previous_total_rows_recorded:
-        raise ValueError("append chunk previous total must match writer receipt rows_recorded")
+    if request.previous_update_receipt_path is None:
+        if primary_data["rows_recorded"] != request.append_chunk.previous_total_rows_recorded:
+            raise ValueError("append chunk previous total must match writer receipt rows_recorded")
+    return receipt
+
+
+def _read_previous_update_receipt(
+    root: Path,
+    request: MeasurementRecordInProgressUpdateRequest,
+    writer_receipt: dict[str, Any],
+) -> dict[str, Any] | None:
+    if request.previous_update_receipt_path is None:
+        return None
+    receipt_path = _path_under(root, request.previous_update_receipt_path)
+    _ensure_no_symlink_parents(
+        root,
+        request.previous_update_receipt_path,
+        "in-progress update previous receipt",
+    )
+    if receipt_path.is_symlink():
+        raise ValueError("in-progress update previous receipt must not be a symlink")
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise ValueError("in-progress update previous receipt is unavailable") from exc
+    if receipt.get("schema") != UPDATE_RECEIPT_SCHEMA:
+        raise ValueError("in-progress update previous receipt schema is unsupported")
+    record = _require_dict(receipt, "record")
+    if record.get("record_id") != request.record_id:
+        raise ValueError("in-progress update record_id must match previous receipt")
+    if record.get("record_dir") != request.record_dir:
+        raise ValueError("in-progress update record_dir must match previous receipt")
+    if record.get("creation_manifest_path") != request.manifest_path:
+        raise ValueError("in-progress update manifest path must match previous receipt")
+    if record.get("writer_receipt_path") != request.writer_receipt_path:
+        raise ValueError("in-progress update writer receipt path must match previous receipt")
+    update_request = _require_dict(receipt, "update_request")
+    if update_request.get("update_receipt_path") != request.previous_update_receipt_path:
+        raise ValueError("in-progress update previous receipt path must match receipt")
+    current = _require_dict(receipt, "current_primary_data")
+    for field in ("path", "digest", "size_bytes", "rows_recorded"):
+        if current.get(field) != writer_receipt["primary_data"].get(field):
+            raise ValueError("in-progress update previous receipt current primary must match")
+    append_chunk = _require_dict(receipt, "append_chunk")
+    previous_total = _validate_non_negative_integer(
+        append_chunk.get("total_rows_recorded"),
+        "previous receipt total_rows_recorded",
+    )
+    if previous_total != request.append_chunk.previous_total_rows_recorded:
+        raise ValueError("append chunk previous total must match previous update receipt")
     return receipt
 
 
@@ -504,6 +578,7 @@ def _update_receipt_bytes(
     *,
     request: MeasurementRecordInProgressUpdateRequest,
     writer_receipt: dict[str, Any],
+    previous_update_receipt: dict[str, Any] | None,
     segment_digest: str,
     segment_size: int,
 ) -> bytes:
@@ -518,6 +593,7 @@ def _update_receipt_bytes(
         "update_request": {
             "request_id": request.request_id,
             "update_id": request.update_id,
+            "previous_update_receipt_path": request.previous_update_receipt_path,
             "append_segment_path": request.append_segment_path,
             "update_receipt_path": request.update_receipt_path,
             "primary_data_format": request.primary_data_format,
@@ -529,6 +605,11 @@ def _update_receipt_bytes(
             "size_bytes": writer_receipt["primary_data"]["size_bytes"],
             "rows_recorded": writer_receipt["primary_data"]["rows_recorded"],
         },
+        "previous_update_receipt": (
+            None
+            if previous_update_receipt is None
+            else _update_receipt_ref(previous_update_receipt)
+        ),
         "append_segment": {
             "path": request.append_segment_path,
             "format": request.primary_data_format,
@@ -623,6 +704,23 @@ def _writer_receipt_ref(receipt: dict[str, Any] | None) -> dict[str, Any] | None
     }
 
 
+def _update_receipt_ref(receipt: dict[str, Any] | None) -> dict[str, Any] | None:
+    if receipt is None:
+        return None
+    record = _require_dict(receipt, "record")
+    update_request = _require_dict(receipt, "update_request")
+    append_chunk = _require_dict(receipt, "append_chunk")
+    append_segment = _require_dict(receipt, "append_segment")
+    return {
+        "schema": receipt.get("schema"),
+        "record_id": record.get("record_id"),
+        "update_id": update_request.get("update_id"),
+        "update_receipt_path": update_request.get("update_receipt_path"),
+        "append_segment_path": append_segment.get("path"),
+        "total_rows_recorded": append_chunk.get("total_rows_recorded"),
+    }
+
+
 def _path_under(root: Path, relative_path: str) -> Path:
     return _path_under_common(root, relative_path, "in-progress update path")
 
@@ -652,6 +750,12 @@ def _require_dict(value: dict[str, Any], field: str) -> dict[str, Any]:
 
 def _require_text(value: dict[str, Any], field: str) -> str:
     return validate_text(value.get(field), field)
+
+
+def _optional_text(value: dict[str, Any], field: str, *, default: str | None) -> str | None:
+    if field not in value or value[field] is None:
+        return default
+    return validate_text(value[field], field)
 
 
 def _require_int(value: dict[str, Any], field: str) -> int:

@@ -55,6 +55,7 @@ from scopecat.measurement_records.running_inspection import (
     MeasurementRecordRunningInspectionRun,
     inspect_running_measurement_record,
     inspect_running_measurement_record_from_request,
+    summarize_running_measurement_inspection,
 )
 from scopecat.measurement_records.writer_integration import (
     MeasurementRecordWriterChunk,
@@ -106,6 +107,7 @@ __all__ = [
     "read_created_record_primary_table_from_request",
     "refresh_measurement_record_read_model",
     "refresh_measurement_record_read_model_from_read_view",
+    "summarize_running_measurement_inspection",
     "write_created_record_primary_data",
     "write_created_record_primary_data_from_request",
 ]

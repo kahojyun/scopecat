@@ -19,6 +19,7 @@ from scopecat.measurement_records import (
     create_measurement_record_from_request,
     inspect_running_measurement_record,
     inspect_running_measurement_record_from_request,
+    summarize_running_measurement_inspection,
     write_created_record_primary_data_from_request,
 )
 from scopecat.measurement_records.in_progress_update import (
@@ -77,6 +78,7 @@ def _update_request(**overrides: object) -> MeasurementRecordInProgressUpdateReq
         "record_id": "run-3101-rabi",
         "record_dir": "records/run-3101-rabi",
         "writer_receipt_path": "records/run-3101-rabi/writer-receipt.json",
+        "previous_update_receipt_path": None,
         "append_segment_path": "records/run-3101-rabi/segments/chunk-2.csv",
         "update_receipt_path": "records/run-3101-rabi/updates/update-3101-2.json",
         "primary_data_format": "csv_table",
@@ -305,6 +307,207 @@ class MeasurementRecordInProgressUpdatePrototypeTest(unittest.TestCase):
         self.assertEqual(run.progress["remaining_rows"], 0)
         self.assertEqual(run.table["rows"][-1]["drive_amplitude"], "1.00")
         self.assertEqual(run.to_dict()["update_receipts"][0]["update_id"], "update-3101-2")
+
+    def test_running_inspection_summary_reports_latest_rows_and_next_action(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            _populate_in_progress_record(storage_root, content_root, state="in_progress")
+            append_run = append_in_progress_measurement_record_from_request(
+                _update_request(),
+                storage_root=storage_root,
+                content_root=content_root,
+            )
+            if not append_run.updated:
+                raise AssertionError(append_run.to_dict())
+            run = inspect_running_measurement_record_from_request(
+                _inspection_request(),
+                storage_root=storage_root,
+            )
+
+        summary = summarize_running_measurement_inspection(run, latest_row_limit=2)
+
+        self.assertEqual(
+            summary["summary_schema"],
+            "scopecat.measurement_record_running_inspection_summary.v0",
+        )
+        self.assertEqual(summary["artifact_posture"], "local_record_running_inspection_summary")
+        self.assertEqual(summary["inspection"]["visible_rows_recorded"], 5)
+        self.assertEqual(summary["inspection"]["latest_row_limit"], 2)
+        self.assertEqual(
+            [row["drive_amplitude"] for row in summary["inspection"]["latest_visible_rows"]],
+            ["0.75", "1.00"],
+        )
+        self.assertEqual(
+            summary["inspection"]["next_action"],
+            "ready_for_later_finalization_decision",
+        )
+        self.assertIn("saved_fit_or_range_selection", summary["does_not_claim"])
+
+    def test_running_inspection_reads_multiple_append_receipts_in_progression(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            chunk_three_path = content_root / "chunks" / "chunk-3.csv"
+            chunk_three_path.write_text("1.25,0.80\n", encoding="utf-8")
+            _populate_in_progress_record(storage_root, content_root, state="in_progress")
+            first_append = append_in_progress_measurement_record_from_request(
+                _update_request(),
+                storage_root=storage_root,
+                content_root=content_root,
+            )
+            if not first_append.updated:
+                raise AssertionError(first_append.to_dict())
+            second_append = append_in_progress_measurement_record_from_request(
+                _update_request(
+                    request_id="append-run-3101-rabi-third",
+                    update_id="update-3101-3",
+                    previous_update_receipt_path=(
+                        "records/run-3101-rabi/updates/update-3101-2.json"
+                    ),
+                    append_segment_path="records/run-3101-rabi/segments/chunk-3.csv",
+                    update_receipt_path="records/run-3101-rabi/updates/update-3101-3.json",
+                    expected_total_rows=6,
+                    append_chunk=MeasurementRecordAppendChunk(
+                        chunk_id="chunk-3101-3",
+                        sequence=3,
+                        event_id="evt-3101-data-3",
+                        content_ref="chunks/chunk-3.csv",
+                        declared_digest=_digest(chunk_three_path),
+                        size_bytes=chunk_three_path.stat().st_size,
+                        rows_recorded=1,
+                        previous_total_rows_recorded=5,
+                        total_rows_recorded=6,
+                    ),
+                ),
+                storage_root=storage_root,
+                content_root=content_root,
+            )
+            if not second_append.updated:
+                raise AssertionError(second_append.to_dict())
+            run = inspect_running_measurement_record_from_request(
+                _inspection_request(
+                    update_receipt_paths=(
+                        "records/run-3101-rabi/updates/update-3101-2.json",
+                        "records/run-3101-rabi/updates/update-3101-3.json",
+                    ),
+                    expected_total_rows=6,
+                ),
+                storage_root=storage_root,
+            )
+
+        self.assertEqual(run.classification, "in_progress_table_ready")
+        self.assertEqual(run.progress["append_receipts_observed"], 2)
+        self.assertEqual(run.progress["visible_rows_recorded"], 6)
+        self.assertEqual(run.table["rows"][-1]["drive_amplitude"], "1.25")
+        self.assertEqual(
+            [receipt["update_request"]["update_id"] for receipt in run.update_receipts],
+            ["update-3101-2", "update-3101-3"],
+        )
+
+    def test_running_inspection_rejects_gap_between_multiple_append_receipts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            chunk_three_path = content_root / "chunks" / "chunk-3.csv"
+            chunk_three_path.write_text("1.25,0.80\n", encoding="utf-8")
+            _populate_in_progress_record(storage_root, content_root, state="in_progress")
+            first_append = append_in_progress_measurement_record_from_request(
+                _update_request(),
+                storage_root=storage_root,
+                content_root=content_root,
+            )
+            if not first_append.updated:
+                raise AssertionError(first_append.to_dict())
+            second_append = append_in_progress_measurement_record_from_request(
+                _update_request(
+                    request_id="append-run-3101-rabi-third",
+                    update_id="update-3101-3",
+                    previous_update_receipt_path=(
+                        "records/run-3101-rabi/updates/update-3101-2.json"
+                    ),
+                    append_segment_path="records/run-3101-rabi/segments/chunk-3.csv",
+                    update_receipt_path="records/run-3101-rabi/updates/update-3101-3.json",
+                    expected_total_rows=6,
+                    append_chunk=MeasurementRecordAppendChunk(
+                        chunk_id="chunk-3101-3",
+                        sequence=3,
+                        event_id="evt-3101-data-3",
+                        content_ref="chunks/chunk-3.csv",
+                        declared_digest=_digest(chunk_three_path),
+                        size_bytes=chunk_three_path.stat().st_size,
+                        rows_recorded=1,
+                        previous_total_rows_recorded=5,
+                        total_rows_recorded=6,
+                    ),
+                ),
+                storage_root=storage_root,
+                content_root=content_root,
+            )
+            if not second_append.updated:
+                raise AssertionError(second_append.to_dict())
+            second_receipt_path = (
+                storage_root / "records" / "run-3101-rabi" / "updates" / "update-3101-3.json"
+            )
+            second_receipt = json.loads(second_receipt_path.read_text(encoding="utf-8"))
+            second_receipt["append_chunk"]["previous_total_rows_recorded"] = 4
+            second_receipt_path.write_text(json.dumps(second_receipt), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "contiguous"):
+                inspect_running_measurement_record_from_request(
+                    _inspection_request(
+                        update_receipt_paths=(
+                            "records/run-3101-rabi/updates/update-3101-2.json",
+                            "records/run-3101-rabi/updates/update-3101-3.json",
+                        ),
+                        expected_total_rows=6,
+                    ),
+                    storage_root=storage_root,
+                )
+
+    def test_second_append_requires_declared_previous_update_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            chunk_three_path = content_root / "chunks" / "chunk-3.csv"
+            chunk_three_path.write_text("1.25,0.80\n", encoding="utf-8")
+            _populate_in_progress_record(storage_root, content_root, state="in_progress")
+
+            with self.assertRaisesRegex(ValueError, "writer receipt rows_recorded"):
+                append_in_progress_measurement_record_from_request(
+                    _update_request(
+                        request_id="append-run-3101-rabi-third",
+                        update_id="update-3101-3",
+                        append_segment_path="records/run-3101-rabi/segments/chunk-3.csv",
+                        update_receipt_path="records/run-3101-rabi/updates/update-3101-3.json",
+                        expected_total_rows=6,
+                        append_chunk=MeasurementRecordAppendChunk(
+                            chunk_id="chunk-3101-3",
+                            sequence=3,
+                            event_id="evt-3101-data-3",
+                            content_ref="chunks/chunk-3.csv",
+                            declared_digest=_digest(chunk_three_path),
+                            size_bytes=chunk_three_path.stat().st_size,
+                            rows_recorded=1,
+                            previous_total_rows_recorded=5,
+                            total_rows_recorded=6,
+                        ),
+                    ),
+                    storage_root=storage_root,
+                    content_root=content_root,
+                )
+
+            self.assertFalse(
+                (storage_root / "records" / "run-3101-rabi" / "segments" / "chunk-3.csv").exists()
+            )
 
     def test_running_inspection_reports_declared_progress_mismatch_as_review_finding(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

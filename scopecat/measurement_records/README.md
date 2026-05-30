@@ -128,7 +128,9 @@ The first in-progress update slice is implemented through
 `append_in_progress_measurement_record_from_request(...)`. It consumes an
 existing `in_progress` creation manifest plus a record-local writer receipt,
 then writes one append segment and one update receipt under no-overwrite
-behavior. It does not merge the append segment into primary data, replace the
+behavior. Second and later append requests must declare the previous update
+receipt path so row progress remains contiguous without rewriting the writer
+receipt. It does not merge the append segment into primary data, replace the
 manifest, refresh the read model, finalize lifecycle state, or define crash
 recovery.
 
@@ -137,5 +139,7 @@ The first running-inspection slice is implemented through
 `inspect_running_measurement_record_from_request(...)`. It reads the base
 writer-receipt-declared primary data plus caller-declared update receipts and
 append segments, then returns a visible string-row table and progress summary
-for local inspection. It performs no storage mutation and does not make append
-segments canonical primary data.
+for local inspection. `summarize_running_measurement_inspection(...)` projects
+a compact local summary with latest visible rows, progress, review finding
+codes, and a next local action. These operations perform no storage mutation
+and do not make append segments canonical primary data.

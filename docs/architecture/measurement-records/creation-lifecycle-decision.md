@@ -575,11 +575,16 @@ The first implementation should:
 - require an approved append update request;
 - validate one declared append chunk by digest, byte size, previous row total,
   and total row progress;
+- require second and later append requests to declare the previous update
+  receipt so append progress is contiguous from the writer receipt through the
+  update receipt chain;
 - write exactly one append segment and one update receipt with no-overwrite
   behavior;
 - return a local update receipt summary;
 - provide a read-only inspection view over the writer receipt plus
-  caller-declared update receipts.
+  caller-declared update receipts;
+- provide a compact local running-inspection summary with latest visible rows,
+  progress, review finding codes, and a suggested next local action.
 
 This decision does not accept:
 
@@ -608,8 +613,24 @@ primary table plus caller-declared update receipts as visible in-progress
 rows. Tests prove successful append/inspection, unapproved no-mutation,
 non-`in_progress` lifecycle blocking, digest mismatch blocking before
 mutation, update-receipt rollback, progress mismatch review findings, and
-non-contiguous update receipt rejection.
+non-contiguous update receipt rejection. Follow-up coverage proves compact
+inspection summaries, second append requests through a declared previous
+update receipt, ordinary multiple-receipt inspection, and rejection of a gap
+between multiple append receipts.
 
 It deliberately does not replace manifests, merge primary data, refresh read
 models, finalize lifecycle state, define lock/crash recovery behavior, or
 persist GUI monitor state.
+
+## Running Monitor Affordance Posture
+
+Temporary monitor affordances such as row-range selection or parabolic fit
+preview remain ephemeral in this prototype line. They may be useful local UI or
+notebook behavior, but they should not become durable record mutation unless a
+later slice defines a saved review receipt that records the selected range,
+fit input rows, fit result, operator decision, and non-claims.
+
+This keeps running inspection focused on readable progress and review findings.
+It does not accept automatic retune, scan-plan adjustment, parameter write-back,
+saved GUI state, or scientific fit validity as part of the current
+Measurement Records storage boundary.
