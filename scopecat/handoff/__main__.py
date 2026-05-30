@@ -9,6 +9,7 @@ from pathlib import Path
 
 from scopecat.handoff import (
     open_package,
+    summarize_handoff_durable_import_receipt,
     summarize_import_workflow_receipt,
     write_inspection_artifact,
 )
@@ -33,15 +34,18 @@ def _summary(package_dir: Path, *, html_dir: Path | None = None) -> dict[str, ob
 def _receipt_summary(receipt_path: Path) -> dict[str, object]:
     with receipt_path.open("r", encoding="utf-8") as handle:
         receipt = json.load(handle)
-    return summarize_import_workflow_receipt(receipt).to_dict()
+    posture = receipt.get("artifact_posture")
+    if posture == "local_import_workflow_receipt":
+        return summarize_import_workflow_receipt(receipt).to_dict()
+    if posture == "local_handoff_durable_import_receipt":
+        return summarize_handoff_durable_import_receipt(receipt).to_dict()
+    raise ValueError("receipt artifact_posture is unsupported")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m scopecat.handoff",
-        description=(
-            "Open a Scopecat handoff package or summarize a local import workflow receipt."
-        ),
+        description=("Open a Scopecat handoff package or summarize a local handoff receipt."),
     )
     parser.add_argument("package_dir", type=Path, nargs="?")
     parser.add_argument(
@@ -52,7 +56,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--receipt-summary",
         type=Path,
-        help="Read a local import workflow receipt JSON file and print a continuation summary.",
+        help=(
+            "Read a local import workflow or handoff durable-import receipt JSON file "
+            "and print a continuation summary."
+        ),
     )
     args = parser.parse_args(argv)
     if args.receipt_summary is not None:

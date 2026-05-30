@@ -98,9 +98,10 @@ does not create a durable import request, recheck destination freshness,
 authorize mutation, or reuse the prior receipt as authority.
 The module CLI remains a local operator surface. `python -m scopecat.handoff
 <package-dir>` opens a package for read-only orientation; `python -m
-scopecat.handoff --receipt-summary <receipt.json>` summarizes a local import
-workflow receipt for continuation review. The CLI does not run package import,
-approve storage acceptance, or persist review state.
+scopecat.handoff --receipt-summary <receipt.json>` summarizes either a local
+candidate import workflow receipt or a local handoff durable-import receipt
+for continuation review. The CLI does not run package import, approve storage
+acceptance or durable import, or persist review state.
 
 The route-local writer uses a caller-provided `source_root` plus declared
 relative source paths for already-normalized primary data. That source-root
