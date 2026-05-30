@@ -143,3 +143,18 @@ for local inspection. `summarize_running_measurement_inspection(...)` projects
 a compact local summary with latest visible rows, progress, review finding
 codes, and a next local action. These operations perform no storage mutation
 and do not make append segments canonical primary data.
+
+The module also exposes a narrow read-only CLI smoke entrypoint:
+
+```sh
+python -m scopecat.measurement_records running-inspection-summary \
+  --storage-root ./storage \
+  --request-id inspect-run-001 \
+  --record-id run-001 \
+  --record-dir records/run-001 \
+  --writer-receipt-path records/run-001/writer-receipt.json \
+  --update-receipt-path records/run-001/updates/update-001-2.json
+```
+
+It prints the compact running-inspection JSON summary. It does not discover
+records, scan update directories, mutate storage, or persist monitor state.

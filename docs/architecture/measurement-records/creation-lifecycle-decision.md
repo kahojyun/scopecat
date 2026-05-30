@@ -585,6 +585,8 @@ The first implementation should:
   caller-declared update receipts;
 - provide a compact local running-inspection summary with latest visible rows,
   progress, review finding codes, and a suggested next local action.
+- expose a narrow read-only CLI smoke entrypoint for printing that compact
+  summary from caller-declared storage root and receipt paths.
 
 This decision does not accept:
 
@@ -616,11 +618,15 @@ mutation, update-receipt rollback, progress mismatch review findings, and
 non-contiguous update receipt rejection. Follow-up coverage proves compact
 inspection summaries, second append requests through a declared previous
 update receipt, ordinary multiple-receipt inspection, and rejection of a gap
-between multiple append receipts.
+between multiple append receipts. The module also exposes
+`python -m scopecat.measurement_records running-inspection-summary` as a
+read-only smoke CLI for printing the compact local summary from
+caller-declared paths.
 
 It deliberately does not replace manifests, merge primary data, refresh read
 models, finalize lifecycle state, define lock/crash recovery behavior, or
-persist GUI monitor state.
+persist GUI monitor state. The CLI does not discover records, scan update
+directories, mutate storage, or persist monitor state.
 
 ## Running Monitor Affordance Posture
 

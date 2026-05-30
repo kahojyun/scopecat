@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import shutil
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 from scopecat.measurement_records import (
@@ -22,6 +24,7 @@ from scopecat.measurement_records import (
     summarize_running_measurement_inspection,
     write_created_record_primary_data_from_request,
 )
+from scopecat.measurement_records.__main__ import main as measurement_records_main
 from scopecat.measurement_records.in_progress_update import (
     IN_PROGRESS_UPDATE_POLICY,
     IN_PROGRESS_UPDATE_SCHEMA,
@@ -345,6 +348,55 @@ class MeasurementRecordInProgressUpdatePrototypeTest(unittest.TestCase):
             "ready_for_later_finalization_decision",
         )
         self.assertIn("saved_fit_or_range_selection", summary["does_not_claim"])
+
+    def test_running_inspection_summary_cli_prints_compact_json(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            _populate_in_progress_record(storage_root, content_root, state="in_progress")
+            append_run = append_in_progress_measurement_record_from_request(
+                _update_request(),
+                storage_root=storage_root,
+                content_root=content_root,
+            )
+            if not append_run.updated:
+                raise AssertionError(append_run.to_dict())
+
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                exit_code = measurement_records_main(
+                    [
+                        "running-inspection-summary",
+                        "--storage-root",
+                        str(storage_root),
+                        "--request-id",
+                        "inspect-run-3101-rabi-cli",
+                        "--record-id",
+                        "run-3101-rabi",
+                        "--record-dir",
+                        "records/run-3101-rabi",
+                        "--writer-receipt-path",
+                        "records/run-3101-rabi/writer-receipt.json",
+                        "--update-receipt-path",
+                        "records/run-3101-rabi/updates/update-3101-2.json",
+                        "--expected-total-rows",
+                        "5",
+                        "--latest-row-limit",
+                        "1",
+                    ]
+                )
+            payload = json.loads(stdout.getvalue())
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["artifact_posture"], "local_record_running_inspection_summary")
+        self.assertEqual(payload["record"]["record_id"], "run-3101-rabi")
+        self.assertEqual(payload["inspection"]["latest_visible_rows"][0]["drive_amplitude"], "1.00")
+        self.assertEqual(
+            payload["inspection"]["next_action"],
+            "ready_for_later_finalization_decision",
+        )
 
     def test_running_inspection_reads_multiple_append_receipts_in_progression(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
