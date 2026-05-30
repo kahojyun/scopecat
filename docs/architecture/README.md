@@ -20,5 +20,5 @@ user documentation and does not replace discovery validation evidence.
 | [`handoff/engineering-prototype-readiness.md`](handoff/engineering-prototype-readiness.md) | Frozen readiness checkpoint that ended the broad handoff prototype line. |
 | [`handoff/engineering-prototype-promotion-decision.md`](handoff/engineering-prototype-promotion-decision.md) | Canonical accepted handoff implementation boundary, first mutation checkpoint, and next decision gate. |
 | [`handoff/storage-acceptance-decision.md`](handoff/storage-acceptance-decision.md) | Completed first handoff storage-acceptance implementation slice, rollback rule, and deferred storage decisions. |
-| [`handoff/storage-import-requirements-synthesis.md`](handoff/storage-import-requirements-synthesis.md) | Decision-prep synthesis for what handoff storage/import can do before durable measurement-record creation exists. |
+| [`handoff/storage-import-requirements-synthesis.md`](handoff/storage-import-requirements-synthesis.md) | Historical decision-prep synthesis for what handoff storage/import could do before durable measurement-record creation existed. |
 | [`handoff/durable-import-storage-decision.md`](handoff/durable-import-storage-decision.md) | Accepted first durable import/storage boundary: approved normalized import creates a new measurement record through the Measurement Records pipeline. |

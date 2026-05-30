@@ -208,7 +208,7 @@ The next engineering phase needed to choose one explicit path:
 - storage/archive requirements synthesis: compare the needs from source-root
   package writing, legacy import, existing-record update, source observation,
   package receiving, and running inspection before accepting a storage or
-  archive format. The current synthesis is recorded in
+  archive format. The historical synthesis is recorded in
   [`storage-import-requirements-synthesis.md`](storage-import-requirements-synthesis.md);
 - durable import/storage decision: define the storage API boundary before
   writing beyond the candidate layout. That path is now owned by

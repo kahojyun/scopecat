@@ -2,18 +2,21 @@
 
 ## Status
 
-Engineering requirements synthesis, not an ADR.
+Historical engineering requirements synthesis, not an ADR.
 
-This note compares the then-current handoff storage acceptance path with
-adjacent Measurement Records storage/import evidence. It names what could be
-decided before the durable measurement-record creation flow existed, and what
-had to wait for that flow. It does not accept final storage schema, final
-import API, existing-record update behavior, archive format, conflict policy,
-or shared measurement-record domain model.
+This note records the requirements synthesis from before durable
+Measurement Records creation and durable import existed. It compares the
+then-current handoff storage acceptance path with adjacent Measurement Records
+storage/import evidence and names what had to wait for the durable creation
+flow. It does not accept final storage schema, final import API,
+existing-record update behavior, archive format, conflict policy, or shared
+measurement-record domain model.
 
-Follow-up decision: durable measurement-record creation now exists. The first
-durable import/storage boundary is recorded in
+Follow-up decisions: durable measurement-record creation now exists, and the
+first durable import/storage boundary is recorded in
 [`durable-import-storage-decision.md`](durable-import-storage-decision.md).
+Use that document for active import/storage guidance; keep this synthesis as
+historical evidence for the pre-durable-import decision pressure.
 
 Artifact posture: `internal_validation_summary`. This note is internal project
 memory. It creates no portable package output, public contract, public SDK, or
@@ -71,9 +74,10 @@ and
 [`../../discovery/routes/measurement-records/import-source-decision.md`](../../discovery/routes/measurement-records/import-source-decision.md)
 keeps these as separate authority boundaries.
 
-## Requirements Earned Now
+## Historical Requirements Earned
 
-Any next handoff import/storage work should preserve these requirements:
+At the time of this synthesis, any next handoff import/storage work needed to
+preserve these requirements:
 
 - Storage mutation stays after read-only package review and explicit operator
   approval.
@@ -82,7 +86,7 @@ Any next handoff import/storage work should preserve these requirements:
   fixture paths, or external references.
 - Storage-root identity and package-root identity remain continuity facts at
   the mutation boundary.
-- `no_overwrite` is the minimum conflict posture for current candidate
+- `no_overwrite` was the minimum conflict posture for the candidate
   mutation. Silent overwrite, rename, dedupe, or merge behavior is not earned.
 - Package primary data, adapter-normalized primary data, stored primary data,
   and external source references remain distinct.
@@ -97,10 +101,9 @@ Any next handoff import/storage work should preserve these requirements:
 - Runtime redaction is not added for these local internal summaries. Fixtures
   and expected outputs still need repository-safety review.
 
-## Requirements Not Earned Yet
+## Requirements Not Earned By This Synthesis
 
-The current evidence does not justify implementing these in handoff storage
-import now:
+This synthesis did not justify implementing these in handoff storage import:
 
 - final record identity allocation;
 - final storage schema, storage index, or public storage API;
@@ -116,10 +119,10 @@ import now:
 - GUI-owned import review state or durable cross-session review persistence;
 - shared measurement-record lifecycle or domain model.
 
-## What Can Happen Before Record Creation
+## What Could Happen Before Record Creation
 
-Before a durable Measurement Records creation lifecycle exists, the useful work
-is requirements-level and guardrail-level:
+Before a durable Measurement Records creation lifecycle existed, the useful
+work was requirements-level and guardrail-level:
 
 - compare the accepted storage/import slices and keep their authority
   boundaries explicit;
@@ -130,12 +133,12 @@ is requirements-level and guardrail-level:
 - adopt normalized table reading only at concrete read/preview consumers that
   already own normalized data access.
 
-This is enough to prevent accidental promotion of candidate layouts into final
-architecture. It is not enough to implement final import/storage mutation.
+This was enough to prevent accidental promotion of candidate layouts into final
+architecture. It was not enough to implement final import/storage mutation.
 
-## What Should Wait For Record Creation
+## What Had To Wait For Record Creation
 
-These decisions should wait until the measurement-record creation flow is
+These decisions needed to wait until the measurement-record creation flow was
 designed or being implemented:
 
 - how durable record IDs are allocated;
@@ -151,8 +154,8 @@ designed or being implemented:
   mutation;
 - which API owns durable import review state across sessions.
 
-Without those decisions, handoff import should continue to stop at candidate
-storage acceptance plus local review receipts.
+Without those decisions, handoff import stopped at candidate storage
+acceptance plus local review receipts.
 
 ## Next Gate
 
@@ -171,5 +174,5 @@ The second gate is now decided by
 [`durable-import-storage-decision.md`](durable-import-storage-decision.md).
 
 Do not implement broader handoff storage import as an incremental extension of
-`measurement_record_directory_candidate_v0`. Treat that layout as evidence for
-the current candidate mutation only.
+`measurement_record_directory_candidate_v0`. Treat that layout as historical
+evidence for the candidate mutation only.
