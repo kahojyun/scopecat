@@ -10,21 +10,21 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from scopecat.handoff import (
-    approve_import,
-    mark_import_needs_review,
-    reject_import,
-    review_import_workflow_retry,
+from scopecat.handoff.acceptance_preflight import (
+    HandoffAcceptanceDestination,
     run_acceptance_preflight,
-    run_import_workflow,
-    summarize_import_workflow_receipt,
 )
-from scopecat.handoff.acceptance_preflight import HandoffAcceptanceDestination
 from scopecat.handoff.import_workflow import (
     HandoffApprovedImportDecision,
     HandoffImportWorkflowRequest,
     HandoffNeedsReviewImportDecision,
     HandoffRejectedImportDecision,
+    approve_import,
+    mark_import_needs_review,
+    reject_import,
+    review_import_workflow_retry,
+    run_import_workflow,
+    summarize_import_workflow_receipt,
 )
 from scopecat.handoff.storage_acceptance import HandoffStorageAcceptanceRequest
 

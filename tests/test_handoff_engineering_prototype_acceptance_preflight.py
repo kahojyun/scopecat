@@ -5,11 +5,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scopecat.handoff import run_acceptance_preflight
 from scopecat.handoff.acceptance_preflight import (
     HandoffAcceptanceDestination,
     HandoffAcceptancePreflightRequest,
     build_acceptance_preflight,
+    run_acceptance_preflight,
 )
 from scopecat.handoff.import_plan import HandoffImportPlanRequest, build_import_plan
 from scopecat.handoff.receiving import (

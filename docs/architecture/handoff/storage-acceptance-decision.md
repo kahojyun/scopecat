@@ -2,14 +2,21 @@
 
 ## Status
 
-Engineering decision for the first handoff storage-acceptance implementation
-slice, not an ADR.
+Legacy engineering decision for the first handoff storage-acceptance
+implementation slice, not an ADR.
 
-This note chooses the next implementation boundary after
-[`run_acceptance_preflight(...)`](../../../scopecat/handoff/README.md). It is
-the owner for first-mutation slice scope, rollback expectations, and
-still-deferred storage questions. It is not a broad storage architecture
-decision. Keep live API syntax in the handoff module README; keep the broader
+This note records historical evidence for the older candidate storage mutation
+boundary. It is no longer the current durable Measurement Records handoff
+import route, and the candidate storage helpers are no longer exported from the
+top-level `scopecat.handoff` API. Direct modules remain available for tests and
+review of the original no-overwrite, approval, rollback, receipt-summary, and
+retry-review behavior.
+
+This note chose the implementation boundary after the legacy
+`run_acceptance_preflight(...)` helper. It remains the owner for the historical
+first-mutation slice scope, rollback expectations, and still-deferred storage
+questions. It is not a broad storage architecture decision. Keep current
+durable import route syntax in the handoff module README; keep the broader
 accepted handoff boundary in
 [`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md).
 

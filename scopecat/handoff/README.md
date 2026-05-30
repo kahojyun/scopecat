@@ -1,11 +1,11 @@
 # Handoff Prototype Module
 
 Engineering prototype module for Scopecat-authored handoff package use and the
-first candidate receiving-side storage acceptance slice.
+current durable Measurement Records handoff import route.
 
 This module is route-local prototype code. It tests a production-shaped Python
 entrypoint over validated handoff discovery candidates without accepting final
-public SDK names, package format, final storage import behavior, GUI
+public SDK names, package format, broad storage import behavior, GUI
 architecture, plotting stack, or shared measurement-record domain model.
 
 The runtime API exposes route-local objects rather than discovery candidate
@@ -36,45 +36,6 @@ measurement import plan. It names the package members that would be considered
 for a later acceptance mutation, but it accepts no destination path, performs
 no conflict detection, writes no storage records, and does not decide final
 storage schema or rollback policy.
-`run_acceptance_preflight(...)` takes that ready import-plan boundary plus a
-caller-provided storage root and declared relative destination paths. It
-observes only those exact paths for no-overwrite collisions and summarizes
-whether an acceptance mutation request could be prepared. It still performs no
-storage mutation, package acceptance, conflict resolution, manifest write, or
-rollback behavior.
-`run_storage_acceptance(...)` performs the first narrow acceptance mutation
-after a ready preflight and approved storage acceptance request. It copies
-package primary data into declared candidate record paths, writes a small
-candidate record manifest, and applies best-effort synchronous rollback if a
-later write fails. It does not define final storage schema, existing-record
-updates, conflict resolution, crash recovery, archive trust, or linked-context
-payload import.
-`run_import_workflow(...)` wraps the receiving/import chain in one
-operator-facing local session receipt. It always runs the acceptance preflight,
-records an explicit operator decision of approve, reject, or needs-review, and
-calls `run_storage_acceptance(...)` only for the approved decision. It surfaces
-destination collisions, guardrail blocks, rejections, needs-review state, and
-rollback outcomes as workflow classifications without broadening storage shape
-or adding conflict resolution. Rejection and needs-review decisions require a
-single-line `operator_reason` copied only into the local workflow receipt; it
-is not written to the package or candidate storage manifest.
-Typed callers should construct `HandoffApprovedImportDecision`,
-`HandoffRejectedImportDecision`, or `HandoffNeedsReviewImportDecision` and pass
-one of those to `HandoffImportWorkflowRequest`; the raw dictionary adapter
-keeps the serialized `operator_decision`/`operator_reason` shape only at the
-public edge. The helper functions `approve_import(...)`, `reject_import(...)`,
-and `mark_import_needs_review(...)` are the preferred shorthand for building
-those typed decisions.
-`summarize_import_workflow_receipt(...)` reads that local receipt back into a
-small operator continuation summary with package id, measurement ids, final
-state, next action, and operator reason. It is read-only and does not
-authorize retry, reuse prior preflight facts, reopen packages, or mutate
-storage.
-`review_import_workflow_retry(...)` compares that local receipt summary with a
-caller-provided fresh acceptance preflight. It can report that the fresh
-preflight is ready for retry or still blocked, but it does not authorize
-continuation, reuse prior preflight facts, approve storage acceptance, or write
-storage.
 Durable Measurement Records import is a separate boundary from candidate
 handoff storage acceptance. When a reviewed handoff package feeds durable
 storage, the accepted path is to adapt exactly one ready import-plan
@@ -99,9 +60,19 @@ authorize mutation, or reuse the prior receipt as authority.
 The module CLI remains a local operator surface. `python -m scopecat.handoff
 <package-dir>` opens a package for read-only orientation; `python -m
 scopecat.handoff --receipt-summary <receipt.json>` summarizes either a local
-candidate import workflow receipt or a local handoff durable-import receipt
+legacy candidate import workflow receipt or a local handoff durable-import receipt
 for continuation review. The CLI does not run package import, approve storage
 acceptance or durable import, or persist review state.
+
+The older candidate storage acceptance route remains only as historical
+engineering evidence in direct modules:
+`scopecat.handoff.acceptance_preflight`,
+`scopecat.handoff.storage_acceptance`, and
+`scopecat.handoff.import_workflow`. It proved reviewed destination continuity,
+no-overwrite checks, local operator decisions, rollback classification, receipt
+summary, and retry review for `measurement_record_directory_candidate_v0`.
+That route is no longer exported from the top-level `scopecat.handoff` API and
+should not be extended for durable Measurement Records import.
 
 The route-local writer uses a caller-provided `source_root` plus declared
 relative source paths for already-normalized primary data. That source-root
@@ -127,12 +98,6 @@ Current user-facing prototype surface:
 - `observe_package_integrity(package_dir)`;
 - `run_receiving_gate(source, package_dir=...)`;
 - `run_import_plan(source, package_dir=...)`;
-- `run_acceptance_preflight(source, package_dir=..., storage_root=...)`;
-- `run_storage_acceptance(source, package_dir=..., storage_root=...)`;
-- `run_import_workflow(source, package_dir=..., storage_root=...)`;
-- `approve_import(...)`, `reject_import(...)`, and `mark_import_needs_review(...)`;
-- `summarize_import_workflow_receipt(receipt)`;
-- `review_import_workflow_retry(previous_summary, fresh_preflight=...)`;
 - `run_handoff_durable_import(source, package_dir=..., storage_root=...)`;
 - `run_handoff_durable_import_from_plan(request, import_plan=..., storage_root=...)`;
 - `build_durable_import_request_from_handoff_plan(request, import_plan=...)`;
@@ -153,3 +118,5 @@ The CLI entrypoint supports:
 Modules with leading underscores are route-private implementation modules.
 They may be tested directly while the prototype hardens, but they are not
 public SDK or cross-route domain APIs.
+Legacy candidate storage modules remain direct-module historical coverage, not
+the current top-level handoff API.

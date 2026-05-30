@@ -7,12 +7,10 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
-from scopecat.handoff import (
-    open_package,
-    summarize_handoff_durable_import_receipt,
-    summarize_import_workflow_receipt,
-    write_inspection_artifact,
-)
+from scopecat.handoff.durable_import import summarize_handoff_durable_import_receipt
+from scopecat.handoff.import_workflow import summarize_import_workflow_receipt
+from scopecat.handoff.inspect import write_inspection_artifact
+from scopecat.handoff.read_only import open_package
 
 
 def _summary(package_dir: Path, *, html_dir: Path | None = None) -> dict[str, object]:
