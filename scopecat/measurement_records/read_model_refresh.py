@@ -14,6 +14,8 @@ from scopecat.measurement_records.creation import (
 )
 from scopecat.measurement_records.read_model_projection import (
     MeasurementRecordReadModelProjectionRequest,
+)
+from scopecat.measurement_records.read_model_shared import (
     _ensure_no_symlink_parents,
     _existing_directory_root,
     _finalization_ref,

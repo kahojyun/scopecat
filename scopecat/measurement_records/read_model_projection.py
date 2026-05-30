@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import copy
-import hashlib
-import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,14 +13,31 @@ from scopecat.measurement_records.creation import (
     validate_relative_path,
     validate_text,
 )
-from scopecat.measurement_records.finalization import FINALIZATION_RECEIPT_SCHEMA
+from scopecat.measurement_records.read_model_shared import (
+    READ_MODEL_DOES_NOT_CLAIM,
+    _ensure_no_symlink_parents,
+    _existing_directory_root,
+    _finalization_ref,
+    _json_bytes,
+    _path_under,
+    _read_json_at,
+    _read_model,
+    _sha256,
+    _validate_finalization_receipt,
+    _validate_non_overlapping_paths,
+    _validate_request_against_read_view,
+    _validate_strict_child_path,
+)
+from scopecat.measurement_records.read_model_shared import (
+    READ_MODEL_SCHEMA as _READ_MODEL_SCHEMA,
+)
 from scopecat.measurement_records.read_view import (
     MeasurementRecordReadRun,
     read_created_record_primary_table,
 )
 
 READ_MODEL_PROJECTION_SCHEMA = "scopecat.measurement_record_read_model_projection.v0"
-READ_MODEL_SCHEMA = "measurement_record_read_model_candidate_v0"
+READ_MODEL_SCHEMA = _READ_MODEL_SCHEMA
 READ_MODEL_PROJECTION_POLICY = {
     "workflow_authority": "approved_measurement_record_read_model_projection_request",
     "record_authority": "existing_measurement_record_creation_manifest",
@@ -37,18 +52,7 @@ READ_MODEL_PROJECTION_POLICY = {
     "final_storage_schema": "not_defined",
 }
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
-DOES_NOT_CLAIM = [
-    "manifest_replacement",
-    "canonical_storage_authority",
-    "read_model_refresh",
-    "stale_read_model_repair",
-    "final_storage_schema",
-    "conflict_resolution",
-    "crash_recovery",
-    "concurrent_storage_root_mutation",
-    "export_schema",
-    "gui_review_state",
-]
+DOES_NOT_CLAIM = list(READ_MODEL_DOES_NOT_CLAIM)
 
 
 @dataclass(frozen=True)
@@ -298,160 +302,6 @@ def _parse_source(
     )
 
 
-def _validate_request_against_read_view(
-    request: MeasurementRecordReadModelProjectionRequest,
-    read_view: MeasurementRecordReadRun,
-) -> None:
-    if read_view.storage_root != _existing_directory_root(
-        Path(read_view.storage_root),
-        "read model projection read view storage root",
-    ):
-        raise ValueError("read model projection read view storage root is invalid")
-    if request.record_id != read_view.request.record_id:
-        raise ValueError("read model projection record_id must match read view")
-    if request.record_dir != read_view.request.record_dir:
-        raise ValueError("read model projection record_dir must match read view")
-    if request.creation_manifest_path != read_view.request.creation_manifest_path:
-        raise ValueError("read model projection creation_manifest_path must match read view")
-    if request.writer_receipt_path != read_view.request.writer_receipt_path:
-        raise ValueError("read model projection writer_receipt_path must match read view")
-
-
-def _validate_finalization_receipt(
-    request: MeasurementRecordReadModelProjectionRequest,
-    read_view: MeasurementRecordReadRun,
-    receipt: dict[str, Any],
-) -> None:
-    if receipt.get("schema") != FINALIZATION_RECEIPT_SCHEMA:
-        raise ValueError("read model projection finalization receipt schema is unsupported")
-    record = _require_dict(receipt, "record")
-    if record.get("record_id") != request.record_id:
-        raise ValueError("read model projection record_id must match finalization receipt")
-    if record.get("record_dir") != request.record_dir:
-        raise ValueError("read model projection record_dir must match finalization receipt")
-    if record.get("creation_manifest_path") != request.creation_manifest_path:
-        raise ValueError(
-            "read model projection creation_manifest_path must match finalization receipt"
-        )
-    if record.get("writer_receipt_path") != request.writer_receipt_path:
-        raise ValueError(
-            "read model projection writer_receipt_path must match finalization receipt"
-        )
-    finalization = _require_dict(receipt, "finalization")
-    final_state = finalization.get("final_state")
-    if final_state not in {"complete", "failed"}:
-        raise ValueError("read model projection finalization state is unsupported")
-    evidence = _require_dict(finalization, "evidence")
-    writer_ref = read_view.to_dict()["writer_receipt"]
-    if evidence.get("read_view_classification") != read_view.classification:
-        raise ValueError("read model projection read view classification must match finalization")
-    if evidence.get("primary_data_path") != writer_ref["primary_data_path"]:
-        raise ValueError("read model projection primary data path must match finalization")
-    if evidence.get("primary_data_digest") != writer_ref["primary_data_digest"]:
-        raise ValueError("read model projection primary data digest must match finalization")
-    if evidence.get("rows_recorded") != writer_ref["rows_recorded"]:
-        raise ValueError("read model projection rows recorded must match finalization")
-    if evidence.get("table_row_count") != read_view.table["row_count"]:
-        raise ValueError("read model projection table row count must match finalization")
-    if final_state == "failed":
-        validate_text(finalization.get("operator_reason"), "finalization operator_reason")
-
-
-def _read_model(
-    request: MeasurementRecordReadModelProjectionRequest,
-    read_view: MeasurementRecordReadRun,
-    *,
-    manifest_digest: str,
-    writer_receipt_digest: str,
-    finalization_receipt: dict[str, Any],
-    finalization_receipt_digest: str,
-) -> dict[str, Any]:
-    manifest_ref = read_view.to_dict()["record_manifest"]
-    writer_ref = read_view.to_dict()["writer_receipt"]
-    finalization = _require_dict(finalization_receipt, "finalization")
-    final_state = finalization["final_state"]
-    finalization_entry = {
-        "final_state": final_state,
-        "operator_reason": finalization.get("operator_reason"),
-    }
-    return {
-        "schema": READ_MODEL_SCHEMA,
-        "read_model_policy": {
-            "authority": "derived_from_record_local_receipts",
-            "canonical_storage_authority": "not_claimed",
-            "manifest_replacement": "not_performed",
-            "refresh": "not_performed",
-        },
-        "record": {
-            "record_id": request.record_id,
-            "record_dir": request.record_dir,
-            "lifecycle_state": final_state,
-            "creation_lifecycle_state": manifest_ref["lifecycle_state"],
-        },
-        "sources": {
-            "creation_manifest": {
-                "path": request.creation_manifest_path,
-                "schema": manifest_ref["schema"],
-                "digest": manifest_digest,
-            },
-            "writer_receipt": {
-                "path": request.writer_receipt_path,
-                "schema": writer_ref["schema"],
-                "digest": writer_receipt_digest,
-            },
-            "finalization_receipt": {
-                "path": request.finalization_receipt_path,
-                "schema": finalization_receipt.get("schema"),
-                "digest": finalization_receipt_digest,
-            },
-            "read_view": {
-                "classification": read_view.classification,
-            },
-        },
-        "primary_data": {
-            "path": writer_ref["primary_data_path"],
-            "format": read_view.table["format"],
-            "digest": writer_ref["primary_data_digest"],
-            "size_bytes": _require_dict(read_view.writer_receipt, "primary_data").get("size_bytes"),
-            "declared_row_count": writer_ref["rows_recorded"],
-            "observed_row_count": read_view.table["row_count"],
-        },
-        "table": {
-            "classification": read_view.table["classification"],
-            "columns": copy.deepcopy(read_view.table["columns"]),
-            "preview": copy.deepcopy(read_view.table["preview"]),
-        },
-        "review": {
-            "findings": [copy.deepcopy(finding) for finding in read_view.review_findings],
-        },
-        "finalization": finalization_entry,
-        "projection": {
-            "request_id": request.request_id,
-            "read_model_path": request.read_model_path,
-            "projection_kind": "derived_local_summary",
-        },
-        "does_not_claim": list(DOES_NOT_CLAIM),
-    }
-
-
-def _read_json_at(root: Path, relative_path: str, label: str) -> tuple[dict[str, Any], str]:
-    _ensure_no_symlink_parents(root, relative_path, label)
-    path = _path_under(root, relative_path)
-    if path.is_symlink():
-        raise ValueError(f"{label} must not be a symlink")
-    try:
-        content = path.read_bytes()
-    except FileNotFoundError as exc:
-        raise ValueError(f"{label} is required") from exc
-    try:
-        parsed = json.loads(content.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError(f"{label} must be utf-8 JSON") from exc
-    if not isinstance(parsed, dict):
-        raise ValueError(f"{label} must be a JSON object")
-    return parsed, _sha256(content)
-
-
 def _write_read_model(
     root: Path,
     relative_path: str,
@@ -477,66 +327,8 @@ def _write_new_file(path: Path, content: bytes) -> None:
         handle.write(content)
 
 
-def _json_bytes(content: dict[str, Any]) -> bytes:
-    return (json.dumps(content, indent=2, sort_keys=True) + "\n").encode("utf-8")
-
-
-def _finalization_ref(receipt: dict[str, Any] | None) -> dict[str, Any] | None:
-    if receipt is None:
-        return None
-    finalization = _require_dict(receipt, "finalization")
-    record = _require_dict(receipt, "record")
-    return {
-        "schema": receipt.get("schema"),
-        "record_id": record.get("record_id"),
-        "record_dir": record.get("record_dir"),
-        "final_state": finalization.get("final_state"),
-    }
-
-
 class _ProjectionWriteFailure(RuntimeError):
     pass
-
-
-def _existing_directory_root(root: Path, owner: str) -> Path:
-    if root.is_symlink():
-        raise ValueError(f"{owner} must not be a symlink")
-    if not root.is_dir():
-        raise ValueError(f"{owner} must be an existing directory")
-    return root.resolve()
-
-
-def _path_under(root: Path, relative_path: str) -> Path:
-    return root.joinpath(
-        *Path(validate_relative_path(relative_path, "read model projection path")).parts
-    )
-
-
-def _ensure_no_symlink_parents(root: Path, relative_path: str, label: str) -> None:
-    current = root
-    parts = Path(validate_relative_path(relative_path, label)).parts
-    for part in parts[:-1]:
-        current = current / part
-        if current.is_symlink():
-            raise ValueError(f"{label} parent is a symlink")
-        if current.exists() and not current.is_dir():
-            raise ValueError(f"{label} parent is not a directory")
-
-
-def _validate_strict_child_path(value: str, parent: str, owner: str) -> None:
-    value_parts = Path(validate_relative_path(value, owner)).parts
-    parent_parts = Path(validate_relative_path(parent, f"{owner} parent")).parts
-    if len(value_parts) <= len(parent_parts) or value_parts[: len(parent_parts)] != parent_parts:
-        raise ValueError(f"{owner} must stay under record_dir")
-
-
-def _validate_non_overlapping_paths(paths: tuple[str, ...], owner: str) -> None:
-    if len(set(paths)) != len(paths):
-        raise ValueError(f"{owner} must not overlap")
-
-
-def _sha256(content: bytes) -> str:
-    return f"sha256:{hashlib.sha256(content).hexdigest()}"
 
 
 def _require_dict(value: dict[str, Any], field: str) -> dict[str, Any]:
