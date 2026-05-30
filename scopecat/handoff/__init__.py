@@ -31,10 +31,12 @@ from scopecat.handoff.integrity import (
     observe_package_integrity,
 )
 from scopecat.handoff.package import (
+    HandoffContextReferenceSummary,
     HandoffFinding,
     HandoffLinkedContext,
     HandoffMeasurement,
     HandoffPackage,
+    summarize_package_context_references,
 )
 from scopecat.handoff.read_only import open_package
 from scopecat.handoff.receiving import (
@@ -48,6 +50,7 @@ from scopecat.handoff.writer import HandoffPackageWriteReceipt, write_package
 
 __all__ = [
     "HANDOFF_INSPECTION_ARTIFACT_NAME",
+    "HandoffContextReferenceSummary",
     "HandoffDurableImportDestination",
     "HandoffDurableImportReceiptSummary",
     "HandoffDurableImportRequest",
@@ -81,6 +84,7 @@ __all__ = [
     "run_package_workflow",
     "run_receiving_gate",
     "summarize_handoff_durable_import_receipt",
+    "summarize_package_context_references",
     "write_inspection_artifact",
     "write_package",
 ]

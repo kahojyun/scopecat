@@ -370,6 +370,13 @@ the handoff durable-import receipt includes the linked-context import-plan
 projection so operators can see which context references stayed outside the
 durable import payload.
 
+The route also exposes `summarize_package_context_references(...)` as a
+read-only local review summary over an opened package. It reports context
+reference counts, family counts, managed reference entries, and linked-context
+ids that do not yet carry managed reference metadata. The summary is useful for
+receiving-side orientation before import planning or durable import, but it is
+not continuation authority and does not become a public package schema.
+
 This checkpoint does not package experiment code, prepared-run payloads,
 environment files, parameter payloads, or setup payloads. It does not resolve
 references, restore environments, import linked context into Measurement

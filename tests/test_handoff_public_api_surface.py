@@ -37,6 +37,11 @@ class HandoffPublicApiSurfaceTest(unittest.TestCase):
         self.assertTrue(hasattr(handoff, "run_handoff_durable_import"))
         self.assertIn("summarize_handoff_durable_import_receipt", handoff.__all__)
 
+    def test_context_reference_summary_is_top_level_export(self) -> None:
+        self.assertIn("HandoffContextReferenceSummary", handoff.__all__)
+        self.assertIn("summarize_package_context_references", handoff.__all__)
+        self.assertTrue(hasattr(handoff, "summarize_package_context_references"))
+
 
 if __name__ == "__main__":
     unittest.main()

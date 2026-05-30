@@ -88,6 +88,57 @@ class HandoffLinkedContext:
 
 
 @dataclass(frozen=True)
+class HandoffContextReferenceSummary:
+    """Read-only summary of package context references."""
+
+    package_id: str
+    measurement_ids: tuple[str, ...]
+    context_references: tuple[dict[str, Any], ...]
+    untyped_linked_context_ids: tuple[str, ...]
+
+    @property
+    def context_reference_count(self) -> int:
+        return len(self.context_references)
+
+    @property
+    def family_counts(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for item in self.context_references:
+            family = item["reference_family"]
+            counts[family] = counts.get(family, 0) + 1
+        return dict(sorted(counts.items()))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "artifact_posture": "local_context_reference_summary",
+            "summary_policy": {
+                "source": "read_only_handoff_package",
+                "authority": "operator_review_summary",
+                "payload_import": "not_performed",
+                "reference_resolution": "not_performed",
+                "environment_restoration": "not_performed",
+                "code_materialization": "not_performed",
+                "storage_mutation": "not_performed",
+                "portable_export": "not_produced",
+            },
+            "package_id": self.package_id,
+            "measurement_ids": list(self.measurement_ids),
+            "context_reference_count": self.context_reference_count,
+            "reference_family_counts": self.family_counts,
+            "context_references": [copy.deepcopy(item) for item in self.context_references],
+            "untyped_linked_context_ids": list(self.untyped_linked_context_ids),
+            "does_not_claim": [
+                "linked_context_payload_import",
+                "reference_resolution",
+                "environment_restoration",
+                "code_materialization",
+                "prepared_run_reconstruction",
+                "durable_review_state",
+            ],
+        }
+
+
+@dataclass(frozen=True)
 class HandoffMeasurement:
     """Route-local projection of one opened handoff package measurement."""
 
@@ -243,3 +294,38 @@ class HandoffPackage:
         """
 
         return copy.deepcopy(self.to_dict())
+
+
+def summarize_package_context_references(
+    package: HandoffPackage,
+) -> HandoffContextReferenceSummary:
+    """Summarize reference-only context visible in an opened handoff package."""
+
+    context_references = []
+    untyped_context_ids = []
+    for item in package.linked_context:
+        if item.context_reference is None:
+            untyped_context_ids.append(item.link_id)
+            continue
+        reference = item.context_reference
+        context_references.append(
+            {
+                "link_id": item.link_id,
+                "kind": item.kind,
+                "label": item.label,
+                "package_state": item.package_state,
+                "materialization": item.materialization,
+                "linked_measurement_record_ids": list(item.linked_measurement_record_ids),
+                "reference_id": reference["reference_id"],
+                "reference_kind": reference["reference_kind"],
+                "reference_family": reference["reference_family"],
+                "reference_materialization": reference["materialization"],
+                "payload_import": reference["payload_import"],
+            }
+        )
+    return HandoffContextReferenceSummary(
+        package_id=package.package_id,
+        measurement_ids=package.measurement_ids,
+        context_references=tuple(context_references),
+        untyped_linked_context_ids=tuple(untyped_context_ids),
+    )

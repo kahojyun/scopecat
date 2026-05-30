@@ -43,6 +43,11 @@ prepared-run, environment-operation, parameter, or setup context visible during
 open/import planning without packaging those payloads, resolving references,
 restoring environments, or importing linked context into durable Measurement
 Records storage.
+`summarize_package_context_references(...)` projects an opened package into a
+compact local review summary: context reference count, family counts, typed
+reference entries, and linked-context ids that have no managed reference
+metadata. It does not resolve references, import payloads, restore
+environments, materialize code, mutate storage, or produce a portable export.
 Durable Measurement Records import is a separate boundary from candidate
 handoff storage acceptance. When a reviewed handoff package feeds durable
 storage, the accepted path is to adapt exactly one ready import-plan
@@ -110,6 +115,7 @@ Current user-facing prototype surface:
 - `build_durable_import_request_from_handoff_plan(request, import_plan=...)`;
 - `summarize_handoff_durable_import_receipt(receipt)`;
 - `review_handoff_durable_import_retry(previous_summary, fresh_import_plan=...)`;
+- `summarize_package_context_references(package)`;
 - `write_package(source, source_root=..., package_root=...)`;
 - `run_package_workflow(source, source_root=..., package_root=...)`;
 - `python -m scopecat.handoff <package-dir>`;
