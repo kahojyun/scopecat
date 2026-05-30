@@ -7,15 +7,19 @@ Implementation candidate validated.
 Document role: historical discovery validation result. It records what this
 slice earned and what it did not establish. Later engineering implementation
 decisions are owned by
-[`storage-acceptance-decision.md`](../../../../architecture/handoff/storage-acceptance-decision.md);
+[`storage-acceptance-decision.md`](../../../../architecture/handoff/storage-acceptance-decision.md)
+and the current durable handoff import route is owned by
+[`durable-import-storage-decision.md`](../../../../architecture/handoff/durable-import-storage-decision.md);
 do not update this result to mirror live API or receipt changes.
 
-This result validates the first approved receiving-side storage mutation
+This result validates the old first approved receiving-side candidate storage
+mutation
 intended to run after read-only review of a directory-shaped handoff package.
 It verifies approval plus reviewed package identity/classification; it does
 not bind to an inspection receipt. It is not accepted architecture, a final
 import API, final storage layout, archive format, dataframe adapter, GUI
 workflow, package-integrity verifier, or shared measurement-record model.
+It is not the active durable Measurement Records handoff import route.
 
 ## Fixture
 

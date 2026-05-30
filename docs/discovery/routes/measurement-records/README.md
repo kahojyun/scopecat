@@ -17,13 +17,19 @@ Use these documents before adding new Measurement Records behavior:
 | --- | --- |
 | [`policies/measurement-data-reference-boundary.md`](../../policies/measurement-data-reference-boundary.md) | Distinguish normalized primary data from external source references, attachments/artifacts, and previewable data items. |
 | [`routes/measurement-records/import-source-decision.md`](import-source-decision.md) | Current import/source route decisions, deferred decisions, reopen triggers, and next-work guidance. |
-| [`routes/measurement-records/handoff/README.md`](handoff/README.md) | Current handoff package route map, artifact boundaries, route concepts, and recommended handoff work. |
-| [`routes/measurement-records/handoff/decision.md`](handoff/decision.md) | Current handoff route decisions, deferred decisions, reopen triggers, and stop rule. |
-| [`routes/measurement-records/handoff/contract-checklist.md`](handoff/contract-checklist.md) | Route-local field categories and review checks for handoff package changes. |
 | [`policies/package-purpose-boundary.md`](../../policies/package-purpose-boundary.md) | Boundary between analysis/review packages, shared lab references, and future offline execution migration. |
 | [`policies/artifact-preview-boundary.md`](../../policies/artifact-preview-boundary.md) | Boundary between arbitrary artifacts and declared previewable data items. |
 | [`policies/complex-response-boundary.md`](../../policies/complex-response-boundary.md) | Boundary for complex-valued response metadata and derived component views. |
 | [`slices/measurement-records/scan-data-shape-decision-summary.md`](../../slices/measurement-records/scan-data-shape-decision-summary.md) | Stop rule for scan/data-shape expansion and direction toward preview metadata consumers. |
+
+Retired handoff discovery notes are not current starting points, but remain
+useful historical context:
+
+| Document | Use For |
+| --- | --- |
+| [`routes/measurement-records/handoff/README.md`](handoff/README.md) | Retired handoff package route map and historical discovery synthesis; current handoff boundaries live in architecture and module docs. |
+| [`routes/measurement-records/handoff/decision.md`](handoff/decision.md) | Retired handoff route decision closeout; preserved for historical deferrals, reopen triggers, and stop-rule context. |
+| [`routes/measurement-records/handoff/contract-checklist.md`](handoff/contract-checklist.md) | Historical route-local field categories and review checks for handoff package discovery slices. |
 
 ## Route Posture
 
@@ -47,10 +53,10 @@ separations:
   record, but it does not replace manifests, merge primary data, refresh read
   models, define lock identity, or accept crash recovery.
 
-Handoff package work is a separate route under Measurement Records. Use the
-handoff route decision docs when the desired artifact remains analysis/review
-oriented. Shared lab references and offline execution migration require
-separate boundary work.
+Handoff package work has moved from discovery route ownership into the accepted
+handoff architecture and module docs. Use the retired discovery handoff docs
+only for historical route synthesis. Shared lab references and offline
+execution migration still require separate boundary work.
 
 ## Current Next Work
 
@@ -58,11 +64,13 @@ Prefer one of these only when the named workflow exists:
 
 | Need | Next Boundary |
 | --- | --- |
+| Create durable measurement-record shells before writer/import integration | Start from [`architecture/measurement-records/creation-lifecycle-decision.md`](../../../architecture/measurement-records/creation-lifecycle-decision.md). |
+| Import reviewed normalized primary data into durable storage | Start from [`architecture/handoff/durable-import-storage-decision.md`](../../../architecture/handoff/durable-import-storage-decision.md): create a new measurement record through the existing receipt/read-model pipeline. |
 | Read or preview stored/package-local normalized data through one contract | Adopt [`slices/measurement-records/normalized-primary-table-validation-result.md`](../../slices/measurement-records/normalized-primary-table-validation-result.md) at that concrete consumer boundary. |
-| Add durable storage editing beyond append receipts | Validate stronger existing-record update behavior: manifest replacement, read-model refresh, stale-lock cleanup, crash recovery, conflict policy, or in-progress record semantics. |
+| Add durable storage editing beyond append receipts | Validate stronger existing-record update behavior: existing-record import/update, stale-lock cleanup, crash recovery, conflict policy, or in-progress record semantics. |
 | Accept adapter-produced input through a real workflow | Extend [`adapter-output-boundary-validation-result.md`](../../slices/measurement-records/adapter-output-boundary-validation-result.md) into a concrete transport, discovery, trust, and failure model. |
 | Recover moved reference-only records | Validate reference repair/review without automatic path discovery by default. |
-| Continue handoff package behavior | Start from [`routes/measurement-records/handoff/decision.md`](handoff/decision.md), not the import/source route. |
+| Continue handoff package behavior | Start from [`architecture/handoff/engineering-prototype-promotion-decision.md`](../../../architecture/handoff/engineering-prototype-promotion-decision.md), [`architecture/handoff/durable-import-storage-decision.md`](../../../architecture/handoff/durable-import-storage-decision.md), and [`scopecat/handoff/README.md`](../../../../scopecat/handoff/README.md), not the retired discovery route. |
 
 Do not add another import/source slice merely to restate that external source
 references are not previewable primary data, that file-level observation is not
@@ -93,7 +101,7 @@ data-level observation, or that adapters own legacy parsing.
 | [`normalized-primary-table-validation-result.md`](../../slices/measurement-records/normalized-primary-table-validation-result.md) | Normalized primary CSV table read candidate over already-provided bytes. |
 | [`adapter-authored-legacy-import-validation-result.md`](../../slices/measurement-records/adapter-authored-legacy-import-validation-result.md) | Normalized adapter-authored legacy import manifest candidate. |
 | [`adapter-output-boundary-validation-result.md`](../../slices/measurement-records/adapter-output-boundary-validation-result.md) | File-shaped adapter-produced input boundary as transport pressure. |
-| [`legacy-import-acceptance-validation-result.md`](../../slices/measurement-records/legacy-import-acceptance-validation-result.md) | Approved copy-into-new-record acceptance candidate. |
+| [`legacy-import-acceptance-validation-result.md`](../../slices/measurement-records/legacy-import-acceptance-validation-result.md) | Historical approved copy-into-new-record acceptance candidate; active new-record import is owned by durable Measurement Records import. |
 | [`reference-only-legacy-import-validation-result.md`](../../slices/measurement-records/reference-only-legacy-import-validation-result.md) | Reference-only acceptance candidate for preserving external source references. |
 | [`reference-only-source-observation-validation-result.md`](../../slices/measurement-records/reference-only-source-observation-validation-result.md) | File-level observation candidate for preserved external source references. |
 | [`new-run-measurement-writer-validation-result.md`](../../slices/measurement-records/new-run-measurement-writer-validation-result.md) | Side-effect-free writer-event summary candidate. |
@@ -118,8 +126,13 @@ data-level observation, or that adapters own legacy parsing.
 These rows are historical discovery evidence. Current accepted implementation
 boundaries live in
 [`engineering-prototype-promotion-decision.md`](../../../architecture/handoff/engineering-prototype-promotion-decision.md)
-and the first candidate storage mutation boundary lives in
+and the historical first candidate storage mutation boundary lives in
 [`storage-acceptance-decision.md`](../../../architecture/handoff/storage-acceptance-decision.md).
+The historical storage/import requirements synthesis from before durable
+measurement-record creation lives in
+[`storage-import-requirements-synthesis.md`](../../../architecture/handoff/storage-import-requirements-synthesis.md).
+The active durable handoff import boundary lives in
+[`durable-import-storage-decision.md`](../../../architecture/handoff/durable-import-storage-decision.md).
 
 | Document | Use For |
 | --- | --- |

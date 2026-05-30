@@ -10,15 +10,17 @@ boundaries are owned by
 [`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md)
 and
 [`storage-acceptance-decision.md`](../../../../architecture/handoff/storage-acceptance-decision.md);
+the current durable handoff import route is owned by
+[`durable-import-storage-decision.md`](../../../../architecture/handoff/durable-import-storage-decision.md);
 do not update this result to mirror live API, storage, or receiving-workflow
 changes.
 
 This result validates a receiving-side composition workflow for an existing
 directory-shaped handoff package. It composes the already validated inspection,
-integrity-observation, and acceptance candidates. It is not accepted
+integrity-observation, and old candidate acceptance slices. It is not accepted
 architecture, a final import API, GUI workflow, archive validator, signature
 validator, dataframe adapter, storage schema, or shared measurement-record
-model.
+model. It is not the active durable Measurement Records handoff import route.
 
 ## Fixture
 

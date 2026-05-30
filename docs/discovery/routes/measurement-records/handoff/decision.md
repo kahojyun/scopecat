@@ -2,14 +2,20 @@
 
 ## Status
 
-Discovery decision consolidation, not an ADR.
+Retired discovery decision consolidation, not an ADR.
 
-This note closes the current handoff-package discovery pass. It records the
-route decisions earned by the validated handoff package slices and names the
-triggers that would justify more handoff work. It does not accept final
-production architecture, a public SDK, a GUI framework, a package archive
-format, signatures, final storage import behavior, or a shared
-measurement-record domain model.
+This note closed the handoff-package discovery pass before the engineering
+prototype and durable Measurement Records import route became the live owners.
+It remains historical route memory for the decisions earned by validated
+handoff package slices and the triggers that justified more handoff work at
+that time. It does not accept final production architecture, a public SDK, a
+GUI framework, a package archive format, signatures, final storage import
+behavior, or a shared measurement-record domain model.
+
+For current implementation boundaries, use
+[`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md),
+[`durable-import-storage-decision.md`](../../../../architecture/handoff/durable-import-storage-decision.md),
+and [`scopecat/handoff/README.md`](../../../../../scopecat/handoff/README.md).
 
 Artifact posture: `internal_validation_summary`. This document is internal
 project memory. It creates no portable package output and no new redaction
@@ -19,7 +25,7 @@ for artifact-boundary classification.
 
 ## Accepted For Now
 
-The current handoff route is **open before import**:
+The validated discovery handoff route was **open before import**:
 
 ```text
 write package
@@ -28,7 +34,7 @@ write package
   -> open/read package locally
   -> inspect plot/table/context locally
   -> optionally observe integrity
-  -> optionally run candidate storage acceptance
+  -> optionally adapt one reviewed package measurement into durable Measurement Records import
 ```
 
 The package directory is the portable artifact. `package-manifest.json` is the
@@ -128,10 +134,17 @@ Do more handoff work only when one of these concrete triggers appears:
 - GUI review needs inspectable context content:
   validate one concrete linked-context payload category and how it appears
   beside the measurement.
-- Users need durable/final local records beyond the candidate storage
-  acceptance slice:
-  design final storage import behavior, conflict handling, and existing-record
-  update policy. The current candidate mutation boundary is recorded in
+- Users need durable/final local records beyond the implemented
+  single-measurement new-record path:
+  reopen from the accepted durable import path in
+  [`durable-import-storage-decision.md`](../../../../architecture/handoff/durable-import-storage-decision.md).
+  The current trigger is satisfied for reviewed handoff package to
+  single-measurement new durable record import, receipt summary, retry review,
+  and CLI receipt summary. Existing-record update, batch import, conflict
+  handling beyond no-overwrite, stronger recovery/concurrency, linked-context
+  payload import, package trust/archive handling, public adapter transport, and
+  GUI durable review state still need separate decisions. The older candidate
+  mutation boundary is recorded in
   [`storage-acceptance-decision.md`](../../../../architecture/handoff/storage-acceptance-decision.md).
 - Analysis or fit results need first-class display:
   validate a read-only analysis-result model before executing fits or

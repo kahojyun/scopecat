@@ -7,7 +7,6 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from scopecat.handoff import run_storage_acceptance
 from scopecat.handoff.acceptance_preflight import (
     HandoffAcceptanceDestination,
     HandoffAcceptancePreflightRequest,
@@ -20,6 +19,7 @@ from scopecat.handoff.receiving import (
 )
 from scopecat.handoff.storage_acceptance import (
     HandoffStorageAcceptanceRequest,
+    run_storage_acceptance,
     run_storage_acceptance_from_preflight,
 )
 

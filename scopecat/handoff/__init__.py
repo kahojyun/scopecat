@@ -1,11 +1,16 @@
-"""Read-only handoff package engineering prototype."""
+"""Current handoff package engineering prototype API."""
 
-from scopecat.handoff.acceptance_preflight import (
-    HandoffAcceptanceDestination,
-    HandoffAcceptancePreflightRequest,
-    HandoffAcceptancePreflightRun,
-    HandoffDestinationObservation,
-    run_acceptance_preflight,
+from scopecat.handoff.durable_import import (
+    HandoffDurableImportDestination,
+    HandoffDurableImportReceiptSummary,
+    HandoffDurableImportRequest,
+    HandoffDurableImportRetryReview,
+    HandoffDurableImportRun,
+    build_durable_import_request_from_handoff_plan,
+    review_handoff_durable_import_retry,
+    run_handoff_durable_import,
+    run_handoff_durable_import_from_plan,
+    summarize_handoff_durable_import_receipt,
 )
 from scopecat.handoff.import_plan import (
     HandoffImportPlanRequest,
@@ -37,21 +42,17 @@ from scopecat.handoff.receiving import (
     HandoffReceivingReviewRequest,
     run_receiving_gate,
 )
-from scopecat.handoff.storage_acceptance import (
-    HandoffStorageAcceptanceRequest,
-    HandoffStorageAcceptanceRun,
-    run_storage_acceptance,
-)
 from scopecat.handoff.tables import HandoffPlotSeries, HandoffTable
 from scopecat.handoff.workflow import HandoffPackageWorkflowRun, run_package_workflow
 from scopecat.handoff.writer import HandoffPackageWriteReceipt, write_package
 
 __all__ = [
     "HANDOFF_INSPECTION_ARTIFACT_NAME",
-    "HandoffAcceptanceDestination",
-    "HandoffAcceptancePreflightRequest",
-    "HandoffAcceptancePreflightRun",
-    "HandoffDestinationObservation",
+    "HandoffDurableImportDestination",
+    "HandoffDurableImportReceiptSummary",
+    "HandoffDurableImportRequest",
+    "HandoffDurableImportRetryReview",
+    "HandoffDurableImportRun",
     "HandoffFinding",
     "HandoffImportPlanRequest",
     "HandoffImportPlanRun",
@@ -68,17 +69,18 @@ __all__ = [
     "HandoffPlotSeries",
     "HandoffReceivingGateRun",
     "HandoffReceivingReviewRequest",
-    "HandoffStorageAcceptanceRequest",
-    "HandoffStorageAcceptanceRun",
     "HandoffTable",
+    "build_durable_import_request_from_handoff_plan",
     "build_inspection_html",
     "observe_package_integrity",
     "open_package",
-    "run_acceptance_preflight",
+    "review_handoff_durable_import_retry",
+    "run_handoff_durable_import",
+    "run_handoff_durable_import_from_plan",
     "run_import_plan",
     "run_package_workflow",
     "run_receiving_gate",
-    "run_storage_acceptance",
+    "summarize_handoff_durable_import_receipt",
     "write_inspection_artifact",
     "write_package",
 ]
