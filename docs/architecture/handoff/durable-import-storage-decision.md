@@ -325,3 +325,23 @@ This summary is intentionally not continuation authority. It does not approve a
 retry, reuse a prior import plan, prove destination freshness, reopen the
 package, or mutate storage. A retry or follow-up import still needs a fresh
 handoff durable import request and the same ready-plan/durable-import checks.
+
+## Handoff Durable Retry Review Checkpoint
+
+The route now includes `review_handoff_durable_import_retry(...)` as a
+read-only retry review over a previous handoff durable import receipt summary
+and a fresh `HandoffImportPlanRun`.
+
+The retry review:
+
+- validates package identity against the fresh import plan;
+- validates selected measurement identity when the fresh plan is ready;
+- reports successful prior imports as not retryable;
+- blocks retry after partial-commit outcomes until that state is reviewed;
+- reports a fresh ready single-measurement import plan as retry-ready;
+- reports blocked fresh plans without authorizing mutation.
+
+It deliberately does not create a durable import request, reuse the prior
+receipt or import plan as authority, prove destination freshness, approve
+storage mutation, or persist durable GUI review state. A retry still requires a
+fresh handoff durable import request with caller-declared destination facts.

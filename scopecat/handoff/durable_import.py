@@ -268,6 +268,91 @@ class HandoffDurableImportReceiptSummary:
         }
 
 
+@dataclass(frozen=True)
+class HandoffDurableImportRetryReview:
+    """Read-only review of a retry attempt against a fresh handoff import plan."""
+
+    previous_summary: HandoffDurableImportReceiptSummary
+    import_plan: HandoffImportPlanRun
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.previous_summary, HandoffDurableImportReceiptSummary):
+            raise ValueError("retry review requires typed handoff durable import summary")
+        if not isinstance(self.import_plan, HandoffImportPlanRun):
+            raise ValueError("retry review requires a fresh handoff import plan")
+        if self.previous_summary.package_id != self.import_plan.package.package_id:
+            raise ValueError("retry review package id must match fresh import plan")
+        if self.import_plan.import_plan_allowed:
+            planned_ids = self._planned_measurement_ids()
+            if planned_ids != (self.previous_summary.measurement_record_id,):
+                raise ValueError("retry review measurement id must match fresh import plan")
+
+    @property
+    def retry_allowed(self) -> bool:
+        return self.classification == "fresh_import_plan_ready_for_retry"
+
+    @property
+    def classification(self) -> str:
+        if self.previous_summary.final_state == "imported_handoff_measurement_record":
+            return "retry_not_applicable_after_import"
+        if self.previous_summary.partial_commit:
+            return "retry_blocked_until_partial_commit_reviewed"
+        if not self.import_plan.import_plan_allowed:
+            return f"retry_blocked_by_{self.import_plan.classification}"
+        if len(self.import_plan.measurement_plans) != 1:
+            return "retry_blocked_by_fresh_import_plan_measurement_scope"
+        return "fresh_import_plan_ready_for_retry"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "artifact_posture": "local_handoff_durable_import_retry_review",
+            "retry_review_policy": {
+                "source": "local_handoff_durable_import_receipt_summary",
+                "fresh_import_plan": "required",
+                "storage_mutation": "not_performed",
+                "durable_import_request": "not_created",
+                "continuation_authority": "not_granted",
+                "prior_receipt_reuse": "not_allowed",
+            },
+            "classification": self.classification,
+            "retry_allowed": self.retry_allowed,
+            "package_id": self.previous_summary.package_id,
+            "measurement_record_id": self.previous_summary.measurement_record_id,
+            "destination_record_id": self.previous_summary.destination_record_id,
+            "previous": {
+                "final_state": self.previous_summary.final_state,
+                "next_action": self.previous_summary.next_action,
+                "durable_import_classification": (
+                    self.previous_summary.durable_import_classification
+                ),
+                "rollback_performed": self.previous_summary.rollback_performed,
+                "partial_commit": self.previous_summary.partial_commit,
+                "import_error": self.previous_summary.import_error,
+            },
+            "fresh_import_plan": {
+                "classification": self.import_plan.classification,
+                "allowed": self.import_plan.import_plan_allowed,
+                "planned_measurement_ids": list(self._planned_measurement_ids()),
+            },
+            "does_not_claim": [
+                "storage_mutation",
+                "durable_import_approval",
+                "durable_import_request_creation",
+                "reuse_prior_import_plan",
+                "reuse_prior_durable_import_request",
+                "destination_freshness_proof",
+                "package_reopen",
+                "durable_review_state",
+                "public_import_api",
+            ],
+        }
+
+    def _planned_measurement_ids(self) -> tuple[str, ...]:
+        return tuple(
+            plan.measurement.measurement_record_id for plan in self.import_plan.measurement_plans
+        )
+
+
 def run_handoff_durable_import(
     source: dict[str, Any],
     *,
@@ -310,6 +395,19 @@ def run_handoff_durable_import_from_plan(
         import_plan=import_plan,
         durable_import_request=durable_request,
         durable_import_run=durable_run,
+    )
+
+
+def review_handoff_durable_import_retry(
+    previous_summary: HandoffDurableImportReceiptSummary,
+    *,
+    fresh_import_plan: HandoffImportPlanRun,
+) -> HandoffDurableImportRetryReview:
+    """Review a durable-import retry against a fresh import plan without mutation."""
+
+    return HandoffDurableImportRetryReview(
+        previous_summary=previous_summary,
+        import_plan=fresh_import_plan,
     )
 
 

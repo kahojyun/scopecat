@@ -92,6 +92,10 @@ back into a small continuation summary with package id, selected measurement,
 destination record, final state, next action, and durable import outcome. It
 does not authorize retry, reopen packages, reuse prior import-plan facts, or
 mutate storage.
+`review_handoff_durable_import_retry(...)` compares that local summary with a
+fresh ready import plan and reports whether retry is locally reasonable. It
+does not create a durable import request, recheck destination freshness,
+authorize mutation, or reuse the prior receipt as authority.
 The module CLI remains a local operator surface. `python -m scopecat.handoff
 <package-dir>` opens a package for read-only orientation; `python -m
 scopecat.handoff --receipt-summary <receipt.json>` summarizes a local import
@@ -132,6 +136,7 @@ Current user-facing prototype surface:
 - `run_handoff_durable_import_from_plan(request, import_plan=..., storage_root=...)`;
 - `build_durable_import_request_from_handoff_plan(request, import_plan=...)`;
 - `summarize_handoff_durable_import_receipt(receipt)`;
+- `review_handoff_durable_import_retry(previous_summary, fresh_import_plan=...)`;
 - `write_package(source, source_root=..., package_root=...)`;
 - `run_package_workflow(source, source_root=..., package_root=...)`;
 - `python -m scopecat.handoff <package-dir>`;
