@@ -17,13 +17,19 @@ Use these documents before adding new Measurement Records behavior:
 | --- | --- |
 | [`policies/measurement-data-reference-boundary.md`](../../policies/measurement-data-reference-boundary.md) | Distinguish normalized primary data from external source references, attachments/artifacts, and previewable data items. |
 | [`routes/measurement-records/import-source-decision.md`](import-source-decision.md) | Current import/source route decisions, deferred decisions, reopen triggers, and next-work guidance. |
-| [`routes/measurement-records/handoff/README.md`](handoff/README.md) | Retired handoff package route map and historical discovery synthesis; current handoff boundaries live in architecture and module docs. |
-| [`routes/measurement-records/handoff/decision.md`](handoff/decision.md) | Retired handoff route decision closeout; preserved for historical deferrals, reopen triggers, and stop-rule context. |
-| [`routes/measurement-records/handoff/contract-checklist.md`](handoff/contract-checklist.md) | Historical route-local field categories and review checks for handoff package discovery slices. |
 | [`policies/package-purpose-boundary.md`](../../policies/package-purpose-boundary.md) | Boundary between analysis/review packages, shared lab references, and future offline execution migration. |
 | [`policies/artifact-preview-boundary.md`](../../policies/artifact-preview-boundary.md) | Boundary between arbitrary artifacts and declared previewable data items. |
 | [`policies/complex-response-boundary.md`](../../policies/complex-response-boundary.md) | Boundary for complex-valued response metadata and derived component views. |
 | [`slices/measurement-records/scan-data-shape-decision-summary.md`](../../slices/measurement-records/scan-data-shape-decision-summary.md) | Stop rule for scan/data-shape expansion and direction toward preview metadata consumers. |
+
+Retired handoff discovery notes are not current starting points, but remain
+useful historical context:
+
+| Document | Use For |
+| --- | --- |
+| [`routes/measurement-records/handoff/README.md`](handoff/README.md) | Retired handoff package route map and historical discovery synthesis; current handoff boundaries live in architecture and module docs. |
+| [`routes/measurement-records/handoff/decision.md`](handoff/decision.md) | Retired handoff route decision closeout; preserved for historical deferrals, reopen triggers, and stop-rule context. |
+| [`routes/measurement-records/handoff/contract-checklist.md`](handoff/contract-checklist.md) | Historical route-local field categories and review checks for handoff package discovery slices. |
 
 ## Route Posture
 
