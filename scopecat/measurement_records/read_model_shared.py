@@ -3,12 +3,29 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
 from pathlib import Path
 from typing import Any, Protocol
 
-from scopecat.measurement_records.creation import validate_relative_path, validate_text
+from scopecat.measurement_records._storage import (
+    ensure_no_symlink_parents as _ensure_no_symlink_parents,
+)
+from scopecat.measurement_records._storage import (
+    existing_directory_root as _existing_directory_root,
+)
+from scopecat.measurement_records._storage import (
+    path_under as _path_under_common,
+)
+from scopecat.measurement_records._storage import (
+    sha256 as _sha256,
+)
+from scopecat.measurement_records._storage import (
+    validate_non_overlapping_paths as _validate_non_overlapping_paths_common,
+)
+from scopecat.measurement_records._storage import (
+    validate_strict_child_path as _validate_strict_child_path_common,
+)
+from scopecat.measurement_records.creation import validate_text
 from scopecat.measurement_records.finalization import FINALIZATION_RECEIPT_SCHEMA
 from scopecat.measurement_records.read_view import MeasurementRecordReadRun
 
@@ -239,45 +256,16 @@ def _finalization_ref(receipt: dict[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
-def _existing_directory_root(root: Path, owner: str) -> Path:
-    if root.is_symlink():
-        raise ValueError(f"{owner} must not be a symlink")
-    if not root.is_dir():
-        raise ValueError(f"{owner} must be an existing directory")
-    return root.resolve()
-
-
 def _path_under(root: Path, relative_path: str) -> Path:
-    return root.joinpath(
-        *Path(validate_relative_path(relative_path, "read model projection path")).parts
-    )
-
-
-def _ensure_no_symlink_parents(root: Path, relative_path: str, label: str) -> None:
-    current = root
-    parts = Path(validate_relative_path(relative_path, label)).parts
-    for part in parts[:-1]:
-        current = current / part
-        if current.is_symlink():
-            raise ValueError(f"{label} parent is a symlink")
-        if current.exists() and not current.is_dir():
-            raise ValueError(f"{label} parent is not a directory")
+    return _path_under_common(root, relative_path, "read model projection path")
 
 
 def _validate_strict_child_path(value: str, parent: str, owner: str) -> None:
-    value_parts = Path(validate_relative_path(value, owner)).parts
-    parent_parts = Path(validate_relative_path(parent, f"{owner} parent")).parts
-    if len(value_parts) <= len(parent_parts) or value_parts[: len(parent_parts)] != parent_parts:
-        raise ValueError(f"{owner} must stay under record_dir")
+    _validate_strict_child_path_common(value, parent, owner)
 
 
 def _validate_non_overlapping_paths(paths: tuple[str, ...], owner: str) -> None:
-    if len(set(paths)) != len(paths):
-        raise ValueError(f"{owner} must not overlap")
-
-
-def _sha256(content: bytes) -> str:
-    return f"sha256:{hashlib.sha256(content).hexdigest()}"
+    _validate_non_overlapping_paths_common(paths, owner, reject_parent_child=False)
 
 
 def _require_dict(value: dict[str, Any], field: str) -> dict[str, Any]:

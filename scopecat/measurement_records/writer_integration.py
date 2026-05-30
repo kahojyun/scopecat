@@ -3,13 +3,30 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from scopecat.measurement_records._storage import (
+    ensure_no_symlink_parents as _ensure_no_symlink_parents,
+)
+from scopecat.measurement_records._storage import (
+    existing_directory_root as _existing_directory_root,
+)
+from scopecat.measurement_records._storage import (
+    path_under as _path_under_common,
+)
+from scopecat.measurement_records._storage import (
+    sha256 as _sha256,
+)
+from scopecat.measurement_records._storage import (
+    validate_non_overlapping_paths as _validate_non_overlapping_paths_common,
+)
+from scopecat.measurement_records._storage import (
+    validate_strict_child_path as _validate_strict_child_path,
+)
 from scopecat.measurement_records.creation import (
     CANDIDATE_MANIFEST_SCHEMA,
     validate_public_identifier,
@@ -486,35 +503,14 @@ def _manifest_ref(manifest: dict[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
-def _existing_directory_root(root: Path, owner: str) -> Path:
-    if root.is_symlink():
-        raise ValueError(f"{owner} must not be a symlink")
-    if not root.is_dir():
-        raise ValueError(f"{owner} must be an existing directory")
-    return root.resolve()
-
-
 def _path_under(root: Path, relative_path: str) -> Path:
-    return root.joinpath(
-        *Path(validate_relative_path(relative_path, "writer integration path")).parts
-    )
+    return _path_under_common(root, relative_path, "writer integration path")
 
 
 def _target_exists(root: Path, relative_path: str) -> bool:
     return (
         _path_under(root, relative_path).exists() or _path_under(root, relative_path).is_symlink()
     )
-
-
-def _ensure_no_symlink_parents(root: Path, relative_path: str, label: str) -> None:
-    current = root
-    parts = Path(validate_relative_path(relative_path, label)).parts
-    for part in parts[:-1]:
-        current = current / part
-        if current.is_symlink():
-            raise ValueError(f"{label} parent is a symlink")
-        if current.exists() and not current.is_dir():
-            raise ValueError(f"{label} parent is not a directory")
 
 
 def _validate_chunk_sequence(
@@ -539,20 +535,8 @@ def _validate_chunk_sequence(
         raise ValueError("writer request chunks must record expected_rows")
 
 
-def _validate_strict_child_path(value: str, parent: str, owner: str) -> None:
-    value_parts = Path(validate_relative_path(value, owner)).parts
-    parent_parts = Path(validate_relative_path(parent, f"{owner} parent")).parts
-    if len(value_parts) <= len(parent_parts) or value_parts[: len(parent_parts)] != parent_parts:
-        raise ValueError(f"{owner} must stay under record_dir")
-
-
 def _validate_non_overlapping_paths(paths: tuple[str, ...], owner: str) -> None:
-    path_parts = [(path, Path(validate_relative_path(path, owner)).parts) for path in paths]
-    for left_index, (left_path, left_parts) in enumerate(path_parts):
-        for right_path, right_parts in path_parts[left_index + 1 :]:
-            shared_length = min(len(left_parts), len(right_parts))
-            if left_parts[:shared_length] == right_parts[:shared_length]:
-                raise ValueError(f"{owner} must not overlap: {left_path}, {right_path}")
+    _validate_non_overlapping_paths_common(paths, owner, reject_parent_child=True)
 
 
 def validate_positive_integer(value: Any, owner: str) -> int:
@@ -572,10 +556,6 @@ def validate_sha256_digest(value: Any, owner: str) -> str:
     ):
         raise ValueError(f"{owner} must be a sha256-prefixed hex digest")
     return value
-
-
-def _sha256(content: bytes) -> str:
-    return f"sha256:{hashlib.sha256(content).hexdigest()}"
 
 
 def _require_dict(value: dict[str, Any], field: str) -> dict[str, Any]:
