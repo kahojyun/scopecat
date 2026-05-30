@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from scopecat.handoff import (
@@ -389,6 +390,41 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
         self.assertEqual(
             retry_review.classification,
             "retry_blocked_until_partial_commit_reviewed",
+        )
+        self.assertFalse(retry_review.retry_allowed)
+
+    def test_retry_review_reports_ready_multi_measurement_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            package_dir = _copy_package(Path(temp_dir))
+            previous_summary = HandoffDurableImportReceiptSummary(
+                package_id="handoff-package-legacy-rabi-001",
+                measurement_record_id="legacy-rabi-001",
+                destination_record_id="imported-legacy-rabi-001",
+                final_state="blocked_before_handoff_durable_import",
+                next_action="review_durable_import_block_before_retry",
+                durable_import_performed=False,
+                durable_import_classification="blocked_before_import",
+                rollback_performed=False,
+                partial_commit=False,
+                import_error="simulated block",
+            )
+            fresh_plan = _import_plan_run(package_dir)
+            multi_measurement_plan = replace(
+                fresh_plan,
+                measurement_plans=(
+                    fresh_plan.measurement_plans[0],
+                    fresh_plan.measurement_plans[0],
+                ),
+            )
+
+            retry_review = review_handoff_durable_import_retry(
+                previous_summary,
+                fresh_import_plan=multi_measurement_plan,
+            )
+
+        self.assertEqual(
+            retry_review.classification,
+            "retry_blocked_by_fresh_import_plan_measurement_scope",
         )
         self.assertFalse(retry_review.retry_allowed)
 

@@ -284,7 +284,10 @@ class HandoffDurableImportRetryReview:
             raise ValueError("retry review package id must match fresh import plan")
         if self.import_plan.import_plan_allowed:
             planned_ids = self._planned_measurement_ids()
-            if planned_ids != (self.previous_summary.measurement_record_id,):
+            if (
+                len(planned_ids) == 1
+                and planned_ids[0] != self.previous_summary.measurement_record_id
+            ):
                 raise ValueError("retry review measurement id must match fresh import plan")
 
     @property
