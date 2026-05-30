@@ -1,4 +1,9 @@
-"""Operator-facing receiving/import workflow composition."""
+"""Legacy candidate-storage receiving/import workflow composition.
+
+This module is retained as historical evidence for the old candidate storage
+route. New durable Measurement Records handoff import work should use
+`scopecat.handoff.durable_import` instead.
+"""
 
 from __future__ import annotations
 

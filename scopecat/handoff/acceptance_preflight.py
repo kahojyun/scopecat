@@ -1,4 +1,9 @@
-"""Read-only acceptance preflight for handoff import plans."""
+"""Legacy read-only candidate-storage preflight for handoff import plans.
+
+This module is retained as historical evidence for
+`measurement_record_directory_candidate_v0`. New durable Measurement Records
+handoff import work should use `scopecat.handoff.durable_import` instead.
+"""
 
 from __future__ import annotations
 
