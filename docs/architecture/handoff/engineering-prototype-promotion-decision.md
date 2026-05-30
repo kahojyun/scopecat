@@ -36,8 +36,8 @@ the same route should be either:
 
 - small maintenance on the accepted local handoff vertical;
 - PR/release preparation for this accepted implementation phase;
-- a separately scoped route extension triggered by the reopen conditions in
-  [`decision.md`](../../discovery/routes/measurement-records/handoff/decision.md).
+- a separately scoped route extension triggered by this note's resume triggers
+  or by the durable import decision.
 
 It should not continue as broad prototype expansion.
 

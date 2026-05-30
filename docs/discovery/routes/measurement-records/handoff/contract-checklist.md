@@ -2,12 +2,14 @@
 
 ## Status
 
-Discovery coordination note for the current handoff package route.
+Retired discovery coordination note for the handoff package route.
 
 This is not accepted architecture, a final package schema, user documentation, or
-a shared measurement-record domain model. It records the route-local contract
-discipline that should be applied before adding or reviewing more handoff
-package slices.
+a shared measurement-record domain model. It records the historical
+route-local contract discipline that was applied while adding or reviewing
+handoff package discovery slices. Current runtime handoff checks live in
+route-private `scopecat/handoff/_contracts.py`; current implementation
+boundaries live in the handoff architecture and module docs.
 
 ## Purpose
 

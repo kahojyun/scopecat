@@ -63,7 +63,7 @@ the discovery landing page rather than a duplicate route inventory.
 | Area | Owner |
 | --- | --- |
 | Measurement Records | [`routes/measurement-records/README.md`](routes/measurement-records/README.md) |
-| Handoff packages | [`routes/measurement-records/handoff/README.md`](routes/measurement-records/handoff/README.md) |
+| Handoff packages | Current implementation owners are [`engineering-prototype-promotion-decision.md`](../architecture/handoff/engineering-prototype-promotion-decision.md), [`durable-import-storage-decision.md`](../architecture/handoff/durable-import-storage-decision.md), and [`scopecat/handoff/README.md`](../../scopecat/handoff/README.md); retired discovery synthesis remains in [`routes/measurement-records/handoff/README.md`](routes/measurement-records/handoff/README.md). |
 | Import/source decisions | [`routes/measurement-records/import-source-decision.md`](routes/measurement-records/import-source-decision.md) |
 | Experiment code | [`routes/experiment-code/README.md`](routes/experiment-code/README.md) |
 | Environment operation | [`routes/environment-operation/README.md`](routes/environment-operation/README.md) |

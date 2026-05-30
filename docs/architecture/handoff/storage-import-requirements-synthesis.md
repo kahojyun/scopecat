@@ -4,12 +4,12 @@
 
 Engineering requirements synthesis, not an ADR.
 
-This note compares current handoff storage acceptance with adjacent
-Measurement Records storage/import evidence. It names what could be decided
-before the durable measurement-record creation flow existed, and what had to
-wait for that flow. It does not accept final storage schema, final import API,
-existing-record update behavior, archive format, conflict policy, or shared
-measurement-record domain model.
+This note compares the then-current handoff storage acceptance path with
+adjacent Measurement Records storage/import evidence. It names what could be
+decided before the durable measurement-record creation flow existed, and what
+had to wait for that flow. It does not accept final storage schema, final
+import API, existing-record update behavior, archive format, conflict policy,
+or shared measurement-record domain model.
 
 Follow-up decision: durable measurement-record creation now exists. The first
 durable import/storage boundary is recorded in

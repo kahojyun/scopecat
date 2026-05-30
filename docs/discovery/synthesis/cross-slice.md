@@ -24,8 +24,8 @@ recurring-concepts table below uses route and slice shorthand only.
 | [`../slices/README.md`](../slices/README.md) | Current slice inventory and maturity by route. |
 | [`../routes/README.md`](../routes/README.md) | Route owners and route-specific sequencing. |
 | [`../routes/measurement-records/README.md`](../routes/measurement-records/README.md) | Measurement-record import, export, storage, source observation, handoff, and shape pressure. |
-| [`../routes/measurement-records/handoff/README.md`](../routes/measurement-records/handoff/README.md) | Handoff package route map, artifact boundary, stable route concepts, and next work. |
-| [`../routes/measurement-records/handoff/decision.md`](../routes/measurement-records/handoff/decision.md) | Current handoff route decisions, deferrals, reopen triggers, and stop rule. |
+| [`../routes/measurement-records/handoff/README.md`](../routes/measurement-records/handoff/README.md) | Retired handoff package route map, artifact boundary, stable route concepts, and historical next-work context. |
+| [`../routes/measurement-records/handoff/decision.md`](../routes/measurement-records/handoff/decision.md) | Retired handoff route decision closeout, historical deferrals, reopen triggers, and stop rule. |
 | [`../routes/measurement-records/import-source-decision.md`](../routes/measurement-records/import-source-decision.md) | Current import/source decisions, deferrals, reopen triggers, and stop rule. |
 | [`../routes/experiment-code/README.md`](../routes/experiment-code/README.md) | Experiment-code recording, managed code versions, workspace materialization, editable observation, and prepared-run context. |
 | [`../routes/environment-operation/README.md`](../routes/environment-operation/README.md) | Environment-operation review around manifest preflight, manager intent, declared external result, and local operation review. |
@@ -43,7 +43,7 @@ pressure.
 | Evidence area | Current synthesis posture | Owner |
 | --- | --- | --- |
 | Measurement records | The strongest implementation-shaped boundary for primary recorded data, selected export, import/source separation, storage writing, source observation, running inspection, declared preview metadata, and package-facing handoff pressure. | [`../routes/measurement-records/README.md`](../routes/measurement-records/README.md) |
-| Handoff packages | A route-local open-before-import model has emerged: write/carry package, preview manifest, open/read package, inspect locally, optionally observe integrity, then optionally accept into local storage. Its package and field decisions remain route-local. | [`../routes/measurement-records/handoff/README.md`](../routes/measurement-records/handoff/README.md) |
+| Handoff packages | A route-local open-before-import model moved from discovery into the accepted handoff architecture and module docs: write/carry package, preview manifest, open/read package, inspect locally, optionally observe integrity, then adapt one reviewed measurement into durable import. Historical discovery synthesis remains route-local. | [`../routes/measurement-records/handoff/README.md`](../routes/measurement-records/handoff/README.md) |
 | Import/source | Adapter-normalized primary data, preserved external source references, reference-only observation, copy acceptance, storage writing, and existing-record append receipts are distinct authority boundaries. | [`../routes/measurement-records/import-source-decision.md`](../routes/measurement-records/import-source-decision.md) |
 | Experiment code | Current evidence supports record -> promote -> materialize -> observe -> prepare as adjacent responsibilities around code context, without accepting Git semantics, environment restoration, code loading, or execution. | [`../routes/experiment-code/README.md`](../routes/experiment-code/README.md) |
 | Environment operation | Current evidence supports approve intent -> record result -> review locally for uv-specific operations. Discovery candidates validated declared external result recording; the route-local engineering prototype now covers one approved `uv sync` subprocess boundary without accepting verified package state, runtime readiness, code execution, or a shared manager abstraction. | [`../routes/environment-operation/README.md`](../routes/environment-operation/README.md) |
@@ -347,14 +347,16 @@ It should answer whether a concept is recurring cross-slice pressure, a stable
 separation, a route-local decision, or still only slice-local vocabulary.
 
 For route sequencing, next-work choices, stop rules, and reopen triggers, use
-the route owners instead of this synthesis:
+the current route or architecture owners instead of this synthesis:
 
 - [`../routes/measurement-records/README.md`](../routes/measurement-records/README.md)
-- [`../routes/measurement-records/handoff/README.md`](../routes/measurement-records/handoff/README.md)
-- [`../routes/measurement-records/handoff/decision.md`](../routes/measurement-records/handoff/decision.md)
 - [`../routes/measurement-records/import-source-decision.md`](../routes/measurement-records/import-source-decision.md)
 - [`../routes/experiment-code/README.md`](../routes/experiment-code/README.md)
 - [`../routes/environment-operation/README.md`](../routes/environment-operation/README.md)
+
+The retired handoff discovery route remains historical synthesis. Current
+handoff implementation guidance lives in the handoff architecture decisions and
+module README.
 
 The next useful synthesis change should do one of three things:
 

@@ -2,14 +2,20 @@
 
 ## Status
 
-Discovery decision consolidation, not an ADR.
+Retired discovery decision consolidation, not an ADR.
 
-This note closes the current handoff-package discovery pass. It records the
-route decisions earned by the validated handoff package slices and names the
-triggers that would justify more handoff work. It does not accept final
-production architecture, a public SDK, a GUI framework, a package archive
-format, signatures, final storage import behavior, or a shared
-measurement-record domain model.
+This note closed the handoff-package discovery pass before the engineering
+prototype and durable Measurement Records import route became the live owners.
+It remains historical route memory for the decisions earned by validated
+handoff package slices and the triggers that justified more handoff work at
+that time. It does not accept final production architecture, a public SDK, a
+GUI framework, a package archive format, signatures, final storage import
+behavior, or a shared measurement-record domain model.
+
+For current implementation boundaries, use
+[`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md),
+[`durable-import-storage-decision.md`](../../../../architecture/handoff/durable-import-storage-decision.md),
+and [`scopecat/handoff/README.md`](../../../../../scopecat/handoff/README.md).
 
 Artifact posture: `internal_validation_summary`. This document is internal
 project memory. It creates no portable package output and no new redaction
@@ -19,7 +25,7 @@ for artifact-boundary classification.
 
 ## Accepted For Now
 
-The current handoff route is **open before import**:
+The validated discovery handoff route was **open before import**:
 
 ```text
 write package
@@ -28,7 +34,7 @@ write package
   -> open/read package locally
   -> inspect plot/table/context locally
   -> optionally observe integrity
-  -> optionally run candidate storage acceptance
+  -> optionally adapt one reviewed package measurement into durable Measurement Records import
 ```
 
 The package directory is the portable artifact. `package-manifest.json` is the

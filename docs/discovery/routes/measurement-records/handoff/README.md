@@ -2,20 +2,21 @@
 
 ## Status
 
-Discovery consolidation note, not an ADR.
+Retired discovery consolidation note, not an ADR.
 
-This note harvests the current handoff-package validation work into one
-route-level view. It does not accept a final package format, stable SDK,
-GUI contract, storage import API, dataframe dependency, plotting library,
-archive format, signature model, or shared measurement-record domain model.
+This directory is historical discovery memory. It harvested handoff-package
+validation work into a route-level view before the handoff engineering
+prototype and durable Measurement Records import route became the live owners.
+It does not accept a final package format, stable SDK, GUI contract, storage
+import API, dataframe dependency, plotting library, archive format, signature
+model, or shared measurement-record domain model.
 
-For the current accepted-for-now route decisions, deferred decisions, reopen
-triggers, and stop rule, read
-[`routes/measurement-records/handoff/decision.md`](decision.md).
-Engineering-phase handoff notes have been promoted under
-[`architecture/README.md`](../../../../architecture/README.md). Keep validation
-evidence and route discovery synthesis here; keep implementation-boundary
-guidance in the architecture notes.
+For current implementation boundaries, use
+[`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md),
+[`durable-import-storage-decision.md`](../../../../architecture/handoff/durable-import-storage-decision.md),
+and [`scopecat/handoff/README.md`](../../../../../scopecat/handoff/README.md).
+Keep validation evidence and retired route discovery synthesis here; keep
+implementation-boundary guidance in the architecture and module docs.
 
 ## Route Shape
 
@@ -67,11 +68,11 @@ old validation result, the architecture notes, or the module README.
 ## Accepted Local Baseline
 
 The handoff engineering prototype has been promoted as the accepted local
-implementation baseline without changing the accepted-for-now route decisions
-in [`decision.md`](decision.md). This discovery note does not track the live
-API inventory. Current accepted implementation boundaries live in the
-architecture promotion decision, and current exported API details live in the
-module README.
+implementation baseline, and later durable-import work replaced the old
+candidate storage path for active import. This discovery note does not track
+the live API inventory. Current accepted implementation boundaries live in the
+architecture promotion and durable import decisions, and current exported API
+details live in the module README.
 
 Use
 [`engineering-prototype-plan.md`](../../../../architecture/handoff/engineering-prototype-plan.md)
@@ -175,11 +176,12 @@ primitive behavior:
 
 ## Recommended Next Work
 
-The handoff route is ready to pause broad slice expansion. The owner for
-current accepted-for-now decisions, deferred decisions, reopen triggers, and
-the stop rule is
-[`routes/measurement-records/handoff/decision.md`](decision.md).
+The handoff discovery route is retired as current guidance. Use this directory
+only as historical route synthesis and link-preserving validation context.
+Current handoff implementation work should start from the architecture and
+module docs named in the status section.
 
 Do not add another handoff slice merely to restate package identity, preview
 metadata, dataframe deferral, GUI deferral, or redaction boundaries. Those are
-now route-level conclusions unless a new user workflow challenges them.
+now historical route-level conclusions unless a new user workflow challenges
+the accepted implementation boundary.
