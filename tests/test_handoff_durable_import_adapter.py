@@ -472,6 +472,42 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "performed import"):
             summarize_handoff_durable_import_receipt(receipt)
 
+    def test_receipt_summary_rejects_durable_request_source_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            storage_root.mkdir()
+
+            run = run_handoff_durable_import_from_plan(
+                _request(),
+                import_plan=_import_plan_run(package_dir),
+                storage_root=storage_root,
+            )
+            receipt = run.to_dict()
+            receipt["durable_import_request"]["import_source"]["source_id"] = "other-package"
+
+        with self.assertRaisesRegex(ValueError, "source id"):
+            summarize_handoff_durable_import_receipt(receipt)
+
+    def test_receipt_summary_rejects_durable_result_request_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            storage_root.mkdir()
+
+            run = run_handoff_durable_import_from_plan(
+                _request(),
+                import_plan=_import_plan_run(package_dir),
+                storage_root=storage_root,
+            )
+            receipt = run.to_dict()
+            receipt["durable_import_result"]["request"]["record_id"] = "other-record"
+
+        with self.assertRaisesRegex(ValueError, "request is inconsistent|record id"):
+            summarize_handoff_durable_import_receipt(receipt)
+
     def test_rejects_package_id_mismatch_before_mapping(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             package_dir = _copy_package(Path(temp_dir))

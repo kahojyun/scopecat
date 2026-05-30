@@ -464,11 +464,27 @@ def summarize_handoff_durable_import_receipt(
     )
     if planned_measurement_ids and measurement_record_id not in planned_measurement_ids:
         raise ValueError("handoff durable import receipt measurement id is inconsistent")
+    destination_record_id = _read_public_id(
+        destination,
+        "record_id",
+        "request.durable_record_destination.record_id",
+    )
 
     durable_request = receipt["durable_import_request"]
     durable_result = receipt["durable_import_result"]
     if durable_result is not None and durable_request is None:
         raise ValueError("handoff durable import receipt result requires durable request")
+    if durable_request is not None:
+        durable_request = _require_mapping(
+            durable_request,
+            "handoff durable import receipt.durable_import_request",
+        )
+        _validate_durable_request_continuity(
+            durable_request,
+            destination=destination,
+            package_id=package_id,
+            measurement_record_id=measurement_record_id,
+        )
 
     durable_import_classification = None
     durable_import_performed = False
@@ -482,6 +498,18 @@ def summarize_handoff_durable_import_receipt(
         )
         if durable_receipt.get("artifact_posture") != "local_record_durable_import_receipt":
             raise ValueError("handoff durable import durable result posture is unsupported")
+        durable_receipt_request = _require_mapping(
+            durable_receipt.get("request"),
+            "handoff durable import receipt.durable_import_result.request",
+        )
+        if durable_request is not None and durable_receipt_request != durable_request:
+            raise ValueError("handoff durable import durable result request is inconsistent")
+        _validate_durable_request_continuity(
+            durable_receipt_request,
+            destination=destination,
+            package_id=package_id,
+            measurement_record_id=measurement_record_id,
+        )
         durable_workflow = _require_mapping(
             durable_receipt.get("workflow"),
             "handoff durable import receipt.durable_import_result.workflow",
@@ -527,11 +555,7 @@ def summarize_handoff_durable_import_receipt(
     return HandoffDurableImportReceiptSummary(
         package_id=package_id,
         measurement_record_id=measurement_record_id,
-        destination_record_id=_read_public_id(
-            destination,
-            "record_id",
-            "request.durable_record_destination.record_id",
-        ),
+        destination_record_id=destination_record_id,
         final_state=final_state,
         next_action=_next_summary_action(
             final_state=final_state,
@@ -582,6 +606,52 @@ def build_durable_import_request_from_handoff_plan(
         label=measurement.label,
         experiment_type=measurement.experiment_type,
     )
+
+
+def _validate_durable_request_continuity(
+    durable_request: dict[str, Any],
+    *,
+    destination: dict[str, Any],
+    package_id: str,
+    measurement_record_id: str,
+) -> None:
+    if _read_public_id(durable_request, "record_id", "durable_import_request.record_id") != (
+        _read_public_id(destination, "record_id", "request.durable_record_destination.record_id")
+    ):
+        raise ValueError("handoff durable import durable request record id is inconsistent")
+    for field in (
+        "record_dir",
+        "primary_data_path",
+        "writer_receipt_path",
+        "finalization_receipt_path",
+        "read_model_path",
+    ):
+        if _read_relative_path(durable_request, field, f"durable_import_request.{field}") != (
+            _read_relative_path(
+                destination,
+                field,
+                f"request.durable_record_destination.{field}",
+            )
+        ):
+            raise ValueError(f"handoff durable import durable request {field} is inconsistent")
+
+    import_source = _require_mapping(
+        durable_request.get("import_source"),
+        "handoff durable import durable_import_request.import_source",
+    )
+    if _read_public_id(import_source, "source_id", "durable_import_request.source_id") != (
+        package_id
+    ):
+        raise ValueError("handoff durable import durable request source id is inconsistent")
+    if (
+        _read_public_id(
+            import_source,
+            "source_item_id",
+            "durable_import_request.source_item_id",
+        )
+        != measurement_record_id
+    ):
+        raise ValueError("handoff durable import durable request source item id is inconsistent")
 
 
 def _durable_import_source_from_measurement(
@@ -708,6 +778,10 @@ def _read_public_id_list(source: dict[str, Any], key: str, owner: str) -> tuple[
     if not isinstance(value, list):
         raise ValueError(f"{owner} must be a list")
     return tuple(validate_public_identifier(item, f"{owner} item") for item in value)
+
+
+def _read_relative_path(source: dict[str, Any], key: str, owner: str) -> str:
+    return validate_relative_path(source.get(key), owner)
 
 
 def _read_bool(source: dict[str, Any], key: str, owner: str) -> bool:
