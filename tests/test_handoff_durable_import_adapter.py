@@ -14,6 +14,7 @@ from scopecat.handoff import (
     build_durable_import_request_from_handoff_plan,
     run_handoff_durable_import,
     run_handoff_durable_import_from_plan,
+    summarize_handoff_durable_import_receipt,
 )
 from scopecat.handoff.durable_import import (
     HANDOFF_DURABLE_IMPORT_POLICY,
@@ -199,6 +200,33 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
         )
         self.assertIn("linked_context_payload_import", summary["workflow"]["does_not_claim"])
 
+    def test_summarizes_successful_durable_import_receipt_for_continuation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            storage_root.mkdir()
+
+            run = run_handoff_durable_import_from_plan(
+                _request(),
+                import_plan=_import_plan_run(package_dir),
+                storage_root=storage_root,
+            )
+            summary = summarize_handoff_durable_import_receipt(run.to_dict()).to_dict()
+
+        self.assertEqual(
+            summary["artifact_posture"],
+            "local_handoff_durable_import_receipt_summary",
+        )
+        self.assertEqual(summary["package_id"], "handoff-package-legacy-rabi-001")
+        self.assertEqual(summary["measurement_record_id"], "legacy-rabi-001")
+        self.assertEqual(summary["destination_record_id"], "imported-legacy-rabi-001")
+        self.assertEqual(summary["final_state"], "imported_handoff_measurement_record")
+        self.assertEqual(summary["next_action"], "use_durable_measurement_record")
+        self.assertTrue(summary["durable_import_performed"])
+        self.assertEqual(summary["durable_import_classification"], "imported_new_record")
+        self.assertIn("continuation_authorization", summary["does_not_claim"])
+
     def test_raw_source_runs_import_plan_then_durable_import(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
@@ -243,6 +271,51 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
 
         self.assertEqual(run.classification, "blocked_before_handoff_durable_import")
         self.assertIsNone(run.durable_import_request)
+
+    def test_summarizes_blocked_plan_without_authorizing_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            storage_root.mkdir()
+            (package_dir / "measurements" / "legacy-rabi-001" / "primary.csv").write_text(
+                "drive_frequency,signal\n5.00,0.99\n",
+                encoding="utf-8",
+            )
+            source = _raw_source()
+            source["import_plan_source"]["receiving_gate_source"]["receiving_review_request"][
+                "review"
+            ]["reviewed_integrity_classification"] = "integrity_review_required"
+
+            run = run_handoff_durable_import(
+                source,
+                package_dir=package_dir,
+                storage_root=storage_root,
+            )
+            summary = summarize_handoff_durable_import_receipt(run.to_dict()).to_dict()
+
+        self.assertEqual(summary["final_state"], "blocked_before_handoff_durable_import")
+        self.assertEqual(summary["next_action"], "resolve_import_plan_before_durable_import")
+        self.assertFalse(summary["durable_import_performed"])
+        self.assertIsNone(summary["durable_import_classification"])
+
+    def test_receipt_summary_rejects_inconsistent_imported_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            storage_root.mkdir()
+
+            run = run_handoff_durable_import_from_plan(
+                _request(),
+                import_plan=_import_plan_run(package_dir),
+                storage_root=storage_root,
+            )
+            receipt = run.to_dict()
+            receipt["durable_import_result"]["import_result"]["performed"] = False
+
+        with self.assertRaisesRegex(ValueError, "performed import"):
+            summarize_handoff_durable_import_receipt(receipt)
 
     def test_rejects_package_id_mismatch_before_mapping(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

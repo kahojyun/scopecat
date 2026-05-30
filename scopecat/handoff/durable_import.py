@@ -221,6 +221,53 @@ class HandoffDurableImportRun:
         }
 
 
+@dataclass(frozen=True)
+class HandoffDurableImportReceiptSummary:
+    """Read-only operator summary of a local handoff durable-import receipt."""
+
+    package_id: str
+    measurement_record_id: str
+    destination_record_id: str
+    final_state: str
+    next_action: str
+    durable_import_performed: bool
+    durable_import_classification: str | None
+    rollback_performed: bool
+    partial_commit: bool
+    import_error: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "artifact_posture": "local_handoff_durable_import_receipt_summary",
+            "summary_policy": {
+                "source": "local_handoff_durable_import_receipt",
+                "authority": "read_only_operator_continuation_summary",
+                "storage_mutation": "not_performed",
+                "continuation_authority": "fresh_handoff_durable_import_request_required",
+                "portable_export": "not_produced",
+            },
+            "package_id": self.package_id,
+            "measurement_record_id": self.measurement_record_id,
+            "destination_record_id": self.destination_record_id,
+            "final_state": self.final_state,
+            "next_action": self.next_action,
+            "durable_import_performed": self.durable_import_performed,
+            "durable_import_classification": self.durable_import_classification,
+            "rollback_performed": self.rollback_performed,
+            "partial_commit": self.partial_commit,
+            "import_error": self.import_error,
+            "does_not_claim": [
+                "storage_mutation",
+                "continuation_authorization",
+                "fresh_import_plan",
+                "destination_recheck",
+                "package_reopen",
+                "durable_review_state",
+                "public_import_api",
+            ],
+        }
+
+
 def run_handoff_durable_import(
     source: dict[str, Any],
     *,
@@ -263,6 +310,142 @@ def run_handoff_durable_import_from_plan(
         import_plan=import_plan,
         durable_import_request=durable_request,
         durable_import_run=durable_run,
+    )
+
+
+def summarize_handoff_durable_import_receipt(
+    receipt: dict[str, Any],
+) -> HandoffDurableImportReceiptSummary:
+    """Summarize a local handoff durable-import receipt without authorizing retry."""
+
+    receipt = _require_mapping(receipt, "handoff durable import receipt")
+    _require_keys(
+        receipt,
+        {
+            "artifact_posture",
+            "handoff_durable_import_policy",
+            "workflow",
+            "request",
+            "import_plan",
+            "durable_import_request",
+            "durable_import_result",
+        },
+        "handoff durable import receipt",
+    )
+    if receipt["artifact_posture"] != "local_handoff_durable_import_receipt":
+        raise ValueError("handoff durable import receipt posture is unsupported")
+    if receipt["handoff_durable_import_policy"] != HANDOFF_DURABLE_IMPORT_POLICY:
+        raise ValueError("handoff durable import receipt policy is unsupported")
+
+    workflow = _require_mapping(receipt["workflow"], "handoff durable import receipt.workflow")
+    request = _require_mapping(receipt["request"], "handoff durable import receipt.request")
+    import_plan = _require_mapping(
+        receipt["import_plan"],
+        "handoff durable import receipt.import_plan",
+    )
+    destination = _require_mapping(
+        request.get("durable_record_destination"),
+        "handoff durable import receipt.request.durable_record_destination",
+    )
+
+    final_state = _read_public_id(workflow, "classification", "workflow.classification")
+    package_id = _read_public_id(import_plan, "package_id", "import_plan.package_id")
+    requested_package_id = _read_public_id(request, "requested_package_id", "request.package_id")
+    if requested_package_id != package_id:
+        raise ValueError("handoff durable import receipt package id is inconsistent")
+
+    measurement_record_id = _read_public_id(
+        request,
+        "measurement_record_id",
+        "request.measurement_record_id",
+    )
+    planned_measurement_ids = _read_public_id_list(
+        import_plan,
+        "planned_measurement_ids",
+        "import_plan.planned_measurement_ids",
+    )
+    if planned_measurement_ids and measurement_record_id not in planned_measurement_ids:
+        raise ValueError("handoff durable import receipt measurement id is inconsistent")
+
+    durable_request = receipt["durable_import_request"]
+    durable_result = receipt["durable_import_result"]
+    if durable_result is not None and durable_request is None:
+        raise ValueError("handoff durable import receipt result requires durable request")
+
+    durable_import_classification = None
+    durable_import_performed = False
+    rollback_performed = False
+    partial_commit = False
+    import_error = None
+    if durable_result is not None:
+        durable_receipt = _require_mapping(
+            durable_result,
+            "handoff durable import receipt.durable_import_result",
+        )
+        if durable_receipt.get("artifact_posture") != "local_record_durable_import_receipt":
+            raise ValueError("handoff durable import durable result posture is unsupported")
+        durable_workflow = _require_mapping(
+            durable_receipt.get("workflow"),
+            "handoff durable import receipt.durable_import_result.workflow",
+        )
+        durable_import_classification = _read_public_id(
+            durable_workflow,
+            "classification",
+            "durable_import_result.workflow.classification",
+        )
+        import_result = _require_mapping(
+            durable_receipt.get("import_result"),
+            "handoff durable import receipt.durable_import_result.import_result",
+        )
+        durable_import_performed = _read_bool(
+            import_result,
+            "performed",
+            "durable_import_result.import_result.performed",
+        )
+        rollback_performed = _read_bool(
+            import_result,
+            "rollback_performed",
+            "durable_import_result.import_result.rollback_performed",
+        )
+        partial_commit = _read_bool(
+            import_result,
+            "partial_commit",
+            "durable_import_result.import_result.partial_commit",
+        )
+        import_error = _read_optional_text(
+            import_result,
+            "import_error",
+            "durable_import_result.import_result.import_error",
+        )
+
+    if final_state == "imported_handoff_measurement_record":
+        if not durable_import_performed:
+            raise ValueError("imported handoff durable receipt must report performed import")
+        if durable_import_classification != "imported_new_record":
+            raise ValueError("imported handoff durable receipt has inconsistent durable state")
+    elif durable_import_performed:
+        raise ValueError("blocked handoff durable receipt must not report performed import")
+
+    return HandoffDurableImportReceiptSummary(
+        package_id=package_id,
+        measurement_record_id=measurement_record_id,
+        destination_record_id=_read_public_id(
+            destination,
+            "record_id",
+            "request.durable_record_destination.record_id",
+        ),
+        final_state=final_state,
+        next_action=_next_summary_action(
+            final_state=final_state,
+            approval_state=_read_public_id(request, "approval_state", "request.approval_state"),
+            import_plan_allowed=_read_bool(import_plan, "allowed", "import_plan.allowed"),
+            durable_import_classification=durable_import_classification,
+        ),
+        durable_import_performed=durable_import_performed,
+        durable_import_classification=durable_import_classification,
+        rollback_performed=rollback_performed,
+        partial_commit=partial_commit,
+        import_error=import_error,
     )
 
 
@@ -416,3 +599,54 @@ def _require_text(source: dict[str, Any], key: str) -> str:
     if not isinstance(value, str):
         raise ValueError(f"{key} must be text")
     return value
+
+
+def _read_public_id(source: dict[str, Any], key: str, owner: str) -> str:
+    return validate_public_identifier(source.get(key), owner)
+
+
+def _read_public_id_list(source: dict[str, Any], key: str, owner: str) -> tuple[str, ...]:
+    value = source.get(key)
+    if not isinstance(value, list):
+        raise ValueError(f"{owner} must be a list")
+    return tuple(validate_public_identifier(item, f"{owner} item") for item in value)
+
+
+def _read_bool(source: dict[str, Any], key: str, owner: str) -> bool:
+    value = source.get(key)
+    if not isinstance(value, bool):
+        raise ValueError(f"{owner} must be a boolean")
+    return value
+
+
+def _read_optional_text(source: dict[str, Any], key: str, owner: str) -> str | None:
+    value = source.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{owner} must be text")
+    return value
+
+
+def _next_summary_action(
+    *,
+    final_state: str,
+    approval_state: str,
+    import_plan_allowed: bool,
+    durable_import_classification: str | None,
+) -> str:
+    if final_state == "imported_handoff_measurement_record":
+        return "use_durable_measurement_record"
+    if approval_state != "approved":
+        return "complete_handoff_durable_import_review_before_mutation"
+    if not import_plan_allowed:
+        return "resolve_import_plan_before_durable_import"
+    if durable_import_classification == "rolled_back_after_import_failure":
+        return "review_rollback_and_retry_with_fresh_handoff_plan"
+    if durable_import_classification == "import_failed_after_partial_commit":
+        return "inspect_partial_commit_before_retry"
+    if durable_import_classification == "blocked_before_import":
+        return "review_durable_import_block_before_retry"
+    if final_state == "ready_for_handoff_durable_import":
+        return "run_handoff_durable_import_with_fresh_request"
+    return "review_handoff_durable_import_receipt_before_retry"

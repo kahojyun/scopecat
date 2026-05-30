@@ -9,11 +9,13 @@ from scopecat.handoff.acceptance_preflight import (
 )
 from scopecat.handoff.durable_import import (
     HandoffDurableImportDestination,
+    HandoffDurableImportReceiptSummary,
     HandoffDurableImportRequest,
     HandoffDurableImportRun,
     build_durable_import_request_from_handoff_plan,
     run_handoff_durable_import,
     run_handoff_durable_import_from_plan,
+    summarize_handoff_durable_import_receipt,
 )
 from scopecat.handoff.import_plan import (
     HandoffImportPlanRequest,
@@ -78,6 +80,7 @@ __all__ = [
     "HandoffApprovedImportDecision",
     "HandoffDestinationObservation",
     "HandoffDurableImportDestination",
+    "HandoffDurableImportReceiptSummary",
     "HandoffDurableImportRequest",
     "HandoffDurableImportRun",
     "HandoffFinding",
@@ -122,6 +125,7 @@ __all__ = [
     "run_package_workflow",
     "run_receiving_gate",
     "run_storage_acceptance",
+    "summarize_handoff_durable_import_receipt",
     "summarize_import_workflow_receipt",
     "write_inspection_artifact",
     "write_package",

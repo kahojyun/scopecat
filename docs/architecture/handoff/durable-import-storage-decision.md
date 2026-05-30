@@ -304,3 +304,24 @@ Tests cover successful import, raw-edge composition, blocked-plan no-mutation
 behavior, and package-id mismatch validation. The adapter continues to leave
 no-overwrite, rollback, finalization, and read-model projection semantics to
 the Measurement Records durable import pipeline.
+
+## Handoff Durable Receipt Summary Checkpoint
+
+The route now also includes
+`summarize_handoff_durable_import_receipt(...)` for read-only operator
+continuation summaries.
+
+The summary records:
+
+- package id;
+- selected package measurement id;
+- destination durable record id;
+- final handoff durable-import state;
+- next local operator action;
+- durable import classification and whether durable mutation completed;
+- rollback, partial-commit, and import-error flags when present.
+
+This summary is intentionally not continuation authority. It does not approve a
+retry, reuse a prior import plan, prove destination freshness, reopen the
+package, or mutate storage. A retry or follow-up import still needs a fresh
+handoff durable import request and the same ready-plan/durable-import checks.
