@@ -413,6 +413,8 @@ def _read_update_receipts_and_segments(
     receipts: list[dict[str, Any]] = []
     segments: list[bytes] = []
     previous_total = writer_receipt["primary_data"]["rows_recorded"]
+    previous_receipt_path: str | None = None
+    previous_receipt: dict[str, Any] | None = None
     seen_update_ids: set[str] = set()
     for path in request.update_receipt_paths:
         receipt = _read_update_receipt(root, request, path, writer_receipt)
@@ -421,6 +423,11 @@ def _read_update_receipts_and_segments(
         validate_public_identifier(update_id, "update receipt update_id")
         if update_id in seen_update_ids:
             raise ValueError("running inspection update_id values must be unique")
+        _validate_previous_receipt_link(
+            receipt,
+            expected_previous_path=previous_receipt_path,
+            expected_previous_receipt=previous_receipt,
+        )
         seen_update_ids.add(update_id)
         append_chunk = _require_dict(receipt, "append_chunk")
         if append_chunk.get("previous_total_rows_recorded") != previous_total:
@@ -432,6 +439,8 @@ def _read_update_receipts_and_segments(
         segment = _read_append_segment(root, request, receipt)
         receipts.append(receipt)
         segments.append(segment)
+        previous_receipt_path = path
+        previous_receipt = receipt
     return receipts, segments
 
 
@@ -468,6 +477,34 @@ def _read_update_receipt(
         if current.get(field) != writer_receipt["primary_data"].get(field):
             raise ValueError("running inspection current primary data must match writer receipt")
     return receipt
+
+
+def _validate_previous_receipt_link(
+    receipt: dict[str, Any],
+    *,
+    expected_previous_path: str | None,
+    expected_previous_receipt: dict[str, Any] | None,
+) -> None:
+    update_request = _require_dict(receipt, "update_request")
+    if update_request.get("previous_update_receipt_path") != expected_previous_path:
+        raise ValueError("running inspection previous update receipt path must match chain")
+    previous_ref = receipt.get("previous_update_receipt")
+    if expected_previous_receipt is None:
+        if previous_ref is not None:
+            raise ValueError("running inspection first update receipt must not declare previous")
+        return
+    if not isinstance(previous_ref, dict):
+        raise ValueError("running inspection previous update receipt ref is required")
+    expected_ref = _update_receipt_ref(expected_previous_receipt)
+    for field in (
+        "record_id",
+        "update_id",
+        "update_receipt_path",
+        "append_segment_path",
+        "total_rows_recorded",
+    ):
+        if previous_ref.get(field) != expected_ref.get(field):
+            raise ValueError("running inspection previous update receipt ref must match chain")
 
 
 def _read_append_segment(

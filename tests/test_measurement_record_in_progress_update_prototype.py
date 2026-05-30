@@ -278,6 +278,8 @@ class MeasurementRecordInProgressUpdatePrototypeTest(unittest.TestCase):
             self.assertFalse(
                 (storage_root / "records" / "run-3101-rabi" / "segments" / "chunk-2.csv").exists()
             )
+            self.assertFalse((storage_root / "records" / "run-3101-rabi" / "segments").exists())
+            self.assertFalse((storage_root / "records" / "run-3101-rabi" / "updates").exists())
 
         self.assertEqual(run.classification, "rolled_back_after_in_progress_update_failure")
         self.assertTrue(run.rollback_performed)
@@ -522,6 +524,257 @@ class MeasurementRecordInProgressUpdatePrototypeTest(unittest.TestCase):
                     ),
                     storage_root=storage_root,
                 )
+
+    def test_running_inspection_rejects_broken_previous_receipt_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            chunk_three_path = content_root / "chunks" / "chunk-3.csv"
+            chunk_three_path.write_text("1.25,0.80\n", encoding="utf-8")
+            _populate_in_progress_record(storage_root, content_root, state="in_progress")
+            first_append = append_in_progress_measurement_record_from_request(
+                _update_request(),
+                storage_root=storage_root,
+                content_root=content_root,
+            )
+            if not first_append.updated:
+                raise AssertionError(first_append.to_dict())
+            second_append = append_in_progress_measurement_record_from_request(
+                _update_request(
+                    request_id="append-run-3101-rabi-third",
+                    update_id="update-3101-3",
+                    previous_update_receipt_path=(
+                        "records/run-3101-rabi/updates/update-3101-2.json"
+                    ),
+                    append_segment_path="records/run-3101-rabi/segments/chunk-3.csv",
+                    update_receipt_path="records/run-3101-rabi/updates/update-3101-3.json",
+                    expected_total_rows=6,
+                    append_chunk=MeasurementRecordAppendChunk(
+                        chunk_id="chunk-3101-3",
+                        sequence=3,
+                        event_id="evt-3101-data-3",
+                        content_ref="chunks/chunk-3.csv",
+                        declared_digest=_digest(chunk_three_path),
+                        size_bytes=chunk_three_path.stat().st_size,
+                        rows_recorded=1,
+                        previous_total_rows_recorded=5,
+                        total_rows_recorded=6,
+                    ),
+                ),
+                storage_root=storage_root,
+                content_root=content_root,
+            )
+            if not second_append.updated:
+                raise AssertionError(second_append.to_dict())
+            second_receipt_path = (
+                storage_root / "records" / "run-3101-rabi" / "updates" / "update-3101-3.json"
+            )
+            second_receipt = json.loads(second_receipt_path.read_text(encoding="utf-8"))
+            second_receipt["update_request"]["previous_update_receipt_path"] = (
+                "records/run-3101-rabi/updates/not-the-previous.json"
+            )
+            second_receipt_path.write_text(json.dumps(second_receipt), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "previous update receipt path"):
+                inspect_running_measurement_record_from_request(
+                    _inspection_request(
+                        update_receipt_paths=(
+                            "records/run-3101-rabi/updates/update-3101-2.json",
+                            "records/run-3101-rabi/updates/update-3101-3.json",
+                        ),
+                        expected_total_rows=6,
+                    ),
+                    storage_root=storage_root,
+                )
+
+    def test_running_inspection_rejects_broken_previous_receipt_ref(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            chunk_three_path = content_root / "chunks" / "chunk-3.csv"
+            chunk_three_path.write_text("1.25,0.80\n", encoding="utf-8")
+            _populate_in_progress_record(storage_root, content_root, state="in_progress")
+            first_append = append_in_progress_measurement_record_from_request(
+                _update_request(),
+                storage_root=storage_root,
+                content_root=content_root,
+            )
+            if not first_append.updated:
+                raise AssertionError(first_append.to_dict())
+            second_append = append_in_progress_measurement_record_from_request(
+                _update_request(
+                    request_id="append-run-3101-rabi-third",
+                    update_id="update-3101-3",
+                    previous_update_receipt_path=(
+                        "records/run-3101-rabi/updates/update-3101-2.json"
+                    ),
+                    append_segment_path="records/run-3101-rabi/segments/chunk-3.csv",
+                    update_receipt_path="records/run-3101-rabi/updates/update-3101-3.json",
+                    expected_total_rows=6,
+                    append_chunk=MeasurementRecordAppendChunk(
+                        chunk_id="chunk-3101-3",
+                        sequence=3,
+                        event_id="evt-3101-data-3",
+                        content_ref="chunks/chunk-3.csv",
+                        declared_digest=_digest(chunk_three_path),
+                        size_bytes=chunk_three_path.stat().st_size,
+                        rows_recorded=1,
+                        previous_total_rows_recorded=5,
+                        total_rows_recorded=6,
+                    ),
+                ),
+                storage_root=storage_root,
+                content_root=content_root,
+            )
+            if not second_append.updated:
+                raise AssertionError(second_append.to_dict())
+            second_receipt_path = (
+                storage_root / "records" / "run-3101-rabi" / "updates" / "update-3101-3.json"
+            )
+            second_receipt = json.loads(second_receipt_path.read_text(encoding="utf-8"))
+            second_receipt["previous_update_receipt"]["update_id"] = "not-the-previous"
+            second_receipt_path.write_text(json.dumps(second_receipt), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "previous update receipt ref"):
+                inspect_running_measurement_record_from_request(
+                    _inspection_request(
+                        update_receipt_paths=(
+                            "records/run-3101-rabi/updates/update-3101-2.json",
+                            "records/run-3101-rabi/updates/update-3101-3.json",
+                        ),
+                        expected_total_rows=6,
+                    ),
+                    storage_root=storage_root,
+                )
+
+    def test_second_append_rejects_reused_previous_update_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            chunk_three_path = content_root / "chunks" / "chunk-3.csv"
+            chunk_three_path.write_text("1.25,0.80\n", encoding="utf-8")
+            _populate_in_progress_record(storage_root, content_root, state="in_progress")
+            first_append = append_in_progress_measurement_record_from_request(
+                _update_request(),
+                storage_root=storage_root,
+                content_root=content_root,
+            )
+            if not first_append.updated:
+                raise AssertionError(first_append.to_dict())
+
+            with self.assertRaisesRegex(ValueError, "update_id"):
+                append_in_progress_measurement_record_from_request(
+                    _update_request(
+                        request_id="append-run-3101-rabi-third",
+                        update_id="update-3101-2",
+                        previous_update_receipt_path=(
+                            "records/run-3101-rabi/updates/update-3101-2.json"
+                        ),
+                        append_segment_path="records/run-3101-rabi/segments/chunk-3.csv",
+                        update_receipt_path="records/run-3101-rabi/updates/update-3101-3.json",
+                        expected_total_rows=6,
+                        append_chunk=MeasurementRecordAppendChunk(
+                            chunk_id="chunk-3101-3",
+                            sequence=3,
+                            event_id="evt-3101-data-3",
+                            content_ref="chunks/chunk-3.csv",
+                            declared_digest=_digest(chunk_three_path),
+                            size_bytes=chunk_three_path.stat().st_size,
+                            rows_recorded=1,
+                            previous_total_rows_recorded=5,
+                            total_rows_recorded=6,
+                        ),
+                    ),
+                    storage_root=storage_root,
+                    content_root=content_root,
+                )
+
+            self.assertFalse(
+                (storage_root / "records" / "run-3101-rabi" / "segments" / "chunk-3.csv").exists()
+            )
+
+    def test_third_append_rejects_reused_embedded_previous_update_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            chunk_three_path = content_root / "chunks" / "chunk-3.csv"
+            chunk_three_path.write_text("1.25,0.80\n", encoding="utf-8")
+            chunk_four_path = content_root / "chunks" / "chunk-4.csv"
+            chunk_four_path.write_text("1.50,0.52\n", encoding="utf-8")
+            _populate_in_progress_record(storage_root, content_root, state="in_progress")
+            first_append = append_in_progress_measurement_record_from_request(
+                _update_request(),
+                storage_root=storage_root,
+                content_root=content_root,
+            )
+            if not first_append.updated:
+                raise AssertionError(first_append.to_dict())
+            second_append = append_in_progress_measurement_record_from_request(
+                _update_request(
+                    request_id="append-run-3101-rabi-third",
+                    update_id="update-3101-3",
+                    previous_update_receipt_path=(
+                        "records/run-3101-rabi/updates/update-3101-2.json"
+                    ),
+                    append_segment_path="records/run-3101-rabi/segments/chunk-3.csv",
+                    update_receipt_path="records/run-3101-rabi/updates/update-3101-3.json",
+                    expected_total_rows=6,
+                    append_chunk=MeasurementRecordAppendChunk(
+                        chunk_id="chunk-3101-3",
+                        sequence=3,
+                        event_id="evt-3101-data-3",
+                        content_ref="chunks/chunk-3.csv",
+                        declared_digest=_digest(chunk_three_path),
+                        size_bytes=chunk_three_path.stat().st_size,
+                        rows_recorded=1,
+                        previous_total_rows_recorded=5,
+                        total_rows_recorded=6,
+                    ),
+                ),
+                storage_root=storage_root,
+                content_root=content_root,
+            )
+            if not second_append.updated:
+                raise AssertionError(second_append.to_dict())
+
+            with self.assertRaisesRegex(ValueError, "previous receipt chain"):
+                append_in_progress_measurement_record_from_request(
+                    _update_request(
+                        request_id="append-run-3101-rabi-fourth",
+                        update_id="update-3101-2",
+                        previous_update_receipt_path=(
+                            "records/run-3101-rabi/updates/update-3101-3.json"
+                        ),
+                        append_segment_path="records/run-3101-rabi/segments/chunk-4.csv",
+                        update_receipt_path="records/run-3101-rabi/updates/update-3101-4.json",
+                        expected_total_rows=7,
+                        append_chunk=MeasurementRecordAppendChunk(
+                            chunk_id="chunk-3101-4",
+                            sequence=4,
+                            event_id="evt-3101-data-4",
+                            content_ref="chunks/chunk-4.csv",
+                            declared_digest=_digest(chunk_four_path),
+                            size_bytes=chunk_four_path.stat().st_size,
+                            rows_recorded=1,
+                            previous_total_rows_recorded=6,
+                            total_rows_recorded=7,
+                        ),
+                    ),
+                    storage_root=storage_root,
+                    content_root=content_root,
+                )
+
+            self.assertFalse(
+                (storage_root / "records" / "run-3101-rabi" / "segments" / "chunk-4.csv").exists()
+            )
 
     def test_second_append_requires_declared_previous_update_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

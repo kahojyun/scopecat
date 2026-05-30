@@ -518,6 +518,11 @@ def _read_previous_update_receipt(
     update_request = _require_dict(receipt, "update_request")
     if update_request.get("update_receipt_path") != request.previous_update_receipt_path:
         raise ValueError("in-progress update previous receipt path must match receipt")
+    if update_request.get("update_id") == request.update_id:
+        raise ValueError("in-progress update update_id must not reuse previous receipt")
+    previous_ref = receipt.get("previous_update_receipt")
+    if isinstance(previous_ref, dict) and previous_ref.get("update_id") == request.update_id:
+        raise ValueError("in-progress update update_id must not reuse previous receipt chain")
     current = _require_dict(receipt, "current_primary_data")
     for field in ("path", "digest", "size_bytes", "rows_recorded"):
         if current.get(field) != writer_receipt["primary_data"].get(field):
@@ -642,12 +647,14 @@ def _write_new_files_transaction(
         raise _InProgressUpdateFailure(str(exc), rollback_performed=False) from exc
 
     written_paths: list[str] = []
+    attempted_paths: list[str] = []
     try:
         for relative_path, content in files:
+            attempted_paths.append(relative_path)
             file_writer(_path_under(root, relative_path), content)
             written_paths.append(relative_path)
     except Exception as exc:
-        _rollback_written_files(root, written_paths)
+        _rollback_written_files(root, attempted_paths)
         raise _InProgressUpdateFailure(
             f"in-progress update write failed: {exc}",
             rollback_performed=bool(written_paths),
@@ -666,6 +673,17 @@ def _rollback_written_files(root: Path, written_paths: list[str]) -> None:
             _path_under(root, relative_path).unlink()
         except FileNotFoundError:
             pass
+        _rollback_empty_parent_dirs(root, relative_path)
+
+
+def _rollback_empty_parent_dirs(root: Path, relative_path: str) -> None:
+    current = _path_under(root, relative_path).parent
+    while current != root:
+        try:
+            current.rmdir()
+        except OSError:
+            break
+        current = current.parent
 
 
 class _InProgressUpdateFailure(RuntimeError):
