@@ -315,7 +315,7 @@ separate manifest-replacement decision exists, `record-manifest.json` remains
 the durable shell, writer and finalization receipts remain authoritative
 evidence, and receipt contents win over a stale or conflicting read model.
 
-The first projected file should be named `record-read-model.json`. It may
+The first projected file must be named `record-read-model.json`. It may
 summarize:
 
 - record id and record directory;

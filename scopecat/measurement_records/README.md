@@ -97,9 +97,9 @@ entries, and reports missing, malformed, conflicting, or source-digest-stale
 projections as review findings. It does not refresh read models, repair
 storage, replace manifests, or revalidate primary data.
 
-The next accepted boundary is explicit read-model refresh. It should recompute
+The accepted explicit read-model refresh boundary recomputes
 `record-read-model.json` from the creation manifest, writer receipt, read view,
-and finalization receipt, write a temporary record-local model, then atomically
+and finalization receipt, writes a temporary record-local model, then atomically
 replace only the derived read model. The previous read model is an overwrite
 guard, not source evidence. Refresh must not replace manifests, mutate
 receipts, repair primary data, or define canonical storage authority.
