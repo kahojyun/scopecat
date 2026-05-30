@@ -544,3 +544,99 @@ Until that later decision exists, a stale or missing read model should be
 handled by read-model refresh, not by replacing the creation manifest. A stale
 or conflicting receipt should remain a review finding or route-specific error,
 not a manifest repair trigger.
+
+## In-Progress Update Decision
+
+Choose append-receipt visibility for the first in-progress record update.
+
+The next slice should prove:
+
+```text
+in_progress creation manifest
+  -> writer receipt and existing primary data
+  -> approved append update request
+  -> record-local append segment
+  -> record-local update receipt
+  -> read-only running inspection view
+```
+
+This slice keeps the current receipt authority model. The existing primary
+data file remains the first materialized segment, append segments remain
+separate update evidence, and the creation manifest and read model are not
+rewritten. A read-only inspection view may make declared append receipts
+visible for local monitoring, but it does not make append segments canonical
+primary data.
+
+The first implementation should:
+
+- require an existing creation manifest whose lifecycle state is `in_progress`;
+- require an existing record-local writer receipt and matching primary data
+  digest, size, row count, and record identity;
+- require an approved append update request;
+- validate one declared append chunk by digest, byte size, previous row total,
+  and total row progress;
+- require second and later append requests to declare the previous update
+  receipt so append progress is contiguous from the writer receipt through the
+  update receipt chain;
+- write exactly one append segment and one update receipt with no-overwrite
+  behavior;
+- return a local update receipt summary;
+- provide a read-only inspection view over the writer receipt plus
+  caller-declared update receipts;
+- provide a compact local running-inspection summary with latest visible rows,
+  progress, review finding codes, and a suggested next local action.
+- expose a narrow read-only CLI smoke entrypoint for printing that compact
+  summary from caller-declared storage root and receipt paths.
+
+This decision does not accept:
+
+- manifest replacement or canonical lifecycle-state update;
+- merging, compacting, or appending into the primary data file;
+- read-model refresh from append receipts;
+- finalization semantics for in-progress records;
+- lock identity, stale-lock cleanup, concurrent update behavior, or crash
+  recovery;
+- GUI-owned running monitor state or saved fit/review decisions.
+
+## In-Progress Update Implementation Checkpoint
+
+The first in-progress update and inspection slice is implemented in
+[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+It exposes raw-dictionary and typed entrypoints:
+`append_in_progress_measurement_record(...)`,
+`append_in_progress_measurement_record_from_request(...)`,
+`inspect_running_measurement_record(...)`, and
+`inspect_running_measurement_record_from_request(...)`.
+
+This slice consumes an `in_progress` creation manifest, a writer receipt, and a
+declared append chunk. It writes one append segment and one update receipt
+under no-overwrite behavior, then lets the inspection view read the base
+primary table plus caller-declared update receipts as visible in-progress
+rows. Tests prove successful append/inspection, unapproved no-mutation,
+non-`in_progress` lifecycle blocking, digest mismatch blocking before
+mutation, update-receipt rollback, progress mismatch review findings, and
+non-contiguous update receipt rejection. Follow-up coverage proves compact
+inspection summaries, second append requests through a declared previous
+update receipt, ordinary multiple-receipt inspection, and rejection of a gap
+between multiple append receipts. The module also exposes
+`python -m scopecat.measurement_records running-inspection-summary` as a
+read-only smoke CLI for printing the compact local summary from
+caller-declared paths.
+
+It deliberately does not replace manifests, merge primary data, refresh read
+models, finalize lifecycle state, define lock/crash recovery behavior, or
+persist GUI monitor state. The CLI does not discover records, scan update
+directories, mutate storage, or persist monitor state.
+
+## Running Monitor Affordance Posture
+
+Temporary monitor affordances such as row-range selection or parabolic fit
+preview remain ephemeral in this prototype line. They may be useful local UI or
+notebook behavior, but they should not become durable record mutation unless a
+later slice defines a saved review receipt that records the selected range,
+fit input rows, fit result, operator decision, and non-claims.
+
+This keeps running inspection focused on readable progress and review findings.
+It does not accept automatic retune, scan-plan adjustment, parameter write-back,
+saved GUI state, or scientific fit validity as part of the current
+Measurement Records storage boundary.
