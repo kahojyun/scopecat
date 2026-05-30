@@ -13,6 +13,7 @@ from typing import Any
 
 from scopecat.measurement_records.creation import (
     MeasurementRecordCreationRequest,
+    MeasurementRecordCreationRun,
     create_measurement_record_from_request,
     validate_public_identifier,
     validate_relative_path,
@@ -20,19 +21,23 @@ from scopecat.measurement_records.creation import (
 )
 from scopecat.measurement_records.finalization import (
     MeasurementRecordFinalizationRequest,
+    MeasurementRecordFinalizationRun,
     finalize_measurement_record_from_read_view,
 )
 from scopecat.measurement_records.read_model_projection import (
     MeasurementRecordReadModelProjectionRequest,
+    MeasurementRecordReadModelProjectionRun,
     project_measurement_record_read_model_from_read_view,
 )
 from scopecat.measurement_records.read_view import (
     MeasurementRecordReadRequest,
+    MeasurementRecordReadRun,
     read_created_record_primary_table_from_request,
 )
 from scopecat.measurement_records.writer_integration import (
     MeasurementRecordWriterChunk,
     MeasurementRecordWriterRequest,
+    MeasurementRecordWriterRun,
     validate_positive_integer,
     validate_sha256_digest,
     write_created_record_primary_data_from_request,
@@ -75,6 +80,13 @@ DOES_NOT_CLAIM = [
     "concurrent_storage_root_mutation",
     "public_storage_schema",
 ]
+_DurableImportPipelineRun = (
+    MeasurementRecordCreationRun
+    | MeasurementRecordWriterRun
+    | MeasurementRecordReadRun
+    | MeasurementRecordFinalizationRun
+    | MeasurementRecordReadModelProjectionRun
+)
 
 
 @dataclass(frozen=True)
@@ -222,11 +234,11 @@ class MeasurementRecordDurableImportRun:
     request: MeasurementRecordDurableImportRequest
     storage_root: Path
     content_root: Path
-    creation_run: Any | None = None
-    writer_run: Any | None = None
-    read_view_run: Any | None = None
-    finalization_run: Any | None = None
-    projection_run: Any | None = None
+    creation_run: MeasurementRecordCreationRun | None = None
+    writer_run: MeasurementRecordWriterRun | None = None
+    read_view_run: MeasurementRecordReadRun | None = None
+    finalization_run: MeasurementRecordFinalizationRun | None = None
+    projection_run: MeasurementRecordReadModelProjectionRun | None = None
     rollback_performed: bool = False
     import_error: str | None = None
     partial_commit: bool = False
@@ -536,7 +548,7 @@ class _DurableImportMutationGuard:
     request: MeasurementRecordDurableImportRequest
     current_stage: str = "preflight"
     mutation_started: bool = False
-    creation_run: Any | None = None
+    creation_run: MeasurementRecordCreationRun | None = None
     rollback_performed: bool = False
     partial_commit: bool = False
     import_error: str | None = None
@@ -569,7 +581,7 @@ class _DurableImportMutationGuard:
     def stage(self, name: str) -> None:
         self.current_stage = name
 
-    def mark_mutation_started(self, creation_run: Any) -> None:
+    def mark_mutation_started(self, creation_run: MeasurementRecordCreationRun) -> None:
         self.mutation_started = True
         self.creation_run = creation_run
 
@@ -578,7 +590,7 @@ def _rollback_new_record(
     storage_root: Path,
     request: MeasurementRecordDurableImportRequest,
     mutation_started: bool,
-    creation_run: Any | None,
+    creation_run: MeasurementRecordCreationRun | None,
 ) -> tuple[bool, bool]:
     if not mutation_started:
         return False, False
@@ -597,7 +609,7 @@ def _rollback_new_record(
 def _remove_empty_created_parent_dirs(
     storage_root: Path,
     request: MeasurementRecordDurableImportRequest,
-    creation_run: Any | None,
+    creation_run: MeasurementRecordCreationRun | None,
 ) -> bool:
     partial_commit = False
     record_dir = request.record_dir
@@ -614,17 +626,14 @@ def _remove_empty_created_parent_dirs(
     return partial_commit
 
 
-def _created_paths(creation_run: Any | None) -> tuple[str, ...]:
-    paths = getattr(creation_run, "created_paths", ())
-    if not isinstance(paths, tuple):
+def _created_paths(creation_run: MeasurementRecordCreationRun | None) -> tuple[str, ...]:
+    if creation_run is None:
         return ()
-    return tuple(path for path in paths if isinstance(path, str))
+    return creation_run.created_paths
 
 
-def _classification_error(owner: str, run: Any) -> str:
-    summary = run.to_dict()
-    workflow = _require_dict(summary, "workflow")
-    return f"durable import {owner} step did not complete: {workflow.get('classification')}"
+def _classification_error(owner: str, run: _DurableImportPipelineRun) -> str:
+    return f"durable import {owner} step did not complete: {run.classification}"
 
 
 class _DurableImportFailure(RuntimeError):
@@ -674,13 +683,10 @@ def _sha256(content: bytes) -> str:
     return f"sha256:{hashlib.sha256(content).hexdigest()}"
 
 
-def _run_classification(run: Any | None) -> str | None:
+def _run_classification(run: _DurableImportPipelineRun | None) -> str | None:
     if run is None:
         return None
-    summary = run.to_dict()
-    workflow = _require_dict(summary, "workflow")
-    classification = workflow.get("classification")
-    return classification if isinstance(classification, str) else None
+    return run.classification
 
 
 def _require_dict(value: dict[str, Any], field: str) -> dict[str, Any]:
