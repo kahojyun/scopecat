@@ -46,6 +46,7 @@ from scopecat.measurement_records.read_model_projection import (
     MeasurementRecordReadModelProjectionRun,
     project_measurement_record_read_model_from_read_view,
 )
+from scopecat.measurement_records.read_model_shared import _validate_canonical_read_model_path
 from scopecat.measurement_records.read_view import (
     MeasurementRecordReadRequest,
     MeasurementRecordReadRun,
@@ -194,6 +195,11 @@ class MeasurementRecordDurableImportRequest:
             "durable import finalization_receipt_path",
         )
         _validate_strict_child_path(
+            self.read_model_path,
+            self.record_dir,
+            "durable import read_model_path",
+        )
+        _validate_canonical_read_model_path(
             self.read_model_path,
             self.record_dir,
             "durable import read_model_path",

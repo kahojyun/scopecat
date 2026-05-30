@@ -358,6 +358,18 @@ class MeasurementRecordReadModelProjectionPrototypeTest(unittest.TestCase):
                     storage_root=storage_root,
                 )
 
+    def test_read_model_path_must_be_canonical(self) -> None:
+        with self.assertRaisesRegex(ValueError, "canonical"):
+            _projection_request(read_model_path="records/run-3101-rabi/custom-read-model.json")
+
+    def test_projection_paths_reject_parent_child_overlap(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must not overlap"):
+            _projection_request(
+                finalization_receipt_path=(
+                    "records/run-3101-rabi/record-read-model.json/finalization-receipt.json"
+                )
+            )
+
     def test_source_policy_must_match_candidate_boundary(self) -> None:
         source = _projection_source()
         source["read_model_projection_policy"] = {

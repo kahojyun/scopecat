@@ -23,6 +23,7 @@ from scopecat.measurement_records.read_model_shared import (
     _read_json_at,
     _read_model,
     _sha256,
+    _validate_canonical_read_model_path,
     _validate_finalization_receipt,
     _validate_non_overlapping_paths,
     _validate_request_against_read_view,
@@ -95,6 +96,11 @@ class MeasurementRecordReadModelProjectionRequest:
             "read model projection request finalization_receipt_path",
         )
         _validate_strict_child_path(
+            self.read_model_path,
+            self.record_dir,
+            "read model projection request read_model_path",
+        )
+        _validate_canonical_read_model_path(
             self.read_model_path,
             self.record_dir,
             "read model projection request read_model_path",

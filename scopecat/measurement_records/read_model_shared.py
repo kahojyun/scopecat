@@ -30,6 +30,7 @@ from scopecat.measurement_records.finalization import FINALIZATION_RECEIPT_SCHEM
 from scopecat.measurement_records.read_view import MeasurementRecordReadRun
 
 READ_MODEL_SCHEMA = "measurement_record_read_model_candidate_v0"
+READ_MODEL_FILENAME = "record-read-model.json"
 READ_MODEL_DOES_NOT_CLAIM = (
     "manifest_replacement",
     "canonical_storage_authority",
@@ -260,12 +261,21 @@ def _path_under(root: Path, relative_path: str) -> Path:
     return _path_under_common(root, relative_path, "read model projection path")
 
 
+def _canonical_read_model_path(record_dir: str) -> str:
+    return f"{record_dir}/{READ_MODEL_FILENAME}"
+
+
+def _validate_canonical_read_model_path(read_model_path: str, record_dir: str, owner: str) -> None:
+    if read_model_path != _canonical_read_model_path(record_dir):
+        raise ValueError(f"{owner} must be the canonical record-read-model.json path")
+
+
 def _validate_strict_child_path(value: str, parent: str, owner: str) -> None:
     _validate_strict_child_path_common(value, parent, owner)
 
 
 def _validate_non_overlapping_paths(paths: tuple[str, ...], owner: str) -> None:
-    _validate_non_overlapping_paths_common(paths, owner, reject_parent_child=False)
+    _validate_non_overlapping_paths_common(paths, owner, reject_parent_child=True)
 
 
 def _require_dict(value: dict[str, Any], field: str) -> dict[str, Any]:

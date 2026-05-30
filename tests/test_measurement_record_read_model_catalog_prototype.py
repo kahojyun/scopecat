@@ -299,6 +299,37 @@ class MeasurementRecordReadModelCatalogPrototypeTest(unittest.TestCase):
         self.assertEqual(run.review_findings[0]["code"], "read_model_source_digest_mismatch")
         self.assertIn("read_model_refresh_or_repair", run.review_findings[0]["does_not_claim"])
 
+    def test_source_digest_verification_rejects_symlink_parent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            storage_root = temp_root / "storage"
+            content_root = temp_root / "content"
+            external_root = temp_root / "external-sources"
+            storage_root.mkdir()
+            external_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            _populate_projected_record(storage_root, content_root)
+            record_dir = storage_root / "records" / "run-3101-rabi"
+            read_model_path = record_dir / "record-read-model.json"
+            read_model = json.loads(read_model_path.read_text(encoding="utf-8"))
+            external_manifest = external_root / "record-manifest.json"
+            external_manifest.write_bytes((record_dir / "record-manifest.json").read_bytes())
+            (record_dir / "linked-sources").symlink_to(external_root, target_is_directory=True)
+            read_model["sources"]["creation_manifest"]["path"] = (
+                "records/run-3101-rabi/linked-sources/record-manifest.json"
+            )
+            read_model["sources"]["creation_manifest"]["digest"] = _digest(external_manifest)
+            read_model_path.write_text(json.dumps(read_model), encoding="utf-8")
+
+            run = catalog_measurement_record_read_models_from_request(
+                _catalog_request(),
+                storage_root=storage_root,
+            )
+
+        self.assertEqual(run.classification, "read_model_catalog_review_needed")
+        self.assertEqual(len(run.entries), 1)
+        self.assertEqual(run.review_findings[0]["code"], "read_model_source_symlink_parent")
+
     def test_source_digest_verification_can_be_skipped(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root = Path(temp_dir) / "storage"

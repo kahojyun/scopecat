@@ -389,6 +389,39 @@ class MeasurementRecordReadModelRefreshPrototypeTest(unittest.TestCase):
         self.assertFalse(temp_path.exists())
         self.assertEqual(read_model_after, previous)
 
+    def test_replace_failure_after_replace_reports_partial_success(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            _populate_record(storage_root, content_root)
+            _finalize(storage_root)
+            _project(storage_root)
+            read_model_path = storage_root / "records" / "run-3101-rabi" / "record-read-model.json"
+            previous_digest = _digest(read_model_path)
+            previous = read_model_path.read_text(encoding="utf-8")
+
+            def replacing_then_failing(temp: Path, target: Path) -> None:
+                temp.replace(target)
+                raise RuntimeError("simulated post-replace failure")
+
+            run = refresh_measurement_record_read_model_from_read_view(
+                _refresh_request(
+                    expected_target_condition="replace_existing",
+                    expected_current_read_model_digest=previous_digest,
+                ),
+                read_view=_read_view(storage_root),
+                storage_root=storage_root,
+                model_replacer=replacing_then_failing,
+            )
+            read_model_after = read_model_path.read_text(encoding="utf-8")
+
+        self.assertEqual(run.classification, "refresh_replaced_with_error")
+        self.assertTrue(run.replacement_performed)
+        self.assertFalse(run.cleanup_performed)
+        self.assertNotEqual(read_model_after, previous)
+
     def test_refreshed_model_remains_catalog_valid(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root = Path(temp_dir) / "storage"
@@ -418,6 +451,18 @@ class MeasurementRecordReadModelRefreshPrototypeTest(unittest.TestCase):
     def test_replace_existing_requires_expected_digest(self) -> None:
         with self.assertRaisesRegex(ValueError, "expected_current_read_model_digest"):
             _refresh_request(expected_target_condition="replace_existing")
+
+    def test_read_model_path_must_be_canonical(self) -> None:
+        with self.assertRaisesRegex(ValueError, "canonical"):
+            _refresh_request(read_model_path="records/run-3101-rabi/custom-read-model.json")
+
+    def test_refresh_paths_reject_parent_child_overlap(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must not overlap"):
+            _refresh_request(
+                finalization_receipt_path=(
+                    "records/run-3101-rabi/record-read-model.json/finalization-receipt.json"
+                )
+            )
 
     def test_source_policy_must_match_candidate_boundary(self) -> None:
         source = _refresh_source()

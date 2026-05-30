@@ -266,6 +266,10 @@ class MeasurementRecordDurableImportPrototypeTest(unittest.TestCase):
                     storage_root=storage_root,
                 )
 
+    def test_read_model_path_must_be_canonical(self) -> None:
+        with self.assertRaisesRegex(ValueError, "canonical"):
+            _request(read_model_path="records/run-3101-rabi/custom-read-model.json")
+
 
 if __name__ == "__main__":
     unittest.main()

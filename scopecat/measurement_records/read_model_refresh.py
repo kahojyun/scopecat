@@ -24,6 +24,7 @@ from scopecat.measurement_records.read_model_shared import (
     _read_json_at,
     _read_model,
     _sha256,
+    _validate_canonical_read_model_path,
     _validate_finalization_receipt,
     _validate_non_overlapping_paths,
     _validate_request_against_read_view,
@@ -107,6 +108,11 @@ class MeasurementRecordReadModelRefreshRequest:
             "read model refresh request finalization_receipt_path",
         )
         _validate_strict_child_path(
+            self.read_model_path,
+            self.record_dir,
+            "read model refresh request read_model_path",
+        )
+        _validate_canonical_read_model_path(
             self.read_model_path,
             self.record_dir,
             "read model refresh request read_model_path",
@@ -436,11 +442,20 @@ def _write_temp_then_replace(
     cleanup_performed = False
     try:
         model_writer(temp, content)
-        model_replacer(temp, target)
     except Exception as exc:
         cleanup_performed = _cleanup_temp(temp)
         raise _RefreshFailure(
-            f"read model refresh write or replace failed: {exc}",
+            f"read model refresh write failed: {exc}",
+            cleanup_performed=cleanup_performed,
+        ) from exc
+    try:
+        model_replacer(temp, target)
+    except Exception as exc:
+        replacement_performed = _target_contains_content(target, content)
+        cleanup_performed = _cleanup_temp(temp)
+        raise _RefreshFailure(
+            f"read model refresh replace failed: {exc}",
+            replacement_performed=replacement_performed,
             cleanup_performed=cleanup_performed,
         ) from exc
 
@@ -459,6 +474,13 @@ def _cleanup_temp(path: Path) -> bool:
         path.unlink()
         return True
     except FileNotFoundError:
+        return False
+
+
+def _target_contains_content(path: Path, content: bytes) -> bool:
+    try:
+        return path.read_bytes() == content
+    except OSError:
         return False
 
 

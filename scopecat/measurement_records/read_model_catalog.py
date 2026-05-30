@@ -29,6 +29,7 @@ from scopecat.measurement_records.creation import (
     validate_text,
 )
 from scopecat.measurement_records.read_model_projection import READ_MODEL_SCHEMA
+from scopecat.measurement_records.read_model_shared import READ_MODEL_FILENAME
 
 READ_MODEL_CATALOG_SCHEMA = "scopecat.measurement_record_read_model_catalog.v0"
 READ_MODEL_CATALOG_POLICY = {
@@ -210,7 +211,7 @@ def _catalog_record_dir(
     record_dir: str,
     verify_source_digests: bool,
 ) -> tuple[dict[str, Any] | None, list[dict[str, str]]]:
-    read_model_path = f"{record_dir}/record-read-model.json"
+    read_model_path = f"{record_dir}/{READ_MODEL_FILENAME}"
     target = _path_under(root, read_model_path)
     if target.is_symlink():
         return (
@@ -393,6 +394,17 @@ def _source_digest_findings(
         path = validate_relative_path(source.get("path"), f"read model {kind} path")
         _validate_strict_child_path(path, record_dir, f"read model {kind} path")
         target = _path_under(root, path)
+        try:
+            _ensure_no_symlink_parents(root, path, f"read model {kind} source")
+        except ValueError as exc:
+            findings.append(
+                _finding(
+                    "read_model_source_symlink_parent",
+                    path,
+                    str(exc),
+                )
+            )
+            continue
         if target.is_symlink():
             findings.append(
                 _finding(

@@ -17,6 +17,7 @@ from scopecat.handoff._contracts import (
 from scopecat.handoff.import_plan import HandoffImportPlanRun, run_import_plan
 from scopecat.handoff.package import HandoffMeasurement
 from scopecat.measurement_records.durable_import import (
+    DURABLE_IMPORT_POLICY,
     MeasurementRecordDurableImportRequest,
     MeasurementRecordDurableImportRun,
     MeasurementRecordImportSource,
@@ -501,6 +502,8 @@ def summarize_handoff_durable_import_receipt(
         )
         if durable_receipt.get("artifact_posture") != "local_record_durable_import_receipt":
             raise ValueError("handoff durable import durable result posture is unsupported")
+        if durable_receipt.get("durable_import_policy") != DURABLE_IMPORT_POLICY:
+            raise ValueError("handoff durable import durable result policy is unsupported")
         durable_receipt_request = _require_mapping(
             durable_receipt.get("request"),
             "handoff durable import receipt.durable_import_result.request",
@@ -642,6 +645,26 @@ def _validate_durable_request_continuity(
         durable_request.get("import_source"),
         "handoff durable import durable_import_request.import_source",
     )
+    if (
+        _read_public_id(
+            durable_request,
+            "creation_source_kind",
+            "durable_import_request.creation_source_kind",
+        )
+        != "handoff"
+    ):
+        raise ValueError("handoff durable import durable request source kind is inconsistent")
+    if (
+        _read_public_id(
+            import_source,
+            "source_kind",
+            "durable_import_request.import_source.source_kind",
+        )
+        != "handoff_package"
+    ):
+        raise ValueError(
+            "handoff durable import durable request import source kind is inconsistent"
+        )
     if _read_public_id(import_source, "source_id", "durable_import_request.source_id") != (
         package_id
     ):

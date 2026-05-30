@@ -526,6 +526,68 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "source id"):
             summarize_handoff_durable_import_receipt(receipt)
 
+    def test_receipt_summary_rejects_non_handoff_durable_request_mapping(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            storage_root.mkdir()
+
+            run = run_handoff_durable_import_from_plan(
+                _request(),
+                import_plan=_import_plan_run(package_dir),
+                storage_root=storage_root,
+            )
+            receipt = run.to_dict()
+            receipt["durable_import_request"]["creation_source_kind"] = "import"
+
+        with self.assertRaisesRegex(ValueError, "source kind"):
+            summarize_handoff_durable_import_receipt(receipt)
+
+    def test_receipt_summary_rejects_non_handoff_durable_import_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            storage_root.mkdir()
+
+            run = run_handoff_durable_import_from_plan(
+                _request(),
+                import_plan=_import_plan_run(package_dir),
+                storage_root=storage_root,
+            )
+            receipt = run.to_dict()
+            receipt["durable_import_request"]["import_source"]["source_kind"] = (
+                "adapter_normalized_primary_data"
+            )
+            receipt["durable_import_result"]["request"]["import_source"]["source_kind"] = (
+                "adapter_normalized_primary_data"
+            )
+
+        with self.assertRaisesRegex(ValueError, "import source kind"):
+            summarize_handoff_durable_import_receipt(receipt)
+
+    def test_receipt_summary_rejects_non_handoff_durable_result_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            storage_root.mkdir()
+
+            run = run_handoff_durable_import_from_plan(
+                _request(),
+                import_plan=_import_plan_run(package_dir),
+                storage_root=storage_root,
+            )
+            receipt = run.to_dict()
+            receipt["durable_import_result"]["durable_import_policy"] = {
+                **receipt["durable_import_result"]["durable_import_policy"],
+                "source_authority": "other_source",
+            }
+
+        with self.assertRaisesRegex(ValueError, "policy"):
+            summarize_handoff_durable_import_receipt(receipt)
+
     def test_receipt_summary_rejects_durable_result_request_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
