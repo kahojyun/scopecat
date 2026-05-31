@@ -1,0 +1,132 @@
+{
+  "candidate_summary": {
+    "artifact_posture": "internal_validation_summary",
+    "attention": [
+      {
+        "code": "saved_review_continuation_available",
+        "count": 1,
+        "does_not_claim": "retry_or_action_authority"
+      },
+      {
+        "code": "records_need_review",
+        "count": 1,
+        "does_not_claim": "record_is_invalid_or_repairable"
+      },
+      {
+        "code": "running_records_visible",
+        "count": 1,
+        "does_not_claim": "live_monitor_or_subscription_active"
+      }
+    ],
+    "does_not_claim": [
+      "storage_scan",
+      "record_open",
+      "record_mutation",
+      "read_model_refresh",
+      "action_approval",
+      "canonical_gui_state",
+      "public_export"
+    ],
+    "inbox": {
+      "classification": "review_inbox_attention",
+      "counts": {
+        "continue_later": 1,
+        "needs_review": 1,
+        "reviewed": 0,
+        "ready": 1,
+        "running": 1
+      },
+      "lane_order": [
+        "continue_later",
+        "needs_review",
+        "running",
+        "ready",
+        "reviewed"
+      ],
+      "lanes": {
+        "continue_later": [
+          {
+            "next_action": "review_measurement_record_operator_findings",
+            "operator_reason": "Continue after refreshing the missing T1 read model.",
+            "receipt_id": "review-receipt-001",
+            "record_id": "run-9999-needs-review",
+            "record_visibility": "visible",
+            "review_finding_codes": [
+              "read_model_missing"
+            ],
+            "review_receipt_path": "operator-reviews/review-001.json",
+            "selected_record_source": "catalog",
+            "source": "saved_operator_review_receipt_summary",
+            "state": "recorded_for_continuation"
+          }
+        ],
+        "needs_review": [
+          {
+            "finding_code": "read_model_missing",
+            "label": "T1 created shell missing projection",
+            "message": "Record directory has no projected read model.",
+            "next_action": "review_measurement_record_operator_findings",
+            "record_visibility": "visible",
+            "record_id": "run-9999-needs-review",
+            "source": "fresh_operator_review.catalog",
+            "state": "needs_review"
+          }
+        ],
+        "ready": [
+          {
+            "label": "Rabi calibration complete",
+            "next_action": "open_record_summary",
+            "primary_count": 5,
+            "record_dir": "records/run-3101-rabi",
+            "record_id": "run-3101-rabi",
+            "source": "fresh_operator_review.catalog",
+            "state": "complete"
+          }
+        ],
+        "running": [
+          {
+            "label": "T1 still recording",
+            "next_action": "ready_for_later_finalization_decision",
+            "record_dir": "records/run-4101-t1",
+            "record_id": "run-4101-t1",
+            "review_finding_codes": [],
+            "source": "fresh_operator_review.running_inspection",
+            "state": "running",
+            "visible_rows_recorded": 5
+          }
+        ],
+        "reviewed": []
+      }
+    },
+    "review_inbox_policy": {
+      "action_approval": "not_granted",
+      "gui_state_persistence": "not_performed",
+      "input_authority": "operator_review_run_and_saved_receipt_summaries",
+      "public_export": "not_performed",
+      "read_model_refresh": "not_performed",
+      "record_mutation": "not_performed",
+      "record_open": "not_performed",
+      "storage_scan": "not_performed"
+    },
+    "workspace": {
+      "label": "Local measurement review workspace",
+      "workspace_id": "workspace-review-demo-001"
+    }
+  },
+  "boundary_notes": [
+    "The review inbox is an internal product-shape summary over explicit review facts, not a storage scan or GUI state store.",
+    "Saved review receipts create continuation prompts but do not approve refresh, import, retry, or record mutation."
+  ],
+  "decisions_not_earned": [
+    "live GUI implementation",
+    "canonical cross-session review state",
+    "automatic read-model refresh",
+    "record mutation or repair",
+    "operator action approval workflow"
+  ],
+  "reference_semantics": {
+    "artifact_posture": "internal_validation_summary",
+    "contract_guard": "Review inbox projection is not a dashboard backend, storage index, or GUI persistence contract."
+  },
+  "source_fixture": "tests/fixtures/measurement_record_review_inbox/basic_workspace/review-inbox-input.json"
+}

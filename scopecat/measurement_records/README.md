@@ -158,3 +158,71 @@ python -m scopecat.measurement_records running-inspection-summary \
 
 It prints the compact running-inspection JSON summary. It does not discover
 records, scan update directories, mutate storage, or persist monitor state.
+
+The first operator-review composition is implemented through
+`review_measurement_records(...)` and
+`review_measurement_records_from_request(...)`. It catalogs projected read
+models, optionally runs caller-declared running inspections, and projects a
+selected local record summary for operator review. It is read-only: it does
+not refresh read models, discover update receipts, replace manifests, finalize
+lifecycle state, mutate storage, or persist GUI review state. When a declared
+running inspection intentionally surfaces an in-progress record, the
+composition does not treat that same record's missing projected read model as
+a top-level operator-review finding. Catalog entries whose projected read
+model already carries review findings are still promoted into operator-review
+findings, so a stale or incomplete read model does not appear ready merely
+because its detailed finding object was embedded in the projection.
+
+The CLI also exposes:
+
+```sh
+python -m scopecat.measurement_records operator-review \
+  --storage-root ./storage \
+  --request-id operator-review-001 \
+  --selected-record-id run-001
+```
+
+Optional `--running-record-id`, `--running-record-dir`,
+`--running-writer-receipt-path`, and repeated
+`--running-update-receipt-path` arguments add one caller-declared running
+inspection to the local review. For multiple declared running inspections, use
+`--source ./operator-review-source.json` with the raw operator-review source
+schema instead of growing ad hoc flags. When `--source` is present, request
+shaping flags are rejected rather than silently ignored. Partial running flags
+without `--running-record-id` are also rejected so declared running-inspection
+intent is not dropped. The CLI remains a smoke surface; it does not scan for
+update receipts or run import, refresh, finalization, repair, or GUI state
+persistence.
+
+The first saved operator-review receipt boundary is implemented through
+`save_measurement_record_operator_review_receipt(...)` and
+`summarize_measurement_record_operator_review_receipt(...)`. It takes an
+already computed operator-review run plus an approved receipt request, writes
+one local no-overwrite receipt, and projects a compact continuation summary.
+Receipt paths must stay under `operator-reviews/`; they cannot be materialized
+inside record directories. The summary path validates the saved receipt posture,
+policy, approval state, disposition, review finding shape, and embedded summary
+continuity before emitting a compact summary. It also validates the receipt and
+embedded review non-claim posture, and recomputes the embedded review
+classification, selected-record posture, and next action from the saved review
+snapshot before projecting the local summary. If the operator selected a record
+that was not visible in the review, the summary preserves the requested
+`selected_record_id` with `selected_record_source: not_visible` instead of
+pretending a record summary was available. The receipt summary accepts only
+review/navigation `next_action` values and public-safe request identifiers. The
+receipt parser keeps selected-record posture as a private helper rather than
+promoting a shared record domain model.
+The saved receipt is a local continuation note only: it does not resolve
+findings, approve import, approve refresh, grant retry authority, mutate
+records, or persist canonical GUI review state.
+
+The CLI can summarize a saved operator-review receipt:
+
+```sh
+python -m scopecat.measurement_records operator-review-receipt-summary \
+  --receipt-path ./storage/operator-reviews/review-001.json
+```
+
+This command reads one caller-declared receipt JSON and prints the compact
+continuation summary. It does not reopen records, re-run review, grant retry
+authority, approve refresh/import, mutate storage, or persist GUI state.
