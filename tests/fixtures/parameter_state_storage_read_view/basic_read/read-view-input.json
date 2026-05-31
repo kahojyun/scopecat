@@ -1,0 +1,30 @@
+{
+  "fixture_id": "parameter-state-storage-read-view-basic",
+  "fixture_status": "synthetic_public_safe",
+  "fixture_layer": "parameter_state_storage_read_view_fixture",
+  "user_job": "Read one explicitly referenced stored parameter-state manifest and receipt under a caller-provided root without scanning storage, mutating files, observing legacy sources, migrating schemas, or writing hardware.",
+  "read_view_policy": {
+    "read_authority": "explicit_parameter_state_storage_reference",
+    "storage_root_authority": "caller_provided_storage_root_plus_declared_relative_paths",
+    "manifest_observation": "explicit_manifest_and_receipt_files_only",
+    "checksum_algorithm": "sha256",
+    "storage_mutation": "not_performed",
+    "catalog_discovery": "not_performed",
+    "legacy_source_observation": "not_performed",
+    "schema_migration": "not_performed",
+    "external_file_authority": "not_claimed",
+    "hardware_write_back": "not_performed",
+    "gui_workflow": "not_defined",
+    "shared_parameter_schema": "not_defined"
+  },
+  "read_request": {
+    "request_id": "parameter-state-read-view-0001",
+    "state_id": "param-state-imported-0001",
+    "manifest_path": "parameter-states/param-state-imported-0001/parameter-state.json",
+    "receipt_path": "parameter-states/param-state-imported-0001/write-receipt.json",
+    "expected_manifest_digest": "sha256:05974eba3977078d0fb963b1db7c575b91ef165ae4e6abb233c39a4446a48c7a",
+    "expected_manifest_size_bytes": 3563,
+    "expected_receipt_digest": "sha256:ac8574f7032e9728a0bb1860006ac6a1705183b5b457b4dffe43a4e61d2fe092",
+    "expected_receipt_size_bytes": 640
+  }
+}

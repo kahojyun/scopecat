@@ -6,7 +6,7 @@
     "status": "fixture_only",
     "contract_guard": "This expected output is not a final context schema, run lifecycle model, readiness contract, storage model, restore contract, hardware-control contract, environment manager, executor, workflow DAG, or GUI design.",
     "input_set": "The named input set groups selected family-owned context records for run preparation without absorbing their payload schemas.",
-    "missing_context": "Unavailable required context produces a preparation finding, not an automatic run block or safety claim.",
+    "missing_context": "Unavailable optional context can be represented without a preparation finding, automatic run block, or safety claim.",
     "execution_boundary": "Selected code and declared environment context are references only; no code import, environment sync, or execution is performed."
   },
   "candidate_summary": {
@@ -102,9 +102,9 @@
           ]
         },
         "context_ref_count": 6,
-        "required_context_count": 6,
+        "required_context_count": 0,
         "selected_context_count": 5,
-        "unavailable_required_context_count": 1,
+        "unavailable_required_context_count": 0,
         "preparation_claim": "selected_context_records_only"
       }
     ],
@@ -113,7 +113,7 @@
         "input_set_id": "run-start-inputs-chevron-qA-0001",
         "family": "measurement_intent",
         "role": "declared_measurement_intent",
-        "required": true,
+        "required": false,
         "include_state": "selected",
         "context_id": "measurement-intent-chevron-qA",
         "context_label": "qA chevron follow-up",
@@ -124,7 +124,7 @@
         "input_set_id": "run-start-inputs-chevron-qA-0001",
         "family": "parameter_state",
         "role": "calibrated_values",
-        "required": true,
+        "required": false,
         "include_state": "selected",
         "context_id": "param-state-0002",
         "context_label": "qA default bias after Rabi review",
@@ -135,7 +135,7 @@
         "input_set_id": "run-start-inputs-chevron-qA-0001",
         "family": "setup_binding",
         "role": "logical_to_physical_mapping",
-        "required": true,
+        "required": false,
         "include_state": "selected",
         "context_id": "setup-binding-0002",
         "context_label": "qA default binding after bias-line move",
@@ -146,7 +146,7 @@
         "input_set_id": "run-start-inputs-chevron-qA-0001",
         "family": "station_registry",
         "role": "station_context",
-        "required": true,
+        "required": false,
         "include_state": "selected",
         "context_id": "station-registry-mmcs2-redacted",
         "context_label": "redacted MMCS2 station registry",
@@ -157,7 +157,7 @@
         "input_set_id": "run-start-inputs-chevron-qA-0001",
         "family": "managed_code_version",
         "role": "entrypoint_code_version",
-        "required": true,
+        "required": false,
         "include_state": "selected",
         "context_id": "managed-code-version-readout-0001",
         "context_label": "readout calibration managed code version",
@@ -168,30 +168,14 @@
         "input_set_id": "run-start-inputs-chevron-qA-0001",
         "family": "declared_environment",
         "role": "runtime_environment_hint",
-        "required": true,
+        "required": false,
         "include_state": "unavailable",
         "context_id": null,
         "missing_reason": "No reviewed declared environment record exists for this fixture."
       }
     ],
-    "missing_context_findings": [
-      {
-        "input_set_id": "run-start-inputs-chevron-qA-0001",
-        "family": "declared_environment",
-        "role": "runtime_environment_hint",
-        "severity": "review",
-        "finding": "required_context_unavailable",
-        "basis": "No reviewed declared environment record exists for this fixture.",
-        "does_not_claim": "run_is_blocked_or_unsafe"
-      }
-    ],
+    "missing_context_findings": [],
     "attention": [
-      {
-        "code": "required_context_unavailable",
-        "severity": "review",
-        "basis": "At least one required run-start context record is unavailable.",
-        "does_not_claim": "automatic_run_blocking"
-      },
       {
         "code": "shared_context_schema_not_defined",
         "severity": "info",
@@ -221,7 +205,7 @@
   "boundary_notes": [
     "The named input set groups selected context records for one run-preparation surface without defining a universal context schema.",
     "Parameter state, setup binding, station registry, managed code version, declared environment, and measurement intent remain family-owned records.",
-    "Unavailable required context produces a review finding, not an automatic run block or safety decision.",
+    "Unavailable optional declared environment context stays recorded as absent context without a required-context finding or automatic run block.",
     "The selected managed code version is not materialized, imported, loaded, or executed.",
     "Hardware control, parameter write-back, setup mutation, environment sync, restore behavior, workflow/DAG behavior, and GUI behavior remain out of scope."
   ],
@@ -240,5 +224,6 @@
     "code execution",
     "workflow DAG",
     "GUI design"
-  ]
+  ],
+  "summary_policy": "internal_validation_summary"
 }

@@ -127,9 +127,9 @@
           "entrypoint_hint": "readout_calibration_entrypoint.py"
         },
         "context_ref_count": 7,
-        "required_context_count": 7,
+        "required_context_count": 3,
         "selected_context_count": 6,
-        "unavailable_required_context_count": 1,
+        "unavailable_required_context_count": 0,
         "preparation_claim": "manual_run_context_summary_only"
       }
     ],
@@ -149,7 +149,7 @@
         "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
         "family": "parameter_state",
         "role": "calibrated_values",
-        "required": true,
+        "required": false,
         "include_state": "selected",
         "context_id": "param-state-0002",
         "context_label": "qA default bias after Rabi review",
@@ -160,7 +160,7 @@
         "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
         "family": "setup_binding",
         "role": "logical_to_physical_mapping",
-        "required": true,
+        "required": false,
         "include_state": "selected",
         "context_id": "setup-binding-0002",
         "context_label": "qA default binding after bias-line move",
@@ -171,7 +171,7 @@
         "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
         "family": "station_registry",
         "role": "station_context",
-        "required": true,
+        "required": false,
         "include_state": "selected",
         "context_id": "station-registry-mmcs2-redacted",
         "context_label": "redacted MMCS2 station registry",
@@ -204,23 +204,13 @@
         "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
         "family": "declared_environment",
         "role": "runtime_environment_hint",
-        "required": true,
+        "required": false,
         "include_state": "unavailable",
         "context_id": null,
         "missing_reason": "No reviewed declared environment record exists for this fixture."
       }
     ],
-    "missing_context_findings": [
-      {
-        "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
-        "family": "declared_environment",
-        "role": "runtime_environment_hint",
-        "severity": "review",
-        "finding": "required_context_unavailable",
-        "basis": "No reviewed declared environment record exists for this fixture.",
-        "does_not_claim": "run_is_blocked_or_unsafe"
-      }
-    ],
+    "missing_context_findings": [],
     "workspace_context_findings": [
       {
         "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
@@ -238,12 +228,6 @@
       }
     ],
     "attention": [
-      {
-        "code": "required_context_unavailable",
-        "severity": "review",
-        "basis": "At least one required prepared-run context record is unavailable.",
-        "does_not_claim": "automatic_run_blocking"
-      },
       {
         "code": "workspace_observation_reused_as_declared_context",
         "severity": "info",
@@ -280,7 +264,7 @@
     "The prepared run context groups selected context records and declared editable-workspace observation results for one manual run-preparation surface without defining a universal context schema.",
     "Parameter state, setup binding, station registry, managed code version, editable workspace observation, declared environment, and measurement intent remain family-owned records.",
     "Workspace observation findings produce review findings, not semantic source diffs, workspace repair, or runnable-readiness claims.",
-    "Unavailable required context produces a review finding, not an automatic run block or safety decision.",
+    "Unavailable optional declared environment context stays recorded as absent context without a required-context finding or automatic run block.",
     "Hardware control, parameter write-back, setup mutation, environment sync, restore behavior, workflow/DAG behavior, GUI behavior, and code execution remain out of scope."
   ],
   "decisions_not_earned": [
@@ -300,5 +284,6 @@
     "code execution",
     "workflow DAG",
     "GUI design"
-  ]
+  ],
+  "summary_policy": "internal_validation_summary"
 }

@@ -98,13 +98,19 @@ The candidate summary can answer:
 - What trust/readiness states are actually needed beyond the fixture's
   `seeded_incomplete`, `partially_calibrated`, `not_fully_trusted`, and
   `trusted_for_declared_scope`?
-- How should trusted entries be selected for drift/history plots?
+- How should trusted entries be selected for rendered drift/history plots? A
+  later side-effect-free projection slice validates the non-rendered filtering
+  boundary in
+  [`parameter-trusted-drift-projection-validation-result.md`](parameter-trusted-drift-projection-validation-result.md).
 - When should added/removed parameters become schema migration work rather than
   ordinary reviewable diff entries?
 - Which narrower parameter-specific slice should follow the summary candidate
   before accepting stronger readiness, drift, write-back, or compatibility
   claims?
 - How should rollback-like selection work without implying hardware mutation?
+  A later context-selection slice validates the generic selection-as-input
+  boundary in
+  [`parameter-state-selection-context-validation-result.md`](parameter-state-selection-context-validation-result.md).
 
 ## Not Earned
 
@@ -118,6 +124,7 @@ This validation does not earn:
 - drift plotting;
 - hardware write-back or instrument state tracking;
 - external JSON authority or external JSON change tracking;
+- core legacy parameter JSON/XLSX parsers;
 - device registry model;
 - setup binding schema, snapshots, or diffs;
 - physical wiring model;
@@ -131,9 +138,12 @@ narrower parameter-specific validation.
 
 Likely follow-up slices should stay separate:
 
-- trusted-state drift or history views from accepted entries only;
+- rendered trusted-state drift or history views from an accepted projection;
 - reviewable parameter-write records and compatibility-file output without
   applying changes to hardware;
-- rollback-like selection semantics without hardware mutation;
+- run-preparation or GUI consumption of selected parameter-state references
+  without redefining rollback or known-good semantics;
+- review/commit of adapter-authored parameter-state import previews into
+  managed parameter state without adding core legacy parsers;
 - setup-binding interaction pressure when wiring changes imply parameter
   retuning, while keeping setup truth and parameter authority separate.

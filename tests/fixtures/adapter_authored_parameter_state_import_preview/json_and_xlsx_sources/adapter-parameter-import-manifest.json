@@ -1,0 +1,141 @@
+{
+  "manifest_schema": "scopecat.adapter_parameter_state_import_manifest.v0",
+  "fixture_id": "adapter-parameter-state-import-json-xlsx-sources",
+  "fixture_status": "synthetic_public_safe",
+  "fixture_layer": "adapter_authored_parameter_state_import_preview_fixture",
+  "user_job": "Preview adapter-normalized parameter entries from legacy JSON and XLSX sources without making Scopecat parse those legacy formats or create managed parameter state.",
+  "adapter_parameter_import_policy": {
+    "manifest_authority": "adapter_authored",
+    "legacy_source_parsing": "not_performed_by_scopecat",
+    "source_observation": "adapter_declared_only",
+    "parameter_state_creation": "not_performed",
+    "import_acceptance": "not_performed",
+    "schema_migration": "not_performed",
+    "external_file_authority": "not_claimed",
+    "hardware_write_back": "not_performed",
+    "gui_workflow": "not_defined",
+    "stable_public_api": "not_defined"
+  },
+  "adapter": {
+    "adapter_id": "public-safe-parameter-adapter",
+    "name": "Public-safe parameter adapter fixture",
+    "version": "fixture",
+    "source_system_kind": "external_legacy_parameter_sources",
+    "source_system_detail": "adapter-declared legacy parameter JSON and XLSX table sources; Scopecat core does not parse the source formats",
+    "parsing_authority": "external_adapter"
+  },
+  "legacy_sources": [
+    {
+      "source_id": "legacy-json-parameters-001",
+      "source_format": "legacy_parameters_json",
+      "external_root_label": "redacted-lab-share",
+      "display_path": "LEGACY_PARAMETER_SOURCE:/redacted/settings/parameters.json",
+      "reference_state": "adapter_declared_available",
+      "local_path_redacted": true,
+      "reason": null
+    },
+    {
+      "source_id": "legacy-xlsx-parameter-table-001",
+      "source_format": "xlsx_parameter_table",
+      "external_root_label": "redacted-lab-share",
+      "display_path": "LEGACY_PARAMETER_SOURCE:/redacted/tables/parameter-table.xlsx",
+      "reference_state": "adapter_declared_available",
+      "local_path_redacted": true,
+      "reason": null
+    }
+  ],
+  "candidate_parameter_state": {
+    "candidate_state_id": "adapter-candidate-param-state-0001",
+    "candidate_state": "preview_ready",
+    "source_authority": "adapter_normalized_manifest",
+    "target_authority": "scopecat_parameter_state_after_review",
+    "lineage_hint": {
+      "lineage_label": "qA default bias imported seed",
+      "lineage_purpose": "working_point",
+      "target_scope": [
+        "sample-alpha",
+        "qA",
+        "default_bias"
+      ]
+    },
+    "readiness_hint": "seeded_incomplete",
+    "trust_hint": "review_required"
+  },
+  "candidate_entries": [
+    {
+      "path": "qubits.qA.drive_frequency_hz",
+      "label": "qA drive frequency",
+      "entry_state": "candidate_entry",
+      "value": 5012500000,
+      "unit": "Hz",
+      "trust": "adapter_declared_trusted",
+      "value_shape": "scalar",
+      "source_ids": [
+        "legacy-json-parameters-001"
+      ]
+    },
+    {
+      "path": "qubits.qA.pi_amp",
+      "label": "qA pi pulse amplitude",
+      "entry_state": "candidate_entry",
+      "value": 0.42,
+      "unit": "arb",
+      "trust": "adapter_declared_trusted",
+      "value_shape": "scalar",
+      "source_ids": [
+        "legacy-xlsx-parameter-table-001"
+      ]
+    },
+    {
+      "path": "readout.qA.frequency_hz",
+      "label": "qA readout frequency",
+      "entry_state": "skipped_untrusted",
+      "value": 7100000000,
+      "unit": "Hz",
+      "trust": "adapter_declared_untrusted",
+      "value_shape": "scalar",
+      "source_ids": [
+        "legacy-json-parameters-001"
+      ],
+      "reason": "Adapter found the value in a copied legacy file but could not confirm it was calibrated for this sample context."
+    },
+    {
+      "path": "readout.qA.calibration_table",
+      "label": "qA readout calibration table",
+      "entry_state": "skipped_schema_limited",
+      "value": [
+        {
+          "state": "ground",
+          "center_i": -0.12,
+          "center_q": 0.04
+        },
+        {
+          "state": "excited",
+          "center_i": 0.19,
+          "center_q": -0.03
+        }
+      ],
+      "unit": "arb",
+      "trust": "schema_limited",
+      "value_shape": "table",
+      "source_ids": [
+        "legacy-xlsx-parameter-table-001"
+      ],
+      "reason": "Adapter preserved the table-shaped value as schema-limited; this preview slice does not migrate table shapes."
+    }
+  ],
+  "adapter_findings": [
+    {
+      "code": "legacy_parameter_formats_not_supported_by_core",
+      "severity": "info",
+      "message": "Legacy JSON and XLSX parsing was performed by the adapter, not Scopecat core.",
+      "does_not_claim": "core_parameter_json_or_xlsx_reader_available"
+    },
+    {
+      "code": "candidate_requires_human_review",
+      "severity": "review",
+      "message": "Adapter-normalized entries are previewed before any Scopecat-managed parameter state is created.",
+      "does_not_claim": "parameter_state_committed"
+    }
+  ]
+}
