@@ -187,6 +187,13 @@ payloads, controlling runners, writing storage, writing parameters, accepting
 legacy import, binding to one legacy reference scheme, or defining a final
 workflow schema.
 
+Adjacent locator review result:
+[`legacy-locator-sufficiency-review-validation-result.md`](../slices/measurement-records/legacy-locator-sufficiency-review-validation-result.md)
+validates review-only classification of those declared legacy locators as
+human-navigation hints, without backend lookup, path parsing, file observation,
+legacy import acceptance, storage mutation, reference repair, or a final
+locator schema.
+
 First post-run review result:
 [`post-run-review-bundle-validation-result.md`](../slices/measurement-context/post-run-review-bundle-validation-result.md)
 validates a local post-run review composition over completed measurement
