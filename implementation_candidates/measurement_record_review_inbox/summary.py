@@ -11,6 +11,7 @@ import copy
 from typing import Any
 
 from implementation_candidates.contract_primitives import (
+    relative_path_parts,
     validate_non_negative_integer,
     validate_public_identifier,
     validate_relative_path,
@@ -27,6 +28,47 @@ _EXPECTED_POLICY = {
     "gui_state_persistence": "not_performed",
     "public_export": "not_performed",
 }
+_EXPECTED_OPERATOR_REVIEW_POLICY = {
+    "catalog_authority": "record_local_projected_read_models",
+    "running_inspection_authority": "caller_declared_running_inspection_requests",
+    "selected_record_authority": "catalog_entry_or_running_inspection_summary",
+    "storage_mutation": "not_performed",
+    "record_discovery": "catalog_records_dir_only",
+    "update_receipt_discovery": "not_performed",
+    "read_model_refresh": "not_performed",
+    "manifest_replacement": "not_performed",
+    "gui_state": "not_persisted",
+}
+_EXPECTED_OPERATOR_REVIEW_DOES_NOT_CLAIM = [
+    "canonical_storage_authority",
+    "record_repair",
+    "read_model_refresh",
+    "update_receipt_discovery",
+    "primary_data_revalidation_beyond_child_operations",
+    "lifecycle_finalization",
+    "manifest_replacement",
+    "storage_mutation",
+    "gui_review_state",
+    "public_export_schema",
+]
+_EXPECTED_RECEIPT_SUMMARY_POLICY = {
+    "input_authority": "saved_operator_review_receipt",
+    "record_mutation": "not_performed",
+    "continuation_authority": "not_granted",
+    "gui_state": "not_persisted",
+    "redaction_boundary": "local_workspace_only",
+}
+_RECEIPT_SUMMARY_SCHEMA = "scopecat.measurement_record_operator_review_receipt_summary.v0"
+_REVIEW_NEXT_ACTIONS = {
+    "no_measurement_records_visible",
+    "open_record_summary",
+    "ready_for_later_finalization_decision",
+    "review_measurement_record_operator_findings",
+    "review_selected_record_summary",
+    "select_record_for_review",
+    "select_visible_record_or_update_declared_inputs",
+}
+_FINDING_VISIBILITY = {"visible", "not_visible"}
 
 
 def build_measurement_record_review_inbox_summary(source: dict[str, Any]) -> dict[str, Any]:
@@ -35,7 +77,7 @@ def build_measurement_record_review_inbox_summary(source: dict[str, Any]) -> dic
     _validate_source(source)
     workspace = source["workspace"]
     fresh_review = _fresh_review_from_source(source)
-    saved_summaries = source["saved_receipt_summaries"]
+    saved_summaries = _saved_summaries_from_source(source)
     known_record_ids = _known_record_ids(fresh_review)
 
     ready = [
@@ -152,7 +194,7 @@ def _validate_source(source: dict[str, Any]) -> None:
     _validate_policy(source)
     _validate_workspace(source["workspace"])
     fresh = _fresh_review_from_source(source)
-    saved = source["saved_receipt_summaries"]
+    saved = _saved_summaries_from_source(source)
     if not isinstance(saved, list):
         raise ValueError("saved_receipt_summaries must be a list")
     _validate_fresh_review(fresh)
@@ -171,10 +213,56 @@ def _fresh_review_from_source(source: dict[str, Any]) -> dict[str, Any]:
     return source["fresh_operator_review"]
 
 
+def _saved_summaries_from_source(source: dict[str, Any]) -> list[dict[str, Any]]:
+    items = source["saved_receipt_summaries"]
+    if not isinstance(items, list):
+        raise ValueError("saved_receipt_summaries must be a list")
+    return [_saved_summary_from_source(item) for item in items]
+
+
+def _saved_summary_from_source(item: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(item, dict):
+        raise ValueError("saved receipt summary must be an object")
+    if item.get("summary_schema") == _RECEIPT_SUMMARY_SCHEMA:
+        _validate_receipt_summary(item)
+        receipt = _require_dict(item, "receipt")
+        return {
+            "receipt_id": receipt["request_id"],
+            "review_receipt_path": receipt["review_receipt_path"],
+            "operator_disposition": receipt["operator_disposition"],
+            "operator_reason": receipt.get("operator_reason"),
+            "operator_review": copy.deepcopy(item["operator_review"]),
+        }
+    return item
+
+
+def _validate_receipt_summary(item: dict[str, Any]) -> None:
+    if item["artifact_posture"] != "local_measurement_record_operator_review_receipt_summary":
+        raise ValueError("receipt summary artifact_posture is unsupported")
+    if item["summary_policy"] != _EXPECTED_RECEIPT_SUMMARY_POLICY:
+        raise ValueError("receipt summary policy is unsupported")
+    receipt = _require_dict(item, "receipt")
+    validate_public_identifier(receipt["request_id"], "receipt summary request_id")
+    validate_relative_path(receipt["review_receipt_path"], "receipt summary path")
+    if receipt["operator_disposition"] not in {
+        "recorded_for_continuation",
+        "recorded_as_reviewed",
+    }:
+        raise ValueError("receipt summary operator_disposition is unsupported")
+    reason = receipt.get("operator_reason")
+    if reason is not None:
+        validate_text(reason, "receipt summary operator_reason")
+    _require_dict(item, "operator_review")
+
+
 def _validate_operator_review_run(operator_review: dict[str, Any]) -> None:
     if operator_review["artifact_posture"] != "local_measurement_record_operator_review":
         raise ValueError("operator_review artifact_posture is unsupported")
+    if operator_review["operator_review_policy"] != _EXPECTED_OPERATOR_REVIEW_POLICY:
+        raise ValueError("operator_review policy is unsupported")
     workflow = _require_dict(operator_review, "workflow")
+    if workflow.get("does_not_claim") != _EXPECTED_OPERATOR_REVIEW_DOES_NOT_CLAIM:
+        raise ValueError("operator_review does_not_claim is unsupported")
     if workflow["classification"] not in {
         "measurement_record_operator_review_ready",
         "measurement_record_operator_review_needed",
@@ -224,25 +312,36 @@ def _project_review_finding(
     record_ids_by_dir: dict[str, str],
 ) -> dict[str, Any]:
     target = validate_text(finding["target"], "operator review finding target")
-    record_id = _record_id_for_target(target, record_ids_by_dir)
+    record_id, visibility = _record_id_for_target(target, record_ids_by_dir)
+    source = validate_text(
+        finding.get("source", "workflow"),
+        "operator review finding source",
+    )
     return {
         "record_id": record_id,
         "label": record_id,
+        "record_visibility": visibility,
         "code": validate_public_identifier(finding["code"], "operator review finding code"),
         "message": validate_text(finding["message"], "operator review finding message"),
-        "source": f"operator_review.{validate_text(finding['source'], 'operator review finding source')}",
+        "source": f"operator_review.{source}",
         "next_action": "review_measurement_record_operator_findings",
     }
 
 
-def _record_id_for_target(target: str, record_ids_by_dir: dict[str, str]) -> str:
+def _record_id_for_target(target: str, record_ids_by_dir: dict[str, str]) -> tuple[str, str]:
+    if "/" not in target:
+        record_id = validate_public_identifier(target, "operator review finding target")
+        visibility = "visible" if record_id in set(record_ids_by_dir.values()) else "not_visible"
+        return record_id, visibility
+    target_parts = relative_path_parts(target, "operator review finding target")
     for record_dir, record_id in sorted(
         record_ids_by_dir.items(),
         key=lambda item: len(item[0]),
         reverse=True,
     ):
-        if target == record_dir or target.startswith(f"{record_dir}/"):
-            return record_id
+        record_parts = relative_path_parts(record_dir, "operator review record_dir")
+        if target_parts[: len(record_parts)] == record_parts:
+            return record_id, "visible"
     raise ValueError("operator review finding target must reference a visible record")
 
 
@@ -300,19 +399,23 @@ def _validate_fresh_review(review: dict[str, Any]) -> None:
         if item["lifecycle_state"] != "in_progress":
             raise ValueError("running inspection lifecycle_state must be in_progress")
         validate_non_negative_integer(item["visible_rows_recorded"], "visible_rows_recorded")
-        validate_text(item["next_action"], "running inspection next_action")
+        _validate_next_action(item["next_action"], "running inspection next_action")
         _validate_code_list(item["review_finding_codes"], "running inspection finding code")
 
     known = _known_record_ids(review)
     for finding in review["review_findings"]:
         record_id = validate_public_identifier(finding["record_id"], "finding record_id")
         if record_id not in known:
-            raise ValueError("review finding must reference a visible record")
+            if finding.get("record_visibility") != "not_visible":
+                raise ValueError("review finding must reference a visible record")
+        visibility = finding.get("record_visibility", "visible")
+        if visibility not in _FINDING_VISIBILITY:
+            raise ValueError("review finding record_visibility is unsupported")
         validate_public_identifier(finding["code"], "finding code")
         validate_text(finding["label"], "finding label")
         validate_text(finding["message"], "finding message")
         validate_text(finding["source"], "finding source")
-        validate_text(finding["next_action"], "finding next_action")
+        _validate_next_action(finding["next_action"], "finding next_action")
 
 
 def _validate_saved_summary(item: dict[str, Any]) -> None:
@@ -328,7 +431,7 @@ def _validate_saved_summary(item: dict[str, Any]) -> None:
     validate_public_identifier(review["selected_record_id"], "selected_record_id")
     validate_text(review["selected_record_source"], "selected_record_source")
     validate_text(review["classification"], "receipt review classification")
-    validate_text(review["next_action"], "receipt review next_action")
+    _validate_next_action(review["next_action"], "receipt review next_action")
     _validate_code_list(review["review_finding_codes"], "receipt finding code")
 
 
@@ -356,6 +459,13 @@ def _validate_code_list(value: Any, owner: str) -> None:
         raise ValueError(f"{owner} list must be a list")
     for item in value:
         validate_public_identifier(item, owner)
+
+
+def _validate_next_action(value: Any, owner: str) -> str:
+    next_action = validate_text(value, owner)
+    if next_action not in _REVIEW_NEXT_ACTIONS:
+        raise ValueError(f"{owner} is not a review-only action")
+    return next_action
 
 
 def _ready_item(entry: dict[str, Any]) -> dict[str, Any]:
@@ -388,6 +498,7 @@ def _needs_review_item(item: dict[str, Any]) -> dict[str, Any]:
         "record_id": item["record_id"],
         "label": item["label"],
         "state": "needs_review",
+        "record_visibility": item.get("record_visibility", "visible"),
         "source": item["source"],
         "finding_code": item["code"],
         "message": item["message"],

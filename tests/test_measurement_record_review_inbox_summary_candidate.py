@@ -12,10 +12,90 @@ from implementation_candidates.measurement_record_review_inbox import (
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests" / "fixtures" / "measurement_record_review_inbox" / "basic_workspace"
+OPERATOR_REVIEW_POLICY = {
+    "catalog_authority": "record_local_projected_read_models",
+    "running_inspection_authority": "caller_declared_running_inspection_requests",
+    "selected_record_authority": "catalog_entry_or_running_inspection_summary",
+    "storage_mutation": "not_performed",
+    "record_discovery": "catalog_records_dir_only",
+    "update_receipt_discovery": "not_performed",
+    "read_model_refresh": "not_performed",
+    "manifest_replacement": "not_performed",
+    "gui_state": "not_persisted",
+}
+OPERATOR_REVIEW_DOES_NOT_CLAIM = [
+    "canonical_storage_authority",
+    "record_repair",
+    "read_model_refresh",
+    "update_receipt_discovery",
+    "primary_data_revalidation_beyond_child_operations",
+    "lifecycle_finalization",
+    "manifest_replacement",
+    "storage_mutation",
+    "gui_review_state",
+    "public_export_schema",
+]
 
 
 def _load_input() -> dict:
     return json.loads((FIXTURE / "review-inbox-input.json").read_text(encoding="utf-8"))
+
+
+def _operator_review_payload(**overrides: object) -> dict:
+    payload = {
+        "artifact_posture": "local_measurement_record_operator_review",
+        "operator_review_policy": copy.deepcopy(OPERATOR_REVIEW_POLICY),
+        "workflow": {
+            "classification": "measurement_record_operator_review_needed",
+            "does_not_claim": list(OPERATOR_REVIEW_DOES_NOT_CLAIM),
+        },
+        "request": {
+            "request_id": "operator-review-records",
+            "selected_record_id": "run-4101-t1",
+        },
+        "catalog": {
+            "entries": [
+                {
+                    "record_id": "run-3101-rabi",
+                    "record_dir": "records/run-3101-rabi",
+                    "lifecycle_state": "complete",
+                    "primary_data": {"observed_row_count": 5},
+                    "review_finding_count": 0,
+                },
+                {
+                    "record_id": "run-9999-needs-review",
+                    "record_dir": "records/run-9999-needs-review",
+                    "lifecycle_state": "complete",
+                    "primary_data": {"observed_row_count": 3},
+                    "review_finding_count": 1,
+                },
+            ],
+            "review_findings": [],
+        },
+        "running_inspections": [
+            {
+                "record": {
+                    "record_id": "run-4101-t1",
+                    "record_dir": "records/run-4101-t1",
+                },
+                "inspection": {
+                    "visible_rows_recorded": 5,
+                    "review_finding_codes": [],
+                    "next_action": "ready_for_later_finalization_decision",
+                },
+            }
+        ],
+        "review_findings": [
+            {
+                "code": "read_model_missing",
+                "source": "catalog",
+                "target": "records/run-9999-needs-review/record-read-model.json",
+                "message": "Record directory has no projected read model.",
+            }
+        ],
+    }
+    payload.update(overrides)
+    return payload
 
 
 class MeasurementRecordReviewInboxSummaryCandidateTest(unittest.TestCase):
@@ -146,57 +226,15 @@ class MeasurementRecordReviewInboxSummaryCandidateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "visible record"):
             build_measurement_record_review_inbox_summary(source)
 
+    def test_authority_looking_next_actions_are_rejected(self) -> None:
+        source = _load_input()
+        source["fresh_operator_review"]["review_findings"][0]["next_action"] = "approve_import"
+
+        with self.assertRaisesRegex(ValueError, "review-only action"):
+            build_measurement_record_review_inbox_summary(source)
+
     def test_projects_real_operator_review_shape_for_inbox(self) -> None:
-        operator_review = {
-            "artifact_posture": "local_measurement_record_operator_review",
-            "workflow": {
-                "classification": "measurement_record_operator_review_needed",
-            },
-            "request": {
-                "request_id": "operator-review-records",
-                "selected_record_id": "run-4101-t1",
-            },
-            "catalog": {
-                "entries": [
-                    {
-                        "record_id": "run-3101-rabi",
-                        "record_dir": "records/run-3101-rabi",
-                        "lifecycle_state": "complete",
-                        "primary_data": {"observed_row_count": 5},
-                        "review_finding_count": 0,
-                    },
-                    {
-                        "record_id": "run-9999-needs-review",
-                        "record_dir": "records/run-9999-needs-review",
-                        "lifecycle_state": "complete",
-                        "primary_data": {"observed_row_count": 3},
-                        "review_finding_count": 1,
-                    },
-                ],
-                "review_findings": [],
-            },
-            "running_inspections": [
-                {
-                    "record": {
-                        "record_id": "run-4101-t1",
-                        "record_dir": "records/run-4101-t1",
-                    },
-                    "inspection": {
-                        "visible_rows_recorded": 5,
-                        "review_finding_codes": [],
-                        "next_action": "ready_for_later_finalization_decision",
-                    },
-                }
-            ],
-            "review_findings": [
-                {
-                    "code": "read_model_missing",
-                    "source": "catalog",
-                    "target": "records/run-9999-needs-review/record-read-model.json",
-                    "message": "Record directory has no projected read model.",
-                }
-            ],
-        }
+        operator_review = _operator_review_payload()
 
         projected = project_operator_review_run_for_review_inbox(operator_review)
 
@@ -205,6 +243,90 @@ class MeasurementRecordReviewInboxSummaryCandidateTest(unittest.TestCase):
         self.assertEqual(
             projected["review_findings"][0]["next_action"],
             "review_measurement_record_operator_findings",
+        )
+
+    def test_real_operator_review_overclaiming_policy_is_rejected(self) -> None:
+        operator_review = _operator_review_payload()
+        operator_review["operator_review_policy"]["storage_mutation"] = "performed"
+
+        with self.assertRaisesRegex(ValueError, "policy"):
+            project_operator_review_run_for_review_inbox(operator_review)
+
+    def test_real_operator_review_target_paths_are_validated(self) -> None:
+        operator_review = _operator_review_payload()
+        operator_review["review_findings"][0]["target"] = "records/run-9999-needs-review/../other"
+
+        with self.assertRaisesRegex(ValueError, "relative"):
+            project_operator_review_run_for_review_inbox(operator_review)
+
+    def test_real_operator_review_non_visible_finding_projects_review_attention(
+        self,
+    ) -> None:
+        operator_review = _operator_review_payload(
+            request={
+                "request_id": "operator-review-records",
+                "selected_record_id": "missing-record",
+            },
+            catalog={"entries": [], "review_findings": []},
+            running_inspections=[],
+            review_findings=[
+                {
+                    "code": "selected_record_not_visible",
+                    "target": "missing-record",
+                    "message": "Selected record was not found.",
+                }
+            ],
+        )
+        source = _load_input()
+        source.pop("fresh_operator_review")
+        source["operator_review"] = operator_review
+
+        summary = build_measurement_record_review_inbox_summary(source)
+
+        self.assertEqual(
+            summary["inbox"]["lanes"]["needs_review"][0]["record_id"], "missing-record"
+        )
+        self.assertEqual(
+            summary["inbox"]["lanes"]["needs_review"][0]["record_visibility"],
+            "not_visible",
+        )
+
+    def test_accepts_real_receipt_summary_shape_for_saved_receipts(self) -> None:
+        source = _load_input()
+        source["saved_receipt_summaries"] = [
+            {
+                "summary_schema": "scopecat.measurement_record_operator_review_receipt_summary.v0",
+                "artifact_posture": "local_measurement_record_operator_review_receipt_summary",
+                "summary_policy": {
+                    "input_authority": "saved_operator_review_receipt",
+                    "record_mutation": "not_performed",
+                    "continuation_authority": "not_granted",
+                    "gui_state": "not_persisted",
+                    "redaction_boundary": "local_workspace_only",
+                },
+                "receipt": {
+                    "request_id": "save-operator-review-records",
+                    "review_receipt_path": "operator-reviews/review-001.json",
+                    "operator_disposition": "recorded_for_continuation",
+                    "operator_reason": "Continue later.",
+                },
+                "operator_review": {
+                    "request_id": "operator-review-records",
+                    "classification": "measurement_record_operator_review_needed",
+                    "selected_record_id": "run-9999-needs-review",
+                    "selected_record_source": "catalog",
+                    "review_finding_codes": ["read_model_missing"],
+                    "next_action": "review_measurement_record_operator_findings",
+                },
+                "does_not_claim": ["record_mutation"],
+            }
+        ]
+
+        summary = build_measurement_record_review_inbox_summary(source)
+
+        self.assertEqual(
+            summary["inbox"]["lanes"]["continue_later"][0]["receipt_id"],
+            "save-operator-review-records",
         )
 
 

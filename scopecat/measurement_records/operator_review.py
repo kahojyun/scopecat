@@ -535,7 +535,13 @@ def _parse_operator_review_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("receipt summary request_id must match operator review")
     if summary.get("operator_review_classification") != operator_review_classification:
         raise ValueError("receipt summary classification must match operator review")
-    selected_record_id = _selected_record_id_from_saved_summary(selected_record)
+    selected_record_id = _optional_identifier(review_request, "selected_record_id")
+    selected_record_projected_id = _selected_record_id_from_saved_summary(selected_record)
+    if (
+        selected_record_projected_id is not None
+        and selected_record_projected_id != selected_record_id
+    ):
+        raise ValueError("selected_record must match operator review request")
     if summary.get("selected_record_id") != selected_record_id:
         raise ValueError("receipt summary selected_record_id must match operator review")
     if summary.get("review_finding_codes") != finding_codes:
@@ -551,7 +557,10 @@ def _parse_operator_review_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
         "operator_review_request_id": operator_review_request_id,
         "operator_review_classification": operator_review_classification,
         "selected_record_id": selected_record_id,
-        "selected_record_source": _selected_record_source_from_saved_summary(selected_record),
+        "selected_record_source": _selected_record_source_for_summary(
+            selected_record,
+            selected_record_id,
+        ),
         "review_finding_codes": finding_codes,
         "next_action": next_action,
     }
@@ -692,6 +701,8 @@ def _write_receipt(
         raise _ReceiptWriteFailure("operator review receipt target already exists")
     try:
         receipt_writer(target, content)
+    except FileExistsError as exc:
+        raise _ReceiptWriteFailure("operator review receipt target already exists") from exc
     except Exception as exc:
         try:
             target.unlink()
@@ -866,3 +877,14 @@ def _selected_record_source_from_saved_summary(
     if selected_record is None:
         return None
     return validate_text(selected_record.get("source"), "selected record source")
+
+
+def _selected_record_source_for_summary(
+    selected_record: dict[str, Any] | None,
+    selected_record_id: str | None,
+) -> str | None:
+    if selected_record is not None:
+        return _selected_record_source_from_saved_summary(selected_record)
+    if selected_record_id is not None:
+        return "not_visible"
+    return None

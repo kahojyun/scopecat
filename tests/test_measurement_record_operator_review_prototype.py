@@ -614,6 +614,35 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
             receipt_digest,
         )
 
+    def test_operator_review_receipt_summary_preserves_missing_selection(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            storage_root.mkdir()
+            review_run = review_measurement_records_from_request(
+                _operator_request(selected_record_id="missing-record"),
+                storage_root=storage_root,
+            )
+
+            save_run = save_measurement_record_operator_review_receipt(
+                _receipt_request(),
+                operator_review=review_run,
+                storage_root=storage_root,
+            )
+            receipt = json.loads(
+                (storage_root / "operator-reviews" / "review-001.json").read_text(encoding="utf-8")
+            )
+            summary = summarize_measurement_record_operator_review_receipt(receipt)
+
+        self.assertTrue(save_run.saved)
+        self.assertEqual(summary["operator_review"]["selected_record_id"], "missing-record")
+        self.assertEqual(summary["operator_review"]["selected_record_source"], "not_visible")
+        self.assertEqual(
+            summary["operator_review"]["review_finding_codes"],
+            ["selected_record_not_visible"],
+        )
+
     def test_operator_review_receipt_path_must_use_receipt_namespace(self) -> None:
         with self.assertRaisesRegex(ValueError, "operator-reviews"):
             _receipt_request(review_receipt_path="records/run-3101-rabi/operator-review.json")
@@ -667,6 +696,38 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
         self.assertEqual(save_run.classification, "blocked_before_operator_review_receipt")
         self.assertIn("already exists", save_run.save_error or "")
         self.assertNotIn("write_operator_review_receipt", save_run.to_dict()["workflow"]["steps"])
+
+    def test_operator_review_receipt_file_exists_race_does_not_delete_target(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            _populate_projected_record(storage_root, content_root)
+            review_run = review_measurement_records_from_request(
+                _operator_request(),
+                storage_root=storage_root,
+            )
+
+            def racing_writer(path: Path, content: bytes) -> None:
+                del content
+                path.parent.mkdir()
+                path.write_text("concurrent receipt", encoding="utf-8")
+                raise FileExistsError(path)
+
+            save_run = save_measurement_record_operator_review_receipt(
+                _receipt_request(),
+                operator_review=review_run,
+                storage_root=storage_root,
+                receipt_writer=racing_writer,
+            )
+            receipt_path = storage_root / "operator-reviews" / "review-001.json"
+            receipt_text = receipt_path.read_text(encoding="utf-8")
+
+        self.assertEqual(save_run.classification, "blocked_before_operator_review_receipt")
+        self.assertEqual(receipt_text, "concurrent receipt")
 
     def test_operator_review_receipt_summary_rejects_unsupported_disposition(
         self,

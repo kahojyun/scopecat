@@ -30,7 +30,8 @@ The input combines:
 - one fresh operator-review summary with projected-record catalog facts,
   running-inspection facts, and review findings, produced directly or through
   the explicit operator-review-run adapter;
-- one saved operator-review receipt summary for continuation;
+- one saved operator-review receipt summary for continuation, accepted in the
+  real receipt-summary output shape or the candidate-local normalized shape;
 - explicit policy fields that keep storage scanning, record opening, record
   mutation, read-model refresh, action approval, GUI persistence, and public
   export out of scope.
@@ -41,7 +42,7 @@ The expected summary groups explicit review facts into five lanes:
   prompts;
 - `needs_review` for current review findings;
 - `running` for declared running-inspection summaries;
-- `ready` for current catalog entries.
+- `ready` for current catalog entries;
 - `reviewed` for saved receipt summaries already marked reviewed, without
   creating attention prompts.
 
@@ -70,12 +71,18 @@ fixture input only. It validates:
 
 - exact policy posture;
 - real operator-review output projection into the compact inbox input shape;
+- exact operator-review policy/non-claim posture before projecting real review
+  output;
+- real saved-receipt summary normalization into the compact inbox input shape;
 - public-safe workspace, record, receipt, and finding identifiers;
 - relative record and receipt paths;
 - unique visible record ids and receipt ids;
 - saved receipt selected-record visibility, including stale continuation prompts
   whose selected record is not currently visible;
-- review findings referencing visible records;
+- review findings referencing visible records or explicitly marked not-visible
+  selected-record findings;
+- review/navigation-only `next_action` values, without refresh/import/repair
+  authority;
 - non-negative row/count facts.
 
 It remains side-effect free. It does not scan storage, open receipts, open

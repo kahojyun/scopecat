@@ -64,7 +64,8 @@
             "finding_code": "read_model_missing",
             "label": "T1 created shell missing projection",
             "message": "Record directory has no projected read model.",
-            "next_action": "refresh_read_model_after_review",
+            "next_action": "review_measurement_record_operator_findings",
+            "record_visibility": "visible",
             "record_id": "run-9999-needs-review",
             "source": "fresh_operator_review.catalog",
             "state": "needs_review"
