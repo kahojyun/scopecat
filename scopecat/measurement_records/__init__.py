@@ -26,6 +26,12 @@ from scopecat.measurement_records.in_progress_update import (
     append_in_progress_measurement_record,
     append_in_progress_measurement_record_from_request,
 )
+from scopecat.measurement_records.operator_review import (
+    MeasurementRecordOperatorReviewRequest,
+    MeasurementRecordOperatorReviewRun,
+    review_measurement_records,
+    review_measurement_records_from_request,
+)
 from scopecat.measurement_records.read_model_catalog import (
     MeasurementRecordCatalogRequest,
     MeasurementRecordCatalogRun,
@@ -78,6 +84,8 @@ __all__ = [
     "MeasurementRecordImportSource",
     "MeasurementRecordInProgressUpdateRequest",
     "MeasurementRecordInProgressUpdateRun",
+    "MeasurementRecordOperatorReviewRequest",
+    "MeasurementRecordOperatorReviewRun",
     "MeasurementRecordReadModelProjectionRequest",
     "MeasurementRecordReadModelProjectionRun",
     "MeasurementRecordReadModelRefreshRequest",
@@ -107,6 +115,8 @@ __all__ = [
     "read_created_record_primary_table_from_request",
     "refresh_measurement_record_read_model",
     "refresh_measurement_record_read_model_from_read_view",
+    "review_measurement_records",
+    "review_measurement_records_from_request",
     "summarize_running_measurement_inspection",
     "write_created_record_primary_data",
     "write_created_record_primary_data_from_request",

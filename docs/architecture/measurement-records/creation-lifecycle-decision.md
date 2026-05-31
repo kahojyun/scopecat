@@ -640,3 +640,37 @@ This keeps running inspection focused on readable progress and review findings.
 It does not accept automatic retune, scan-plan adjustment, parameter write-back,
 saved GUI state, or scientific fit validity as part of the current
 Measurement Records storage boundary.
+
+## Operator Review Composition Checkpoint
+
+The first read-only operator-review composition slice is implemented in
+[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+It exposes raw-dictionary and typed entrypoints:
+`review_measurement_records(...)` and
+`review_measurement_records_from_request(...)`.
+
+This slice composes the existing read-model catalog with optional
+caller-declared running inspections:
+
+```text
+records directory
+  -> catalog projected read models
+  -> optional caller-declared running inspection requests
+  -> selected local record summary
+  -> aggregated operator-review findings
+```
+
+It deliberately remains read-only. It does not refresh read models, discover
+update receipts, replace manifests, finalize lifecycle state, repair storage,
+mutate records, define canonical storage authority, or persist GUI review
+state. Missing projected read models still surface through the catalog, but an
+in-progress record that is explicitly supplied through a running inspection is
+not treated as a top-level operator-review problem merely because it lacks a
+derived read model.
+
+The module also exposes
+`python -m scopecat.measurement_records operator-review` as a narrow local CLI
+smoke surface for printing the composed review JSON from a caller-declared
+storage root and optional running-inspection paths. The CLI does not discover
+records beyond the catalog directory, scan update directories, mutate storage,
+or perform refresh, import, finalization, repair, or GUI-state persistence.

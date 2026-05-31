@@ -158,3 +158,30 @@ python -m scopecat.measurement_records running-inspection-summary \
 
 It prints the compact running-inspection JSON summary. It does not discover
 records, scan update directories, mutate storage, or persist monitor state.
+
+The first operator-review composition is implemented through
+`review_measurement_records(...)` and
+`review_measurement_records_from_request(...)`. It catalogs projected read
+models, optionally runs caller-declared running inspections, and projects a
+selected local record summary for operator review. It is read-only: it does
+not refresh read models, discover update receipts, replace manifests, finalize
+lifecycle state, mutate storage, or persist GUI review state. When a declared
+running inspection intentionally surfaces an in-progress record, the
+composition does not treat that same record's missing projected read model as
+a top-level operator-review finding.
+
+The CLI also exposes:
+
+```sh
+python -m scopecat.measurement_records operator-review \
+  --storage-root ./storage \
+  --request-id operator-review-001 \
+  --selected-record-id run-001
+```
+
+Optional `--running-record-id`, `--running-record-dir`,
+`--running-writer-receipt-path`, and repeated
+`--running-update-receipt-path` arguments add one caller-declared running
+inspection to the local review. The CLI remains a smoke surface; it does not
+scan for update receipts or run import, refresh, finalization, repair, or GUI
+state persistence.
