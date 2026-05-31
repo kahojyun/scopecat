@@ -194,6 +194,14 @@ human-navigation hints, without backend lookup, path parsing, file observation,
 legacy import acceptance, storage mutation, reference repair, or a final
 locator schema.
 
+Adjacent sidecar post-run review result:
+[`legacy-sidecar-post-run-review-validation-result.md`](../slices/measurement-records/legacy-sidecar-post-run-review-validation-result.md)
+validates a local post-run projection over prior legacy sidecar and locator
+review summaries, carrying lifecycle, locator, primary-data, and supporting
+evidence sections without fresh observation, legacy import acceptance, storage
+mutation, record write, reference repair, parameter write-back, measurement
+validity decisions, or GUI behavior.
+
 First post-run review result:
 [`post-run-review-bundle-validation-result.md`](../slices/measurement-context/post-run-review-bundle-validation-result.md)
 validates a local post-run review composition over completed measurement
