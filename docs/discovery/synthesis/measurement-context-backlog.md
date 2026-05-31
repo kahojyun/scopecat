@@ -106,6 +106,13 @@ roles, include state, and missing or unavailable context findings.
 Boundary: no recursive relation traversal, automatic inclusion of adjacent
 records, shared relation graph, restore, execution, or cause attribution.
 
+First intent-resolution result:
+[`measurement-intent-resolution-validation-result.md`](../slices/measurement-context/measurement-intent-resolution-validation-result.md)
+validates the subcase where a prospective measurement intent carries moving
+context selectors, run-start resolution freezes those selectors to concrete
+context records, and the measurement record keeps only the resolved optional
+context links.
+
 ### 3. Named Run-Start Input Set
 
 Validation question: can Scopecat assemble selected context records as named
