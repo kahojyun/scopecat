@@ -1,0 +1,114 @@
+{
+  "candidate_summary": {
+    "alignment_policy": {
+      "alignment_authority": "declared_prepared_run_scope_review",
+      "automatic_run_start": "not_performed",
+      "catalog_discovery": "not_performed",
+      "code_import_execution": "not_performed",
+      "environment_sync": "not_performed",
+      "fresh_storage_read": "not_performed",
+      "gui_workflow": "not_defined",
+      "hardware_control": "not_performed",
+      "measurement_intent_source": "prepared_run_manual_target",
+      "parameter_context_source": "prepared_run_parameter_state_consumption_summary",
+      "parameter_write_back": "not_performed",
+      "readiness_claim": "scope_review_facts_only",
+      "setup_binding_source": "declared_setup_binding_summary",
+      "setup_mutation": "not_performed",
+      "shared_scope_schema": "not_defined"
+    },
+    "alignment_request": {
+      "alignment_id": "prepared-run-scope-alignment-0001",
+      "expected_sample_id": "sample-alpha",
+      "measurement_id": "measurement-05001",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+      "setup_binding_id": "setup-binding-0002",
+      "station_registry_id": "station-registry-mmcs2-redacted"
+    },
+    "attention": [
+      {
+        "basis": "Alignment compares declared context summaries without owning their payload schemas.",
+        "code": "scope_alignment_review_only",
+        "does_not_claim": "shared_parameter_setup_measurement_schema",
+        "severity": "info"
+      },
+      {
+        "basis": "Setup-binding alignment does not inspect or configure hardware.",
+        "code": "hardware_control_not_performed",
+        "does_not_claim": "current_instrument_state",
+        "severity": "review"
+      },
+      {
+        "basis": "Alignment does not apply, repair, or invalidate parameter values.",
+        "code": "parameter_write_back_not_performed",
+        "does_not_claim": "parameter_application_or_invalidation",
+        "severity": "review"
+      },
+      {
+        "basis": "Alignment findings are review facts, not execution permission.",
+        "code": "run_start_not_performed",
+        "does_not_claim": "run_can_start",
+        "severity": "review"
+      }
+    ],
+    "classification": "scope_alignment_needs_review",
+    "review_findings": [
+      {
+        "basis": {
+          "covered_targets": [
+            "qA"
+          ],
+          "missing_targets": [
+            "cAB"
+          ]
+        },
+        "code": "parameter_lineage_partial_target_coverage",
+        "does_not_claim": "automatic_parameter_invalidation_or_run_blocking",
+        "severity": "review"
+      }
+    ],
+    "scope_summary": {
+      "bound_logical_entities": [
+        "cAB",
+        "qA",
+        "qA_ro"
+      ],
+      "logical_binding_count": 4,
+      "measurement_id": "measurement-05001",
+      "measurement_logical_targets": [
+        "qA",
+        "cAB"
+      ],
+      "parameter_lineage_target_scope": [
+        "sample-alpha",
+        "qA",
+        "default_bias"
+      ],
+      "parameter_state_id": "param-state-imported-0001",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+      "setup_binding_id": "setup-binding-0002",
+      "setup_sample": {
+        "cooldown_id": "cooldown-2026-05",
+        "sample_id": "sample-alpha"
+      }
+    }
+  },
+  "decisions_not_earned": [
+    "shared parameter/setup/measurement schema",
+    "automatic parameter invalidation",
+    "automatic run blocking",
+    "parameter write-back",
+    "hardware control or current instrument state",
+    "fresh storage read",
+    "catalog or index discovery",
+    "setup mutation",
+    "code import or execution",
+    "GUI behavior"
+  ],
+  "fixture_id": "prepared-run-scope-alignment-basic",
+  "reference_semantics": {
+    "candidate": "prepared_run_scope_alignment",
+    "contract_guard": "review projection over parameter lineage target scope, prepared-run measurement intent, and setup-binding summary; not parameter write-back, hardware control, run start, fresh storage read, catalog discovery, setup mutation, execution, GUI, or shared scope schema"
+  },
+  "summary_policy": "internal_validation_summary"
+}

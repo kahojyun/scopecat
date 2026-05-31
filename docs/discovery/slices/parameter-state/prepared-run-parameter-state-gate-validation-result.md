@@ -54,8 +54,9 @@ The candidate summary can answer:
   environment, setup-binding, and measurement-intent review states?
 - Should a later GUI surface let users acknowledge `needs_parameter_review`
   findings without claiming automatic run safety?
-- Should setup-binding and measurement-intent scope alignment become a
-  separate prerequisite gate before this one?
+- Should the validated
+  [`prepared-run-scope-alignment`](prepared-run-scope-alignment-validation-result.md)
+  result become an input to a broader prepared-run gate?
 - Should catalog/index discovery feed this gate after explicit read-view use is
   stable?
 
