@@ -1,0 +1,121 @@
+# Measurement Record Review Inbox Validation Result
+
+## Status
+
+Product-shape fixture validation with implementation candidate.
+
+This is not an ADR, GUI implementation, dashboard backend, storage index,
+canonical review-state model, action-approval workflow, read-model refresh
+workflow, record repair workflow, import workflow, or public/export artifact.
+It records what the current review-inbox fixture proved and where the boundary
+should remain narrow.
+
+Artifact posture: fixture inputs are repository-safe synthetic fixtures, and
+expected/candidate outputs declare `internal_validation_summary`. They are not
+portable/public export artifacts or user documentation.
+
+## Inputs
+
+- [`creation-lifecycle-decision.md`](../../../architecture/measurement-records/creation-lifecycle-decision.md)
+- `tests/fixtures/measurement_record_review_inbox/basic_workspace/`
+- `implementation_candidates/measurement_record_review_inbox/`
+
+## Validated Boundary
+
+The fixture validates a side-effect-free product-shape projection for a first
+local measurement-record review inbox.
+
+The input combines:
+
+- one fresh operator-review summary with projected-record catalog facts,
+  running-inspection facts, and review findings;
+- one saved operator-review receipt summary for continuation;
+- explicit policy fields that keep storage scanning, record opening, record
+  mutation, read-model refresh, action approval, GUI persistence, and public
+  export out of scope.
+
+The expected summary groups explicit review facts into four lanes:
+
+- `continue_later` for saved receipt summaries;
+- `needs_review` for current review findings;
+- `running` for declared running-inspection summaries;
+- `ready` for current catalog entries.
+
+This validates product language and state grouping only. It does not define a
+persisted GUI model, query backend, inbox database, record index, refresh
+workflow, or repair action.
+
+## Important Separations
+
+- Saved review receipts create continuation prompts, not retry or action
+  authority.
+- A current finding can coexist with a saved continuation prompt for the same
+  record. The fixture keeps that duplication visible rather than resolving it
+  into a canonical state.
+- `needs_review` means attention is required; it does not mean the record is
+  invalid, repairable, or blocked.
+- `running` means a declared running-inspection summary is visible; it does not
+  imply a live monitor, subscription, or hardware state.
+- `ready` is a local review lane over current catalog facts, not a guarantee
+  that the record is scientifically valid or globally complete.
+
+## Implementation Candidate
+
+The implementation candidate builds the `candidate_summary` from explicit
+fixture input only. It validates:
+
+- exact policy posture;
+- public-safe workspace, record, receipt, and finding identifiers;
+- relative record and receipt paths;
+- unique visible record ids and receipt ids;
+- saved receipt selected-record continuity against the fresh review's visible
+  records;
+- review findings referencing visible records;
+- non-negative row/count facts.
+
+It remains side-effect free. It does not scan storage, open receipts, open
+records, refresh read models, approve actions, write state, or render a GUI.
+
+## What The Fixture Can Answer
+
+The current summary can answer:
+
+- which records would appear ready in a first local review inbox;
+- which running records should remain visible as current state;
+- which current records need review attention;
+- which saved receipt prompts should let an operator continue later;
+- which attention categories are present without granting mutation or action
+  authority.
+
+## Still Not Earned
+
+This validation does not earn:
+
+- live GUI components or navigation behavior;
+- canonical cross-session review-state storage;
+- dashboard backend or query/index API;
+- record discovery beyond explicit input;
+- saved receipt discovery;
+- automatic read-model refresh;
+- record repair, mutation, import, retry, or action approval;
+- public/export inbox artifacts.
+
+## Remaining Risks
+
+- The fixture is synthetic and small. It covers one complete record, one
+  running record, one missing-read-model finding, and one saved continuation
+  prompt.
+- Lane duplication is unresolved product pressure. A future UI may need to
+  choose whether a record with both current findings and saved continuation
+  appears in multiple lanes or as one enriched card.
+- The candidate assumes explicit summaries are already available. It does not
+  validate how a product session discovers receipts or decides freshness.
+
+## Slice Recommendation
+
+Use this as the current stop point for operator-review product-shape work. The
+next useful step is either a user-facing sketch over this lane model or a
+narrow receipt-discovery/freshness validation if continuing saved review work
+requires knowing which receipts to show. Do not start GUI implementation,
+canonical review-state persistence, automatic refresh, record repair, or
+action approval from this slice alone.
