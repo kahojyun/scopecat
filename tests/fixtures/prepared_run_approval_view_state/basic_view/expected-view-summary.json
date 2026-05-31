@@ -1,0 +1,182 @@
+{
+  "candidate_summary": {
+    "action_posture": "labels_only_not_executed",
+    "attention": [
+      {
+        "basis": "The selected managed parameter-state snapshot is the parameter context shown by the view.",
+        "code": "parameter_state_is_canonical_context",
+        "does_not_claim": "compatibility_output_as_context",
+        "severity": "info"
+      },
+      {
+        "basis": "The projection exposes review state and action labels only.",
+        "code": "view_state_is_read_only",
+        "does_not_claim": "action_execution_or_gui_contract",
+        "severity": "review"
+      },
+      {
+        "basis": "The view does not start runs, control hardware, write parameters, or execute code.",
+        "code": "execution_not_granted",
+        "does_not_claim": "run_can_start_or_hardware_safe",
+        "severity": "review"
+      }
+    ],
+    "available_review_actions": [
+      "inspect_parameter_snapshot",
+      "inspect_scope_acknowledgement",
+      "inspect_operator_decision",
+      "copy_parameter_state_id"
+    ],
+    "classification": "prepared_run_approval_view_approved",
+    "debug_attachments": {
+      "attachment_refs": [],
+      "count": 0,
+      "does_not_claim": "compatibility_artifacts_as_parameter_context",
+      "state": "omitted"
+    },
+    "operator_decision": {
+      "approval_id": "operator-pre-run-approval-chevron-qA-0001",
+      "approval_state": "operator_approved_review_recorded",
+      "decided_at": "2026-05-23T11:05:00Z",
+      "decision": "approve_pre_run_review",
+      "operator_role": "experimenter",
+      "rationale": "Acknowledged partial parameter coverage is acceptable for this manual qA chevron follow-up; no other review findings remain."
+    },
+    "prepared_run_context": {
+      "logical_targets": [
+        "qA",
+        "cAB"
+      ],
+      "measurement_id": "measurement-05001",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-0001"
+    },
+    "remaining_findings": {
+      "acknowledged_review_findings": [
+        {
+          "acknowledged_at": "2026-05-23T10:50:00Z",
+          "acknowledged_by_role": "experimenter",
+          "acknowledgement_id": "partial-target-coverage-ack-qA-cAB-0001",
+          "basis": {
+            "covered_targets": [
+              "qA"
+            ],
+            "missing_targets": [
+              "cAB"
+            ]
+          },
+          "code": "parameter_lineage_partial_target_coverage",
+          "does_not_claim": "automatic_parameter_invalidation_or_run_blocking",
+          "severity": "review",
+          "source_area": "scope_alignment"
+        }
+      ],
+      "manual_review_findings": [],
+      "remaining_acknowledgement_findings": []
+    },
+    "review_cards": [
+      {
+        "card": "parameter_context",
+        "context_role": "canonical_parameter_context",
+        "does_not_claim": "compatibility_artifact_or_hardware_state",
+        "source_kind": "calibration_handoff",
+        "state_id": "param-state-0008",
+        "trust_status": "trusted_for_declared_scope",
+        "trusted_entry_count": 2
+      },
+      {
+        "acknowledged_finding_codes": [
+          "parameter_lineage_partial_target_coverage"
+        ],
+        "card": "scope_acknowledgement",
+        "does_not_claim": "scope_repair_or_parameter_invalidation",
+        "manual_review_finding_count": 0,
+        "remaining_acknowledgement_finding_count": 0
+      },
+      {
+        "approval_state": "operator_approved_review_recorded",
+        "card": "operator_decision",
+        "decided_at": "2026-05-23T11:05:00Z",
+        "decision": "approve_pre_run_review",
+        "decision_label": "approved",
+        "operator_role": "experimenter",
+        "rationale": "Acknowledged partial parameter coverage is acceptable for this manual qA chevron follow-up; no other review findings remain.",
+        "run_start_claim": "not_claimed"
+      }
+    ],
+    "review_gate_decision": {
+      "code_import_execution": "not_performed",
+      "compatibility_output": "not_produced",
+      "environment_operation": "not_performed",
+      "hardware_control": "not_performed",
+      "overall_state": "ready_for_operator_pre_run_decision",
+      "parameter_write_back": "not_performed",
+      "recommended_action": "present_operator_pre_run_decision",
+      "run_start_claim": "not_claimed"
+    },
+    "selected_parameter_state": {
+      "source_kind": "calibration_handoff",
+      "state_id": "param-state-0008",
+      "trust_status": "trusted_for_declared_scope",
+      "trusted_entry_count": 2
+    },
+    "view_effects": {
+      "action_execution": "not_performed",
+      "automatic_run_start": "not_performed",
+      "compatibility_output": "not_produced",
+      "durable_storage": "not_performed",
+      "gui_workflow": "not_defined",
+      "hardware_control": "not_performed",
+      "parameter_write_back": "not_performed"
+    },
+    "view_request": {
+      "approval_id": "operator-pre-run-approval-chevron-qA-0001",
+      "measurement_id": "measurement-05001",
+      "parameter_state_id": "param-state-0008",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+      "review_gate_id": "prepared-run-acknowledgement-aware-review-gate-0001",
+      "view_id": "prepared-run-approval-view-chevron-qA-0001"
+    },
+    "view_state_policy": {
+      "action_execution": "not_performed",
+      "automatic_run_start": "not_performed",
+      "available_actions": "labels_only",
+      "canonical_parameter_context": "managed_parameter_state_snapshot",
+      "catalog_discovery": "not_performed",
+      "code_import_execution": "not_performed",
+      "compatibility_artifact_handling": "omitted_unless_explicit_debug_attachment",
+      "compatibility_output": "not_produced",
+      "durable_storage": "not_performed",
+      "environment_operation": "not_performed",
+      "fresh_storage_read": "not_performed",
+      "gui_workflow": "not_defined",
+      "hardware_control": "not_performed",
+      "managed_runner": "not_defined",
+      "parameter_write_back": "not_performed",
+      "projection_authority": "explicit_prepared_run_approval_view_state",
+      "projection_posture": "read_only_view_state",
+      "shared_view_schema": "not_defined",
+      "source_summary_handling": "operator_pre_run_approval_summary"
+    }
+  },
+  "decisions_not_earned": [
+    "GUI workflow",
+    "action execution",
+    "automatic run start",
+    "hardware safety or current instrument state",
+    "parameter write-back",
+    "compatibility output or compatibility artifact context",
+    "fresh storage read or catalog discovery",
+    "durable storage",
+    "environment operation",
+    "code import or execution",
+    "managed runner",
+    "shared view schema"
+  ],
+  "fixture_id": "prepared-run-approval-view-state-basic",
+  "reference_semantics": {
+    "candidate": "prepared_run_approval_view_state",
+    "contract_guard": "read-only view-state projection over prepared-run parameter approval; not GUI, action execution, run start, hardware control, parameter write-back, compatibility output, durable storage, or shared view schema",
+    "parameter_context_boundary": "The managed parameter-state snapshot is shown as canonical context; derivative compatibility artifacts are omitted unless explicitly supplied as debug attachments."
+  },
+  "summary_policy": "internal_validation_summary"
+}
