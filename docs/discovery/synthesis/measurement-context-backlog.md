@@ -149,6 +149,14 @@ to a running-record review surface by target continuity while avoiding payload
 import, file observation, durable record append, runner ownership, log
 streaming, artifact provenance, and measurement-validity claims.
 
+First post-run review result:
+[`post-run-review-bundle-validation-result.md`](../slices/measurement-context/post-run-review-bundle-validation-result.md)
+validates a local post-run review composition over completed measurement
+identity, reference-only context links, context-status findings, and carried
+during-run supporting-evidence findings without storage mutation,
+primary-data observation, evidence import, artifact provenance, fit validation,
+measurement-validity decisions, or package/export behavior.
+
 ### 3. Named Run-Start Input Set
 
 Validation question: can Scopecat assemble selected context records as named
