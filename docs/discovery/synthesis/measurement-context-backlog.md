@@ -210,6 +210,16 @@ notebook surfaces without executing actions, observing files, querying
 backends, accepting imports, mutating storage, repairing references, writing
 parameters, deciding measurement validity, or making review state run-blocking.
 
+Adjacent legacy file-locator observation result:
+[`legacy-file-backed-locator-observation-validation-result.md`](../slices/measurement-records/legacy-file-backed-locator-observation-validation-result.md)
+validates the subcase where a user explicitly selects one declared
+`legacy_path` locator from sidecar review, supplies an external root and
+relative path, and observes file-level availability plus optional sha256 and
+byte-size facts without inferring paths from redacted displays, querying
+legacy backends, parsing data, verifying previews, accepting imports, mutating
+storage, repairing references, writing parameters, deciding measurement
+validity, or defining GUI behavior.
+
 First post-run review result:
 [`post-run-review-bundle-validation-result.md`](../slices/measurement-context/post-run-review-bundle-validation-result.md)
 validates a local post-run review composition over completed measurement
