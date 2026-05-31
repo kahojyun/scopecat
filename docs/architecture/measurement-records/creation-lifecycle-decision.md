@@ -640,3 +640,86 @@ This keeps running inspection focused on readable progress and review findings.
 It does not accept automatic retune, scan-plan adjustment, parameter write-back,
 saved GUI state, or scientific fit validity as part of the current
 Measurement Records storage boundary.
+
+## Operator Review Composition Checkpoint
+
+The first read-only operator-review composition slice is implemented in
+[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+It exposes raw-dictionary and typed entrypoints:
+`review_measurement_records(...)` and
+`review_measurement_records_from_request(...)`.
+
+This slice composes the existing read-model catalog with optional
+caller-declared running inspections:
+
+```text
+records directory
+  -> catalog projected read models
+  -> optional caller-declared running inspection requests
+  -> selected local record summary
+  -> aggregated operator-review findings
+```
+
+It deliberately remains read-only. It does not refresh read models, discover
+update receipts, replace manifests, finalize lifecycle state, repair storage,
+mutate records, define canonical storage authority, or persist GUI review
+state. Missing projected read models still surface through the catalog, but an
+in-progress record that is explicitly supplied through a running inspection is
+not treated as a top-level operator-review problem merely because it lacks a
+derived read model. Catalog entries with embedded projected-read-model review
+findings are promoted into operator-review findings, so the composed review
+does not flatten that attention signal into a ready-looking catalog row.
+
+The module also exposes
+`python -m scopecat.measurement_records operator-review` as a narrow local CLI
+smoke surface for printing the composed review JSON from a caller-declared
+storage root and optional running-inspection paths. The CLI also accepts
+`--source` for the raw operator-review source shape when callers need to
+declare multiple running inspections without adding more flag-only surface.
+When `--source` is used, request-shaping flags are rejected so caller intent
+does not depend on silent precedence. Partial running-inspection flags without
+`--running-record-id` are also rejected so caller intent is not silently
+dropped. The CLI does not discover records beyond the catalog directory, scan
+update directories, mutate storage, or perform refresh, import, finalization,
+repair, or GUI-state persistence.
+
+## Operator Review Receipt Checkpoint
+
+The first saved operator-review receipt slice is implemented in
+[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+It exposes:
+`save_measurement_record_operator_review_receipt(...)` and
+`summarize_measurement_record_operator_review_receipt(...)`.
+
+This slice adds one explicit local write after a read-only operator review:
+
+```text
+operator-review run
+  -> approved receipt request
+  -> no-overwrite local review receipt
+  -> compact continuation summary
+```
+
+The receipt records the operator-review snapshot, selected-record posture,
+review finding codes, next local action, and an operator disposition such as
+`recorded_for_continuation`. Receipt paths are constrained to
+`operator-reviews/` so this local note cannot pollute record storage. Missing
+selected records remain explicit as `selected_record_source: not_visible` in the
+compact summary. Receipt summaries accept only review/navigation next actions
+and public-safe request identifiers, and validate receipt/review non-claim
+posture before projecting. They also recompute embedded review classification
+selected-record posture, and next action from the saved review snapshot. A
+saved receipt cannot hide or forge the selected-record summary independently of
+its saved catalog and running-inspection snapshot. It is a local continuation
+note, not durable workflow authority. It does not resolve findings, approve
+import, approve read-model refresh, grant retry authority, mutate measurement
+records, replace manifests, finalize lifecycle state, define canonical review
+state, or persist GUI-owned review state.
+
+The module also exposes
+`python -m scopecat.measurement_records operator-review-receipt-summary` as a
+read-only smoke CLI over one caller-declared saved receipt. It validates the
+receipt schema, posture, policy, approved request state, disposition, finding
+shape, and embedded summary continuity before printing the compact continuation
+summary, without reopening records, re-running review, granting retry authority,
+approving refresh/import, mutating storage, or persisting GUI state.

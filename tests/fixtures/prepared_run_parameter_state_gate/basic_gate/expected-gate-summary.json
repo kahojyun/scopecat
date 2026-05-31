@@ -1,0 +1,107 @@
+{
+  "candidate_summary": {
+    "attention": [
+      {
+        "basis": "Gate output classifies parameter-context review state only.",
+        "code": "parameter_gate_only",
+        "does_not_claim": "run_can_start_or_hardware_safe",
+        "severity": "info"
+      },
+      {
+        "basis": "Gate output does not apply trusted entries to instruments or files.",
+        "code": "parameter_write_back_not_performed",
+        "does_not_claim": "parameter_application",
+        "severity": "review"
+      },
+      {
+        "basis": "Gate output consumes prior parameter-state consumption facts.",
+        "code": "fresh_storage_read_not_performed",
+        "does_not_claim": "new_integrity_observation",
+        "severity": "info"
+      },
+      {
+        "basis": "Gate output does not import code, sync an environment, or start a run.",
+        "code": "execution_not_granted",
+        "does_not_claim": "execution_permission",
+        "severity": "review"
+      }
+    ],
+    "gate_decision": {
+      "gate_state": "ready_for_manual_run_review",
+      "hardware_control": "not_performed",
+      "parameter_write_back": "not_performed",
+      "reason_codes": [],
+      "recommended_action": "present_parameter_context_for_manual_run_review",
+      "run_start_claim": "not_claimed"
+    },
+    "gate_policy": {
+      "automatic_run_start": "not_performed",
+      "catalog_discovery": "not_performed",
+      "code_import_execution": "not_performed",
+      "consumption_source": "prepared_run_parameter_state_consumption_summary",
+      "environment_sync": "not_performed",
+      "fresh_storage_read": "not_performed",
+      "gate_authority": "declared_prepared_run_parameter_review_policy",
+      "gui_workflow": "not_defined",
+      "hardware_control": "not_performed",
+      "parameter_write_back": "not_performed",
+      "readiness_claim": "parameter_review_gate_only",
+      "review_gate_scope": "parameter_state_context_only",
+      "shared_gate_schema": "not_defined",
+      "storage_mutation": "not_performed"
+    },
+    "gate_request": {
+      "expected_state_id": "param-state-imported-0001",
+      "gate_id": "prepared-run-parameter-state-gate-0001",
+      "gate_mode": "manual_run_precheck_review",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+      "required_min_trusted_entries": 1,
+      "unavailable_context_policy": "block_manual_run_review",
+      "unresolved_finding_policy": "needs_review"
+    },
+    "parameter_state_gate_input": {
+      "consumption_classification": "prepared_run_parameter_state_ready",
+      "readiness": "seeded_incomplete",
+      "state_id": "param-state-imported-0001",
+      "state_kind": "seed_snapshot",
+      "trust_status": "trusted_for_declared_scope",
+      "trusted_entry_count": 2,
+      "trusted_entry_paths": [
+        "qubits.qA.drive_frequency_hz",
+        "qubits.qA.pi_amp"
+      ]
+    },
+    "prepared_run_context": {
+      "label": "qA chevron manual run context from stored parameter state",
+      "manual_run_target": {
+        "entrypoint_hint": "readout_calibration_entrypoint.py",
+        "experiment_label": "qA chevron follow-up",
+        "logical_targets": [
+          "qA",
+          "cAB"
+        ],
+        "measurement_id": "measurement-05001",
+        "prepared_at": "2026-05-23T10:35:00Z"
+      },
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-0001"
+    },
+    "review_findings": []
+  },
+  "decisions_not_earned": [
+    "automatic run start",
+    "parameter write-back",
+    "hardware control or current instrument state",
+    "fresh storage read",
+    "catalog or index discovery",
+    "environment sync",
+    "code import or execution",
+    "GUI behavior",
+    "shared gate schema"
+  ],
+  "fixture_id": "prepared-run-parameter-state-gate-basic",
+  "reference_semantics": {
+    "candidate": "prepared_run_parameter_state_gate",
+    "contract_guard": "parameter-context review gate over prepared-run consumption facts; not automatic run start, parameter write-back, hardware control, fresh storage read, catalog discovery, execution, GUI, or shared gate schema"
+  },
+  "summary_policy": "internal_validation_summary"
+}

@@ -1,0 +1,78 @@
+{
+  "review_inbox_policy": {
+    "action_approval": "not_granted",
+    "gui_state_persistence": "not_performed",
+    "input_authority": "operator_review_run_and_saved_receipt_summaries",
+    "public_export": "not_performed",
+    "read_model_refresh": "not_performed",
+    "record_mutation": "not_performed",
+    "record_open": "not_performed",
+    "storage_scan": "not_performed"
+  },
+  "workspace": {
+    "label": "Local measurement review workspace",
+    "workspace_id": "workspace-review-demo-001"
+  },
+  "fresh_operator_review": {
+    "catalog_entries": [
+      {
+        "label": "Rabi calibration complete",
+        "lifecycle_state": "complete",
+        "observed_row_count": 5,
+        "record_dir": "records/run-3101-rabi",
+        "record_id": "run-3101-rabi",
+        "review_finding_count": 0
+      },
+      {
+        "label": "T1 created shell missing projection",
+        "lifecycle_state": "complete",
+        "observed_row_count": 3,
+        "record_dir": "records/run-9999-needs-review",
+        "record_id": "run-9999-needs-review",
+        "review_finding_count": 1
+      }
+    ],
+    "classification": "measurement_record_operator_review_needed",
+    "request_id": "operator-review-records",
+    "review_findings": [
+      {
+        "code": "read_model_missing",
+        "label": "T1 created shell missing projection",
+        "message": "Record directory has no projected read model.",
+        "next_action": "review_measurement_record_operator_findings",
+        "record_id": "run-9999-needs-review",
+        "source": "fresh_operator_review.catalog"
+      }
+    ],
+    "running_inspections": [
+      {
+        "label": "T1 still recording",
+        "lifecycle_state": "in_progress",
+        "next_action": "ready_for_later_finalization_decision",
+        "record_dir": "records/run-4101-t1",
+        "record_id": "run-4101-t1",
+        "review_finding_codes": [],
+        "visible_rows_recorded": 5
+      }
+    ],
+    "selected_record_id": "run-4101-t1"
+  },
+  "saved_receipt_summaries": [
+    {
+      "operator_disposition": "recorded_for_continuation",
+      "operator_reason": "Continue after refreshing the missing T1 read model.",
+      "operator_review": {
+        "classification": "measurement_record_operator_review_needed",
+        "next_action": "review_measurement_record_operator_findings",
+        "request_id": "operator-review-previous",
+        "review_finding_codes": [
+          "read_model_missing"
+        ],
+        "selected_record_id": "run-9999-needs-review",
+        "selected_record_source": "catalog"
+      },
+      "receipt_id": "review-receipt-001",
+      "review_receipt_path": "operator-reviews/review-001.json"
+    }
+  ]
+}

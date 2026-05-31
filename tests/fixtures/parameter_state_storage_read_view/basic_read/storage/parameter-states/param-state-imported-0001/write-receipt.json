@@ -1,0 +1,18 @@
+{
+  "approval_state": "approved",
+  "collision_policy": "no_overwrite",
+  "manifest": {
+    "digest": "sha256:05974eba3977078d0fb963b1db7c575b91ef165ae4e6abb233c39a4446a48c7a",
+    "path": "parameter-states/param-state-imported-0001/parameter-state.json",
+    "size_bytes": 3563
+  },
+  "non_claims": {
+    "final_storage_architecture": "not_defined",
+    "hardware_write_back": "not_performed",
+    "schema_migration": "not_performed"
+  },
+  "receipt_schema": "scopecat.parameter_state_storage_receipt.v0",
+  "request_id": "parameter-state-storage-write-0001",
+  "state_id": "param-state-imported-0001",
+  "storage_mutation": "performed"
+}

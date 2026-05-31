@@ -1,0 +1,168 @@
+{
+  "operator_review": {
+    "artifact_posture": "local_measurement_record_operator_review",
+    "catalog": {
+      "entries": [
+        {
+          "lifecycle_state": "complete",
+          "primary_data": {
+            "observed_row_count": 5
+          },
+          "record_dir": "records/run-3101-rabi",
+          "record_id": "run-3101-rabi",
+          "review_finding_count": 0
+        }
+      ],
+      "review_findings": []
+    },
+    "operator_review_policy": {
+      "catalog_authority": "record_local_projected_read_models",
+      "gui_state": "not_persisted",
+      "manifest_replacement": "not_performed",
+      "read_model_refresh": "not_performed",
+      "record_discovery": "catalog_records_dir_only",
+      "running_inspection_authority": "caller_declared_running_inspection_requests",
+      "selected_record_authority": "catalog_entry_or_running_inspection_summary",
+      "storage_mutation": "not_performed",
+      "update_receipt_discovery": "not_performed"
+    },
+    "request": {
+      "request_id": "operator-review-real-boundaries",
+      "selected_record_id": null
+    },
+    "review_findings": [
+      {
+        "code": "read_model_missing",
+        "message": "Record directory has no projected read model.",
+        "source": "catalog",
+        "target": "records/run-9999-needs-review/record-read-model.json"
+      }
+    ],
+    "running_inspections": [
+      {
+        "inspection": {
+          "next_action": "review_running_inspection_findings",
+          "review_finding_codes": [
+            "running_update_gap"
+          ],
+          "visible_rows_recorded": 4
+        },
+        "record": {
+          "record_dir": "records/run-4101-t1",
+          "record_id": "run-4101-t1"
+        }
+      }
+    ],
+    "workflow": {
+      "classification": "measurement_record_operator_review_needed",
+      "does_not_claim": [
+        "canonical_storage_authority",
+        "record_repair",
+        "read_model_refresh",
+        "update_receipt_discovery",
+        "primary_data_revalidation_beyond_child_operations",
+        "lifecycle_finalization",
+        "manifest_replacement",
+        "storage_mutation",
+        "gui_review_state",
+        "public_export_schema"
+      ],
+      "steps": [
+        "catalog_record_read_models",
+        "run_declared_running_inspections",
+        "project_selected_record_summary",
+        "aggregate_review_findings"
+      ]
+    }
+  },
+  "review_inbox_policy": {
+    "action_approval": "not_granted",
+    "gui_state_persistence": "not_performed",
+    "input_authority": "operator_review_run_and_saved_receipt_summaries",
+    "public_export": "not_performed",
+    "read_model_refresh": "not_performed",
+    "record_mutation": "not_performed",
+    "record_open": "not_performed",
+    "storage_scan": "not_performed"
+  },
+  "saved_receipt_summaries": [
+    {
+      "artifact_posture": "local_measurement_record_operator_review_receipt_summary",
+      "does_not_claim": [
+        "record_mutation",
+        "finding_resolution",
+        "retry_authority",
+        "import_approval",
+        "refresh_approval",
+        "lifecycle_finalization",
+        "canonical_review_state",
+        "gui_review_state",
+        "public_export_schema"
+      ],
+      "operator_review": {
+        "classification": "measurement_record_operator_review_ready",
+        "next_action": "select_record_for_review",
+        "request_id": "operator-review-previous",
+        "review_finding_codes": [],
+        "selected_record_id": null,
+        "selected_record_source": null
+      },
+      "receipt": {
+        "operator_disposition": "recorded_for_continuation",
+        "operator_reason": "Continue workspace review later.",
+        "request_id": "save-operator-review-real-boundaries",
+        "review_receipt_path": "operator-reviews/review-real-001.json"
+      },
+      "summary_policy": {
+        "continuation_authority": "not_granted",
+        "gui_state": "not_persisted",
+        "input_authority": "saved_operator_review_receipt",
+        "record_mutation": "not_performed",
+        "redaction_boundary": "local_workspace_only"
+      },
+      "summary_schema": "scopecat.measurement_record_operator_review_receipt_summary.v0"
+    },
+    {
+      "artifact_posture": "local_measurement_record_operator_review_receipt_summary",
+      "does_not_claim": [
+        "record_mutation",
+        "finding_resolution",
+        "retry_authority",
+        "import_approval",
+        "refresh_approval",
+        "lifecycle_finalization",
+        "canonical_review_state",
+        "gui_review_state",
+        "public_export_schema"
+      ],
+      "operator_review": {
+        "classification": "measurement_record_operator_review_needed",
+        "next_action": "select_visible_record_or_update_declared_inputs",
+        "request_id": "operator-review-missing-selection",
+        "review_finding_codes": [
+          "selected_record_not_visible"
+        ],
+        "selected_record_id": "run-missing-saved",
+        "selected_record_source": "not_visible"
+      },
+      "receipt": {
+        "operator_disposition": "recorded_as_reviewed",
+        "operator_reason": "Reviewed the stale missing selection.",
+        "request_id": "save-operator-review-missing-selection",
+        "review_receipt_path": "operator-reviews/review-real-002.json"
+      },
+      "summary_policy": {
+        "continuation_authority": "not_granted",
+        "gui_state": "not_persisted",
+        "input_authority": "saved_operator_review_receipt",
+        "record_mutation": "not_performed",
+        "redaction_boundary": "local_workspace_only"
+      },
+      "summary_schema": "scopecat.measurement_record_operator_review_receipt_summary.v0"
+    }
+  ],
+  "workspace": {
+    "label": "Real-shape review workspace",
+    "workspace_id": "workspace-real-boundary-001"
+  }
+}

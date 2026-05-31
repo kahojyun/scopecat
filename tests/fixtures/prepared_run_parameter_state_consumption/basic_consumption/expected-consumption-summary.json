@@ -1,0 +1,158 @@
+{
+  "candidate_summary": {
+    "attention": [
+      {
+        "basis": "Prepared-run parameter context is checked against one explicit stored read-view summary.",
+        "code": "prepared_context_consumes_explicit_read_view",
+        "does_not_claim": "catalog_discovery_or_storage_lookup",
+        "severity": "info"
+      },
+      {
+        "basis": "Trusted parameter entries are visible as run-preparation facts.",
+        "code": "trusted_entries_projected_for_review",
+        "does_not_claim": "parameter_write_back_or_hardware_state",
+        "severity": "review"
+      },
+      {
+        "basis": "The composition consumes prior read-view facts and does not open storage.",
+        "code": "storage_read_not_repeated",
+        "does_not_claim": "fresh_integrity_observation",
+        "severity": "info"
+      },
+      {
+        "basis": "Composed run-preparation facts do not import code, sync an environment, or execute a run.",
+        "code": "execution_not_granted",
+        "does_not_claim": "run_start_or_runnable_readiness",
+        "severity": "review"
+      }
+    ],
+    "classification": "prepared_run_parameter_state_ready",
+    "consumption_policy": {
+      "catalog_discovery": "not_performed",
+      "code_import_execution": "not_performed",
+      "composition_authority": "prepared_run_parameter_state_reference",
+      "environment_sync": "not_performed",
+      "fresh_storage_read": "not_performed",
+      "gui_workflow": "not_defined",
+      "hardware_control": "not_performed",
+      "parameter_state_source": "explicit_storage_read_view_summary",
+      "parameter_write_back": "not_performed",
+      "prepared_context_source": "declared_prepared_run_context_summary",
+      "readiness_claim": "composition_review_facts_only",
+      "setup_mutation": "not_performed",
+      "shared_parameter_schema": "not_defined",
+      "shared_run_context_schema": "not_defined",
+      "storage_mutation": "not_performed"
+    },
+    "consumption_request": {
+      "expected_state_id": "param-state-imported-0001",
+      "parameter_context_id": "param-state-imported-0001",
+      "parameter_context_role": "calibrated_values",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+      "request_id": "prepared-run-parameter-state-consumption-0001"
+    },
+    "parameter_state": {
+      "lineage": {
+        "lineage_id": "lineage-qA-default-bias-imported",
+        "lineage_label": "qA default bias imported seed",
+        "lineage_purpose": "working_point",
+        "target_scope": [
+          "sample-alpha",
+          "qA",
+          "default_bias"
+        ]
+      },
+      "read_view_classification": "stored_parameter_state_read_view_ready",
+      "readiness": "seeded_incomplete",
+      "state_id": "param-state-imported-0001",
+      "state_kind": "seed_snapshot",
+      "state_label": "qA default bias imported seed after adapter review",
+      "trust_status": "trusted_for_declared_scope",
+      "trusted_entry_count": 2
+    },
+    "prepared_run_context": {
+      "label": "qA chevron manual run context from stored parameter state",
+      "manual_run_target": {
+        "entrypoint_hint": "readout_calibration_entrypoint.py",
+        "experiment_label": "qA chevron follow-up",
+        "logical_targets": [
+          "qA",
+          "cAB"
+        ],
+        "measurement_id": "measurement-05001",
+        "prepared_at": "2026-05-23T10:35:00Z"
+      },
+      "parameter_context_ref": {
+        "authority": "parameter_state_storage_read_view_fixture",
+        "context_id": "param-state-imported-0001",
+        "context_label": "qA default bias imported seed after adapter review",
+        "family": "parameter_state",
+        "include_state": "selected",
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+        "record_status": "trusted_for_declared_scope",
+        "required": true,
+        "role": "calibrated_values"
+      },
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-0001"
+    },
+    "provenance": {
+      "adapter_id": "public-safe-parameter-adapter",
+      "legacy_source_count": 2,
+      "source_observation": "adapter_declared_only"
+    },
+    "review_findings": [],
+    "storage_read_facts": {
+      "manifest": {
+        "observed_digest": "sha256:05974eba3977078d0fb963b1db7c575b91ef165ae4e6abb233c39a4446a48c7a",
+        "observed_size_bytes": 3563,
+        "path": "parameter-states/param-state-imported-0001/parameter-state.json",
+        "status": "observed"
+      },
+      "receipt": {
+        "observed_digest": "sha256:ac8574f7032e9728a0bb1860006ac6a1705183b5b457b4dffe43a4e61d2fe092",
+        "observed_size_bytes": 640,
+        "path": "parameter-states/param-state-imported-0001/write-receipt.json",
+        "receipt_request_id": "parameter-state-storage-write-0001",
+        "status": "observed"
+      }
+    },
+    "trusted_entries": [
+      {
+        "label": "qA drive frequency",
+        "path": "qubits.qA.drive_frequency_hz",
+        "source_ids": [
+          "legacy-json-parameters-001"
+        ],
+        "trust": "review_accepted",
+        "unit": "Hz",
+        "value": 5012500000
+      },
+      {
+        "label": "qA pi pulse amplitude",
+        "path": "qubits.qA.pi_amp",
+        "source_ids": [
+          "legacy-xlsx-parameter-table-001"
+        ],
+        "trust": "review_accepted",
+        "unit": "arb",
+        "value": 0.42
+      }
+    ]
+  },
+  "decisions_not_earned": [
+    "fresh storage read",
+    "catalog or index discovery",
+    "parameter write-back",
+    "hardware control or current instrument state",
+    "automatic run blocking",
+    "run execution or runnable readiness",
+    "GUI behavior",
+    "shared parameter or run-context domain model"
+  ],
+  "fixture_id": "prepared-run-parameter-state-consumption-basic",
+  "reference_semantics": {
+    "candidate": "prepared_run_parameter_state_consumption",
+    "contract_guard": "composition of declared prepared-run context summary and explicit storage read-view summary; not fresh storage read, catalog discovery, parameter write-back, hardware control, execution, GUI, shared schema, or final storage architecture"
+  },
+  "summary_policy": "internal_validation_summary"
+}

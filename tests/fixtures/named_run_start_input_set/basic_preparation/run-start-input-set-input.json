@@ -95,42 +95,42 @@
         {
           "family": "measurement_intent",
           "role": "declared_measurement_intent",
-          "required": true,
+          "required": false,
           "include_state": "selected",
           "context_id": "measurement-intent-chevron-qA"
         },
         {
           "family": "parameter_state",
           "role": "calibrated_values",
-          "required": true,
+          "required": false,
           "include_state": "selected",
           "context_id": "param-state-0002"
         },
         {
           "family": "setup_binding",
           "role": "logical_to_physical_mapping",
-          "required": true,
+          "required": false,
           "include_state": "selected",
           "context_id": "setup-binding-0002"
         },
         {
           "family": "station_registry",
           "role": "station_context",
-          "required": true,
+          "required": false,
           "include_state": "selected",
           "context_id": "station-registry-mmcs2-redacted"
         },
         {
           "family": "managed_code_version",
           "role": "entrypoint_code_version",
-          "required": true,
+          "required": false,
           "include_state": "selected",
           "context_id": "managed-code-version-readout-0001"
         },
         {
           "family": "declared_environment",
           "role": "runtime_environment_hint",
-          "required": true,
+          "required": false,
           "include_state": "unavailable",
           "context_id": null,
           "missing_reason": "No reviewed declared environment record exists for this fixture."

@@ -1,0 +1,104 @@
+{
+  "excluded_preview_entries": [
+    {
+      "disposition": "not_committed_to_managed_parameter_state",
+      "entry_state": "skipped_untrusted",
+      "path": "readout.qA.frequency_hz",
+      "reason": "Adapter found the value in a copied legacy file but could not confirm it was calibrated for this sample context.",
+      "source_ids": [
+        "legacy-json-parameters-001"
+      ]
+    },
+    {
+      "disposition": "not_committed_to_managed_parameter_state",
+      "entry_state": "skipped_schema_limited",
+      "path": "readout.qA.calibration_table",
+      "reason": "Adapter preserved the table-shaped value as schema-limited; this preview slice does not migrate table shapes.",
+      "source_ids": [
+        "legacy-xlsx-parameter-table-001"
+      ]
+    }
+  ],
+  "manifest_schema": "scopecat.parameter_state_storage_manifest.v0",
+  "provenance": {
+    "adapter_id": "public-safe-parameter-adapter",
+    "adapter_name": "Public-safe parameter adapter fixture",
+    "legacy_sources": [
+      {
+        "display_path": "LEGACY_PARAMETER_SOURCE:/redacted/settings/parameters.json",
+        "external_root_label": "redacted-lab-share",
+        "reference_state": "adapter_declared_available",
+        "source_format": "legacy_parameters_json",
+        "source_id": "legacy-json-parameters-001",
+        "source_observation": "adapter_declared_only"
+      },
+      {
+        "display_path": "LEGACY_PARAMETER_SOURCE:/redacted/tables/parameter-table.xlsx",
+        "external_root_label": "redacted-lab-share",
+        "reference_state": "adapter_declared_available",
+        "source_format": "xlsx_parameter_table",
+        "source_id": "legacy-xlsx-parameter-table-001",
+        "source_observation": "adapter_declared_only"
+      }
+    ],
+    "source_observation": "adapter_declared_only",
+    "source_system_kind": "external_legacy_parameter_sources"
+  },
+  "source_review": {
+    "accepted_at": "2026-05-23T10:20:00",
+    "accepted_by_role": "experimenter",
+    "review_id": "adapter-import-review-0001",
+    "review_status": "accepted"
+  },
+  "state": {
+    "created_by_review_id": "adapter-import-review-0001",
+    "entries": [
+      {
+        "label": "qA drive frequency",
+        "path": "qubits.qA.drive_frequency_hz",
+        "source_ids": [
+          "legacy-json-parameters-001"
+        ],
+        "trust": "review_accepted",
+        "unit": "Hz",
+        "value": 5012500000
+      },
+      {
+        "label": "qA pi pulse amplitude",
+        "path": "qubits.qA.pi_amp",
+        "source_ids": [
+          "legacy-xlsx-parameter-table-001"
+        ],
+        "trust": "review_accepted",
+        "unit": "arb",
+        "value": 0.42
+      }
+    ],
+    "lineage": {
+      "lineage_id": "lineage-qA-default-bias-imported",
+      "lineage_label": "qA default bias imported seed",
+      "lineage_purpose": "working_point",
+      "target_scope": [
+        "sample-alpha",
+        "qA",
+        "default_bias"
+      ]
+    },
+    "readiness": "seeded_incomplete",
+    "source_preview_candidate_state_id": "adapter-candidate-param-state-0001",
+    "state_id": "param-state-imported-0001",
+    "state_kind": "seed_snapshot",
+    "state_label": "qA default bias imported seed after adapter review",
+    "trust_status": "trusted_for_declared_scope",
+    "trusted_entry_paths": [
+      "qubits.qA.drive_frequency_hz",
+      "qubits.qA.pi_amp"
+    ]
+  },
+  "storage_non_claims": {
+    "external_file_authority": "not_claimed",
+    "hardware_write_back": "not_performed",
+    "legacy_source_parsing": "not_performed",
+    "schema_migration": "not_performed"
+  }
+}

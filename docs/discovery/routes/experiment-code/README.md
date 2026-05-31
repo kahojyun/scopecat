@@ -33,6 +33,12 @@ does not prove reproducibility, cause, or readiness.
 This chain is not a mandatory workflow for every measurement. It records the
 order in which current slices have earned stronger local claims.
 
+The broader experiment-start workflow is documented in
+[`run-preparation-workflow-boundary-validation-result.md`](../../slices/experiment-code/run-preparation-workflow-boundary-validation-result.md).
+That boundary separates legacy/passive context recording from a future
+template/prepared route, and places prepared-run context after adapters or
+preparation helpers have already produced normalized context references.
+
 In the wider route model, measurement records remain the user-facing evidence
 or selection anchor. Experiment code is one linked context family for those
 measurements, runs, or steps: it records what code root, entrypoint, managed
@@ -52,7 +58,7 @@ environment review findings for manual run preparation.
 | Materialization planning | Workspace materialization intent | Plan workspace-relative destinations and review findings from declared facts without filesystem inspection or writes. |
 | Approved materialization | Workspace materialization | Write declared managed content into a caller workspace after approval, with no-overwrite behavior and no Git/environment/execution authority. |
 | Workspace observation | Editable-folder observation | Read a selected editable workspace against a managed code version, report drift and extras, and keep semantic diff/Git/execution out of scope. |
-| Run-context composition | Prepared run context | Compose selected managed code/workspace observation with parameter/setup/station/measurement context and missing environment findings for manual run preparation. |
+| Run-context composition | Prepared run context | Compose selected managed code/workspace observation with parameter/setup/station/measurement context and optional unavailable environment context or locally required missing-context findings for manual run preparation. |
 | Rerun convenience | Reference-based rerun preparation | Seed a proposed manual rerun context from selected-reference linked context without accepting reproducibility, correction, or execution authority. |
 
 ## Boundary Map
@@ -83,7 +89,8 @@ route:
   inventory;
 - prepared run context as the current composition point for selected code,
   workspace observation, parameter/setup/station context, measurement intent,
-  and missing declared environment context.
+  optional unavailable declared environment context, and locally required
+  missing-context findings.
 
 ## Not Yet Earned
 
@@ -121,8 +128,9 @@ duplicate the same behavior and boundary rules:
 The current route already has composition pressure through
 `prepared_run_context`. That slice validates selected managed code version,
 editable workspace observation, parameter state, setup binding, station
-registry, measurement intent, and missing declared environment context in one
-manual run-preparation summary.
+registry, measurement intent, optional unavailable declared environment
+context, and locally required missing-context findings in one manual
+run-preparation summary.
 
 Do not add a separate "code readiness bundle" merely to restate managed
 version, materialization, and editable-folder observation. A new composition

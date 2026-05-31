@@ -58,8 +58,23 @@ class NamedRunStartInputSetSummaryCandidateTest(unittest.TestCase):
             refs["managed_code_version"]["record_status"], "recorded_not_restore_contract"
         )
 
-    def test_missing_required_context_is_a_finding_not_run_control(self) -> None:
+    def test_optional_unavailable_context_is_recorded_without_required_finding(self) -> None:
         summary = build_named_run_start_input_set_summary(_load_input())
+        refs = {ref["family"]: ref for ref in summary["selected_context_refs"]}
+
+        self.assertFalse(refs["declared_environment"]["required"])
+        self.assertEqual(refs["declared_environment"]["include_state"], "unavailable")
+        self.assertEqual(summary["missing_context_findings"], [])
+        self.assertNotIn(
+            "required_context_unavailable",
+            [item["code"] for item in summary["attention"]],
+        )
+
+    def test_required_unavailable_context_is_a_finding_not_run_control(self) -> None:
+        source = _load_input()
+        source["run_start_input_sets"][0]["selected_contexts"][-1]["required"] = True
+
+        summary = build_named_run_start_input_set_summary(source)
         finding = summary["missing_context_findings"][0]
 
         self.assertEqual(finding["family"], "declared_environment")
@@ -133,6 +148,7 @@ class NamedRunStartInputSetSummaryCandidateTest(unittest.TestCase):
 
     def test_unavailable_required_context_needs_reason(self) -> None:
         source = _load_input()
+        source["run_start_input_sets"][0]["selected_contexts"][-1]["required"] = True
         source["run_start_input_sets"][0]["selected_contexts"][-1].pop("missing_reason")
 
         with self.assertRaisesRegex(ValueError, "needs a reason"):
@@ -157,6 +173,7 @@ class NamedRunStartInputSetSummaryCandidateTest(unittest.TestCase):
         self.assertIn(
             "not a final context schema", expected["reference_semantics"]["contract_guard"]
         )
+        self.assertEqual(expected["summary_policy"], "internal_validation_summary")
         self.assertEqual(
             candidate["run_start_input_policy"]["code_import_execution"], "not_performed"
         )
