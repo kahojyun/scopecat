@@ -42,7 +42,8 @@ In scope:
 - same-family or selected-reference comparison findings;
 - reviewable context changes;
 - readiness or status summaries;
-- external materialization or compatibility outputs after review.
+- selected parameter-state snapshots as parameter context;
+- explicit attachment/debug artifact references when a user supplies them.
 
 Out of scope:
 
@@ -51,8 +52,18 @@ Out of scope:
 - final relation graph, recursive traversal, or analysis-DAG inference;
 - final shared context schema or storage model;
 - domain-specific payload interpretation unless a slice earns it;
+- generated compatibility files or objects as normal measurement context when
+  a selected managed parameter-state snapshot already records the parameter
+  context;
 - hardware write-back, dependency sync, code import, code execution, notebook
   execution, managed runners, or GUI ownership.
+
+Generated compatibility files, adapter requests, adapter receipts, stdout,
+stderr, and adapter diagnostics are derivative operational artifacts by
+default. They should enter this backlog only through a generic
+debug/attachment route, or when a later accepted decision says a specific
+artifact family has become real context. The active parameter route should
+prefer the managed parameter-state snapshot as the canonical context.
 
 ## Choosing A Validation Slice
 
@@ -99,6 +110,8 @@ models?
 
 Applies to: parameter state, setup binding, code context, environment context,
 analysis choices, artifacts, attachments, and selected-reference packages.
+Derivative compatibility artifacts apply only when explicitly supplied as
+debug/attachment evidence; they are not implied by selecting parameter state.
 
 First fixture: a measurement or step with explicit context links, family names,
 roles, include state, and missing or unavailable context findings.

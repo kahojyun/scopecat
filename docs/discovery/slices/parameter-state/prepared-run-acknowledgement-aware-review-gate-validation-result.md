@@ -64,10 +64,10 @@ behavior.
 ## Remaining Questions
 
 - Should a GUI/view-state projection expose the operator decision surface next?
-- Should compatibility-output planning require this review state plus an
-  explicit operator approval?
 - Should later review-gate consolidation replace the older separate
   parameter/scope input shape with this acknowledgement-aware shape?
+- If generated compatibility artifacts need troubleshooting, should they enter
+  as generic debug/attachment evidence rather than parameter context?
 
 ## Not Earned
 
@@ -94,4 +94,5 @@ This validation does not earn:
 Stop this slice at operator-decision readiness. The next useful work is either
 a GUI/view-state projection for the acknowledged manual pre-run decision or an
 explicit operator approval slice that remains separate from automatic run
-start.
+start. Compatibility output is not the default follow-up; the selected
+parameter-state snapshot remains the canonical parameter context.

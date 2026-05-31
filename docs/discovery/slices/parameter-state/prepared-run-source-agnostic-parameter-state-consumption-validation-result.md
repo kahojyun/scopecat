@@ -77,8 +77,8 @@ behavior.
   source-agnostic composition next?
 - Should scope alignment treat calibration-derived source kind differently, or
   remain based only on lineage target scope and setup binding facts?
-- Should compatibility-output planning start from this prepared-run
-  composition or from committed parameter-state summaries only?
+- Should generated compatibility artifacts stay outside this prepared-run
+  context route unless supplied as debug/attachment evidence?
 - Should a later GUI surface expose typed provenance inline or only as linked
   detail?
 

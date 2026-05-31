@@ -68,8 +68,8 @@ behavior.
   summary when deciding whether manual review is clear?
 - Should GUI/view-state projection expose acknowledgement controls for partial
   target coverage?
-- Should compatibility-output planning wait for this acknowledgement plus
-  broader manual pre-run review?
+- Should generated compatibility artifacts remain optional debug/attachment
+  evidence after acknowledgement and manual pre-run review?
 
 ## Not Earned
 

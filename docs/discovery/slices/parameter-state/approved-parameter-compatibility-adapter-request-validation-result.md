@@ -2,11 +2,18 @@
 
 ## Status
 
-Implementation candidate validated.
+Exploratory implementation candidate validated.
 
 This is not an ADR, compatibility-output writer, adapter execution contract,
 hardware-control contract, parameter write-back contract, durable storage
 contract, GUI design, managed runner, or stable public adapter API.
+
+Boundary clarification:
+[`parameter-compatibility-artifacts-boundary-clarification.md`](parameter-compatibility-artifacts-boundary-clarification.md)
+supersedes this slice as active route guidance. The managed parameter-state
+snapshot is the canonical run context; this adapter-request slice remains
+historical/exploratory evidence for optional derivative debug or handoff
+artifacts, not a required Scopecat workflow.
 
 ## Inputs
 
@@ -61,12 +68,12 @@ behavior.
 
 ## Remaining Questions
 
-- Should the next slice validate an adapter-authored compatibility-output
-  manifest/receipt, analogous to adapter-authored import preview?
-- Should adapter request transport be a file handoff, CLI invocation contract,
-  or SDK object later?
-- Should compatibility output materialization be modeled as adapter-owned and
-  only observed by Scopecat after the fact?
+- Should generic debug/attachment evidence be enough for real compatibility
+  artifact troubleshooting?
+- Should adapter request transport remain unmodeled until multiple real
+  adapters need the same handoff contract?
+- Should compatibility output materialization stay adapter/user owned and
+  outside core Scopecat context by default?
 
 ## Not Earned
 
@@ -90,7 +97,8 @@ This validation does not earn:
 
 ## Slice Recommendation
 
-Stop this slice at the adapter input request. The next useful slice is an
-adapter-authored compatibility-output preview or receipt that validates what a
-user adapter declares it produced without making Scopecat core parse or write
-the lab-specific external format.
+Stop this slice as exploratory evidence. Do not continue the compatibility
+route as the active core path. Prefer recording the selected parameter-state
+snapshot as run context; if users explicitly supply generated compatibility
+artifacts, treat them as optional debug/attachment evidence until real workflow
+pressure justifies a stable adapter handoff.

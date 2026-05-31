@@ -2,12 +2,19 @@
 
 ## Status
 
-Implementation candidate validated.
+Exploratory implementation candidate validated.
 
 This is not an ADR, compatibility-output writer, adapter execution contract,
 file-observation contract, hardware-control contract, parameter write-back
 contract, durable storage contract, GUI design, managed runner, or stable
 public adapter API.
+
+Boundary clarification:
+[`parameter-compatibility-artifacts-boundary-clarification.md`](parameter-compatibility-artifacts-boundary-clarification.md)
+supersedes this slice as active route guidance. The managed parameter-state
+snapshot is the canonical run context; adapter-authored compatibility output
+manifests remain optional derivative debug/handoff evidence, not required
+measurement context and not a Scopecat-owned compatibility-output workflow.
 
 ## Inputs
 
@@ -66,12 +73,12 @@ behavior.
 
 ## Remaining Questions
 
-- Should a later file-observation slice validate adapter-declared digest/size
-  facts against an explicit external root?
-- Should adapter-authored compatibility output become an input to measurement
-  context links as a reference-only artifact?
-- Should any durable recording of this preview wait until the measurement/run
-  execution route is modeled?
+- Should users record these artifacts through a generic debug/attachment route
+  instead of compatibility-specific APIs?
+- Should file observation wait until users need to audit a generated artifact
+  independently of the selected parameter-state snapshot?
+- Should any durable recording of derivative compatibility artifacts remain
+  outside the parameter-state route until real workflow pressure demands it?
 
 ## Not Earned
 
@@ -94,7 +101,8 @@ This validation does not earn:
 
 ## Slice Recommendation
 
-Stop this slice at adapter-authored output preview. The next useful slice is
-either explicit external file observation of adapter-declared output facts, or
-a reference-only measurement context link that records the adapter-declared
-compatibility output without importing or owning the external file.
+Stop this slice as exploratory evidence. Do not add measurement-context links
+or file-observation slices for compatibility output by default. The active
+route should use the selected parameter-state snapshot as parameter context and
+record derivative compatibility artifacts only as optional debug/attachment
+evidence when explicitly supplied.

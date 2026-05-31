@@ -60,11 +60,13 @@ behavior.
 
 ## Remaining Questions
 
-- Should compatibility-output planning require an approved operator decision?
 - Should a GUI/view-state projection present the review and decision record
   together before any execution workflow exists?
 - Should durable approval storage be a separate mutation slice, or remain
   outside the current discovery route until run execution is modeled?
+- If users supply generated compatibility artifacts for troubleshooting, should
+  a generic debug/attachment route record them without making them parameter
+  context?
 
 ## Not Earned
 
@@ -91,5 +93,8 @@ This validation does not earn:
 ## Slice Recommendation
 
 Stop this slice at the local operator decision record. The next useful slice is
-either compatibility-output planning gated by this approval or a GUI/view-state
-projection that presents the review plus approval status without executing it.
+a GUI/view-state projection that presents the review plus approval status
+without executing it. Compatibility output should not be the default next route:
+the selected parameter-state snapshot is the parameter context, and generated
+compatibility artifacts should remain optional debug/attachment evidence unless
+real workflow pressure proves otherwise.

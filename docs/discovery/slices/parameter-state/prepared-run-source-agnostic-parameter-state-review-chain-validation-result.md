@@ -74,7 +74,8 @@ behavior.
   manual review is considered clear?
 - Should GUI/view-state projection expose gate and scope review together for
   source-agnostic parameter states?
-- Should compatibility-output planning wait until after manual pre-run review?
+- Should generated compatibility artifacts remain optional debug/attachment
+  evidence rather than follow directly from manual pre-run review?
 
 ## Not Earned
 

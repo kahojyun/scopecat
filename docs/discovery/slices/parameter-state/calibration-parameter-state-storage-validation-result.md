@@ -71,8 +71,8 @@ behavior.
 - Should the existing parameter-state read view accept calibration-derived
   provenance, or should a separate source-agnostic read view be validated
   first?
-- Should compatibility-output planning from a stored calibration-derived state
-  remain generic parameter-state post-commit work?
+- Should generated compatibility artifacts remain outside stored parameter
+  state unless supplied as debug/attachment evidence?
 - Should hardware apply recording wait until a separate hardware-control
   authority boundary exists?
 

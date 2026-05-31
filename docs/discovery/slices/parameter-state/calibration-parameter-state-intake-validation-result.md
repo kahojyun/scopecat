@@ -67,8 +67,8 @@ behavior.
 
 - Should parameter-state storage writer consume this managed summary directly,
   or should a later route workflow add approval and storage request facts?
-- Should compatibility-output planning from calibration-derived committed
-  states remain a generic parameter-state post-commit slice?
+- Should generated compatibility artifacts remain outside calibration-derived
+  parameter-state intake unless supplied as debug/attachment evidence?
 - Should later review surfaces display calibration evidence inline or only as
   provenance links?
 - Should hardware apply recording wait until a separate hardware-control

@@ -76,8 +76,8 @@ behavior.
   surface?
 - Should a storage catalog/index discover explicit read references for this
   view?
-- Should compatibility-output planning consume this source-agnostic read view
-  or continue to start from accepted committed parameter-state summaries?
+- Should generated compatibility artifacts remain outside this read view unless
+  supplied as debug/attachment evidence?
 - Should prepared-run parameter-state consumption switch from the adapter-only
   read view to this source-agnostic read view?
 
