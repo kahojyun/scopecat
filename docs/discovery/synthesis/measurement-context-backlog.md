@@ -150,6 +150,15 @@ for ordinary attachments, importing payloads, observing files, validating
 checksums, generating artifacts, inferring analysis DAGs, judging fit quality,
 deciding measurement validity, or producing export/package behavior.
 
+First supporting-artifact observation result:
+[`supporting-artifact-observation-validation-result.md`](../slices/measurement-context/supporting-artifact-observation-validation-result.md)
+validates the subcase where an artifact-labeled supporting evidence reference
+with prior provenance is checked for file availability, sha256, and byte size
+under a caller-provided artifact root without importing payloads, parsing
+artifacts, generating previews, observing source payloads, mutating storage,
+generating artifacts, inferring analysis DAGs, validating fits, deciding
+measurement validity, or producing export/package behavior.
+
 First running-record evidence result:
 [`running-record-supporting-evidence-update-validation-result.md`](../slices/measurement-context/running-record-supporting-evidence-update-validation-result.md)
 validates the subcase where explicit during-run supporting evidence is attached
