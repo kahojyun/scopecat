@@ -196,3 +196,14 @@ one local no-overwrite receipt, and projects a compact continuation summary.
 The saved receipt is a local continuation note only: it does not resolve
 findings, approve import, approve refresh, grant retry authority, mutate
 records, or persist canonical GUI review state.
+
+The CLI can summarize a saved operator-review receipt:
+
+```sh
+python -m scopecat.measurement_records operator-review-receipt-summary \
+  --receipt-path ./storage/operator-reviews/review-001.json
+```
+
+This command reads one caller-declared receipt JSON and prints the compact
+continuation summary. It does not reopen records, re-run review, grant retry
+authority, approve refresh/import, mutate storage, or persist GUI state.

@@ -11,6 +11,7 @@ from scopecat.measurement_records.operator_review import (
     MeasurementRecordOperatorReviewRequest,
     review_measurement_records,
     review_measurement_records_from_request,
+    summarize_measurement_record_operator_review_receipt,
 )
 from scopecat.measurement_records.running_inspection import (
     MeasurementRecordRunningInspectionRequest,
@@ -70,6 +71,13 @@ def _operator_review(args: argparse.Namespace) -> dict[str, object]:
     ).to_dict()
 
 
+def _operator_review_receipt_summary(args: argparse.Namespace) -> dict[str, object]:
+    receipt = json.loads(args.receipt_path.read_text(encoding="utf-8"))
+    if not isinstance(receipt, dict):
+        raise ValueError("operator review receipt JSON must be an object")
+    return summarize_measurement_record_operator_review_receipt(receipt)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m scopecat.measurement_records",
@@ -127,6 +135,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     review_parser.add_argument("--preview-row-limit", type=int, default=5)
     review_parser.add_argument("--latest-row-limit", type=int, default=3)
 
+    receipt_parser = subparsers.add_parser(
+        "operator-review-receipt-summary",
+        help="Print a compact summary for a saved operator-review receipt.",
+    )
+    receipt_parser.add_argument("--receipt-path", type=Path, required=True)
+
     args = parser.parse_args(argv)
     if args.command == "running-inspection-summary":
         payload = _running_inspection_summary(args)
@@ -145,6 +159,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "with --running-record-id"
             )
         payload = _operator_review(args)
+    elif args.command == "operator-review-receipt-summary":
+        payload = _operator_review_receipt_summary(args)
     else:  # pragma: no cover - argparse enforces known commands.
         parser.error("unsupported command")
     print(json.dumps(payload, indent=2, sort_keys=True))

@@ -702,3 +702,10 @@ workflow authority. It does not resolve findings, approve import, approve
 read-model refresh, grant retry authority, mutate measurement records, replace
 manifests, finalize lifecycle state, define canonical review state, or persist
 GUI-owned review state.
+
+The module also exposes
+`python -m scopecat.measurement_records operator-review-receipt-summary` as a
+read-only smoke CLI over one caller-declared saved receipt. It validates the
+receipt schema and prints the compact continuation summary, without reopening
+records, re-running review, granting retry authority, approving refresh/import,
+mutating storage, or persisting GUI state.

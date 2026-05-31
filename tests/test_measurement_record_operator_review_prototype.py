@@ -617,6 +617,49 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
         self.assertEqual(save_run.classification, "blocked_before_operator_review_receipt")
         self.assertIn("already exists", save_run.save_error or "")
 
+    def test_operator_review_receipt_summary_cli_prints_continuation_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            _populate_projected_record(storage_root, content_root)
+            review_run = review_measurement_records_from_request(
+                _operator_request(),
+                storage_root=storage_root,
+            )
+            save_run = save_measurement_record_operator_review_receipt(
+                _receipt_request(),
+                operator_review=review_run,
+                storage_root=storage_root,
+            )
+            if not save_run.saved:
+                raise AssertionError(save_run.to_dict())
+            receipt_path = storage_root / "operator-reviews" / "review-001.json"
+
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                exit_code = measurement_records_main(
+                    [
+                        "operator-review-receipt-summary",
+                        "--receipt-path",
+                        str(receipt_path),
+                    ]
+                )
+            payload = json.loads(stdout.getvalue())
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(
+            payload["summary_schema"],
+            "scopecat.measurement_record_operator_review_receipt_summary.v0",
+        )
+        self.assertEqual(payload["operator_review"]["selected_record_id"], "run-3101-rabi")
+        self.assertEqual(
+            payload["receipt"]["operator_disposition"],
+            "recorded_for_continuation",
+        )
+        self.assertIn("continuation_authority", payload["summary_policy"])
+
 
 if __name__ == "__main__":
     unittest.main()
