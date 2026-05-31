@@ -1,0 +1,145 @@
+{
+  "artifact_provenance_policy": {
+    "provenance_authority": "explicit_supporting_artifact_provenance_manifest",
+    "provenance_posture": "declared_source_links_for_supporting_artifact",
+    "input_source": "supporting_evidence_reference_summary",
+    "requires_supporting_evidence_kind": "artifact",
+    "source_link_scope": "direct_declared_sources_only",
+    "payload_import": "not_performed",
+    "artifact_file_observation": "not_performed",
+    "source_payload_observation": "not_performed",
+    "checksum_validation": "not_performed",
+    "storage_mutation": "not_performed",
+    "artifact_generation": "not_performed",
+    "recursive_relation_traversal": "not_performed",
+    "analysis_dag_inference": "not_performed",
+    "fit_validation": "not_performed",
+    "measurement_validity": "not_claimed",
+    "portable_public_export": "not_declared",
+    "gui_workflow": "not_defined",
+    "shared_artifact_schema": "not_defined"
+  },
+  "supporting_evidence_summary": {
+    "supporting_evidence_policy": {
+      "reference_authority": "explicit_supporting_evidence_manifest",
+      "evidence_posture": "supporting_evidence_reference",
+      "evidence_context_role": "supporting_evidence_not_canonical_context",
+      "evidence_kind_handling": "attachment_or_artifact_label_only",
+      "artifact_provenance": "not_required_without_artifact_provenance_slice",
+      "payload_import": "not_performed",
+      "file_observation": "not_performed",
+      "evidence_parsing": "not_performed",
+      "checksum_validation": "not_performed",
+      "storage_mutation": "not_performed",
+      "preview_generation": "not_performed",
+      "external_file_authority": "not_claimed",
+      "recursive_relation_traversal": "not_performed",
+      "measurement_validity": "not_claimed",
+      "portable_public_export": "not_declared",
+      "gui_workflow": "not_defined",
+      "shared_attachment_schema": "not_defined"
+    },
+    "evidence": {
+      "evidence_id": "evidence-rabi-fit-review-artifact-0042",
+      "label": "Rabi fit review artifact",
+      "evidence_kind": "artifact",
+      "content_kind": "review_bundle",
+      "purpose": "review_evidence",
+      "lifecycle_stage": "post_run_review",
+      "supplied_by": "user_supplied",
+      "declared_reference": {
+        "kind": "package_relative_path",
+        "value": "artifacts/rabi-fit-review.json",
+        "authority": "explicit_supporting_evidence_manifest",
+        "reference_state": "declared_available",
+        "reason": null
+      },
+      "notes": "Synthetic review bundle emitted by a user-owned analysis script."
+    },
+    "related_target_count": 1,
+    "target_type_counts": {
+      "measurement": 1
+    },
+    "target_state_counts": {
+      "resolved": 1
+    },
+    "classification": "ready_for_supporting_evidence_review",
+    "supporting_links": [
+      {
+        "evidence_id": "evidence-rabi-fit-review-artifact-0042",
+        "evidence_kind": "artifact",
+        "evidence_purpose": "review_evidence",
+        "evidence_lifecycle_stage": "post_run_review",
+        "target_type": "measurement",
+        "target_id": "measurement-rabi-0042",
+        "label": "Completed Rabi measurement",
+        "relation": "supports_review_of",
+        "authority": "explicit_supporting_evidence_manifest",
+        "target_state": "resolved",
+        "reason": null
+      }
+    ],
+    "reference_findings": [],
+    "attention": [
+      {
+        "code": "evidence_kind_is_label_only",
+        "severity": "info",
+        "basis": "Attachment or artifact kind labels do not create attachment payload or artifact provenance semantics.",
+        "does_not_claim": "artifact_provenance_complete"
+      }
+    ]
+  },
+  "artifact_identity": {
+    "artifact_id": "evidence-rabi-fit-review-artifact-0042",
+    "evidence_id": "evidence-rabi-fit-review-artifact-0042",
+    "label": "Rabi fit review artifact",
+    "declared_reference": {
+      "kind": "package_relative_path",
+      "value": "artifacts/rabi-fit-review.json",
+      "authority": "explicit_supporting_evidence_manifest",
+      "reference_state": "declared_available",
+      "reason": null
+    },
+    "authority": "explicit_supporting_artifact_provenance_manifest"
+  },
+  "producer": {
+    "producer_kind": "analysis_script",
+    "producer_id": "analysis-script-rabi-fit-review-v1",
+    "label": "Rabi fit review script",
+    "authority": "explicit_supporting_artifact_provenance_manifest",
+    "execution_state": "declared_completed",
+    "reason": null
+  },
+  "source_links": [
+    {
+      "source_type": "measurement_record",
+      "source_id": "measurement-rabi-0042",
+      "label": "Completed Rabi measurement",
+      "source_role": "primary_input",
+      "relation": "derived_from",
+      "authority": "explicit_supporting_artifact_provenance_manifest",
+      "source_state": "declared_available",
+      "reason": null
+    },
+    {
+      "source_type": "parameter_state",
+      "source_id": "parameter-state-rabi-accepted-0042",
+      "label": "Accepted Rabi parameter state",
+      "source_role": "parameter_context",
+      "relation": "uses_context",
+      "authority": "explicit_supporting_artifact_provenance_manifest",
+      "source_state": "declared_available",
+      "reason": null
+    },
+    {
+      "source_type": "calibration_step",
+      "source_id": "calibration-step-rabi-recovery-0042",
+      "label": "Rabi recovery calibration step",
+      "source_role": "calibration_context",
+      "relation": "uses_context",
+      "authority": "explicit_supporting_artifact_provenance_manifest",
+      "source_state": "unavailable",
+      "reason": "The recovery step was discussed but no calibration-step record was supplied with this review artifact."
+    }
+  ]
+}

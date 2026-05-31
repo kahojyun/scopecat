@@ -142,6 +142,14 @@ canonical context authority, and artifact provenance. Supporting evidence
 references are lifecycle explicit; during-run diagnostic evidence should not be
 implied by run-start context review.
 
+First supporting-artifact provenance result:
+[`supporting-artifact-provenance-validation-result.md`](../slices/measurement-context/supporting-artifact-provenance-validation-result.md)
+validates the subcase where artifact-labeled supporting evidence carries
+declared direct producer and source links without making provenance required
+for ordinary attachments, importing payloads, observing files, validating
+checksums, generating artifacts, inferring analysis DAGs, judging fit quality,
+deciding measurement validity, or producing export/package behavior.
+
 First running-record evidence result:
 [`running-record-supporting-evidence-update-validation-result.md`](../slices/measurement-context/running-record-supporting-evidence-update-validation-result.md)
 validates the subcase where explicit during-run supporting evidence is attached
