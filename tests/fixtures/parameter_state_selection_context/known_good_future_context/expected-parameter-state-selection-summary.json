@@ -1,0 +1,114 @@
+{
+  "source_fixture": "parameter-state-selection-input.json",
+  "status": "fixture_validated",
+  "summary_policy": "internal_validation_summary",
+  "reference_semantics": {
+    "contract_guard": "This expected output is not a final parameter schema, rollback model, branch model, tag model, commit model, hardware write-back contract, run executor, GUI contract, or shared domain model.",
+    "selection_model": "A parameter state selection is a context input reference, not a special known-good lifecycle object.",
+    "intent_label": "The known-good or reuse wording is carried as scenario semantics for review, not as generic model behavior.",
+    "side_effect_boundary": "Selecting a previous parameter state for future context does not write hardware, claim current instrument state, or mutate state as rollback."
+  },
+  "candidate_summary": {
+    "policy": {
+      "parameter_authority": "scopecat_parameter_state",
+      "selection_role": "context_input_reference",
+      "selection_intent_semantics": "scenario_label_not_lifecycle",
+      "hardware_write_back": "not_performed",
+      "current_hardware_state_claim": "not_claimed",
+      "rollback_mutation": "not_performed",
+      "branch_tag_commit_semantics": "not_claimed"
+    },
+    "lineages": [
+      {
+        "lineage_id": "lineage-qA-default-bias",
+        "lineage_label": "qA default bias calibration",
+        "lineage_purpose": "working_point",
+        "target_scope": [
+          "sample-alpha",
+          "qA",
+          "default_bias"
+        ]
+      }
+    ],
+    "selection_contexts": [
+      {
+        "context_id": "future-context-qA-rabi-0001",
+        "context_kind": "future_run_preparation",
+        "context_label": "qA Rabi confirmation preparation",
+        "lineage_id": "lineage-qA-default-bias",
+        "required_selected_state": "committed_trusted_for_declared_scope",
+        "target_scope": [
+          "sample-alpha",
+          "qA",
+          "default_bias"
+        ],
+        "context_state": "preparation_reference_selected"
+      }
+    ],
+    "selected_states": [
+      {
+        "state_id": "param-state-0002",
+        "lineage_id": "lineage-qA-default-bias",
+        "state_label": "qA default bias after Rabi review",
+        "state_kind": "committed_snapshot",
+        "readiness": "partially_calibrated",
+        "trust_status": "trusted_for_declared_scope",
+        "accepted_review_id": "review-change-0001",
+        "trusted_entry_count": 3,
+        "entry_count": 3
+      }
+    ],
+    "parameter_state_selections": [
+      {
+        "selection_id": "parameter-selection-0001",
+        "context_id": "future-context-qA-rabi-0001",
+        "context_kind": "future_run_preparation",
+        "selected_state_id": "param-state-0002",
+        "selected_state_label": "qA default bias after Rabi review",
+        "selected_state_readiness": "partially_calibrated",
+        "selected_state_trust_status": "trusted_for_declared_scope",
+        "selection_status": "selected_for_context",
+        "selection_intent_label": "reuse_previous_working_state",
+        "intent_role": "scenario_label_not_lifecycle",
+        "selection_reason": "Use the last reviewed trusted state before the exploratory high-power attempt.",
+        "selected_at": "2026-05-22T09:45:00",
+        "selected_by_role": "experimenter",
+        "side_effects": {
+          "hardware_write_back": "not_performed",
+          "current_hardware_state_claim": "not_claimed",
+          "rollback_mutation": "not_performed"
+        }
+      }
+    ],
+    "review_findings": [
+      {
+        "selection_id": "parameter-selection-0001",
+        "kind": "intent_label_is_scenario_semantics",
+        "reason": "selection intent is carried for review but does not define a special lifecycle model"
+      },
+      {
+        "selection_id": "parameter-selection-0001",
+        "kind": "context_requirement_satisfied",
+        "selected_state_id": "param-state-0002",
+        "required_selected_state": "committed_trusted_for_declared_scope"
+      }
+    ]
+  },
+  "boundary_notes": [
+    "The generic shape is selected parameter state plus context input reference.",
+    "Known-good or reuse wording is fixture scenario semantics, not a general parameter-state lifecycle.",
+    "The context declares that the selected state must be a committed trusted state; that requirement is context-owned.",
+    "Selection does not write parameters, mutate hardware, claim current instrument state, execute a future run, or perform rollback.",
+    "The summary is an internal validation artifact, not a portable/public export."
+  ],
+  "decisions_not_earned": [
+    "final parameter schema",
+    "rollback model",
+    "branch/tag/commit semantics",
+    "hardware write-back",
+    "instrument state tracking",
+    "run execution",
+    "GUI design",
+    "shared domain model extraction"
+  ]
+}

@@ -1,0 +1,128 @@
+{
+  "fixture_id": "parameter-state-selection-known-good-future-context",
+  "fixture_status": "synthetic_public_safe",
+  "fixture_layer": "parameter_state_selection_context_fixture",
+  "user_job": "Select a previous committed parameter state as an input reference for future run preparation after an exploratory tuning state, without treating the selection as hardware rollback or a special known-good lifecycle model.",
+  "source_research_notes": [
+    "<sample>/_research/parameter-files-and-artifacts.md",
+    "<sample>/_research/parameter-mutation-workflows.md",
+    "<sample>/_research/parameter-lineage-schema-pressure.md"
+  ],
+  "parameter_state_selection_policy": {
+    "parameter_authority": "scopecat_parameter_state",
+    "selection_role": "context_input_reference",
+    "selection_intent_semantics": "scenario_label_not_lifecycle",
+    "hardware_write_back": "not_performed",
+    "current_hardware_state_claim": "not_claimed",
+    "rollback_mutation": "not_performed",
+    "branch_tag_commit_semantics": "not_claimed"
+  },
+  "lineages": [
+    {
+      "lineage_id": "lineage-qA-default-bias",
+      "lineage_label": "qA default bias calibration",
+      "lineage_purpose": "working_point",
+      "target_scope": [
+        "sample-alpha",
+        "qA",
+        "default_bias"
+      ]
+    }
+  ],
+  "parameter_states": [
+    {
+      "state_id": "param-state-0002",
+      "lineage_id": "lineage-qA-default-bias",
+      "state_label": "qA default bias after Rabi review",
+      "state_kind": "committed_snapshot",
+      "readiness": "partially_calibrated",
+      "trust_status": "trusted_for_declared_scope",
+      "accepted_review_id": "review-change-0001",
+      "trusted_entry_paths": [
+        "qubits.qA.drive_frequency_hz",
+        "qubits.qA.pi_amp",
+        "readout.qA.discrimination_threshold"
+      ],
+      "entries": [
+        {
+          "path": "qubits.qA.drive_frequency_hz",
+          "label": "qA drive frequency",
+          "value": 5012500000,
+          "unit": "Hz",
+          "trust": "review_accepted"
+        },
+        {
+          "path": "qubits.qA.pi_amp",
+          "label": "qA pi pulse amplitude",
+          "value": 0.42,
+          "unit": "arb",
+          "trust": "review_accepted"
+        },
+        {
+          "path": "readout.qA.discrimination_threshold",
+          "label": "qA discrimination threshold",
+          "value": 0.17,
+          "unit": "arb",
+          "trust": "review_accepted"
+        }
+      ]
+    },
+    {
+      "state_id": "param-state-0003",
+      "lineage_id": "lineage-qA-default-bias",
+      "state_label": "qA exploratory high-power Rabi attempt",
+      "state_kind": "committed_snapshot",
+      "readiness": "exploratory",
+      "trust_status": "exploratory_not_trusted",
+      "accepted_review_id": "review-change-0002",
+      "trusted_entry_paths": [],
+      "entries": [
+        {
+          "path": "qubits.qA.drive_frequency_hz",
+          "label": "qA drive frequency",
+          "value": 5016000000,
+          "unit": "Hz",
+          "trust": "exploratory"
+        },
+        {
+          "path": "qubits.qA.pi_amp",
+          "label": "qA pi pulse amplitude",
+          "value": 0.5,
+          "unit": "arb",
+          "trust": "exploratory"
+        }
+      ]
+    }
+  ],
+  "selection_contexts": [
+    {
+      "context_id": "future-context-qA-rabi-0001",
+      "context_kind": "future_run_preparation",
+      "context_label": "qA Rabi confirmation preparation",
+      "lineage_id": "lineage-qA-default-bias",
+      "target_scope": [
+        "sample-alpha",
+        "qA",
+        "default_bias"
+      ],
+      "required_selected_state": "committed_trusted_for_declared_scope",
+      "context_state": "preparation_reference_selected",
+      "note": "The context needs a parameter state input reference before a future measurement can be prepared."
+    }
+  ],
+  "parameter_state_selections": [
+    {
+      "selection_id": "parameter-selection-0001",
+      "context_id": "future-context-qA-rabi-0001",
+      "selected_state_id": "param-state-0002",
+      "selection_status": "selected_for_context",
+      "selection_intent_label": "reuse_previous_working_state",
+      "selection_reason": "Use the last reviewed trusted state before the exploratory high-power attempt.",
+      "selected_at": "2026-05-22T09:45:00",
+      "selected_by_role": "experimenter",
+      "hardware_write_back": "not_performed",
+      "current_hardware_state_claim": "not_claimed",
+      "rollback_mutation": "not_performed"
+    }
+  ]
+}

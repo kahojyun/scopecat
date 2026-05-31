@@ -108,6 +108,9 @@ The candidate summary can answer:
   before accepting stronger readiness, drift, write-back, or compatibility
   claims?
 - How should rollback-like selection work without implying hardware mutation?
+  A later context-selection slice validates the generic selection-as-input
+  boundary in
+  [`parameter-state-selection-context-validation-result.md`](parameter-state-selection-context-validation-result.md).
 
 ## Not Earned
 
@@ -137,6 +140,7 @@ Likely follow-up slices should stay separate:
 - rendered trusted-state drift or history views from an accepted projection;
 - reviewable parameter-write records and compatibility-file output without
   applying changes to hardware;
-- rollback-like selection semantics without hardware mutation;
+- run-preparation or GUI consumption of selected parameter-state references
+  without redefining rollback or known-good semantics;
 - setup-binding interaction pressure when wiring changes imply parameter
   retuning, while keeping setup truth and parameter authority separate.
