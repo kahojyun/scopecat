@@ -56,8 +56,9 @@ The candidate summary can answer:
 
 ## Remaining Questions
 
-- Should a broader prepared-run gate compose parameter gate, scope alignment,
-  workspace findings, and environment findings?
+- Should the validated
+  [`prepared-run-review-gate`](prepared-run-review-gate-validation-result.md)
+  be followed by a user acknowledgement slice or a GUI/view-state projection?
 - Should user acknowledgement of partial target coverage be represented as a
   local review decision?
 - Should setup-binding generated views become a separate alignment input, or

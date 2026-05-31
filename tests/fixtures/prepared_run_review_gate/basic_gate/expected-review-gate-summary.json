@@ -1,0 +1,183 @@
+{
+  "candidate_summary": {
+    "aggregated_review_findings": [
+      {
+        "basis": "No reviewed declared environment record exists for this fixture.",
+        "code": "required_context_unavailable",
+        "does_not_claim": "run_is_blocked_or_unsafe",
+        "severity": "review",
+        "source_area": "required_context"
+      },
+      {
+        "basis": {
+          "changed_observed": 1,
+          "missing_expected": 1
+        },
+        "code": "workspace_observation_has_review_findings",
+        "does_not_claim": "run_is_blocked_or_workspace_is_unusable",
+        "severity": "review",
+        "source_area": "workspace"
+      },
+      {
+        "basis": {
+          "covered_targets": [
+            "qA"
+          ],
+          "missing_targets": [
+            "cAB"
+          ]
+        },
+        "code": "parameter_lineage_partial_target_coverage",
+        "does_not_claim": "automatic_parameter_invalidation_or_run_blocking",
+        "severity": "review",
+        "source_area": "scope_alignment"
+      },
+      {
+        "basis": "External driver remains a control-PC review item, not a Python dependency.",
+        "code": "check_review_required",
+        "does_not_claim": "external_tool_available_or_compatible",
+        "severity": "review",
+        "source_area": "environment"
+      }
+    ],
+    "attention": [
+      {
+        "basis": "The gate composes prior review summaries into one manual pre-run review state.",
+        "code": "manual_review_gate_only",
+        "does_not_claim": "run_can_start_or_hardware_safe",
+        "severity": "info"
+      },
+      {
+        "basis": "The gate does not inspect files, storage, environments, runtimes, or hardware.",
+        "code": "no_fresh_observation_or_operation",
+        "does_not_claim": "fresh_readiness_or_integrity_check",
+        "severity": "review"
+      },
+      {
+        "basis": "The gate does not apply selected parameter values.",
+        "code": "parameter_write_back_not_performed",
+        "does_not_claim": "parameter_application",
+        "severity": "review"
+      },
+      {
+        "basis": "The gate does not import code, sync dependencies, or start a run.",
+        "code": "execution_not_granted",
+        "does_not_claim": "execution_permission",
+        "severity": "review"
+      }
+    ],
+    "gate_decision": {
+      "code_import_execution": "not_performed",
+      "environment_operation": "not_performed",
+      "hardware_control": "not_performed",
+      "overall_state": "blocked_by_required_context",
+      "parameter_write_back": "not_performed",
+      "recommended_action": "repair_required_context_before_manual_pre_run_review",
+      "run_start_claim": "not_claimed"
+    },
+    "prepared_run_context": {
+      "context_ref_count": 7,
+      "label": "qA chevron manual run context",
+      "manual_run_target": {
+        "entrypoint_hint": "readout_calibration_entrypoint.py",
+        "experiment_label": "qA chevron follow-up",
+        "logical_targets": [
+          "qA",
+          "cAB"
+        ],
+        "measurement_id": "measurement-05001",
+        "prepared_at": "2026-05-23T10:35:00Z"
+      },
+      "preparation_claim": "manual_run_context_summary_only",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+      "required_context_count": 7,
+      "selected_context_count": 6,
+      "unavailable_required_context_count": 1
+    },
+    "review_gate_policy": {
+      "automatic_run_start": "not_performed",
+      "catalog_discovery": "not_performed",
+      "code_import_execution": "not_performed",
+      "dependency_resolution": "not_performed",
+      "dependency_sync": "not_performed",
+      "environment_operation": "not_performed",
+      "fresh_storage_read": "not_performed",
+      "gate_authority": "explicit_prepared_run_review_composition",
+      "gui_workflow": "not_defined",
+      "hardware_control": "not_performed",
+      "input_sources": "explicit_prior_review_summaries",
+      "package_install": "not_performed",
+      "parameter_write_back": "not_performed",
+      "readiness_claim": "manual_review_state_only",
+      "review_scope": "manual_pre_run_context_review",
+      "runtime_probe": "not_performed",
+      "shared_gate_schema": "not_defined",
+      "workspace_mutation": "not_performed"
+    },
+    "review_gate_request": {
+      "measurement_id": "measurement-05001",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+      "review_gate_id": "prepared-run-review-gate-0001"
+    },
+    "review_items": [
+      {
+        "area": "required_context",
+        "finding_count": 1,
+        "reason_codes": [
+          "required_context_unavailable"
+        ],
+        "state": "blocked_by_required_context"
+      },
+      {
+        "area": "parameter_state",
+        "finding_count": 0,
+        "reason_codes": [],
+        "state": "ready_for_manual_review"
+      },
+      {
+        "area": "scope_alignment",
+        "finding_count": 1,
+        "reason_codes": [
+          "parameter_lineage_partial_target_coverage"
+        ],
+        "state": "needs_scope_review"
+      },
+      {
+        "area": "workspace",
+        "finding_count": 1,
+        "reason_codes": [
+          "workspace_observation_has_review_findings"
+        ],
+        "state": "needs_workspace_review"
+      },
+      {
+        "area": "environment",
+        "finding_count": 1,
+        "reason_codes": [
+          "check_review_required"
+        ],
+        "state": "needs_environment_review"
+      }
+    ]
+  },
+  "decisions_not_earned": [
+    "run-start permission",
+    "hardware safety or current instrument state",
+    "parameter write-back",
+    "dependency resolution or sync",
+    "package installation",
+    "runtime probing",
+    "fresh storage or workspace observation",
+    "workspace mutation",
+    "code import or execution",
+    "managed runner",
+    "GUI workflow",
+    "shared gate schema"
+  ],
+  "fixture_id": "prepared-run-review-gate-basic",
+  "reference_semantics": {
+    "candidate": "prepared_run_review_gate",
+    "contract_guard": "manual pre-run review composition over explicit prior summaries; not run start, hardware control, parameter write-back, dependency sync, fresh observation, execution, GUI, or shared gate schema"
+  },
+  "summary_policy": "internal_validation_summary"
+}
