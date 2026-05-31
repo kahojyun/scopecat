@@ -74,6 +74,9 @@ fixture input only. It validates:
 - exact operator-review policy/non-claim posture before projecting real review
   output;
 - real saved-receipt summary normalization into the compact inbox input shape;
+- private minimal boundary helpers for saved review summaries, review-only next
+  actions, and review finding references, without extracting a shared
+  Measurement Record domain model;
 - public-safe workspace, record, receipt, and finding identifiers;
 - relative record and receipt paths;
 - unique visible record ids and receipt ids;

@@ -90,6 +90,30 @@ RECEIPT_DOES_NOT_CLAIM = [
 ]
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 OPERATOR_DISPOSITIONS = {"recorded_for_continuation", "recorded_as_reviewed"}
+SELECTED_RECORD_SOURCES = {"catalog", "running_inspection", "not_visible"}
+
+
+@dataclass(frozen=True)
+class _SelectedRecordPosture:
+    record_id: str | None
+    source: str | None
+
+    @classmethod
+    def from_saved_review(
+        cls,
+        review_request: dict[str, Any],
+        selected_record: dict[str, Any] | None,
+    ) -> _SelectedRecordPosture:
+        requested_id = _optional_identifier(review_request, "selected_record_id")
+        projected_id = _selected_record_id_from_saved_summary(selected_record)
+        if projected_id is not None and projected_id != requested_id:
+            raise ValueError("selected_record must match operator review request")
+        source = _selected_record_source_from_saved_summary(selected_record)
+        if source is None and requested_id is not None:
+            source = "not_visible"
+        if source is not None and source not in SELECTED_RECORD_SOURCES:
+            raise ValueError("selected_record source is unsupported")
+        return cls(record_id=requested_id, source=source)
 
 
 @dataclass(frozen=True)
@@ -535,14 +559,11 @@ def _parse_operator_review_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("receipt summary request_id must match operator review")
     if summary.get("operator_review_classification") != operator_review_classification:
         raise ValueError("receipt summary classification must match operator review")
-    selected_record_id = _optional_identifier(review_request, "selected_record_id")
-    selected_record_projected_id = _selected_record_id_from_saved_summary(selected_record)
-    if (
-        selected_record_projected_id is not None
-        and selected_record_projected_id != selected_record_id
-    ):
-        raise ValueError("selected_record must match operator review request")
-    if summary.get("selected_record_id") != selected_record_id:
+    selected_record_posture = _SelectedRecordPosture.from_saved_review(
+        review_request,
+        selected_record,
+    )
+    if summary.get("selected_record_id") != selected_record_posture.record_id:
         raise ValueError("receipt summary selected_record_id must match operator review")
     if summary.get("review_finding_codes") != finding_codes:
         raise ValueError("receipt summary finding codes must match operator review")
@@ -556,11 +577,8 @@ def _parse_operator_review_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
         "operator_reason": operator_reason,
         "operator_review_request_id": operator_review_request_id,
         "operator_review_classification": operator_review_classification,
-        "selected_record_id": selected_record_id,
-        "selected_record_source": _selected_record_source_for_summary(
-            selected_record,
-            selected_record_id,
-        ),
+        "selected_record_id": selected_record_posture.record_id,
+        "selected_record_source": selected_record_posture.source,
         "review_finding_codes": finding_codes,
         "next_action": next_action,
     }
@@ -877,14 +895,3 @@ def _selected_record_source_from_saved_summary(
     if selected_record is None:
         return None
     return validate_text(selected_record.get("source"), "selected record source")
-
-
-def _selected_record_source_for_summary(
-    selected_record: dict[str, Any] | None,
-    selected_record_id: str | None,
-) -> str | None:
-    if selected_record is not None:
-        return _selected_record_source_from_saved_summary(selected_record)
-    if selected_record_id is not None:
-        return "not_visible"
-    return None
