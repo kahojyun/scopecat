@@ -202,6 +202,14 @@ evidence sections without fresh observation, legacy import acceptance, storage
 mutation, record write, reference repair, parameter write-back, measurement
 validity decisions, or GUI behavior.
 
+Adjacent sidecar GUI-state result:
+[`legacy-sidecar-review-gui-state-validation-result.md`](../slices/measurement-records/legacy-sidecar-review-gui-state-validation-result.md)
+validates the subcase where that sidecar post-run review is projected into
+passive local cards, visible findings, and action labels for GUI, CLI, or
+notebook surfaces without executing actions, observing files, querying
+backends, accepting imports, mutating storage, repairing references, writing
+parameters, deciding measurement validity, or making review state run-blocking.
+
 First post-run review result:
 [`post-run-review-bundle-validation-result.md`](../slices/measurement-context/post-run-review-bundle-validation-result.md)
 validates a local post-run review composition over completed measurement
