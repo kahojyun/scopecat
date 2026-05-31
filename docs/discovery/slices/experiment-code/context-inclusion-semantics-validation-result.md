@@ -11,6 +11,7 @@ contract, parameter write-back contract, environment manager, or executor.
 ## Inputs
 
 - [`prepared-run-context-validation-result.md`](prepared-run-context-validation-result.md)
+- [`run-preparation-workflow-boundary-validation-result.md`](run-preparation-workflow-boundary-validation-result.md)
 - [`context-inclusion-semantics-validation-plan.md`](context-inclusion-semantics-validation-plan.md)
 - `tests/fixtures/context_inclusion_semantics/basic_semantics/`
 - `implementation_candidates/context_inclusion_semantics/`

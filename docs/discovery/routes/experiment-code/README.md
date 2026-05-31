@@ -33,6 +33,12 @@ does not prove reproducibility, cause, or readiness.
 This chain is not a mandatory workflow for every measurement. It records the
 order in which current slices have earned stronger local claims.
 
+The broader experiment-start workflow is documented in
+[`run-preparation-workflow-boundary-validation-result.md`](../../slices/experiment-code/run-preparation-workflow-boundary-validation-result.md).
+That boundary separates legacy/passive context recording from a future
+template/prepared route, and places prepared-run context after adapters or
+preparation helpers have already produced normalized context references.
+
 In the wider route model, measurement records remain the user-facing evidence
 or selection anchor. Experiment code is one linked context family for those
 measurements, runs, or steps: it records what code root, entrypoint, managed
