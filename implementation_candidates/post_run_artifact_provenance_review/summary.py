@@ -155,7 +155,7 @@ def _state_counts(items: list[dict[str, Any]], key: str) -> dict[str, int]:
 
 def _classification(source: dict[str, Any]) -> str:
     base_classification = source["post_run_review_summary"]["classification"]
-    if base_classification == "post_run_review_blocked":
+    if base_classification == "post_run_review_blocked_for_context_review":
         return "post_run_artifact_provenance_review_blocked"
     provenance_summaries = source["artifact_provenance_summaries"]
     if (

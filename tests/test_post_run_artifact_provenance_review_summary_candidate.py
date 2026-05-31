@@ -81,7 +81,9 @@ class PostRunArtifactProvenanceReviewSummaryCandidateTest(unittest.TestCase):
 
     def test_blocked_classification_follows_base_post_run_review(self) -> None:
         source = _load_input()
-        source["post_run_review_summary"]["classification"] = "post_run_review_blocked"
+        source["post_run_review_summary"]["classification"] = (
+            "post_run_review_blocked_for_context_review"
+        )
 
         output = build_post_run_artifact_provenance_review_summary(source)
 

@@ -82,7 +82,7 @@ class PostRunReviewBundleSummaryCandidateTest(unittest.TestCase):
 
         summary = build_post_run_review_bundle_summary(source)
 
-        self.assertEqual(summary["classification"], "post_run_review_blocked")
+        self.assertEqual(summary["classification"], "post_run_review_blocked_for_context_review")
 
     def test_unrelated_context_status_does_not_block_post_run_review(self) -> None:
         source = _load_input()
@@ -132,6 +132,51 @@ class PostRunReviewBundleSummaryCandidateTest(unittest.TestCase):
             summary["review_findings"][0]["context_id"],
             "parameter-state-rabi-accepted-0042",
         )
+
+    def test_missing_scoped_context_status_is_review_attention_not_ready(self) -> None:
+        source = _load_input()
+        source["context_status_summary"]["overall_classification"] = "blocked_for_context_review"
+        source["context_status_summary"]["context_statuses"] = [
+            {
+                "context_id": "declared-environment-unrelated-9999",
+                "family": "declared_environment",
+                "label": "Unrelated declared environment",
+                "record_status": "review_needed",
+                "authority": "declared_environment_summary",
+                "payload_handling": "family_owned_summary_only",
+                "declared_summary": {"manager": "uv"},
+                "status_fact_count": 1,
+                "severity_counts": {"block": 1},
+                "dimension_counts": {"validity": 1},
+                "classification": "blocked_for_context_review",
+            }
+        ]
+        source["context_status_summary"]["status_findings"] = [
+            {
+                "context_id": "declared-environment-unrelated-9999",
+                "family": "declared_environment",
+                "fact_id": "unrelated-env-block-9999",
+                "dimension": "validity",
+                "state": "invalid",
+                "severity": "block",
+                "finding": "context_validity_invalid",
+                "basis": "This environment belongs to another measurement review.",
+                "required_for_current_review": True,
+                "does_not_claim": "runnable_readiness",
+            }
+        ]
+        source["running_evidence_update_summary"]["evidence_findings"] = []
+
+        summary = build_post_run_review_bundle_summary(source)
+
+        self.assertEqual(summary["classification"], "post_run_review_needs_attention")
+        self.assertEqual(
+            summary["review_sections"]["status"]["overall_classification"],
+            "ready_for_context_review",
+        )
+        self.assertEqual(summary["review_sections"]["status"]["context_count"], 0)
+        self.assertEqual(summary["review_finding_count"], 1)
+        self.assertEqual(summary["review_findings"][0]["finding"], "context_status_not_provided")
 
     def test_output_does_not_alias_input_nested_objects(self) -> None:
         source = _load_input()

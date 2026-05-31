@@ -89,11 +89,12 @@ flowchart LR
   F -.not by default.-> W["Storage mutation"]
 ```
 
-Use `approval`, `gate`, `required`, or `blocked` only when the slice says the
-state is local review state, or when an explicit local policy/template provides
-interruption semantics. `blocked_for_context_review` means the review surface
-is incomplete, not that hardware execution or measurement validity has been
-decided.
+Reserve `approval` and `gate` for slices backed by an explicit local
+policy/template that provides interruption semantics. Passive GUI/review state
+should use `review`, `attention`, `finding`, `status`, or `incomplete`.
+`required` and `blocked` should be scoped to the local review surface, such as
+`blocked_for_context_review`; they do not mean that hardware execution or
+measurement validity has been decided.
 
 ## Boundary Rules
 

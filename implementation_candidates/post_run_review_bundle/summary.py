@@ -163,6 +163,40 @@ def _scoped_context_status_findings(source: dict[str, Any]) -> list[dict[str, An
     ]
 
 
+def _context_refs(source: dict[str, Any]) -> list[dict[str, Any]]:
+    measurement_id = source["completed_measurement"]["measurement_record_id"]
+    return [
+        ref
+        for ref in source["context_link_summary"]["linked_context_refs"]
+        if ref["measurement_record_id"] == measurement_id
+    ]
+
+
+def _missing_context_status_findings(source: dict[str, Any]) -> list[dict[str, Any]]:
+    scoped_status_ids = {status["context_id"] for status in _scoped_context_statuses(source)}
+    findings = []
+    for ref in _context_refs(source):
+        if ref["context_id"] in scoped_status_ids:
+            continue
+        findings.append(
+            {
+                "measurement_record_id": ref["measurement_record_id"],
+                "context_id": ref["context_id"],
+                "family": ref["family"],
+                "context_label": ref["context_label"],
+                "severity": "review",
+                "finding": "context_status_not_provided",
+                "basis": "The linked context has no scoped context-status summary in this post-run review bundle.",
+                "does_not_claim": "context_invalid_or_measurement_invalid",
+            }
+        )
+    return findings
+
+
+def _context_status_findings_for_review(source: dict[str, Any]) -> list[dict[str, Any]]:
+    return _scoped_context_status_findings(source) + _missing_context_status_findings(source)
+
+
 def _scoped_context_status_classification(source: dict[str, Any]) -> str:
     classifications = {status["classification"] for status in _scoped_context_statuses(source)}
     if "blocked_for_context_review" in classifications:
@@ -174,10 +208,10 @@ def _scoped_context_status_classification(source: dict[str, Any]) -> str:
 
 def _classification(source: dict[str, Any]) -> str:
     if _scoped_context_status_classification(source) == "blocked_for_context_review":
-        return "post_run_review_blocked"
+        return "post_run_review_blocked_for_context_review"
     if (
         _scoped_optional_context_findings(source)
-        or _scoped_context_status_findings(source)
+        or _context_status_findings_for_review(source)
         or source["running_evidence_update_summary"]["evidence_findings"]
     ):
         return "post_run_review_needs_attention"
@@ -185,13 +219,7 @@ def _classification(source: dict[str, Any]) -> str:
 
 
 def _context_section(source: dict[str, Any]) -> dict[str, Any]:
-    summary = source["context_link_summary"]
-    measurement_id = source["completed_measurement"]["measurement_record_id"]
-    refs = [
-        ref
-        for ref in summary["linked_context_refs"]
-        if ref["measurement_record_id"] == measurement_id
-    ]
+    refs = _context_refs(source)
     return {
         "linked_context_count": len(refs),
         "linked_context_refs": copy.deepcopy(refs),
@@ -201,7 +229,7 @@ def _context_section(source: dict[str, Any]) -> dict[str, Any]:
 
 def _status_section(source: dict[str, Any]) -> dict[str, Any]:
     statuses = _scoped_context_statuses(source)
-    findings = _scoped_context_status_findings(source)
+    findings = _context_status_findings_for_review(source)
     return {
         "overall_classification": _scoped_context_status_classification(source),
         "context_count": len(statuses),
@@ -226,7 +254,7 @@ def _review_findings(source: dict[str, Any]) -> list[dict[str, Any]]:
         item = copy.deepcopy(finding)
         item["source_section"] = "context_links"
         findings.append(item)
-    for finding in _scoped_context_status_findings(source):
+    for finding in _context_status_findings_for_review(source):
         item = copy.deepcopy(finding)
         item["source_section"] = "context_status"
         findings.append(item)
