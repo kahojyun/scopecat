@@ -34,6 +34,10 @@ follow-up from explicit context records:
 The selected context records stay family-owned. The generic selected-context
 and missing-context behavior remains owned by
 [`named-run-start-input-set-validation-result.md`](../measurement-context/named-run-start-input-set-validation-result.md).
+The later
+[`context-inclusion-semantics-validation-result.md`](context-inclusion-semantics-validation-result.md)
+clarifies that selected context IDs are recorded regardless of
+`required=false`, and that `required` controls absence severity only.
 This slice adds the code/workspace checks needed after managed code version,
 workspace materialization, and editable-folder observation. The editable
 workspace observation is reused as a declared prior observation summary; the
@@ -100,6 +104,9 @@ Likely follow-up slices should stay separate:
 - declared environment inventory, still without environment sync;
 - context readiness or status summaries, if repeated run-preparation fixtures
   need a sharper status vocabulary;
+- fixture cleanup to avoid overstating `required=true` for opportunistically
+  selected context records, using the context-inclusion semantics slice as the
+  boundary;
 - environment readiness planning only after declared environment authority is
   validated separately. This slice has no active sync; a separate
   modern-manifest operation slice would be required, and legacy/lab-managed

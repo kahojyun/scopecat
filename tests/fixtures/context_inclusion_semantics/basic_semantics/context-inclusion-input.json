@@ -1,0 +1,119 @@
+{
+  "fixture_id": "context-inclusion-semantics-basic",
+  "fixture_status": "synthetic_public_safe",
+  "fixture_layer": "context_inclusion_semantics_fixture",
+  "user_job": "Record available prepared-run context references opportunistically while treating required as absence severity from a local preparation or template policy, not as a global recording rule.",
+  "context_inclusion_policy": {
+    "semantics_authority": "declared_context_inclusion_policy",
+    "context_source": "declared_context_records",
+    "selected_context_recording": "record_when_context_id_is_provided",
+    "required_semantics": "absence_severity_only",
+    "optional_context_recording": "record_when_selected",
+    "template_language": "not_defined",
+    "migration_requirement": "not_imposed",
+    "hardware_control": "not_performed",
+    "parameter_write_back": "not_performed",
+    "environment_sync": "not_performed",
+    "code_import_execution": "not_performed",
+    "run_blocking": "not_decided",
+    "shared_context_schema": "not_defined",
+    "gui_workflow": "not_defined"
+  },
+  "context_records": [
+    {
+      "context_id": "param-state-template-input-0001",
+      "family": "parameter_state",
+      "label": "qA template parameter state",
+      "record_status": "trusted_for_declared_scope",
+      "authority": "context_inclusion_fixture",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "lineage_id": "lineage-qA-default-bias",
+        "trusted_entry_count": 2
+      }
+    },
+    {
+      "context_id": "setup-binding-opportunistic-0001",
+      "family": "setup_binding",
+      "label": "qA opportunistically recorded setup binding",
+      "record_status": "selected_binding_snapshot",
+      "authority": "context_inclusion_fixture",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "sample_id": "sample-alpha",
+        "logical_binding_count": 4
+      }
+    },
+    {
+      "context_id": "managed-code-opportunistic-0001",
+      "family": "managed_code_version",
+      "label": "recorded code context from old experiment",
+      "record_status": "recorded_not_restore_contract",
+      "authority": "context_inclusion_fixture",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "file_count": 3,
+        "materialization": "recorded_only"
+      }
+    }
+  ],
+  "prepared_contexts": [
+    {
+      "prepared_context_id": "prepared-context-template-and-opportunistic-0001",
+      "label": "template input with opportunistic context recording",
+      "semantics_claim": "selected_records_are_recorded_required_controls_absence_only",
+      "context_refs": [
+        {
+          "family": "parameter_state",
+          "role": "calibrated_values",
+          "include_state": "selected",
+          "context_id": "param-state-template-input-0001",
+          "required": true,
+          "requirement_source": "declared_template_input"
+        },
+        {
+          "family": "setup_binding",
+          "role": "logical_to_physical_mapping",
+          "include_state": "selected",
+          "context_id": "setup-binding-opportunistic-0001",
+          "required": false,
+          "requirement_source": "opportunistic_context_recording"
+        },
+        {
+          "family": "managed_code_version",
+          "role": "selected_code_version",
+          "include_state": "selected",
+          "context_id": "managed-code-opportunistic-0001",
+          "required": false,
+          "requirement_source": "opportunistic_context_recording"
+        },
+        {
+          "family": "declared_environment",
+          "role": "runtime_environment_hint",
+          "include_state": "unavailable",
+          "context_id": null,
+          "required": false,
+          "requirement_source": "opportunistic_context_recording",
+          "missing_reason": "No environment record has been migrated for this legacy experiment."
+        },
+        {
+          "family": "station_registry",
+          "role": "station_context",
+          "include_state": "optional_not_selected",
+          "context_id": null,
+          "required": false,
+          "requirement_source": "opportunistic_context_recording"
+        },
+        {
+          "family": "measurement_intent",
+          "role": "declared_measurement_intent",
+          "include_state": "unavailable",
+          "context_id": null,
+          "required": true,
+          "requirement_source": "manual_preparation_policy",
+          "missing_reason": "Manual preparation policy requires declared measurement intent for this review surface."
+        }
+      ]
+    }
+  ]
+}
