@@ -124,6 +124,7 @@ This validation does not earn:
 - drift plotting;
 - hardware write-back or instrument state tracking;
 - external JSON authority or external JSON change tracking;
+- core legacy parameter JSON/XLSX parsers;
 - device registry model;
 - setup binding schema, snapshots, or diffs;
 - physical wiring model;
@@ -142,5 +143,7 @@ Likely follow-up slices should stay separate:
   applying changes to hardware;
 - run-preparation or GUI consumption of selected parameter-state references
   without redefining rollback or known-good semantics;
+- review/commit of adapter-authored parameter-state import previews into
+  managed parameter state without adding core legacy parsers;
 - setup-binding interaction pressure when wiring changes imply parameter
   retuning, while keeping setup truth and parameter authority separate.
