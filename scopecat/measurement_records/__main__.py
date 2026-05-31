@@ -9,6 +9,7 @@ from pathlib import Path
 
 from scopecat.measurement_records.operator_review import (
     MeasurementRecordOperatorReviewRequest,
+    review_measurement_records,
     review_measurement_records_from_request,
 )
 from scopecat.measurement_records.running_inspection import (
@@ -39,6 +40,11 @@ def _running_inspection_summary(args: argparse.Namespace) -> dict[str, object]:
 
 
 def _operator_review(args: argparse.Namespace) -> dict[str, object]:
+    if args.source is not None:
+        source = json.loads(args.source.read_text(encoding="utf-8"))
+        if not isinstance(source, dict):
+            raise ValueError("operator review source JSON must be an object")
+        return review_measurement_records(source, storage_root=args.storage_root).to_dict()
     running_request = None
     if args.running_record_id is not None:
         running_request = MeasurementRecordRunningInspectionRequest(
@@ -95,7 +101,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Print a read-only local operator review over visible measurement records.",
     )
     review_parser.add_argument("--storage-root", type=Path, required=True)
-    review_parser.add_argument("--request-id", required=True)
+    review_parser.add_argument(
+        "--source",
+        type=Path,
+        help="JSON source matching the operator-review raw source schema.",
+    )
+    review_parser.add_argument("--request-id")
     review_parser.add_argument("--records-dir", default="records")
     review_parser.add_argument("--selected-record-id")
     review_parser.add_argument(
@@ -120,8 +131,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "running-inspection-summary":
         payload = _running_inspection_summary(args)
     elif args.command == "operator-review":
-        if args.running_record_id is not None and (
-            args.running_record_dir is None or args.running_writer_receipt_path is None
+        if args.source is None and args.request_id is None:
+            parser.error("--request-id is required unless --source is provided")
+        if args.source is not None and args.running_record_id is not None:
+            parser.error("--running-record-id cannot be combined with --source")
+        if (
+            args.source is None
+            and args.running_record_id is not None
+            and (args.running_record_dir is None or args.running_writer_receipt_path is None)
         ):
             parser.error(
                 "--running-record-dir and --running-writer-receipt-path are required "

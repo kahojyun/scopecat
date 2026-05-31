@@ -182,6 +182,8 @@ python -m scopecat.measurement_records operator-review \
 Optional `--running-record-id`, `--running-record-dir`,
 `--running-writer-receipt-path`, and repeated
 `--running-update-receipt-path` arguments add one caller-declared running
-inspection to the local review. The CLI remains a smoke surface; it does not
-scan for update receipts or run import, refresh, finalization, repair, or GUI
-state persistence.
+inspection to the local review. For multiple declared running inspections, use
+`--source ./operator-review-source.json` with the raw operator-review source
+schema instead of growing ad hoc flags. The CLI remains a smoke surface; it
+does not scan for update receipts or run import, refresh, finalization, repair,
+or GUI state persistence.

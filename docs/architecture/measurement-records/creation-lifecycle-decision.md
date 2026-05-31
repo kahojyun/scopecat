@@ -671,6 +671,9 @@ derived read model.
 The module also exposes
 `python -m scopecat.measurement_records operator-review` as a narrow local CLI
 smoke surface for printing the composed review JSON from a caller-declared
-storage root and optional running-inspection paths. The CLI does not discover
-records beyond the catalog directory, scan update directories, mutate storage,
-or perform refresh, import, finalization, repair, or GUI-state persistence.
+storage root and optional running-inspection paths. The CLI also accepts
+`--source` for the raw operator-review source shape when callers need to
+declare multiple running inspections without adding more flag-only surface.
+The CLI does not discover records beyond the catalog directory, scan update
+directories, mutate storage, or perform refresh, import, finalization, repair,
+or GUI-state persistence.

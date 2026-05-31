@@ -86,47 +86,54 @@ def _append_chunk_two() -> MeasurementRecordAppendChunk:
     )
 
 
-def _read_request() -> MeasurementRecordReadRequest:
+def _record_dir(record_id: str) -> str:
+    return f"records/{record_id}"
+
+
+def _read_request(record_id: str = "run-3101-rabi") -> MeasurementRecordReadRequest:
     return MeasurementRecordReadRequest(
-        request_id="read-primary-run-3101-rabi",
-        record_id="run-3101-rabi",
-        record_dir="records/run-3101-rabi",
-        writer_receipt_path="records/run-3101-rabi/writer-receipt.json",
+        request_id=f"read-primary-{record_id}",
+        record_id=record_id,
+        record_dir=_record_dir(record_id),
+        writer_receipt_path=f"{_record_dir(record_id)}/writer-receipt.json",
         preview_row_limit=2,
     )
 
 
-def _finalization_request() -> MeasurementRecordFinalizationRequest:
+def _finalization_request(record_id: str = "run-3101-rabi") -> MeasurementRecordFinalizationRequest:
     return MeasurementRecordFinalizationRequest(
-        request_id="finalize-run-3101-rabi",
+        request_id=f"finalize-{record_id}",
         approval_state="approved",
-        record_id="run-3101-rabi",
-        record_dir="records/run-3101-rabi",
-        writer_receipt_path="records/run-3101-rabi/writer-receipt.json",
-        finalization_receipt_path="records/run-3101-rabi/finalization-receipt.json",
+        record_id=record_id,
+        record_dir=_record_dir(record_id),
+        writer_receipt_path=f"{_record_dir(record_id)}/writer-receipt.json",
+        finalization_receipt_path=f"{_record_dir(record_id)}/finalization-receipt.json",
         final_state="complete",
     )
 
 
-def _projection_request() -> MeasurementRecordReadModelProjectionRequest:
+def _projection_request(
+    record_id: str = "run-3101-rabi",
+) -> MeasurementRecordReadModelProjectionRequest:
     return MeasurementRecordReadModelProjectionRequest(
-        request_id="project-read-model-run-3101-rabi",
+        request_id=f"project-read-model-{record_id}",
         approval_state="approved",
-        record_id="run-3101-rabi",
-        record_dir="records/run-3101-rabi",
-        writer_receipt_path="records/run-3101-rabi/writer-receipt.json",
-        finalization_receipt_path="records/run-3101-rabi/finalization-receipt.json",
-        read_model_path="records/run-3101-rabi/record-read-model.json",
+        record_id=record_id,
+        record_dir=_record_dir(record_id),
+        writer_receipt_path=f"{_record_dir(record_id)}/writer-receipt.json",
+        finalization_receipt_path=f"{_record_dir(record_id)}/finalization-receipt.json",
+        read_model_path=f"{_record_dir(record_id)}/record-read-model.json",
     )
 
 
 def _running_request(**overrides: object) -> MeasurementRecordRunningInspectionRequest:
+    record_id = str(overrides.pop("record_id", "run-3101-rabi"))
     values = {
-        "request_id": "inspect-run-3101-rabi",
-        "record_id": "run-3101-rabi",
-        "record_dir": "records/run-3101-rabi",
-        "writer_receipt_path": "records/run-3101-rabi/writer-receipt.json",
-        "update_receipt_paths": ("records/run-3101-rabi/updates/update-3101-2.json",),
+        "request_id": f"inspect-{record_id}",
+        "record_id": record_id,
+        "record_dir": _record_dir(record_id),
+        "writer_receipt_path": f"{_record_dir(record_id)}/writer-receipt.json",
+        "update_receipt_paths": (f"{_record_dir(record_id)}/updates/update-3101-2.json",),
         "expected_total_rows": 5,
         "preview_row_limit": 5,
     }
@@ -159,16 +166,17 @@ def _populate_record(
     storage_root: Path,
     content_root: Path,
     *,
+    record_id: str = "run-3101-rabi",
     state: str,
     chunks: tuple[MeasurementRecordWriterChunk, ...],
     expected_rows: int,
 ) -> None:
     create_run = create_measurement_record_from_request(
         MeasurementRecordCreationRequest(
-            request_id="create-record-run-3101-rabi",
+            request_id=f"create-record-{record_id}",
             approval_state="approved",
-            record_id="run-3101-rabi",
-            record_dir="records/run-3101-rabi",
+            record_id=record_id,
+            record_dir=_record_dir(record_id),
             initial_lifecycle_state=state,
             creation_source_kind="writer",
         ),
@@ -179,12 +187,12 @@ def _populate_record(
 
     write_run = write_created_record_primary_data_from_request(
         MeasurementRecordWriterRequest(
-            request_id="write-primary-run-3101-rabi",
+            request_id=f"write-primary-{record_id}",
             approval_state="approved",
-            record_id="run-3101-rabi",
-            record_dir="records/run-3101-rabi",
-            primary_data_path="records/run-3101-rabi/primary.csv",
-            writer_receipt_path="records/run-3101-rabi/writer-receipt.json",
+            record_id=record_id,
+            record_dir=_record_dir(record_id),
+            primary_data_path=f"{_record_dir(record_id)}/primary.csv",
+            writer_receipt_path=f"{_record_dir(record_id)}/writer-receipt.json",
             primary_data_format="csv_table",
             expected_rows=expected_rows,
             chunks=chunks,
@@ -196,56 +204,68 @@ def _populate_record(
         raise AssertionError(write_run.to_dict())
 
 
-def _read_view(storage_root: Path):
+def _read_view(storage_root: Path, record_id: str = "run-3101-rabi"):
     return read_created_record_primary_table_from_request(
-        _read_request(),
+        _read_request(record_id),
         storage_root=storage_root,
     )
 
 
-def _populate_projected_record(storage_root: Path, content_root: Path) -> None:
+def _populate_projected_record(
+    storage_root: Path,
+    content_root: Path,
+    *,
+    record_id: str = "run-3101-rabi",
+) -> None:
     _populate_record(
         storage_root,
         content_root,
+        record_id=record_id,
         state="created",
         chunks=(_writer_chunk_one(), _writer_chunk_two()),
         expected_rows=5,
     )
     finalize_run = finalize_measurement_record_from_read_view(
-        _finalization_request(),
-        read_view=_read_view(storage_root),
+        _finalization_request(record_id),
+        read_view=_read_view(storage_root, record_id),
         storage_root=storage_root,
     )
     if not finalize_run.finalized:
         raise AssertionError(finalize_run.to_dict())
     projection_run = project_measurement_record_read_model_from_read_view(
-        _projection_request(),
-        read_view=_read_view(storage_root),
+        _projection_request(record_id),
+        read_view=_read_view(storage_root, record_id),
         storage_root=storage_root,
     )
     if not projection_run.projected:
         raise AssertionError(projection_run.to_dict())
 
 
-def _populate_in_progress_with_append(storage_root: Path, content_root: Path) -> None:
+def _populate_in_progress_with_append(
+    storage_root: Path,
+    content_root: Path,
+    *,
+    record_id: str = "run-3101-rabi",
+) -> None:
     _populate_record(
         storage_root,
         content_root,
+        record_id=record_id,
         state="in_progress",
         chunks=(_writer_chunk_one(),),
         expected_rows=3,
     )
     append_run = append_in_progress_measurement_record_from_request(
         MeasurementRecordInProgressUpdateRequest(
-            request_id="append-run-3101-rabi",
+            request_id=f"append-{record_id}",
             approval_state="approved",
             update_id="update-3101-2",
-            record_id="run-3101-rabi",
-            record_dir="records/run-3101-rabi",
-            writer_receipt_path="records/run-3101-rabi/writer-receipt.json",
+            record_id=record_id,
+            record_dir=_record_dir(record_id),
+            writer_receipt_path=f"{_record_dir(record_id)}/writer-receipt.json",
             previous_update_receipt_path=None,
-            append_segment_path="records/run-3101-rabi/segments/chunk-2.csv",
-            update_receipt_path="records/run-3101-rabi/updates/update-3101-2.json",
+            append_segment_path=f"{_record_dir(record_id)}/segments/chunk-2.csv",
+            update_receipt_path=f"{_record_dir(record_id)}/updates/update-3101-2.json",
             primary_data_format="csv_table",
             expected_total_rows=5,
             append_chunk=_append_chunk_two(),
@@ -310,6 +330,66 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
             "ready_for_later_finalization_decision",
         )
 
+    def test_operator_review_keeps_mixed_record_findings_visible(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            _populate_projected_record(
+                storage_root,
+                content_root,
+                record_id="run-3101-rabi",
+            )
+            _populate_in_progress_with_append(
+                storage_root,
+                content_root,
+                record_id="run-4101-t1",
+            )
+            _populate_record(
+                storage_root,
+                content_root,
+                record_id="run-9999-needs-review",
+                state="created",
+                chunks=(_writer_chunk_one(),),
+                expected_rows=3,
+            )
+
+            run = review_measurement_records_from_request(
+                _operator_request(
+                    selected_record_id="run-4101-t1",
+                    running_inspection_requests=(_running_request(record_id="run-4101-t1"),),
+                ),
+                storage_root=storage_root,
+            )
+
+        payload = run.to_dict()
+        self.assertEqual(run.classification, "measurement_record_operator_review_needed")
+        self.assertEqual(payload["catalog"]["entry_count"], 1)
+        self.assertEqual(payload["catalog"]["entries"][0]["record_id"], "run-3101-rabi")
+        self.assertEqual(payload["selected_record"]["source"], "running_inspection")
+        self.assertEqual(payload["selected_record"]["record"]["record_id"], "run-4101-t1")
+        self.assertEqual(
+            payload["selected_record"]["inspection"]["visible_rows_recorded"],
+            5,
+        )
+        self.assertEqual(
+            [finding["target"] for finding in payload["review_findings"]],
+            ["records/run-9999-needs-review/record-read-model.json"],
+        )
+        self.assertEqual(payload["review_findings"][0]["code"], "read_model_missing")
+        self.assertEqual(
+            payload["next_action"],
+            "review_measurement_record_operator_findings",
+        )
+        self.assertEqual(
+            sorted(finding["target"] for finding in payload["catalog"]["review_findings"]),
+            [
+                "records/run-4101-t1/record-read-model.json",
+                "records/run-9999-needs-review/record-read-model.json",
+            ],
+        )
+
     def test_raw_operator_review_uses_declared_policy(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root = Path(temp_dir) / "storage"
@@ -372,6 +452,61 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
             "measurement_record_operator_review_ready",
         )
         self.assertEqual(payload["selected_record"]["source"], "catalog")
+
+    def test_operator_review_cli_accepts_raw_source_json_for_multiple_running_records(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            storage_root = temp_path / "storage"
+            content_root = temp_path / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            _populate_in_progress_with_append(
+                storage_root,
+                content_root,
+                record_id="run-4101-t1",
+            )
+            _populate_in_progress_with_append(
+                storage_root,
+                content_root,
+                record_id="run-4102-ramsey",
+            )
+            source_path = temp_path / "operator-review-source.json"
+            source_path.write_text(
+                json.dumps(
+                    _operator_source(
+                        selected_record_id="run-4102-ramsey",
+                        running_inspection_requests=(
+                            _running_request(record_id="run-4101-t1"),
+                            _running_request(record_id="run-4102-ramsey"),
+                        ),
+                    )
+                ),
+                encoding="utf-8",
+            )
+
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                exit_code = measurement_records_main(
+                    [
+                        "operator-review",
+                        "--storage-root",
+                        str(storage_root),
+                        "--source",
+                        str(source_path),
+                    ]
+                )
+            payload = json.loads(stdout.getvalue())
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(
+            payload["workflow"]["classification"],
+            "measurement_record_operator_review_ready",
+        )
+        self.assertEqual(len(payload["running_inspections"]), 2)
+        self.assertEqual(payload["selected_record"]["source"], "running_inspection")
+        self.assertEqual(payload["selected_record"]["record"]["record_id"], "run-4102-ramsey")
 
 
 if __name__ == "__main__":
