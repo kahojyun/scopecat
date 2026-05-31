@@ -1,0 +1,194 @@
+{
+  "resolution_policy": {
+    "resolution_authority": "explicit_step_start_resolution",
+    "intent_reference_semantics": "moving_selectors_allowed",
+    "step_record_context": "optional_resolved_links",
+    "observation_link_handling": "reference_only",
+    "shared_context_schema": "not_defined",
+    "measurement_payload_read": "not_performed",
+    "dynamic_selector_resolution": "not_performed",
+    "fit_execution": "not_performed",
+    "calibration_execution": "not_performed",
+    "continuation_decision": "not_performed",
+    "parameter_write_back": "not_performed",
+    "hardware_control": "not_performed",
+    "scheduler": "not_defined"
+  },
+  "calibration_step_intent": {
+    "step_intent_id": "step-intent-rabi-qA-0001",
+    "label": "qA Rabi amplitude observation",
+    "target": "qA",
+    "purpose": "estimate pi-pulse amplitude",
+    "planned_observation": {
+      "kind": "measurement_request",
+      "experiment_type": "rabi_amplitude",
+      "target": "qA",
+      "role": "fit_input",
+      "measurement_payload_required": false
+    },
+    "moving_context_selectors": [
+      {
+        "selector_id": "selector-step-rabi-qA-params",
+        "family": "parameter_state",
+        "role": "calibrated_values",
+        "selector_kind": "current_trusted_in_lineage",
+        "reference_semantics": "moving_reference",
+        "required_for_step_record": false,
+        "selector_basis": {
+          "lineage_id": "lineage-qA-default-bias",
+          "purpose": "qA amplitude calibration"
+        }
+      },
+      {
+        "selector_id": "selector-step-rabi-qA-setup",
+        "family": "setup_binding",
+        "role": "logical_to_physical_mapping",
+        "selector_kind": "latest_reviewed_for_cooldown",
+        "reference_semantics": "moving_reference",
+        "required_for_step_record": false,
+        "selector_basis": {
+          "sample_id": "sample-alpha",
+          "cooldown_id": "cooldown-2026-05"
+        }
+      },
+      {
+        "selector_id": "selector-step-rabi-qA-code",
+        "family": "managed_code_version",
+        "role": "entrypoint_code_version",
+        "selector_kind": "approved_calibration_step_code",
+        "reference_semantics": "moving_reference",
+        "required_for_step_record": false,
+        "selector_basis": {
+          "workflow": "rabi_amplitude_calibration"
+        }
+      },
+      {
+        "selector_id": "selector-step-rabi-qA-env",
+        "family": "declared_environment",
+        "role": "runtime_environment_hint",
+        "selector_kind": "reviewed_environment_for_step",
+        "reference_semantics": "moving_reference",
+        "required_for_step_record": false,
+        "selector_basis": {
+          "project": "readout-calibration",
+          "manager": "uv"
+        }
+      }
+    ]
+  },
+  "context_records": [
+    {
+      "context_id": "param-state-0007",
+      "family": "parameter_state",
+      "label": "qA default bias resolved at step start",
+      "record_status": "trusted_for_declared_scope",
+      "authority": "parameter_state_fixture",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "lineage_id": "lineage-qA-default-bias",
+        "trusted_entry_count": 4
+      }
+    },
+    {
+      "context_id": "param-state-0008",
+      "family": "parameter_state",
+      "label": "qA default bias after post-step tune-up",
+      "record_status": "trusted_for_declared_scope",
+      "authority": "parameter_state_fixture",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "lineage_id": "lineage-qA-default-bias",
+        "trusted_entry_count": 5
+      }
+    },
+    {
+      "context_id": "setup-binding-0002",
+      "family": "setup_binding",
+      "label": "qA default binding after bias-line move",
+      "record_status": "selected_binding_snapshot",
+      "authority": "setup_binding_fixture",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "sample_id": "sample-alpha",
+        "cooldown_id": "cooldown-2026-05",
+        "logical_binding_count": 6
+      }
+    },
+    {
+      "context_id": "managed-code-version-rabi-0001",
+      "family": "managed_code_version",
+      "label": "Rabi calibration managed code version",
+      "record_status": "recorded_not_restore_contract",
+      "authority": "managed_code_version_fixture",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "source_record_id": "code-snapshot-record-rabi-0001",
+        "file_count": 3
+      }
+    }
+  ],
+  "step_start_resolution": {
+    "resolution_id": "step-start-resolution-rabi-qA-0001",
+    "step_intent_id": "step-intent-rabi-qA-0001",
+    "step_record_id": "step-record-rabi-qA-0001",
+    "resolved_at": "2026-05-22T10:00:00Z",
+    "resolved_contexts": [
+      {
+        "selector_id": "selector-step-rabi-qA-params",
+        "family": "parameter_state",
+        "role": "calibrated_values",
+        "resolution_state": "resolved",
+        "resolved_context_id": "param-state-0007",
+        "used_in_step_record": true
+      },
+      {
+        "selector_id": "selector-step-rabi-qA-setup",
+        "family": "setup_binding",
+        "role": "logical_to_physical_mapping",
+        "resolution_state": "resolved",
+        "resolved_context_id": "setup-binding-0002",
+        "used_in_step_record": true
+      },
+      {
+        "selector_id": "selector-step-rabi-qA-code",
+        "family": "managed_code_version",
+        "role": "entrypoint_code_version",
+        "resolution_state": "resolved",
+        "resolved_context_id": "managed-code-version-rabi-0001",
+        "used_in_step_record": true
+      },
+      {
+        "selector_id": "selector-step-rabi-qA-env",
+        "family": "declared_environment",
+        "role": "runtime_environment_hint",
+        "resolution_state": "optional_unavailable",
+        "resolved_context_id": null,
+        "used_in_step_record": false,
+        "finding": "optional_context_unavailable",
+        "basis": "No reviewed declared environment context existed at step start."
+      }
+    ]
+  },
+  "calibration_step_record": {
+    "step_record_id": "step-record-rabi-qA-0001",
+    "step_intent_id": "step-intent-rabi-qA-0001",
+    "label": "qA Rabi amplitude observed",
+    "target": "qA",
+    "record_state": "observation_linked",
+    "observation_link_refs": [
+      {
+        "link_id": "observation-link-rabi-qA-07001",
+        "role": "fit_input",
+        "measurement_record_id": "measurement-07001",
+        "payload_handling": "reference_only"
+      }
+    ]
+  },
+  "post_step_lineage_state": [
+    {
+      "lineage_id": "lineage-qA-default-bias",
+      "current_context_id": "param-state-0008",
+      "observed_at": "2026-05-22T12:00:00Z"
+    }
+  ]
+}
