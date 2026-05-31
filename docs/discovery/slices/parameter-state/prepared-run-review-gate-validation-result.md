@@ -24,6 +24,9 @@ The fixture and implementation candidate validate a narrow manual pre-run
 review composition boundary:
 
 - inputs are explicit prior review summaries;
+- the required-context branch is a consumer-side pressure case over declared
+  prior findings, not producer-side validation of template or adapter
+  requirement semantics;
 - required context, parameter state, scope alignment, workspace, and
   environment review areas are classified separately;
 - missing required context takes precedence as `blocked_by_required_context`;
@@ -47,6 +50,10 @@ The candidate summary can answer:
 - whether all reviewed areas are clear for manual review presentation;
 - why the gate does not imply run-start permission, hardware safety,
   dependency readiness, parameter application, or execution readiness.
+
+The expected-output fixture is an `internal_validation_summary` repository
+artifact. The candidate models a local manual review surface, but this slice
+does not validate portable/export review artifact behavior.
 
 ## Remaining Questions
 

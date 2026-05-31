@@ -1,5 +1,5 @@
 {
-  "fixture_id": "prepared-run-review-gate-basic",
+  "fixture_id": "prepared-run-review-gate-required-context-case",
   "fixture_status": "synthetic_public_safe",
   "fixture_layer": "prepared_run_review_gate_fixture",
   "user_job": "Compose prepared-run context, parameter, scope, workspace, and environment review facts into one manual pre-run review state without starting a run, writing parameters, controlling hardware, or syncing dependencies.",
@@ -25,7 +25,7 @@
   },
   "review_gate_request": {
     "review_gate_id": "prepared-run-review-gate-0001",
-    "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+    "prepared_run_context_id": "prepared-run-context-chevron-qA-required-context-case",
     "measurement_id": "measurement-05001"
   },
   "prepared_run_context_summary": {
@@ -43,7 +43,7 @@
     },
     "prepared_run_contexts": [
       {
-        "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-required-context-case",
         "label": "qA chevron manual run context",
         "manual_run_target": {
           "measurement_id": "measurement-05001",
@@ -64,7 +64,7 @@
     ],
     "missing_context_findings": [
       {
-        "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-required-context-case",
         "family": "declared_environment",
         "role": "runtime_environment_hint",
         "severity": "review",
@@ -75,7 +75,7 @@
     ],
     "workspace_context_findings": [
       {
-        "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-required-context-case",
         "context_id": "editable-observation-readout-0001",
         "severity": "review",
         "finding": "workspace_observation_has_review_findings",
@@ -113,7 +113,7 @@
       "run_start_claim": "not_claimed"
     },
     "prepared_run_context": {
-      "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-required-context-case",
       "label": "qA chevron manual run context from stored parameter state",
       "manual_run_target": {
         "measurement_id": "measurement-05001",
@@ -148,7 +148,7 @@
     },
     "classification": "scope_alignment_needs_review",
     "scope_summary": {
-      "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-required-context-case",
       "measurement_id": "measurement-05001"
     },
     "review_findings": [
@@ -189,7 +189,7 @@
     "review_bundles": [
       {
         "bundle_id": "environment-review-bundle-chevron-qA-0001",
-        "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-required-context-case",
         "classification": "environment_review_has_planned_check_findings"
       }
     ],
@@ -204,5 +204,6 @@
         "does_not_claim": "external_tool_available_or_compatible"
       }
     ]
-  }
+  },
+  "fixture_intent": "consumer_side_required_context_pressure_case_over_prior_findings"
 }

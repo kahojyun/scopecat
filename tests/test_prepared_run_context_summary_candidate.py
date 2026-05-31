@@ -251,6 +251,7 @@ class PreparedRunContextSummaryCandidateTest(unittest.TestCase):
             "not a final run lifecycle",
             expected["reference_semantics"]["contract_guard"],
         )
+        self.assertEqual(expected["summary_policy"], "internal_validation_summary")
         self.assertEqual(
             candidate["prepared_run_context_policy"]["code_import_execution"],
             "not_performed",

@@ -188,8 +188,20 @@ def _review_item(
     }
 
 
+def _prepared_context_findings(
+    source: dict[str, Any],
+    key: str,
+) -> list[dict[str, Any]]:
+    prepared_context_id = source["review_gate_request"]["prepared_run_context_id"]
+    return [
+        finding
+        for finding in source["prepared_run_context_summary"][key]
+        if finding["prepared_run_context_id"] == prepared_context_id
+    ]
+
+
 def _required_context_item(source: dict[str, Any]) -> dict[str, Any]:
-    findings = source["prepared_run_context_summary"]["missing_context_findings"]
+    findings = _prepared_context_findings(source, "missing_context_findings")
     return _review_item(
         area="required_context",
         state="blocked_by_required_context" if findings else "ready_for_manual_review",
@@ -199,7 +211,7 @@ def _required_context_item(source: dict[str, Any]) -> dict[str, Any]:
 
 
 def _workspace_item(source: dict[str, Any]) -> dict[str, Any]:
-    findings = source["prepared_run_context_summary"]["workspace_context_findings"]
+    findings = _prepared_context_findings(source, "workspace_context_findings")
     return _review_item(
         area="workspace",
         state="needs_workspace_review" if findings else "ready_for_manual_review",
@@ -295,11 +307,11 @@ def _aggregated_findings(source: dict[str, Any]) -> list[dict[str, Any]]:
     findings = []
     findings.extend(
         _finding("required_context", finding, code_key="finding")
-        for finding in source["prepared_run_context_summary"]["missing_context_findings"]
+        for finding in _prepared_context_findings(source, "missing_context_findings")
     )
     findings.extend(
         _finding("workspace", finding, code_key="finding")
-        for finding in source["prepared_run_context_summary"]["workspace_context_findings"]
+        for finding in _prepared_context_findings(source, "workspace_context_findings")
     )
     findings.extend(
         _finding("parameter_state", finding, code_key="code")

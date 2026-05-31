@@ -26,7 +26,12 @@ class PreparedRunReviewGateFixtureTest(unittest.TestCase):
         candidate = expected["candidate_summary"]
 
         self.assertEqual(expected["summary_policy"], "internal_validation_summary")
+        self.assertEqual(expected["fixture_id"], "prepared-run-review-gate-required-context-case")
         self.assertIn("manual pre-run review", expected["reference_semantics"]["contract_guard"])
+        self.assertIn(
+            "Consumer-side pressure case",
+            expected["reference_semantics"]["required_context_fixture"],
+        )
         self.assertEqual(candidate["review_gate_policy"]["automatic_run_start"], "not_performed")
         self.assertEqual(candidate["review_gate_policy"]["hardware_control"], "not_performed")
         self.assertEqual(candidate["review_gate_policy"]["dependency_sync"], "not_performed")

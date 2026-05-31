@@ -284,5 +284,6 @@
     "code execution",
     "workflow DAG",
     "GUI design"
-  ]
+  ],
+  "summary_policy": "internal_validation_summary"
 }

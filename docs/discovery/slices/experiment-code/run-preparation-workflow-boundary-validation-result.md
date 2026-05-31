@@ -162,8 +162,9 @@ validated slices. Whether it should become absence-only, move into a separate
 requirement object, or be replaced by explicit absence severity belongs to a
 later producer-stage slice.
 
-Do not add more required-context fixtures until the producer stage is explicit.
-The highest-value later implementation slice is either:
+Do not add producer-side required-input semantics, or new fixtures that imply
+producer-side required-input authority, until that stage is explicit. The
+highest-value later implementation slice is either:
 
 - a minimal reusable preparation-template input contract, if we need to show
   where required inputs such as `parameter_state` come from; or

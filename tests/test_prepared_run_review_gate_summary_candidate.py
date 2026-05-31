@@ -79,6 +79,27 @@ class PreparedRunReviewGateSummaryCandidateTest(unittest.TestCase):
             {item["state"] for item in summary["review_items"]},
         )
 
+    def test_prepared_context_findings_are_filtered_to_requested_context(self) -> None:
+        source = _load_input()
+        source["prepared_run_context_summary"]["missing_context_findings"][0][
+            "prepared_run_context_id"
+        ] = "prepared-run-context-other"
+        source["prepared_run_context_summary"]["workspace_context_findings"][0][
+            "prepared_run_context_id"
+        ] = "prepared-run-context-other"
+        source["scope_alignment_summary"]["classification"] = "scope_alignment_ready"
+        source["scope_alignment_summary"]["review_findings"] = []
+        source["environment_review_summary"]["environment_review_findings"] = []
+
+        summary = build_prepared_run_review_gate_summary(source)
+
+        self.assertEqual(summary["gate_decision"]["overall_state"], "ready_for_manual_review")
+        self.assertEqual(summary["aggregated_review_findings"], [])
+        self.assertEqual(
+            {item["state"] for item in summary["review_items"]},
+            {"ready_for_manual_review"},
+        )
+
     def test_ready_when_all_review_areas_are_clear(self) -> None:
         source = _load_input()
         _clear_non_parameter_findings(source)

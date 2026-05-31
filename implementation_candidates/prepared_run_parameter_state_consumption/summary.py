@@ -132,6 +132,8 @@ def _validate_request(source: dict[str, Any]) -> None:
         return
     if parameter_context["include_state"] != "selected":
         return
+    if parameter_context.get("context_id") != request["parameter_context_id"]:
+        raise ValueError("consumption request parameter_context_id must match selected context")
 
 
 def _validate_references(source: dict[str, Any]) -> None:

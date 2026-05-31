@@ -36,8 +36,11 @@ Use `tests/fixtures/prepared_run_review_gate/basic_gate/`.
 
 The fixture is repository-safe synthetic data. It intentionally combines one
 unavailable required context with scope, workspace, and environment findings,
-while the parameter-state gate is ready. The validation summary posture is
-`internal_validation_summary`.
+while the parameter-state gate is ready. This is a consumer-side pressure case:
+the fixture declares prior normalized findings and does not validate where the
+required context came from on the producer side. The expected-output artifact
+posture is `internal_validation_summary`; the candidate models a local manual
+review surface, not a portable/export review artifact.
 
 ## Validation Steps
 

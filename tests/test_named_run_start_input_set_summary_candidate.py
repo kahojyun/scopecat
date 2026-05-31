@@ -173,6 +173,7 @@ class NamedRunStartInputSetSummaryCandidateTest(unittest.TestCase):
         self.assertIn(
             "not a final context schema", expected["reference_semantics"]["contract_guard"]
         )
+        self.assertEqual(expected["summary_policy"], "internal_validation_summary")
         self.assertEqual(
             candidate["run_start_input_policy"]["code_import_execution"], "not_performed"
         )

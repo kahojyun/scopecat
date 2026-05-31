@@ -79,6 +79,7 @@ class PreparedRunParameterStateConsumptionSummaryCandidateTest(unittest.TestCase
     def test_parameter_context_id_mismatch_is_review_finding(self) -> None:
         source = _load_input()
         _parameter_context_ref(source)["context_id"] = "different-state-id"
+        source["consumption_request"]["parameter_context_id"] = "different-state-id"
 
         summary = build_prepared_run_parameter_state_consumption_summary(source)
 
@@ -87,6 +88,13 @@ class PreparedRunParameterStateConsumptionSummaryCandidateTest(unittest.TestCase
             "prepared_context_state_id_mismatch",
             {finding["code"] for finding in summary["review_findings"]},
         )
+
+    def test_request_parameter_context_id_must_match_selected_context(self) -> None:
+        source = _load_input()
+        source["consumption_request"]["parameter_context_id"] = "different-state-id"
+
+        with self.assertRaisesRegex(ValueError, "parameter_context_id"):
+            build_prepared_run_parameter_state_consumption_summary(source)
 
     def test_read_view_findings_are_carried_forward(self) -> None:
         source = _load_input()
