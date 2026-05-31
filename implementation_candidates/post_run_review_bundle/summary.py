@@ -127,12 +127,57 @@ def _validate_references(source: dict[str, Any]) -> None:
     _validate_running_evidence_update(source)
 
 
+def _linked_context_ids(source: dict[str, Any]) -> set[str]:
+    measurement_id = source["completed_measurement"]["measurement_record_id"]
+    return {
+        ref["context_id"]
+        for ref in source["context_link_summary"]["linked_context_refs"]
+        if ref["measurement_record_id"] == measurement_id
+    }
+
+
+def _scoped_optional_context_findings(source: dict[str, Any]) -> list[dict[str, Any]]:
+    measurement_id = source["completed_measurement"]["measurement_record_id"]
+    return [
+        finding
+        for finding in source["context_link_summary"]["optional_context_findings"]
+        if finding["measurement_record_id"] == measurement_id
+    ]
+
+
+def _scoped_context_statuses(source: dict[str, Any]) -> list[dict[str, Any]]:
+    linked_context_ids = _linked_context_ids(source)
+    return [
+        status
+        for status in source["context_status_summary"]["context_statuses"]
+        if status["context_id"] in linked_context_ids
+    ]
+
+
+def _scoped_context_status_findings(source: dict[str, Any]) -> list[dict[str, Any]]:
+    linked_context_ids = _linked_context_ids(source)
+    return [
+        finding
+        for finding in source["context_status_summary"]["status_findings"]
+        if finding["context_id"] in linked_context_ids
+    ]
+
+
+def _scoped_context_status_classification(source: dict[str, Any]) -> str:
+    classifications = {status["classification"] for status in _scoped_context_statuses(source)}
+    if "blocked_for_context_review" in classifications:
+        return "blocked_for_context_review"
+    if "attention_needed_for_context_review" in classifications:
+        return "attention_needed_for_context_review"
+    return "ready_for_context_review"
+
+
 def _classification(source: dict[str, Any]) -> str:
-    if source["context_status_summary"]["overall_classification"] == "blocked_for_context_review":
+    if _scoped_context_status_classification(source) == "blocked_for_context_review":
         return "post_run_review_blocked"
     if (
-        source["context_link_summary"]["optional_context_findings"]
-        or source["context_status_summary"]["status_findings"]
+        _scoped_optional_context_findings(source)
+        or _scoped_context_status_findings(source)
         or source["running_evidence_update_summary"]["evidence_findings"]
     ):
         return "post_run_review_needs_attention"
@@ -150,16 +195,17 @@ def _context_section(source: dict[str, Any]) -> dict[str, Any]:
     return {
         "linked_context_count": len(refs),
         "linked_context_refs": copy.deepcopy(refs),
-        "optional_context_findings": copy.deepcopy(summary["optional_context_findings"]),
+        "optional_context_findings": copy.deepcopy(_scoped_optional_context_findings(source)),
     }
 
 
 def _status_section(source: dict[str, Any]) -> dict[str, Any]:
-    summary = source["context_status_summary"]
+    statuses = _scoped_context_statuses(source)
+    findings = _scoped_context_status_findings(source)
     return {
-        "overall_classification": summary["overall_classification"],
-        "context_count": summary["context_count"],
-        "status_findings": copy.deepcopy(summary["status_findings"]),
+        "overall_classification": _scoped_context_status_classification(source),
+        "context_count": len(statuses),
+        "status_findings": copy.deepcopy(findings),
     }
 
 
@@ -176,11 +222,11 @@ def _evidence_section(source: dict[str, Any]) -> dict[str, Any]:
 
 def _review_findings(source: dict[str, Any]) -> list[dict[str, Any]]:
     findings = []
-    for finding in source["context_link_summary"]["optional_context_findings"]:
+    for finding in _scoped_optional_context_findings(source):
         item = copy.deepcopy(finding)
         item["source_section"] = "context_links"
         findings.append(item)
-    for finding in source["context_status_summary"]["status_findings"]:
+    for finding in _scoped_context_status_findings(source):
         item = copy.deepcopy(finding)
         item["source_section"] = "context_status"
         findings.append(item)

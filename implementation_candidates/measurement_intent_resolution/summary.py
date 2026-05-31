@@ -93,8 +93,11 @@ def _validate_selectors(source: dict[str, Any]) -> None:
 
 
 def _validate_resolution(source: dict[str, Any]) -> None:
+    intent_id = source["measurement_intent"]["intent_id"]
     measurement_record_id = source["measurement_record"]["measurement_record_id"]
     receipt = source["run_start_resolution"]
+    if receipt["intent_id"] != intent_id:
+        raise ValueError("resolution intent_id must match measurement intent")
     if receipt["measurement_record_id"] != measurement_record_id:
         raise ValueError("resolution measurement_record_id must match measurement record")
 

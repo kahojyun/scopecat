@@ -71,6 +71,12 @@ Do not treat this backlog as the owner of active sequencing. The slice under
 active work should be chosen in the implementation or PR plan. This backlog
 only helps classify the slice once that plan chooses a concrete user pressure.
 
+Use
+[`measurement-context-workflow-review-strategy.md`](measurement-context-workflow-review-strategy.md)
+when reviewing accumulated measurement-context slices. It summarizes the
+intended gradual adoption path and the rule that review findings are passive
+visibility by default unless a local policy explicitly turns them into gates.
+
 When the goal is to test whether the shared context vocabulary is useful,
 **Named Run-Start Input Set** is usually the smallest cross-family validation
 slice because it assembles existing selected context references, such as
@@ -93,8 +99,12 @@ Validation question: can Scopecat record a point-in-time context record with
 identity, provenance, declared summary, and family-specific payload boundary?
 
 Applies to: parameter state, setup binding, station registry context, code
-context, declared environment context, analysis choices, artifacts, and
-attachments.
+context, declared environment context, and analysis choices.
+
+Attachments, debug logs, compatibility outputs, and ordinary artifacts are
+supporting evidence by default, not context records. They should enter this
+context-snapshot slot only if a later accepted slice promotes a specific
+artifact family into real context.
 
 First fixture: one family-specific context record with explicit authority,
 declared summary fields, references, and opaque or family-owned payload.
@@ -109,9 +119,10 @@ package reference selected context records without absorbing their domain
 models?
 
 Applies to: parameter state, setup binding, code context, environment context,
-analysis choices, artifacts, attachments, and selected-reference packages.
-Derivative compatibility artifacts apply only when explicitly supplied as
-debug/attachment evidence; they are not implied by selecting parameter state.
+analysis choices, promoted artifact-family context, and selected-reference
+packages. Derivative compatibility artifacts apply only when explicitly
+supplied as debug/attachment evidence; they are not implied by selecting
+parameter state.
 
 First fixture: a measurement or step with explicit context links, family names,
 roles, include state, and missing or unavailable context findings.

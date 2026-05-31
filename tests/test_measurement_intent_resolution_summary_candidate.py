@@ -105,6 +105,13 @@ class MeasurementIntentResolutionSummaryCandidateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cover every intent selector"):
             build_measurement_intent_resolution_summary(source)
 
+    def test_resolution_intent_id_must_match_measurement_intent(self) -> None:
+        source = _load_input()
+        source["run_start_resolution"]["intent_id"] = "other-intent"
+
+        with self.assertRaisesRegex(ValueError, "intent_id"):
+            build_measurement_intent_resolution_summary(source)
+
     def test_resolved_context_must_reference_known_context_record(self) -> None:
         source = _load_input()
         source["run_start_resolution"]["resolved_contexts"][0]["resolved_context_id"] = "missing"
