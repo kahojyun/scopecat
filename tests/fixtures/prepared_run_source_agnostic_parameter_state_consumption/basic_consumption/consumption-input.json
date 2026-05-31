@@ -1,0 +1,480 @@
+{
+  "fixture_id": "prepared-run-source-agnostic-parameter-state-consumption-basic",
+  "fixture_status": "synthetic_public_safe",
+  "fixture_layer": "prepared_run_source_agnostic_parameter_state_consumption_fixture",
+  "user_job": "Bind a prepared-run selected parameter-state context to one state from a source-agnostic parameter-state read-view summary without reading storage again, discovering catalogs, writing parameters, or controlling hardware.",
+  "consumption_policy": {
+    "composition_authority": "prepared_run_parameter_state_reference",
+    "prepared_context_source": "declared_prepared_run_context_summary",
+    "parameter_state_source": "source_agnostic_storage_read_view_summary",
+    "fresh_storage_read": "not_performed",
+    "catalog_discovery": "not_performed",
+    "storage_mutation": "not_performed",
+    "parameter_write_back": "not_performed",
+    "hardware_control": "not_performed",
+    "setup_mutation": "not_performed",
+    "environment_sync": "not_performed",
+    "code_import_execution": "not_performed",
+    "readiness_claim": "composition_review_facts_only",
+    "gui_workflow": "not_defined",
+    "shared_parameter_schema": "not_defined",
+    "shared_run_context_schema": "not_defined"
+  },
+  "consumption_request": {
+    "request_id": "prepared-run-source-agnostic-parameter-state-consumption-0001",
+    "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+    "parameter_context_role": "calibrated_values",
+    "parameter_context_id": "param-state-0008",
+    "expected_state_id": "param-state-0008"
+  },
+  "prepared_run_context_summary": {
+    "prepared_run_context_policy": {
+      "run_context_authority": "preparation_summary_only",
+      "context_source": "declared_fixture_records",
+      "workspace_observation_source": "declared_editable_folder_observation_summary",
+      "shared_context_schema": "not_defined",
+      "hardware_control": "not_performed",
+      "parameter_write_back": "not_performed",
+      "setup_mutation": "not_performed",
+      "environment_sync": "not_performed",
+      "code_import_execution": "not_performed",
+      "readiness_claim": "selection_and_workspace_observation_only"
+    },
+    "prepared_run_contexts": [
+      {
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+        "label": "qA chevron manual run context from calibration-derived parameter state",
+        "manual_run_target": {
+          "measurement_id": "measurement-05001",
+          "experiment_label": "qA chevron follow-up",
+          "prepared_at": "2026-05-23T10:35:00Z",
+          "logical_targets": [
+            "qA",
+            "cAB"
+          ],
+          "entrypoint_hint": "readout_calibration_entrypoint.py"
+        },
+        "context_ref_count": 6,
+        "required_context_count": 6,
+        "selected_context_count": 6,
+        "unavailable_required_context_count": 0,
+        "preparation_claim": "manual_run_context_summary_only"
+      }
+    ],
+    "selected_context_refs": [
+      {
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+        "family": "measurement_intent",
+        "role": "declared_measurement_intent",
+        "required": true,
+        "include_state": "selected",
+        "context_id": "measurement-intent-chevron-qA",
+        "context_label": "qA chevron follow-up",
+        "record_status": "declared_user_intent",
+        "authority": "prepared_run_context_fixture"
+      },
+      {
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+        "family": "parameter_state",
+        "role": "calibrated_values",
+        "required": true,
+        "include_state": "selected",
+        "context_id": "param-state-0008",
+        "context_label": "qA default bias after Rabi calibration review",
+        "record_status": "trusted_for_declared_scope",
+        "authority": "source_agnostic_parameter_state_read_view_fixture"
+      },
+      {
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+        "family": "setup_binding",
+        "role": "logical_to_physical_mapping",
+        "required": true,
+        "include_state": "selected",
+        "context_id": "setup-binding-0002",
+        "context_label": "qA default binding after bias-line move",
+        "record_status": "selected_binding_snapshot",
+        "authority": "setup_binding_fixture"
+      },
+      {
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+        "family": "station_registry",
+        "role": "station_context",
+        "required": true,
+        "include_state": "selected",
+        "context_id": "station-registry-mmcs2-redacted",
+        "context_label": "redacted MMCS2 station registry",
+        "record_status": "selected_station_context",
+        "authority": "setup_binding_fixture"
+      },
+      {
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+        "family": "managed_code_version",
+        "role": "selected_code_version",
+        "required": true,
+        "include_state": "selected",
+        "context_id": "managed-code-version-readout-0001",
+        "context_label": "readout calibration managed code version",
+        "record_status": "materialized_workspace_available",
+        "authority": "managed_code_version_fixture"
+      },
+      {
+        "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+        "family": "editable_workspace_observation",
+        "role": "selected_editable_workspace",
+        "required": true,
+        "include_state": "selected",
+        "context_id": "editable-observation-readout-0001",
+        "context_label": "readout rerun workspace observation",
+        "record_status": "observed_with_review_findings",
+        "authority": "editable_folder_observation_fixture"
+      }
+    ],
+    "missing_context_findings": [],
+    "workspace_context_findings": []
+  },
+  "source_agnostic_read_view_summary": {
+    "attention": [
+      {
+        "basis": "Only declared manifest and receipt files are read for each requested state.",
+        "code": "explicit_manifest_and_receipt_read",
+        "does_not_claim": "catalog_discovery_or_storage_scan",
+        "severity": "review"
+      },
+      {
+        "basis": "Adapter and calibration provenance are preserved as source-specific payloads.",
+        "code": "typed_provenance_preserved",
+        "does_not_claim": "universal_provenance_schema",
+        "severity": "info"
+      },
+      {
+        "basis": "Observed sha256 and size facts are compared with request and receipt facts.",
+        "code": "checksum_continuity_checked",
+        "does_not_claim": "final_storage_integrity_contract",
+        "severity": "info"
+      },
+      {
+        "basis": "The read view does not write, repair, migrate, or update storage.",
+        "code": "storage_mutation_not_performed",
+        "does_not_claim": "storage_writer_or_catalog_update",
+        "severity": "review"
+      },
+      {
+        "basis": "Reading parameter state does not apply parameters to instruments.",
+        "code": "hardware_write_back_not_performed",
+        "does_not_claim": "instrument_command_or_current_hardware_state",
+        "severity": "review"
+      }
+    ],
+    "classification": "all_explicit_parameter_states_ready",
+    "read_view_policy": {
+      "catalog_discovery": "not_performed",
+      "checksum_algorithm": "sha256",
+      "compatibility_output": "not_produced",
+      "gui_workflow": "not_defined",
+      "hardware_write_back": "not_performed",
+      "manifest_observation": "explicit_manifest_and_receipt_files_only",
+      "read_authority": "explicit_parameter_state_storage_references",
+      "schema_migration": "not_performed",
+      "shared_parameter_schema": "not_defined",
+      "storage_mutation": "not_performed",
+      "storage_root_authority": "caller_provided_storage_root_plus_declared_relative_paths",
+      "supported_manifest_sources": "adapter_and_calibration_derived"
+    },
+    "review_findings": [],
+    "stored_states": [
+      {
+        "classification": "stored_parameter_state_read_view_ready",
+        "observed_files": [
+          {
+            "expected_digest": "sha256:05974eba3977078d0fb963b1db7c575b91ef165ae4e6abb233c39a4446a48c7a",
+            "expected_size_bytes": 3563,
+            "kind": "parameter_state_manifest",
+            "observed_digest": "sha256:05974eba3977078d0fb963b1db7c575b91ef165ae4e6abb233c39a4446a48c7a",
+            "observed_size_bytes": 3563,
+            "path": "parameter-states/param-state-imported-0001/parameter-state.json",
+            "status": "observed"
+          },
+          {
+            "expected_digest": "sha256:ac8574f7032e9728a0bb1860006ac6a1705183b5b457b4dffe43a4e61d2fe092",
+            "expected_size_bytes": 640,
+            "kind": "write_receipt",
+            "observed_digest": "sha256:ac8574f7032e9728a0bb1860006ac6a1705183b5b457b4dffe43a4e61d2fe092",
+            "observed_size_bytes": 640,
+            "path": "parameter-states/param-state-imported-0001/write-receipt.json",
+            "status": "observed"
+          }
+        ],
+        "parameter_state": {
+          "entry_count": 2,
+          "lineage": {
+            "lineage_id": "lineage-qA-default-bias-imported",
+            "lineage_label": "qA default bias imported seed",
+            "lineage_purpose": "working_point",
+            "target_scope": [
+              "sample-alpha",
+              "qA",
+              "default_bias"
+            ]
+          },
+          "readiness": "seeded_incomplete",
+          "state_id": "param-state-imported-0001",
+          "state_kind": "seed_snapshot",
+          "state_label": "qA default bias imported seed after adapter review",
+          "trust_status": "trusted_for_declared_scope",
+          "trusted_entry_paths": [
+            "qubits.qA.drive_frequency_hz",
+            "qubits.qA.pi_amp"
+          ]
+        },
+        "read_request": {
+          "expected_manifest_digest": "sha256:05974eba3977078d0fb963b1db7c575b91ef165ae4e6abb233c39a4446a48c7a",
+          "expected_manifest_size_bytes": 3563,
+          "expected_receipt_digest": "sha256:ac8574f7032e9728a0bb1860006ac6a1705183b5b457b4dffe43a4e61d2fe092",
+          "expected_receipt_size_bytes": 640,
+          "manifest_path": "parameter-states/param-state-imported-0001/parameter-state.json",
+          "receipt_path": "parameter-states/param-state-imported-0001/write-receipt.json",
+          "request_id": "source-agnostic-read-adapter-0001",
+          "source_kind": "adapter_import",
+          "state_id": "param-state-imported-0001"
+        },
+        "receipt": {
+          "approval_state": "approved",
+          "collision_policy": "no_overwrite",
+          "manifest_digest": "sha256:05974eba3977078d0fb963b1db7c575b91ef165ae4e6abb233c39a4446a48c7a",
+          "manifest_path": "parameter-states/param-state-imported-0001/parameter-state.json",
+          "manifest_size_bytes": 3563,
+          "request_id": "parameter-state-storage-write-0001",
+          "state_id": "param-state-imported-0001",
+          "storage_mutation": "performed"
+        },
+        "review_findings": [],
+        "source_kind": "adapter_import",
+        "trusted_entries": [
+          {
+            "label": "qA drive frequency",
+            "path": "qubits.qA.drive_frequency_hz",
+            "source_ids": [
+              "legacy-json-parameters-001"
+            ],
+            "trust": "review_accepted",
+            "unit": "Hz",
+            "value": 5012500000
+          },
+          {
+            "label": "qA pi pulse amplitude",
+            "path": "qubits.qA.pi_amp",
+            "source_ids": [
+              "legacy-xlsx-parameter-table-001"
+            ],
+            "trust": "review_accepted",
+            "unit": "arb",
+            "value": 0.42
+          }
+        ],
+        "typed_provenance": {
+          "excluded_preview_entries": [
+            {
+              "disposition": "not_committed_to_managed_parameter_state",
+              "entry_state": "skipped_untrusted",
+              "path": "readout.qA.frequency_hz",
+              "reason": "Adapter found the value in a copied legacy file but could not confirm it was calibrated for this sample context.",
+              "source_ids": [
+                "legacy-json-parameters-001"
+              ]
+            },
+            {
+              "disposition": "not_committed_to_managed_parameter_state",
+              "entry_state": "skipped_schema_limited",
+              "path": "readout.qA.calibration_table",
+              "reason": "Adapter preserved the table-shaped value as schema-limited; this preview slice does not migrate table shapes.",
+              "source_ids": [
+                "legacy-xlsx-parameter-table-001"
+              ]
+            }
+          ],
+          "payload": {
+            "adapter_id": "public-safe-parameter-adapter",
+            "adapter_name": "Public-safe parameter adapter fixture",
+            "legacy_sources": [
+              {
+                "display_path": "LEGACY_PARAMETER_SOURCE:/redacted/settings/parameters.json",
+                "external_root_label": "redacted-lab-share",
+                "reference_state": "adapter_declared_available",
+                "source_format": "legacy_parameters_json",
+                "source_id": "legacy-json-parameters-001",
+                "source_observation": "adapter_declared_only"
+              },
+              {
+                "display_path": "LEGACY_PARAMETER_SOURCE:/redacted/tables/parameter-table.xlsx",
+                "external_root_label": "redacted-lab-share",
+                "reference_state": "adapter_declared_available",
+                "source_format": "xlsx_parameter_table",
+                "source_id": "legacy-xlsx-parameter-table-001",
+                "source_observation": "adapter_declared_only"
+              }
+            ],
+            "source_observation": "adapter_declared_only",
+            "source_system_kind": "external_legacy_parameter_sources"
+          },
+          "source_kind": "adapter_import",
+          "source_review": {
+            "accepted_at": "2026-05-23T10:20:00",
+            "accepted_by_role": "experimenter",
+            "review_id": "adapter-import-review-0001",
+            "review_status": "accepted"
+          }
+        }
+      },
+      {
+        "classification": "stored_parameter_state_read_view_ready",
+        "observed_files": [
+          {
+            "expected_digest": "sha256:dce8720f77522b77239af84fd59e7b964c2290b8e2ed864a9004c4e515b22bdf",
+            "expected_size_bytes": 3651,
+            "kind": "parameter_state_manifest",
+            "observed_digest": "sha256:dce8720f77522b77239af84fd59e7b964c2290b8e2ed864a9004c4e515b22bdf",
+            "observed_size_bytes": 3651,
+            "path": "parameter-states/param-state-0008/parameter-state.json",
+            "status": "observed"
+          },
+          {
+            "expected_digest": "sha256:fa89d512dc421fdfdde2882dc57154259112cbadacc799e24b333e4ab29bf4c3",
+            "expected_size_bytes": 828,
+            "kind": "write_receipt",
+            "observed_digest": "sha256:fa89d512dc421fdfdde2882dc57154259112cbadacc799e24b333e4ab29bf4c3",
+            "observed_size_bytes": 828,
+            "path": "parameter-states/param-state-0008/write-receipt.json",
+            "status": "observed"
+          }
+        ],
+        "parameter_state": {
+          "entry_count": 2,
+          "lineage": {
+            "lineage_id": "lineage-qA-default-bias",
+            "lineage_label": "qA default bias",
+            "lineage_purpose": "calibrated_values",
+            "target_scope": [
+              "sample-alpha",
+              "qA",
+              "default_bias"
+            ]
+          },
+          "readiness": "partially_calibrated",
+          "state_id": "param-state-0008",
+          "state_kind": "committed_snapshot",
+          "state_label": "qA default bias after Rabi calibration review",
+          "trust_status": "trusted_for_declared_scope",
+          "trusted_entry_paths": [
+            "qubits.qA.pi_amp",
+            "qubits.qA.drive_frequency_hz"
+          ]
+        },
+        "read_request": {
+          "expected_manifest_digest": "sha256:dce8720f77522b77239af84fd59e7b964c2290b8e2ed864a9004c4e515b22bdf",
+          "expected_manifest_size_bytes": 3651,
+          "expected_receipt_digest": "sha256:fa89d512dc421fdfdde2882dc57154259112cbadacc799e24b333e4ab29bf4c3",
+          "expected_receipt_size_bytes": 828,
+          "manifest_path": "parameter-states/param-state-0008/parameter-state.json",
+          "receipt_path": "parameter-states/param-state-0008/write-receipt.json",
+          "request_id": "source-agnostic-read-calibration-0001",
+          "source_kind": "calibration_handoff",
+          "state_id": "param-state-0008"
+        },
+        "receipt": {
+          "approval_state": "approved",
+          "collision_policy": "no_overwrite",
+          "manifest_digest": "sha256:dce8720f77522b77239af84fd59e7b964c2290b8e2ed864a9004c4e515b22bdf",
+          "manifest_path": "parameter-states/param-state-0008/parameter-state.json",
+          "manifest_size_bytes": 3651,
+          "request_id": "calibration-parameter-state-storage-write-0001",
+          "source_handoff_id": "handoff-rabi-qA-pi-amp-0001",
+          "source_intake_review_id": "parameter-state-review-from-calibration-rabi-qA-0001",
+          "state_id": "param-state-0008",
+          "storage_mutation": "performed"
+        },
+        "review_findings": [],
+        "source_kind": "calibration_handoff",
+        "trusted_entries": [
+          {
+            "change_source": "accepted_calibration_handoff",
+            "path": "qubits.qA.pi_amp",
+            "source_ids": [
+              "calibration_handoff:handoff-rabi-qA-pi-amp-0001"
+            ],
+            "trust": "review_accepted",
+            "unit": "arb",
+            "value": 0.437
+          },
+          {
+            "change_source": "carried_forward_from_base_state",
+            "path": "qubits.qA.drive_frequency_hz",
+            "source_ids": [
+              "base_parameter_state:param-state-0007"
+            ],
+            "trust": "review_accepted",
+            "unit": "Hz",
+            "value": 5012500000
+          }
+        ],
+        "typed_provenance": {
+          "changed_entries": [
+            {
+              "change_source": "accepted_calibration_handoff",
+              "new_value": 0.437,
+              "old_value": 0.42,
+              "path": "qubits.qA.pi_amp",
+              "source_handoff_id": "handoff-rabi-qA-pi-amp-0001",
+              "source_handoff_review_id": "review-from-calibration-rabi-qA-0001",
+              "unit": "arb"
+            }
+          ],
+          "payload": {
+            "base_context_id": "param-context-0007",
+            "base_state_id": "param-state-0007",
+            "measurement_record_refs": [
+              "measurement-07001"
+            ],
+            "observation_links": [
+              {
+                "link_id": "observation-link-rabi-qA-07001",
+                "measurement_record_id": "measurement-07001",
+                "payload_handling": "reference_only",
+                "role": "fit_input"
+              }
+            ],
+            "source_handoff_id": "handoff-rabi-qA-pi-amp-0001",
+            "source_kind": "calibration_accepted_write_handoff",
+            "source_observation": "validated_calibration_handoff_summary",
+            "source_step_intent_id": "step-intent-rabi-qA-0001",
+            "source_step_record_id": "step-record-rabi-qA-0001",
+            "source_write_id": "proposed-write-rabi-qA-pi-amp-0001"
+          },
+          "source_handoff": {
+            "apply_state": "not_applied",
+            "base_state_id": "param-state-0007",
+            "diff_paths": [
+              "qubits.qA.pi_amp"
+            ],
+            "handoff_id": "handoff-rabi-qA-pi-amp-0001",
+            "handoff_posture": "parameter_state_management_review_request",
+            "lineage_id": "lineage-qA-default-bias",
+            "request_state": "ready_for_parameter_state_review",
+            "target_route": "parameter_state_management",
+            "write_id": "proposed-write-rabi-qA-pi-amp-0001"
+          },
+          "source_kind": "calibration_handoff",
+          "source_review": {
+            "accepted_at": "2026-05-22T13:10:00Z",
+            "accepted_by_role": "parameter_state_reviewer",
+            "accepted_diff_paths": [
+              "qubits.qA.pi_amp"
+            ],
+            "review_id": "parameter-state-review-from-calibration-rabi-qA-0001",
+            "review_status": "accepted",
+            "source_handoff_review_id": "review-from-calibration-rabi-qA-0001"
+          }
+        }
+      }
+    ]
+  }
+}
