@@ -677,3 +677,28 @@ declare multiple running inspections without adding more flag-only surface.
 The CLI does not discover records beyond the catalog directory, scan update
 directories, mutate storage, or perform refresh, import, finalization, repair,
 or GUI-state persistence.
+
+## Operator Review Receipt Checkpoint
+
+The first saved operator-review receipt slice is implemented in
+[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+It exposes:
+`save_measurement_record_operator_review_receipt(...)` and
+`summarize_measurement_record_operator_review_receipt(...)`.
+
+This slice adds one explicit local write after a read-only operator review:
+
+```text
+operator-review run
+  -> approved receipt request
+  -> no-overwrite local review receipt
+  -> compact continuation summary
+```
+
+The receipt records the operator-review snapshot, selected-record posture,
+review finding codes, next local action, and an operator disposition such as
+`recorded_for_continuation`. It is a local continuation note, not durable
+workflow authority. It does not resolve findings, approve import, approve
+read-model refresh, grant retry authority, mutate measurement records, replace
+manifests, finalize lifecycle state, define canonical review state, or persist
+GUI-owned review state.

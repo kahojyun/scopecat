@@ -14,6 +14,7 @@ from scopecat.measurement_records import (
     MeasurementRecordCreationRequest,
     MeasurementRecordFinalizationRequest,
     MeasurementRecordInProgressUpdateRequest,
+    MeasurementRecordOperatorReviewReceiptRequest,
     MeasurementRecordOperatorReviewRequest,
     MeasurementRecordReadModelProjectionRequest,
     MeasurementRecordReadRequest,
@@ -27,11 +28,14 @@ from scopecat.measurement_records import (
     read_created_record_primary_table_from_request,
     review_measurement_records,
     review_measurement_records_from_request,
+    save_measurement_record_operator_review_receipt,
+    summarize_measurement_record_operator_review_receipt,
     write_created_record_primary_data_from_request,
 )
 from scopecat.measurement_records.__main__ import main as measurement_records_main
 from scopecat.measurement_records.operator_review import (
     OPERATOR_REVIEW_POLICY,
+    OPERATOR_REVIEW_RECEIPT_SCHEMA,
     OPERATOR_REVIEW_SCHEMA,
 )
 
@@ -160,6 +164,18 @@ def _operator_source(**overrides: object) -> dict:
         "operator_review_policy": OPERATOR_REVIEW_POLICY,
         "operator_review_request": _operator_request(**overrides).to_dict(),
     }
+
+
+def _receipt_request(**overrides: object) -> MeasurementRecordOperatorReviewReceiptRequest:
+    values = {
+        "request_id": "save-operator-review-records",
+        "approval_state": "approved",
+        "review_receipt_path": "operator-reviews/review-001.json",
+        "operator_disposition": "recorded_for_continuation",
+        "operator_reason": "continue after refreshing missing read models",
+    }
+    values.update(overrides)
+    return MeasurementRecordOperatorReviewReceiptRequest(**values)
 
 
 def _populate_record(
@@ -507,6 +523,99 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
         self.assertEqual(len(payload["running_inspections"]), 2)
         self.assertEqual(payload["selected_record"]["source"], "running_inspection")
         self.assertEqual(payload["selected_record"]["record"]["record_id"], "run-4102-ramsey")
+
+    def test_saves_operator_review_receipt_without_mutating_records(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            _populate_projected_record(storage_root, content_root)
+            read_model_path = storage_root / "records" / "run-3101-rabi" / "record-read-model.json"
+            read_model_before = read_model_path.read_text(encoding="utf-8")
+            review_run = review_measurement_records_from_request(
+                _operator_request(),
+                storage_root=storage_root,
+            )
+
+            save_run = save_measurement_record_operator_review_receipt(
+                _receipt_request(),
+                operator_review=review_run,
+                storage_root=storage_root,
+            )
+            receipt_path = storage_root / "operator-reviews" / "review-001.json"
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            summary = summarize_measurement_record_operator_review_receipt(receipt)
+            read_model_after = read_model_path.read_text(encoding="utf-8")
+            receipt_digest = _digest(receipt_path)
+
+        self.assertEqual(save_run.classification, "saved_operator_review_receipt")
+        self.assertTrue(save_run.saved)
+        self.assertEqual(receipt["schema"], OPERATOR_REVIEW_RECEIPT_SCHEMA)
+        self.assertEqual(
+            receipt["operator_review"]["request"]["request_id"],
+            "operator-review-records",
+        )
+        self.assertEqual(receipt["operator_disposition"]["state"], "recorded_for_continuation")
+        self.assertEqual(summary["operator_review"]["selected_record_id"], "run-3101-rabi")
+        self.assertEqual(
+            summary["operator_review"]["next_action"], "review_selected_record_summary"
+        )
+        self.assertIn("retry_authority", summary["does_not_claim"])
+        self.assertEqual(read_model_after, read_model_before)
+        self.assertEqual(
+            save_run.to_dict()["receipt"]["receipt_digest"],
+            receipt_digest,
+        )
+
+    def test_unapproved_operator_review_receipt_request_does_not_write(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            _populate_projected_record(storage_root, content_root)
+            review_run = review_measurement_records_from_request(
+                _operator_request(),
+                storage_root=storage_root,
+            )
+
+            save_run = save_measurement_record_operator_review_receipt(
+                _receipt_request(approval_state="needs_review"),
+                operator_review=review_run,
+                storage_root=storage_root,
+            )
+
+            self.assertFalse((storage_root / "operator-reviews" / "review-001.json").exists())
+
+        self.assertEqual(save_run.classification, "blocked_before_operator_review_receipt")
+        self.assertFalse(save_run.saved)
+
+    def test_operator_review_receipt_collision_blocks_without_overwrite(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            _populate_projected_record(storage_root, content_root)
+            review_run = review_measurement_records_from_request(
+                _operator_request(),
+                storage_root=storage_root,
+            )
+            receipt_path = storage_root / "operator-reviews" / "review-001.json"
+            receipt_path.parent.mkdir()
+            receipt_path.write_text("existing receipt", encoding="utf-8")
+
+            save_run = save_measurement_record_operator_review_receipt(
+                _receipt_request(),
+                operator_review=review_run,
+                storage_root=storage_root,
+            )
+
+            self.assertEqual(receipt_path.read_text(encoding="utf-8"), "existing receipt")
+
+        self.assertEqual(save_run.classification, "blocked_before_operator_review_receipt")
+        self.assertIn("already exists", save_run.save_error or "")
 
 
 if __name__ == "__main__":

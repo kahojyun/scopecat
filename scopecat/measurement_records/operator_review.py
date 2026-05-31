@@ -3,10 +3,23 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from scopecat.measurement_records._storage import (
+    ensure_no_symlink_parents as _ensure_no_symlink_parents,
+)
+from scopecat.measurement_records._storage import (
+    existing_directory_root as _existing_directory_root,
+)
+from scopecat.measurement_records._storage import (
+    path_under as _path_under_common,
+)
+from scopecat.measurement_records._storage import (
+    sha256 as _sha256,
+)
 from scopecat.measurement_records.creation import (
     validate_public_identifier,
     validate_relative_path,
@@ -17,6 +30,7 @@ from scopecat.measurement_records.read_model_catalog import (
     MeasurementRecordCatalogRun,
     catalog_measurement_record_read_models_from_request,
 )
+from scopecat.measurement_records.read_model_shared import _json_bytes
 from scopecat.measurement_records.running_inspection import (
     MeasurementRecordRunningInspectionRequest,
     MeasurementRecordRunningInspectionRun,
@@ -25,6 +39,10 @@ from scopecat.measurement_records.running_inspection import (
 )
 
 OPERATOR_REVIEW_SCHEMA = "scopecat.measurement_record_operator_review.v0"
+OPERATOR_REVIEW_RECEIPT_SCHEMA = "measurement_record_operator_review_receipt_candidate_v0"
+OPERATOR_REVIEW_RECEIPT_SUMMARY_SCHEMA = (
+    "scopecat.measurement_record_operator_review_receipt_summary.v0"
+)
 OPERATOR_REVIEW_POLICY = {
     "catalog_authority": "record_local_projected_read_models",
     "running_inspection_authority": "caller_declared_running_inspection_requests",
@@ -34,6 +52,16 @@ OPERATOR_REVIEW_POLICY = {
     "update_receipt_discovery": "not_performed",
     "read_model_refresh": "not_performed",
     "manifest_replacement": "not_performed",
+    "gui_state": "not_persisted",
+}
+OPERATOR_REVIEW_RECEIPT_POLICY = {
+    "input_authority": "measurement_record_operator_review_run",
+    "workflow_authority": "approved_operator_review_receipt_request",
+    "receipt_materialization": "local_no_overwrite_receipt",
+    "record_mutation": "not_performed",
+    "review_state_authority": "local_continuation_note_only",
+    "finding_resolution": "not_performed",
+    "retry_authority": "not_granted",
     "gui_state": "not_persisted",
 }
 DOES_NOT_CLAIM = [
@@ -48,6 +76,19 @@ DOES_NOT_CLAIM = [
     "gui_review_state",
     "public_export_schema",
 ]
+RECEIPT_DOES_NOT_CLAIM = [
+    "record_mutation",
+    "finding_resolution",
+    "retry_authority",
+    "import_approval",
+    "refresh_approval",
+    "lifecycle_finalization",
+    "canonical_review_state",
+    "gui_review_state",
+    "public_export_schema",
+]
+APPROVAL_STATES = {"approved", "rejected", "needs_review"}
+OPERATOR_DISPOSITIONS = {"recorded_for_continuation", "recorded_as_reviewed"}
 
 
 @dataclass(frozen=True)
@@ -163,6 +204,93 @@ class MeasurementRecordOperatorReviewRun:
         }
 
 
+@dataclass(frozen=True)
+class MeasurementRecordOperatorReviewReceiptRequest:
+    """Approved request to save a local operator-review receipt."""
+
+    request_id: str
+    approval_state: str
+    review_receipt_path: str
+    operator_disposition: str = "recorded_for_continuation"
+    operator_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        validate_public_identifier(self.request_id, "operator review receipt request_id")
+        if self.approval_state not in APPROVAL_STATES:
+            raise ValueError("operator review receipt approval_state is unsupported")
+        validate_relative_path(
+            self.review_receipt_path,
+            "operator review receipt review_receipt_path",
+        )
+        if self.operator_disposition not in OPERATOR_DISPOSITIONS:
+            raise ValueError("operator review receipt operator_disposition is unsupported")
+        if self.operator_reason is not None:
+            validate_text(self.operator_reason, "operator review receipt operator_reason")
+
+    @property
+    def approved(self) -> bool:
+        return self.approval_state == "approved"
+
+    def to_dict(self) -> dict[str, Any]:
+        result = {
+            "request_id": self.request_id,
+            "approval_state": self.approval_state,
+            "review_receipt_path": self.review_receipt_path,
+            "operator_disposition": self.operator_disposition,
+        }
+        if self.operator_reason is not None:
+            result["operator_reason"] = self.operator_reason
+        return result
+
+
+@dataclass(frozen=True)
+class MeasurementRecordOperatorReviewReceiptRun:
+    """Local run receipt for saving an operator-review receipt."""
+
+    request: MeasurementRecordOperatorReviewReceiptRequest
+    operator_review: MeasurementRecordOperatorReviewRun
+    storage_root: Path
+    receipt_digest: str | None = None
+    receipt_size_bytes: int | None = None
+    save_error: str | None = None
+
+    @property
+    def saved(self) -> bool:
+        return self.classification == "saved_operator_review_receipt"
+
+    @property
+    def classification(self) -> str:
+        if self.save_error is not None:
+            return "blocked_before_operator_review_receipt"
+        if not self.request.approved:
+            return "blocked_before_operator_review_receipt"
+        return "saved_operator_review_receipt"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "artifact_posture": "local_measurement_record_operator_review_receipt_run",
+            "operator_review_receipt_policy": copy.deepcopy(OPERATOR_REVIEW_RECEIPT_POLICY),
+            "workflow": {
+                "classification": self.classification,
+                "steps": [
+                    "validate_operator_review_receipt_request",
+                    *([] if not self.request.approved else ["write_operator_review_receipt"]),
+                ],
+                "does_not_claim": list(RECEIPT_DOES_NOT_CLAIM),
+            },
+            "request": self.request.to_dict(),
+            "operator_review": _operator_review_ref(self.operator_review),
+            "receipt": {
+                "saved": self.saved,
+                "storage_root": str(self.storage_root),
+                "review_receipt_path": self.request.review_receipt_path,
+                "receipt_digest": self.receipt_digest,
+                "receipt_size_bytes": self.receipt_size_bytes,
+                "save_error": self.save_error,
+            },
+        }
+
+
 def review_measurement_records(
     source: dict[str, Any],
     *,
@@ -232,6 +360,108 @@ def review_measurement_records_from_request(
         running_inspection_failures=tuple(inspection_failures),
         review_findings=tuple(findings),
     )
+
+
+def save_measurement_record_operator_review_receipt(
+    request: MeasurementRecordOperatorReviewReceiptRequest,
+    *,
+    operator_review: MeasurementRecordOperatorReviewRun,
+    storage_root: str | Path,
+    receipt_writer: Callable[[Path, bytes], None] | None = None,
+) -> MeasurementRecordOperatorReviewReceiptRun:
+    """Save a local no-overwrite receipt for an already computed operator review."""
+
+    root = _existing_directory_root(Path(storage_root), "operator review receipt storage root")
+    if root != operator_review.storage_root:
+        raise ValueError("operator review receipt storage_root must match operator review")
+    if not request.approved:
+        return MeasurementRecordOperatorReviewReceiptRun(
+            request=request,
+            operator_review=operator_review,
+            storage_root=root,
+        )
+
+    receipt = _operator_review_receipt(request, operator_review)
+    content = _json_bytes(receipt)
+    writer = receipt_writer or _write_new_file
+    try:
+        _write_receipt(root, request.review_receipt_path, content, writer)
+    except _ReceiptWriteFailure as exc:
+        return MeasurementRecordOperatorReviewReceiptRun(
+            request=request,
+            operator_review=operator_review,
+            storage_root=root,
+            save_error=str(exc),
+        )
+    return MeasurementRecordOperatorReviewReceiptRun(
+        request=request,
+        operator_review=operator_review,
+        storage_root=root,
+        receipt_digest=_sha256(content),
+        receipt_size_bytes=len(content),
+    )
+
+
+def summarize_measurement_record_operator_review_receipt(
+    receipt: dict[str, Any],
+) -> dict[str, Any]:
+    """Project a compact continuation summary from a saved operator-review receipt."""
+
+    if receipt.get("schema") != OPERATOR_REVIEW_RECEIPT_SCHEMA:
+        raise ValueError("operator review receipt schema is unsupported")
+    receipt_request = _require_dict(receipt, "receipt_request")
+    saved_review = _require_dict(receipt, "operator_review")
+    review_workflow = _require_dict(saved_review, "workflow")
+    selected_record = saved_review.get("selected_record")
+    if selected_record is not None and not isinstance(selected_record, dict):
+        raise ValueError("operator review receipt selected_record must be an object")
+    findings = _require_list(saved_review, "review_findings")
+    disposition = _require_dict(receipt, "operator_disposition")
+    return {
+        "summary_schema": OPERATOR_REVIEW_RECEIPT_SUMMARY_SCHEMA,
+        "artifact_posture": "local_measurement_record_operator_review_receipt_summary",
+        "summary_policy": {
+            "input_authority": "saved_operator_review_receipt",
+            "record_mutation": "not_performed",
+            "continuation_authority": "not_granted",
+            "gui_state": "not_persisted",
+            "redaction_boundary": "local_workspace_only",
+        },
+        "receipt": {
+            "request_id": validate_text(receipt_request.get("request_id"), "receipt request_id"),
+            "review_receipt_path": validate_relative_path(
+                receipt_request.get("review_receipt_path"),
+                "receipt review_receipt_path",
+            ),
+            "operator_disposition": validate_text(
+                disposition.get("state"),
+                "receipt operator_disposition",
+            ),
+            "operator_reason": disposition.get("operator_reason"),
+        },
+        "operator_review": {
+            "request_id": validate_text(
+                _require_dict(saved_review, "request").get("request_id"),
+                "saved operator review request_id",
+            ),
+            "classification": validate_text(
+                review_workflow.get("classification"),
+                "saved operator review classification",
+            ),
+            "selected_record_id": _selected_record_id_from_saved_summary(selected_record),
+            "selected_record_source": _selected_record_source_from_saved_summary(selected_record),
+            "review_finding_codes": [
+                validate_text(finding.get("code"), "operator review finding code")
+                for finding in findings
+                if isinstance(finding, dict)
+            ],
+            "next_action": validate_text(
+                saved_review.get("next_action"),
+                "saved operator review next_action",
+            ),
+        },
+        "does_not_claim": list(RECEIPT_DOES_NOT_CLAIM),
+    }
 
 
 def _parse_source(source: dict[str, Any]) -> MeasurementRecordOperatorReviewRequest:
@@ -328,6 +558,77 @@ def _is_running_record_missing_read_model_finding(
     )
 
 
+def _operator_review_receipt(
+    request: MeasurementRecordOperatorReviewReceiptRequest,
+    operator_review: MeasurementRecordOperatorReviewRun,
+) -> dict[str, Any]:
+    review_dict = operator_review.to_dict()
+    return {
+        "schema": OPERATOR_REVIEW_RECEIPT_SCHEMA,
+        "artifact_posture": "local_measurement_record_operator_review_receipt",
+        "operator_review_receipt_policy": copy.deepcopy(OPERATOR_REVIEW_RECEIPT_POLICY),
+        "receipt_request": request.to_dict(),
+        "operator_disposition": {
+            "state": request.operator_disposition,
+            "operator_reason": request.operator_reason,
+        },
+        "operator_review": review_dict,
+        "summary": {
+            "operator_review_request_id": operator_review.request.request_id,
+            "operator_review_classification": operator_review.classification,
+            "selected_record_id": operator_review.request.selected_record_id,
+            "review_finding_codes": [
+                finding["code"] for finding in operator_review.review_findings
+            ],
+            "next_action": review_dict["next_action"],
+        },
+        "does_not_claim": list(RECEIPT_DOES_NOT_CLAIM),
+    }
+
+
+def _operator_review_ref(run: MeasurementRecordOperatorReviewRun) -> dict[str, Any]:
+    return {
+        "request_id": run.request.request_id,
+        "classification": run.classification,
+        "selected_record_id": run.request.selected_record_id,
+        "review_finding_count": len(run.review_findings),
+    }
+
+
+def _write_receipt(
+    root: Path,
+    relative_path: str,
+    content: bytes,
+    receipt_writer: Callable[[Path, bytes], None],
+) -> None:
+    target = _path_under(root, relative_path)
+    _ensure_no_symlink_parents(root, relative_path, "operator review receipt target")
+    if target.exists() or target.is_symlink():
+        raise _ReceiptWriteFailure("operator review receipt target already exists")
+    try:
+        receipt_writer(target, content)
+    except Exception as exc:
+        try:
+            target.unlink()
+        except FileNotFoundError:
+            pass
+        raise _ReceiptWriteFailure(f"operator review receipt write failed: {exc}") from exc
+
+
+def _write_new_file(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("xb") as handle:
+        handle.write(content)
+
+
+def _path_under(root: Path, relative_path: str) -> Path:
+    return _path_under_common(root, relative_path, "operator review receipt path")
+
+
+class _ReceiptWriteFailure(RuntimeError):
+    pass
+
+
 def _selected_record_summary(
     selected_record_id: str | None,
     entries: tuple[dict[str, Any], ...],
@@ -416,6 +717,13 @@ def _require_dict(value: dict[str, Any], field: str) -> dict[str, Any]:
     return item
 
 
+def _require_list(value: dict[str, Any], field: str) -> list[Any]:
+    item = value.get(field)
+    if not isinstance(item, list):
+        raise ValueError(f"{field} must be a list")
+    return item
+
+
 def _require_text(value: dict[str, Any], field: str) -> str:
     return validate_text(value.get(field), field)
 
@@ -450,3 +758,18 @@ def _optional_positive_int_or_none(value: dict[str, Any], field: str) -> int | N
     if field not in value:
         return None
     return _validate_positive_integer(value[field], field)
+
+
+def _selected_record_id_from_saved_summary(selected_record: dict[str, Any] | None) -> str | None:
+    if selected_record is None:
+        return None
+    record = _require_dict(selected_record, "record")
+    return validate_public_identifier(record.get("record_id"), "selected record_id")
+
+
+def _selected_record_source_from_saved_summary(
+    selected_record: dict[str, Any] | None,
+) -> str | None:
+    if selected_record is None:
+        return None
+    return validate_text(selected_record.get("source"), "selected record source")
