@@ -59,8 +59,9 @@ The candidate summary can answer:
 
 ## Remaining Questions
 
-- Should a later slice write the reviewed managed parameter-state summary to
-  storage, or is summary validation enough until architecture decisions land?
+- What read view or catalog should consume stored parameter-state manifests? A
+  later bounded writer slice validates local storage in
+  [`parameter-state-storage-writer-validation-result.md`](parameter-state-storage-writer-validation-result.md).
 - How should later review surfaces present excluded untrusted/schema-limited
   entries?
 - Should adapter-source observation/checksum validation happen before or after
@@ -83,7 +84,7 @@ This validation does not earn:
 
 ## Slice Recommendation
 
-Stop this slice at side-effect-free review/commit summary. If storage mutation
-becomes necessary, create a separate writer slice that starts from this
-reviewed summary and validates no-overwrite storage behavior without legacy
+Stop this slice at side-effect-free review/commit summary. Use
+[`parameter-state-storage-writer-validation-result.md`](parameter-state-storage-writer-validation-result.md)
+when a workflow needs bounded no-overwrite local storage without legacy
 parsing or hardware write-back.
