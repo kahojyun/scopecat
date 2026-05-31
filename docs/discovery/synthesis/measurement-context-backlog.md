@@ -220,6 +220,15 @@ legacy backends, parsing data, verifying previews, accepting imports, mutating
 storage, repairing references, writing parameters, deciding measurement
 validity, or defining GUI behavior.
 
+Adjacent legacy locator-observation review-bundle result:
+[`legacy-locator-observation-review-bundle-validation-result.md`](../slices/measurement-records/legacy-locator-observation-review-bundle-validation-result.md)
+validates the subcase where sidecar post-run review and optional prior
+file-backed locator observations are composed into one local review summary,
+surfacing no-observation, observed, unavailable, mismatch, and sidecar
+attention states without fresh observation, backend lookup, legacy parsing,
+preview verification, import acceptance, storage mutation, reference repair,
+parameter write-back, measurement-validity decisions, or GUI behavior.
+
 First post-run review result:
 [`post-run-review-bundle-validation-result.md`](../slices/measurement-context/post-run-review-bundle-validation-result.md)
 validates a local post-run review composition over completed measurement
