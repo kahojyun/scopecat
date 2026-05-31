@@ -1,0 +1,108 @@
+{
+  "candidate_summary": {
+    "adapter": {
+      "adapter_id": "legacy-parameter-json-writer-adapter",
+      "output_state": "adapter_declared_produced",
+      "target_format": "legacy_parameters_json"
+    },
+    "adapter_findings": [],
+    "adapter_output_policy": {
+      "adapter_execution_observation": "adapter_declared_only",
+      "durable_storage": "not_performed",
+      "external_file_authority": "not_claimed",
+      "external_format_generation": "user_authored_adapter_declared",
+      "file_observation": "not_performed",
+      "file_write": "not_performed_by_scopecat",
+      "gui_workflow": "not_defined",
+      "hardware_control": "not_performed",
+      "managed_runner": "not_defined",
+      "manifest_authority": "adapter_authored",
+      "parameter_write_back": "not_performed",
+      "request_source": "approved_parameter_compatibility_adapter_request_summary",
+      "scopecat_output_parsing": "not_performed",
+      "stable_public_adapter_api": "not_defined"
+    },
+    "attention": [
+      {
+        "basis": "Scopecat validates adapter-declared output facts, not the lab-specific output payload.",
+        "code": "adapter_authored_output_manifest",
+        "does_not_claim": "output_payload_parsed_by_scopecat",
+        "severity": "info"
+      },
+      {
+        "basis": "The produced compatibility target remains adapter-declared external output.",
+        "code": "external_file_authority_not_claimed",
+        "does_not_claim": "scopecat_managed_external_file_authority",
+        "severity": "review"
+      },
+      {
+        "basis": "Previewing the adapter manifest does not apply parameters or control hardware.",
+        "code": "hardware_and_write_back_not_performed",
+        "does_not_claim": "hardware_safe_or_parameters_applied",
+        "severity": "review"
+      }
+    ],
+    "classification": "adapter_compatibility_output_ready_for_review",
+    "entries": [
+      {
+        "adapter_key": "qubits.qA.pi_amp",
+        "entry_state": "adapter_declared_emitted",
+        "path": "qubits.qA.pi_amp",
+        "unit": "arb",
+        "value": 0.42,
+        "value_shape": "scalar"
+      },
+      {
+        "adapter_key": "qubits.qA.drive_frequency_hz",
+        "entry_state": "adapter_declared_emitted",
+        "path": "qubits.qA.drive_frequency_hz",
+        "unit": "Hz",
+        "value": 5010000000,
+        "value_shape": "scalar"
+      }
+    ],
+    "preview_effects": {
+      "durable_storage": "not_performed",
+      "external_file_authority": "not_claimed",
+      "file_observation": "not_performed",
+      "file_write": "not_performed",
+      "hardware_control": "not_performed",
+      "parameter_write_back": "not_performed",
+      "scopecat_output_parsing": "not_performed"
+    },
+    "request_context": {
+      "approval_id": "operator-pre-run-approval-chevron-qA-0001",
+      "measurement_id": "measurement-05001",
+      "parameter_state_id": "param-state-0008",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+      "request_id": "compatibility-adapter-request-chevron-qA-0001"
+    },
+    "target": {
+      "digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "reference_state": "adapter_declared_available",
+      "scopecat_external_file_authority": "not_claimed",
+      "size_bytes": 256,
+      "target_authority": "adapter_declared",
+      "target_display_label": "redacted-legacy-parameters-json"
+    }
+  },
+  "decisions_not_earned": [
+    "Scopecat parsing of lab-specific output",
+    "file write",
+    "file observation",
+    "hardware control or current instrument state",
+    "parameter write-back",
+    "external file authority",
+    "durable storage",
+    "managed runner",
+    "GUI workflow",
+    "stable public adapter API"
+  ],
+  "fixture_id": "adapter-authored-parameter-compatibility-output-preview-basic",
+  "reference_semantics": {
+    "adapter_boundary": "The user-authored adapter declares the compatibility output facts; Scopecat validates continuity and review facts without owning the external format.",
+    "candidate": "adapter_authored_parameter_compatibility_output_preview",
+    "contract_guard": "adapter-authored compatibility output preview over approved request; not Scopecat output parsing, file write, file observation, hardware control, parameter write-back, durable storage, GUI, or stable public adapter API"
+  },
+  "summary_policy": "internal_validation_summary"
+}

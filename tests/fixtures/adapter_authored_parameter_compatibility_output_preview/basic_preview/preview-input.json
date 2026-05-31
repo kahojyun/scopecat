@@ -1,0 +1,160 @@
+{
+  "fixture_id": "adapter-authored-parameter-compatibility-output-preview-basic",
+  "fixture_status": "synthetic_public_safe",
+  "fixture_layer": "adapter_authored_parameter_compatibility_output_preview_fixture",
+  "user_job": "Preview a user-authored adapter compatibility output manifest without parsing the output file, writing files, applying parameters, or claiming external file authority.",
+  "manifest_schema": "scopecat.adapter_parameter_compatibility_output_manifest.v0",
+  "adapter_output_policy": {
+    "manifest_authority": "adapter_authored",
+    "request_source": "approved_parameter_compatibility_adapter_request_summary",
+    "external_format_generation": "user_authored_adapter_declared",
+    "scopecat_output_parsing": "not_performed",
+    "adapter_execution_observation": "adapter_declared_only",
+    "file_write": "not_performed_by_scopecat",
+    "file_observation": "not_performed",
+    "hardware_control": "not_performed",
+    "parameter_write_back": "not_performed",
+    "external_file_authority": "not_claimed",
+    "durable_storage": "not_performed",
+    "gui_workflow": "not_defined",
+    "managed_runner": "not_defined",
+    "stable_public_adapter_api": "not_defined"
+  },
+  "adapter_request_summary": {
+    "adapter_profile": {
+      "adapter_id": "legacy-parameter-json-writer-adapter",
+      "execution_authority": "user_authored_external_adapter",
+      "name": "Legacy parameter JSON writer",
+      "stable_public_api": "not_defined",
+      "target_format": "legacy_parameters_json",
+      "target_profile_id": "redacted-lab-parameter-json-target",
+      "version": "0.1.0"
+    },
+    "adapter_request": {
+      "approval_id": "operator-pre-run-approval-chevron-qA-0001",
+      "measurement_id": "measurement-05001",
+      "parameter_state_id": "param-state-0008",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+      "request_id": "compatibility-adapter-request-chevron-qA-0001",
+      "requested_at": "2026-05-23T11:08:00Z",
+      "requested_by_role": "experimenter",
+      "requested_entry_count": 2,
+      "target_format": "legacy_parameters_json",
+      "target_hint": {
+        "path_authority": "adapter_or_user_owned",
+        "scopecat_external_file_authority": "not_claimed",
+        "target_display_label": "redacted-legacy-parameters-json",
+        "target_role": "external_compatibility_output"
+      }
+    },
+    "adapter_request_policy": {
+      "adapter_boundary": "user_authored_external_compatibility_adapter",
+      "adapter_execution": "not_performed",
+      "approval_source": "prepared_run_operator_pre_run_approval_summary",
+      "catalog_discovery": "not_performed",
+      "compatibility_output": "not_produced",
+      "dependency_resolution": "not_performed",
+      "dependency_sync": "not_performed",
+      "durable_storage": "not_performed",
+      "external_file_authority": "not_claimed",
+      "file_write": "not_performed",
+      "fresh_storage_read": "not_performed",
+      "gui_workflow": "not_defined",
+      "hardware_control": "not_performed",
+      "managed_runner": "not_defined",
+      "package_install": "not_performed",
+      "parameter_write_back": "not_performed",
+      "request_authority": "scopecat_approved_parameter_state",
+      "request_scope": "adapter_input_request_only",
+      "runtime_probe": "not_performed",
+      "stable_public_adapter_api": "not_defined"
+    },
+    "approval_context": {
+      "approval_id": "operator-pre-run-approval-chevron-qA-0001",
+      "classification": "operator_pre_run_review_approved",
+      "operator_decision": "approve_pre_run_review",
+      "review_gate_id": "prepared-run-acknowledgement-aware-review-gate-0001"
+    },
+    "classification": "compatibility_adapter_request_ready_for_external_adapter",
+    "prepared_run_context": {
+      "logical_targets": [
+        "qA",
+        "cAB"
+      ],
+      "measurement_id": "measurement-05001",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-0001"
+    },
+    "request_effects": {
+      "adapter_execution": "not_performed",
+      "compatibility_output": "not_produced",
+      "durable_storage": "not_performed",
+      "external_file_authority": "not_claimed",
+      "file_write": "not_performed",
+      "hardware_control": "not_performed",
+      "parameter_write_back": "not_performed"
+    },
+    "requested_entries": [
+      {
+        "adapter_key": "qubits.qA.pi_amp",
+        "path": "qubits.qA.pi_amp",
+        "request_state": "requested_for_external_adapter",
+        "unit": "arb",
+        "value": 0.42,
+        "value_shape": "scalar"
+      },
+      {
+        "adapter_key": "qubits.qA.drive_frequency_hz",
+        "path": "qubits.qA.drive_frequency_hz",
+        "request_state": "requested_for_external_adapter",
+        "unit": "Hz",
+        "value": 5010000000,
+        "value_shape": "scalar"
+      }
+    ],
+    "selected_parameter_state": {
+      "source_kind": "calibration_handoff",
+      "state_id": "param-state-0008",
+      "trust_status": "trusted_for_declared_scope",
+      "trusted_entry_count": 2
+    }
+  },
+  "adapter_output_manifest": {
+    "output_id": "adapter-compatibility-output-chevron-qA-0001",
+    "request_id": "compatibility-adapter-request-chevron-qA-0001",
+    "approval_id": "operator-pre-run-approval-chevron-qA-0001",
+    "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+    "measurement_id": "measurement-05001",
+    "parameter_state_id": "param-state-0008",
+    "adapter_id": "legacy-parameter-json-writer-adapter",
+    "target_format": "legacy_parameters_json",
+    "output_state": "adapter_declared_produced",
+    "produced_at": "2026-05-23T11:12:00Z",
+    "target": {
+      "target_display_label": "redacted-legacy-parameters-json",
+      "target_authority": "adapter_declared",
+      "reference_state": "adapter_declared_available",
+      "digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "size_bytes": 256,
+      "scopecat_external_file_authority": "not_claimed"
+    },
+    "entries": [
+      {
+        "adapter_key": "qubits.qA.pi_amp",
+        "path": "qubits.qA.pi_amp",
+        "entry_state": "adapter_declared_emitted",
+        "value": 0.42,
+        "unit": "arb",
+        "value_shape": "scalar"
+      },
+      {
+        "adapter_key": "qubits.qA.drive_frequency_hz",
+        "path": "qubits.qA.drive_frequency_hz",
+        "entry_state": "adapter_declared_emitted",
+        "value": 5010000000,
+        "unit": "Hz",
+        "value_shape": "scalar"
+      }
+    ]
+  },
+  "adapter_findings": []
+}
