@@ -165,6 +165,15 @@ during-run supporting-evidence findings without storage mutation,
 primary-data observation, evidence import, artifact provenance, fit validation,
 measurement-validity decisions, or package/export behavior.
 
+First post-run artifact-provenance review result:
+[`post-run-artifact-provenance-review-validation-result.md`](../slices/measurement-context/post-run-artifact-provenance-review-validation-result.md)
+validates the subcase where prior supporting-artifact provenance summaries are
+surfaced inside local post-run review only when they match artifact evidence
+already present in the post-run bundle, while still avoiding storage mutation,
+primary-data observation, evidence import, artifact/source observation,
+checksum validation, artifact generation, analysis-DAG inference, fit
+validation, measurement-validity decisions, or package/export behavior.
+
 ### 3. Named Run-Start Input Set
 
 Validation question: can Scopecat assemble selected context records as named
