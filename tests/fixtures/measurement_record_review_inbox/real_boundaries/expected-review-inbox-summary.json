@@ -1,0 +1,126 @@
+{
+  "candidate_summary": {
+    "artifact_posture": "internal_validation_summary",
+    "attention": [
+      {
+        "code": "saved_review_continuation_available",
+        "count": 1,
+        "does_not_claim": "retry_or_action_authority"
+      },
+      {
+        "code": "records_need_review",
+        "count": 1,
+        "does_not_claim": "record_is_invalid_or_repairable"
+      },
+      {
+        "code": "running_records_visible",
+        "count": 1,
+        "does_not_claim": "live_monitor_or_subscription_active"
+      }
+    ],
+    "does_not_claim": [
+      "storage_scan",
+      "record_open",
+      "record_mutation",
+      "read_model_refresh",
+      "action_approval",
+      "canonical_gui_state",
+      "public_export"
+    ],
+    "inbox": {
+      "classification": "review_inbox_attention",
+      "counts": {
+        "continue_later": 1,
+        "needs_review": 1,
+        "reviewed": 0,
+        "ready": 1,
+        "running": 1
+      },
+      "lane_order": [
+        "continue_later",
+        "needs_review",
+        "running",
+        "ready",
+        "reviewed"
+      ],
+      "lanes": {
+        "continue_later": [
+          {
+            "next_action": "select_record_for_review",
+            "operator_reason": "Continue workspace review later.",
+            "receipt_id": "save-operator-review-real-boundaries",
+            "record_id": null,
+            "record_visibility": "not_selected",
+            "review_finding_codes": [],
+            "review_receipt_path": "operator-reviews/review-real-001.json",
+            "selected_record_source": null,
+            "source": "saved_operator_review_receipt_summary",
+            "state": "recorded_for_continuation"
+          }
+        ],
+        "needs_review": [
+          {
+            "finding_code": "read_model_missing",
+            "label": "run-9999-needs-review",
+            "message": "Record directory has no projected read model.",
+            "next_action": "review_measurement_record_operator_findings",
+            "record_dir": "records/run-9999-needs-review",
+            "record_id": "run-9999-needs-review",
+            "record_visibility": "not_visible",
+            "source": "operator_review.catalog",
+            "state": "needs_review"
+          }
+        ],
+        "ready": [
+          {
+            "label": "run-3101-rabi",
+            "next_action": "open_record_summary",
+            "primary_count": 5,
+            "record_dir": "records/run-3101-rabi",
+            "record_id": "run-3101-rabi",
+            "source": "fresh_operator_review.catalog",
+            "state": "complete"
+          }
+        ],
+        "running": [
+          {
+            "label": "run-4101-t1",
+            "next_action": "review_running_inspection_findings",
+            "record_dir": "records/run-4101-t1",
+            "record_id": "run-4101-t1",
+            "review_finding_codes": [
+              "running_update_gap"
+            ],
+            "source": "fresh_operator_review.running_inspection",
+            "state": "running",
+            "visible_rows_recorded": 4
+          }
+        ],
+        "reviewed": []
+      }
+    },
+    "review_inbox_policy": {
+      "action_approval": "not_granted",
+      "gui_state_persistence": "not_performed",
+      "input_authority": "operator_review_run_and_saved_receipt_summaries",
+      "public_export": "not_performed",
+      "read_model_refresh": "not_performed",
+      "record_mutation": "not_performed",
+      "record_open": "not_performed",
+      "storage_scan": "not_performed"
+    },
+    "workspace": {
+      "label": "Real-shape review workspace",
+      "workspace_id": "workspace-real-boundary-001"
+    }
+  },
+  "boundary_notes": [
+    "This fixture uses the real operator-review output shape and real saved receipt-summary shape.",
+    "It exercises path-shaped missing read-model findings, running-inspection review actions, and no-selection saved receipts."
+  ],
+  "reference_semantics": {
+    "artifact_posture": "internal_validation_summary",
+    "contract_guard": "Real-shape inputs are normalized without scanning storage or granting action authority."
+  },
+  "source_fixture": "tests/fixtures/measurement_record_review_inbox/real_boundaries/review-inbox-input.json"
+}

@@ -774,6 +774,21 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "policy"):
             summarize_measurement_record_operator_review_receipt(receipt)
 
+    def test_operator_review_receipt_summary_rejects_tampered_non_claims(
+        self,
+    ) -> None:
+        receipt = _saved_operator_review_receipt()
+        receipt["does_not_claim"] = ["record_mutation"]
+
+        with self.assertRaisesRegex(ValueError, "does_not_claim"):
+            summarize_measurement_record_operator_review_receipt(receipt)
+
+        receipt = _saved_operator_review_receipt()
+        receipt["operator_review"]["workflow"]["does_not_claim"] = ["storage_mutation"]
+
+        with self.assertRaisesRegex(ValueError, "does_not_claim"):
+            summarize_measurement_record_operator_review_receipt(receipt)
+
     def test_operator_review_receipt_summary_rejects_inconsistent_summary(
         self,
     ) -> None:

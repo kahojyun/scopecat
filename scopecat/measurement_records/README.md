@@ -199,8 +199,10 @@ one local no-overwrite receipt, and projects a compact continuation summary.
 Receipt paths must stay under `operator-reviews/`; they cannot be materialized
 inside record directories. The summary path validates the saved receipt posture,
 policy, approval state, disposition, review finding shape, and embedded summary
-continuity before emitting a compact summary. If the operator selected a record
-that was not visible in the review, the summary preserves the requested
+continuity before emitting a compact summary. It also validates the receipt and
+embedded review non-claim posture before projecting the local summary. If the
+operator selected a record that was not visible in the review, the summary
+preserves the requested
 `selected_record_id` with `selected_record_source: not_visible` instead of
 pretending a record summary was available. The receipt summary accepts only
 review/navigation `next_action` values and public-safe request identifiers. The

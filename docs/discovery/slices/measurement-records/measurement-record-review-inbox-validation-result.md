@@ -74,8 +74,9 @@ fixture input only. It validates:
 - exact operator-review policy/non-claim posture before projecting real review
   output;
 - real saved-receipt summary normalization into the compact inbox input shape;
-- private minimal boundary helpers for saved review summaries, review-only next
-  actions, and review finding references, without extracting a shared
+- private minimal boundary helpers for saved review summaries, saved
+  selected-record posture, review-only next actions, code-aware review finding
+  targets, and visible record references, without extracting a shared
   Measurement Record domain model;
 - real running-inspection review actions in the running lane, including
   continuing monitoring and reviewing running-inspection findings;
@@ -88,8 +89,12 @@ fixture input only. It validates:
 - saved receipt selected-record visibility, including stale continuation prompts
   whose selected record is not currently visible, and no-selection receipts
   preserved as `not_selected`;
+- consistent saved selected-record posture: no-selection receipts must keep
+  both selected id and source null, while selected records must use a supported
+  saved source;
 - review findings referencing visible records or explicitly marked not-visible
   selected-record findings;
+- path-shaped review finding targets only for supported finding codes;
 - review/navigation-only `next_action` values, without refresh/import/repair
   authority;
 - non-negative row/count facts.
@@ -123,9 +128,10 @@ This validation does not earn:
 
 ## Remaining Risks
 
-- The fixture is synthetic and small. It covers one complete record, one
-  running record, one missing-read-model finding, and one saved continuation
-  prompt.
+- The fixtures are synthetic and small. They cover one normalized product-shape
+  fixture and one real-shape boundary fixture with a real operator-review input,
+  path-shaped missing-read-model finding, running-inspection review action, and
+  no-selection saved receipt summary.
 - Lane duplication is unresolved product pressure. A future UI may need to
   choose whether a record with both current findings and saved continuation
   appears in multiple lanes or as one enriched card.

@@ -504,6 +504,8 @@ def _parse_operator_review_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("operator review receipt artifact_posture is unsupported")
     if receipt.get("operator_review_receipt_policy") != OPERATOR_REVIEW_RECEIPT_POLICY:
         raise ValueError("operator review receipt policy is unsupported")
+    if receipt.get("does_not_claim") != RECEIPT_DOES_NOT_CLAIM:
+        raise ValueError("operator review receipt does_not_claim is unsupported")
 
     receipt_request = _require_dict(receipt, "receipt_request")
     receipt_request_id = validate_public_identifier(
@@ -603,6 +605,8 @@ def _validate_saved_operator_review_contract(saved_review: dict[str, Any]) -> No
     if saved_review.get("operator_review_policy") != OPERATOR_REVIEW_POLICY:
         raise ValueError("saved operator review policy is unsupported")
     workflow = _require_dict(saved_review, "workflow")
+    if workflow.get("does_not_claim") != DOES_NOT_CLAIM:
+        raise ValueError("saved operator review does_not_claim is unsupported")
     classification = validate_text(
         workflow.get("classification"),
         "saved operator review classification",

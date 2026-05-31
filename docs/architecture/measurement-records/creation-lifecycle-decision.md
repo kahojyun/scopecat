@@ -704,11 +704,12 @@ review finding codes, next local action, and an operator disposition such as
 `operator-reviews/` so this local note cannot pollute record storage. Missing
 selected records remain explicit as `selected_record_source: not_visible` in the
 compact summary. Receipt summaries accept only review/navigation next actions
-and public-safe request identifiers. It is a local continuation note, not
-durable workflow authority. It does not resolve findings, approve import,
-approve read-model refresh, grant retry authority, mutate measurement records,
-replace manifests, finalize lifecycle state, define canonical review state, or
-persist GUI-owned review state.
+and public-safe request identifiers, and validate receipt/review non-claim
+posture before projecting. It is a local continuation note, not durable
+workflow authority. It does not resolve findings, approve import, approve
+read-model refresh, grant retry authority, mutate measurement records, replace
+manifests, finalize lifecycle state, define canonical review state, or persist
+GUI-owned review state.
 
 The module also exposes
 `python -m scopecat.measurement_records operator-review-receipt-summary` as a

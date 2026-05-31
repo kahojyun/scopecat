@@ -74,6 +74,8 @@ _REVIEW_NEXT_ACTIONS = {
 }
 _FINDING_VISIBILITY = {"visible", "not_visible"}
 _SAVED_RECORD_VISIBILITY = {"visible", "not_visible", "not_selected"}
+_SELECTED_RECORD_SOURCES = {"catalog", "running_inspection", "not_visible"}
+_READ_MODEL_MISSING_TARGET = "record-read-model.json"
 
 
 @dataclass(frozen=True)
@@ -97,6 +99,7 @@ class _ReviewFindingRef:
     @classmethod
     def from_target(
         cls,
+        code: str,
         target: Any,
         record_ids_by_dir: dict[str, str],
     ) -> "_ReviewFindingRef":
@@ -110,7 +113,11 @@ class _ReviewFindingRef:
                 "visible" if record_id in set(record_ids_by_dir.values()) else "not_visible"
             )
             return cls(record_id=record_id, visibility=visibility)
+        if code != "read_model_missing":
+            raise ValueError("path-shaped operator review finding target is unsupported")
         target_parts = relative_path_parts(target_text, "operator review finding target")
+        if target_parts[-1] != _READ_MODEL_MISSING_TARGET:
+            raise ValueError("read_model_missing target must reference record-read-model.json")
         for record_dir, record_id in sorted(
             record_ids_by_dir.items(),
             key=lambda item: len(item[0]),
@@ -130,6 +137,30 @@ class _ReviewFindingRef:
             visibility="not_visible",
             record_dir="/".join(target_parts[:-1]),
         )
+
+
+@dataclass(frozen=True)
+class _SavedSelectedRecordPosture:
+    record_id: str | None
+    source: str | None
+
+    @classmethod
+    def from_review(cls, review: dict[str, Any]) -> "_SavedSelectedRecordPosture":
+        record_id = _validate_optional_record_id(
+            review["selected_record_id"],
+            "selected_record_id",
+        )
+        source = review["selected_record_source"]
+        if record_id is None:
+            if source is not None:
+                raise ValueError("selected_record_source must be null without selected_record_id")
+            return cls(record_id=None, source=None)
+        if source is None:
+            raise ValueError("selected_record_source is required with selected_record_id")
+        selected_source = validate_text(source, "selected_record_source")
+        if selected_source not in _SELECTED_RECORD_SOURCES:
+            raise ValueError("selected_record_source is unsupported")
+        return cls(record_id=record_id, source=selected_source)
 
 
 @dataclass(frozen=True)
@@ -177,10 +208,7 @@ class _SavedReviewSummary:
         if not isinstance(review, dict):
             raise ValueError("receipt operator_review must be an object")
         validate_public_identifier(review["request_id"], "receipt review request_id")
-        _validate_optional_record_id(review["selected_record_id"], "selected_record_id")
-        source = review["selected_record_source"]
-        if source is not None:
-            validate_text(source, "selected_record_source")
+        _SavedSelectedRecordPosture.from_review(review)
         validate_text(review["classification"], "receipt review classification")
         _ReviewNextAction.parse(review["next_action"], "receipt review next_action")
         _validate_code_list(review["review_finding_codes"], "receipt finding code")
@@ -270,7 +298,7 @@ def project_operator_review_run_for_review_inbox(operator_review: dict[str, Any]
     catalog_entries = catalog["entries"]
     running_inspections = operator_review["running_inspections"]
     record_dirs = _record_dirs_by_id(catalog_entries, running_inspections)
-    record_ids_by_dir = {record_dir: record_id for record_id, record_dir in record_dirs.items()}
+    record_ids_by_dir = _record_ids_by_dir(record_dirs)
     return {
         "request_id": request["request_id"],
         "classification": workflow["classification"],
@@ -392,13 +420,19 @@ def _record_dirs_by_id(
     result = {}
     for entry in catalog_entries:
         record_id = validate_public_identifier(entry["record_id"], "catalog record_id")
-        result[record_id] = validate_relative_path(entry["record_dir"], "catalog record_dir")
+        record_dir = validate_relative_path(entry["record_dir"], "catalog record_dir")
+        if record_id in result:
+            raise ValueError(f"duplicate visible record_id: {record_id}")
+        result[record_id] = record_dir
         _require_dict(entry, "primary_data")
     for item in running_inspections:
         record = _require_dict(item, "record")
         inspection = _require_dict(item, "inspection")
         record_id = validate_public_identifier(record["record_id"], "running record_id")
-        result[record_id] = validate_relative_path(record["record_dir"], "running record_dir")
+        record_dir = validate_relative_path(record["record_dir"], "running record_dir")
+        if record_id in result:
+            raise ValueError(f"duplicate visible record_id: {record_id}")
+        result[record_id] = record_dir
         validate_non_negative_integer(
             inspection["visible_rows_recorded"],
             "running visible_rows_recorded",
@@ -408,11 +442,21 @@ def _record_dirs_by_id(
     return result
 
 
+def _record_ids_by_dir(record_dirs_by_id: dict[str, str]) -> dict[str, str]:
+    result = {}
+    for record_id, record_dir in record_dirs_by_id.items():
+        if record_dir in result:
+            raise ValueError(f"duplicate visible record_dir: {record_dir}")
+        result[record_dir] = record_id
+    return result
+
+
 def _project_review_finding(
     finding: dict[str, Any],
     record_ids_by_dir: dict[str, str],
 ) -> dict[str, Any]:
-    ref = _ReviewFindingRef.from_target(finding["target"], record_ids_by_dir)
+    code = validate_public_identifier(finding["code"], "operator review finding code")
+    ref = _ReviewFindingRef.from_target(code, finding["target"], record_ids_by_dir)
     source = validate_text(
         finding.get("source", "workflow"),
         "operator review finding source",
@@ -422,7 +466,7 @@ def _project_review_finding(
         "label": ref.record_id,
         "record_visibility": ref.visibility,
         **({"record_dir": ref.record_dir} if ref.record_dir is not None else {}),
-        "code": validate_public_identifier(finding["code"], "operator review finding code"),
+        "code": code,
         "message": validate_text(finding["message"], "operator review finding message"),
         "source": f"operator_review.{source}",
         "next_action": "review_measurement_record_operator_findings",
@@ -519,10 +563,10 @@ def _validate_record_ref(item: dict[str, Any]) -> str:
     return record_id
 
 
-def _validate_optional_record_id(value: Any, owner: str) -> None:
+def _validate_optional_record_id(value: Any, owner: str) -> str | None:
     if value is None:
-        return
-    validate_public_identifier(value, owner)
+        return None
+    return validate_public_identifier(value, owner)
 
 
 def _validate_operator_review_receipt_path(relative_path: str) -> None:
@@ -581,7 +625,8 @@ def _needs_review_item(item: dict[str, Any]) -> dict[str, Any]:
 
 def _saved_review_item(item: _SavedReviewSummary, known_record_ids: set[str]) -> dict[str, Any]:
     review = item.operator_review
-    record_id = review["selected_record_id"]
+    selected_record = _SavedSelectedRecordPosture.from_review(review)
+    record_id = selected_record.record_id
     if record_id is None:
         record_visibility = "not_selected"
     elif record_id in known_record_ids:
@@ -595,7 +640,7 @@ def _saved_review_item(item: _SavedReviewSummary, known_record_ids: set[str]) ->
         "review_receipt_path": item.review_receipt_path,
         "record_id": record_id,
         "record_visibility": record_visibility,
-        "selected_record_source": review["selected_record_source"],
+        "selected_record_source": selected_record.source,
         "state": item.operator_disposition,
         "source": "saved_operator_review_receipt_summary",
         "operator_reason": item.operator_reason,

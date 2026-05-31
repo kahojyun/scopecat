@@ -13,13 +13,15 @@ while `recorded_as_reviewed` receipts enter a separate non-attention `reviewed`
 lane. Real receipt-summary output is normalized at the input boundary before
 lane grouping. The candidate uses private minimal boundary helpers for saved
 review summaries, review-only next actions, and review finding references so
-those meanings are not re-derived at each projection step. Inbox `next_action`
-values are limited to review/navigation actions and do not represent refresh,
-import, repair, retry, or mutation authority. Real running-inspection review
-actions are accepted as running-lane actions, missing-read-model finding paths
-can project to a not-currently-visible record with a carried `record_dir`, and
-saved no-selection receipts are preserved as `record_visibility: not_selected`.
-Saved receipt paths must remain under `operator-reviews/`. It
-does not scan storage, open records, discover receipts, refresh read models,
-approve actions, mutate records, persist GUI state, or produce a public/export
-artifact.
+those meanings are not re-derived at each projection step. These helpers stay
+local to the candidate: saved selected-record posture, code-aware review finding
+targets, and visible record references are not promoted into a shared
+Measurement Record domain model. Inbox `next_action` values are limited to
+review/navigation actions and do not represent refresh, import, repair, retry,
+or mutation authority. Real running-inspection review actions are accepted as
+running-lane actions, missing-read-model finding paths can project to a
+not-currently-visible record with a carried `record_dir`, and saved
+no-selection receipts are preserved as `record_visibility: not_selected`. Saved
+receipt paths must remain under `operator-reviews/`. It does not scan storage,
+open records, discover receipts, refresh read models, approve actions, mutate
+records, persist GUI state, or produce a public/export artifact.
