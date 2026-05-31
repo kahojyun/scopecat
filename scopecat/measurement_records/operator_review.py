@@ -109,21 +109,19 @@ class _SelectedRecordPosture:
     source: str | None
 
     @classmethod
-    def from_saved_review(
+    def from_expected_selected_record(
         cls,
-        review_request: dict[str, Any],
+        requested_record_id: str | None,
         selected_record: dict[str, Any] | None,
     ) -> _SelectedRecordPosture:
-        requested_id = _optional_identifier(review_request, "selected_record_id")
-        projected_id = _selected_record_id_from_saved_summary(selected_record)
-        if projected_id is not None and projected_id != requested_id:
-            raise ValueError("selected_record must match operator review request")
-        source = _selected_record_source_from_saved_summary(selected_record)
-        if source is None and requested_id is not None:
+        source = None
+        if selected_record is not None:
+            source = validate_text(selected_record.get("source"), "selected record source")
+        if source is None and requested_record_id is not None:
             source = "not_visible"
         if source is not None and source not in SELECTED_RECORD_SOURCES:
             raise ValueError("selected_record source is unsupported")
-        return cls(record_id=requested_id, source=source)
+        return cls(record_id=requested_record_id, source=source)
 
 
 @dataclass(frozen=True)
@@ -195,6 +193,11 @@ class MeasurementRecordOperatorReviewRun:
             )
             for run in self.running_inspection_runs
         ]
+        selected_record = _selected_record_summary(
+            self.request.selected_record_id,
+            self.catalog_run.entries,
+            running_summaries,
+        )
         return {
             "artifact_posture": "local_measurement_record_operator_review",
             "operator_review_policy": copy.deepcopy(OPERATOR_REVIEW_POLICY),
@@ -219,19 +222,11 @@ class MeasurementRecordOperatorReviewRun:
                 ],
             },
             "running_inspections": running_summaries,
-            "selected_record": _selected_record_summary(
-                self.request.selected_record_id,
-                self.catalog_run.entries,
-                running_summaries,
-            ),
+            "selected_record": selected_record,
             "review_findings": [copy.deepcopy(finding) for finding in self.review_findings],
             "next_action": _next_action(
                 selected_record_id=self.request.selected_record_id,
-                selected_record=_selected_record_summary(
-                    self.request.selected_record_id,
-                    self.catalog_run.entries,
-                    running_summaries,
-                ),
+                selected_record=selected_record,
                 entries=self.catalog_run.entries,
                 running_summaries=running_summaries,
                 findings=self.review_findings,
@@ -607,8 +602,8 @@ def _parse_operator_review_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("receipt summary request_id must match operator review")
     if summary.get("operator_review_classification") != operator_review_classification:
         raise ValueError("receipt summary classification must match operator review")
-    selected_record_posture = _SelectedRecordPosture.from_saved_review(
-        review_request,
+    selected_record_posture = _SelectedRecordPosture.from_expected_selected_record(
+        requested_selected_id,
         expected_selected_record,
     )
     if summary.get("selected_record_id") != selected_record_posture.record_id:
@@ -949,18 +944,3 @@ def _optional_positive_int_or_none(value: dict[str, Any], field: str) -> int | N
     if field not in value:
         return None
     return _validate_positive_integer(value[field], field)
-
-
-def _selected_record_id_from_saved_summary(selected_record: dict[str, Any] | None) -> str | None:
-    if selected_record is None:
-        return None
-    record = _require_dict(selected_record, "record")
-    return validate_public_identifier(record.get("record_id"), "selected record_id")
-
-
-def _selected_record_source_from_saved_summary(
-    selected_record: dict[str, Any] | None,
-) -> str | None:
-    if selected_record is None:
-        return None
-    return validate_text(selected_record.get("source"), "selected record source")
