@@ -66,8 +66,10 @@ The candidate summary can answer:
 
 ## Remaining Questions
 
-- What review/commit slice should turn accepted candidate entries into
-  Scopecat-managed parameter state?
+- What storage or run-preparation slice should consume reviewed managed
+  parameter-state summaries? A later side-effect-free review/commit slice
+  validates the conversion boundary in
+  [`adapter-parameter-import-review-commit-validation-result.md`](adapter-parameter-import-review-commit-validation-result.md).
 - Should source observation or checksum validation be separate from adapter
   manifest preview?
 - What transport should adapters use if a stable handoff shape becomes
@@ -93,7 +95,7 @@ This validation does not earn:
 
 ## Slice Recommendation
 
-Stop this slice at adapter-authored import preview. The likely follow-up is a
-review/commit slice that starts from a validated preview and creates a
-Scopecat-managed seed or committed parameter state under explicit review,
+Stop this slice at adapter-authored import preview. Use
+[`adapter-parameter-import-review-commit-validation-result.md`](adapter-parameter-import-review-commit-validation-result.md)
+when a workflow needs reviewed conversion into managed parameter-state summary
 without adding legacy parsers to Scopecat core.
