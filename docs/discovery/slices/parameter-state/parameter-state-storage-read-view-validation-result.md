@@ -62,8 +62,10 @@ The candidate summary can answer:
 
 - Should a catalog/index slice discover stored parameter states after the
   explicit read-view boundary is validated?
-- How should prepared-run context consume an explicit stored parameter-state
-  read view?
+- Should the validated
+  [`prepared-run-parameter-state-consumption`](prepared-run-parameter-state-consumption-validation-result.md)
+  boundary grow a gate/readiness policy, or should it remain a review-facts
+  composition?
 - Should legacy source observation/checksum validation remain separate from
   stored parameter-state reads?
 - Should read-view findings block downstream parameter selection, or remain
