@@ -106,6 +106,12 @@ roles, include state, and missing or unavailable context findings.
 Boundary: no recursive relation traversal, automatic inclusion of adjacent
 records, shared relation graph, restore, execution, or cause attribution.
 
+First direct result:
+[`measurement-context-link-validation-result.md`](../slices/measurement-context/measurement-context-link-validation-result.md)
+validates measurement records with zero, resolved, and missing optional
+context links while keeping context reference-only and optional for primary
+measurement-record validity.
+
 First intent-resolution result:
 [`measurement-intent-resolution-validation-result.md`](../slices/measurement-context/measurement-intent-resolution-validation-result.md)
 validates the subcase where a prospective measurement intent carries moving
