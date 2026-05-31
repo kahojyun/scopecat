@@ -8,6 +8,7 @@ from typing import Any
 
 from scopecat.handoff._contracts import (
     MANIFEST_AUTHORITY,
+    validate_context_reference,
     validate_handoff_package_identity,
     validate_handoff_preview_ready_metadata,
     validate_manifest_primary_data,
@@ -138,6 +139,7 @@ class HandoffManifestLinkedContext:
     package_state: str
     reason: str | None
     linked_measurement_record_ids: tuple[str, ...]
+    context_reference: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -226,6 +228,7 @@ def _linked_context_from_manifest(
             package_state=item["package_state"],
             reason=item["reason"],
             linked_measurement_record_ids=tuple(item["linked_measurement_record_ids"]),
+            context_reference=copy.deepcopy(item.get("context_reference")),
         )
         for item in source["linked_context"]
     )
@@ -346,6 +349,18 @@ def _validate_linked_context(source: dict[str, Any]) -> None:
             selected_ids=selected_ids,
             owner=f"linked context {link_id}",
         )
+        _validate_context_reference(item)
+
+
+def _validate_context_reference(item: dict[str, Any]) -> None:
+    reference = item.get("context_reference")
+    if reference is None:
+        return
+    validate_context_reference(
+        reference,
+        item_kind=item["kind"],
+        owner="linked context",
+    )
 
 
 def _package_contents(source: dict[str, Any]) -> list[dict[str, Any]]:

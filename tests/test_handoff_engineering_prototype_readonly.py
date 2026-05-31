@@ -14,6 +14,7 @@ from scopecat.handoff import (
     HandoffPlotSeries,
     HandoffTable,
     open_package,
+    summarize_package_context_references,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -198,7 +199,97 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
         self.assertEqual(summary["preview_classification"], "needs_review_before_acceptance")
         self.assertEqual(summary["finding_count"], 1)
         self.assertEqual(summary["linked_context_count"], 1)
+        self.assertEqual(
+            summary["context_reference_summary"],
+            {
+                "context_reference_count": 0,
+                "reference_family_counts": {},
+                "prepared_run_context_ids": [],
+                "untyped_linked_context_ids": ["package-legacy-001-parameter-snapshot"],
+            },
+        )
         self.assertIsNone(summary["html_artifact"])
+
+    def test_context_reference_summary_groups_review_references_by_family(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            package_dir = _copy_package(temp_dir)
+            manifest = _load_manifest(package_dir)
+            base_context = manifest["linked_context"][0]
+            base_context["context_reference"] = {
+                "reference_id": "parameter-state-rabi-001",
+                "reference_kind": "parameter_state",
+                "reference_family": "parameter_state",
+                "materialization": "reference_only",
+                "payload_import": "not_performed",
+            }
+            manifest["linked_context"].extend(
+                [
+                    {
+                        **base_context,
+                        "link_id": "package-legacy-001-managed-code-version",
+                        "kind": "managed_code_version",
+                        "label": "Selected calibration code version",
+                        "context_reference": {
+                            "reference_id": "managed-code-version-rabi-001",
+                            "reference_kind": "managed_code_version",
+                            "reference_family": "experiment_code",
+                            "materialization": "reference_only",
+                            "payload_import": "not_performed",
+                        },
+                    },
+                    {
+                        **base_context,
+                        "link_id": "package-legacy-001-prepared-run-context",
+                        "kind": "prepared_run_context",
+                        "label": "Selected prepared run context",
+                        "context_reference": {
+                            "reference_id": "prepared-run-context-rabi-001",
+                            "reference_kind": "prepared_run_context",
+                            "reference_family": "prepared_run",
+                            "materialization": "reference_only",
+                            "payload_import": "not_performed",
+                        },
+                    },
+                    {
+                        **base_context,
+                        "link_id": "package-legacy-001-environment-review",
+                        "kind": "uv_sync_operation_review",
+                        "label": "Selected environment operation review",
+                        "context_reference": {
+                            "reference_id": "uv-sync-operation-review-rabi-001",
+                            "reference_kind": "uv_sync_operation_review",
+                            "reference_family": "environment_operation",
+                            "materialization": "reference_only",
+                            "payload_import": "not_performed",
+                        },
+                    },
+                ]
+            )
+            _write_manifest(package_dir, manifest)
+
+            summary = summarize_package_context_references(open_package(package_dir)).to_dict()
+
+        self.assertEqual(summary["artifact_posture"], "local_context_reference_summary")
+        self.assertEqual(
+            summary["reference_family_counts"],
+            {
+                "environment_operation": 1,
+                "experiment_code": 1,
+                "parameter_state": 1,
+                "prepared_run": 1,
+            },
+        )
+        self.assertEqual(summary["untyped_linked_context_ids"], [])
+        self.assertEqual(summary["context_reference_count"], 4)
+        self.assertEqual(
+            summary["prepared_run_context_ids"],
+            ["prepared-run-context-rabi-001"],
+        )
+        self.assertEqual(
+            summary["context_references"][1]["reference_id"],
+            "managed-code-version-rabi-001",
+        )
+        self.assertIn("reference_resolution", summary["does_not_claim"])
 
     def test_module_cli_can_write_local_html_inspection_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

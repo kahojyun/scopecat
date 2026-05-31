@@ -201,6 +201,62 @@ class HandoffEngineeringPrototypeWriterTest(unittest.TestCase):
         self.assertEqual(package.measurement_ids, ("legacy-rabi-001", "legacy-rabi-002"))
         self.assertEqual(package.measurement("legacy-rabi-002").primary_table.row_count, 2)
 
+    def test_linked_context_reference_metadata_round_trips_without_payload(self) -> None:
+        source = _load_input()
+        source["linked_context"][0]["context_reference"] = {
+            "reference_id": "parameter-state-rabi-001",
+            "reference_kind": "parameter_state",
+            "reference_family": "parameter_state",
+            "materialization": "reference_only",
+            "payload_import": "not_performed",
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            package_root = Path(temp_dir)
+            write_package(
+                source,
+                source_root=SOURCE_ROOT,
+                package_root=package_root,
+            )
+            package = open_package(package_root / "handoff-package-legacy-rabi-001")
+
+        context = package.linked_context[0].to_dict()
+        self.assertEqual(
+            context["context_reference"],
+            {
+                "reference_id": "parameter-state-rabi-001",
+                "reference_kind": "parameter_state",
+                "reference_family": "parameter_state",
+                "materialization": "reference_only",
+                "payload_import": "not_performed",
+            },
+        )
+        self.assertEqual(context["materialization"], "reference_only")
+
+    def test_linked_context_reference_metadata_cannot_claim_payload_import(self) -> None:
+        source = _load_input()
+        source["linked_context"][0]["context_reference"] = {
+            "reference_id": "parameter-state-rabi-001",
+            "reference_kind": "parameter_state",
+            "reference_family": "parameter_state",
+            "materialization": "reference_only",
+            "payload_import": "copy_payload",
+        }
+
+        self.assertRejected(source, "payload_import")
+
+    def test_prepared_run_context_reference_family_requires_prepared_run_kind(self) -> None:
+        source = _load_input()
+        source["linked_context"][0]["context_reference"] = {
+            "reference_id": "prepared-run-context-rabi-001",
+            "reference_kind": "parameter_state",
+            "reference_family": "prepared_run",
+            "materialization": "reference_only",
+            "payload_import": "not_performed",
+        }
+
+        self.assertRejected(source, "prepared_run references")
+
 
 if __name__ == "__main__":
     unittest.main()

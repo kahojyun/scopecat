@@ -10,6 +10,7 @@ from pathlib import Path
 from scopecat.handoff.durable_import import summarize_handoff_durable_import_receipt
 from scopecat.handoff.import_workflow import summarize_import_workflow_receipt
 from scopecat.handoff.inspect import write_inspection_artifact
+from scopecat.handoff.package import summarize_package_context_references
 from scopecat.handoff.read_only import open_package
 
 
@@ -18,6 +19,7 @@ def _summary(package_dir: Path, *, html_dir: Path | None = None) -> dict[str, ob
     artifact = None
     if html_dir is not None:
         artifact = write_inspection_artifact(package, output_dir=html_dir)
+    context_summary = summarize_package_context_references(package).to_dict()
     return {
         "package_id": package.package_id,
         "display_name": package.display_name,
@@ -25,6 +27,12 @@ def _summary(package_dir: Path, *, html_dir: Path | None = None) -> dict[str, ob
         "measurement_ids": list(package.measurement_ids),
         "finding_count": len(package.findings),
         "linked_context_count": len(package.linked_context),
+        "context_reference_summary": {
+            "context_reference_count": context_summary["context_reference_count"],
+            "reference_family_counts": context_summary["reference_family_counts"],
+            "prepared_run_context_ids": context_summary["prepared_run_context_ids"],
+            "untyped_linked_context_ids": context_summary["untyped_linked_context_ids"],
+        },
         "html_artifact": artifact["html_artifact"] if artifact is not None else None,
     }
 

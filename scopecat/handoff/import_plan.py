@@ -127,7 +127,7 @@ class HandoffLinkedContextImportPlan:
     linked_context: HandoffLinkedContext
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "link_id": self.linked_context.link_id,
             "kind": self.linked_context.kind,
             "action": "keep_reference_only",
@@ -137,6 +137,9 @@ class HandoffLinkedContextImportPlan:
             ),
             "does_not_claim": "linked_context_payload_import",
         }
+        if self.linked_context.context_reference is not None:
+            result["context_reference"] = copy.deepcopy(self.linked_context.context_reference)
+        return result
 
 
 @dataclass(frozen=True)

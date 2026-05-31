@@ -346,6 +346,48 @@ receipt or import plan as authority, prove destination freshness, approve
 storage mutation, or persist durable GUI review state. A retry still requires a
 fresh handoff durable import request with caller-declared destination facts.
 
+## Reference-Only Experiment Context Checkpoint
+
+The handoff route now preserves optional managed context-reference metadata on
+reference-only linked context entries. This is the first narrow implementation
+slice for experiment-context package continuity:
+
+```text
+package writer linked_context.context_reference
+  -> package manifest reference-only context entry
+  -> read-only package open
+  -> non-mutating import plan linked-context projection
+  -> handoff durable-import local receipt
+```
+
+The `context_reference` object is intentionally small: public-safe
+`reference_id`, `reference_kind`, `reference_family`, and explicit
+`materialization: reference_only` plus `payload_import: not_performed`.
+The writer and manifest preview validate those managed reference fields, require
+`reference_kind` to match the linked-context `kind`, and reject payload-import
+claims. The opener and import plan carry the reference forward for review, and
+the handoff durable-import receipt includes the linked-context import-plan
+projection so operators can see which context references stayed outside the
+durable import payload.
+
+The route also exposes `summarize_package_context_references(...)` as a
+read-only local review summary over an opened package. It reports context
+reference counts, family counts, managed reference entries, and linked-context
+ids that do not yet carry managed reference metadata. The summary is useful for
+receiving-side orientation before import planning or durable import, but it is
+not continuation authority and does not become a public package schema.
+The `prepared_run` reference family is narrowed to `prepared_run_context`
+references and the summary exposes selected prepared-run context ids directly.
+This keeps manual run-preparation continuity visible while preserving the
+prepared-run route's existing non-claims around restore, readiness, execution,
+environment sync, and GUI state.
+
+This checkpoint does not package experiment code, prepared-run payloads,
+environment files, parameter payloads, or setup payloads. It does not resolve
+references, restore environments, import linked context into Measurement
+Records storage, broaden durable import source facts, create a public package
+schema, or define GUI review state.
+
 ## Current Trigger Closure
 
 The durable/final local-record trigger is satisfied for the current scoped
