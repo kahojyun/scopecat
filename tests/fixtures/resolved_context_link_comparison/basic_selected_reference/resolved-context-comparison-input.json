@@ -1,0 +1,199 @@
+{
+  "comparison_policy": {
+    "comparison_authority": "explicit_measurement_record_context_links",
+    "reference_selection": "user_measurement_mark",
+    "context_payload_handling": "reference_only",
+    "intent_selector_comparison": "not_performed",
+    "primary_data_comparison": "not_performed",
+    "fit_quality_comparison": "not_performed",
+    "cause_attribution": "not_performed",
+    "readiness_claim": "not_performed",
+    "shared_context_schema": "not_defined",
+    "recursive_traversal": "not_performed",
+    "context_import": "not_performed",
+    "hardware_control": "not_performed",
+    "parameter_write_back": "not_performed",
+    "setup_mutation": "not_performed",
+    "environment_sync": "not_performed",
+    "code_import_execution": "not_performed"
+  },
+  "comparison_request": {
+    "comparison_id": "resolved-context-compare-qA-0001",
+    "reference_measurement_id": "measurement-05001",
+    "current_measurement_id": "measurement-06002",
+    "reference_selection": {
+      "selection_source": "user_measurement_mark",
+      "mark_label": "last-working"
+    },
+    "comparison_scope": [
+      "resolved_measurement_context_links"
+    ],
+    "not_compared_scope": [
+      "measurement_intent_selectors",
+      "primary_measurement_data",
+      "fit_quality",
+      "context_payloads",
+      "hardware_runtime_state",
+      "readiness_or_run_blocking",
+      "cause_attribution"
+    ]
+  },
+  "context_records": [
+    {
+      "context_id": "param-state-0007",
+      "family": "parameter_state",
+      "label": "qA default bias resolved at reference run start",
+      "record_status": "trusted_for_declared_scope",
+      "authority": "parameter_state_fixture",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "lineage_id": "lineage-qA-default-bias",
+        "trusted_entry_count": 4
+      }
+    },
+    {
+      "context_id": "param-state-0008",
+      "family": "parameter_state",
+      "label": "qA default bias after later tune-up",
+      "record_status": "trusted_for_declared_scope",
+      "authority": "parameter_state_fixture",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "lineage_id": "lineage-qA-default-bias",
+        "trusted_entry_count": 5
+      }
+    },
+    {
+      "context_id": "setup-binding-0002",
+      "family": "setup_binding",
+      "label": "qA default binding after bias-line move",
+      "record_status": "selected_binding_snapshot",
+      "authority": "setup_binding_fixture",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "sample_id": "sample-alpha",
+        "cooldown_id": "cooldown-2026-05",
+        "logical_binding_count": 6
+      }
+    },
+    {
+      "context_id": "managed-code-version-readout-0001",
+      "family": "managed_code_version",
+      "label": "readout calibration managed code version",
+      "record_status": "recorded_not_restore_contract",
+      "authority": "managed_code_version_fixture",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "source_record_id": "code-snapshot-record-0001",
+        "file_count": 3
+      }
+    },
+    {
+      "context_id": "declared-env-readout-0001",
+      "family": "declared_environment",
+      "label": "readout uv environment declaration",
+      "record_status": "declared_not_synced",
+      "authority": "declared_environment_fixture",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "manager": "uv",
+        "dependency_group_count": 2
+      }
+    }
+  ],
+  "measurements": [
+    {
+      "side": "reference",
+      "measurement_record_id": "measurement-05001",
+      "label": "qA chevron last-working reference",
+      "experiment_type": "chevron",
+      "target": "qA",
+      "run_start_time": "2026-05-21T10:15:00Z",
+      "context_links": [
+        {
+          "link_id": "ctx-link-05001-params",
+          "family": "parameter_state",
+          "role": "calibrated_values",
+          "relation": "run_start_context",
+          "include_state": "linked",
+          "required_for_record_validity": false,
+          "context_id": "param-state-0007"
+        },
+        {
+          "link_id": "ctx-link-05001-setup",
+          "family": "setup_binding",
+          "role": "logical_to_physical_mapping",
+          "relation": "run_start_context",
+          "include_state": "linked",
+          "required_for_record_validity": false,
+          "context_id": "setup-binding-0002"
+        },
+        {
+          "link_id": "ctx-link-05001-code",
+          "family": "managed_code_version",
+          "role": "entrypoint_code_version",
+          "relation": "run_start_context",
+          "include_state": "linked",
+          "required_for_record_validity": false,
+          "context_id": "managed-code-version-readout-0001"
+        },
+        {
+          "link_id": "ctx-link-05001-env",
+          "family": "declared_environment",
+          "role": "runtime_environment_hint",
+          "relation": "run_start_context",
+          "include_state": "linked",
+          "required_for_record_validity": false,
+          "context_id": "declared-env-readout-0001"
+        }
+      ]
+    },
+    {
+      "side": "current",
+      "measurement_record_id": "measurement-06002",
+      "label": "qA chevron current follow-up",
+      "experiment_type": "chevron",
+      "target": "qA",
+      "run_start_time": "2026-05-22T11:00:00Z",
+      "context_links": [
+        {
+          "link_id": "ctx-link-06002-params",
+          "family": "parameter_state",
+          "role": "calibrated_values",
+          "relation": "run_start_context",
+          "include_state": "linked",
+          "required_for_record_validity": false,
+          "context_id": "param-state-0008"
+        },
+        {
+          "link_id": "ctx-link-06002-setup",
+          "family": "setup_binding",
+          "role": "logical_to_physical_mapping",
+          "relation": "run_start_context",
+          "include_state": "linked",
+          "required_for_record_validity": false,
+          "context_id": "setup-binding-0002"
+        },
+        {
+          "link_id": "ctx-link-06002-code",
+          "family": "managed_code_version",
+          "role": "entrypoint_code_version",
+          "relation": "run_start_context",
+          "include_state": "linked",
+          "required_for_record_validity": false,
+          "context_id": "managed-code-version-readout-0001"
+        },
+        {
+          "link_id": "ctx-link-06002-env",
+          "family": "declared_environment",
+          "role": "runtime_environment_hint",
+          "relation": "run_start_context",
+          "include_state": "optional_unavailable",
+          "required_for_record_validity": false,
+          "context_id": null,
+          "missing_reason": "No reviewed declared environment context was available for the current measurement."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,179 @@
+{
+  "summary_id": "resolved-context-link-comparison-basic.expected",
+  "status": "expected_validation_output",
+  "source_fixture": "resolved-context-comparison-input.json",
+  "reference_semantics": {
+    "status": "fixture_only",
+    "contract_guard": "This expected output is not a final selected-reference comparison engine, relation graph, context schema, measurement-record schema, storage model, restore contract, hardware-control contract, environment manager, executor, workflow DAG, or GUI design.",
+    "resolved_links": "Comparison uses actual measurement-record context links, not prospective measurement intent selectors.",
+    "findings": "Changed, same-observed, and missing findings are objective context-link findings, not cause attribution.",
+    "not_compared": "Primary data, fit quality, context payloads, readiness, and hardware runtime state remain outside this slice."
+  },
+  "candidate_summary": {
+    "comparison": {
+      "comparison_id": "resolved-context-compare-qA-0001",
+      "current_measurement_id": "measurement-06002",
+      "reference_measurement_id": "measurement-05001",
+      "reference_selection_source": "user_measurement_mark",
+      "reference_mark_label": "last-working"
+    },
+    "not_compared_scope": [
+      "measurement_intent_selectors",
+      "primary_measurement_data",
+      "fit_quality",
+      "context_payloads",
+      "hardware_runtime_state",
+      "readiness_or_run_blocking",
+      "cause_attribution"
+    ],
+    "measurement_pair": [
+      {
+        "side": "reference",
+        "measurement_record_id": "measurement-05001",
+        "label": "qA chevron last-working reference",
+        "experiment_type": "chevron",
+        "target": "qA",
+        "run_start_time": "2026-05-21T10:15:00Z"
+      },
+      {
+        "side": "current",
+        "measurement_record_id": "measurement-06002",
+        "label": "qA chevron current follow-up",
+        "experiment_type": "chevron",
+        "target": "qA",
+        "run_start_time": "2026-05-22T11:00:00Z"
+      }
+    ],
+    "context_link_comparison": [
+      {
+        "family": "parameter_state",
+        "role": "calibrated_values",
+        "relation": "run_start_context",
+        "reference_include_state": "linked",
+        "current_include_state": "linked",
+        "reference_context_id": "param-state-0007",
+        "current_context_id": "param-state-0008",
+        "reference_context_label": "qA default bias resolved at reference run start",
+        "current_context_label": "qA default bias after later tune-up",
+        "finding": "changed"
+      },
+      {
+        "family": "setup_binding",
+        "role": "logical_to_physical_mapping",
+        "relation": "run_start_context",
+        "reference_include_state": "linked",
+        "current_include_state": "linked",
+        "reference_context_id": "setup-binding-0002",
+        "current_context_id": "setup-binding-0002",
+        "reference_context_label": "qA default binding after bias-line move",
+        "current_context_label": "qA default binding after bias-line move",
+        "finding": "same_observed"
+      },
+      {
+        "family": "managed_code_version",
+        "role": "entrypoint_code_version",
+        "relation": "run_start_context",
+        "reference_include_state": "linked",
+        "current_include_state": "linked",
+        "reference_context_id": "managed-code-version-readout-0001",
+        "current_context_id": "managed-code-version-readout-0001",
+        "reference_context_label": "readout calibration managed code version",
+        "current_context_label": "readout calibration managed code version",
+        "finding": "same_observed"
+      },
+      {
+        "family": "declared_environment",
+        "role": "runtime_environment_hint",
+        "relation": "run_start_context",
+        "reference_include_state": "linked",
+        "current_include_state": "optional_unavailable",
+        "reference_context_id": "declared-env-readout-0001",
+        "current_context_id": null,
+        "reference_context_label": "readout uv environment declaration",
+        "current_context_label": null,
+        "finding": "missing_on_current"
+      }
+    ],
+    "findings": [
+      {
+        "code": "changed_parameter_state",
+        "kind": "changed",
+        "subject": "parameter_state",
+        "message": "Reference used param-state-0007; current used param-state-0008."
+      },
+      {
+        "code": "same_observed_setup_binding",
+        "kind": "same_observed",
+        "subject": "setup_binding",
+        "message": "Both measurements reference setup-binding-0002."
+      },
+      {
+        "code": "same_observed_managed_code_version",
+        "kind": "same_observed",
+        "subject": "managed_code_version",
+        "message": "Both measurements reference managed-code-version-readout-0001."
+      },
+      {
+        "code": "missing_current_declared_environment_context",
+        "kind": "missing",
+        "subject": "declared_environment",
+        "message": "Reference has declared environment context; current reports it unavailable."
+      }
+    ],
+    "attention": [
+      {
+        "code": "resolved_links_only",
+        "severity": "info",
+        "basis": "Comparison uses measurement-record context links, not measurement intent selectors.",
+        "does_not_claim": "intent_selector_comparison"
+      },
+      {
+        "code": "context_payloads_not_compared",
+        "severity": "review",
+        "basis": "Context record payloads remain family-owned and are not opened or interpreted.",
+        "does_not_claim": "semantic_payload_diff"
+      },
+      {
+        "code": "primary_data_not_compared",
+        "severity": "review",
+        "basis": "Primary measurement data, fit quality, and plots are outside this comparison.",
+        "does_not_claim": "scientific_outcome_comparison"
+      },
+      {
+        "code": "cause_attribution_not_performed",
+        "severity": "review",
+        "basis": "Changed context is reported as comparison evidence only.",
+        "does_not_claim": "reason_measurement_changed"
+      }
+    ]
+  },
+  "boundary_notes": [
+    "Selected-reference comparison uses actual resolved measurement-record context links, not measurement intent selectors.",
+    "Changed parameter state, same setup binding, same managed code version, and missing current environment context are objective context-link findings.",
+    "Missing optional context remains a finding, not a run-blocking, readiness, safety, or reproducibility claim.",
+    "Context payloads, primary measurement data, fit quality, hardware runtime state, readiness, and cause attribution remain out of scope.",
+    "Recursive traversal, context import, hardware control, parameter write-back, setup mutation, environment sync, code import, code execution, restore behavior, workflow/DAG behavior, and GUI behavior remain out of scope."
+  ],
+  "decisions_not_earned": [
+    "final selected-reference comparison engine",
+    "final context schema",
+    "final measurement-record schema",
+    "shared relation graph",
+    "recursive context traversal",
+    "context payload diff",
+    "raw-data comparison",
+    "fit-quality comparison",
+    "cause attribution",
+    "readiness or run-blocking decision",
+    "storage model",
+    "hardware control",
+    "parameter write-back",
+    "setup mutation",
+    "environment manager",
+    "code import",
+    "code execution",
+    "restore contract",
+    "workflow DAG",
+    "GUI design"
+  ]
+}

@@ -155,6 +155,13 @@ Boundary: no user judgment, scientific interpretation, cause attribution,
 semantic source review, setup truth, parameter invalidation, raw-data
 comparison, or universal diff engine.
 
+First resolved-link result:
+[`resolved-context-link-comparison-validation-result.md`](../slices/measurement-context/resolved-context-link-comparison-validation-result.md)
+validates selected-reference comparison over actual measurement-record context
+links, explicitly excluding prospective measurement intent selectors, context
+payload diff, primary-data comparison, fit-quality comparison, readiness
+claims, and cause attribution.
+
 ### 5. Reviewable Context Change
 
 Validation question: can Scopecat represent a proposed, accepted, rejected, or
