@@ -1,0 +1,97 @@
+{
+  "fit_result_link_policy": {
+    "fit_result_authority": "declared_external_fit_result_summaries",
+    "step_observation_inputs": "reference_only",
+    "measurement_record_authority": "measurement_records_own_primary_data",
+    "fit_payload_handling": "summary_only",
+    "measurement_payload_read": "not_performed",
+    "fit_execution": "not_performed",
+    "fit_quality_scoring": "not_performed",
+    "model_selection": "not_performed",
+    "calibration_execution": "not_performed",
+    "continuation_decision": "not_performed",
+    "proposed_write_decision": "not_performed",
+    "parameter_store_write": "not_performed",
+    "hardware_control": "not_performed",
+    "external_compatibility_output": "not_produced",
+    "scheduler": "not_defined",
+    "shared_relation_graph": "not_defined"
+  },
+  "measurement_record_summaries": [
+    {
+      "measurement_record_id": "measurement-07001",
+      "label": "qA Rabi amplitude measurement",
+      "experiment_type": "rabi_amplitude",
+      "target": "qA",
+      "availability": "available",
+      "preview_status": "preview_ready",
+      "summary_authority": "measurement_record_summary",
+      "primary_data_owner": "measurement_records"
+    }
+  ],
+  "calibration_step_records": [
+    {
+      "step_record_id": "step-record-rabi-qA-0001",
+      "step_intent_id": "step-intent-rabi-qA-0001",
+      "label": "qA Rabi amplitude observed",
+      "target": "qA",
+      "record_state": "observation_linked",
+      "observation_links": [
+        {
+          "link_id": "observation-link-rabi-qA-07001",
+          "role": "fit_input",
+          "observation_state": "linked",
+          "measurement_record_id": "measurement-07001",
+          "payload_handling": "summary_projection_only"
+        }
+      ]
+    }
+  ],
+  "fit_result_summaries": [
+    {
+      "fit_result_id": "fit-result-rabi-qA-0001",
+      "step_record_id": "step-record-rabi-qA-0001",
+      "fit_family": "rabi_amplitude",
+      "fit_state": "declared_success",
+      "review_state": "usable_for_review",
+      "result_authority": "declared_fit_result_summary",
+      "execution_posture": "externally_produced_declared_summary",
+      "payload_handling": "summary_only",
+      "model_ref": "fit-model-rabi-sinusoid-v1",
+      "fit_config_ref": "fit-config-rabi-qA-0001",
+      "code_ref": "managed-code-version-rabi-0001",
+      "input_refs": [
+        {
+          "observation_link_id": "observation-link-rabi-qA-07001",
+          "measurement_record_id": "measurement-07001",
+          "payload_handling": "reference_only"
+        }
+      ],
+      "parameter_estimates": [
+        {
+          "parameter_path": "qA.drive.pi_pulse_amplitude",
+          "estimate_value_summary": "0.437 arb",
+          "uncertainty_summary": "0.006 arb",
+          "estimate_posture": "declared_summary_only",
+          "accepted_for_write": false
+        }
+      ],
+      "declared_diagnostics": {
+        "signal_classification": "visible_signal",
+        "declared_quality_label": "reviewed_fit",
+        "diagnostic_posture": "declared_not_scored"
+      }
+    }
+  ],
+  "proposed_write_evidence_refs": [
+    {
+      "write_id": "proposed-write-rabi-qA-pi-amp-0001",
+      "step_record_id": "step-record-rabi-qA-0001",
+      "fit_result_refs": [
+        "fit-result-rabi-qA-0001"
+      ],
+      "reference_state": "referenced_as_declared_evidence",
+      "apply_state": "not_applied"
+    }
+  ]
+}
