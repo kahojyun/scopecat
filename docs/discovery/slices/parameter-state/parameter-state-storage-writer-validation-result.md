@@ -59,9 +59,10 @@ The candidate summary can answer:
 
 ## Remaining Questions
 
-- What read view should consume stored parameter-state manifests?
-- Should a catalog/index slice discover stored parameter states, or should
-  callers provide explicit references first?
+- Should the validated
+  [`parameter-state-storage-read-view`](parameter-state-storage-read-view-validation-result.md)
+  boundary remain explicit-reference-only, or should a later catalog/index
+  slice discover stored parameter states?
 - Should source observation/checksum validation happen before storage or in a
   separate provenance-observation slice?
 - How should stored parameter state compose with prepared-run context and
