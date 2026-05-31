@@ -1,0 +1,171 @@
+{
+  "status": "fixture",
+  "reference_semantics": {
+    "contract_guard": "Context readiness/status summaries are not hardware readiness checks, dependency sync, code import, code execution, restore, write-back, setup truth, measurement validity, run-blocking decisions, runnable readiness, recursive relation traversal, context import, GUI workflow, or shared status schema.",
+    "source_fixture": "context-status-input.json"
+  },
+  "candidate_summary": {
+    "context_status_policy": {
+      "status_authority": "explicit_context_status_summary",
+      "input_source": "declared_context_status_facts",
+      "status_scope": "local_context_review_only",
+      "context_payload_handling": "family_owned_summary_only",
+      "context_import": "not_performed",
+      "recursive_relation_traversal": "not_performed",
+      "hardware_readiness_check": "not_performed",
+      "dependency_sync": "not_performed",
+      "code_import_execution": "not_performed",
+      "restore": "not_performed",
+      "write_back": "not_performed",
+      "setup_truth": "not_claimed",
+      "measurement_validity": "not_claimed",
+      "run_blocking_decision": "not_claimed",
+      "runnable_readiness": "not_claimed",
+      "shared_status_schema": "not_defined",
+      "gui_workflow": "not_defined"
+    },
+    "context_count": 3,
+    "family_counts": {
+      "calibration_continuation": 1,
+      "declared_environment": 1,
+      "parameter_state": 1
+    },
+    "overall_classification": "blocked_for_context_review",
+    "context_statuses": [
+      {
+        "context_id": "parameter-state-rabi-accepted-0042",
+        "family": "parameter_state",
+        "label": "Accepted Rabi parameter state",
+        "record_status": "committed",
+        "authority": "parameter_state_summary",
+        "payload_handling": "family_owned_summary_only",
+        "declared_summary": {
+          "trusted_entry_count": 4,
+          "lineage": "rabi-parameter-lineage"
+        },
+        "status_fact_count": 2,
+        "severity_counts": {
+          "info": 2
+        },
+        "dimension_counts": {
+          "freshness": 1,
+          "trust": 1
+        },
+        "classification": "ready_for_context_review"
+      },
+      {
+        "context_id": "declared-environment-rabi-0042",
+        "family": "declared_environment",
+        "label": "Rabi declared environment",
+        "record_status": "declared_with_review_findings",
+        "authority": "declared_environment_summary",
+        "payload_handling": "family_owned_summary_only",
+        "declared_summary": {
+          "manager": "uv",
+          "manifest": "pyproject.toml"
+        },
+        "status_fact_count": 1,
+        "severity_counts": {
+          "review": 1
+        },
+        "dimension_counts": {
+          "validity": 1
+        },
+        "classification": "attention_needed_for_context_review"
+      },
+      {
+        "context_id": "calibration-continuation-rabi-0042",
+        "family": "calibration_continuation",
+        "label": "Rabi calibration continuation",
+        "record_status": "review_needed",
+        "authority": "calibration_continuation_summary",
+        "payload_handling": "family_owned_summary_only",
+        "declared_summary": {
+          "blocked_step_count": 1,
+          "ready_step_count": 2
+        },
+        "status_fact_count": 1,
+        "severity_counts": {
+          "block": 1
+        },
+        "dimension_counts": {
+          "progress": 1
+        },
+        "classification": "blocked_for_context_review"
+      }
+    ],
+    "status_findings": [
+      {
+        "context_id": "declared-environment-rabi-0042",
+        "family": "declared_environment",
+        "fact_id": "env-validity-0042",
+        "dimension": "validity",
+        "state": "unverified",
+        "severity": "review",
+        "finding": "context_validity_unverified",
+        "basis": "Environment facts are declared but no dependency sync or runtime probe was performed.",
+        "required_for_current_review": false,
+        "does_not_claim": "runnable_readiness"
+      },
+      {
+        "context_id": "calibration-continuation-rabi-0042",
+        "family": "calibration_continuation",
+        "fact_id": "cal-progress-0042",
+        "dimension": "progress",
+        "state": "blocked",
+        "severity": "block",
+        "finding": "context_progress_blocked",
+        "basis": "A required fit recovery step is blocked until the operator selects a lab-internal dataset.",
+        "required_for_current_review": true,
+        "does_not_claim": "run_blocking_decision"
+      }
+    ],
+    "attention": [
+      {
+        "code": "context_status_is_local_review_only",
+        "severity": "info",
+        "basis": "Context status summarizes declared facts for local review.",
+        "does_not_claim": "run_blocking_decision"
+      },
+      {
+        "code": "context_payloads_not_imported",
+        "severity": "info",
+        "basis": "Context payloads remain family-owned and are not inspected.",
+        "does_not_claim": "context_payload_truth"
+      },
+      {
+        "code": "runnable_readiness_not_claimed",
+        "severity": "review",
+        "basis": "No hardware checks, dependency sync, code import, or execution are performed.",
+        "does_not_claim": "runnable_readiness"
+      },
+      {
+        "code": "context_review_block_present",
+        "severity": "review",
+        "basis": "At least one context fact blocks local context review.",
+        "does_not_claim": "automatic_run_blocking"
+      },
+      {
+        "code": "context_attention_present",
+        "severity": "review",
+        "basis": "At least one context fact needs review attention.",
+        "does_not_claim": "measurement_validity"
+      }
+    ]
+  },
+  "boundary_notes": [
+    "Context readiness/status is a local review projection over explicit family-owned facts.",
+    "Blocked context review is not a run-blocking, hardware-safety, runnable-readiness, or measurement-validity claim.",
+    "Context payloads remain family-owned; the builder does not import, inspect, restore, execute, or mutate them."
+  ],
+  "decisions_not_earned": [
+    "universal context lifecycle or status schema",
+    "run readiness, run safety, or run-blocking decision",
+    "hardware readiness check",
+    "dependency sync or runtime probe",
+    "code import or execution",
+    "setup truth or measurement validity decision",
+    "context restore, write-back, or payload import",
+    "GUI workflow"
+  ]
+}
