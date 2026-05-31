@@ -1,9 +1,9 @@
-"""Structured summary builder for reference-only supporting artifacts.
+"""Structured summary builder for reference-only supporting evidence.
 
-This module validates explicit supporting-artifact references. It does not
-open artifact files, import payloads, calculate checksums, write storage,
-generate previews, traverse relation graphs, decide measurement validity, or
-define GUI behavior.
+This module validates explicit supporting-evidence references. It does not
+open referenced files, import payloads, calculate checksums, write storage,
+generate previews, traverse relation graphs, decide measurement validity,
+validate artifact provenance, or define GUI behavior.
 """
 
 from __future__ import annotations
@@ -14,12 +14,14 @@ from pathlib import PurePosixPath
 from typing import Any
 
 _EXPECTED_POLICY = {
-    "reference_authority": "explicit_supporting_artifact_manifest",
-    "artifact_posture": "supporting_artifact_reference",
-    "artifact_context_role": "supporting_evidence_not_canonical_context",
+    "reference_authority": "explicit_supporting_evidence_manifest",
+    "evidence_posture": "supporting_evidence_reference",
+    "evidence_context_role": "supporting_evidence_not_canonical_context",
+    "evidence_kind_handling": "attachment_or_artifact_label_only",
+    "artifact_provenance": "not_required_without_artifact_provenance_slice",
     "payload_import": "not_performed",
     "file_observation": "not_performed",
-    "artifact_parsing": "not_performed",
+    "evidence_parsing": "not_performed",
     "checksum_validation": "not_performed",
     "storage_mutation": "not_performed",
     "preview_generation": "not_performed",
@@ -31,8 +33,9 @@ _EXPECTED_POLICY = {
     "shared_attachment_schema": "not_defined",
 }
 
-_AUTHORITY = "explicit_supporting_artifact_manifest"
-_ARTIFACT_KINDS = {
+_AUTHORITY = "explicit_supporting_evidence_manifest"
+_EVIDENCE_KINDS = {"attachment", "artifact", "unspecified"}
+_CONTENT_KINDS = {
     "adapter_diagnostic",
     "debug_log",
     "operator_note",
@@ -40,6 +43,7 @@ _ARTIFACT_KINDS = {
     "review_bundle",
 }
 _PURPOSES = {"debug", "audit", "handoff", "review_evidence"}
+_LIFECYCLE_STAGES = {"pre_run_preparation", "during_run", "post_run_review", "handoff"}
 _REFERENCE_KINDS = {"workspace_relative_path", "package_relative_path", "opaque_uri"}
 _REFERENCE_STATES = {"declared_available", "unavailable", "redacted"}
 _TARGET_TYPES = {
@@ -48,6 +52,7 @@ _TARGET_TYPES = {
     "operator_approval",
     "parameter_state",
     "calibration_step",
+    "running_measurement",
 }
 _TARGET_STATES = {"resolved", "unavailable", "missing", "redacted"}
 _RELATIONS = {
@@ -74,55 +79,61 @@ def _path_is_relative(path: str) -> bool:
 def _validate_declared_reference(reference: dict[str, Any]) -> None:
     expected_keys = {"kind", "value", "authority", "reference_state", "reason"}
     if set(reference) != expected_keys:
-        raise ValueError("artifact declared reference must match expected shape")
+        raise ValueError("evidence declared reference must match expected shape")
     if reference["kind"] not in _REFERENCE_KINDS:
-        raise ValueError("artifact reference kind is unsupported")
+        raise ValueError("evidence reference kind is unsupported")
     if reference["authority"] != _AUTHORITY:
-        raise ValueError("artifact reference authority must stay explicit")
+        raise ValueError("evidence reference authority must stay explicit")
     if reference["reference_state"] not in _REFERENCE_STATES:
-        raise ValueError("artifact reference_state is unsupported")
+        raise ValueError("evidence reference_state is unsupported")
 
     value = reference["value"]
     if reference["kind"] in {"workspace_relative_path", "package_relative_path"}:
         if not _path_is_relative(value):
-            raise ValueError("artifact reference path must be relative")
+            raise ValueError("evidence reference path must be relative")
     elif not value:
-        raise ValueError("artifact opaque reference must be non-empty")
+        raise ValueError("evidence opaque reference must be non-empty")
 
     if reference["reference_state"] != "declared_available" and not reference.get("reason"):
-        raise ValueError("unavailable or redacted artifact reference requires reason")
+        raise ValueError("unavailable or redacted evidence reference requires reason")
     if reference["reference_state"] == "declared_available" and reference.get("reason"):
-        raise ValueError("available artifact reference must not carry reason")
+        raise ValueError("available evidence reference must not carry reason")
 
 
 def _validate_policy(source: dict[str, Any]) -> None:
-    policy = source["supporting_artifact_policy"]
+    policy = source["supporting_evidence_policy"]
     if set(policy) != set(_EXPECTED_POLICY):
-        raise ValueError("supporting artifact policy must match expected shape")
+        raise ValueError("supporting evidence policy must match expected shape")
     for key, expected in _EXPECTED_POLICY.items():
         if policy[key] != expected:
-            raise ValueError(f"supporting artifact policy {key} must be {expected}")
+            raise ValueError(f"supporting evidence policy {key} must be {expected}")
 
 
-def _validate_artifact(artifact: dict[str, Any]) -> None:
+def _validate_evidence(evidence: dict[str, Any]) -> None:
     expected_keys = {
-        "artifact_id",
+        "evidence_id",
         "label",
-        "kind",
+        "evidence_kind",
+        "content_kind",
         "purpose",
+        "lifecycle_stage",
         "supplied_by",
         "declared_reference",
         "notes",
     }
-    if set(artifact) != expected_keys:
-        raise ValueError("supporting artifact must match expected shape")
-    if artifact["kind"] not in _ARTIFACT_KINDS:
-        raise ValueError("supporting artifact kind is unsupported")
-    if artifact["purpose"] not in _PURPOSES:
-        raise ValueError("supporting artifact purpose is unsupported")
-    if artifact["supplied_by"] != "user_supplied":
-        raise ValueError("supporting artifact must remain user supplied")
-    _validate_declared_reference(artifact["declared_reference"])
+    if set(evidence) != expected_keys:
+        raise ValueError("supporting evidence must match expected shape")
+    if evidence["evidence_kind"] not in _EVIDENCE_KINDS:
+        raise ValueError("supporting evidence evidence_kind is unsupported")
+    if evidence["content_kind"] not in _CONTENT_KINDS:
+        raise ValueError("supporting evidence content_kind is unsupported")
+    if evidence["purpose"] not in _PURPOSES:
+        raise ValueError("supporting evidence purpose is unsupported")
+    if evidence["lifecycle_stage"] not in _LIFECYCLE_STAGES:
+        raise ValueError("supporting evidence lifecycle_stage is unsupported")
+    if evidence["supplied_by"] != "user_supplied":
+        raise ValueError("supporting evidence must remain user supplied")
+    _validate_declared_reference(evidence["declared_reference"])
 
 
 def _validate_target(target: dict[str, Any]) -> None:
@@ -136,17 +147,17 @@ def _validate_target(target: dict[str, Any]) -> None:
         "reason",
     }
     if set(target) != expected_keys:
-        raise ValueError("supporting artifact target must match expected shape")
+        raise ValueError("supporting evidence target must match expected shape")
     if target["target_type"] not in _TARGET_TYPES:
-        raise ValueError("supporting artifact target_type is unsupported")
+        raise ValueError("supporting evidence target_type is unsupported")
     if not target["target_id"]:
-        raise ValueError("supporting artifact target_id must be non-empty")
+        raise ValueError("supporting evidence target_id must be non-empty")
     if target["relation"] not in _RELATIONS:
-        raise ValueError("supporting artifact relation is unsupported")
+        raise ValueError("supporting evidence relation is unsupported")
     if target["authority"] != _AUTHORITY:
-        raise ValueError("supporting artifact target authority must stay explicit")
+        raise ValueError("supporting evidence target authority must stay explicit")
     if target["target_state"] not in _TARGET_STATES:
-        raise ValueError("supporting artifact target_state is unsupported")
+        raise ValueError("supporting evidence target_state is unsupported")
     if target["target_state"] != "resolved" and not target.get("reason"):
         raise ValueError("unavailable, missing, or redacted target requires reason")
     if target["target_state"] == "resolved" and target.get("reason"):
@@ -158,17 +169,19 @@ def _validate_targets(targets: list[dict[str, Any]]) -> None:
     for target in targets:
         key = (target["target_type"], target["target_id"], target["relation"])
         if key in seen:
-            raise ValueError(f"duplicate supporting artifact target: {target['target_id']}")
+            raise ValueError(f"duplicate supporting evidence target: {target['target_id']}")
         seen.add(key)
         _validate_target(target)
 
 
 def _validate_references(source: dict[str, Any]) -> None:
     _validate_policy(source)
-    _validate_artifact(source["artifact"])
+    _validate_evidence(source["evidence"])
     _validate_targets(source["related_targets"])
-    if "payload" in source["artifact"]:
-        raise ValueError("supporting artifact payload must not be supplied")
+    if "payload" in source["evidence"]:
+        raise ValueError("supporting evidence payload must not be supplied")
+    if "provenance" in source["evidence"]:
+        raise ValueError("supporting evidence provenance must use a separate slice")
 
 
 def _state_counts(items: list[dict[str, Any]], key: str) -> dict[str, int]:
@@ -179,21 +192,23 @@ def _state_counts(items: list[dict[str, Any]], key: str) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
-def _classification(artifact: dict[str, Any], targets: list[dict[str, Any]]) -> str:
-    if artifact["declared_reference"]["reference_state"] != "declared_available":
-        return "needs_artifact_reference_review"
+def _classification(evidence: dict[str, Any], targets: list[dict[str, Any]]) -> str:
+    if evidence["declared_reference"]["reference_state"] != "declared_available":
+        return "needs_evidence_reference_review"
     if any(target["target_state"] != "resolved" for target in targets):
         return "needs_related_target_review"
-    return "ready_for_supporting_artifact_review"
+    return "ready_for_supporting_evidence_review"
 
 
 def _supporting_link_summary(
-    artifact: dict[str, Any],
+    evidence: dict[str, Any],
     target: dict[str, Any],
 ) -> dict[str, Any]:
     return {
-        "artifact_id": artifact["artifact_id"],
-        "artifact_purpose": artifact["purpose"],
+        "evidence_id": evidence["evidence_id"],
+        "evidence_kind": evidence["evidence_kind"],
+        "evidence_purpose": evidence["purpose"],
+        "evidence_lifecycle_stage": evidence["lifecycle_stage"],
         "target_type": target["target_type"],
         "target_id": target["target_id"],
         "label": target["label"],
@@ -204,19 +219,19 @@ def _supporting_link_summary(
     }
 
 
-def _findings(artifact: dict[str, Any], targets: list[dict[str, Any]]) -> list[dict[str, str]]:
+def _findings(evidence: dict[str, Any], targets: list[dict[str, Any]]) -> list[dict[str, str]]:
     findings = []
-    reference = artifact["declared_reference"]
+    reference = evidence["declared_reference"]
     if reference["reference_state"] != "declared_available":
         findings.append(
             {
-                "artifact_id": artifact["artifact_id"],
-                "subject_type": "supporting_artifact",
+                "evidence_id": evidence["evidence_id"],
+                "subject_type": "supporting_evidence",
                 "subject_id": reference["value"],
                 "severity": "review",
-                "finding": f"artifact_reference_{reference['reference_state']}",
+                "finding": f"evidence_reference_{reference['reference_state']}",
                 "basis": reference["reason"],
-                "does_not_claim": "artifact_payload_missing_or_invalid",
+                "does_not_claim": "evidence_payload_missing_or_invalid",
             }
         )
 
@@ -225,7 +240,7 @@ def _findings(artifact: dict[str, Any], targets: list[dict[str, Any]]) -> list[d
             continue
         findings.append(
             {
-                "artifact_id": artifact["artifact_id"],
+                "evidence_id": evidence["evidence_id"],
                 "subject_type": target["target_type"],
                 "subject_id": target["target_id"],
                 "severity": "review",
@@ -242,25 +257,37 @@ def _attention() -> list[dict[str, str]]:
         {
             "code": "explicit_supporting_reference_only",
             "severity": "info",
-            "basis": "Supporting artifacts come from an explicit user-supplied manifest.",
-            "does_not_claim": "automatic_artifact_discovery",
+            "basis": "Supporting evidence comes from an explicit user-supplied manifest.",
+            "does_not_claim": "automatic_evidence_discovery",
         },
         {
-            "code": "artifact_not_canonical_context",
+            "code": "evidence_kind_is_label_only",
+            "severity": "info",
+            "basis": "Attachment or artifact kind labels do not create attachment payload or artifact provenance semantics.",
+            "does_not_claim": "artifact_provenance_complete",
+        },
+        {
+            "code": "evidence_lifecycle_is_explicit",
+            "severity": "info",
+            "basis": "Supporting evidence declares whether it belongs to pre-run preparation, during-run evidence, post-run review, or handoff.",
+            "does_not_claim": "run_start_context_requirement",
+        },
+        {
+            "code": "evidence_not_canonical_context",
             "severity": "review",
-            "basis": "The artifact supports review but does not replace selected context records.",
+            "basis": "The evidence supports review but does not replace selected context records.",
             "does_not_claim": "parameter_or_measurement_context_authority",
         },
         {
             "code": "payload_not_imported",
             "severity": "review",
-            "basis": "The artifact payload is not imported, copied, parsed, or normalized.",
-            "does_not_claim": "artifact_contents_verified",
+            "basis": "The evidence payload is not imported, copied, parsed, or normalized.",
+            "does_not_claim": "evidence_contents_verified",
         },
         {
             "code": "file_not_observed",
             "severity": "review",
-            "basis": "Declared artifact references are not opened, checksummed, or statted.",
+            "basis": "Declared evidence references are not opened, checksummed, or statted.",
             "does_not_claim": "external_file_authority",
         },
         {
@@ -272,19 +299,19 @@ def _attention() -> list[dict[str, str]]:
     ]
 
 
-def build_supporting_artifact_reference_summary(source: dict[str, Any]) -> dict[str, Any]:
-    """Build a structured summary from explicit supporting-artifact references."""
+def build_supporting_evidence_reference_summary(source: dict[str, Any]) -> dict[str, Any]:
+    """Build a structured summary from explicit supporting-evidence references."""
     _validate_references(source)
-    artifact = source["artifact"]
+    evidence = source["evidence"]
     targets = source["related_targets"]
     return {
-        "supporting_artifact_policy": copy.deepcopy(source["supporting_artifact_policy"]),
-        "artifact": copy.deepcopy(artifact),
+        "supporting_evidence_policy": copy.deepcopy(source["supporting_evidence_policy"]),
+        "evidence": copy.deepcopy(evidence),
         "related_target_count": len(targets),
         "target_type_counts": _state_counts(targets, "target_type"),
         "target_state_counts": _state_counts(targets, "target_state"),
-        "classification": _classification(artifact, targets),
-        "supporting_links": [_supporting_link_summary(artifact, target) for target in targets],
-        "reference_findings": _findings(artifact, targets),
+        "classification": _classification(evidence, targets),
+        "supporting_links": [_supporting_link_summary(evidence, target) for target in targets],
+        "reference_findings": _findings(evidence, targets),
         "attention": _attention(),
     }

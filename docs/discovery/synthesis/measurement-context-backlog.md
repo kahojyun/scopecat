@@ -132,13 +132,15 @@ context selectors, run-start resolution freezes those selectors to concrete
 context records, and the measurement record keeps only the resolved optional
 context links.
 
-First supporting-artifact result:
-[`supporting-artifact-reference-validation-result.md`](../slices/measurement-context/supporting-artifact-reference-validation-result.md)
+First supporting-evidence result:
+[`supporting-evidence-reference-validation-result.md`](../slices/measurement-context/supporting-evidence-reference-validation-result.md)
 validates the subcase where a user explicitly supplies debug, audit, handoff,
-or review-evidence artifact references related to measurement, prepared-run,
+or review evidence related to measurement, running-measurement, prepared-run,
 operator-approval, parameter-state, or calibration-step targets while keeping
-the artifact reference optional, reference-only, and outside primary data or
-canonical context authority.
+the evidence reference optional, reference-only, and outside primary data,
+canonical context authority, and artifact provenance. Supporting evidence
+references are lifecycle explicit; during-run diagnostic evidence should not be
+implied by run-start context review.
 
 ### 3. Named Run-Start Input Set
 

@@ -39,7 +39,7 @@ _SUPPORTED_CONTEXT_FAMILIES = {
     "managed_code_version",
     "declared_environment",
     "measurement_intent",
-    "supporting_artifact",
+    "supporting_evidence",
     "running_measurement",
     "calibration_continuation",
 }
