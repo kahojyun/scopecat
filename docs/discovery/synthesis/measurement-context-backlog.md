@@ -229,6 +229,15 @@ attention states without fresh observation, backend lookup, legacy parsing,
 preview verification, import acceptance, storage mutation, reference repair,
 parameter write-back, measurement-validity decisions, or GUI behavior.
 
+Adjacent reviewed legacy append-intent result:
+[`reviewed-legacy-sidecar-append-intent-validation-result.md`](../slices/measurement-records/reviewed-legacy-sidecar-append-intent-validation-result.md)
+validates the subcase where an operator explicitly approves carrying reviewed
+sidecar and locator-observation facts forward as review/debug evidence for a
+later measurement-record append, while still avoiding storage mutation,
+record writes, primary-data import, legacy payload parsing, preview
+verification, reference repair, parameter write-back, measurement-validity
+decisions, or GUI behavior.
+
 First post-run review result:
 [`post-run-review-bundle-validation-result.md`](../slices/measurement-context/post-run-review-bundle-validation-result.md)
 validates a local post-run review composition over completed measurement

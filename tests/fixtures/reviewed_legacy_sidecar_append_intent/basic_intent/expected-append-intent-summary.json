@@ -1,0 +1,139 @@
+{
+  "summary_policy": "internal_validation_summary",
+  "source_fixture": "tests/fixtures/reviewed_legacy_sidecar_append_intent/basic_intent/append-intent-input.json",
+  "reference_semantics": {
+    "contract_guard": "This is an approved intent to append reviewed legacy sidecar facts later as review/debug evidence, not storage mutation, record write, primary-data import, legacy parsing, reference repair, parameter write-back, measurement-validity review, or GUI behavior."
+  },
+  "candidate_summary": {
+    "append_intent_policy": {
+      "intent_authority": "explicit_reviewed_legacy_sidecar_append_intent",
+      "source_review_handling": "legacy_locator_observation_review_bundle_summary",
+      "approval_required": "explicit_operator_approval",
+      "append_target": "existing_measurement_record_review_evidence",
+      "fact_posture": "review_debug_evidence",
+      "storage_mutation": "not_performed",
+      "record_write": "not_performed",
+      "primary_data_import": "not_performed",
+      "data_observation": "not_performed",
+      "row_count": "not_performed",
+      "schema_inference": "not_performed",
+      "preview_verification": "not_performed",
+      "legacy_source_parsing": "not_performed_by_scopecat",
+      "reference_repair": "not_performed",
+      "parameter_write_back": "not_performed",
+      "measurement_validity": "not_claimed",
+      "gui_workflow": "not_defined",
+      "shared_append_schema": "not_defined"
+    },
+    "classification": "reviewed_legacy_sidecar_append_intent_ready",
+    "source_review": {
+      "measurement_id": "legacy-sidecar-measurement-0001",
+      "locator_observation_review_classification": "legacy_locator_observation_review_ready",
+      "review_finding_count": 0
+    },
+    "append_intent": {
+      "request_id": "reviewed-legacy-sidecar-append-intent-0001",
+      "measurement_id": "legacy-sidecar-measurement-0001",
+      "approval_state": "approved",
+      "operator_role": "local_reviewer",
+      "approved_at": "2026-03-01T10:05:00Z",
+      "append_destination": {
+        "destination_kind": "existing_measurement_record_review_evidence",
+        "append_posture": "intent_only",
+        "record_write": "not_performed"
+      },
+      "selected_fact_sets": [
+        "sidecar_post_run_review",
+        "legacy_locator_observation_review"
+      ],
+      "include_primary_data": false,
+      "include_legacy_payloads": false,
+      "include_reference_repair": false,
+      "include_measurement_validity": false
+    },
+    "planned_review_evidence": {
+      "sidecar_post_run_review": {
+        "classification": "legacy_sidecar_post_run_ready",
+        "review_finding_count": 0,
+        "fact_posture": "review_summary_reference"
+      },
+      "legacy_locator_observation_review": {
+        "classification": "legacy_locator_observation_review_ready",
+        "locator_observation_count": 1,
+        "file_backed_locator_count": 2,
+        "classification_counts": {
+          "legacy_file_backed_locator_observed": 1
+        },
+        "observation_status_counts": {
+          "observed": 1
+        },
+        "observation_finding_count": 0,
+        "fact_posture": "review_debug_evidence",
+        "does_not_claim": "primary_data_import_or_preview_verification"
+      }
+    },
+    "review_findings": [],
+    "intent_effects": {
+      "storage_mutation": "not_performed",
+      "record_write": "not_performed",
+      "primary_data_import": "not_performed",
+      "data_observation": "not_performed",
+      "row_count": "not_performed",
+      "schema_inference": "not_performed",
+      "preview_verification": "not_performed",
+      "legacy_source_parsing": "not_performed_by_scopecat",
+      "reference_repair": "not_performed",
+      "parameter_write_back": "not_performed",
+      "measurement_validity": "not_claimed",
+      "gui_workflow": "not_defined"
+    },
+    "attention": [
+      {
+        "code": "append_intent_only",
+        "severity": "info",
+        "basis": "The summary records an approved intent to append reviewed legacy facts later.",
+        "does_not_claim": "durable_record_update"
+      },
+      {
+        "code": "review_debug_evidence_only",
+        "severity": "review",
+        "basis": "Selected facts are review/debug evidence, not normalized primary data.",
+        "does_not_claim": "primary_data_import_or_payload_materialization"
+      },
+      {
+        "code": "legacy_payload_not_parsed",
+        "severity": "review",
+        "basis": "The intent does not parse legacy payloads or verify declared preview metadata.",
+        "does_not_claim": "row_count_schema_preview_or_data_validation"
+      },
+      {
+        "code": "reference_repair_not_performed",
+        "severity": "review",
+        "basis": "Locator findings remain review evidence rather than repair instructions.",
+        "does_not_claim": "moved_reference_discovery_or_repair"
+      },
+      {
+        "code": "validity_not_claimed",
+        "severity": "review",
+        "basis": "The intent does not decide measurement validity or scientific quality.",
+        "does_not_claim": "measurement_validity"
+      }
+    ]
+  },
+  "boundary_notes": [
+    "The source review bundle remains a prior local review summary.",
+    "Selected append facts are review/debug evidence, not normalized primary data.",
+    "The intent requires explicit approval but does not perform the append.",
+    "Locator findings remain review evidence, not repair instructions."
+  ],
+  "decisions_not_earned": [
+    "durable measurement-record append",
+    "primary data import",
+    "legacy payload parsing",
+    "preview verification",
+    "reference repair or moved-reference discovery",
+    "parameter write-back",
+    "measurement validity decision",
+    "GUI workflow"
+  ]
+}
