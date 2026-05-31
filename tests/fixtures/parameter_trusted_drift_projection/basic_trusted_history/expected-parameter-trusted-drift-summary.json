@@ -1,0 +1,175 @@
+{
+  "source_fixture": "parameter-trusted-drift-input.json",
+  "status": "fixture_validated",
+  "summary_policy": "internal_validation_summary",
+  "reference_semantics": {
+    "contract_guard": "This expected output is not a final parameter schema, plotting contract, GUI contract, schema migration contract, hardware write-back contract, rollback model, or shared domain model.",
+    "trusted_history": "Trusted drift history is projected from eligible committed parameter states and declared trusted entry paths only.",
+    "excluded_states": "Copied seed and exploratory states remain visible as findings but do not contribute calibrated history points.",
+    "schema_pressure": "Non-scalar trusted entries are review findings for this slice, not automatically flattened or migrated."
+  },
+  "candidate_summary": {
+    "policy": {
+      "parameter_authority": "scopecat_parameter_state",
+      "projection": "side_effect_free_summary",
+      "history_source": "accepted_committed_states_only",
+      "trusted_entries": "declared_trusted_entry_paths_only",
+      "drift_plot_rendering": "not_performed",
+      "hardware_write_back": "not_performed",
+      "current_hardware_state_claim": "not_claimed",
+      "schema_migration": "not_performed"
+    },
+    "lineages": [
+      {
+        "lineage_id": "lineage-qA-default-bias",
+        "lineage_label": "qA default bias calibration",
+        "lineage_purpose": "working_point",
+        "target_scope": [
+          "sample-alpha",
+          "qA",
+          "default_bias"
+        ]
+      }
+    ],
+    "drift_projections": [
+      {
+        "projection_id": "trusted-drift-qA-default-bias-0001",
+        "lineage_id": "lineage-qA-default-bias",
+        "projection_state": "computed_summary_not_rendered",
+        "rendered_plot": "not_performed",
+        "state_filter": {
+          "included_state_ids": [
+            "param-state-0002",
+            "param-state-0004"
+          ],
+          "excluded_state_ids": [
+            "param-state-0001",
+            "param-state-0003"
+          ],
+          "included_state_count": 2,
+          "excluded_state_count": 2
+        },
+        "path_series": [
+          {
+            "path": "qubits.qA.drive_frequency_hz",
+            "label": "qA drive frequency",
+            "unit": "Hz",
+            "point_count": 2,
+            "points": [
+              {
+                "state_id": "param-state-0002",
+                "committed_at": "2026-05-19T14:00:00",
+                "accepted_review_id": "review-change-0001",
+                "value": 5012500000,
+                "trust": "review_accepted"
+              },
+              {
+                "state_id": "param-state-0004",
+                "committed_at": "2026-05-21T11:15:00",
+                "accepted_review_id": "review-change-0003",
+                "value": 5014000000,
+                "trust": "review_accepted"
+              }
+            ]
+          },
+          {
+            "path": "qubits.qA.pi_amp",
+            "label": "qA pi pulse amplitude",
+            "unit": "arb",
+            "point_count": 2,
+            "points": [
+              {
+                "state_id": "param-state-0002",
+                "committed_at": "2026-05-19T14:00:00",
+                "accepted_review_id": "review-change-0001",
+                "value": 0.42,
+                "trust": "review_accepted"
+              },
+              {
+                "state_id": "param-state-0004",
+                "committed_at": "2026-05-21T11:15:00",
+                "accepted_review_id": "review-change-0003",
+                "value": 0.415,
+                "trust": "review_accepted"
+              }
+            ]
+          },
+          {
+            "path": "readout.qA.frequency_hz",
+            "label": null,
+            "unit": null,
+            "point_count": 0,
+            "points": []
+          },
+          {
+            "path": "readout.qA.calibration_table",
+            "label": null,
+            "unit": null,
+            "point_count": 0,
+            "points": []
+          }
+        ]
+      }
+    ],
+    "review_findings": [
+      {
+        "projection_id": "trusted-drift-qA-default-bias-0001",
+        "kind": "excluded_state",
+        "state_id": "param-state-0001",
+        "reason": "state is not eligible for trusted drift history"
+      },
+      {
+        "projection_id": "trusted-drift-qA-default-bias-0001",
+        "kind": "skipped_untrusted_entry",
+        "state_id": "param-state-0002",
+        "path": "readout.qA.frequency_hz",
+        "reason": "entry is not in declared trusted_entry_paths"
+      },
+      {
+        "projection_id": "trusted-drift-qA-default-bias-0001",
+        "kind": "missing_parameter_entry",
+        "state_id": "param-state-0002",
+        "path": "readout.qA.calibration_table",
+        "reason": "requested parameter path is not present in this state"
+      },
+      {
+        "projection_id": "trusted-drift-qA-default-bias-0001",
+        "kind": "excluded_state",
+        "state_id": "param-state-0003",
+        "reason": "exploratory state is not trusted calibrated history"
+      },
+      {
+        "projection_id": "trusted-drift-qA-default-bias-0001",
+        "kind": "skipped_untrusted_entry",
+        "state_id": "param-state-0004",
+        "path": "readout.qA.frequency_hz",
+        "reason": "entry is not in declared trusted_entry_paths"
+      },
+      {
+        "projection_id": "trusted-drift-qA-default-bias-0001",
+        "kind": "skipped_non_scalar_entry",
+        "state_id": "param-state-0004",
+        "path": "readout.qA.calibration_table",
+        "reason": "trusted drift projection includes scalar values only"
+      }
+    ]
+  },
+  "boundary_notes": [
+    "Trusted history uses declared trusted entry paths from eligible committed parameter states only.",
+    "Copied seed and exploratory parameter states remain visible but do not contribute calibrated history points.",
+    "Untrusted carried values and non-scalar values are review findings, not plotted truth.",
+    "This fixture does not render a drift plot, apply parameters to hardware, inspect current instrument state, or migrate schemas.",
+    "The summary is an internal validation artifact, not a portable/public export."
+  ],
+  "decisions_not_earned": [
+    "final parameter schema",
+    "rendered drift plotting",
+    "GUI design",
+    "schema migration",
+    "hardware write-back",
+    "instrument state tracking",
+    "rollback automation",
+    "external JSON authority",
+    "shared domain model extraction"
+  ]
+}
