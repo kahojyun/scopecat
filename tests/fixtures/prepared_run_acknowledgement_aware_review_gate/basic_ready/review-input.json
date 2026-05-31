@@ -1,0 +1,118 @@
+{
+  "fixture_id": "prepared-run-acknowledgement-aware-review-gate-basic-ready",
+  "fixture_status": "synthetic_public_safe",
+  "fixture_layer": "prepared_run_acknowledgement_aware_review_gate_fixture",
+  "user_job": "Compose an acknowledged partial target-coverage review finding with otherwise clear manual pre-run review areas without starting a run, writing parameters, controlling hardware, or producing compatibility output.",
+  "acknowledgement_aware_review_policy": {
+    "gate_authority": "explicit_acknowledgement_aware_pre_run_review_composition",
+    "acknowledgement_source": "prepared_run_partial_target_acknowledgement_summary",
+    "input_sources": "explicit_prior_review_summaries",
+    "review_scope": "manual_pre_run_context_review_after_acknowledgement",
+    "automatic_run_start": "not_performed",
+    "parameter_write_back": "not_performed",
+    "compatibility_output": "not_produced",
+    "hardware_control": "not_performed",
+    "dependency_resolution": "not_performed",
+    "dependency_sync": "not_performed",
+    "package_install": "not_performed",
+    "runtime_probe": "not_performed",
+    "fresh_storage_read": "not_performed",
+    "catalog_discovery": "not_performed",
+    "setup_mutation": "not_performed",
+    "workspace_mutation": "not_performed",
+    "environment_operation": "not_performed",
+    "code_import_execution": "not_performed",
+    "readiness_claim": "manual_review_state_only",
+    "gui_workflow": "not_defined",
+    "managed_runner": "not_defined",
+    "shared_gate_schema": "not_defined"
+  },
+  "review_request": {
+    "review_gate_id": "prepared-run-acknowledgement-aware-review-gate-0001",
+    "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+    "measurement_id": "measurement-05001",
+    "parameter_state_id": "param-state-0008"
+  },
+  "partial_target_acknowledgement_summary": {
+    "acknowledgement_policy": {
+      "acknowledgement_authority": "explicit_user_review_decision",
+      "review_chain_source": "prepared_run_source_agnostic_parameter_state_review_chain_summary",
+      "acknowledgement_scope": "partial_target_coverage_findings_only",
+      "finding_resolution": "local_review_acknowledgement_only",
+      "parameter_invalidation": "not_performed",
+      "parameter_write_back": "not_performed",
+      "compatibility_output": "not_produced",
+      "hardware_control": "not_performed",
+      "automatic_run_start": "not_performed",
+      "scope_repair": "not_performed",
+      "setup_mutation": "not_performed",
+      "catalog_discovery": "not_performed",
+      "fresh_storage_read": "not_performed",
+      "gui_workflow": "not_defined",
+      "shared_acknowledgement_schema": "not_defined"
+    },
+    "classification": "partial_target_coverage_acknowledged_for_manual_review",
+    "prepared_run_context": {
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+      "measurement_id": "measurement-05001",
+      "logical_targets": [
+        "qA",
+        "cAB"
+      ]
+    },
+    "selected_parameter_state": {
+      "state_id": "param-state-0008",
+      "source_kind": "calibration_handoff",
+      "trust_status": "trusted_for_declared_scope",
+      "trusted_entry_count": 2
+    },
+    "acknowledged_finding": {
+      "source": "scope_alignment",
+      "code": "parameter_lineage_partial_target_coverage",
+      "severity": "review",
+      "basis": {
+        "covered_targets": [
+          "qA"
+        ],
+        "missing_targets": [
+          "cAB"
+        ]
+      },
+      "does_not_claim": "automatic_parameter_invalidation_or_run_blocking"
+    },
+    "user_acknowledgement": {
+      "acknowledgement_id": "partial-target-coverage-ack-qA-cAB-0001",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+      "parameter_state_id": "param-state-0008",
+      "decision": "acknowledged_for_manual_review",
+      "acknowledged_by_role": "experimenter",
+      "acknowledged_at": "2026-05-23T10:50:00Z",
+      "review_note": "The selected calibration-derived parameter state covers qA only; cAB is intentionally reviewed through setup binding for this manual chevron run."
+    },
+    "remaining_review_findings": [],
+    "downstream_review_state": {
+      "gate_state": "ready_for_manual_run_review",
+      "scope_alignment_classification": "scope_alignment_needs_review",
+      "chain_classification_before_acknowledgement": "parameter_review_chain_needs_review",
+      "run_start_claim": "not_claimed",
+      "hardware_control": "not_performed",
+      "parameter_write_back": "not_performed"
+    },
+    "side_effects": {
+      "parameter_invalidation": "not_performed",
+      "parameter_write_back": "not_performed",
+      "compatibility_output": "not_produced",
+      "hardware_control": "not_performed",
+      "automatic_run_start": "not_performed",
+      "scope_repair": "not_performed",
+      "setup_mutation": "not_performed",
+      "catalog_discovery": "not_performed",
+      "fresh_storage_read": "not_performed"
+    }
+  },
+  "review_area_inputs": {
+    "required_context_findings": [],
+    "workspace_findings": [],
+    "environment_findings": []
+  }
+}
