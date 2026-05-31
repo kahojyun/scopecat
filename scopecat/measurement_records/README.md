@@ -184,15 +184,20 @@ Optional `--running-record-id`, `--running-record-dir`,
 `--running-update-receipt-path` arguments add one caller-declared running
 inspection to the local review. For multiple declared running inspections, use
 `--source ./operator-review-source.json` with the raw operator-review source
-schema instead of growing ad hoc flags. The CLI remains a smoke surface; it
-does not scan for update receipts or run import, refresh, finalization, repair,
-or GUI state persistence.
+schema instead of growing ad hoc flags. When `--source` is present, request
+shaping flags are rejected rather than silently ignored. The CLI remains a smoke
+surface; it does not scan for update receipts or run import, refresh,
+finalization, repair, or GUI state persistence.
 
 The first saved operator-review receipt boundary is implemented through
 `save_measurement_record_operator_review_receipt(...)` and
 `summarize_measurement_record_operator_review_receipt(...)`. It takes an
 already computed operator-review run plus an approved receipt request, writes
 one local no-overwrite receipt, and projects a compact continuation summary.
+Receipt paths must stay under `operator-reviews/`; they cannot be materialized
+inside record directories. The summary path validates the saved receipt posture,
+policy, approval state, disposition, review finding shape, and embedded summary
+continuity before emitting a compact summary.
 The saved receipt is a local continuation note only: it does not resolve
 findings, approve import, approve refresh, grant retry authority, mutate
 records, or persist canonical GUI review state.

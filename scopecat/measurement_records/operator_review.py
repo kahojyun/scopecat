@@ -43,6 +43,7 @@ OPERATOR_REVIEW_RECEIPT_SCHEMA = "measurement_record_operator_review_receipt_can
 OPERATOR_REVIEW_RECEIPT_SUMMARY_SCHEMA = (
     "scopecat.measurement_record_operator_review_receipt_summary.v0"
 )
+OPERATOR_REVIEW_RECEIPT_DIR = "operator-reviews"
 OPERATOR_REVIEW_POLICY = {
     "catalog_authority": "record_local_projected_read_models",
     "running_inspection_authority": "caller_declared_running_inspection_requests",
@@ -222,6 +223,7 @@ class MeasurementRecordOperatorReviewReceiptRequest:
             self.review_receipt_path,
             "operator review receipt review_receipt_path",
         )
+        _validate_operator_review_receipt_path(self.review_receipt_path)
         if self.operator_disposition not in OPERATOR_DISPOSITIONS:
             raise ValueError("operator review receipt operator_disposition is unsupported")
         if self.operator_reason is not None:
@@ -274,7 +276,7 @@ class MeasurementRecordOperatorReviewReceiptRun:
                 "classification": self.classification,
                 "steps": [
                     "validate_operator_review_receipt_request",
-                    *([] if not self.request.approved else ["write_operator_review_receipt"]),
+                    *([] if not self.saved else ["write_operator_review_receipt"]),
                 ],
                 "does_not_claim": list(RECEIPT_DOES_NOT_CLAIM),
             },
@@ -407,16 +409,7 @@ def summarize_measurement_record_operator_review_receipt(
 ) -> dict[str, Any]:
     """Project a compact continuation summary from a saved operator-review receipt."""
 
-    if receipt.get("schema") != OPERATOR_REVIEW_RECEIPT_SCHEMA:
-        raise ValueError("operator review receipt schema is unsupported")
-    receipt_request = _require_dict(receipt, "receipt_request")
-    saved_review = _require_dict(receipt, "operator_review")
-    review_workflow = _require_dict(saved_review, "workflow")
-    selected_record = saved_review.get("selected_record")
-    if selected_record is not None and not isinstance(selected_record, dict):
-        raise ValueError("operator review receipt selected_record must be an object")
-    findings = _require_list(saved_review, "review_findings")
-    disposition = _require_dict(receipt, "operator_disposition")
+    parsed = _parse_operator_review_receipt(receipt)
     return {
         "summary_schema": OPERATOR_REVIEW_RECEIPT_SUMMARY_SCHEMA,
         "artifact_posture": "local_measurement_record_operator_review_receipt_summary",
@@ -428,37 +421,18 @@ def summarize_measurement_record_operator_review_receipt(
             "redaction_boundary": "local_workspace_only",
         },
         "receipt": {
-            "request_id": validate_text(receipt_request.get("request_id"), "receipt request_id"),
-            "review_receipt_path": validate_relative_path(
-                receipt_request.get("review_receipt_path"),
-                "receipt review_receipt_path",
-            ),
-            "operator_disposition": validate_text(
-                disposition.get("state"),
-                "receipt operator_disposition",
-            ),
-            "operator_reason": disposition.get("operator_reason"),
+            "request_id": parsed["receipt_request_id"],
+            "review_receipt_path": parsed["review_receipt_path"],
+            "operator_disposition": parsed["operator_disposition"],
+            "operator_reason": parsed["operator_reason"],
         },
         "operator_review": {
-            "request_id": validate_text(
-                _require_dict(saved_review, "request").get("request_id"),
-                "saved operator review request_id",
-            ),
-            "classification": validate_text(
-                review_workflow.get("classification"),
-                "saved operator review classification",
-            ),
-            "selected_record_id": _selected_record_id_from_saved_summary(selected_record),
-            "selected_record_source": _selected_record_source_from_saved_summary(selected_record),
-            "review_finding_codes": [
-                validate_text(finding.get("code"), "operator review finding code")
-                for finding in findings
-                if isinstance(finding, dict)
-            ],
-            "next_action": validate_text(
-                saved_review.get("next_action"),
-                "saved operator review next_action",
-            ),
+            "request_id": parsed["operator_review_request_id"],
+            "classification": parsed["operator_review_classification"],
+            "selected_record_id": parsed["selected_record_id"],
+            "selected_record_source": parsed["selected_record_source"],
+            "review_finding_codes": parsed["review_finding_codes"],
+            "next_action": parsed["next_action"],
         },
         "does_not_claim": list(RECEIPT_DOES_NOT_CLAIM),
     }
@@ -487,6 +461,117 @@ def _parse_source(source: dict[str, Any]) -> MeasurementRecordOperatorReviewRequ
         ),
         latest_row_limit=_optional_positive_int(request, "latest_row_limit", default=3),
     )
+
+
+def _parse_operator_review_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
+    if receipt.get("schema") != OPERATOR_REVIEW_RECEIPT_SCHEMA:
+        raise ValueError("operator review receipt schema is unsupported")
+    if receipt.get("artifact_posture") != "local_measurement_record_operator_review_receipt":
+        raise ValueError("operator review receipt artifact_posture is unsupported")
+    if receipt.get("operator_review_receipt_policy") != OPERATOR_REVIEW_RECEIPT_POLICY:
+        raise ValueError("operator review receipt policy is unsupported")
+
+    receipt_request = _require_dict(receipt, "receipt_request")
+    receipt_request_id = validate_text(receipt_request.get("request_id"), "receipt request_id")
+    approval_state = validate_text(
+        receipt_request.get("approval_state"),
+        "receipt approval_state",
+    )
+    if approval_state not in APPROVAL_STATES:
+        raise ValueError("receipt approval_state is unsupported")
+    if approval_state != "approved":
+        raise ValueError("operator review receipt summary requires approved receipt")
+    review_receipt_path = validate_relative_path(
+        receipt_request.get("review_receipt_path"),
+        "receipt review_receipt_path",
+    )
+    _validate_operator_review_receipt_path(review_receipt_path)
+
+    disposition = _require_dict(receipt, "operator_disposition")
+    operator_disposition = validate_text(
+        disposition.get("state"),
+        "receipt operator_disposition",
+    )
+    if operator_disposition not in OPERATOR_DISPOSITIONS:
+        raise ValueError("receipt operator_disposition is unsupported")
+    if receipt_request.get("operator_disposition") != operator_disposition:
+        raise ValueError("receipt operator_disposition must match receipt request")
+    operator_reason = disposition.get("operator_reason")
+    if operator_reason is not None:
+        operator_reason = validate_text(operator_reason, "receipt operator_reason")
+    if receipt_request.get("operator_reason") != operator_reason:
+        raise ValueError("receipt operator_reason must match receipt request")
+
+    saved_review = _require_dict(receipt, "operator_review")
+    _validate_saved_operator_review_contract(saved_review)
+    review_request = _require_dict(saved_review, "request")
+    review_workflow = _require_dict(saved_review, "workflow")
+    selected_record = saved_review.get("selected_record")
+    if selected_record is not None and not isinstance(selected_record, dict):
+        raise ValueError("operator review receipt selected_record must be an object")
+    findings = _require_list(saved_review, "review_findings")
+    finding_codes = []
+    for finding in findings:
+        if not isinstance(finding, dict):
+            raise ValueError("operator review finding must be an object")
+        finding_codes.append(
+            validate_public_identifier(finding.get("code"), "operator review finding code")
+        )
+    next_action = validate_text(
+        saved_review.get("next_action"),
+        "saved operator review next_action",
+    )
+    operator_review_request_id = validate_text(
+        review_request.get("request_id"),
+        "saved operator review request_id",
+    )
+    operator_review_classification = validate_text(
+        review_workflow.get("classification"),
+        "saved operator review classification",
+    )
+
+    summary = _require_dict(receipt, "summary")
+    if summary.get("operator_review_request_id") != operator_review_request_id:
+        raise ValueError("receipt summary request_id must match operator review")
+    if summary.get("operator_review_classification") != operator_review_classification:
+        raise ValueError("receipt summary classification must match operator review")
+    selected_record_id = _selected_record_id_from_saved_summary(selected_record)
+    if summary.get("selected_record_id") != selected_record_id:
+        raise ValueError("receipt summary selected_record_id must match operator review")
+    if summary.get("review_finding_codes") != finding_codes:
+        raise ValueError("receipt summary finding codes must match operator review")
+    if summary.get("next_action") != next_action:
+        raise ValueError("receipt summary next_action must match operator review")
+
+    return {
+        "receipt_request_id": receipt_request_id,
+        "review_receipt_path": review_receipt_path,
+        "operator_disposition": operator_disposition,
+        "operator_reason": operator_reason,
+        "operator_review_request_id": operator_review_request_id,
+        "operator_review_classification": operator_review_classification,
+        "selected_record_id": selected_record_id,
+        "selected_record_source": _selected_record_source_from_saved_summary(selected_record),
+        "review_finding_codes": finding_codes,
+        "next_action": next_action,
+    }
+
+
+def _validate_saved_operator_review_contract(saved_review: dict[str, Any]) -> None:
+    if saved_review.get("artifact_posture") != "local_measurement_record_operator_review":
+        raise ValueError("saved operator review artifact_posture is unsupported")
+    if saved_review.get("operator_review_policy") != OPERATOR_REVIEW_POLICY:
+        raise ValueError("saved operator review policy is unsupported")
+    workflow = _require_dict(saved_review, "workflow")
+    classification = validate_text(
+        workflow.get("classification"),
+        "saved operator review classification",
+    )
+    if classification not in {
+        "measurement_record_operator_review_ready",
+        "measurement_record_operator_review_needed",
+    }:
+        raise ValueError("saved operator review classification is unsupported")
 
 
 def _parse_running_inspection_request(
@@ -623,6 +708,14 @@ def _write_new_file(path: Path, content: bytes) -> None:
 
 def _path_under(root: Path, relative_path: str) -> Path:
     return _path_under_common(root, relative_path, "operator review receipt path")
+
+
+def _validate_operator_review_receipt_path(relative_path: str) -> None:
+    if not relative_path.startswith(f"{OPERATOR_REVIEW_RECEIPT_DIR}/"):
+        raise ValueError(
+            "operator review receipt review_receipt_path must be under "
+            f"{OPERATOR_REVIEW_RECEIPT_DIR}/"
+        )
 
 
 class _ReceiptWriteFailure(RuntimeError):

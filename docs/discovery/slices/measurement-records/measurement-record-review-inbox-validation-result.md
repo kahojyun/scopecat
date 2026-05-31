@@ -28,18 +28,22 @@ local measurement-record review inbox.
 The input combines:
 
 - one fresh operator-review summary with projected-record catalog facts,
-  running-inspection facts, and review findings;
+  running-inspection facts, and review findings, produced directly or through
+  the explicit operator-review-run adapter;
 - one saved operator-review receipt summary for continuation;
 - explicit policy fields that keep storage scanning, record opening, record
   mutation, read-model refresh, action approval, GUI persistence, and public
   export out of scope.
 
-The expected summary groups explicit review facts into four lanes:
+The expected summary groups explicit review facts into five lanes:
 
-- `continue_later` for saved receipt summaries;
+- `continue_later` for saved receipt summaries that remain active continuation
+  prompts;
 - `needs_review` for current review findings;
 - `running` for declared running-inspection summaries;
 - `ready` for current catalog entries.
+- `reviewed` for saved receipt summaries already marked reviewed, without
+  creating attention prompts.
 
 This validates product language and state grouping only. It does not define a
 persisted GUI model, query backend, inbox database, record index, refresh
@@ -65,11 +69,12 @@ The implementation candidate builds the `candidate_summary` from explicit
 fixture input only. It validates:
 
 - exact policy posture;
+- real operator-review output projection into the compact inbox input shape;
 - public-safe workspace, record, receipt, and finding identifiers;
 - relative record and receipt paths;
 - unique visible record ids and receipt ids;
-- saved receipt selected-record continuity against the fresh review's visible
-  records;
+- saved receipt selected-record visibility, including stale continuation prompts
+  whose selected record is not currently visible;
 - review findings referencing visible records;
 - non-negative row/count facts.
 

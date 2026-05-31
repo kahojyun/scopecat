@@ -674,9 +674,10 @@ smoke surface for printing the composed review JSON from a caller-declared
 storage root and optional running-inspection paths. The CLI also accepts
 `--source` for the raw operator-review source shape when callers need to
 declare multiple running inspections without adding more flag-only surface.
-The CLI does not discover records beyond the catalog directory, scan update
-directories, mutate storage, or perform refresh, import, finalization, repair,
-or GUI-state persistence.
+When `--source` is used, request-shaping flags are rejected so caller intent
+does not depend on silent precedence. The CLI does not discover records beyond
+the catalog directory, scan update directories, mutate storage, or perform
+refresh, import, finalization, repair, or GUI-state persistence.
 
 ## Operator Review Receipt Checkpoint
 
@@ -697,15 +698,17 @@ operator-review run
 
 The receipt records the operator-review snapshot, selected-record posture,
 review finding codes, next local action, and an operator disposition such as
-`recorded_for_continuation`. It is a local continuation note, not durable
-workflow authority. It does not resolve findings, approve import, approve
-read-model refresh, grant retry authority, mutate measurement records, replace
-manifests, finalize lifecycle state, define canonical review state, or persist
-GUI-owned review state.
+`recorded_for_continuation`. Receipt paths are constrained to
+`operator-reviews/` so this local note cannot pollute record storage. It is a
+local continuation note, not durable workflow authority. It does not resolve
+findings, approve import, approve read-model refresh, grant retry authority,
+mutate measurement records, replace manifests, finalize lifecycle state, define
+canonical review state, or persist GUI-owned review state.
 
 The module also exposes
 `python -m scopecat.measurement_records operator-review-receipt-summary` as a
 read-only smoke CLI over one caller-declared saved receipt. It validates the
-receipt schema and prints the compact continuation summary, without reopening
-records, re-running review, granting retry authority, approving refresh/import,
-mutating storage, or persisting GUI state.
+receipt schema, posture, policy, approved request state, disposition, finding
+shape, and embedded summary continuity before printing the compact continuation
+summary, without reopening records, re-running review, granting retry authority,
+approving refresh/import, mutating storage, or persisting GUI state.

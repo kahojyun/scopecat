@@ -32,6 +32,7 @@
       "counts": {
         "continue_later": 1,
         "needs_review": 1,
+        "reviewed": 0,
         "ready": 1,
         "running": 1
       },
@@ -39,7 +40,8 @@
         "continue_later",
         "needs_review",
         "running",
-        "ready"
+        "ready",
+        "reviewed"
       ],
       "lanes": {
         "continue_later": [
@@ -48,6 +50,7 @@
             "operator_reason": "Continue after refreshing the missing T1 read model.",
             "receipt_id": "review-receipt-001",
             "record_id": "run-9999-needs-review",
+            "record_visibility": "visible",
             "review_finding_codes": [
               "read_model_missing"
             ],
@@ -89,13 +92,14 @@
             "state": "running",
             "visible_rows_recorded": 5
           }
-        ]
+        ],
+        "reviewed": []
       }
     },
     "review_inbox_policy": {
       "action_approval": "not_granted",
       "gui_state_persistence": "not_performed",
-      "input_authority": "operator_review_summary_and_saved_receipt_summaries",
+      "input_authority": "operator_review_run_and_saved_receipt_summaries",
       "public_export": "not_performed",
       "read_model_refresh": "not_performed",
       "record_mutation": "not_performed",

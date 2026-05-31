@@ -2,7 +2,7 @@
   "review_inbox_policy": {
     "action_approval": "not_granted",
     "gui_state_persistence": "not_performed",
-    "input_authority": "operator_review_summary_and_saved_receipt_summaries",
+    "input_authority": "operator_review_run_and_saved_receipt_summaries",
     "public_export": "not_performed",
     "read_model_refresh": "not_performed",
     "record_mutation": "not_performed",

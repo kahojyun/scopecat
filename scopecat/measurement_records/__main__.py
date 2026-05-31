@@ -147,8 +147,43 @@ def main(argv: Sequence[str] | None = None) -> int:
     elif args.command == "operator-review":
         if args.source is None and args.request_id is None:
             parser.error("--request-id is required unless --source is provided")
-        if args.source is not None and args.running_record_id is not None:
-            parser.error("--running-record-id cannot be combined with --source")
+        if args.source is not None:
+            ignored = []
+            for name, value, default in (
+                ("--request-id", args.request_id, None),
+                ("--records-dir", args.records_dir, "records"),
+                ("--selected-record-id", args.selected_record_id, None),
+                (
+                    "--skip-source-digest-verification",
+                    args.skip_source_digest_verification,
+                    False,
+                ),
+                ("--running-record-id", args.running_record_id, None),
+                ("--running-record-dir", args.running_record_dir, None),
+                (
+                    "--running-writer-receipt-path",
+                    args.running_writer_receipt_path,
+                    None,
+                ),
+                (
+                    "--running-update-receipt-path",
+                    args.running_update_receipt_path,
+                    [],
+                ),
+                (
+                    "--running-expected-total-rows",
+                    args.running_expected_total_rows,
+                    None,
+                ),
+                ("--preview-row-limit", args.preview_row_limit, 5),
+                ("--latest-row-limit", args.latest_row_limit, 3),
+            ):
+                if value != default:
+                    ignored.append(name)
+            if ignored:
+                parser.error(
+                    "--source cannot be combined with request-shaping flags: " + ", ".join(ignored)
+                )
         if (
             args.source is None
             and args.running_record_id is not None

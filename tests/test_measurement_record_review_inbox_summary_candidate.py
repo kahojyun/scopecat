@@ -7,6 +7,7 @@ from pathlib import Path
 
 from implementation_candidates.measurement_record_review_inbox import (
     build_measurement_record_review_inbox_summary,
+    project_operator_review_run_for_review_inbox,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,6 +40,7 @@ class MeasurementRecordReviewInboxSummaryCandidateTest(unittest.TestCase):
             {
                 "continue_later": 1,
                 "needs_review": 1,
+                "reviewed": 0,
                 "running": 1,
                 "ready": 1,
             },
@@ -109,14 +111,33 @@ class MeasurementRecordReviewInboxSummaryCandidateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "duplicate visible record_id"):
             build_measurement_record_review_inbox_summary(source)
 
-    def test_saved_receipt_must_reference_visible_record(self) -> None:
+    def test_saved_receipt_missing_from_fresh_review_stays_visible_as_stale(
+        self,
+    ) -> None:
         source = _load_input()
         source["saved_receipt_summaries"][0]["operator_review"]["selected_record_id"] = (
             "run-missing"
         )
 
-        with self.assertRaisesRegex(ValueError, "visible in the fresh review"):
-            build_measurement_record_review_inbox_summary(source)
+        summary = build_measurement_record_review_inbox_summary(source)
+
+        self.assertEqual(
+            summary["inbox"]["lanes"]["continue_later"][0]["record_visibility"],
+            "not_visible",
+        )
+
+    def test_reviewed_receipt_does_not_create_attention_prompt(self) -> None:
+        source = _load_input()
+        source["saved_receipt_summaries"][0]["operator_disposition"] = "recorded_as_reviewed"
+
+        summary = build_measurement_record_review_inbox_summary(source)
+
+        self.assertEqual(summary["inbox"]["counts"]["continue_later"], 0)
+        self.assertEqual(summary["inbox"]["counts"]["reviewed"], 1)
+        self.assertEqual(
+            [item["code"] for item in summary["attention"]],
+            ["records_need_review", "running_records_visible"],
+        )
 
     def test_finding_must_reference_visible_record(self) -> None:
         source = _load_input()
@@ -124,6 +145,67 @@ class MeasurementRecordReviewInboxSummaryCandidateTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "visible record"):
             build_measurement_record_review_inbox_summary(source)
+
+    def test_projects_real_operator_review_shape_for_inbox(self) -> None:
+        operator_review = {
+            "artifact_posture": "local_measurement_record_operator_review",
+            "workflow": {
+                "classification": "measurement_record_operator_review_needed",
+            },
+            "request": {
+                "request_id": "operator-review-records",
+                "selected_record_id": "run-4101-t1",
+            },
+            "catalog": {
+                "entries": [
+                    {
+                        "record_id": "run-3101-rabi",
+                        "record_dir": "records/run-3101-rabi",
+                        "lifecycle_state": "complete",
+                        "primary_data": {"observed_row_count": 5},
+                        "review_finding_count": 0,
+                    },
+                    {
+                        "record_id": "run-9999-needs-review",
+                        "record_dir": "records/run-9999-needs-review",
+                        "lifecycle_state": "complete",
+                        "primary_data": {"observed_row_count": 3},
+                        "review_finding_count": 1,
+                    },
+                ],
+                "review_findings": [],
+            },
+            "running_inspections": [
+                {
+                    "record": {
+                        "record_id": "run-4101-t1",
+                        "record_dir": "records/run-4101-t1",
+                    },
+                    "inspection": {
+                        "visible_rows_recorded": 5,
+                        "review_finding_codes": [],
+                        "next_action": "ready_for_later_finalization_decision",
+                    },
+                }
+            ],
+            "review_findings": [
+                {
+                    "code": "read_model_missing",
+                    "source": "catalog",
+                    "target": "records/run-9999-needs-review/record-read-model.json",
+                    "message": "Record directory has no projected read model.",
+                }
+            ],
+        }
+
+        projected = project_operator_review_run_for_review_inbox(operator_review)
+
+        self.assertEqual(projected["catalog_entries"][0]["label"], "run-3101-rabi")
+        self.assertEqual(projected["review_findings"][0]["record_id"], "run-9999-needs-review")
+        self.assertEqual(
+            projected["review_findings"][0]["next_action"],
+            "review_measurement_record_operator_findings",
+        )
 
 
 if __name__ == "__main__":

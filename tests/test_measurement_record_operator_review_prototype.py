@@ -6,7 +6,7 @@ import json
 import shutil
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 from scopecat.measurement_records import (
@@ -293,6 +293,29 @@ def _populate_in_progress_with_append(
         raise AssertionError(append_run.to_dict())
 
 
+def _saved_operator_review_receipt() -> dict:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        storage_root = Path(temp_dir) / "storage"
+        content_root = Path(temp_dir) / "content"
+        storage_root.mkdir()
+        shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+        _populate_projected_record(storage_root, content_root)
+        review_run = review_measurement_records_from_request(
+            _operator_request(),
+            storage_root=storage_root,
+        )
+        save_run = save_measurement_record_operator_review_receipt(
+            _receipt_request(),
+            operator_review=review_run,
+            storage_root=storage_root,
+        )
+        if not save_run.saved:
+            raise AssertionError(save_run.to_dict())
+        return json.loads(
+            (storage_root / "operator-reviews" / "review-001.json").read_text(encoding="utf-8")
+        )
+
+
 class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
     def test_operator_review_lists_catalog_and_selected_record_without_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -524,6 +547,29 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
         self.assertEqual(payload["selected_record"]["source"], "running_inspection")
         self.assertEqual(payload["selected_record"]["record"]["record_id"], "run-4102-ramsey")
 
+    def test_operator_review_cli_rejects_source_with_conflicting_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            storage_root = temp_path / "storage"
+            storage_root.mkdir()
+            source_path = temp_path / "operator-review-source.json"
+            source_path.write_text(json.dumps(_operator_source()), encoding="utf-8")
+
+            stderr = io.StringIO()
+            with redirect_stderr(stderr), self.assertRaises(SystemExit):
+                measurement_records_main(
+                    [
+                        "operator-review",
+                        "--storage-root",
+                        str(storage_root),
+                        "--source",
+                        str(source_path),
+                        "--request-id",
+                        "conflicting-request",
+                    ]
+                )
+            self.assertIn("--source cannot be combined", stderr.getvalue())
+
     def test_saves_operator_review_receipt_without_mutating_records(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root = Path(temp_dir) / "storage"
@@ -567,6 +613,10 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
             save_run.to_dict()["receipt"]["receipt_digest"],
             receipt_digest,
         )
+
+    def test_operator_review_receipt_path_must_use_receipt_namespace(self) -> None:
+        with self.assertRaisesRegex(ValueError, "operator-reviews"):
+            _receipt_request(review_receipt_path="records/run-3101-rabi/operator-review.json")
 
     def test_unapproved_operator_review_receipt_request_does_not_write(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -616,6 +666,41 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
 
         self.assertEqual(save_run.classification, "blocked_before_operator_review_receipt")
         self.assertIn("already exists", save_run.save_error or "")
+        self.assertNotIn("write_operator_review_receipt", save_run.to_dict()["workflow"]["steps"])
+
+    def test_operator_review_receipt_summary_rejects_unsupported_disposition(
+        self,
+    ) -> None:
+        receipt = _saved_operator_review_receipt()
+        receipt["operator_disposition"]["state"] = "approve_refresh"
+        receipt["receipt_request"]["operator_disposition"] = "approve_refresh"
+
+        with self.assertRaisesRegex(ValueError, "operator_disposition"):
+            summarize_measurement_record_operator_review_receipt(receipt)
+
+    def test_operator_review_receipt_summary_rejects_malformed_findings(self) -> None:
+        receipt = _saved_operator_review_receipt()
+        receipt["operator_review"]["review_findings"].append("read_model_missing")
+        receipt["summary"]["review_finding_codes"].append("read_model_missing")
+
+        with self.assertRaisesRegex(ValueError, "finding must be an object"):
+            summarize_measurement_record_operator_review_receipt(receipt)
+
+    def test_operator_review_receipt_summary_rejects_tampered_policy(self) -> None:
+        receipt = _saved_operator_review_receipt()
+        receipt["operator_review_receipt_policy"]["record_mutation"] = "performed"
+
+        with self.assertRaisesRegex(ValueError, "policy"):
+            summarize_measurement_record_operator_review_receipt(receipt)
+
+    def test_operator_review_receipt_summary_rejects_inconsistent_summary(
+        self,
+    ) -> None:
+        receipt = _saved_operator_review_receipt()
+        receipt["summary"]["next_action"] = "refresh_read_model"
+
+        with self.assertRaisesRegex(ValueError, "next_action"):
+            summarize_measurement_record_operator_review_receipt(receipt)
 
     def test_operator_review_receipt_summary_cli_prints_continuation_summary(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

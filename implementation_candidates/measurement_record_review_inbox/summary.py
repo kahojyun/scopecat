@@ -18,7 +18,7 @@ from implementation_candidates.contract_primitives import (
 )
 
 _EXPECTED_POLICY = {
-    "input_authority": "operator_review_summary_and_saved_receipt_summaries",
+    "input_authority": "operator_review_run_and_saved_receipt_summaries",
     "storage_scan": "not_performed",
     "record_open": "not_performed",
     "record_mutation": "not_performed",
@@ -34,8 +34,9 @@ def build_measurement_record_review_inbox_summary(source: dict[str, Any]) -> dic
 
     _validate_source(source)
     workspace = source["workspace"]
-    fresh_review = source["fresh_operator_review"]
+    fresh_review = _fresh_review_from_source(source)
     saved_summaries = source["saved_receipt_summaries"]
+    known_record_ids = _known_record_ids(fresh_review)
 
     ready = [
         _ready_item(entry)
@@ -44,7 +45,16 @@ def build_measurement_record_review_inbox_summary(source: dict[str, Any]) -> dic
     ]
     running = [_running_item(item) for item in fresh_review["running_inspections"]]
     needs_review = [_needs_review_item(item) for item in fresh_review["review_findings"]]
-    continue_later = [_continue_later_item(item) for item in saved_summaries]
+    continue_later = [
+        _saved_review_item(item, known_record_ids)
+        for item in saved_summaries
+        if item["operator_disposition"] == "recorded_for_continuation"
+    ]
+    reviewed = [
+        _saved_review_item(item, known_record_ids)
+        for item in saved_summaries
+        if item["operator_disposition"] == "recorded_as_reviewed"
+    ]
 
     return {
         "artifact_posture": "internal_validation_summary",
@@ -60,18 +70,20 @@ def build_measurement_record_review_inbox_summary(source: dict[str, Any]) -> dic
                 needs_review=needs_review,
                 continue_later=continue_later,
             ),
-            "lane_order": ["continue_later", "needs_review", "running", "ready"],
+            "lane_order": ["continue_later", "needs_review", "running", "ready", "reviewed"],
             "lanes": {
                 "continue_later": continue_later,
                 "needs_review": needs_review,
                 "running": running,
                 "ready": ready,
+                "reviewed": reviewed,
             },
             "counts": {
                 "continue_later": len(continue_later),
                 "needs_review": len(needs_review),
                 "running": len(running),
                 "ready": len(ready),
+                "reviewed": len(reviewed),
             },
         },
         "attention": _attention(
@@ -91,22 +103,154 @@ def build_measurement_record_review_inbox_summary(source: dict[str, Any]) -> dic
     }
 
 
+def project_operator_review_run_for_review_inbox(operator_review: dict[str, Any]) -> dict[str, Any]:
+    """Project the real operator-review output into the inbox's compact input shape."""
+
+    _validate_operator_review_run(operator_review)
+    request = _require_dict(operator_review, "request")
+    workflow = _require_dict(operator_review, "workflow")
+    catalog = _require_dict(operator_review, "catalog")
+    catalog_entries = catalog["entries"]
+    running_inspections = operator_review["running_inspections"]
+    record_dirs = _record_dirs_by_id(catalog_entries, running_inspections)
+    record_ids_by_dir = {record_dir: record_id for record_id, record_dir in record_dirs.items()}
+    return {
+        "request_id": request["request_id"],
+        "classification": workflow["classification"],
+        "selected_record_id": request["selected_record_id"],
+        "catalog_entries": [
+            {
+                "record_id": entry["record_id"],
+                "record_dir": entry["record_dir"],
+                "label": entry["record_id"],
+                "lifecycle_state": entry["lifecycle_state"],
+                "observed_row_count": entry["primary_data"]["observed_row_count"],
+                "review_finding_count": entry["review_finding_count"],
+            }
+            for entry in catalog_entries
+        ],
+        "running_inspections": [
+            {
+                "record_id": _require_dict(item, "record")["record_id"],
+                "record_dir": _require_dict(item, "record")["record_dir"],
+                "label": _require_dict(item, "record")["record_id"],
+                "lifecycle_state": "in_progress",
+                "visible_rows_recorded": _require_dict(item, "inspection")["visible_rows_recorded"],
+                "review_finding_codes": _require_dict(item, "inspection")["review_finding_codes"],
+                "next_action": _require_dict(item, "inspection")["next_action"],
+            }
+            for item in running_inspections
+        ],
+        "review_findings": [
+            _project_review_finding(finding, record_ids_by_dir)
+            for finding in operator_review["review_findings"]
+        ],
+    }
+
+
 def _validate_source(source: dict[str, Any]) -> None:
     _validate_policy(source)
     _validate_workspace(source["workspace"])
-    fresh = source["fresh_operator_review"]
+    fresh = _fresh_review_from_source(source)
     saved = source["saved_receipt_summaries"]
     if not isinstance(saved, list):
         raise ValueError("saved_receipt_summaries must be a list")
     _validate_fresh_review(fresh)
-    known_record_ids = _known_record_ids(fresh)
     seen_receipts = set()
     for item in saved:
         receipt_id = validate_public_identifier(item["receipt_id"], "receipt_id")
         if receipt_id in seen_receipts:
             raise ValueError(f"duplicate receipt_id: {receipt_id}")
         seen_receipts.add(receipt_id)
-        _validate_saved_summary(item, known_record_ids)
+        _validate_saved_summary(item)
+
+
+def _fresh_review_from_source(source: dict[str, Any]) -> dict[str, Any]:
+    if "operator_review" in source:
+        return project_operator_review_run_for_review_inbox(source["operator_review"])
+    return source["fresh_operator_review"]
+
+
+def _validate_operator_review_run(operator_review: dict[str, Any]) -> None:
+    if operator_review["artifact_posture"] != "local_measurement_record_operator_review":
+        raise ValueError("operator_review artifact_posture is unsupported")
+    workflow = _require_dict(operator_review, "workflow")
+    if workflow["classification"] not in {
+        "measurement_record_operator_review_ready",
+        "measurement_record_operator_review_needed",
+    }:
+        raise ValueError("operator_review classification is unsupported")
+    request = _require_dict(operator_review, "request")
+    validate_public_identifier(request["request_id"], "operator_review request_id")
+    _validate_optional_record_id(
+        request["selected_record_id"],
+        "operator_review selected_record_id",
+    )
+    catalog = _require_dict(operator_review, "catalog")
+    for key in ("entries", "review_findings"):
+        if not isinstance(catalog[key], list):
+            raise ValueError(f"operator_review catalog {key} must be a list")
+    if not isinstance(operator_review["running_inspections"], list):
+        raise ValueError("operator_review running_inspections must be a list")
+    if not isinstance(operator_review["review_findings"], list):
+        raise ValueError("operator_review review_findings must be a list")
+
+
+def _record_dirs_by_id(
+    catalog_entries: list[dict[str, Any]],
+    running_inspections: list[dict[str, Any]],
+) -> dict[str, str]:
+    result = {}
+    for entry in catalog_entries:
+        record_id = validate_public_identifier(entry["record_id"], "catalog record_id")
+        result[record_id] = validate_relative_path(entry["record_dir"], "catalog record_dir")
+        _require_dict(entry, "primary_data")
+    for item in running_inspections:
+        record = _require_dict(item, "record")
+        inspection = _require_dict(item, "inspection")
+        record_id = validate_public_identifier(record["record_id"], "running record_id")
+        result[record_id] = validate_relative_path(record["record_dir"], "running record_dir")
+        validate_non_negative_integer(
+            inspection["visible_rows_recorded"],
+            "running visible_rows_recorded",
+        )
+        _validate_code_list(inspection["review_finding_codes"], "running finding code")
+        validate_text(inspection["next_action"], "running next_action")
+    return result
+
+
+def _project_review_finding(
+    finding: dict[str, Any],
+    record_ids_by_dir: dict[str, str],
+) -> dict[str, Any]:
+    target = validate_text(finding["target"], "operator review finding target")
+    record_id = _record_id_for_target(target, record_ids_by_dir)
+    return {
+        "record_id": record_id,
+        "label": record_id,
+        "code": validate_public_identifier(finding["code"], "operator review finding code"),
+        "message": validate_text(finding["message"], "operator review finding message"),
+        "source": f"operator_review.{validate_text(finding['source'], 'operator review finding source')}",
+        "next_action": "review_measurement_record_operator_findings",
+    }
+
+
+def _record_id_for_target(target: str, record_ids_by_dir: dict[str, str]) -> str:
+    for record_dir, record_id in sorted(
+        record_ids_by_dir.items(),
+        key=lambda item: len(item[0]),
+        reverse=True,
+    ):
+        if target == record_dir or target.startswith(f"{record_dir}/"):
+            return record_id
+    raise ValueError("operator review finding target must reference a visible record")
+
+
+def _require_dict(value: dict[str, Any], field: str) -> dict[str, Any]:
+    item = value[field]
+    if not isinstance(item, dict):
+        raise ValueError(f"{field} must be an object")
+    return item
 
 
 def _validate_policy(source: dict[str, Any]) -> None:
@@ -141,6 +285,7 @@ def _validate_fresh_review(review: dict[str, Any]) -> None:
         if record_id in seen_record_ids:
             raise ValueError(f"duplicate visible record_id: {record_id}")
         seen_record_ids.add(record_id)
+        validate_text(entry["label"], "catalog entry label")
         if entry["lifecycle_state"] not in {"complete", "failed"}:
             raise ValueError("catalog entry lifecycle_state is unsupported")
         validate_non_negative_integer(entry["observed_row_count"], "observed_row_count")
@@ -151,6 +296,7 @@ def _validate_fresh_review(review: dict[str, Any]) -> None:
         if record_id in seen_record_ids:
             raise ValueError(f"duplicate visible record_id: {record_id}")
         seen_record_ids.add(record_id)
+        validate_text(item["label"], "running inspection label")
         if item["lifecycle_state"] != "in_progress":
             raise ValueError("running inspection lifecycle_state must be in_progress")
         validate_non_negative_integer(item["visible_rows_recorded"], "visible_rows_recorded")
@@ -163,12 +309,13 @@ def _validate_fresh_review(review: dict[str, Any]) -> None:
         if record_id not in known:
             raise ValueError("review finding must reference a visible record")
         validate_public_identifier(finding["code"], "finding code")
+        validate_text(finding["label"], "finding label")
         validate_text(finding["message"], "finding message")
         validate_text(finding["source"], "finding source")
         validate_text(finding["next_action"], "finding next_action")
 
 
-def _validate_saved_summary(item: dict[str, Any], known_record_ids: set[str]) -> None:
+def _validate_saved_summary(item: dict[str, Any]) -> None:
     validate_public_identifier(item["receipt_id"], "receipt_id")
     validate_relative_path(item["review_receipt_path"], "review_receipt_path")
     if item["operator_disposition"] not in {"recorded_for_continuation", "recorded_as_reviewed"}:
@@ -178,9 +325,7 @@ def _validate_saved_summary(item: dict[str, Any], known_record_ids: set[str]) ->
         validate_text(reason, "operator_reason")
     review = item["operator_review"]
     validate_public_identifier(review["request_id"], "receipt review request_id")
-    record_id = validate_public_identifier(review["selected_record_id"], "selected_record_id")
-    if record_id not in known_record_ids:
-        raise ValueError("saved receipt selected record must be visible in the fresh review")
+    validate_public_identifier(review["selected_record_id"], "selected_record_id")
     validate_text(review["selected_record_source"], "selected_record_source")
     validate_text(review["classification"], "receipt review classification")
     validate_text(review["next_action"], "receipt review next_action")
@@ -250,12 +395,15 @@ def _needs_review_item(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _continue_later_item(item: dict[str, Any]) -> dict[str, Any]:
+def _saved_review_item(item: dict[str, Any], known_record_ids: set[str]) -> dict[str, Any]:
     review = item["operator_review"]
     return {
         "receipt_id": item["receipt_id"],
         "review_receipt_path": item["review_receipt_path"],
         "record_id": review["selected_record_id"],
+        "record_visibility": (
+            "visible" if review["selected_record_id"] in known_record_ids else "not_visible"
+        ),
         "state": item["operator_disposition"],
         "source": "saved_operator_review_receipt_summary",
         "operator_reason": item.get("operator_reason"),
