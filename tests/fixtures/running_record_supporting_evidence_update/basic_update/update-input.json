@@ -1,0 +1,139 @@
+{
+  "evidence_update_policy": {
+    "update_authority": "explicit_running_record_supporting_evidence_update",
+    "update_posture": "local_review_summary",
+    "evidence_source": "supporting_evidence_reference_summary",
+    "required_evidence_lifecycle": "during_run",
+    "payload_import": "not_performed",
+    "file_observation": "not_performed",
+    "storage_mutation": "not_performed",
+    "record_write": "not_performed",
+    "runner_control": "not_performed",
+    "log_streaming": "not_performed",
+    "artifact_provenance": "not_performed",
+    "measurement_validity": "not_claimed",
+    "gui_workflow": "not_defined",
+    "shared_running_record_schema": "not_defined"
+  },
+  "running_record": {
+    "measurement_id": "running-measurement-rabi-0042",
+    "label": "Running Rabi measurement",
+    "experiment_type": "rabi_amplitude_sweep",
+    "target": "qA",
+    "lifecycle_state": "recording",
+    "recording_enabled": true,
+    "progress_state": "partial_recording",
+    "source_summary": "declared_running_measurement_summary"
+  },
+  "supporting_evidence_summaries": [
+    {
+      "supporting_evidence_policy": {
+        "reference_authority": "explicit_supporting_evidence_manifest",
+        "evidence_posture": "supporting_evidence_reference",
+        "evidence_context_role": "supporting_evidence_not_canonical_context",
+        "evidence_kind_handling": "attachment_or_artifact_label_only",
+        "artifact_provenance": "not_required_without_artifact_provenance_slice",
+        "payload_import": "not_performed",
+        "file_observation": "not_performed",
+        "evidence_parsing": "not_performed",
+        "checksum_validation": "not_performed",
+        "storage_mutation": "not_performed",
+        "preview_generation": "not_performed",
+        "external_file_authority": "not_claimed",
+        "recursive_relation_traversal": "not_performed",
+        "measurement_validity": "not_claimed",
+        "portable_public_export": "not_declared",
+        "gui_workflow": "not_defined",
+        "shared_attachment_schema": "not_defined"
+      },
+      "evidence": {
+        "evidence_id": "evidence-rabi-run-stderr-9101",
+        "label": "Rabi run stderr excerpt",
+        "evidence_kind": "attachment",
+        "content_kind": "debug_log",
+        "purpose": "debug",
+        "lifecycle_stage": "during_run",
+        "supplied_by": "user_supplied",
+        "declared_reference": {
+          "kind": "workspace_relative_path",
+          "value": "artifacts/rabi-run-stderr-excerpt.txt",
+          "authority": "explicit_supporting_evidence_manifest",
+          "reference_state": "declared_available",
+          "reason": null
+        },
+        "notes": "Synthetic during-run diagnostic excerpt supplied for local review; it is an attachment, not a provenance-tracked artifact or run-start context."
+      },
+      "related_target_count": 3,
+      "target_type_counts": {
+        "calibration_step": 1,
+        "prepared_run": 1,
+        "running_measurement": 1
+      },
+      "target_state_counts": {
+        "resolved": 2,
+        "unavailable": 1
+      },
+      "classification": "needs_related_target_review",
+      "supporting_links": [
+        {
+          "evidence_id": "evidence-rabi-run-stderr-9101",
+          "evidence_kind": "attachment",
+          "evidence_purpose": "debug",
+          "evidence_lifecycle_stage": "during_run",
+          "target_type": "running_measurement",
+          "target_id": "running-measurement-rabi-0042",
+          "label": "Running Rabi measurement",
+          "relation": "supports_review_of",
+          "authority": "explicit_supporting_evidence_manifest",
+          "target_state": "resolved",
+          "reason": null
+        },
+        {
+          "evidence_id": "evidence-rabi-run-stderr-9101",
+          "evidence_kind": "attachment",
+          "evidence_purpose": "debug",
+          "evidence_lifecycle_stage": "during_run",
+          "target_type": "prepared_run",
+          "target_id": "prepared-run-rabi-0042",
+          "label": "Prepared Rabi run",
+          "relation": "associated_with",
+          "authority": "explicit_supporting_evidence_manifest",
+          "target_state": "resolved",
+          "reason": null
+        },
+        {
+          "evidence_id": "evidence-rabi-run-stderr-9101",
+          "evidence_kind": "attachment",
+          "evidence_purpose": "debug",
+          "evidence_lifecycle_stage": "during_run",
+          "target_type": "calibration_step",
+          "target_id": "calibration-step-rabi-recovery-0042",
+          "label": "Rabi recovery calibration step",
+          "relation": "supports_review_of",
+          "authority": "explicit_supporting_evidence_manifest",
+          "target_state": "unavailable",
+          "reason": "The operator has not opened a follow-up calibration recovery step for this during-run diagnostic."
+        }
+      ],
+      "reference_findings": [
+        {
+          "evidence_id": "evidence-rabi-run-stderr-9101",
+          "subject_type": "calibration_step",
+          "subject_id": "calibration-step-rabi-recovery-0042",
+          "severity": "review",
+          "finding": "related_target_unavailable",
+          "basis": "The operator has not opened a follow-up calibration recovery step for this during-run diagnostic.",
+          "does_not_claim": "measurement_or_context_invalid"
+        }
+      ],
+      "attention": [
+        {
+          "code": "explicit_supporting_reference_only",
+          "severity": "info",
+          "basis": "Supporting evidence comes from an explicit user-supplied manifest.",
+          "does_not_claim": "automatic_evidence_discovery"
+        }
+      ]
+    }
+  ]
+}

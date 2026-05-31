@@ -142,6 +142,13 @@ canonical context authority, and artifact provenance. Supporting evidence
 references are lifecycle explicit; during-run diagnostic evidence should not be
 implied by run-start context review.
 
+First running-record evidence result:
+[`running-record-supporting-evidence-update-validation-result.md`](../slices/measurement-context/running-record-supporting-evidence-update-validation-result.md)
+validates the subcase where explicit during-run supporting evidence is attached
+to a running-record review surface by target continuity while avoiding payload
+import, file observation, durable record append, runner ownership, log
+streaming, artifact provenance, and measurement-validity claims.
+
 ### 3. Named Run-Start Input Set
 
 Validation question: can Scopecat assemble selected context records as named
