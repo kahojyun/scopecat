@@ -53,8 +53,10 @@ The candidate summary can answer:
 
 ## Remaining Questions
 
-- Should a later prepared-run gate decide whether read-view findings block run
-  start?
+- Should the validated
+  [`prepared-run-parameter-state-gate`](prepared-run-parameter-state-gate-validation-result.md)
+  remain parameter-context-only, or should a broader prepared-run gate combine
+  multiple context families?
 - Should catalog/index discovery create prepared-run parameter context refs, or
   should explicit read-view summaries remain the first accepted boundary?
 - How should this composition interact with parameter write compatibility
