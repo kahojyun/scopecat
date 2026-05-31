@@ -666,7 +666,9 @@ mutate records, define canonical storage authority, or persist GUI review
 state. Missing projected read models still surface through the catalog, but an
 in-progress record that is explicitly supplied through a running inspection is
 not treated as a top-level operator-review problem merely because it lacks a
-derived read model.
+derived read model. Catalog entries with embedded projected-read-model review
+findings are promoted into operator-review findings, so the composed review
+does not flatten that attention signal into a ready-looking catalog row.
 
 The module also exposes
 `python -m scopecat.measurement_records operator-review` as a narrow local CLI
@@ -706,7 +708,9 @@ selected records remain explicit as `selected_record_source: not_visible` in the
 compact summary. Receipt summaries accept only review/navigation next actions
 and public-safe request identifiers, and validate receipt/review non-claim
 posture before projecting. They also recompute embedded review classification
-and next action from the saved review snapshot. It is a local continuation
+selected-record posture, and next action from the saved review snapshot. A
+saved receipt cannot hide or forge the selected-record summary independently of
+its saved catalog and running-inspection snapshot. It is a local continuation
 note, not durable workflow authority. It does not resolve findings, approve
 import, approve read-model refresh, grant retry authority, mutate measurement
 records, replace manifests, finalize lifecycle state, define canonical review

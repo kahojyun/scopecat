@@ -548,9 +548,17 @@ def _parse_operator_review_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
     saved_catalog = _require_dict(saved_review, "catalog")
     saved_entries = _require_list(saved_catalog, "entries")
     saved_running_summaries = _require_list(saved_review, "running_inspections")
+    requested_selected_id = _optional_identifier(review_request, "selected_record_id")
     selected_record = saved_review.get("selected_record")
     if selected_record is not None and not isinstance(selected_record, dict):
         raise ValueError("operator review receipt selected_record must be an object")
+    expected_selected_record = _selected_record_summary(
+        requested_selected_id,
+        tuple(saved_entries),
+        saved_running_summaries,
+    )
+    if selected_record != expected_selected_record:
+        raise ValueError("saved operator review selected_record must match review snapshot")
     findings = _require_list(saved_review, "review_findings")
     finding_codes = []
     for finding in findings:
@@ -578,9 +586,15 @@ def _parse_operator_review_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
     )
     if operator_review_classification != expected_classification:
         raise ValueError("saved operator review classification must match findings")
+    if (
+        requested_selected_id is not None
+        and expected_selected_record is None
+        and "selected_record_not_visible" not in finding_codes
+    ):
+        raise ValueError("saved operator review missing selected record must be a finding")
     expected_next_action = _next_action(
-        selected_record_id=_optional_identifier(review_request, "selected_record_id"),
-        selected_record=selected_record,
+        selected_record_id=requested_selected_id,
+        selected_record=expected_selected_record,
         entries=tuple(saved_entries),
         running_summaries=saved_running_summaries,
         findings=tuple(findings),
@@ -595,7 +609,7 @@ def _parse_operator_review_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("receipt summary classification must match operator review")
     selected_record_posture = _SelectedRecordPosture.from_saved_review(
         review_request,
-        selected_record,
+        expected_selected_record,
     )
     if summary.get("selected_record_id") != selected_record_posture.record_id:
         raise ValueError("receipt summary selected_record_id must match operator review")
@@ -671,6 +685,9 @@ def _aggregate_findings(
         if _is_running_record_missing_read_model_finding(finding, running_record_dirs):
             continue
         findings.append(_child_finding("catalog", finding))
+    for entry in catalog_run.entries:
+        if entry["review_finding_count"] > 0:
+            findings.append(_entry_review_finding(entry))
     for run in inspection_runs:
         findings.extend(
             _child_finding("running_inspection", finding) for finding in run.review_findings
@@ -703,6 +720,15 @@ def _is_running_record_missing_read_model_finding(
     return any(
         finding.get("target") == f"{record_dir}/record-read-model.json"
         for record_dir in running_record_dirs
+    )
+
+
+def _entry_review_finding(entry: dict[str, Any]) -> dict[str, str]:
+    return _finding(
+        "read_model_review_findings_present",
+        entry["record_id"],
+        "Projected read model includes review findings.",
+        does_not_claim="read_model_refresh_or_repair",
     )
 
 

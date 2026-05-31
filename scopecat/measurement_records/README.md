@@ -168,7 +168,10 @@ not refresh read models, discover update receipts, replace manifests, finalize
 lifecycle state, mutate storage, or persist GUI review state. When a declared
 running inspection intentionally surfaces an in-progress record, the
 composition does not treat that same record's missing projected read model as
-a top-level operator-review finding.
+a top-level operator-review finding. Catalog entries whose projected read
+model already carries review findings are still promoted into operator-review
+findings, so a stale or incomplete read model does not appear ready merely
+because its detailed finding object was embedded in the projection.
 
 The CLI also exposes:
 
@@ -201,9 +204,9 @@ inside record directories. The summary path validates the saved receipt posture,
 policy, approval state, disposition, review finding shape, and embedded summary
 continuity before emitting a compact summary. It also validates the receipt and
 embedded review non-claim posture, and recomputes the embedded review
-classification and next action from the saved review snapshot before projecting
-the local summary. If the operator selected a record that was not visible in
-the review, the summary preserves the requested
+classification, selected-record posture, and next action from the saved review
+snapshot before projecting the local summary. If the operator selected a record
+that was not visible in the review, the summary preserves the requested
 `selected_record_id` with `selected_record_source: not_visible` instead of
 pretending a record summary was available. The receipt summary accepts only
 review/navigation `next_action` values and public-safe request identifiers. The

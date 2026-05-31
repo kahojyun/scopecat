@@ -429,6 +429,39 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
             ],
         )
 
+    def test_operator_review_surfaces_embedded_read_model_review_findings(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            _populate_projected_record(storage_root, content_root)
+            read_model_path = storage_root / "records" / "run-3101-rabi" / "record-read-model.json"
+            read_model = json.loads(read_model_path.read_text(encoding="utf-8"))
+            read_model["review"]["findings"] = [
+                {
+                    "code": "operator_review_required",
+                    "message": "Read model carries an embedded review finding.",
+                }
+            ]
+            read_model_path.write_text(json.dumps(read_model), encoding="utf-8")
+
+            run = review_measurement_records_from_request(
+                _operator_request(),
+                storage_root=storage_root,
+            )
+
+        payload = run.to_dict()
+        self.assertEqual(run.classification, "measurement_record_operator_review_needed")
+        self.assertEqual(
+            payload["review_findings"][0]["code"],
+            "read_model_review_findings_present",
+        )
+        self.assertEqual(
+            payload["next_action"],
+            "review_measurement_record_operator_findings",
+        )
+
     def test_raw_operator_review_uses_declared_policy(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root = Path(temp_dir) / "storage"
@@ -806,6 +839,43 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
         receipt["summary"]["next_action"] = "select_record_for_review"
 
         with self.assertRaisesRegex(ValueError, "next_action must match"):
+            summarize_measurement_record_operator_review_receipt(receipt)
+
+    def test_operator_review_receipt_summary_rejects_selected_record_tampering(
+        self,
+    ) -> None:
+        receipt = _saved_operator_review_receipt()
+        receipt["operator_review"]["selected_record"] = None
+        receipt["operator_review"]["next_action"] = (
+            "select_visible_record_or_update_declared_inputs"
+        )
+        receipt["summary"]["next_action"] = "select_visible_record_or_update_declared_inputs"
+
+        with self.assertRaisesRegex(ValueError, "selected_record must match"):
+            summarize_measurement_record_operator_review_receipt(receipt)
+
+    def test_operator_review_receipt_summary_rejects_missing_selection_without_finding(
+        self,
+    ) -> None:
+        receipt = _saved_operator_review_receipt()
+        receipt["operator_review"]["request"]["selected_record_id"] = "missing-record"
+        receipt["operator_review"]["catalog"]["entries"] = []
+        receipt["operator_review"]["selected_record"] = None
+        receipt["operator_review"]["review_findings"] = []
+        receipt["operator_review"]["workflow"]["classification"] = (
+            "measurement_record_operator_review_ready"
+        )
+        receipt["operator_review"]["next_action"] = (
+            "select_visible_record_or_update_declared_inputs"
+        )
+        receipt["summary"]["operator_review_classification"] = (
+            "measurement_record_operator_review_ready"
+        )
+        receipt["summary"]["selected_record_id"] = "missing-record"
+        receipt["summary"]["review_finding_codes"] = []
+        receipt["summary"]["next_action"] = "select_visible_record_or_update_declared_inputs"
+
+        with self.assertRaisesRegex(ValueError, "missing selected record"):
             summarize_measurement_record_operator_review_receipt(receipt)
 
     def test_operator_review_receipt_summary_rejects_authority_action(

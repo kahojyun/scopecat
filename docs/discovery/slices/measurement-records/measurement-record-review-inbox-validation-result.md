@@ -7,8 +7,8 @@ Product-shape fixture validation with implementation candidate.
 This is not an ADR, GUI implementation, dashboard backend, storage index,
 canonical review-state model, action-approval workflow, read-model refresh
 workflow, record repair workflow, import workflow, or public/export artifact.
-It records what the current review-inbox fixture proved and where the boundary
-should remain narrow.
+It records the minimal product-shape boundary that the current review-inbox
+fixture exercises and where the boundary should remain narrow.
 
 Artifact posture: fixture inputs are repository-safe synthetic fixtures, and
 expected/candidate outputs declare `internal_validation_summary`. They are not
@@ -67,7 +67,10 @@ workflow, or repair action.
 ## Implementation Candidate
 
 The implementation candidate builds the `candidate_summary` from explicit
-fixture input only. It validates:
+fixture input only. Its standard is deliberately lower than production
+operator-review and receipt code: it guards the product-shape boundary and
+repository-safe fixtures without re-proving every storage, catalog, receipt, or
+review posture invariant. It validates:
 
 - exact policy posture;
 - real operator-review output projection into the compact inbox input shape;
@@ -99,16 +102,20 @@ fixture input only. It validates:
   saved source;
 - review findings referencing visible records or explicitly marked not-visible
   selected-record findings;
-- path-shaped review finding targets at visible record-local boundaries, with
-  non-visible path derivation limited to supported missing-read-model targets;
+- representative path-shaped review finding targets at visible record-local
+  boundaries, with non-visible path derivation limited to supported
+  missing-read-model targets;
 - review/navigation-only `next_action` values, without refresh/import/repair
   authority;
 - saved receipt summaries using a narrower review action allowlist than
   inbox-generated ready-lane actions;
 - non-negative row/count facts.
 
-It remains side-effect free. It does not scan storage, open receipts, open
-records, refresh read models, approve actions, write state, or render a GUI.
+It remains side-effect free. Production code remains responsible for deeper
+posture recomputation, selected-record consistency, catalog source validation,
+and detailed finding derivation. The candidate does not scan storage, open
+receipts, open records, refresh read models, approve actions, write state, or
+render a GUI.
 
 ## What The Fixture Can Answer
 
@@ -136,11 +143,13 @@ This validation does not earn:
 
 ## Remaining Risks
 
-- The fixtures are synthetic and small. They cover one normalized product-shape
-  fixture and one real-shape boundary fixture with a real operator-review input,
-  path-shaped missing-read-model finding, running-inspection review action, and
-  saved receipt summaries for no-selection continuation and a reviewed stale
-  missing selection.
+- The fixtures are synthetic and small by design. They cover one normalized
+  product-shape fixture and one real-shape boundary fixture with a real
+  operator-review input, path-shaped missing-read-model finding,
+  running-inspection review action, and saved receipt summaries for
+  no-selection continuation and a reviewed stale missing selection. They are
+  not intended to exhaustively mirror every production operator-review edge
+  case.
 - Lane duplication is unresolved product pressure. A future UI may need to
   choose whether a record with both current findings and saved continuation
   appears in multiple lanes or as one enriched card.
