@@ -1,0 +1,343 @@
+{
+  "timeline_policy": {
+    "trace_authority": "explicit_calibration_step_timeline_trace",
+    "event_source": "declared_event_facts",
+    "timeline_posture": "read_only_review",
+    "moving_reference_handling": "intent_events_only",
+    "resolved_snapshot_handling": "step_record_context_events",
+    "scheduler": "not_defined",
+    "executor": "not_defined",
+    "measurement_payload_read": "not_performed",
+    "fit_execution": "not_performed",
+    "fit_quality_scoring": "not_performed",
+    "retry_decision": "not_performed",
+    "remeasurement_decision": "not_performed",
+    "continuation_decision": "not_performed",
+    "parameter_state_intake": "not_performed",
+    "parameter_state_commit": "not_performed",
+    "hardware_control": "not_performed",
+    "rollback": "not_defined"
+  },
+  "calibration_steps": [
+    {
+      "step_record_id": "step-record-rabi-qA-complete",
+      "step_intent_id": "step-intent-rabi-qA-complete",
+      "target": "qA",
+      "record_posture": "retrospective_step_record",
+      "expected_event_kinds": [
+        "intent_created",
+        "context_resolved",
+        "observation_linked",
+        "fit_result_declared",
+        "write_proposed",
+        "write_reviewed",
+        "accepted_handoff_ready"
+      ]
+    },
+    {
+      "step_record_id": "step-record-rabi-qB-out-of-order",
+      "step_intent_id": "step-intent-rabi-qB-out-of-order",
+      "target": "qB",
+      "record_posture": "retrospective_step_record",
+      "expected_event_kinds": [
+        "intent_created",
+        "context_resolved",
+        "observation_linked",
+        "fit_result_declared"
+      ]
+    },
+    {
+      "step_record_id": "step-record-rabi-qC-missing-timestamp",
+      "step_intent_id": "step-intent-rabi-qC-missing-timestamp",
+      "target": "qC",
+      "record_posture": "retrospective_step_record",
+      "expected_event_kinds": [
+        "intent_created",
+        "context_resolved",
+        "observation_linked"
+      ]
+    },
+    {
+      "step_record_id": "step-record-rabi-qD-missing-event",
+      "step_intent_id": "step-intent-rabi-qD-missing-event",
+      "target": "qD",
+      "record_posture": "retrospective_step_record",
+      "expected_event_kinds": [
+        "intent_created",
+        "context_resolved",
+        "observation_linked",
+        "fit_result_declared"
+      ]
+    }
+  ],
+  "measurement_refs": [
+    {
+      "measurement_record_id": "measurement-qA-07001",
+      "payload_owner": "measurement_records"
+    },
+    {
+      "measurement_record_id": "measurement-qB-07002",
+      "payload_owner": "measurement_records"
+    },
+    {
+      "measurement_record_id": "measurement-qC-07003",
+      "payload_owner": "measurement_records"
+    },
+    {
+      "measurement_record_id": "measurement-qD-07004",
+      "payload_owner": "measurement_records"
+    }
+  ],
+  "fit_result_refs": [
+    {
+      "fit_result_id": "fit-result-rabi-qA-0001",
+      "step_record_id": "step-record-rabi-qA-complete",
+      "execution_posture": "declared_external_summary"
+    },
+    {
+      "fit_result_id": "fit-result-rabi-qB-0001",
+      "step_record_id": "step-record-rabi-qB-out-of-order",
+      "execution_posture": "declared_external_summary"
+    }
+  ],
+  "proposed_write_refs": [
+    {
+      "write_id": "proposed-write-rabi-qA-0001",
+      "step_record_id": "step-record-rabi-qA-complete",
+      "review_state": "accepted_for_parameter_state_handoff",
+      "apply_state": "not_applied"
+    }
+  ],
+  "accepted_handoff_refs": [
+    {
+      "handoff_id": "handoff-rabi-qA-0001",
+      "write_id": "proposed-write-rabi-qA-0001",
+      "step_record_id": "step-record-rabi-qA-complete",
+      "parameter_state_intake_state": "not_started",
+      "apply_state": "not_applied"
+    }
+  ],
+  "timeline_events": [
+    {
+      "event_id": "event-qA-intent-created",
+      "step_record_id": "step-record-rabi-qA-complete",
+      "event_kind": "intent_created",
+      "occurred_at": "2026-05-22T09:55:00Z",
+      "sequence": 1,
+      "event_source": "declared_event_fact",
+      "action_posture": "recorded_not_executed",
+      "refs": {
+        "step_intent_id": "step-intent-rabi-qA-complete",
+        "reference_semantics": "moving_selectors_allowed"
+      }
+    },
+    {
+      "event_id": "event-qA-context-resolved",
+      "step_record_id": "step-record-rabi-qA-complete",
+      "event_kind": "context_resolved",
+      "occurred_at": "2026-05-22T10:00:00Z",
+      "sequence": 2,
+      "event_source": "declared_event_fact",
+      "action_posture": "recorded_not_executed",
+      "refs": {
+        "context_resolution_state": "resolved_snapshot_recorded",
+        "parameter_context_id": "param-context-qA-0007"
+      }
+    },
+    {
+      "event_id": "event-qA-observation-linked",
+      "step_record_id": "step-record-rabi-qA-complete",
+      "event_kind": "observation_linked",
+      "occurred_at": "2026-05-22T10:20:00Z",
+      "sequence": 3,
+      "event_source": "declared_event_fact",
+      "action_posture": "recorded_not_executed",
+      "refs": {
+        "observation_link_id": "observation-link-rabi-qA-07001",
+        "measurement_record_id": "measurement-qA-07001",
+        "payload_handling": "reference_only"
+      }
+    },
+    {
+      "event_id": "event-qA-fit-result",
+      "step_record_id": "step-record-rabi-qA-complete",
+      "event_kind": "fit_result_declared",
+      "occurred_at": "2026-05-22T10:30:00Z",
+      "sequence": 4,
+      "event_source": "declared_event_fact",
+      "action_posture": "recorded_not_executed",
+      "refs": {
+        "fit_result_id": "fit-result-rabi-qA-0001"
+      }
+    },
+    {
+      "event_id": "event-qA-write-proposed",
+      "step_record_id": "step-record-rabi-qA-complete",
+      "event_kind": "write_proposed",
+      "occurred_at": "2026-05-22T10:40:00Z",
+      "sequence": 5,
+      "event_source": "declared_event_fact",
+      "action_posture": "recorded_not_executed",
+      "refs": {
+        "write_id": "proposed-write-rabi-qA-0001"
+      }
+    },
+    {
+      "event_id": "event-qA-write-reviewed",
+      "step_record_id": "step-record-rabi-qA-complete",
+      "event_kind": "write_reviewed",
+      "occurred_at": "2026-05-22T10:50:00Z",
+      "sequence": 6,
+      "event_source": "declared_event_fact",
+      "action_posture": "recorded_not_executed",
+      "refs": {
+        "write_id": "proposed-write-rabi-qA-0001",
+        "review_state": "accepted_for_parameter_state_handoff"
+      }
+    },
+    {
+      "event_id": "event-qA-handoff-ready",
+      "step_record_id": "step-record-rabi-qA-complete",
+      "event_kind": "accepted_handoff_ready",
+      "occurred_at": "2026-05-22T11:00:00Z",
+      "sequence": 7,
+      "event_source": "declared_event_fact",
+      "action_posture": "recorded_not_executed",
+      "refs": {
+        "handoff_id": "handoff-rabi-qA-0001"
+      }
+    },
+    {
+      "event_id": "event-qB-intent-created",
+      "step_record_id": "step-record-rabi-qB-out-of-order",
+      "event_kind": "intent_created",
+      "occurred_at": "2026-05-22T09:55:00Z",
+      "sequence": 1,
+      "event_source": "declared_event_fact",
+      "action_posture": "recorded_not_executed",
+      "refs": {
+        "step_intent_id": "step-intent-rabi-qB-out-of-order",
+        "reference_semantics": "moving_selectors_allowed"
+      }
+    },
+    {
+      "event_id": "event-qB-context-resolved",
+      "step_record_id": "step-record-rabi-qB-out-of-order",
+      "event_kind": "context_resolved",
+      "occurred_at": "2026-05-22T10:00:00Z",
+      "sequence": 2,
+      "event_source": "declared_event_fact",
+      "action_posture": "recorded_not_executed",
+      "refs": {
+        "context_resolution_state": "resolved_snapshot_recorded",
+        "parameter_context_id": "param-context-qB-0007"
+      }
+    },
+    {
+      "event_id": "event-qB-observation-linked",
+      "step_record_id": "step-record-rabi-qB-out-of-order",
+      "event_kind": "observation_linked",
+      "occurred_at": "2026-05-22T10:25:00Z",
+      "sequence": 3,
+      "event_source": "declared_event_fact",
+      "action_posture": "recorded_not_executed",
+      "refs": {
+        "observation_link_id": "observation-link-rabi-qB-07002",
+        "measurement_record_id": "measurement-qB-07002",
+        "payload_handling": "reference_only"
+      }
+    },
+    {
+      "event_id": "event-qB-fit-result",
+      "step_record_id": "step-record-rabi-qB-out-of-order",
+      "event_kind": "fit_result_declared",
+      "occurred_at": "2026-05-22T10:15:00Z",
+      "sequence": 4,
+      "event_source": "declared_event_fact",
+      "action_posture": "recorded_not_executed",
+      "refs": {
+        "fit_result_id": "fit-result-rabi-qB-0001"
+      }
+    },
+    {
+      "event_id": "event-qC-intent-created",
+      "step_record_id": "step-record-rabi-qC-missing-timestamp",
+      "event_kind": "intent_created",
+      "occurred_at": "2026-05-22T09:55:00Z",
+      "sequence": 1,
+      "event_source": "declared_event_fact",
+      "action_posture": "recorded_not_executed",
+      "refs": {
+        "step_intent_id": "step-intent-rabi-qC-missing-timestamp",
+        "reference_semantics": "moving_selectors_allowed"
+      }
+    },
+    {
+      "event_id": "event-qC-context-resolved",
+      "step_record_id": "step-record-rabi-qC-missing-timestamp",
+      "event_kind": "context_resolved",
+      "occurred_at": "2026-05-22T10:00:00Z",
+      "sequence": 2,
+      "event_source": "declared_event_fact",
+      "action_posture": "recorded_not_executed",
+      "refs": {
+        "context_resolution_state": "resolved_snapshot_recorded",
+        "parameter_context_id": "param-context-qC-0007"
+      }
+    },
+    {
+      "event_id": "event-qC-observation-linked",
+      "step_record_id": "step-record-rabi-qC-missing-timestamp",
+      "event_kind": "observation_linked",
+      "occurred_at": null,
+      "sequence": 3,
+      "event_source": "declared_event_fact",
+      "action_posture": "recorded_not_executed",
+      "refs": {
+        "observation_link_id": "observation-link-rabi-qC-07003",
+        "measurement_record_id": "measurement-qC-07003",
+        "payload_handling": "reference_only"
+      }
+    },
+    {
+      "event_id": "event-qD-intent-created",
+      "step_record_id": "step-record-rabi-qD-missing-event",
+      "event_kind": "intent_created",
+      "occurred_at": "2026-05-22T09:55:00Z",
+      "sequence": 1,
+      "event_source": "declared_event_fact",
+      "action_posture": "recorded_not_executed",
+      "refs": {
+        "step_intent_id": "step-intent-rabi-qD-missing-event",
+        "reference_semantics": "moving_selectors_allowed"
+      }
+    },
+    {
+      "event_id": "event-qD-context-resolved",
+      "step_record_id": "step-record-rabi-qD-missing-event",
+      "event_kind": "context_resolved",
+      "occurred_at": "2026-05-22T10:00:00Z",
+      "sequence": 2,
+      "event_source": "declared_event_fact",
+      "action_posture": "recorded_not_executed",
+      "refs": {
+        "context_resolution_state": "resolved_snapshot_recorded",
+        "parameter_context_id": "param-context-qD-0007"
+      }
+    },
+    {
+      "event_id": "event-qD-observation-linked",
+      "step_record_id": "step-record-rabi-qD-missing-event",
+      "event_kind": "observation_linked",
+      "occurred_at": "2026-05-22T10:20:00Z",
+      "sequence": 3,
+      "event_source": "declared_event_fact",
+      "action_posture": "recorded_not_executed",
+      "refs": {
+        "observation_link_id": "observation-link-rabi-qD-07004",
+        "measurement_record_id": "measurement-qD-07004",
+        "payload_handling": "reference_only"
+      }
+    }
+  ]
+}
