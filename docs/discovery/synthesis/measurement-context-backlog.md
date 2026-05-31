@@ -183,6 +183,16 @@ primary-data observation, evidence import, artifact/source observation,
 checksum validation, artifact generation, analysis-DAG inference, fit
 validation, measurement-validity decisions, or package/export behavior.
 
+First post-run artifact-observation review result:
+[`post-run-artifact-observation-review-validation-result.md`](../slices/measurement-context/post-run-artifact-observation-review-validation-result.md)
+validates the subcase where prior supporting-artifact observation summaries are
+surfaced inside local post-run review only when they match already-reviewed
+artifacts, while still avoiding fresh artifact observation, checksum
+validation, payload import, artifact parsing, preview generation, source
+payload observation, storage mutation, artifact generation, analysis-DAG
+inference, fit validation, measurement-validity decisions, or package/export
+behavior.
+
 ### 3. Named Run-Start Input Set
 
 Validation question: can Scopecat assemble selected context records as named
