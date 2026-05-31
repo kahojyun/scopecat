@@ -59,6 +59,17 @@ _EXPECTED_RECEIPT_SUMMARY_POLICY = {
     "gui_state": "not_persisted",
     "redaction_boundary": "local_workspace_only",
 }
+_EXPECTED_RECEIPT_SUMMARY_DOES_NOT_CLAIM = [
+    "record_mutation",
+    "finding_resolution",
+    "retry_authority",
+    "import_approval",
+    "refresh_approval",
+    "lifecycle_finalization",
+    "canonical_review_state",
+    "gui_review_state",
+    "public_export_schema",
+]
 _RECEIPT_SUMMARY_SCHEMA = "scopecat.measurement_record_operator_review_receipt_summary.v0"
 _OPERATOR_REVIEW_RECEIPT_DIR = "operator-reviews"
 _REVIEW_NEXT_ACTIONS = {
@@ -72,6 +83,7 @@ _REVIEW_NEXT_ACTIONS = {
     "select_record_for_review",
     "select_visible_record_or_update_declared_inputs",
 }
+_SAVED_REVIEW_NEXT_ACTIONS = _REVIEW_NEXT_ACTIONS - {"open_record_summary"}
 _FINDING_VISIBILITY = {"visible", "not_visible"}
 _SAVED_RECORD_VISIBILITY = {"visible", "not_visible", "not_selected"}
 _SELECTED_RECORD_SOURCES = {"catalog", "running_inspection", "not_visible"}
@@ -84,8 +96,22 @@ class _ReviewNextAction:
 
     @classmethod
     def parse(cls, value: Any, owner: str) -> "_ReviewNextAction":
+        return cls.parse_from(value, owner, allowed=_REVIEW_NEXT_ACTIONS)
+
+    @classmethod
+    def parse_saved(cls, value: Any, owner: str) -> "_ReviewNextAction":
+        return cls.parse_from(value, owner, allowed=_SAVED_REVIEW_NEXT_ACTIONS)
+
+    @classmethod
+    def parse_from(
+        cls,
+        value: Any,
+        owner: str,
+        *,
+        allowed: set[str],
+    ) -> "_ReviewNextAction":
         next_action = validate_text(value, owner)
-        if next_action not in _REVIEW_NEXT_ACTIONS:
+        if next_action not in allowed:
             raise ValueError(f"{owner} is not a review-only action")
         return cls(next_action)
 
@@ -113,11 +139,7 @@ class _ReviewFindingRef:
                 "visible" if record_id in set(record_ids_by_dir.values()) else "not_visible"
             )
             return cls(record_id=record_id, visibility=visibility)
-        if code != "read_model_missing":
-            raise ValueError("path-shaped operator review finding target is unsupported")
         target_parts = relative_path_parts(target_text, "operator review finding target")
-        if target_parts[-1] != _READ_MODEL_MISSING_TARGET:
-            raise ValueError("read_model_missing target must reference record-read-model.json")
         for record_dir, record_id in sorted(
             record_ids_by_dir.items(),
             key=lambda item: len(item[0]),
@@ -125,7 +147,18 @@ class _ReviewFindingRef:
         ):
             record_parts = relative_path_parts(record_dir, "operator review record_dir")
             if target_parts[: len(record_parts)] == record_parts:
+                if code == "read_model_missing" and target_parts != (
+                    *record_parts,
+                    _READ_MODEL_MISSING_TARGET,
+                ):
+                    raise ValueError(
+                        "read_model_missing target must be record_dir/record-read-model.json"
+                    )
                 return cls(record_id=record_id, visibility="visible", record_dir=record_dir)
+        if code != "read_model_missing":
+            raise ValueError("path-shaped operator review finding target is unsupported")
+        if target_parts[-1] != _READ_MODEL_MISSING_TARGET:
+            raise ValueError("read_model_missing target must reference record-read-model.json")
         if len(target_parts) < 2:
             raise ValueError("operator review finding target must identify a record directory")
         record_id = validate_public_identifier(
@@ -210,7 +243,7 @@ class _SavedReviewSummary:
         validate_public_identifier(review["request_id"], "receipt review request_id")
         _SavedSelectedRecordPosture.from_review(review)
         validate_text(review["classification"], "receipt review classification")
-        _ReviewNextAction.parse(review["next_action"], "receipt review next_action")
+        _ReviewNextAction.parse_saved(review["next_action"], "receipt review next_action")
         _validate_code_list(review["review_finding_codes"], "receipt finding code")
 
 
@@ -229,7 +262,16 @@ def build_measurement_record_review_inbox_summary(source: dict[str, Any]) -> dic
         if entry["review_finding_count"] == 0
     ]
     running = [_running_item(item) for item in fresh_review["running_inspections"]]
-    needs_review = [_needs_review_item(item) for item in fresh_review["review_findings"]]
+    explicit_review_record_ids = {item["record_id"] for item in fresh_review["review_findings"]}
+    needs_review = [
+        *[
+            _catalog_entry_review_item(entry)
+            for entry in fresh_review["catalog_entries"]
+            if entry["review_finding_count"] > 0
+            and entry["record_id"] not in explicit_review_record_ids
+        ],
+        *[_needs_review_item(item) for item in fresh_review["review_findings"]],
+    ]
     continue_later = [
         _saved_review_item(item, known_record_ids)
         for item in saved_summaries
@@ -311,6 +353,7 @@ def project_operator_review_run_for_review_inbox(operator_review: dict[str, Any]
                 "lifecycle_state": entry["lifecycle_state"],
                 "observed_row_count": entry["primary_data"]["observed_row_count"],
                 "review_finding_count": entry["review_finding_count"],
+                "source": "operator_review.catalog",
             }
             for entry in catalog_entries
         ],
@@ -323,6 +366,7 @@ def project_operator_review_run_for_review_inbox(operator_review: dict[str, Any]
                 "visible_rows_recorded": _require_dict(item, "inspection")["visible_rows_recorded"],
                 "review_finding_codes": _require_dict(item, "inspection")["review_finding_codes"],
                 "next_action": _require_dict(item, "inspection")["next_action"],
+                "source": "operator_review.running_inspection",
             }
             for item in running_inspections
         ],
@@ -366,6 +410,8 @@ def _validate_receipt_summary(item: dict[str, Any]) -> None:
         raise ValueError("receipt summary artifact_posture is unsupported")
     if item["summary_policy"] != _EXPECTED_RECEIPT_SUMMARY_POLICY:
         raise ValueError("receipt summary policy is unsupported")
+    if item["does_not_claim"] != _EXPECTED_RECEIPT_SUMMARY_DOES_NOT_CLAIM:
+        raise ValueError("receipt summary does_not_claim is unsupported")
     receipt = _require_dict(item, "receipt")
     validate_public_identifier(receipt["request_id"], "receipt summary request_id")
     review_receipt_path = validate_relative_path(
@@ -507,12 +553,19 @@ def _validate_fresh_review(review: dict[str, Any]) -> None:
             raise ValueError(f"fresh review {key} must be a list")
 
     seen_record_ids = set()
+    seen_record_dirs = set()
     for entry in review["catalog_entries"]:
         record_id = _validate_record_ref(entry)
+        record_dir = entry["record_dir"]
         if record_id in seen_record_ids:
             raise ValueError(f"duplicate visible record_id: {record_id}")
+        if record_dir in seen_record_dirs:
+            raise ValueError(f"duplicate visible record_dir: {record_dir}")
         seen_record_ids.add(record_id)
+        seen_record_dirs.add(record_dir)
         validate_text(entry["label"], "catalog entry label")
+        if "source" in entry:
+            validate_text(entry["source"], "catalog entry source")
         if entry["lifecycle_state"] not in {"complete", "failed"}:
             raise ValueError("catalog entry lifecycle_state is unsupported")
         validate_non_negative_integer(entry["observed_row_count"], "observed_row_count")
@@ -520,10 +573,16 @@ def _validate_fresh_review(review: dict[str, Any]) -> None:
 
     for item in review["running_inspections"]:
         record_id = _validate_record_ref(item)
+        record_dir = item["record_dir"]
         if record_id in seen_record_ids:
             raise ValueError(f"duplicate visible record_id: {record_id}")
+        if record_dir in seen_record_dirs:
+            raise ValueError(f"duplicate visible record_dir: {record_dir}")
         seen_record_ids.add(record_id)
+        seen_record_dirs.add(record_dir)
         validate_text(item["label"], "running inspection label")
+        if "source" in item:
+            validate_text(item["source"], "running inspection source")
         if item["lifecycle_state"] != "in_progress":
             raise ValueError("running inspection lifecycle_state must be in_progress")
         validate_non_negative_integer(item["visible_rows_recorded"], "visible_rows_recorded")
@@ -590,7 +649,7 @@ def _ready_item(entry: dict[str, Any]) -> dict[str, Any]:
         "record_dir": entry["record_dir"],
         "label": entry["label"],
         "state": entry["lifecycle_state"],
-        "source": "fresh_operator_review.catalog",
+        "source": entry.get("source", "fresh_operator_review.catalog"),
         "primary_count": entry["observed_row_count"],
         "next_action": "open_record_summary",
     }
@@ -602,10 +661,24 @@ def _running_item(item: dict[str, Any]) -> dict[str, Any]:
         "record_dir": item["record_dir"],
         "label": item["label"],
         "state": "running",
-        "source": "fresh_operator_review.running_inspection",
+        "source": item.get("source", "fresh_operator_review.running_inspection"),
         "visible_rows_recorded": item["visible_rows_recorded"],
         "review_finding_codes": list(item["review_finding_codes"]),
         "next_action": item["next_action"],
+    }
+
+
+def _catalog_entry_review_item(entry: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "record_id": entry["record_id"],
+        "label": entry["label"],
+        "state": "needs_review",
+        "record_visibility": "visible",
+        "record_dir": entry["record_dir"],
+        "source": entry.get("source", "fresh_operator_review.catalog"),
+        "finding_code": "read_model_review_findings_present",
+        "message": "Projected read model includes review findings.",
+        "next_action": "review_measurement_record_operator_findings",
     }
 
 

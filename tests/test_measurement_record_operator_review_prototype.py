@@ -798,6 +798,16 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "next_action"):
             summarize_measurement_record_operator_review_receipt(receipt)
 
+    def test_operator_review_receipt_summary_rejects_semantic_next_action_tampering(
+        self,
+    ) -> None:
+        receipt = _saved_operator_review_receipt()
+        receipt["operator_review"]["next_action"] = "select_record_for_review"
+        receipt["summary"]["next_action"] = "select_record_for_review"
+
+        with self.assertRaisesRegex(ValueError, "next_action must match"):
+            summarize_measurement_record_operator_review_receipt(receipt)
+
     def test_operator_review_receipt_summary_rejects_authority_action(
         self,
     ) -> None:

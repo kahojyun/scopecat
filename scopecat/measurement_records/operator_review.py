@@ -545,6 +545,9 @@ def _parse_operator_review_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
     _validate_saved_operator_review_contract(saved_review)
     review_request = _require_dict(saved_review, "request")
     review_workflow = _require_dict(saved_review, "workflow")
+    saved_catalog = _require_dict(saved_review, "catalog")
+    saved_entries = _require_list(saved_catalog, "entries")
+    saved_running_summaries = _require_list(saved_review, "running_inspections")
     selected_record = saved_review.get("selected_record")
     if selected_record is not None and not isinstance(selected_record, dict):
         raise ValueError("operator review receipt selected_record must be an object")
@@ -568,6 +571,22 @@ def _parse_operator_review_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
         review_workflow.get("classification"),
         "saved operator review classification",
     )
+    expected_classification = (
+        "measurement_record_operator_review_needed"
+        if finding_codes
+        else "measurement_record_operator_review_ready"
+    )
+    if operator_review_classification != expected_classification:
+        raise ValueError("saved operator review classification must match findings")
+    expected_next_action = _next_action(
+        selected_record_id=_optional_identifier(review_request, "selected_record_id"),
+        selected_record=selected_record,
+        entries=tuple(saved_entries),
+        running_summaries=saved_running_summaries,
+        findings=tuple(findings),
+    )
+    if next_action != expected_next_action:
+        raise ValueError("saved operator review next_action must match review snapshot")
 
     summary = _require_dict(receipt, "summary")
     if summary.get("operator_review_request_id") != operator_review_request_id:

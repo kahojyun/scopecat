@@ -89,7 +89,15 @@
     {
       "artifact_posture": "local_measurement_record_operator_review_receipt_summary",
       "does_not_claim": [
-        "record_mutation"
+        "record_mutation",
+        "finding_resolution",
+        "retry_authority",
+        "import_approval",
+        "refresh_approval",
+        "lifecycle_finalization",
+        "canonical_review_state",
+        "gui_review_state",
+        "public_export_schema"
       ],
       "operator_review": {
         "classification": "measurement_record_operator_review_ready",
@@ -104,6 +112,44 @@
         "operator_reason": "Continue workspace review later.",
         "request_id": "save-operator-review-real-boundaries",
         "review_receipt_path": "operator-reviews/review-real-001.json"
+      },
+      "summary_policy": {
+        "continuation_authority": "not_granted",
+        "gui_state": "not_persisted",
+        "input_authority": "saved_operator_review_receipt",
+        "record_mutation": "not_performed",
+        "redaction_boundary": "local_workspace_only"
+      },
+      "summary_schema": "scopecat.measurement_record_operator_review_receipt_summary.v0"
+    },
+    {
+      "artifact_posture": "local_measurement_record_operator_review_receipt_summary",
+      "does_not_claim": [
+        "record_mutation",
+        "finding_resolution",
+        "retry_authority",
+        "import_approval",
+        "refresh_approval",
+        "lifecycle_finalization",
+        "canonical_review_state",
+        "gui_review_state",
+        "public_export_schema"
+      ],
+      "operator_review": {
+        "classification": "measurement_record_operator_review_needed",
+        "next_action": "select_visible_record_or_update_declared_inputs",
+        "request_id": "operator-review-missing-selection",
+        "review_finding_codes": [
+          "selected_record_not_visible"
+        ],
+        "selected_record_id": "run-missing-saved",
+        "selected_record_source": "not_visible"
+      },
+      "receipt": {
+        "operator_disposition": "recorded_as_reviewed",
+        "operator_reason": "Reviewed the stale missing selection.",
+        "request_id": "save-operator-review-missing-selection",
+        "review_receipt_path": "operator-reviews/review-real-002.json"
       },
       "summary_policy": {
         "continuation_authority": "not_granted",

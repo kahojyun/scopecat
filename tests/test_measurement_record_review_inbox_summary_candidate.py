@@ -36,6 +36,17 @@ OPERATOR_REVIEW_DOES_NOT_CLAIM = [
     "gui_review_state",
     "public_export_schema",
 ]
+RECEIPT_DOES_NOT_CLAIM = [
+    "record_mutation",
+    "finding_resolution",
+    "retry_authority",
+    "import_approval",
+    "refresh_approval",
+    "lifecycle_finalization",
+    "canonical_review_state",
+    "gui_review_state",
+    "public_export_schema",
+]
 
 
 def _load_input() -> dict:
@@ -147,6 +158,25 @@ class MeasurementRecordReviewInboxSummaryCandidateTest(unittest.TestCase):
             "run-9999-needs-review",
         )
 
+    def test_classifies_ready_and_empty_inboxes(self) -> None:
+        source = _load_input()
+        source["fresh_operator_review"]["catalog_entries"] = [
+            source["fresh_operator_review"]["catalog_entries"][0]
+        ]
+        source["fresh_operator_review"]["running_inspections"] = []
+        source["fresh_operator_review"]["review_findings"] = []
+        source["saved_receipt_summaries"] = []
+
+        summary = build_measurement_record_review_inbox_summary(source)
+        self.assertEqual(summary["inbox"]["classification"], "review_inbox_ready")
+        self.assertEqual(summary["attention"], [])
+
+        source["fresh_operator_review"]["catalog_entries"] = []
+
+        summary = build_measurement_record_review_inbox_summary(source)
+        self.assertEqual(summary["inbox"]["classification"], "review_inbox_empty")
+        self.assertEqual(summary["attention"], [])
+
     def test_attention_does_not_grant_action_authority(self) -> None:
         summary = build_measurement_record_review_inbox_summary(_load_input())
         attention = {item["code"]: item for item in summary["attention"]}
@@ -246,6 +276,21 @@ class MeasurementRecordReviewInboxSummaryCandidateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "visible record"):
             build_measurement_record_review_inbox_summary(source)
 
+    def test_catalog_entries_with_embedded_findings_stay_visible(self) -> None:
+        source = _load_input()
+        source["fresh_operator_review"]["review_findings"] = []
+
+        summary = build_measurement_record_review_inbox_summary(source)
+
+        self.assertEqual(
+            summary["inbox"]["lanes"]["needs_review"][0]["record_id"],
+            "run-9999-needs-review",
+        )
+        self.assertEqual(
+            summary["inbox"]["lanes"]["needs_review"][0]["finding_code"],
+            "read_model_review_findings_present",
+        )
+
     def test_authority_looking_next_actions_are_rejected(self) -> None:
         source = _load_input()
         source["fresh_operator_review"]["review_findings"][0]["next_action"] = "approve_import"
@@ -343,13 +388,29 @@ class MeasurementRecordReviewInboxSummaryCandidateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "relative"):
             project_operator_review_run_for_review_inbox(operator_review)
 
-    def test_real_operator_review_rejects_unsupported_path_targets(self) -> None:
+    def test_real_operator_review_projects_visible_path_targets(self) -> None:
         operator_review = _operator_review_payload(
             review_findings=[
                 {
-                    "code": "selected_record_not_visible",
-                    "target": "records/run-9999-needs-review/record-read-model.json",
-                    "message": "Selected record was not found.",
+                    "code": "read_model_source_digest_mismatch",
+                    "target": "records/run-3101-rabi/primary.csv",
+                    "message": "Projected read model source digest does not match.",
+                }
+            ],
+        )
+
+        projected = project_operator_review_run_for_review_inbox(operator_review)
+
+        self.assertEqual(projected["review_findings"][0]["record_id"], "run-3101-rabi")
+        self.assertEqual(projected["review_findings"][0]["record_visibility"], "visible")
+
+    def test_real_operator_review_rejects_unsupported_not_visible_path_targets(self) -> None:
+        operator_review = _operator_review_payload(
+            review_findings=[
+                {
+                    "code": "read_model_source_missing",
+                    "target": "records/run-missing/primary.csv",
+                    "message": "Projected read model source is missing.",
                 }
             ],
         )
@@ -364,6 +425,15 @@ class MeasurementRecordReviewInboxSummaryCandidateTest(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "record-read-model"):
+            project_operator_review_run_for_review_inbox(operator_review)
+
+    def test_real_operator_review_read_model_missing_targets_are_exact(self) -> None:
+        operator_review = _operator_review_payload()
+        operator_review["review_findings"][0]["target"] = (
+            "records/run-9999-needs-review/nested/record-read-model.json"
+        )
+
+        with self.assertRaisesRegex(ValueError, "record_dir/record-read-model"):
             project_operator_review_run_for_review_inbox(operator_review)
 
     def test_real_operator_review_duplicate_visible_refs_are_rejected(self) -> None:
@@ -440,7 +510,7 @@ class MeasurementRecordReviewInboxSummaryCandidateTest(unittest.TestCase):
                     "review_finding_codes": ["read_model_missing"],
                     "next_action": "review_measurement_record_operator_findings",
                 },
-                "does_not_claim": ["record_mutation"],
+                "does_not_claim": list(RECEIPT_DOES_NOT_CLAIM),
             }
         ]
 
@@ -482,7 +552,7 @@ class MeasurementRecordReviewInboxSummaryCandidateTest(unittest.TestCase):
                     "review_finding_codes": [],
                     "next_action": "select_record_for_review",
                 },
-                "does_not_claim": ["record_mutation"],
+                "does_not_claim": list(RECEIPT_DOES_NOT_CLAIM),
             }
         ]
 
@@ -494,6 +564,49 @@ class MeasurementRecordReviewInboxSummaryCandidateTest(unittest.TestCase):
             "not_selected",
         )
         self.assertIsNone(summary["inbox"]["lanes"]["continue_later"][0]["selected_record_source"])
+
+    def test_real_receipt_summary_must_preserve_non_claims(self) -> None:
+        source = _load_input()
+        source["saved_receipt_summaries"] = [
+            {
+                "summary_schema": "scopecat.measurement_record_operator_review_receipt_summary.v0",
+                "artifact_posture": "local_measurement_record_operator_review_receipt_summary",
+                "summary_policy": {
+                    "input_authority": "saved_operator_review_receipt",
+                    "record_mutation": "not_performed",
+                    "continuation_authority": "not_granted",
+                    "gui_state": "not_persisted",
+                    "redaction_boundary": "local_workspace_only",
+                },
+                "receipt": {
+                    "request_id": "save-operator-review-records",
+                    "review_receipt_path": "operator-reviews/review-001.json",
+                    "operator_disposition": "recorded_for_continuation",
+                    "operator_reason": "Continue workspace review later.",
+                },
+                "operator_review": {
+                    "request_id": "operator-review-records",
+                    "classification": "measurement_record_operator_review_ready",
+                    "selected_record_id": None,
+                    "selected_record_source": None,
+                    "review_finding_codes": [],
+                    "next_action": "select_record_for_review",
+                },
+                "does_not_claim": ["record_mutation"],
+            }
+        ]
+
+        with self.assertRaisesRegex(ValueError, "does_not_claim"):
+            build_measurement_record_review_inbox_summary(source)
+
+    def test_saved_receipt_summary_cannot_use_ready_lane_action(self) -> None:
+        source = _load_input()
+        source["saved_receipt_summaries"][0]["operator_review"]["next_action"] = (
+            "open_record_summary"
+        )
+
+        with self.assertRaisesRegex(ValueError, "review-only action"):
+            build_measurement_record_review_inbox_summary(source)
 
     def test_saved_receipt_summary_selected_posture_must_be_consistent(self) -> None:
         source = _load_input()
@@ -523,6 +636,15 @@ class MeasurementRecordReviewInboxSummaryCandidateTest(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "operator-reviews"):
+            build_measurement_record_review_inbox_summary(source)
+
+    def test_compact_visible_record_dirs_must_be_unique(self) -> None:
+        source = _load_input()
+        source["fresh_operator_review"]["catalog_entries"][1]["record_dir"] = (
+            "records/run-3101-rabi"
+        )
+
+        with self.assertRaisesRegex(ValueError, "duplicate visible record_dir"):
             build_measurement_record_review_inbox_summary(source)
 
 

@@ -74,6 +74,7 @@ fixture input only. It validates:
 - exact operator-review policy/non-claim posture before projecting real review
   output;
 - real saved-receipt summary normalization into the compact inbox input shape;
+  real summaries must preserve their expected local non-claim posture;
 - private minimal boundary helpers for saved review summaries, saved
   selected-record posture, review-only next actions, code-aware review finding
   targets, and visible record references, without extracting a shared
@@ -82,6 +83,10 @@ fixture input only. It validates:
   continuing monitoring and reviewing running-inspection findings;
 - path-shaped missing-read-model findings for records without a current catalog
   entry, projected as `not_visible` while carrying the record directory;
+- record-local path-shaped findings attached to visible records without
+  accepting malformed nested read-model paths;
+- catalog entries with embedded read-model review finding counts, kept visible
+  as `needs_review` items when no separate finding object is available;
 - public-safe workspace, record, receipt, and finding identifiers;
 - relative record and receipt paths;
 - saved receipt paths constrained to `operator-reviews/`;
@@ -94,9 +99,12 @@ fixture input only. It validates:
   saved source;
 - review findings referencing visible records or explicitly marked not-visible
   selected-record findings;
-- path-shaped review finding targets only for supported finding codes;
+- path-shaped review finding targets at visible record-local boundaries, with
+  non-visible path derivation limited to supported missing-read-model targets;
 - review/navigation-only `next_action` values, without refresh/import/repair
   authority;
+- saved receipt summaries using a narrower review action allowlist than
+  inbox-generated ready-lane actions;
 - non-negative row/count facts.
 
 It remains side-effect free. It does not scan storage, open receipts, open
@@ -131,7 +139,8 @@ This validation does not earn:
 - The fixtures are synthetic and small. They cover one normalized product-shape
   fixture and one real-shape boundary fixture with a real operator-review input,
   path-shaped missing-read-model finding, running-inspection review action, and
-  no-selection saved receipt summary.
+  saved receipt summaries for no-selection continuation and a reviewed stale
+  missing selection.
 - Lane duplication is unresolved product pressure. A future UI may need to
   choose whether a record with both current findings and saved continuation
   appears in multiple lanes or as one enriched card.

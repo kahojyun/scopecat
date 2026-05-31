@@ -32,7 +32,7 @@
       "counts": {
         "continue_later": 1,
         "needs_review": 1,
-        "reviewed": 0,
+        "reviewed": 1,
         "ready": 1,
         "running": 1
       },
@@ -78,7 +78,7 @@
             "primary_count": 5,
             "record_dir": "records/run-3101-rabi",
             "record_id": "run-3101-rabi",
-            "source": "fresh_operator_review.catalog",
+            "source": "operator_review.catalog",
             "state": "complete"
           }
         ],
@@ -91,12 +91,27 @@
             "review_finding_codes": [
               "running_update_gap"
             ],
-            "source": "fresh_operator_review.running_inspection",
+            "source": "operator_review.running_inspection",
             "state": "running",
             "visible_rows_recorded": 4
           }
         ],
-        "reviewed": []
+        "reviewed": [
+          {
+            "next_action": "select_visible_record_or_update_declared_inputs",
+            "operator_reason": "Reviewed the stale missing selection.",
+            "receipt_id": "save-operator-review-missing-selection",
+            "record_id": "run-missing-saved",
+            "record_visibility": "not_visible",
+            "review_finding_codes": [
+              "selected_record_not_visible"
+            ],
+            "review_receipt_path": "operator-reviews/review-real-002.json",
+            "selected_record_source": "not_visible",
+            "source": "saved_operator_review_receipt_summary",
+            "state": "recorded_as_reviewed"
+          }
+        ]
       }
     },
     "review_inbox_policy": {

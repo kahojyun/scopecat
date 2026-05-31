@@ -18,10 +18,16 @@ local to the candidate: saved selected-record posture, code-aware review finding
 targets, and visible record references are not promoted into a shared
 Measurement Record domain model. Inbox `next_action` values are limited to
 review/navigation actions and do not represent refresh, import, repair, retry,
-or mutation authority. Real running-inspection review actions are accepted as
-running-lane actions, missing-read-model finding paths can project to a
-not-currently-visible record with a carried `record_dir`, and saved
-no-selection receipts are preserved as `record_visibility: not_selected`. Saved
-receipt paths must remain under `operator-reviews/`. It does not scan storage,
-open records, discover receipts, refresh read models, approve actions, mutate
-records, persist GUI state, or produce a public/export artifact.
+or mutation authority. Saved receipt summaries use the narrower saved-review
+action allowlist and cannot claim inbox-generated ready-lane actions. Real
+running-inspection review actions are accepted as running-lane actions,
+record-local path findings can attach to visible records, missing-read-model
+finding paths can project to a not-currently-visible record with a carried
+`record_dir`, and saved no-selection receipts are preserved as
+`record_visibility: not_selected`. Catalog entries with embedded read-model
+review finding counts remain visible as needs-review items even when no
+separate finding object is available. Saved receipt paths must remain under
+`operator-reviews/`, and real receipt summaries must preserve their declared
+non-claim posture. It does not scan storage, open records, discover receipts,
+refresh read models, approve actions, mutate records, persist GUI state, or
+produce a public/export artifact.
