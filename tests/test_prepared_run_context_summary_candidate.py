@@ -74,8 +74,23 @@ class PreparedRunContextSummaryCandidateTest(unittest.TestCase):
         )
         self.assertEqual(finding["does_not_claim"], "run_is_blocked_or_workspace_is_unusable")
 
-    def test_missing_required_context_is_a_finding_not_run_control(self) -> None:
+    def test_optional_unavailable_context_is_recorded_without_required_finding(self) -> None:
         summary = build_prepared_run_context_summary(_load_input())
+        refs = {ref["family"]: ref for ref in summary["selected_context_refs"]}
+
+        self.assertFalse(refs["declared_environment"]["required"])
+        self.assertEqual(refs["declared_environment"]["include_state"], "unavailable")
+        self.assertEqual(summary["missing_context_findings"], [])
+        self.assertNotIn(
+            "required_context_unavailable",
+            [item["code"] for item in summary["attention"]],
+        )
+
+    def test_required_unavailable_context_is_a_finding_not_run_control(self) -> None:
+        source = _load_input()
+        source["prepared_run_contexts"][0]["selected_contexts"][-1]["required"] = True
+
+        summary = build_prepared_run_context_summary(source)
         finding = summary["missing_context_findings"][0]
 
         self.assertEqual(finding["family"], "declared_environment")
@@ -193,6 +208,7 @@ class PreparedRunContextSummaryCandidateTest(unittest.TestCase):
 
     def test_unavailable_required_context_needs_reason(self) -> None:
         source = _load_input()
+        source["prepared_run_contexts"][0]["selected_contexts"][-1]["required"] = True
         source["prepared_run_contexts"][0]["selected_contexts"][-1].pop("missing_reason")
 
         with self.assertRaisesRegex(ValueError, "needs a reason"):
@@ -219,6 +235,7 @@ class PreparedRunContextSummaryCandidateTest(unittest.TestCase):
         source["prepared_run_contexts"][0]["selected_contexts"][-1]["include_state"] = (
             "optional_not_selected"
         )
+        source["prepared_run_contexts"][0]["selected_contexts"][-1]["required"] = True
 
         with self.assertRaisesRegex(ValueError, "optional_not_selected"):
             build_prepared_run_context_summary(source)

@@ -48,8 +48,6 @@ The candidate summary can answer:
 
 ## Remaining Questions
 
-- Should existing prepared-run and run-start fixtures be revised to use
-  `required=false` for opportunistically selected context records?
 - Should a later reusable template slice define concrete required inputs?
 - Should manual review gates consume `requirement_source` directly, or keep
   using normalized required-absence findings?
@@ -78,5 +76,5 @@ This validation does not earn:
 ## Slice Recommendation
 
 Stop this slice at context inclusion semantics. Likely follow-ups are revising
-existing prepared-run/run-start fixtures to avoid overstating `required=true`,
-or validating a minimal reusable template input contract separately.
+older fixtures as they are touched, or validating a minimal reusable template
+input contract separately.

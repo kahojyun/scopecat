@@ -30,7 +30,10 @@ from explicit context records:
 - declared environment context, intentionally unavailable.
 
 The selected context records stay family-owned. The summary copies only
-declared summary fields and selected context reference metadata.
+declared summary fields and selected context reference metadata. This fixture
+records selected and unavailable context opportunistically, so its context
+references are optional unless a later reusable template or local policy
+declares required inputs.
 
 ## What This Earned
 
@@ -39,9 +42,12 @@ The implementation candidate shows that a side-effect-free summary can:
 - group selected context records under one named run-start input set;
 - preserve context family, role, authority, include state, and record status;
 - count selected, required, and unavailable required context references;
-- report missing required context as a review finding;
-- keep unavailable declared environment context distinct from code or hardware
-  readiness;
+- record unavailable optional context without producing a required-context
+  finding;
+- still report missing required context as a review finding when a caller marks
+  a context as required;
+- keep unavailable declared environment context distinct from code, hardware,
+  or runnable-readiness claims;
 - reject fixture claims that cross into hardware control, parameter write-back,
   setup mutation, environment sync, code import, or code execution.
 
@@ -69,8 +75,8 @@ Backlog without requiring shared implementation extraction.
 
 The fixture is intentionally incomplete because the declared environment record
 is unavailable. That incompleteness is useful: it verifies that Scopecat can
-surface missing preparation context as a review finding without claiming
-automatic run blocking, safety, runnable environment, or execution readiness.
+record optional missing preparation context without claiming automatic run
+blocking, safety, runnable environment, or execution readiness.
 
 ## Follow-Up
 

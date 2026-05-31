@@ -38,6 +38,10 @@ The later
 [`context-inclusion-semantics-validation-result.md`](context-inclusion-semantics-validation-result.md)
 clarifies that selected context IDs are recorded regardless of
 `required=false`, and that `required` controls absence severity only.
+This fixture now marks parameter state, setup binding, station registry, and
+the unavailable declared environment as optional recorded context; selected
+measurement intent, managed code version, and editable workspace observation
+remain required by this narrow manual-preparation policy.
 This slice adds the code/workspace checks needed after managed code version,
 workspace materialization, and editable-folder observation. The editable
 workspace observation is reused as a declared prior observation summary; the
@@ -56,8 +60,8 @@ code/workspace preparation checks to the named run-start input shape:
   measurement intent;
 - report workspace-observation drift, redaction, and unavailable references as
   review findings without semantic diff or run-blocking claims;
-- keep missing declared environment context distinct from code, workspace,
-  hardware, or runnable-readiness claims;
+- keep unavailable optional declared environment context distinct from code,
+  workspace, hardware, or runnable-readiness claims;
 - reject fixture claims that cross into hardware control, parameter write-back,
   setup mutation, environment sync, code import, or code execution.
 
@@ -88,9 +92,10 @@ to parameter state, setup binding, station registry, and measurement intent for
 manual run preparation while still leaving execution and hardware control to
 existing lab systems.
 
-The result keeps workspace drift, workspace limitations, and missing declared
-environment context as review findings. Those findings do not become safety,
-readiness, reproducibility, or run-blocking claims.
+The result keeps workspace drift and workspace limitations as review findings.
+Unavailable optional declared environment context remains recorded as absent
+context without becoming a review finding, safety claim, readiness claim,
+reproducibility claim, or run-blocking claim.
 
 ## Follow-Up
 
@@ -104,9 +109,6 @@ Likely follow-up slices should stay separate:
 - declared environment inventory, still without environment sync;
 - context readiness or status summaries, if repeated run-preparation fixtures
   need a sharper status vocabulary;
-- fixture cleanup to avoid overstating `required=true` for opportunistically
-  selected context records, using the context-inclusion semantics slice as the
-  boundary;
 - environment readiness planning only after declared environment authority is
   validated separately. This slice has no active sync; a separate
   modern-manifest operation slice would be required, and legacy/lab-managed
