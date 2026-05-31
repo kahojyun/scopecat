@@ -238,6 +238,15 @@ record writes, primary-data import, legacy payload parsing, preview
 verification, reference repair, parameter write-back, measurement-validity
 decisions, or GUI behavior.
 
+Adjacent reviewed legacy evidence append-receipt result:
+[`reviewed-legacy-sidecar-evidence-append-receipt-validation-result.md`](../slices/measurement-records/reviewed-legacy-sidecar-evidence-append-receipt-validation-result.md)
+validates the subcase where that approved intent writes one review-evidence
+receipt under an existing measurement record with manifest identity preflight,
+no-overwrite behavior, and a record-local lock guard, while still avoiding
+primary-data import, legacy payload parsing, preview verification, reference
+repair, parameter write-back, measurement-validity decisions, manifest
+replacement, read-model refresh, or GUI behavior.
+
 First post-run review result:
 [`post-run-review-bundle-validation-result.md`](../slices/measurement-context/post-run-review-bundle-validation-result.md)
 validates a local post-run review composition over completed measurement
