@@ -1,0 +1,46 @@
+{
+  "append_intent_request_id": "reviewed-legacy-sidecar-append-intent-0001",
+  "approved_at": "2026-03-01T10:05:00Z",
+  "measurement_id": "legacy-sidecar-measurement-0001",
+  "operator_role": "local_reviewer",
+  "planned_review_evidence": {
+    "legacy_locator_observation_review": {
+      "classification": "legacy_locator_observation_review_ready",
+      "classification_counts": {
+        "legacy_file_backed_locator_observed": 1
+      },
+      "does_not_claim": "primary_data_import_or_preview_verification",
+      "fact_posture": "review_debug_evidence",
+      "file_backed_locator_count": 2,
+      "locator_observation_count": 1,
+      "observation_finding_count": 0,
+      "observation_status_counts": {
+        "observed": 1
+      }
+    },
+    "sidecar_post_run_review": {
+      "classification": "legacy_sidecar_post_run_ready",
+      "fact_posture": "review_summary_reference",
+      "review_finding_count": 0
+    }
+  },
+  "receipt_effects": {
+    "legacy_payload_import": "not_performed",
+    "legacy_source_parsing": "not_performed_by_scopecat",
+    "manifest_update": "not_performed",
+    "measurement_validity": "not_claimed",
+    "parameter_write_back": "not_performed",
+    "preview_verification": "not_performed",
+    "primary_data_import": "not_performed",
+    "reference_repair": "not_performed"
+  },
+  "receipt_id": "legacy-sidecar-evidence-receipt-0001",
+  "review_finding_count": 0,
+  "review_findings": [],
+  "source_review": {
+    "locator_observation_review_classification": "legacy_locator_observation_review_ready",
+    "measurement_id": "legacy-sidecar-measurement-0001",
+    "review_finding_count": 0
+  },
+  "write_request_id": "legacy-sidecar-evidence-write-0001"
+}

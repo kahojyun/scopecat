@@ -1,0 +1,161 @@
+{
+  "summary_policy": "internal_validation_summary",
+  "source_fixture": "tests/fixtures/legacy_evidence_receipt_read_view/basic_read/evidence-receipt-read-input.json",
+  "reference_semantics": {
+    "contract_guard": "This is a read-only view over declared legacy review-evidence receipt paths under an existing record, not storage scan, storage mutation, primary-data read/import, legacy parsing, preview verification, reference repair, parameter write-back, measurement-validity review, or GUI behavior."
+  },
+  "candidate_summary": {
+    "evidence_receipt_read_schema": "scopecat.legacy_evidence_receipt_read_view.v0",
+    "evidence_receipt_read_policy": {
+      "read_authority": "explicit_legacy_evidence_receipt_read_view",
+      "source_authority": "caller_provided_storage_root_plus_declared_paths",
+      "read_behavior": "read_existing_manifest_and_declared_review_evidence_receipts",
+      "storage_scan": "not_performed",
+      "storage_mutation": "not_performed",
+      "record_write": "not_performed",
+      "primary_data_read": "not_performed",
+      "primary_data_import": "not_performed",
+      "legacy_payload_import": "not_performed",
+      "data_observation": "not_performed",
+      "row_count": "not_performed",
+      "schema_inference": "not_performed",
+      "preview_verification": "not_performed",
+      "legacy_source_parsing": "not_performed_by_scopecat",
+      "reference_repair": "not_performed",
+      "parameter_write_back": "not_performed",
+      "measurement_validity": "not_claimed",
+      "gui_workflow": "not_defined",
+      "shared_read_schema": "not_defined"
+    },
+    "classification": "legacy_evidence_receipt_read_view_ready",
+    "record": {
+      "measurement_record_id": "legacy-sidecar-measurement-0001",
+      "record_dir": "records/legacy-sidecar-measurement-0001",
+      "manifest_path": "records/legacy-sidecar-measurement-0001/record-manifest.json",
+      "manifest_state": "matched_existing_record"
+    },
+    "read_request": {
+      "request_id": "legacy-evidence-receipt-read-0001",
+      "measurement_id": "legacy-sidecar-measurement-0001",
+      "record_dir": "records/legacy-sidecar-measurement-0001",
+      "manifest_path": "records/legacy-sidecar-measurement-0001/record-manifest.json",
+      "receipt_paths": [
+        "records/legacy-sidecar-measurement-0001/review-evidence/legacy-sidecar-evidence-receipt-0001.json"
+      ]
+    },
+    "receipt_view": {
+      "requested_receipt_count": 1,
+      "observed_receipt_count": 1,
+      "status_counts": {
+        "observed": 1
+      },
+      "receipts": [
+        {
+          "receipt_path": "records/legacy-sidecar-measurement-0001/review-evidence/legacy-sidecar-evidence-receipt-0001.json",
+          "status": "observed",
+          "digest": "sha256:6c5aea521cb39b9a6eb71b9a3ff3634e245c2b286c664c1f01765d86f3836657",
+          "size_bytes": 1697,
+          "receipt_id": "legacy-sidecar-evidence-receipt-0001",
+          "append_intent_request_id": "reviewed-legacy-sidecar-append-intent-0001",
+          "source_review": {
+            "locator_observation_review_classification": "legacy_locator_observation_review_ready",
+            "measurement_id": "legacy-sidecar-measurement-0001",
+            "review_finding_count": 0
+          },
+          "planned_review_evidence": {
+            "legacy_locator_observation_review": {
+              "classification": "legacy_locator_observation_review_ready",
+              "classification_counts": {
+                "legacy_file_backed_locator_observed": 1
+              },
+              "does_not_claim": "primary_data_import_or_preview_verification",
+              "fact_posture": "review_debug_evidence",
+              "file_backed_locator_count": 2,
+              "locator_observation_count": 1,
+              "observation_finding_count": 0,
+              "observation_status_counts": {
+                "observed": 1
+              }
+            },
+            "sidecar_post_run_review": {
+              "classification": "legacy_sidecar_post_run_ready",
+              "fact_posture": "review_summary_reference",
+              "review_finding_count": 0
+            }
+          },
+          "review_finding_count": 0,
+          "receipt_effects": {
+            "legacy_payload_import": "not_performed",
+            "legacy_source_parsing": "not_performed_by_scopecat",
+            "manifest_update": "not_performed",
+            "measurement_validity": "not_claimed",
+            "parameter_write_back": "not_performed",
+            "preview_verification": "not_performed",
+            "primary_data_import": "not_performed",
+            "reference_repair": "not_performed"
+          }
+        }
+      ]
+    },
+    "review_finding_count": 0,
+    "review_findings": [],
+    "read_effects": {
+      "storage_scan": "not_performed",
+      "storage_mutation": "not_performed",
+      "record_write": "not_performed",
+      "primary_data_read": "not_performed",
+      "primary_data_import": "not_performed",
+      "legacy_payload_import": "not_performed",
+      "data_observation": "not_performed",
+      "row_count": "not_performed",
+      "schema_inference": "not_performed",
+      "preview_verification": "not_performed",
+      "legacy_source_parsing": "not_performed_by_scopecat",
+      "reference_repair": "not_performed",
+      "parameter_write_back": "not_performed",
+      "measurement_validity": "not_claimed"
+    },
+    "attention": [
+      {
+        "code": "receipt_read_view_only",
+        "severity": "info",
+        "basis": "The view reads declared review-evidence receipt paths under an existing record.",
+        "does_not_claim": "storage_scan_or_read_model_refresh"
+      },
+      {
+        "code": "primary_data_not_read",
+        "severity": "review",
+        "basis": "The view does not open primary data or legacy payloads.",
+        "does_not_claim": "primary_data_import_or_legacy_payload_validation"
+      },
+      {
+        "code": "reference_repair_not_performed",
+        "severity": "review",
+        "basis": "Missing or malformed receipts become review findings.",
+        "does_not_claim": "moved_reference_discovery_or_repair"
+      },
+      {
+        "code": "validity_not_claimed",
+        "severity": "review",
+        "basis": "Receipt visibility does not decide measurement validity.",
+        "does_not_claim": "measurement_validity"
+      }
+    ]
+  },
+  "boundary_notes": [
+    "The read view uses declared receipt paths rather than scanning storage.",
+    "The record manifest is checked for identity but not updated.",
+    "Receipt contents are surfaced as review/debug evidence, not primary data.",
+    "Missing or malformed receipts become review findings, not repair actions."
+  ],
+  "decisions_not_earned": [
+    "storage scan or read-model refresh",
+    "primary data read or import",
+    "legacy payload parsing",
+    "preview verification",
+    "reference repair or moved-reference discovery",
+    "parameter write-back",
+    "measurement validity decision",
+    "GUI workflow"
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "evidence_receipt_read_schema": "scopecat.legacy_evidence_receipt_read_view.v0",
+  "evidence_receipt_read_policy": {
+    "read_authority": "explicit_legacy_evidence_receipt_read_view",
+    "source_authority": "caller_provided_storage_root_plus_declared_paths",
+    "read_behavior": "read_existing_manifest_and_declared_review_evidence_receipts",
+    "storage_scan": "not_performed",
+    "storage_mutation": "not_performed",
+    "record_write": "not_performed",
+    "primary_data_read": "not_performed",
+    "primary_data_import": "not_performed",
+    "legacy_payload_import": "not_performed",
+    "data_observation": "not_performed",
+    "row_count": "not_performed",
+    "schema_inference": "not_performed",
+    "preview_verification": "not_performed",
+    "legacy_source_parsing": "not_performed_by_scopecat",
+    "reference_repair": "not_performed",
+    "parameter_write_back": "not_performed",
+    "measurement_validity": "not_claimed",
+    "gui_workflow": "not_defined",
+    "shared_read_schema": "not_defined"
+  },
+  "read_request": {
+    "request_id": "legacy-evidence-receipt-read-0001",
+    "measurement_id": "legacy-sidecar-measurement-0001",
+    "record_dir": "records/legacy-sidecar-measurement-0001",
+    "manifest_path": "records/legacy-sidecar-measurement-0001/record-manifest.json",
+    "receipt_paths": [
+      "records/legacy-sidecar-measurement-0001/review-evidence/legacy-sidecar-evidence-receipt-0001.json"
+    ]
+  }
+}

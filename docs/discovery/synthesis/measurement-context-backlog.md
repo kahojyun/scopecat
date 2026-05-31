@@ -247,6 +247,15 @@ primary-data import, legacy payload parsing, preview verification, reference
 repair, parameter write-back, measurement-validity decisions, manifest
 replacement, read-model refresh, or GUI behavior.
 
+Adjacent legacy evidence receipt read-view result:
+[`legacy-evidence-receipt-read-view-validation-result.md`](../slices/measurement-records/legacy-evidence-receipt-read-view-validation-result.md)
+validates the subcase where declared review-evidence receipt paths are read
+back from an existing measurement record, surfacing receipt identity, source
+intent, locator-observation evidence, and receipt findings without storage
+scan, storage mutation, primary-data read/import, legacy payload parsing,
+preview verification, reference repair, parameter write-back,
+measurement-validity decisions, read-model refresh, or GUI behavior.
+
 First post-run review result:
 [`post-run-review-bundle-validation-result.md`](../slices/measurement-context/post-run-review-bundle-validation-result.md)
 validates a local post-run review composition over completed measurement
