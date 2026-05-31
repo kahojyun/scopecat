@@ -1,0 +1,119 @@
+{
+  "candidate_summary": {
+    "acknowledged_finding": {
+      "basis": {
+        "covered_targets": [
+          "qA"
+        ],
+        "missing_targets": [
+          "cAB"
+        ]
+      },
+      "code": "parameter_lineage_partial_target_coverage",
+      "does_not_claim": "automatic_parameter_invalidation_or_run_blocking",
+      "severity": "review",
+      "source": "scope_alignment"
+    },
+    "acknowledgement_policy": {
+      "acknowledgement_authority": "explicit_user_review_decision",
+      "acknowledgement_scope": "partial_target_coverage_findings_only",
+      "automatic_run_start": "not_performed",
+      "catalog_discovery": "not_performed",
+      "compatibility_output": "not_produced",
+      "finding_resolution": "local_review_acknowledgement_only",
+      "fresh_storage_read": "not_performed",
+      "gui_workflow": "not_defined",
+      "hardware_control": "not_performed",
+      "parameter_invalidation": "not_performed",
+      "parameter_write_back": "not_performed",
+      "review_chain_source": "prepared_run_source_agnostic_parameter_state_review_chain_summary",
+      "scope_repair": "not_performed",
+      "setup_mutation": "not_performed",
+      "shared_acknowledgement_schema": "not_defined"
+    },
+    "attention": [
+      {
+        "basis": "The user explicitly acknowledged known partial parameter lineage coverage for manual review.",
+        "code": "partial_target_coverage_acknowledged",
+        "does_not_claim": "parameter_scope_repair_or_invalidation",
+        "severity": "info"
+      },
+      {
+        "basis": "Acknowledgement is a local review decision and does not grant execution permission.",
+        "code": "run_start_not_granted",
+        "does_not_claim": "run_can_start_or_hardware_safe",
+        "severity": "review"
+      },
+      {
+        "basis": "Acknowledgement does not apply parameters, write compatibility output, or control instruments.",
+        "code": "hardware_and_write_back_not_performed",
+        "does_not_claim": "parameter_application_or_external_output",
+        "severity": "review"
+      }
+    ],
+    "classification": "partial_target_coverage_acknowledged_for_manual_review",
+    "downstream_review_state": {
+      "chain_classification_before_acknowledgement": "parameter_review_chain_needs_review",
+      "gate_state": "ready_for_manual_run_review",
+      "hardware_control": "not_performed",
+      "parameter_write_back": "not_performed",
+      "run_start_claim": "not_claimed",
+      "scope_alignment_classification": "scope_alignment_needs_review"
+    },
+    "prepared_run_context": {
+      "logical_targets": [
+        "qA",
+        "cAB"
+      ],
+      "measurement_id": "measurement-05001",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-0001"
+    },
+    "remaining_review_findings": [],
+    "selected_parameter_state": {
+      "source_kind": "calibration_handoff",
+      "state_id": "param-state-0008",
+      "trust_status": "trusted_for_declared_scope",
+      "trusted_entry_count": 2
+    },
+    "side_effects": {
+      "automatic_run_start": "not_performed",
+      "catalog_discovery": "not_performed",
+      "compatibility_output": "not_produced",
+      "fresh_storage_read": "not_performed",
+      "hardware_control": "not_performed",
+      "parameter_invalidation": "not_performed",
+      "parameter_write_back": "not_performed",
+      "scope_repair": "not_performed",
+      "setup_mutation": "not_performed"
+    },
+    "user_acknowledgement": {
+      "acknowledged_at": "2026-05-23T10:50:00Z",
+      "acknowledged_by_role": "experimenter",
+      "acknowledgement_id": "partial-target-coverage-ack-qA-cAB-0001",
+      "decision": "acknowledged_for_manual_review",
+      "parameter_state_id": "param-state-0008",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+      "review_note": "The selected calibration-derived parameter state covers qA only; cAB is intentionally reviewed through setup binding for this manual chevron run."
+    }
+  },
+  "decisions_not_earned": [
+    "parameter invalidation",
+    "parameter write-back",
+    "compatibility output",
+    "hardware control or current instrument state",
+    "automatic run start",
+    "scope repair",
+    "setup mutation",
+    "fresh storage read",
+    "catalog or index discovery",
+    "GUI workflow",
+    "shared acknowledgement schema"
+  ],
+  "fixture_id": "prepared-run-partial-target-acknowledgement-basic",
+  "reference_semantics": {
+    "acknowledgement_boundary": "Acknowledgement records user review of the exact finding basis and leaves all execution authority out of scope.",
+    "candidate": "prepared_run_partial_target_acknowledgement",
+    "contract_guard": "local user acknowledgement of a known partial target-coverage review finding; not parameter invalidation, parameter write-back, compatibility output, hardware safety, run-start permission, GUI workflow, or shared acknowledgement schema"
+  },
+  "summary_policy": "internal_validation_summary"
+}
