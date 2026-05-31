@@ -185,9 +185,11 @@ Optional `--running-record-id`, `--running-record-dir`,
 inspection to the local review. For multiple declared running inspections, use
 `--source ./operator-review-source.json` with the raw operator-review source
 schema instead of growing ad hoc flags. When `--source` is present, request
-shaping flags are rejected rather than silently ignored. The CLI remains a smoke
-surface; it does not scan for update receipts or run import, refresh,
-finalization, repair, or GUI state persistence.
+shaping flags are rejected rather than silently ignored. Partial running flags
+without `--running-record-id` are also rejected so declared running-inspection
+intent is not dropped. The CLI remains a smoke surface; it does not scan for
+update receipts or run import, refresh, finalization, repair, or GUI state
+persistence.
 
 The first saved operator-review receipt boundary is implemented through
 `save_measurement_record_operator_review_receipt(...)` and
@@ -200,9 +202,10 @@ policy, approval state, disposition, review finding shape, and embedded summary
 continuity before emitting a compact summary. If the operator selected a record
 that was not visible in the review, the summary preserves the requested
 `selected_record_id` with `selected_record_source: not_visible` instead of
-pretending a record summary was available. The receipt parser keeps this as a
-private selected-record posture helper rather than promoting a shared record
-domain model.
+pretending a record summary was available. The receipt summary accepts only
+review/navigation `next_action` values and public-safe request identifiers. The
+receipt parser keeps selected-record posture as a private helper rather than
+promoting a shared record domain model.
 The saved receipt is a local continuation note only: it does not resolve
 findings, approve import, approve refresh, grant retry authority, mutate
 records, or persist canonical GUI review state.

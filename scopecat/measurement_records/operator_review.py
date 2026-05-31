@@ -91,6 +91,16 @@ RECEIPT_DOES_NOT_CLAIM = [
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 OPERATOR_DISPOSITIONS = {"recorded_for_continuation", "recorded_as_reviewed"}
 SELECTED_RECORD_SOURCES = {"catalog", "running_inspection", "not_visible"}
+REVIEW_NEXT_ACTIONS = {
+    "continue_monitoring_in_progress_record",
+    "no_measurement_records_visible",
+    "ready_for_later_finalization_decision",
+    "review_measurement_record_operator_findings",
+    "review_running_inspection_findings",
+    "review_selected_record_summary",
+    "select_record_for_review",
+    "select_visible_record_or_update_declared_inputs",
+}
 
 
 @dataclass(frozen=True)
@@ -496,7 +506,10 @@ def _parse_operator_review_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("operator review receipt policy is unsupported")
 
     receipt_request = _require_dict(receipt, "receipt_request")
-    receipt_request_id = validate_text(receipt_request.get("request_id"), "receipt request_id")
+    receipt_request_id = validate_public_identifier(
+        receipt_request.get("request_id"),
+        "receipt request_id",
+    )
     approval_state = validate_text(
         receipt_request.get("approval_state"),
         "receipt approval_state",
@@ -541,11 +554,11 @@ def _parse_operator_review_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
         finding_codes.append(
             validate_public_identifier(finding.get("code"), "operator review finding code")
         )
-    next_action = validate_text(
+    next_action = _validate_review_next_action(
         saved_review.get("next_action"),
         "saved operator review next_action",
     )
-    operator_review_request_id = validate_text(
+    operator_review_request_id = validate_public_identifier(
         review_request.get("request_id"),
         "saved operator review request_id",
     )
@@ -745,6 +758,13 @@ def _validate_operator_review_receipt_path(relative_path: str) -> None:
             "operator review receipt review_receipt_path must be under "
             f"{OPERATOR_REVIEW_RECEIPT_DIR}/"
         )
+
+
+def _validate_review_next_action(value: Any, owner: str) -> str:
+    next_action = validate_text(value, owner)
+    if next_action not in REVIEW_NEXT_ACTIONS:
+        raise ValueError(f"{owner} is not a review-only action")
+    return next_action
 
 
 class _ReceiptWriteFailure(RuntimeError):

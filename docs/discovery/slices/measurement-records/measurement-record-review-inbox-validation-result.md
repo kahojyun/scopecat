@@ -77,11 +77,17 @@ fixture input only. It validates:
 - private minimal boundary helpers for saved review summaries, review-only next
   actions, and review finding references, without extracting a shared
   Measurement Record domain model;
+- real running-inspection review actions in the running lane, including
+  continuing monitoring and reviewing running-inspection findings;
+- path-shaped missing-read-model findings for records without a current catalog
+  entry, projected as `not_visible` while carrying the record directory;
 - public-safe workspace, record, receipt, and finding identifiers;
 - relative record and receipt paths;
+- saved receipt paths constrained to `operator-reviews/`;
 - unique visible record ids and receipt ids;
 - saved receipt selected-record visibility, including stale continuation prompts
-  whose selected record is not currently visible;
+  whose selected record is not currently visible, and no-selection receipts
+  preserved as `not_selected`;
 - review findings referencing visible records or explicitly marked not-visible
   selected-record findings;
 - review/navigation-only `next_action` values, without refresh/import/repair

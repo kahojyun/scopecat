@@ -55,6 +55,7 @@
               "read_model_missing"
             ],
             "review_receipt_path": "operator-reviews/review-001.json",
+            "selected_record_source": "catalog",
             "source": "saved_operator_review_receipt_summary",
             "state": "recorded_for_continuation"
           }

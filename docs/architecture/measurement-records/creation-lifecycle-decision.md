@@ -675,9 +675,11 @@ storage root and optional running-inspection paths. The CLI also accepts
 `--source` for the raw operator-review source shape when callers need to
 declare multiple running inspections without adding more flag-only surface.
 When `--source` is used, request-shaping flags are rejected so caller intent
-does not depend on silent precedence. The CLI does not discover records beyond
-the catalog directory, scan update directories, mutate storage, or perform
-refresh, import, finalization, repair, or GUI-state persistence.
+does not depend on silent precedence. Partial running-inspection flags without
+`--running-record-id` are also rejected so caller intent is not silently
+dropped. The CLI does not discover records beyond the catalog directory, scan
+update directories, mutate storage, or perform refresh, import, finalization,
+repair, or GUI-state persistence.
 
 ## Operator Review Receipt Checkpoint
 
@@ -701,11 +703,12 @@ review finding codes, next local action, and an operator disposition such as
 `recorded_for_continuation`. Receipt paths are constrained to
 `operator-reviews/` so this local note cannot pollute record storage. Missing
 selected records remain explicit as `selected_record_source: not_visible` in the
-compact summary. It is a local continuation note, not durable workflow
-authority. It does not resolve findings, approve import, approve read-model
-refresh, grant retry authority, mutate measurement records, replace manifests,
-finalize lifecycle state, define canonical review state, or persist GUI-owned
-review state.
+compact summary. Receipt summaries accept only review/navigation next actions
+and public-safe request identifiers. It is a local continuation note, not
+durable workflow authority. It does not resolve findings, approve import,
+approve read-model refresh, grant retry authority, mutate measurement records,
+replace manifests, finalize lifecycle state, define canonical review state, or
+persist GUI-owned review state.
 
 The module also exposes
 `python -m scopecat.measurement_records operator-review-receipt-summary` as a

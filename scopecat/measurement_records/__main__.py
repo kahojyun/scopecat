@@ -193,6 +193,29 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "--running-record-dir and --running-writer-receipt-path are required "
                 "with --running-record-id"
             )
+        if args.source is None and args.running_record_id is None:
+            ignored_running = []
+            for name, value, default in (
+                ("--running-record-dir", args.running_record_dir, None),
+                (
+                    "--running-writer-receipt-path",
+                    args.running_writer_receipt_path,
+                    None,
+                ),
+                ("--running-update-receipt-path", args.running_update_receipt_path, []),
+                (
+                    "--running-expected-total-rows",
+                    args.running_expected_total_rows,
+                    None,
+                ),
+            ):
+                if value != default:
+                    ignored_running.append(name)
+            if ignored_running:
+                parser.error(
+                    "--running-record-id is required with running inspection flags: "
+                    + ", ".join(ignored_running)
+                )
         payload = _operator_review(args)
     elif args.command == "operator-review-receipt-summary":
         payload = _operator_review_receipt_summary(args)

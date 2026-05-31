@@ -60,16 +60,20 @@ _EXPECTED_RECEIPT_SUMMARY_POLICY = {
     "redaction_boundary": "local_workspace_only",
 }
 _RECEIPT_SUMMARY_SCHEMA = "scopecat.measurement_record_operator_review_receipt_summary.v0"
+_OPERATOR_REVIEW_RECEIPT_DIR = "operator-reviews"
 _REVIEW_NEXT_ACTIONS = {
+    "continue_monitoring_in_progress_record",
     "no_measurement_records_visible",
     "open_record_summary",
     "ready_for_later_finalization_decision",
     "review_measurement_record_operator_findings",
+    "review_running_inspection_findings",
     "review_selected_record_summary",
     "select_record_for_review",
     "select_visible_record_or_update_declared_inputs",
 }
 _FINDING_VISIBILITY = {"visible", "not_visible"}
+_SAVED_RECORD_VISIBILITY = {"visible", "not_visible", "not_selected"}
 
 
 @dataclass(frozen=True)
@@ -88,6 +92,7 @@ class _ReviewNextAction:
 class _ReviewFindingRef:
     record_id: str
     visibility: str
+    record_dir: str | None = None
 
     @classmethod
     def from_target(
@@ -113,8 +118,18 @@ class _ReviewFindingRef:
         ):
             record_parts = relative_path_parts(record_dir, "operator review record_dir")
             if target_parts[: len(record_parts)] == record_parts:
-                return cls(record_id=record_id, visibility="visible")
-        raise ValueError("operator review finding target must reference a visible record")
+                return cls(record_id=record_id, visibility="visible", record_dir=record_dir)
+        if len(target_parts) < 2:
+            raise ValueError("operator review finding target must identify a record directory")
+        record_id = validate_public_identifier(
+            target_parts[-2],
+            "operator review finding target record_id",
+        )
+        return cls(
+            record_id=record_id,
+            visibility="not_visible",
+            record_dir="/".join(target_parts[:-1]),
+        )
 
 
 @dataclass(frozen=True)
@@ -150,6 +165,7 @@ class _SavedReviewSummary:
     def __post_init__(self) -> None:
         validate_public_identifier(self.receipt_id, "receipt_id")
         validate_relative_path(self.review_receipt_path, "review_receipt_path")
+        _validate_operator_review_receipt_path(self.review_receipt_path)
         if self.operator_disposition not in {
             "recorded_for_continuation",
             "recorded_as_reviewed",
@@ -161,8 +177,10 @@ class _SavedReviewSummary:
         if not isinstance(review, dict):
             raise ValueError("receipt operator_review must be an object")
         validate_public_identifier(review["request_id"], "receipt review request_id")
-        validate_public_identifier(review["selected_record_id"], "selected_record_id")
-        validate_text(review["selected_record_source"], "selected_record_source")
+        _validate_optional_record_id(review["selected_record_id"], "selected_record_id")
+        source = review["selected_record_source"]
+        if source is not None:
+            validate_text(source, "selected_record_source")
         validate_text(review["classification"], "receipt review classification")
         _ReviewNextAction.parse(review["next_action"], "receipt review next_action")
         _validate_code_list(review["review_finding_codes"], "receipt finding code")
@@ -322,7 +340,11 @@ def _validate_receipt_summary(item: dict[str, Any]) -> None:
         raise ValueError("receipt summary policy is unsupported")
     receipt = _require_dict(item, "receipt")
     validate_public_identifier(receipt["request_id"], "receipt summary request_id")
-    validate_relative_path(receipt["review_receipt_path"], "receipt summary path")
+    review_receipt_path = validate_relative_path(
+        receipt["review_receipt_path"],
+        "receipt summary path",
+    )
+    _validate_operator_review_receipt_path(review_receipt_path)
     if receipt["operator_disposition"] not in {
         "recorded_for_continuation",
         "recorded_as_reviewed",
@@ -399,6 +421,7 @@ def _project_review_finding(
         "record_id": ref.record_id,
         "label": ref.record_id,
         "record_visibility": ref.visibility,
+        **({"record_dir": ref.record_dir} if ref.record_dir is not None else {}),
         "code": validate_public_identifier(finding["code"], "operator review finding code"),
         "message": validate_text(finding["message"], "operator review finding message"),
         "source": f"operator_review.{source}",
@@ -472,10 +495,14 @@ def _validate_fresh_review(review: dict[str, Any]) -> None:
         visibility = finding.get("record_visibility", "visible")
         if visibility not in _FINDING_VISIBILITY:
             raise ValueError("review finding record_visibility is unsupported")
+        if record_id in known and visibility != "visible":
+            raise ValueError("visible review finding cannot be marked not_visible")
         validate_public_identifier(finding["code"], "finding code")
         validate_text(finding["label"], "finding label")
         validate_text(finding["message"], "finding message")
         validate_text(finding["source"], "finding source")
+        if "record_dir" in finding:
+            validate_relative_path(finding["record_dir"], "finding record_dir")
         _ReviewNextAction.parse(finding["next_action"], "finding next_action")
 
 
@@ -496,6 +523,14 @@ def _validate_optional_record_id(value: Any, owner: str) -> None:
     if value is None:
         return
     validate_public_identifier(value, owner)
+
+
+def _validate_operator_review_receipt_path(relative_path: str) -> None:
+    if not relative_path.startswith(f"{_OPERATOR_REVIEW_RECEIPT_DIR}/"):
+        raise ValueError(
+            "operator review receipt review_receipt_path must be under "
+            f"{_OPERATOR_REVIEW_RECEIPT_DIR}/"
+        )
 
 
 def _validate_code_list(value: Any, owner: str) -> None:
@@ -536,6 +571,7 @@ def _needs_review_item(item: dict[str, Any]) -> dict[str, Any]:
         "label": item["label"],
         "state": "needs_review",
         "record_visibility": item.get("record_visibility", "visible"),
+        **({"record_dir": item["record_dir"]} if "record_dir" in item else {}),
         "source": item["source"],
         "finding_code": item["code"],
         "message": item["message"],
@@ -545,13 +581,21 @@ def _needs_review_item(item: dict[str, Any]) -> dict[str, Any]:
 
 def _saved_review_item(item: _SavedReviewSummary, known_record_ids: set[str]) -> dict[str, Any]:
     review = item.operator_review
+    record_id = review["selected_record_id"]
+    if record_id is None:
+        record_visibility = "not_selected"
+    elif record_id in known_record_ids:
+        record_visibility = "visible"
+    else:
+        record_visibility = "not_visible"
+    if record_visibility not in _SAVED_RECORD_VISIBILITY:
+        raise ValueError("saved receipt record_visibility is unsupported")
     return {
         "receipt_id": item.receipt_id,
         "review_receipt_path": item.review_receipt_path,
-        "record_id": review["selected_record_id"],
-        "record_visibility": (
-            "visible" if review["selected_record_id"] in known_record_ids else "not_visible"
-        ),
+        "record_id": record_id,
+        "record_visibility": record_visibility,
+        "selected_record_source": review["selected_record_source"],
         "state": item.operator_disposition,
         "source": "saved_operator_review_receipt_summary",
         "operator_reason": item.operator_reason,

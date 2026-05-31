@@ -15,6 +15,11 @@ lane grouping. The candidate uses private minimal boundary helpers for saved
 review summaries, review-only next actions, and review finding references so
 those meanings are not re-derived at each projection step. Inbox `next_action`
 values are limited to review/navigation actions and do not represent refresh,
-import, repair, retry, or mutation authority. It does not scan storage, open
-records, discover receipts, refresh read models, approve actions, mutate
-records, persist GUI state, or produce a public/export artifact.
+import, repair, retry, or mutation authority. Real running-inspection review
+actions are accepted as running-lane actions, missing-read-model finding paths
+can project to a not-currently-visible record with a carried `record_dir`, and
+saved no-selection receipts are preserved as `record_visibility: not_selected`.
+Saved receipt paths must remain under `operator-reviews/`. It
+does not scan storage, open records, discover receipts, refresh read models,
+approve actions, mutate records, persist GUI state, or produce a public/export
+artifact.

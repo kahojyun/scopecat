@@ -570,6 +570,26 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
                 )
             self.assertIn("--source cannot be combined", stderr.getvalue())
 
+    def test_operator_review_cli_rejects_partial_running_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            storage_root.mkdir()
+
+            stderr = io.StringIO()
+            with redirect_stderr(stderr), self.assertRaises(SystemExit):
+                measurement_records_main(
+                    [
+                        "operator-review",
+                        "--storage-root",
+                        str(storage_root),
+                        "--request-id",
+                        "operator-review-cli",
+                        "--running-record-dir",
+                        "records/run-3101-rabi",
+                    ]
+                )
+            self.assertIn("--running-record-id is required", stderr.getvalue())
+
     def test_saves_operator_review_receipt_without_mutating_records(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root = Path(temp_dir) / "storage"
@@ -761,6 +781,25 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
         receipt["summary"]["next_action"] = "refresh_read_model"
 
         with self.assertRaisesRegex(ValueError, "next_action"):
+            summarize_measurement_record_operator_review_receipt(receipt)
+
+    def test_operator_review_receipt_summary_rejects_authority_action(
+        self,
+    ) -> None:
+        receipt = _saved_operator_review_receipt()
+        receipt["operator_review"]["next_action"] = "approve_import"
+        receipt["summary"]["next_action"] = "approve_import"
+
+        with self.assertRaisesRegex(ValueError, "review-only action"):
+            summarize_measurement_record_operator_review_receipt(receipt)
+
+    def test_operator_review_receipt_summary_rejects_nonpublic_request_ids(
+        self,
+    ) -> None:
+        receipt = _saved_operator_review_receipt()
+        receipt["receipt_request"]["request_id"] = "records/private/request"
+
+        with self.assertRaisesRegex(ValueError, "public-safe identifier"):
             summarize_measurement_record_operator_review_receipt(receipt)
 
     def test_operator_review_receipt_summary_cli_prints_continuation_summary(self) -> None:
