@@ -177,6 +177,16 @@ to a running-record review surface by target continuity while avoiding payload
 import, file observation, durable record append, runner ownership, log
 streaming, artifact provenance, and measurement-validity claims.
 
+Adjacent legacy-run sidecar result:
+[`legacy-run-sidecar-manifest-validation-result.md`](../slices/measurement-records/legacy-run-sidecar-manifest-validation-result.md)
+validates the brownfield composition where externally executed legacy code
+declares measurement identity, flexible legacy source locators, optional
+run-start context links, primary-data references, supporting evidence
+references, and lifecycle events in one local review summary without importing
+payloads, controlling runners, writing storage, writing parameters, accepting
+legacy import, binding to one legacy reference scheme, or defining a final
+workflow schema.
+
 First post-run review result:
 [`post-run-review-bundle-validation-result.md`](../slices/measurement-context/post-run-review-bundle-validation-result.md)
 validates a local post-run review composition over completed measurement
