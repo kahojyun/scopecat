@@ -2,12 +2,19 @@
 
 ## Status
 
-Implementation candidate validated.
+Exploratory implementation candidate validated.
 
 This is not an ADR, final parameter schema, compatibility-file writer,
 external JSON authority model, hardware write-back contract, schema migration
 contract, rollback model, drift-plotting contract, GUI design, or shared
 domain model.
+
+Boundary clarification:
+[`parameter-compatibility-artifacts-boundary-clarification.md`](parameter-compatibility-artifacts-boundary-clarification.md)
+supersedes this slice as active route guidance. The managed parameter-state
+snapshot is the canonical run context; compatibility-output plans are retained
+as exploratory pressure for optional derivative/debug artifacts, not a required
+Scopecat compatibility-output subsystem.
 
 ## Inputs
 
@@ -84,7 +91,7 @@ This validation does not earn:
 
 ## Slice Recommendation
 
-Stop this slice at side-effect-free output planning unless the next workflow
-needs approved file materialization. The likely follow-up is a separate writer
-slice that starts from a validated output plan and proves one bounded write
-policy without applying parameters to hardware.
+Stop this slice as exploratory evidence. Do not add a compatibility writer by
+default. Prefer recording the selected parameter-state snapshot as run context;
+generated compatibility files or objects should remain user-script or adapter
+operational details unless explicitly supplied as debug/attachment evidence.

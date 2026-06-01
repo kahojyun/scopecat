@@ -1,0 +1,105 @@
+{
+  "context_status_policy": {
+    "status_authority": "explicit_context_status_summary",
+    "input_source": "declared_context_status_facts",
+    "status_scope": "local_context_review_only",
+    "context_payload_handling": "family_owned_summary_only",
+    "context_import": "not_performed",
+    "recursive_relation_traversal": "not_performed",
+    "hardware_readiness_check": "not_performed",
+    "dependency_sync": "not_performed",
+    "code_import_execution": "not_performed",
+    "restore": "not_performed",
+    "write_back": "not_performed",
+    "setup_truth": "not_claimed",
+    "measurement_validity": "not_claimed",
+    "run_blocking_decision": "not_claimed",
+    "runnable_readiness": "not_claimed",
+    "shared_status_schema": "not_defined",
+    "gui_workflow": "not_defined"
+  },
+  "context_records": [
+    {
+      "context_id": "parameter-state-rabi-accepted-0042",
+      "family": "parameter_state",
+      "label": "Accepted Rabi parameter state",
+      "record_status": "committed",
+      "authority": "parameter_state_summary",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "trusted_entry_count": 4,
+        "lineage": "rabi-parameter-lineage"
+      },
+      "status_facts": [
+        {
+          "fact_id": "param-trust-0042",
+          "dimension": "trust",
+          "state": "trusted",
+          "severity": "info",
+          "basis": "Parameter-state summary declares trusted entries for the prepared-run target scope.",
+          "authority": "explicit_context_status_summary",
+          "required_for_current_review": false,
+          "does_not_claim": "hardware_readiness"
+        },
+        {
+          "fact_id": "param-freshness-0042",
+          "dimension": "freshness",
+          "state": "current",
+          "severity": "info",
+          "basis": "Run-start resolution selected this committed state after the latest accepted calibration write.",
+          "authority": "explicit_context_status_summary",
+          "required_for_current_review": false,
+          "does_not_claim": "runnable_readiness"
+        }
+      ]
+    },
+    {
+      "context_id": "declared-environment-rabi-0042",
+      "family": "declared_environment",
+      "label": "Rabi declared environment",
+      "record_status": "declared_with_review_findings",
+      "authority": "declared_environment_summary",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "manager": "uv",
+        "manifest": "pyproject.toml"
+      },
+      "status_facts": [
+        {
+          "fact_id": "env-validity-0042",
+          "dimension": "validity",
+          "state": "unverified",
+          "severity": "review",
+          "basis": "Environment facts are declared but no dependency sync or runtime probe was performed.",
+          "authority": "explicit_context_status_summary",
+          "required_for_current_review": false,
+          "does_not_claim": "runnable_readiness"
+        }
+      ]
+    },
+    {
+      "context_id": "calibration-continuation-rabi-0042",
+      "family": "calibration_continuation",
+      "label": "Rabi calibration continuation",
+      "record_status": "review_needed",
+      "authority": "calibration_continuation_summary",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "blocked_step_count": 1,
+        "ready_step_count": 2
+      },
+      "status_facts": [
+        {
+          "fact_id": "cal-progress-0042",
+          "dimension": "progress",
+          "state": "blocked",
+          "severity": "block",
+          "basis": "A required fit recovery step is blocked until the operator selects a lab-internal dataset.",
+          "authority": "explicit_context_status_summary",
+          "required_for_current_review": true,
+          "does_not_claim": "run_blocking_decision"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,191 @@
+{
+  "status": "fixture",
+  "reference_semantics": {
+    "contract_guard": "Post-run review bundle is local review only, not storage mutation, primary data observation, evidence payload import, file observation, artifact provenance, fit validation, measurement validity, import/export packaging, GUI workflow, or shared review schema.",
+    "source_fixture": "bundle-input.json"
+  },
+  "candidate_summary": {
+    "post_run_review_policy": {
+      "bundle_authority": "explicit_post_run_review_bundle",
+      "bundle_posture": "local_review_summary",
+      "input_source": "prior_review_summaries",
+      "storage_mutation": "not_performed",
+      "record_write": "not_performed",
+      "primary_data_observation": "not_performed",
+      "evidence_payload_import": "not_performed",
+      "file_observation": "not_performed",
+      "artifact_provenance": "not_performed",
+      "fit_validation": "not_performed",
+      "import_export_package": "not_produced",
+      "measurement_validity": "not_claimed",
+      "gui_workflow": "not_defined",
+      "shared_review_schema": "not_defined"
+    },
+    "completed_measurement": {
+      "measurement_record_id": "measurement-rabi-0042",
+      "source_running_measurement_id": "running-measurement-rabi-0042",
+      "label": "Completed Rabi measurement",
+      "experiment_type": "rabi_amplitude_sweep",
+      "target": "qA",
+      "completion_state": "completed",
+      "source_summary": "declared_completed_measurement_summary"
+    },
+    "classification": "post_run_review_needs_attention",
+    "review_sections": {
+      "context": {
+        "linked_context_count": 1,
+        "linked_context_refs": [
+          {
+            "measurement_record_id": "measurement-rabi-0042",
+            "link_id": "ctx-param-rabi-0042",
+            "family": "parameter_state",
+            "role": "run_parameter_context",
+            "relation": "selected_at_run_start",
+            "include_state": "linked",
+            "required_for_record_validity": false,
+            "context_id": "parameter-state-rabi-accepted-0042",
+            "context_label": "Accepted Rabi parameter state",
+            "record_status": "committed",
+            "authority": "parameter_state_summary",
+            "link_semantics": "reference_only_context_link"
+          }
+        ],
+        "optional_context_findings": []
+      },
+      "status": {
+        "overall_classification": "attention_needed_for_context_review",
+        "context_count": 1,
+        "status_findings": [
+          {
+            "context_id": "parameter-state-rabi-accepted-0042",
+            "family": "parameter_state",
+            "fact_id": "param-freshness-post-run-0042",
+            "dimension": "freshness",
+            "state": "stale",
+            "severity": "review",
+            "finding": "context_freshness_stale",
+            "basis": "A newer parameter-state snapshot exists after this run.",
+            "required_for_current_review": false,
+            "does_not_claim": "measurement_validity"
+          }
+        ]
+      },
+      "supporting_evidence": {
+        "evidence_count": 1,
+        "evidence_kind_counts": {
+          "attachment": 1
+        },
+        "evidence_lifecycle_counts": {
+          "during_run": 1
+        },
+        "evidence_refs": [
+          {
+            "evidence_id": "evidence-rabi-run-stderr-9101",
+            "label": "Rabi run stderr excerpt",
+            "evidence_kind": "attachment",
+            "content_kind": "debug_log",
+            "purpose": "debug",
+            "lifecycle_stage": "during_run",
+            "running_measurement_link": {
+              "evidence_id": "evidence-rabi-run-stderr-9101",
+              "evidence_kind": "attachment",
+              "evidence_purpose": "debug",
+              "evidence_lifecycle_stage": "during_run",
+              "target_type": "running_measurement",
+              "target_id": "running-measurement-rabi-0042",
+              "label": "Running Rabi measurement",
+              "relation": "supports_review_of",
+              "authority": "explicit_supporting_evidence_manifest",
+              "target_state": "resolved",
+              "reason": null
+            },
+            "declared_reference": {
+              "kind": "workspace_relative_path",
+              "value": "artifacts/rabi-run-stderr-excerpt.txt",
+              "authority": "explicit_supporting_evidence_manifest",
+              "reference_state": "declared_available",
+              "reason": null
+            },
+            "classification": "needs_related_target_review"
+          }
+        ],
+        "evidence_findings": [
+          {
+            "evidence_id": "evidence-rabi-run-stderr-9101",
+            "subject_type": "calibration_step",
+            "subject_id": "calibration-step-rabi-recovery-0042",
+            "severity": "review",
+            "finding": "related_target_unavailable",
+            "basis": "The operator has not opened a follow-up calibration recovery step for this during-run diagnostic.",
+            "does_not_claim": "measurement_or_context_invalid"
+          }
+        ]
+      }
+    },
+    "review_finding_count": 2,
+    "review_findings": [
+      {
+        "context_id": "parameter-state-rabi-accepted-0042",
+        "family": "parameter_state",
+        "fact_id": "param-freshness-post-run-0042",
+        "dimension": "freshness",
+        "state": "stale",
+        "severity": "review",
+        "finding": "context_freshness_stale",
+        "basis": "A newer parameter-state snapshot exists after this run.",
+        "required_for_current_review": false,
+        "does_not_claim": "measurement_validity",
+        "source_section": "context_status"
+      },
+      {
+        "evidence_id": "evidence-rabi-run-stderr-9101",
+        "subject_type": "calibration_step",
+        "subject_id": "calibration-step-rabi-recovery-0042",
+        "severity": "review",
+        "finding": "related_target_unavailable",
+        "basis": "The operator has not opened a follow-up calibration recovery step for this during-run diagnostic.",
+        "does_not_claim": "measurement_or_context_invalid",
+        "source_section": "supporting_evidence"
+      }
+    ],
+    "attention": [
+      {
+        "code": "post_run_review_only",
+        "severity": "info",
+        "basis": "The bundle groups prior summaries for local post-run review.",
+        "does_not_claim": "durable_record_update"
+      },
+      {
+        "code": "primary_data_not_observed",
+        "severity": "review",
+        "basis": "The bundle does not open, parse, or validate primary measurement data.",
+        "does_not_claim": "measurement_validity"
+      },
+      {
+        "code": "evidence_not_imported",
+        "severity": "review",
+        "basis": "Supporting evidence references are carried without importing payloads or observing files.",
+        "does_not_claim": "evidence_contents_verified"
+      },
+      {
+        "code": "artifact_provenance_not_validated",
+        "severity": "review",
+        "basis": "Generated artifact provenance and source links remain separate future work.",
+        "does_not_claim": "artifact_provenance_complete"
+      }
+    ]
+  },
+  "boundary_notes": [
+    "Post-run review bundles group prior summary facts for local review only.",
+    "Primary data, supporting evidence files, and context payloads are not observed or imported.",
+    "Review findings do not decide measurement validity or fit quality."
+  ],
+  "decisions_not_earned": [
+    "durable measurement record mutation",
+    "primary-data observation or fit validation",
+    "supporting evidence payload import or file observation",
+    "artifact provenance/source-link validation",
+    "selected-measurement export or package writer",
+    "GUI workflow or shared post-run review schema"
+  ]
+}

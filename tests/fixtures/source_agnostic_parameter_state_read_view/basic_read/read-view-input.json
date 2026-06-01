@@ -1,0 +1,40 @@
+{
+  "read_view_policy": {
+    "read_authority": "explicit_parameter_state_storage_references",
+    "storage_root_authority": "caller_provided_storage_root_plus_declared_relative_paths",
+    "manifest_observation": "explicit_manifest_and_receipt_files_only",
+    "supported_manifest_sources": "adapter_and_calibration_derived",
+    "checksum_algorithm": "sha256",
+    "storage_mutation": "not_performed",
+    "catalog_discovery": "not_performed",
+    "compatibility_output": "not_produced",
+    "hardware_write_back": "not_performed",
+    "schema_migration": "not_performed",
+    "gui_workflow": "not_defined",
+    "shared_parameter_schema": "not_defined"
+  },
+  "read_requests": [
+    {
+      "request_id": "source-agnostic-read-adapter-0001",
+      "source_kind": "adapter_import",
+      "state_id": "param-state-imported-0001",
+      "manifest_path": "parameter-states/param-state-imported-0001/parameter-state.json",
+      "receipt_path": "parameter-states/param-state-imported-0001/write-receipt.json",
+      "expected_manifest_digest": "sha256:05974eba3977078d0fb963b1db7c575b91ef165ae4e6abb233c39a4446a48c7a",
+      "expected_manifest_size_bytes": 3563,
+      "expected_receipt_digest": "sha256:ac8574f7032e9728a0bb1860006ac6a1705183b5b457b4dffe43a4e61d2fe092",
+      "expected_receipt_size_bytes": 640
+    },
+    {
+      "request_id": "source-agnostic-read-calibration-0001",
+      "source_kind": "calibration_handoff",
+      "state_id": "param-state-0008",
+      "manifest_path": "parameter-states/param-state-0008/parameter-state.json",
+      "receipt_path": "parameter-states/param-state-0008/write-receipt.json",
+      "expected_manifest_digest": "sha256:dce8720f77522b77239af84fd59e7b964c2290b8e2ed864a9004c4e515b22bdf",
+      "expected_manifest_size_bytes": 3651,
+      "expected_receipt_digest": "sha256:fa89d512dc421fdfdde2882dc57154259112cbadacc799e24b333e4ab29bf4c3",
+      "expected_receipt_size_bytes": 828
+    }
+  ]
+}

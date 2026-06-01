@@ -15,8 +15,11 @@ explicitly marked retired; use validation results for slice-local evidence.
 | [`adoption-routes.md`](adoption-routes.md) | Compare evidence-backed adoption routes by durable user workflow. |
 | [`measurement-records/README.md`](measurement-records/README.md) | Measurement records, import/source decisions, storage writing, selected handoff, package use, and source observation. |
 | [`measurement-records/import-source-decision.md`](measurement-records/import-source-decision.md) | Current import/source route decisions, deferred decisions, reopen triggers, and next-slice guidance. |
+| [`measurement-records/legacy-brownfield-adoption-decision.md`](measurement-records/legacy-brownfield-adoption-decision.md) | Current post-run-first legacy adoption route decisions, deferred decisions, reopen triggers, and stop rule. |
 | [`experiment-code/README.md`](experiment-code/README.md) | Experiment-code recording, managed code versions, workspace materialization, and prepared-run code context. |
 | [`environment-operation/README.md`](environment-operation/README.md) | Environment declaration, file observation, review bundles, manager command intent, and external result recording. |
+| [`calibration-continuation/README.md`](calibration-continuation/README.md) | Calibration continuation, reviewable step state, accepted write handoff, and calibration-derived parameter-state measurement context. |
+| [`calibration-continuation/decision.md`](calibration-continuation/decision.md) | Current calibration continuation route decision consolidation, deferred decisions, reopen triggers, and stop rule. |
 
 ## Retired Route Notes
 
@@ -32,3 +35,4 @@ explicitly marked retired; use validation results for slice-local evidence.
 | [`../problem-briefs/README.md`](../problem-briefs/README.md) | Evidence-backed problem framing before choosing a validation question. |
 | [`../slices/README.md`](../slices/README.md) | Current discovery slice inventory by route and maturity. |
 | [`../synthesis/measurement-context-backlog.md`](../synthesis/measurement-context-backlog.md) | Shared backlog for measurement-context-shaped validation work across routes. |
+| [`../problem-briefs/setup-binding.md`](../problem-briefs/setup-binding.md) and [`../slices/setup-binding/setup-binding-validation-result.md`](../slices/setup-binding/setup-binding-validation-result.md) | Setup binding is currently reviewed as a slice/problem-brief owner, not as a route decision owner. Treat setup binding as its own context family until a later workflow earns a route-level decision. |

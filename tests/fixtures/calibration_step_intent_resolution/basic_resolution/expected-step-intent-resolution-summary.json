@@ -1,0 +1,278 @@
+{
+  "summary_id": "calibration-step-intent-resolution-basic.expected",
+  "status": "expected_validation_output",
+  "source_fixture": "step-intent-resolution-input.json",
+  "reference_semantics": {
+    "status": "fixture_only",
+    "contract_guard": "This expected output is not a final calibration step schema, context schema, relation graph, fitting framework, executor, scheduler, write-back contract, hardware-control contract, storage model, workflow DAG, or GUI design.",
+    "intent_record_split": "Calibration step intent may carry moving context selectors; calibration step record carries resolved context links.",
+    "observation_refs": "Observation links are referenced but not read or interpreted by this slice.",
+    "missing_context": "Missing optional context produces a review finding, not automatic blocking, retry, fitting, or write-back behavior."
+  },
+  "candidate_summary": {
+    "resolution_policy": {
+      "resolution_authority": "explicit_step_start_resolution",
+      "intent_reference_semantics": "moving_selectors_allowed",
+      "step_record_context": "optional_resolved_links",
+      "observation_link_handling": "reference_only",
+      "shared_context_schema": "not_defined",
+      "measurement_payload_read": "not_performed",
+      "dynamic_selector_resolution": "not_performed",
+      "fit_execution": "not_performed",
+      "calibration_execution": "not_performed",
+      "continuation_decision": "not_performed",
+      "parameter_write_back": "not_performed",
+      "hardware_control": "not_performed",
+      "scheduler": "not_defined"
+    },
+    "calibration_step_intent": {
+      "step_intent_id": "step-intent-rabi-qA-0001",
+      "label": "qA Rabi amplitude observation",
+      "target": "qA",
+      "purpose": "estimate pi-pulse amplitude",
+      "planned_observation": {
+        "kind": "measurement_request",
+        "experiment_type": "rabi_amplitude",
+        "target": "qA",
+        "role": "fit_input",
+        "measurement_payload_required": false
+      },
+      "moving_context_selectors": [
+        {
+          "selector_id": "selector-step-rabi-qA-params",
+          "family": "parameter_state",
+          "role": "calibrated_values",
+          "selector_kind": "current_trusted_in_lineage",
+          "reference_semantics": "moving_reference",
+          "required_for_step_record": false,
+          "selector_basis": {
+            "lineage_id": "lineage-qA-default-bias",
+            "purpose": "qA amplitude calibration"
+          }
+        },
+        {
+          "selector_id": "selector-step-rabi-qA-setup",
+          "family": "setup_binding",
+          "role": "logical_to_physical_mapping",
+          "selector_kind": "latest_reviewed_for_cooldown",
+          "reference_semantics": "moving_reference",
+          "required_for_step_record": false,
+          "selector_basis": {
+            "sample_id": "sample-alpha",
+            "cooldown_id": "cooldown-2026-05"
+          }
+        },
+        {
+          "selector_id": "selector-step-rabi-qA-code",
+          "family": "managed_code_version",
+          "role": "entrypoint_code_version",
+          "selector_kind": "approved_calibration_step_code",
+          "reference_semantics": "moving_reference",
+          "required_for_step_record": false,
+          "selector_basis": {
+            "workflow": "rabi_amplitude_calibration"
+          }
+        },
+        {
+          "selector_id": "selector-step-rabi-qA-env",
+          "family": "declared_environment",
+          "role": "runtime_environment_hint",
+          "selector_kind": "reviewed_environment_for_step",
+          "reference_semantics": "moving_reference",
+          "required_for_step_record": false,
+          "selector_basis": {
+            "project": "readout-calibration",
+            "manager": "uv"
+          }
+        }
+      ]
+    },
+    "step_start_resolution": {
+      "resolution_id": "step-start-resolution-rabi-qA-0001",
+      "step_intent_id": "step-intent-rabi-qA-0001",
+      "step_record_id": "step-record-rabi-qA-0001",
+      "resolved_at": "2026-05-22T10:00:00Z",
+      "resolved_contexts": [
+        {
+          "selector_id": "selector-step-rabi-qA-params",
+          "family": "parameter_state",
+          "role": "calibrated_values",
+          "resolution_state": "resolved",
+          "resolved_context_id": "param-state-0007",
+          "used_in_step_record": true,
+          "context_label": "qA default bias resolved at step start",
+          "record_status": "trusted_for_declared_scope",
+          "authority": "parameter_state_fixture"
+        },
+        {
+          "selector_id": "selector-step-rabi-qA-setup",
+          "family": "setup_binding",
+          "role": "logical_to_physical_mapping",
+          "resolution_state": "resolved",
+          "resolved_context_id": "setup-binding-0002",
+          "used_in_step_record": true,
+          "context_label": "qA default binding after bias-line move",
+          "record_status": "selected_binding_snapshot",
+          "authority": "setup_binding_fixture"
+        },
+        {
+          "selector_id": "selector-step-rabi-qA-code",
+          "family": "managed_code_version",
+          "role": "entrypoint_code_version",
+          "resolution_state": "resolved",
+          "resolved_context_id": "managed-code-version-rabi-0001",
+          "used_in_step_record": true,
+          "context_label": "Rabi calibration managed code version",
+          "record_status": "recorded_not_restore_contract",
+          "authority": "managed_code_version_fixture"
+        },
+        {
+          "selector_id": "selector-step-rabi-qA-env",
+          "family": "declared_environment",
+          "role": "runtime_environment_hint",
+          "resolution_state": "optional_unavailable",
+          "resolved_context_id": null,
+          "used_in_step_record": false,
+          "finding": "optional_context_unavailable"
+        }
+      ]
+    },
+    "calibration_step_record": {
+      "step_record_id": "step-record-rabi-qA-0001",
+      "step_intent_id": "step-intent-rabi-qA-0001",
+      "label": "qA Rabi amplitude observed",
+      "target": "qA",
+      "record_state": "observation_linked",
+      "context_policy": "context_optional_for_step_record",
+      "actual_context_links": [
+        {
+          "step_record_id": "step-record-rabi-qA-0001",
+          "family": "parameter_state",
+          "role": "calibrated_values",
+          "context_id": "param-state-0007",
+          "context_label": "qA default bias resolved at step start",
+          "record_status": "trusted_for_declared_scope",
+          "link_semantics": "resolved_snapshot_used_at_step_start"
+        },
+        {
+          "step_record_id": "step-record-rabi-qA-0001",
+          "family": "setup_binding",
+          "role": "logical_to_physical_mapping",
+          "context_id": "setup-binding-0002",
+          "context_label": "qA default binding after bias-line move",
+          "record_status": "selected_binding_snapshot",
+          "link_semantics": "resolved_snapshot_used_at_step_start"
+        },
+        {
+          "step_record_id": "step-record-rabi-qA-0001",
+          "family": "managed_code_version",
+          "role": "entrypoint_code_version",
+          "context_id": "managed-code-version-rabi-0001",
+          "context_label": "Rabi calibration managed code version",
+          "record_status": "recorded_not_restore_contract",
+          "link_semantics": "resolved_snapshot_used_at_step_start"
+        }
+      ],
+      "observation_link_refs": [
+        {
+          "link_id": "observation-link-rabi-qA-07001",
+          "role": "fit_input",
+          "measurement_record_id": "measurement-07001",
+          "payload_handling": "reference_only"
+        }
+      ]
+    },
+    "optional_context_findings": [
+      {
+        "step_record_id": "step-record-rabi-qA-0001",
+        "selector_id": "selector-step-rabi-qA-env",
+        "family": "declared_environment",
+        "role": "runtime_environment_hint",
+        "severity": "review",
+        "finding": "optional_context_unavailable",
+        "basis": "No reviewed declared environment context existed at step start.",
+        "does_not_claim": "calibration_step_invalid_or_blocked"
+      }
+    ],
+    "lineage_movement_findings": [
+      {
+        "step_record_id": "step-record-rabi-qA-0001",
+        "selector_id": "selector-step-rabi-qA-params",
+        "lineage_id": "lineage-qA-default-bias",
+        "resolved_context_id": "param-state-0007",
+        "post_step_current_context_id": "param-state-0008",
+        "severity": "info",
+        "finding": "lineage_moved_after_step_start",
+        "does_not_change": "calibration_step_record_resolved_context_link"
+      }
+    ],
+    "attention": [
+      {
+        "code": "step_intent_selectors_are_moving_references",
+        "severity": "info",
+        "basis": "Calibration step intent can name selector rules rather than final context snapshots.",
+        "does_not_claim": "intent_is_the_recorded_context"
+      },
+      {
+        "code": "step_record_context_links_are_resolved_snapshots",
+        "severity": "info",
+        "basis": "Calibration step record context links are copied from explicit step-start resolution.",
+        "does_not_claim": "live_lineage_reference"
+      },
+      {
+        "code": "observation_links_are_reference_only",
+        "severity": "info",
+        "basis": "Observation links are referenced but not read or interpreted by this slice.",
+        "does_not_claim": "measurement_payload_read"
+      },
+      {
+        "code": "fit_execution_not_performed",
+        "severity": "review",
+        "basis": "Resolved context and observation refs do not run fitting.",
+        "does_not_claim": "fit_result_or_quality_score"
+      },
+      {
+        "code": "write_back_not_performed",
+        "severity": "review",
+        "basis": "Step context resolution does not apply or propose parameter writes.",
+        "does_not_claim": "parameter_update"
+      },
+      {
+        "code": "optional_context_unavailable",
+        "severity": "review",
+        "basis": "Missing optional context is surfaced as a review finding.",
+        "does_not_claim": "calibration_step_invalid_or_blocked"
+      },
+      {
+        "code": "lineage_moved_after_step_start",
+        "severity": "info",
+        "basis": "A post-step lineage current pointer differs from the resolved snapshot used by the step record.",
+        "does_not_claim": "step_record_context_rewritten"
+      }
+    ]
+  },
+  "boundary_notes": [
+    "Calibration step intent may carry moving context selectors while calibration step record carries resolved context links.",
+    "Post-step lineage movement does not rewrite the context snapshot recorded for the step.",
+    "Missing optional context is a review finding, not automatic blocking, retry, fitting, continuation, or write-back behavior.",
+    "Observation links are referenced but measurement payloads are not read or interpreted.",
+    "Dynamic selector resolution, calibration execution, fitting, continuation decisions, scheduler behavior, parameter write-back, hardware control, workflow/DAG behavior, and GUI behavior remain out of scope."
+  ],
+  "decisions_not_earned": [
+    "final calibration step schema",
+    "final context schema",
+    "shared relation graph",
+    "dynamic selector resolution",
+    "measurement payload reading",
+    "fitting framework",
+    "fit quality scoring",
+    "calibration execution",
+    "continuation decision",
+    "automatic retry",
+    "parameter write-back",
+    "hardware control",
+    "scheduler",
+    "workflow DAG",
+    "GUI design"
+  ]
+}

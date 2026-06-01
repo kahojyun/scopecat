@@ -18,7 +18,7 @@ Several discovery routes are currently split by domain:
 - experiment code context;
 - declared environment context;
 - recorded analysis choices;
-- attachments, artifacts, and handoff context;
+- supporting evidence, promoted artifact-family context, and handoff context;
 - selected-reference comparison context.
 
 These are not the same domain, but they repeat the same product shape: a
@@ -42,7 +42,9 @@ In scope:
 - same-family or selected-reference comparison findings;
 - reviewable context changes;
 - readiness or status summaries;
-- external materialization or compatibility outputs after review.
+- selected parameter-state snapshots as parameter context;
+- explicit supporting-evidence references when a user supplies attachments,
+  debug logs, or opaque legacy snapshots.
 
 Out of scope:
 
@@ -51,14 +53,36 @@ Out of scope:
 - final relation graph, recursive traversal, or analysis-DAG inference;
 - final shared context schema or storage model;
 - domain-specific payload interpretation unless a slice earns it;
+- generated compatibility files or objects as normal measurement context when
+  a selected managed parameter-state snapshot already records the parameter
+  context;
 - hardware write-back, dependency sync, code import, code execution, notebook
   execution, managed runners, or GUI ownership.
+
+Generated compatibility files, adapter requests, adapter receipts, stdout,
+stderr, and adapter diagnostics are derivative operational artifacts by
+default. They should enter this backlog only through a generic
+debug/attachment route, or when a later accepted decision says a specific
+artifact family has become real context. The active parameter route should
+prefer the managed parameter-state snapshot as the canonical context.
+
+Opaque legacy files are treated the same way by default. A copied parameter
+JSON, XLSX table, runtime config, or whole legacy snapshot may be valuable
+review/debug evidence, but it should not be modeled as managed parameter state
+unless a parameter-state import/adapter slice maps it into structured
+parameter entries, lineage, readiness, trust, and review semantics.
 
 ## Choosing A Validation Slice
 
 Do not treat this backlog as the owner of active sequencing. The slice under
 active work should be chosen in the implementation or PR plan. This backlog
 only helps classify the slice once that plan chooses a concrete user pressure.
+
+Use
+[`measurement-context-workflow-review-strategy.md`](measurement-context-workflow-review-strategy.md)
+when reviewing accumulated measurement-context slices. It summarizes the
+intended gradual adoption path and the rule that review findings are passive
+visibility by default unless a local policy explicitly turns them into gates.
 
 When the goal is to test whether the shared context vocabulary is useful,
 **Named Run-Start Input Set** is usually the smallest cross-family validation
@@ -82,8 +106,14 @@ Validation question: can Scopecat record a point-in-time context record with
 identity, provenance, declared summary, and family-specific payload boundary?
 
 Applies to: parameter state, setup binding, station registry context, code
-context, declared environment context, analysis choices, artifacts, and
-attachments.
+context, declared environment context, and analysis choices.
+
+Attachments, debug logs, compatibility outputs, and ordinary artifacts are
+supporting evidence by default, not context records. This includes opaque
+parameter files and spreadsheets supplied during early adoption. They should
+enter this context-snapshot slot only if a later accepted slice promotes a
+specific artifact family into real context, or maps legacy parameter files into
+managed parameter-state records through an explicit adapter/import boundary.
 
 First fixture: one family-specific context record with explicit authority,
 declared summary fields, references, and opaque or family-owned payload.
@@ -98,13 +128,189 @@ package reference selected context records without absorbing their domain
 models?
 
 Applies to: parameter state, setup binding, code context, environment context,
-analysis choices, artifacts, attachments, and selected-reference packages.
+analysis choices, promoted artifact-family context, and selected-reference
+packages. Derivative compatibility artifacts and opaque legacy snapshots apply
+only when explicitly supplied as supporting evidence; they are not implied by
+selecting parameter state.
 
 First fixture: a measurement or step with explicit context links, family names,
 roles, include state, and missing or unavailable context findings.
 
 Boundary: no recursive relation traversal, automatic inclusion of adjacent
 records, shared relation graph, restore, execution, or cause attribution.
+
+First direct result:
+[`measurement-context-link-validation-result.md`](../slices/measurement-context/measurement-context-link-validation-result.md)
+validates measurement records with zero, resolved, and missing optional
+context links while keeping context reference-only and optional for primary
+measurement-record validity.
+
+First intent-resolution result:
+[`measurement-intent-resolution-validation-result.md`](../slices/measurement-context/measurement-intent-resolution-validation-result.md)
+validates the subcase where a prospective measurement intent carries moving
+context selectors, run-start resolution freezes those selectors to concrete
+context records, and the measurement record keeps only the resolved optional
+context links.
+
+First supporting-evidence result:
+[`supporting-evidence-reference-validation-result.md`](../slices/measurement-context/supporting-evidence-reference-validation-result.md)
+validates the subcase where a user explicitly supplies debug, audit, handoff,
+or review evidence related to measurement, running-measurement, prepared-run,
+operator-approval, parameter-state, or calibration-step targets while keeping
+the evidence reference optional, reference-only, and outside primary data,
+canonical context authority, and artifact provenance. Supporting evidence
+references are lifecycle explicit; during-run diagnostic evidence should not be
+implied by run-start context review.
+
+First supporting-artifact provenance result:
+[`supporting-artifact-provenance-validation-result.md`](../slices/measurement-context/supporting-artifact-provenance-validation-result.md)
+validates the subcase where artifact-labeled supporting evidence carries
+declared direct producer and source links without making provenance required
+for ordinary attachments, importing payloads, observing files, validating
+checksums, generating artifacts, inferring analysis DAGs, judging fit quality,
+deciding measurement validity, or producing export/package behavior.
+
+First supporting-artifact observation result:
+[`supporting-artifact-observation-validation-result.md`](../slices/measurement-context/supporting-artifact-observation-validation-result.md)
+validates the subcase where an artifact-labeled supporting evidence reference
+with prior provenance is checked for file availability, sha256, and byte size
+under a caller-provided artifact root without importing payloads, parsing
+artifacts, generating previews, observing source payloads, mutating storage,
+generating artifacts, inferring analysis DAGs, validating fits, deciding
+measurement validity, or producing export/package behavior.
+
+First running-record evidence result:
+[`running-record-supporting-evidence-update-validation-result.md`](../slices/measurement-context/running-record-supporting-evidence-update-validation-result.md)
+validates the subcase where explicit during-run supporting evidence is attached
+to a running-record review surface by target continuity while avoiding payload
+import, file observation, durable record append, runner ownership, log
+streaming, artifact provenance, and measurement-validity claims.
+
+Adjacent legacy-run sidecar result:
+[`legacy-run-sidecar-manifest-validation-result.md`](../slices/measurement-records/legacy-run-sidecar-manifest-validation-result.md)
+validates the brownfield composition where externally executed legacy code
+declares measurement identity, flexible legacy source locators, optional
+run-start context links, primary-data references, supporting evidence
+references, and lifecycle events in one local review summary without importing
+payloads, controlling runners, writing storage, writing parameters, accepting
+legacy import, binding to one legacy reference scheme, or defining a final
+workflow schema.
+
+Adjacent locator review result:
+[`legacy-locator-sufficiency-review-validation-result.md`](../slices/measurement-records/legacy-locator-sufficiency-review-validation-result.md)
+validates review-only classification of those declared legacy locators as
+human-navigation hints, without backend lookup, path parsing, file observation,
+legacy import acceptance, storage mutation, reference repair, or a final
+locator schema.
+
+Adjacent sidecar post-run review result:
+[`legacy-sidecar-post-run-review-validation-result.md`](../slices/measurement-records/legacy-sidecar-post-run-review-validation-result.md)
+validates a local post-run projection over prior legacy sidecar and locator
+review summaries, carrying lifecycle, locator, primary-data, and supporting
+evidence sections without fresh observation, legacy import acceptance, storage
+mutation, record write, reference repair, parameter write-back, measurement
+validity decisions, or GUI behavior.
+
+Adjacent sidecar GUI-state result:
+[`legacy-sidecar-review-gui-state-validation-result.md`](../slices/measurement-records/legacy-sidecar-review-gui-state-validation-result.md)
+validates the subcase where that sidecar post-run review is projected into
+passive local cards, visible findings, and action labels for GUI, CLI, or
+notebook surfaces without executing actions, observing files, querying
+backends, accepting imports, mutating storage, repairing references, writing
+parameters, deciding measurement validity, or making review state run-blocking.
+
+Adjacent legacy file-locator observation result:
+[`legacy-file-backed-locator-observation-validation-result.md`](../slices/measurement-records/legacy-file-backed-locator-observation-validation-result.md)
+validates the subcase where a user explicitly selects one declared
+`legacy_path` locator from sidecar review, supplies an external root and
+relative path, and observes file-level availability plus optional sha256 and
+byte-size facts without inferring paths from redacted displays, querying
+legacy backends, parsing data, verifying previews, accepting imports, mutating
+storage, repairing references, writing parameters, deciding measurement
+validity, or defining GUI behavior.
+
+Adjacent legacy locator-observation review-bundle result:
+[`legacy-locator-observation-review-bundle-validation-result.md`](../slices/measurement-records/legacy-locator-observation-review-bundle-validation-result.md)
+validates the subcase where sidecar post-run review and optional prior
+file-backed locator observations are composed into one local review summary,
+surfacing no-observation, observed, unavailable, mismatch, and sidecar
+attention states without fresh observation, backend lookup, legacy parsing,
+preview verification, import acceptance, storage mutation, reference repair,
+parameter write-back, measurement-validity decisions, or GUI behavior.
+
+Adjacent reviewed legacy append-intent result:
+[`reviewed-legacy-sidecar-append-intent-validation-result.md`](../slices/measurement-records/reviewed-legacy-sidecar-append-intent-validation-result.md)
+validates the subcase where an operator explicitly approves carrying reviewed
+sidecar and locator-observation facts forward as review/debug evidence for a
+later measurement-record append, while still avoiding storage mutation,
+record writes, primary-data import, legacy payload parsing, preview
+verification, reference repair, parameter write-back, measurement-validity
+decisions, or GUI behavior.
+
+Adjacent reviewed legacy evidence append-receipt result:
+[`reviewed-legacy-sidecar-evidence-append-receipt-validation-result.md`](../slices/measurement-records/reviewed-legacy-sidecar-evidence-append-receipt-validation-result.md)
+validates the subcase where that approved intent writes one review-evidence
+receipt under an existing measurement record with manifest identity preflight,
+no-overwrite behavior, and a record-local lock guard, while still avoiding
+primary-data import, legacy payload parsing, preview verification, reference
+repair, parameter write-back, measurement-validity decisions, manifest
+replacement, read-model refresh, or GUI behavior.
+
+Adjacent legacy evidence receipt read-view result:
+[`legacy-evidence-receipt-read-view-validation-result.md`](../slices/measurement-records/legacy-evidence-receipt-read-view-validation-result.md)
+validates the subcase where declared review-evidence receipt paths are read
+back from an existing measurement record, surfacing receipt identity, source
+intent, locator-observation evidence, and receipt findings without storage
+scan, storage mutation, primary-data read/import, legacy payload parsing,
+preview verification, reference repair, parameter write-back,
+measurement-validity decisions, read-model refresh, or GUI behavior.
+
+Adjacent legacy brownfield adoption backbone result:
+[`legacy-brownfield-adoption-backbone-validation-result.md`](../slices/measurement-records/legacy-brownfield-adoption-backbone-validation-result.md)
+validates the post-run-first composition across prior legacy sidecar,
+post-run review, locator-observation review, append-intent, review-evidence
+receipt, and receipt-read summaries, while keeping lifecycle events compatible
+with a later during-run event writer and avoiding fresh observation, new
+storage mutation, primary-data import, legacy parsing, reference repair,
+parameter write-back, measurement-validity decisions, runner ownership, or GUI
+behavior.
+
+Adjacent legacy calibration handoff bridge result:
+[`legacy-calibration-handoff-parameter-state-bridge-validation-result.md`](../slices/measurement-records/legacy-calibration-handoff-parameter-state-bridge-validation-result.md)
+validates an explicit operator-approved bridge from a legacy brownfield
+adoption summary to calibration accepted-write handoff and calibration
+parameter-state intake summaries, requiring measurement/provenance continuity
+while keeping legacy sidecar facts as review/debug evidence and avoiding fresh
+observation, primary-data import, legacy parsing, parameter-state storage
+mutation, legacy parameter write-back, hardware write-back, reference repair,
+measurement-validity decisions, or GUI behavior.
+
+First post-run review result:
+[`post-run-review-bundle-validation-result.md`](../slices/measurement-context/post-run-review-bundle-validation-result.md)
+validates a local post-run review composition over completed measurement
+identity, reference-only context links, context-status findings, and carried
+during-run supporting-evidence findings without storage mutation,
+primary-data observation, evidence import, artifact provenance, fit validation,
+measurement-validity decisions, or package/export behavior.
+
+First post-run artifact-provenance review result:
+[`post-run-artifact-provenance-review-validation-result.md`](../slices/measurement-context/post-run-artifact-provenance-review-validation-result.md)
+validates the subcase where prior supporting-artifact provenance summaries are
+surfaced inside local post-run review only when they match artifact evidence
+already present in the post-run bundle, while still avoiding storage mutation,
+primary-data observation, evidence import, artifact/source observation,
+checksum validation, artifact generation, analysis-DAG inference, fit
+validation, measurement-validity decisions, or package/export behavior.
+
+First post-run artifact-observation review result:
+[`post-run-artifact-observation-review-validation-result.md`](../slices/measurement-context/post-run-artifact-observation-review-validation-result.md)
+validates the subcase where prior supporting-artifact observation summaries are
+surfaced inside local post-run review only when they match already-reviewed
+artifacts, while still avoiding fresh artifact observation, checksum
+validation, payload import, artifact parsing, preview generation, source
+payload observation, storage mutation, artifact generation, analysis-DAG
+inference, fit validation, measurement-validity decisions, or package/export
+behavior.
 
 ### 3. Named Run-Start Input Set
 
@@ -142,16 +348,28 @@ Boundary: no user judgment, scientific interpretation, cause attribution,
 semantic source review, setup truth, parameter invalidation, raw-data
 comparison, or universal diff engine.
 
+First resolved-link result:
+[`resolved-context-link-comparison-validation-result.md`](../slices/measurement-context/resolved-context-link-comparison-validation-result.md)
+validates selected-reference comparison over actual measurement-record context
+links, explicitly excluding prospective measurement intent selectors, context
+payload diff, primary-data comparison, fit-quality comparison, readiness
+claims, and cause attribution.
+
 ### 5. Reviewable Context Change
 
 Validation question: can Scopecat represent a proposed, accepted, rejected, or
-applied context change for review without taking authority to perform it?
+externally applied context change for review without taking authority to
+perform it?
 
 Applies to: parameter writes, setup-binding edits, calibration writes, selected
 configuration updates, and external compatibility-file updates.
 
 First fixture: one proposed change set against a known context record, with
-review status and before/after summary.
+review status and before/after summary. A decision accepted for external apply
+means the user intends to update an outside system or parameter file; it is not
+the same as a parameter-state handoff and does not create managed parameter
+context. A decision accepted for parameter-state handoff intentionally feeds a
+managed Scopecat parameter-state snapshot path.
 
 Boundary: no hardware mutation, rollback, automatic correction, durable branch
 semantics, scheduler, executor, or write-back authority.
@@ -175,6 +393,14 @@ attention findings.
 
 Boundary: no hardware readiness check, dependency sync, code import, setup
 truth, autonomous advice, or execution unless a narrower slice earns it.
+
+First result:
+[`context-readiness-status-validation-result.md`](../slices/measurement-context/context-readiness-status-validation-result.md)
+validates a read-only local review projection over explicit family-owned
+context status facts, distinguishing ready, attention-needed, and blocked
+context-review states without claiming run blocking, runnable readiness,
+hardware readiness, setup truth, measurement validity, restore, execution, or a
+shared status schema.
 
 ### 7. External Materialization Or Compatibility Output
 

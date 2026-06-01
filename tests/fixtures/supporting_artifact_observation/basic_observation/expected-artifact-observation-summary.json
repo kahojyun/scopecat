@@ -1,0 +1,118 @@
+{
+  "status": "fixture",
+  "reference_semantics": {
+    "contract_guard": "Supporting artifact observation checks only file availability, sha256, and byte size under a caller-provided root; it is not payload import, artifact parsing, preview generation, source observation, storage mutation, artifact generation, recursive DAG inference, fit validation, measurement validity, export packaging, GUI workflow, or shared artifact schema.",
+    "source_fixture": "artifact-observation-input.json"
+  },
+  "candidate_summary": {
+    "artifact_observation_schema": "scopecat.supporting_artifact_observation.v0",
+    "artifact_observation_policy": {
+      "observation_authority": "explicit_supporting_artifact_observation_request",
+      "input_source": "supporting_artifact_provenance_summary",
+      "artifact_root_authority": "caller_provided_artifact_root",
+      "artifact_observation": "file_level_only",
+      "checksum_algorithm": "sha256",
+      "payload_import": "not_performed",
+      "artifact_parsing": "not_performed",
+      "preview_generation": "not_performed",
+      "source_payload_observation": "not_performed",
+      "storage_mutation": "not_performed",
+      "artifact_generation": "not_performed",
+      "recursive_relation_traversal": "not_performed",
+      "analysis_dag_inference": "not_performed",
+      "fit_validation": "not_performed",
+      "measurement_validity": "not_claimed",
+      "import_export_package": "not_produced",
+      "gui_workflow": "not_defined",
+      "shared_artifact_schema": "not_defined"
+    },
+    "artifact": {
+      "artifact_id": "evidence-rabi-fit-review-artifact-0042",
+      "label": "Rabi fit review artifact",
+      "content_kind": "review_bundle",
+      "purpose": "review_evidence",
+      "lifecycle_stage": "post_run_review",
+      "declared_reference": {
+        "kind": "package_relative_path",
+        "value": "artifacts/rabi-fit-review.json",
+        "authority": "explicit_supporting_evidence_manifest",
+        "reference_state": "declared_available",
+        "reason": null
+      },
+      "prior_provenance_classification": "needs_artifact_source_review",
+      "classification": "supporting_artifact_observed_matches_declared_file_facts"
+    },
+    "observation_request": {
+      "request_id": "observe-rabi-fit-review-artifact-0042",
+      "artifact_id": "evidence-rabi-fit-review-artifact-0042",
+      "artifact_root_label": "post-run-review-package",
+      "artifact_path": "artifacts/rabi-fit-review.json",
+      "expected_digest": "sha256:7af1690a75576d1f7c48e72ac7770be121a0ea2ca3361ce56f388a595e47ae5e",
+      "expected_size_bytes": 176
+    },
+    "observed_artifact": {
+      "artifact_id": "evidence-rabi-fit-review-artifact-0042",
+      "path": "artifacts/rabi-fit-review.json",
+      "status": "observed",
+      "observation_level": "file_level",
+      "expected_digest": "sha256:7af1690a75576d1f7c48e72ac7770be121a0ea2ca3361ce56f388a595e47ae5e",
+      "observed_digest": "sha256:7af1690a75576d1f7c48e72ac7770be121a0ea2ca3361ce56f388a595e47ae5e",
+      "expected_size_bytes": 176,
+      "observed_size_bytes": 176,
+      "payload_import": "not_performed",
+      "artifact_parsing": "not_performed",
+      "preview_generation": "not_performed"
+    },
+    "review_findings": [],
+    "source_link_count": 3,
+    "source_state_counts": {
+      "declared_available": 2,
+      "unavailable": 1
+    },
+    "source_payload_observation": "not_performed",
+    "storage_mutation": "not_performed",
+    "artifact_generation": "not_performed",
+    "attention": [
+      {
+        "code": "file_level_observation_only",
+        "severity": "review",
+        "basis": "Only file availability, sha256, and byte size are observed for the supporting artifact.",
+        "does_not_claim": "artifact_payload_parsing_or_preview"
+      },
+      {
+        "code": "source_payloads_not_observed",
+        "severity": "review",
+        "basis": "Artifact source links remain declared provenance; source payloads are not opened.",
+        "does_not_claim": "source_payload_or_integrity_verified"
+      },
+      {
+        "code": "artifact_not_generated",
+        "severity": "review",
+        "basis": "Unavailable or mismatched artifact facts remain review findings.",
+        "does_not_claim": "artifact_generation_or_repair"
+      },
+      {
+        "code": "validity_not_claimed",
+        "severity": "review",
+        "basis": "File-level observation does not judge artifact correctness, fit quality, or measurement validity.",
+        "does_not_claim": "artifact_or_measurement_validity"
+      }
+    ]
+  },
+  "boundary_notes": [
+    "The artifact file is observed only for availability, sha256, and byte size.",
+    "Artifact payload and source payloads are not parsed or imported.",
+    "Observation findings do not decide artifact correctness, fit quality, or measurement validity."
+  ],
+  "decisions_not_earned": [
+    "artifact payload import or parsing",
+    "artifact preview generation",
+    "source payload observation",
+    "artifact generation or repair",
+    "recursive analysis-DAG inference",
+    "fit validation or scientific-validity review",
+    "storage mutation or durable record update",
+    "selected-measurement export or package inclusion",
+    "GUI workflow or shared artifact schema"
+  ]
+}

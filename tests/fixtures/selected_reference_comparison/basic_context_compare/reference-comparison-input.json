@@ -56,7 +56,7 @@
         },
         {
           "name": "station_registry",
-          "snapshot_id": "station-registry-mmcs2-redacted",
+          "snapshot_id": "station-registry-synthetic-redacted",
           "role": "station_context"
         }
       ],
@@ -108,7 +108,7 @@
         },
         {
           "name": "station_registry",
-          "snapshot_id": "station-registry-mmcs2-redacted",
+          "snapshot_id": "station-registry-synthetic-redacted",
           "role": "station_context"
         }
       ],
@@ -153,9 +153,9 @@
       "readiness": "declared_binding"
     },
     {
-      "snapshot_id": "station-registry-mmcs2-redacted",
+      "snapshot_id": "station-registry-synthetic-redacted",
       "snapshot_family": "station_registry",
-      "label": "redacted MMCS2 station registry",
+      "label": "redacted synthetic station registry",
       "readiness": "redacted_context"
     }
   ],

@@ -1,0 +1,225 @@
+{
+  "summary_id": "calibration-review-bundle-basic.expected",
+  "status": "expected_validation_output",
+  "source_fixture": "review-bundle-input.json",
+  "reference_semantics": {
+    "status": "fixture_only",
+    "contract_guard": "This expected output is not a final calibration workflow schema, relation graph, fitting framework, executor, scheduler, write-back contract, hardware-control contract, parameter-state intake contract, storage model, workflow DAG, or GUI design.",
+    "bundle_boundary": "The bundle assembles declared child-summary facts into a read-only review chain without rerunning child slices.",
+    "identity_continuity": "The bundle validates step, observation, measurement, fit-result, proposed-write, and handoff references line up across child summaries.",
+    "action_boundary": "Review status does not imply continuation, retry, fitting, parameter-state intake, commit, compatibility output, hardware apply, or rollback behavior."
+  },
+  "candidate_summary": {
+    "review_bundle_policy": {
+      "bundle_authority": "explicit_calibration_review_bundle",
+      "child_summary_handling": "declared_summary_inputs",
+      "bundle_posture": "read_only_review",
+      "child_slice_execution": "not_performed",
+      "measurement_payload_read": "not_performed",
+      "fit_execution": "not_performed",
+      "fit_quality_scoring": "not_performed",
+      "continuation_decision": "not_performed",
+      "parameter_state_intake": "not_performed",
+      "parameter_state_commit": "not_performed",
+      "external_compatibility_output": "not_produced",
+      "hardware_control": "not_performed",
+      "rollback": "not_defined",
+      "scheduler": "not_defined",
+      "gui": "not_defined"
+    },
+    "child_summaries": [
+      {
+        "summary_id": "step-intent-resolution-rabi-qA-review",
+        "child_type": "step_intent_resolution",
+        "input_posture": "declared_child_summary",
+        "execution_posture": "not_rerun_by_bundle"
+      },
+      {
+        "summary_id": "step-observation-link-rabi-qA-review",
+        "child_type": "step_observation_link",
+        "input_posture": "declared_child_summary",
+        "execution_posture": "not_rerun_by_bundle"
+      },
+      {
+        "summary_id": "step-fit-result-link-rabi-qA-review",
+        "child_type": "step_fit_result_link",
+        "input_posture": "declared_child_summary",
+        "execution_posture": "not_rerun_by_bundle"
+      },
+      {
+        "summary_id": "step-proposed-write-link-rabi-qA-review",
+        "child_type": "step_proposed_write_link",
+        "input_posture": "declared_child_summary",
+        "execution_posture": "not_rerun_by_bundle"
+      },
+      {
+        "summary_id": "accepted-write-handoff-rabi-qA-review",
+        "child_type": "accepted_write_handoff",
+        "input_posture": "declared_child_summary",
+        "execution_posture": "not_rerun_by_bundle"
+      }
+    ],
+    "review_steps": [
+      {
+        "step_record_id": "step-record-rabi-qA-0001",
+        "step_intent_id": "step-intent-rabi-qA-0001",
+        "label": "qA Rabi amplitude review chain",
+        "target": "qA",
+        "context_resolution_state": "resolved_snapshot_recorded",
+        "record_posture": "retrospective_step_record"
+      }
+    ],
+    "measurement_refs": [
+      {
+        "measurement_record_id": "measurement-07001",
+        "label": "qA Rabi amplitude measurement",
+        "experiment_type": "rabi_amplitude",
+        "payload_owner": "measurement_records"
+      }
+    ],
+    "observation_links": [
+      {
+        "observation_link_id": "observation-link-rabi-qA-07001",
+        "step_record_id": "step-record-rabi-qA-0001",
+        "role": "fit_input",
+        "measurement_record_id": "measurement-07001",
+        "payload_handling": "reference_only"
+      }
+    ],
+    "fit_result_refs": [
+      {
+        "fit_result_id": "fit-result-rabi-qA-0001",
+        "step_record_id": "step-record-rabi-qA-0001",
+        "fit_family": "rabi_amplitude",
+        "fit_state": "declared_success",
+        "review_state": "usable_for_review",
+        "execution_posture": "declared_external_summary",
+        "payload_handling": "summary_only",
+        "input_refs": [
+          {
+            "observation_link_id": "observation-link-rabi-qA-07001",
+            "measurement_record_id": "measurement-07001"
+          }
+        ]
+      }
+    ],
+    "proposed_write_refs": [
+      {
+        "write_id": "proposed-write-rabi-qA-pi-amp-0001",
+        "step_record_id": "step-record-rabi-qA-0001",
+        "review_state": "accepted_for_parameter_state_handoff",
+        "apply_state": "not_applied",
+        "payload_handling": "summary_only",
+        "target_parameter": {
+          "lineage_id": "lineage-qA-default-bias",
+          "parameter_path": "qubits.qA.pi_amp",
+          "unit": "arb"
+        },
+        "evidence": {
+          "observation_link_ids": [
+            "observation-link-rabi-qA-07001"
+          ],
+          "fit_result_ids": [
+            "fit-result-rabi-qA-0001"
+          ]
+        }
+      }
+    ],
+    "accepted_handoff_refs": [
+      {
+        "handoff_id": "handoff-rabi-qA-pi-amp-0001",
+        "write_id": "proposed-write-rabi-qA-pi-amp-0001",
+        "step_record_id": "step-record-rabi-qA-0001",
+        "handoff_state": "ready_for_parameter_state_review",
+        "parameter_state_intake_state": "not_started",
+        "apply_state": "not_applied"
+      }
+    ],
+    "review_chain": [
+      {
+        "step_record_id": "step-record-rabi-qA-0001",
+        "step_intent_id": "step-intent-rabi-qA-0001",
+        "target": "qA",
+        "context_resolution_state": "resolved_snapshot_recorded",
+        "observation_link_ids": [
+          "observation-link-rabi-qA-07001"
+        ],
+        "fit_result_ids": [
+          "fit-result-rabi-qA-0001"
+        ],
+        "proposed_write_ids": [
+          "proposed-write-rabi-qA-pi-amp-0001"
+        ],
+        "accepted_handoff_ids": [
+          "handoff-rabi-qA-pi-amp-0001"
+        ],
+        "review_status": "handoff_ready_without_parameter_state_intake",
+        "bundle_posture": "read_only_review_chain"
+      }
+    ],
+    "review_findings": [],
+    "attention": [
+      {
+        "code": "bundle_is_read_only",
+        "severity": "info",
+        "basis": "The bundle assembles declared child-summary facts for review.",
+        "does_not_claim": "workflow_state_mutation"
+      },
+      {
+        "code": "child_slices_not_rerun",
+        "severity": "info",
+        "basis": "Child summaries are treated as declared inputs.",
+        "does_not_claim": "child_contract_revalidation"
+      },
+      {
+        "code": "measurement_payload_not_read",
+        "severity": "review",
+        "basis": "Observation and fit inputs are references only.",
+        "does_not_claim": "measurement_payload_read"
+      },
+      {
+        "code": "fit_execution_not_performed",
+        "severity": "review",
+        "basis": "Fit results are declared summaries.",
+        "does_not_claim": "fit_execution_or_quality_scoring"
+      },
+      {
+        "code": "parameter_state_intake_not_started",
+        "severity": "review",
+        "basis": "Accepted handoff remains visible, but parameter-state intake is outside this bundle.",
+        "does_not_claim": "parameter_state_draft_or_commit"
+      },
+      {
+        "code": "continuation_decision_not_performed",
+        "severity": "review",
+        "basis": "Review status is not a scheduler, retry, remeasurement, or continuation decision.",
+        "does_not_claim": "calibration_workflow_decision"
+      }
+    ]
+  },
+  "boundary_notes": [
+    "Calibration child summaries can be assembled into one read-only review bundle.",
+    "The bundle validates reference continuity across intent resolution, observation links, fit results, proposed writes, and accepted handoff refs.",
+    "Child slices are treated as declared inputs; this slice does not rerun child validation or execution.",
+    "Accepted handoff remains visible, but parameter-state intake is not started in this bundle.",
+    "Measurement payload reads, fitting execution, quality scoring, continuation decisions, parameter-state intake or commit, compatibility output, hardware control, rollback, scheduler behavior, workflow/DAG behavior, and GUI behavior remain out of scope."
+  ],
+  "decisions_not_earned": [
+    "final calibration workflow schema",
+    "shared relation graph",
+    "child slice revalidation",
+    "measurement payload reading",
+    "fitting framework",
+    "fit quality scoring",
+    "continuation decision",
+    "automatic retry",
+    "parameter-state intake",
+    "parameter-state commit",
+    "external compatibility output",
+    "hardware control",
+    "rollback contract",
+    "scheduler",
+    "workflow DAG",
+    "GUI design"
+  ]
+}

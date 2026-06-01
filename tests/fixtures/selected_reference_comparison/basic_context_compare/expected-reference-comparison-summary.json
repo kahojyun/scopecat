@@ -58,8 +58,8 @@
       },
       {
         "name": "station_registry",
-        "reference_snapshot_id": "station-registry-mmcs2-redacted",
-        "current_snapshot_id": "station-registry-mmcs2-redacted",
+        "reference_snapshot_id": "station-registry-synthetic-redacted",
+        "current_snapshot_id": "station-registry-synthetic-redacted",
         "finding": "same_observed_redacted"
       }
     ],

@@ -1,0 +1,118 @@
+{
+  "context_link_policy": {
+    "link_authority": "explicit_measurement_record_context_links",
+    "context_requirement": "optional_for_measurement_record",
+    "context_payload_handling": "reference_only",
+    "primary_data_validity": "independent_of_context",
+    "shared_context_schema": "not_defined",
+    "recursive_traversal": "not_performed",
+    "context_import": "not_performed",
+    "primary_data_observation": "not_performed",
+    "hardware_control": "not_performed",
+    "parameter_write_back": "not_performed",
+    "setup_mutation": "not_performed",
+    "environment_sync": "not_performed",
+    "code_import_execution": "not_performed"
+  },
+  "context_records": [
+    {
+      "context_id": "param-state-0007",
+      "family": "parameter_state",
+      "label": "qA default bias resolved at run start",
+      "record_status": "trusted_for_declared_scope",
+      "authority": "parameter_state_fixture",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "lineage_id": "lineage-qA-default-bias",
+        "trusted_entry_count": 4
+      }
+    },
+    {
+      "context_id": "setup-binding-0002",
+      "family": "setup_binding",
+      "label": "qA default binding after bias-line move",
+      "record_status": "selected_binding_snapshot",
+      "authority": "setup_binding_fixture",
+      "payload_handling": "family_owned_summary_only",
+      "declared_summary": {
+        "sample_id": "sample-alpha",
+        "cooldown_id": "cooldown-2026-05",
+        "logical_binding_count": 6
+      }
+    }
+  ],
+  "measurement_records": [
+    {
+      "measurement_record_id": "measurement-06001",
+      "label": "qA quick Rabi without selected context",
+      "experiment_type": "rabi_amplitude",
+      "target": "qA",
+      "source_kind": "new_run_writer",
+      "primary_data": {
+        "path": "records/measurement-06001/primary.csv",
+        "kind": "primary_data",
+        "format": "csv_table",
+        "authority": "writer_declared"
+      },
+      "context_links": []
+    },
+    {
+      "measurement_record_id": "measurement-06002",
+      "label": "qA chevron with resolved run-start context",
+      "experiment_type": "chevron",
+      "target": "qA",
+      "source_kind": "new_run_writer",
+      "primary_data": {
+        "path": "records/measurement-06002/primary.csv",
+        "kind": "primary_data",
+        "format": "csv_table",
+        "authority": "writer_declared"
+      },
+      "context_links": [
+        {
+          "link_id": "ctx-link-06002-params",
+          "family": "parameter_state",
+          "role": "calibrated_values",
+          "relation": "run_start_context",
+          "include_state": "linked",
+          "required_for_record_validity": false,
+          "context_id": "param-state-0007"
+        },
+        {
+          "link_id": "ctx-link-06002-setup",
+          "family": "setup_binding",
+          "role": "logical_to_physical_mapping",
+          "relation": "run_start_context",
+          "include_state": "linked",
+          "required_for_record_validity": false,
+          "context_id": "setup-binding-0002"
+        }
+      ]
+    },
+    {
+      "measurement_record_id": "measurement-06003",
+      "label": "qA chevron with missing optional environment context",
+      "experiment_type": "chevron",
+      "target": "qA",
+      "source_kind": "new_run_writer",
+      "primary_data": {
+        "path": "records/measurement-06003/primary.csv",
+        "kind": "primary_data",
+        "format": "csv_table",
+        "authority": "writer_declared"
+      },
+      "context_links": [
+        {
+          "link_id": "ctx-link-06003-env",
+          "family": "declared_environment",
+          "role": "runtime_environment_hint",
+          "relation": "run_start_context",
+          "include_state": "optional_unavailable",
+          "required_for_record_validity": false,
+          "context_id": null,
+          "missing_reason": "No reviewed declared environment context was available for this measurement."
+        }
+      ]
+    }
+  ]
+}

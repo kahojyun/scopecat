@@ -1,0 +1,180 @@
+{
+  "summary_policy": "internal_validation_summary",
+  "source_fixture": "tests/fixtures/legacy_sidecar_review_gui_state/basic_view/gui-state-input.json",
+  "reference_semantics": {
+    "contract_guard": "This is a passive local GUI-state projection over prior sidecar post-run review, not action execution, file observation, legacy import acceptance, storage mutation, reference repair, parameter write-back, measurement-validity review, or run blocking."
+  },
+  "candidate_summary": {
+    "gui_state_policy": {
+      "view_authority": "explicit_legacy_sidecar_review_gui_state",
+      "view_posture": "local_review_state_projection",
+      "input_source": "legacy_sidecar_post_run_review_summary",
+      "available_actions": "labels_only",
+      "gui_component_runtime": "not_defined",
+      "action_execution": "not_performed",
+      "backend_lookup": "not_performed",
+      "file_observation": "not_performed",
+      "legacy_import_acceptance": "not_performed",
+      "storage_mutation": "not_performed",
+      "record_write": "not_performed",
+      "reference_repair": "not_performed",
+      "parameter_write_back": "not_performed",
+      "measurement_validity": "not_claimed",
+      "run_blocking": "not_claimed",
+      "shared_gui_schema": "not_defined"
+    },
+    "classification": "legacy_sidecar_gui_ready",
+    "source_review": {
+      "measurement_id": "legacy-sidecar-measurement-0001",
+      "post_run_classification": "legacy_sidecar_post_run_ready",
+      "sidecar_classification": "legacy_sidecar_ready_for_review",
+      "locator_review_classification": "legacy_locator_review_ready",
+      "review_finding_count": 0
+    },
+    "selected_measurement": {
+      "measurement_id": "legacy-sidecar-measurement-0001",
+      "label": "Generic legacy measurement sidecar",
+      "target": {
+        "kind": "logical_qubit",
+        "display": "example target"
+      }
+    },
+    "review_cards": [
+      {
+        "card": "lifecycle",
+        "measurement_id": "legacy-sidecar-measurement-0001",
+        "label": "Generic legacy measurement sidecar",
+        "experiment_type": "example_scan",
+        "lifecycle_state": "completed",
+        "started_at": "2026-03-01T10:00:00Z",
+        "ended_at": "2026-03-01T10:01:30Z",
+        "final_recorded_points": 20,
+        "sidecar_classification": "legacy_sidecar_ready_for_review",
+        "does_not_claim": "measurement_validity_or_run_success"
+      },
+      {
+        "card": "legacy_locators",
+        "classification": "legacy_locator_review_ready",
+        "target_count": 2,
+        "targets_with_available_locators": 2,
+        "targets_needing_locator_review": [],
+        "locator_finding_count": 0,
+        "does_not_claim": "locator_openability_or_reference_repair"
+      },
+      {
+        "card": "primary_data",
+        "primary_data_ref_count": 1,
+        "declared_preview_states": [
+          "degraded_preview"
+        ],
+        "does_not_claim": "payload_import_or_normalized_primary_data"
+      },
+      {
+        "card": "supporting_evidence",
+        "supporting_evidence_ref_count": 2,
+        "evidence_kind_counts": {
+          "debug_log": 1,
+          "opaque_snapshot": 1
+        },
+        "lifecycle_stages": [
+          "during_run",
+          "run_start"
+        ],
+        "does_not_claim": "payload_import_or_context_authority"
+      }
+    ],
+    "visible_findings": [],
+    "available_review_actions": [
+      {
+        "action_id": "inspect_lifecycle",
+        "label": "Inspect lifecycle",
+        "target_section": "lifecycle",
+        "enabled": true,
+        "execution": "not_performed",
+        "does_not_claim": "measurement_validity_or_run_success"
+      },
+      {
+        "action_id": "inspect_legacy_locators",
+        "label": "Inspect legacy locators",
+        "target_section": "legacy_locators",
+        "enabled": true,
+        "execution": "not_performed",
+        "does_not_claim": "backend_lookup_or_reference_repair"
+      },
+      {
+        "action_id": "view_supporting_evidence",
+        "label": "View supporting evidence references",
+        "target_section": "supporting_evidence",
+        "enabled": true,
+        "execution": "not_performed",
+        "does_not_claim": "payload_import_or_artifact_observation"
+      },
+      {
+        "action_id": "start_adapter_import_review",
+        "label": "Start adapter import review",
+        "target_section": "primary_data",
+        "enabled": true,
+        "execution": "not_performed",
+        "does_not_claim": "legacy_import_acceptance_or_adapter_execution"
+      },
+      {
+        "action_id": "observe_file_backed_locator",
+        "label": "Observe file-backed locator",
+        "target_section": "legacy_locators",
+        "enabled": true,
+        "execution": "not_performed",
+        "does_not_claim": "file_observation_performed"
+      }
+    ],
+    "action_posture": "labels_only_not_executed",
+    "view_effects": {
+      "gui_component_runtime": "not_defined",
+      "action_execution": "not_performed",
+      "backend_lookup": "not_performed",
+      "file_observation": "not_performed",
+      "legacy_import_acceptance": "not_performed",
+      "storage_mutation": "not_performed",
+      "record_write": "not_performed",
+      "reference_repair": "not_performed",
+      "parameter_write_back": "not_performed",
+      "measurement_validity": "not_claimed",
+      "run_blocking": "not_claimed"
+    },
+    "attention": [
+      {
+        "code": "legacy_sidecar_gui_state_is_passive",
+        "severity": "info",
+        "basis": "The projection exposes cards and action labels over a prior post-run review.",
+        "does_not_claim": "gui_component_or_workflow_contract"
+      },
+      {
+        "code": "gui_actions_are_labels_only",
+        "severity": "review",
+        "basis": "Available actions name possible next reviews but are not executed here.",
+        "does_not_claim": "approval_gate_or_run_blocking"
+      },
+      {
+        "code": "legacy_sources_are_not_observed",
+        "severity": "review",
+        "basis": "The view state does not open files, query backends, import data, or repair references.",
+        "does_not_claim": "locator_openability_or_import_acceptance"
+      }
+    ]
+  },
+  "boundary_notes": [
+    "GUI state is projected from an already-built local post-run review summary.",
+    "Available actions are labels only and are not executed by this slice.",
+    "Legacy source locators remain declarations until a separate observation or repair slice is invoked.",
+    "Primary data references remain unimported and external."
+  ],
+  "decisions_not_earned": [
+    "live GUI component contract",
+    "action execution workflow",
+    "fresh source observation",
+    "legacy import acceptance",
+    "durable measurement-record update",
+    "reference repair workflow",
+    "measurement validity decision",
+    "run-blocking review gate"
+  ]
+}

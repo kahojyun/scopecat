@@ -1,0 +1,148 @@
+{
+  "candidate_summary": {
+    "acknowledged_review_findings": [
+      {
+        "acknowledged_at": "2026-05-23T10:50:00Z",
+        "acknowledged_by_role": "experimenter",
+        "acknowledgement_id": "partial-target-coverage-ack-qA-cAB-0001",
+        "basis": {
+          "covered_targets": [
+            "qA"
+          ],
+          "missing_targets": [
+            "cAB"
+          ]
+        },
+        "code": "parameter_lineage_partial_target_coverage",
+        "does_not_claim": "automatic_parameter_invalidation_or_run_blocking",
+        "severity": "review",
+        "source_area": "scope_alignment"
+      }
+    ],
+    "acknowledgement_aware_review_policy": {
+      "acknowledgement_source": "prepared_run_partial_target_acknowledgement_summary",
+      "automatic_run_start": "not_performed",
+      "catalog_discovery": "not_performed",
+      "code_import_execution": "not_performed",
+      "compatibility_output": "not_produced",
+      "dependency_resolution": "not_performed",
+      "dependency_sync": "not_performed",
+      "environment_operation": "not_performed",
+      "fresh_storage_read": "not_performed",
+      "gate_authority": "explicit_acknowledgement_aware_pre_run_review_composition",
+      "gui_workflow": "not_defined",
+      "hardware_control": "not_performed",
+      "input_sources": "explicit_prior_review_summaries",
+      "managed_runner": "not_defined",
+      "package_install": "not_performed",
+      "parameter_write_back": "not_performed",
+      "readiness_claim": "manual_review_state_only",
+      "review_scope": "manual_pre_run_context_review_after_acknowledgement",
+      "runtime_probe": "not_performed",
+      "setup_mutation": "not_performed",
+      "shared_gate_schema": "not_defined",
+      "workspace_mutation": "not_performed"
+    },
+    "attention": [
+      {
+        "basis": "The gate treats partial target acknowledgement as a local manual review fact.",
+        "code": "acknowledgement_consumed_as_review_fact",
+        "does_not_claim": "scope_repair_or_parameter_invalidation",
+        "severity": "info"
+      },
+      {
+        "basis": "Ready for operator pre-run decision is not run-start permission.",
+        "code": "operator_decision_not_execution",
+        "does_not_claim": "run_can_start_or_hardware_safe",
+        "severity": "review"
+      },
+      {
+        "basis": "The gate does not inspect storage, files, environments, runtimes, or hardware.",
+        "code": "no_fresh_observation_or_operation",
+        "does_not_claim": "fresh_readiness_or_integrity_check",
+        "severity": "review"
+      }
+    ],
+    "gate_decision": {
+      "code_import_execution": "not_performed",
+      "compatibility_output": "not_produced",
+      "environment_operation": "not_performed",
+      "hardware_control": "not_performed",
+      "overall_state": "ready_for_operator_pre_run_decision",
+      "parameter_write_back": "not_performed",
+      "recommended_action": "present_operator_pre_run_decision",
+      "run_start_claim": "not_claimed"
+    },
+    "manual_review_findings": [],
+    "prepared_run_context": {
+      "logical_targets": [
+        "qA",
+        "cAB"
+      ],
+      "measurement_id": "measurement-05001",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-0001"
+    },
+    "remaining_acknowledgement_findings": [],
+    "review_items": [
+      {
+        "area": "acknowledged_parameter_scope",
+        "finding_count": 0,
+        "reason_codes": [],
+        "state": "ready_for_manual_review"
+      },
+      {
+        "area": "required_context",
+        "finding_count": 0,
+        "reason_codes": [],
+        "state": "ready_for_manual_review"
+      },
+      {
+        "area": "workspace",
+        "finding_count": 0,
+        "reason_codes": [],
+        "state": "ready_for_manual_review"
+      },
+      {
+        "area": "environment",
+        "finding_count": 0,
+        "reason_codes": [],
+        "state": "ready_for_manual_review"
+      }
+    ],
+    "review_request": {
+      "measurement_id": "measurement-05001",
+      "parameter_state_id": "param-state-0008",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+      "review_gate_id": "prepared-run-acknowledgement-aware-review-gate-0001"
+    },
+    "selected_parameter_state": {
+      "source_kind": "calibration_handoff",
+      "state_id": "param-state-0008",
+      "trust_status": "trusted_for_declared_scope",
+      "trusted_entry_count": 2
+    }
+  },
+  "decisions_not_earned": [
+    "run-start permission",
+    "hardware safety or current instrument state",
+    "parameter invalidation or scope repair",
+    "parameter write-back",
+    "compatibility output",
+    "dependency resolution or sync",
+    "package installation",
+    "runtime probing",
+    "fresh storage or workspace observation",
+    "setup or workspace mutation",
+    "code import or execution",
+    "managed runner",
+    "GUI workflow",
+    "shared gate schema"
+  ],
+  "fixture_id": "prepared-run-acknowledgement-aware-review-gate-basic-ready",
+  "reference_semantics": {
+    "candidate": "prepared_run_acknowledgement_aware_review_gate",
+    "contract_guard": "manual pre-run review composition after local partial-target acknowledgement; not run start, hardware control, parameter write-back, compatibility output, dependency sync, fresh observation, execution, GUI, or shared gate schema",
+    "operator_decision_boundary": "ready_for_operator_pre_run_decision means the local review findings are clear enough to present an operator decision surface, not that a run may start automatically"
+  },
+  "summary_policy": "internal_validation_summary"
+}

@@ -1,0 +1,5 @@
+Synthetic stderr excerpt for the supporting evidence reference fixture.
+
+The candidate builder must not read this file. The file exists only to show
+that a during-run diagnostic artifact can be referenced without becoming
+run-start context, imported payload, observed data, or validated content.

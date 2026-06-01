@@ -1,0 +1,276 @@
+{
+  "summary_id": "calibration-review-state-projection-basic.expected",
+  "status": "expected_validation_output",
+  "source_fixture": "review-state-projection-input.json",
+  "reference_semantics": {
+    "status": "fixture_only",
+    "contract_guard": "This expected output is not a final calibration workflow schema, GUI contract, action API, executor, scheduler, write-back contract, hardware-control contract, parameter-state intake contract, storage model, or workflow DAG.",
+    "projection_boundary": "Declared review bundle, evidence, and timeline facts can be projected into read-only per-step review cards.",
+    "action_boundary": "Available review actions are labels only and do not execute retries, fitting, continuation, handoff intake, or hardware behavior.",
+    "parameter_state_boundary": "Handoff-ready states wait for the parameter-state thread and do not start intake."
+  },
+  "candidate_summary": {
+    "review_state_policy": {
+      "projection_authority": "explicit_calibration_review_state_projection",
+      "source_summary_handling": "declared_review_summaries",
+      "projection_posture": "read_only_review_state",
+      "available_actions": "labels_only",
+      "gui": "not_defined",
+      "action_execution": "not_performed",
+      "child_slice_execution": "not_performed",
+      "measurement_payload_read": "not_performed",
+      "fit_execution": "not_performed",
+      "fit_quality_scoring": "not_performed",
+      "retry_decision": "not_performed",
+      "remeasurement_decision": "not_performed",
+      "continuation_decision": "not_performed",
+      "parameter_state_intake": "not_performed",
+      "parameter_state_commit": "not_performed",
+      "hardware_control": "not_performed",
+      "scheduler": "not_defined"
+    },
+    "review_steps": [
+      {
+        "step_record_id": "step-record-rabi-qA-ready",
+        "step_intent_id": "step-intent-rabi-qA-ready",
+        "target": "qA",
+        "record_posture": "retrospective_step_record"
+      },
+      {
+        "step_record_id": "step-record-rabi-qB-missing-observation",
+        "step_intent_id": "step-intent-rabi-qB-missing-observation",
+        "target": "qB",
+        "record_posture": "retrospective_step_record"
+      },
+      {
+        "step_record_id": "step-record-rabi-qC-fit-review",
+        "step_intent_id": "step-intent-rabi-qC-fit-review",
+        "target": "qC",
+        "record_posture": "retrospective_step_record"
+      },
+      {
+        "step_record_id": "step-record-rabi-qD-write-review",
+        "step_intent_id": "step-intent-rabi-qD-write-review",
+        "target": "qD",
+        "record_posture": "retrospective_step_record"
+      },
+      {
+        "step_record_id": "step-record-rabi-qE-timeline",
+        "step_intent_id": "step-intent-rabi-qE-timeline",
+        "target": "qE",
+        "record_posture": "retrospective_step_record"
+      }
+    ],
+    "review_cards": [
+      {
+        "step_record_id": "step-record-rabi-qA-ready",
+        "step_intent_id": "step-intent-rabi-qA-ready",
+        "target": "qA",
+        "review_state": "handoff_ready_for_parameter_state_thread",
+        "state_source": "evidence",
+        "bundle_review_status": "handoff_ready_without_parameter_state_intake",
+        "evidence_review_state": "complete_until_parameter_state_intake",
+        "timeline_status": "timeline_order_review_ready",
+        "available_review_actions": [
+          "inspect_handoff",
+          "wait_for_parameter_state_thread"
+        ],
+        "action_posture": "labels_only_not_executed",
+        "finding_refs": []
+      },
+      {
+        "step_record_id": "step-record-rabi-qB-missing-observation",
+        "step_intent_id": "step-intent-rabi-qB-missing-observation",
+        "target": "qB",
+        "review_state": "needs_observation_evidence",
+        "state_source": "evidence",
+        "bundle_review_status": "needs_observation_evidence",
+        "evidence_review_state": "missing_observation_evidence",
+        "timeline_status": "timeline_order_review_ready",
+        "available_review_actions": [
+          "inspect_step_context",
+          "find_or_link_observation"
+        ],
+        "action_posture": "labels_only_not_executed",
+        "finding_refs": [
+          {
+            "finding_id": "finding-qB-missing-observation",
+            "finding": "missing_observation_evidence",
+            "source_summary": "missing_evidence_findings",
+            "severity": "review"
+          }
+        ]
+      },
+      {
+        "step_record_id": "step-record-rabi-qC-fit-review",
+        "step_intent_id": "step-intent-rabi-qC-fit-review",
+        "target": "qC",
+        "review_state": "needs_fit_review",
+        "state_source": "evidence",
+        "bundle_review_status": "needs_fit_review",
+        "evidence_review_state": "fit_result_needs_review",
+        "timeline_status": "timeline_order_review_ready",
+        "available_review_actions": [
+          "inspect_fit_result",
+          "record_fit_review_outcome"
+        ],
+        "action_posture": "labels_only_not_executed",
+        "finding_refs": [
+          {
+            "finding_id": "finding-qC-fit-review",
+            "finding": "fit_result_needs_review",
+            "source_summary": "missing_evidence_findings",
+            "severity": "review"
+          }
+        ]
+      },
+      {
+        "step_record_id": "step-record-rabi-qD-write-review",
+        "step_intent_id": "step-intent-rabi-qD-write-review",
+        "target": "qD",
+        "review_state": "needs_write_review",
+        "state_source": "evidence",
+        "bundle_review_status": "needs_write_review",
+        "evidence_review_state": "proposed_write_needs_review",
+        "timeline_status": "timeline_order_review_ready",
+        "available_review_actions": [
+          "inspect_proposed_write",
+          "record_write_review_outcome"
+        ],
+        "action_posture": "labels_only_not_executed",
+        "finding_refs": [
+          {
+            "finding_id": "finding-qD-write-review",
+            "finding": "proposed_write_needs_review",
+            "source_summary": "missing_evidence_findings",
+            "severity": "review"
+          }
+        ]
+      },
+      {
+        "step_record_id": "step-record-rabi-qE-timeline",
+        "step_intent_id": "step-intent-rabi-qE-timeline",
+        "target": "qE",
+        "review_state": "needs_timeline_order_review",
+        "state_source": "timeline",
+        "bundle_review_status": "handoff_ready_without_parameter_state_intake",
+        "evidence_review_state": "complete_until_parameter_state_intake",
+        "timeline_status": "timeline_order_needs_review",
+        "available_review_actions": [
+          "inspect_timeline",
+          "review_event_order"
+        ],
+        "action_posture": "labels_only_not_executed",
+        "finding_refs": [
+          {
+            "finding_id": "finding-qE-timeline-order",
+            "finding": "timeline_event_out_of_order",
+            "source_summary": "timeline_trace",
+            "severity": "review"
+          }
+        ]
+      }
+    ],
+    "state_counts": {
+      "handoff_ready_for_parameter_state_thread": 1,
+      "needs_fit_review": 1,
+      "needs_observation_evidence": 1,
+      "needs_timeline_order_review": 1,
+      "needs_write_review": 1
+    },
+    "review_findings": [
+      {
+        "finding_id": "finding-qB-missing-observation",
+        "step_record_id": "step-record-rabi-qB-missing-observation",
+        "finding": "missing_observation_evidence",
+        "source_summary": "missing_evidence_findings",
+        "severity": "review",
+        "finding_posture": "review_only",
+        "does_not_claim": "workflow_action_or_state_mutation"
+      },
+      {
+        "finding_id": "finding-qC-fit-review",
+        "step_record_id": "step-record-rabi-qC-fit-review",
+        "finding": "fit_result_needs_review",
+        "source_summary": "missing_evidence_findings",
+        "severity": "review",
+        "finding_posture": "review_only",
+        "does_not_claim": "workflow_action_or_state_mutation"
+      },
+      {
+        "finding_id": "finding-qD-write-review",
+        "step_record_id": "step-record-rabi-qD-write-review",
+        "finding": "proposed_write_needs_review",
+        "source_summary": "missing_evidence_findings",
+        "severity": "review",
+        "finding_posture": "review_only",
+        "does_not_claim": "workflow_action_or_state_mutation"
+      },
+      {
+        "finding_id": "finding-qE-timeline-order",
+        "step_record_id": "step-record-rabi-qE-timeline",
+        "finding": "timeline_event_out_of_order",
+        "source_summary": "timeline_trace",
+        "severity": "review",
+        "finding_posture": "review_only",
+        "does_not_claim": "workflow_action_or_state_mutation"
+      }
+    ],
+    "attention": [
+      {
+        "code": "projection_is_read_only",
+        "severity": "info",
+        "basis": "Review cards are projections from declared summaries.",
+        "does_not_claim": "workflow_state_mutation"
+      },
+      {
+        "code": "available_actions_are_labels_only",
+        "severity": "review",
+        "basis": "Available review actions are labels for a reviewer, not executable commands.",
+        "does_not_claim": "action_execution"
+      },
+      {
+        "code": "gui_not_defined",
+        "severity": "review",
+        "basis": "The projection is notebook/CLI-shaped data, not a GUI component model.",
+        "does_not_claim": "gui_contract"
+      },
+      {
+        "code": "continuation_decision_not_performed",
+        "severity": "review",
+        "basis": "Review state does not decide retry, remeasurement, skip, or continuation.",
+        "does_not_claim": "calibration_workflow_decision"
+      },
+      {
+        "code": "parameter_state_intake_not_started",
+        "severity": "review",
+        "basis": "Handoff-ready steps wait for the parameter-state thread.",
+        "does_not_claim": "parameter_state_draft_or_commit"
+      }
+    ]
+  },
+  "boundary_notes": [
+    "Declared calibration review summaries can be consolidated into per-step review-state cards.",
+    "Timeline issues take precedence over otherwise ready evidence states.",
+    "Available review actions are labels only, not executable commands or GUI affordance contracts.",
+    "Handoff-ready states remain before parameter-state intake.",
+    "GUI behavior, action execution, child-slice execution, payload reads, fitting, quality scoring, retry, remeasurement, continuation, parameter-state intake or commit, hardware control, scheduler behavior, and workflow/DAG behavior remain out of scope."
+  ],
+  "decisions_not_earned": [
+    "final calibration workflow schema",
+    "GUI contract",
+    "action execution API",
+    "child slice revalidation",
+    "measurement payload reading",
+    "fitting framework",
+    "fit quality scoring",
+    "retry decision",
+    "remeasurement decision",
+    "continuation decision",
+    "parameter-state intake",
+    "parameter-state commit",
+    "hardware control",
+    "scheduler",
+    "workflow DAG"
+  ]
+}

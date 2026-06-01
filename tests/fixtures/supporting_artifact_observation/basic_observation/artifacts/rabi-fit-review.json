@@ -1,0 +1,6 @@
+{
+  "artifact": "synthetic-rabi-fit-review",
+  "measurement_record_id": "measurement-rabi-0042",
+  "fit_parameter": "rabi_frequency",
+  "review_state": "needs_source_review"
+}

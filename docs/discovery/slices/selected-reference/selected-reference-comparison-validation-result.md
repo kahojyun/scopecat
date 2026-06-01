@@ -12,6 +12,7 @@ narrow.
 
 - `tests/fixtures/selected_reference_comparison/basic_context_compare/`
 - `tests/fixtures/selected_reference_comparison/code_context_compare/`
+- `tests/fixtures/resolved_context_link_comparison/basic_selected_reference/`
 
 Implementation candidate:
 `implementation_candidates/selected_reference_comparison/`
@@ -57,6 +58,17 @@ dimension:
 - internal Git state, dependency closure, code execution, managed workspace
   restore, and workflow/DAG behavior remain out of scope.
 
+The resolved-context-link fixture and summary builder add a measurement-context
+subcase:
+
+- selected-reference comparison can use actual measurement-record context
+  links rather than prospective measurement intent selectors;
+- changed parameter state, same setup binding, same managed code version, and
+  missing current declared environment context can be reported as objective
+  context-link findings;
+- context payloads, primary data, fit quality, readiness, and cause
+  attribution remain out of scope.
+
 ## Boundary Confirmed
 
 Selected-reference comparison is a context comparison report. It is not a
@@ -74,6 +86,12 @@ what changed and what is unavailable. It does not:
 - resolve dependency closure or environment readiness;
 - restore, load, import, or execute selected code snapshots;
 - compare source semantics beyond declared recorded-code observations.
+
+When this candidate reports a missing fit-summary relation, that finding means
+only that a selected supporting artifact/link is unavailable in the comparison
+fixture. It is not a fit-quality judgment, analysis-validity judgment, or
+scientific completeness requirement. Fit-quality comparison remains a separate
+future slice.
 
 The reference-selection model can start from ordinary measurement marks. A
 user may mark a run as last-working, notable, best-observed, or simply
@@ -105,6 +123,10 @@ single selected-version comparison engine. Recorded context comparison,
 snapshot capture-state comparison, managed-version inventory comparison, and
 editable-folder observation may share finding vocabulary only where their
 authority and capture-state behavior match.
+
+Resolved context-link comparison belongs to the measurement-context backlog
+because its authority is the measurement record's resolved links. It should not
+be generalized into intent-selector comparison or cause attribution.
 
 ## Remaining Risks
 

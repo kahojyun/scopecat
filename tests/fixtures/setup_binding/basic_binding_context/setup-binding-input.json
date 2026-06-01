@@ -10,8 +10,8 @@
   ],
   "station_registry_contexts": [
     {
-      "registry_id": "station-registry-mmcs2-redacted",
-      "registry_label": "redacted MMCS2 station registry",
+      "registry_id": "station-registry-synthetic-redacted",
+      "registry_label": "redacted synthetic station registry",
       "registry_scope": "station_configuration",
       "authority": "fixture_declared_summary",
       "contains_connection_payloads": false,
@@ -60,7 +60,7 @@
       "sample_id": "sample-alpha",
       "cooldown_id": "cooldown-2026-05",
       "session_label": "setup-binding-demo-session",
-      "selected_registry_id": "station-registry-mmcs2-redacted",
+      "selected_registry_id": "station-registry-synthetic-redacted",
       "inner_payload_policy": {
         "ownership": "user_project_defined",
         "scopecat_default_handling": "opaque_payload",
@@ -109,7 +109,7 @@
       "sample_id": "sample-alpha",
       "cooldown_id": "cooldown-2026-05",
       "session_label": "setup-binding-demo-session",
-      "selected_registry_id": "station-registry-mmcs2-redacted",
+      "selected_registry_id": "station-registry-synthetic-redacted",
       "inner_payload_policy": {
         "ownership": "user_project_defined",
         "scopecat_default_handling": "opaque_payload",
@@ -262,7 +262,7 @@
         },
         {
           "name": "station_registry",
-          "snapshot_id": "station-registry-mmcs2-redacted",
+          "snapshot_id": "station-registry-synthetic-redacted",
           "role": "station_context"
         }
       ],

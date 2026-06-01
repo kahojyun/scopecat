@@ -90,6 +90,13 @@ The first fixture should stay small:
 - one attention item that says binding changed since an earlier calibration,
   without claiming parameter invalidity.
 
+The three named input snapshots are fixture-local pressure for this first
+setup-binding validation. They should not be read as a global requirement that
+all measurements adopt parameter state, setup binding, and station registry
+context together. Setup binding remains independently reviewable; other
+surfaces may show parameter state and station registry alongside it when those
+families are available.
+
 ## Input Boundary
 
 Fixture input may include:
