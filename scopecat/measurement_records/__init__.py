@@ -88,6 +88,11 @@ from scopecat.measurement_records.read_view import (
     read_created_record_primary_table,
     read_created_record_primary_table_from_request,
 )
+from scopecat.measurement_records.review_artifact import (
+    MEASUREMENT_RECORD_REVIEW_ARTIFACT_NAME,
+    build_measurement_record_review_html,
+    write_measurement_record_review_artifact,
+)
 from scopecat.measurement_records.running_inspection import (
     MeasurementRecordRunningInspectionRequest,
     MeasurementRecordRunningInspectionRun,
@@ -110,6 +115,7 @@ from scopecat.measurement_records.writer_integration import (
 )
 
 __all__ = [
+    "MEASUREMENT_RECORD_REVIEW_ARTIFACT_NAME",
     "LegacyPrimaryImportRequest",
     "LegacyPrimaryImportRun",
     "LegacyRunContextReference",
@@ -157,6 +163,7 @@ __all__ = [
     "append_in_progress_measurement_record_from_request",
     "attach_converted_primary_data_to_legacy_record",
     "attach_converted_primary_data_to_legacy_record_from_request",
+    "build_measurement_record_review_html",
     "catalog_measurement_record_read_models",
     "catalog_measurement_record_read_models_from_request",
     "create_measurement_record",
@@ -186,4 +193,5 @@ __all__ = [
     "summarize_running_measurement_inspection",
     "write_created_record_primary_data",
     "write_created_record_primary_data_from_request",
+    "write_measurement_record_review_artifact",
 ]

@@ -737,6 +737,32 @@ dropped. The CLI does not discover records beyond the catalog directory, scan
 update directories, mutate storage, or perform refresh, import, finalization,
 repair, or GUI-state persistence.
 
+## Operator Review Artifact Checkpoint
+
+The first local static operator-review artifact slice is implemented in
+[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+It exposes:
+`build_measurement_record_review_html(...)` and
+`write_measurement_record_review_artifact(...)`.
+
+This slice renders an already computed operator-review projection into a local
+HTML file for inspection:
+
+```text
+operator-review run
+  -> local static HTML review artifact
+  -> local artifact receipt
+```
+
+The artifact is a review summary, not a storage member. The writer rejects
+output directories inside the Measurement Records storage root so the HTML
+artifact cannot be confused with durable record storage. The CLI can write the
+artifact with `python -m scopecat.measurement_records operator-review
+--html-dir ./review`. The artifact does not persist GUI state, define a final
+GUI component model, approve import, approve refresh, mutate records, repair
+storage, replace manifests, define history/audit semantics, or create a public
+export.
+
 ## Operator Review Receipt Checkpoint
 
 The first saved operator-review receipt slice is implemented in

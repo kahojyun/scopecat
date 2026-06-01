@@ -38,11 +38,13 @@ class MeasurementRecordsPublicApiSurfaceTest(unittest.TestCase):
             "MeasurementRecordReadModelProjectionRequest",
             "MeasurementRecordReadModelRefreshRequest",
             "MeasurementRecordStorageInventoryRequest",
+            "MEASUREMENT_RECORD_REVIEW_ARTIFACT_NAME",
             "LegacyPrimaryImportRequest",
             "LegacyRunRecordRequest",
             "MeasurementRecordCatalogRequest",
             "attach_converted_primary_data_to_legacy_record_from_request",
             "append_existing_measurement_record_from_request",
+            "build_measurement_record_review_html",
             "import_measurement_record_from_request",
             "list_measurement_record_storage_from_request",
             "project_measurement_record_read_model_from_read_view",
@@ -50,6 +52,7 @@ class MeasurementRecordsPublicApiSurfaceTest(unittest.TestCase):
             "refresh_measurement_record_read_model_from_read_view",
             "catalog_measurement_record_read_models_from_request",
             "summarize_normalized_primary_table_from_request",
+            "write_measurement_record_review_artifact",
         }
 
         self.assertTrue(expected_names.issubset(measurement_records.__all__))

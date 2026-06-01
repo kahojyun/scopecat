@@ -10,9 +10,13 @@ from pathlib import Path
 from scopecat.measurement_records.legacy_run import record_legacy_measurement_run
 from scopecat.measurement_records.operator_review import (
     MeasurementRecordOperatorReviewRequest,
+    MeasurementRecordOperatorReviewRun,
     review_measurement_records,
     review_measurement_records_from_request,
     summarize_measurement_record_operator_review_receipt,
+)
+from scopecat.measurement_records.review_artifact import (
+    write_measurement_record_review_artifact,
 )
 from scopecat.measurement_records.running_inspection import (
     MeasurementRecordRunningInspectionRequest,
@@ -46,12 +50,12 @@ def _running_inspection_summary(args: argparse.Namespace) -> dict[str, object]:
     )
 
 
-def _operator_review(args: argparse.Namespace) -> dict[str, object]:
+def _operator_review(args: argparse.Namespace) -> MeasurementRecordOperatorReviewRun:
     if args.source is not None:
         source = json.loads(args.source.read_text(encoding="utf-8"))
         if not isinstance(source, dict):
             raise ValueError("operator review source JSON must be an object")
-        return review_measurement_records(source, storage_root=args.storage_root).to_dict()
+        return review_measurement_records(source, storage_root=args.storage_root)
     running_request = None
     if args.running_record_id is not None:
         running_request = MeasurementRecordRunningInspectionRequest(
@@ -74,7 +78,7 @@ def _operator_review(args: argparse.Namespace) -> dict[str, object]:
     return review_measurement_records_from_request(
         request,
         storage_root=args.storage_root,
-    ).to_dict()
+    )
 
 
 def _operator_review_receipt_summary(args: argparse.Namespace) -> dict[str, object]:
@@ -165,6 +169,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     review_parser.add_argument("--running-expected-total-rows", type=int)
     review_parser.add_argument("--preview-row-limit", type=int, default=5)
     review_parser.add_argument("--latest-row-limit", type=int, default=3)
+    review_parser.add_argument(
+        "--html-dir",
+        type=Path,
+        help="Write a local static HTML operator-review artifact in this directory.",
+    )
+    review_parser.add_argument(
+        "--overwrite-html",
+        action="store_true",
+        help="Overwrite an existing local HTML operator-review artifact.",
+    )
 
     receipt_parser = subparsers.add_parser(
         "operator-review-receipt-summary",
@@ -205,6 +219,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     elif args.command == "operator-review":
         if args.source is None and args.request_id is None:
             parser.error("--request-id is required unless --source is provided")
+        if args.html_dir is None and args.overwrite_html:
+            parser.error("--overwrite-html requires --html-dir")
         if args.source is not None:
             ignored = []
             for name, value, default in (
@@ -274,7 +290,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "--running-record-id is required with running inspection flags: "
                     + ", ".join(ignored_running)
                 )
-        payload = _operator_review(args)
+        operator_review = _operator_review(args)
+        payload = operator_review.to_dict()
+        if args.html_dir is not None:
+            receipt = write_measurement_record_review_artifact(
+                operator_review,
+                output_dir=args.html_dir,
+                overwrite=args.overwrite_html,
+            )
+            payload["html_artifact"] = receipt["html_artifact"]
     elif args.command == "operator-review-receipt-summary":
         payload = _operator_review_receipt_summary(args)
     elif args.command == "record-legacy-run":

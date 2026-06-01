@@ -319,3 +319,22 @@ python -m scopecat.measurement_records operator-review-receipt-summary \
 This command reads one caller-declared receipt JSON and prints the compact
 continuation summary. It does not reopen records, re-run review, grant retry
 authority, approve refresh/import, mutate storage, or persist GUI state.
+
+The first local static review artifact is implemented through
+`build_measurement_record_review_html(...)` and
+`write_measurement_record_review_artifact(...)`. It renders an already
+computed operator-review projection into a local HTML file for inspection. The
+artifact is a review summary, not a durable storage member, public export,
+canonical GUI state, record repair, read-model refresh, import approval, or
+history/audit log. The writer rejects output directories inside the Measurement
+Records storage root so the artifact is not confused with record storage.
+
+The operator-review CLI can write the artifact:
+
+```sh
+python -m scopecat.measurement_records operator-review \
+  --storage-root ./storage \
+  --request-id operator-review-001 \
+  --selected-record-id run-001 \
+  --html-dir ./review
+```
