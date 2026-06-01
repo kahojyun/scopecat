@@ -170,6 +170,26 @@ and best-effort rollback when manifest writing fails. It keeps `record_id`
 caller-declared and public-safe; it does not generate UUIDs, allocate
 namespace ids, or parse record ids for meaning.
 
+## Existing-Record Append Update Checkpoint
+
+The first existing-record append update slice is implemented in
+[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+It exposes a raw-dictionary entrypoint,
+`append_existing_measurement_record(...)`, and a route-local entrypoint,
+`append_existing_measurement_record_from_request(...)`.
+
+This slice consumes an approved update request for a declared existing record
+directory, checks the existing record manifest and primary data for
+continuity, reads one declared append chunk from a caller-provided content
+root, writes one new append segment and one update receipt, and releases a
+direct record-local lock guard. It leaves the existing manifest and primary
+data unchanged.
+
+It deliberately does not replace manifests, merge append segments into primary
+data, refresh read models, scan storage roots, infer schema, define lock
+identity, clean stale locks, implement crash recovery, import/export packages,
+run hardware, or define GUI workflow.
+
 ## Writer Integration Checkpoint
 
 The first writer-integration slice is also implemented in
