@@ -1,5 +1,13 @@
 """Measurement Records engineering prototypes."""
 
+from scopecat.measurement_records.context_attachment import (
+    MeasurementRecordContextAttachment,
+    MeasurementRecordContextAttachmentRequest,
+    MeasurementRecordContextAttachmentRun,
+    attach_measurement_record_context,
+    attach_measurement_record_context_from_request,
+    list_measurement_record_context_attachments,
+)
 from scopecat.measurement_records.creation import (
     MeasurementRecordCreationRequest,
     MeasurementRecordCreationRun,
@@ -125,6 +133,9 @@ __all__ = [
     "MeasurementRecordAppendChunk",
     "MeasurementRecordCatalogRequest",
     "MeasurementRecordCatalogRun",
+    "MeasurementRecordContextAttachment",
+    "MeasurementRecordContextAttachmentRequest",
+    "MeasurementRecordContextAttachmentRun",
     "MeasurementRecordCreationRequest",
     "MeasurementRecordCreationRun",
     "MeasurementRecordDurableImportRequest",
@@ -163,6 +174,8 @@ __all__ = [
     "append_in_progress_measurement_record_from_request",
     "attach_converted_primary_data_to_legacy_record",
     "attach_converted_primary_data_to_legacy_record_from_request",
+    "attach_measurement_record_context",
+    "attach_measurement_record_context_from_request",
     "build_measurement_record_review_html",
     "catalog_measurement_record_read_models",
     "catalog_measurement_record_read_models_from_request",
@@ -174,6 +187,7 @@ __all__ = [
     "import_measurement_record_from_request",
     "inspect_running_measurement_record",
     "inspect_running_measurement_record_from_request",
+    "list_measurement_record_context_attachments",
     "list_measurement_record_storage",
     "list_measurement_record_storage_from_request",
     "project_measurement_record_read_model",

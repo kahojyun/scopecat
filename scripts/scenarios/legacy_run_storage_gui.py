@@ -30,11 +30,14 @@ from scopecat.measurement_records import (  # noqa: E402
     LegacyPrimaryImportRequest,
     LegacyRunLocator,
     LegacyRunRecordRequest,
+    MeasurementRecordContextAttachment,
+    MeasurementRecordContextAttachmentRequest,
     MeasurementRecordImportSource,
     MeasurementRecordOperatorReviewRequest,
     MeasurementRecordReadRequest,
     MeasurementRecordStorageInventoryRequest,
     attach_converted_primary_data_to_legacy_record_from_request,
+    attach_measurement_record_context_from_request,
     list_measurement_record_storage_from_request,
     read_created_record_primary_table_from_request,
     record_legacy_measurement_run_from_request,
@@ -98,6 +101,8 @@ class ScenarioIds:
     record_id: str
     legacy_record_request_id: str
     primary_attach_request_id: str
+    context_attachment_request_id: str
+    context_attachment_set_id: str
     inventory_request_id: str
     read_request_id: str
     primary_locator_id: str
@@ -110,6 +115,8 @@ class ScenarioIds:
             "record_id": self.record_id,
             "legacy_record_request_id": self.legacy_record_request_id,
             "primary_attach_request_id": self.primary_attach_request_id,
+            "context_attachment_request_id": self.context_attachment_request_id,
+            "context_attachment_set_id": self.context_attachment_set_id,
             "inventory_request_id": self.inventory_request_id,
             "read_request_id": self.read_request_id,
             "primary_locator_id": self.primary_locator_id,
@@ -158,6 +165,19 @@ def run_scenario(workspace: Path | None = None, *, open_browser: bool = False) -
             content_root=content_root,
             storage_root=storage_root,
         )
+        context_artifacts = _write_context_artifacts(
+            scenario_workspace,
+            scenario_input,
+            ids,
+        )
+        context_attach = attach_measurement_record_context_from_request(
+            _context_attachment_request(
+                scenario_input,
+                ids,
+                context_artifacts,
+            ),
+            storage_root=storage_root,
+        )
         read_view = read_created_record_primary_table_from_request(
             MeasurementRecordReadRequest(
                 request_id=ids.read_request_id,
@@ -176,6 +196,8 @@ def run_scenario(workspace: Path | None = None, *, open_browser: bool = False) -
                 "normalized_source_path": normalized_source_path,
                 "legacy_run": legacy_run.to_dict(),
                 "primary_attach": primary_attach.to_dict(),
+                "context_artifacts": context_artifacts,
+                "context_attach": context_attach.to_dict(),
                 "read_view": read_view.to_dict(),
             }
         )
@@ -258,6 +280,8 @@ def _scenario_ids(source: LegacyScenarioInput) -> ScenarioIds:
         record_id=f"rec-{base}",
         legacy_record_request_id=f"record-{base}-legacy",
         primary_attach_request_id=f"attach-{base}-primary",
+        context_attachment_request_id=f"attach-{base}-context",
+        context_attachment_set_id=f"context-{base}",
         inventory_request_id=f"inventory-{base}",
         read_request_id=f"read-{base}-primary",
         primary_locator_id=f"loc-{base}-primary",
@@ -334,6 +358,113 @@ def _primary_attach_request(
     )
 
 
+def _write_context_artifacts(
+    workspace: Path,
+    source: LegacyScenarioInput,
+    ids: ScenarioIds,
+) -> dict[str, dict[str, Any]]:
+    parameter_path = workspace / "legacy-system" / "params" / f"{source.legacy_run_id}.json"
+    setup_path = workspace / "legacy-system" / "setup" / f"{source.legacy_run_id}.json"
+    code_dir = workspace / "legacy-system" / "code" / source.experiment_type
+    code_path = code_dir / "acquire.py"
+    analysis_path = workspace / "analysis" / ids.measurement_id / "summary.csv"
+    parameter_payload = {
+        "legacy_run_id": source.legacy_run_id,
+        "pulse_length_ns": 40 if source.experiment_type == "rabi" else 80,
+        "detuning_span_mhz": 4.0 if source.experiment_type == "rabi" else 3.0,
+    }
+    setup_payload = {
+        "legacy_run_id": source.legacy_run_id,
+        "readout_line": "synthetic-readout-a",
+        "drive_line": "synthetic-drive-a",
+    }
+    _write_json(parameter_path, parameter_payload)
+    _write_json(setup_path, setup_payload)
+    code_path.parent.mkdir(parents=True, exist_ok=True)
+    code_path.write_text(
+        (
+            "# Synthetic legacy acquisition entrypoint for scenario review.\n"
+            f"EXPERIMENT_TYPE = {source.experiment_type!r}\n"
+            "def acquire():\n"
+            "    return 'legacy-system-owned acquisition'\n"
+        ),
+        encoding="utf-8",
+    )
+    analysis_path.parent.mkdir(parents=True, exist_ok=True)
+    analysis_path.write_text(
+        "metric,value\n"
+        f"legacy_run_id,{source.legacy_run_id}\n"
+        f"initial_quality,{'reviewable' if source.experiment_type == 'rabi' else 'needs_followup'}\n",
+        encoding="utf-8",
+    )
+    return {
+        "parameter_file": _workspace_file_ref(workspace, parameter_path),
+        "setup_binding_file": _workspace_file_ref(workspace, setup_path),
+        "code_directory": {
+            "relative_path": code_dir.relative_to(workspace).as_posix(),
+            "size_bytes": None,
+            "digest": None,
+        },
+        "analysis_result": _workspace_file_ref(workspace, analysis_path),
+    }
+
+
+def _context_attachment_request(
+    source: LegacyScenarioInput,
+    ids: ScenarioIds,
+    artifacts: dict[str, dict[str, Any]],
+) -> MeasurementRecordContextAttachmentRequest:
+    return MeasurementRecordContextAttachmentRequest(
+        request_id=ids.context_attachment_request_id,
+        approval_state="approved",
+        record_id=ids.record_id,
+        record_dir=f"records/{ids.record_id}",
+        attachment_set_id=ids.context_attachment_set_id,
+        attachments=(
+            MeasurementRecordContextAttachment(
+                attachment_id=f"param-{ids.measurement_id}",
+                family="parameter_state",
+                role="parameter_file",
+                reference_kind="workspace_relative_path",
+                reference_value=artifacts["parameter_file"]["relative_path"],
+                label="Legacy parameter file",
+                digest=artifacts["parameter_file"]["digest"],
+                size_bytes=artifacts["parameter_file"]["size_bytes"],
+            ),
+            MeasurementRecordContextAttachment(
+                attachment_id=f"setup-{ids.measurement_id}",
+                family="setup_binding",
+                role="setup_binding_file",
+                reference_kind="workspace_relative_path",
+                reference_value=artifacts["setup_binding_file"]["relative_path"],
+                label="Legacy setup binding file",
+                digest=artifacts["setup_binding_file"]["digest"],
+                size_bytes=artifacts["setup_binding_file"]["size_bytes"],
+            ),
+            MeasurementRecordContextAttachment(
+                attachment_id=f"code-{ids.measurement_id}",
+                family="experiment_code",
+                role="code_directory",
+                reference_kind="workspace_relative_path",
+                reference_value=artifacts["code_directory"]["relative_path"],
+                label="Legacy acquisition code directory",
+            ),
+            MeasurementRecordContextAttachment(
+                attachment_id=f"analysis-{ids.measurement_id}",
+                family="preliminary_analysis",
+                role="analysis_result",
+                reference_kind="workspace_relative_path",
+                reference_value=artifacts["analysis_result"]["relative_path"],
+                label="Initial analysis summary",
+                digest=artifacts["analysis_result"]["digest"],
+                size_bytes=artifacts["analysis_result"]["size_bytes"],
+                preview=f"{source.experiment_type} initial summary",
+            ),
+        ),
+        operator_notes="Scenario records user-selected context references only.",
+    )
+
+
 def _legacy_rows(source: LegacyScenarioInput) -> tuple[tuple[str, str, str], ...]:
     if source.legacy_run_id == "lv-run-002":
         return (
@@ -392,17 +523,20 @@ def _summary(
     measurement_review = _measurement_review_model(
         measurement_runs=measurement_runs,
         inventory=inventory,
+        operator_review=operator_review,
     )
     record_diagnostics = [
         _record_diagnostics(
             workspace=workspace,
             legacy_run=measurement_run["legacy_run"],
             primary_attach=measurement_run["primary_attach"],
+            context_attach=measurement_run["context_attach"],
         )
         for measurement_run in measurement_runs
     ]
     legacy_runs = [measurement_run["legacy_run"] for measurement_run in measurement_runs]
     primary_attaches = [measurement_run["primary_attach"] for measurement_run in measurement_runs]
+    context_attaches = [measurement_run["context_attach"] for measurement_run in measurement_runs]
     read_views = [measurement_run["read_view"] for measurement_run in measurement_runs]
     return {
         "scenario": "legacy_run_storage_gui",
@@ -429,6 +563,9 @@ def _summary(
             "primary_attach_classifications": [
                 primary_attach["workflow"]["classification"] for primary_attach in primary_attaches
             ],
+            "context_attach_classifications": [
+                context_attach["workflow"]["classification"] for context_attach in context_attaches
+            ],
             "inventory_classification": inventory["workflow"]["classification"],
             "read_view_classifications": [
                 read_view["workflow"]["classification"] for read_view in read_views
@@ -441,6 +578,7 @@ def _summary(
         },
         "legacy_runs": legacy_runs,
         "primary_attaches": primary_attaches,
+        "context_attaches": context_attaches,
         "inventory": inventory,
         "operator_review": operator_review,
         "operator_review_artifact": operator_review_artifact,
@@ -454,8 +592,10 @@ def _measurement_review_model(
     *,
     measurement_runs: list[dict[str, Any]],
     inventory: dict[str, Any],
+    operator_review: dict[str, Any],
 ) -> dict[str, Any]:
     entries = {entry["record_id"]: entry for entry in inventory["entries"]}
+    context_by_record = _context_attachments_by_record(operator_review)
     measurements = []
     for measurement_run in measurement_runs:
         legacy_run = measurement_run["legacy_run"]
@@ -504,6 +644,7 @@ def _measurement_review_model(
                     "legacy_receipt_state": legacy_entry["legacy_run"]["state"],
                     "read_model_state": legacy_entry["read_model"]["state"],
                 },
+                "context_attachments": context_by_record.get(legacy_request["record_id"], []),
                 "next_action": "review_primary_data_preview",
             }
         )
@@ -535,15 +676,27 @@ def _first_locator_by_role(
     return None
 
 
+def _context_attachments_by_record(
+    operator_review: dict[str, Any],
+) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    context_review = operator_review.get("context_attachments", {})
+    for entry in context_review.get("entries", []):
+        grouped.setdefault(entry["record_id"], []).extend(entry["attachments"])
+    return grouped
+
+
 def _record_diagnostics(
     *,
     workspace: Path,
     legacy_run: dict[str, Any],
     primary_attach: dict[str, Any],
+    context_attach: dict[str, Any],
 ) -> dict[str, Any]:
     storage_root = workspace / "storage"
     legacy_request = legacy_run["request"]
     attach_request = primary_attach["request"]
+    context_request = context_attach["request"]
     artifacts = [
         _record_artifact(
             storage_root,
@@ -586,6 +739,13 @@ def _record_diagnostics(
             role="read_model_projection",
             label="Projected review model",
             relative_path=attach_request["read_model_path"],
+        ),
+        _record_artifact(
+            storage_root,
+            order=7,
+            role="context_attachment_receipt",
+            label="Recorded context references",
+            relative_path=context_request["attachment_receipt_path"],
         ),
     ]
     return {
@@ -786,11 +946,14 @@ def _html_review(summary: dict[str, Any]) -> str:
       {_status_tile("Measurements", len(measurement_review["measurements"]))}
       {_status_tile("Legacy records", _classification_summary(summary["workflow"]["legacy_record_classifications"]))}
       {_status_tile("Primary attach", _classification_summary(summary["workflow"]["primary_attach_classifications"]))}
+      {_status_tile("Context attach", _classification_summary(summary["workflow"]["context_attach_classifications"]))}
       {_status_tile("Inventory", summary["workflow"]["inventory_classification"])}
       {_status_tile("Read views", _classification_summary(summary["workflow"]["read_view_classifications"]))}
     </section>
     <h2>Measurements</h2>
     {_measurement_cards(measurement_review["measurements"])}
+    <h2>Recorded Context</h2>
+    {_context_attachment_sections(measurement_review["measurements"])}
     <h2>Primary Data Preview</h2>
     {_preview_sections(measurement_review["measurements"])}
     <section class="secondary">
@@ -857,6 +1020,38 @@ def _measurement_card(measurement: dict[str, Any]) -> str:
         </dl>
       </article>
     """
+
+
+def _context_attachment_sections(measurements: list[dict[str, Any]]) -> str:
+    sections = []
+    for measurement in measurements:
+        sections.append(
+            f"<h3>{_escape(measurement['title'])}</h3>"
+            + _context_attachment_table(measurement["context_attachments"])
+        )
+    return "".join(sections)
+
+
+def _context_attachment_table(attachments: list[dict[str, Any]]) -> str:
+    if not attachments:
+        return "<p>No context attachments recorded.</p>"
+    rows = []
+    for attachment in attachments:
+        rows.append(
+            "<tr>"
+            f"<td>{_escape(attachment['family'])}</td>"
+            f"<td>{_escape(attachment['role'])}</td>"
+            f"<td>{_escape(attachment.get('label'))}</td>"
+            f"<td>{_escape(attachment['reference_kind'])}</td>"
+            f"<td><code>{_escape(attachment['reference_value'])}</code></td>"
+            f"<td>{_escape(attachment['state'])}</td>"
+            "</tr>"
+        )
+    return (
+        "<table><thead><tr>"
+        "<th>Family</th><th>Role</th><th>Label</th><th>Reference</th><th>Value</th><th>State</th>"
+        "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
+    )
 
 
 def _record_artifact_sections(record_diagnostics: list[dict[str, Any]]) -> str:
@@ -946,6 +1141,19 @@ def _preview_table(columns: list[str], rows: list[dict[str, Any]]) -> str:
 
 def _escape(value: object) -> str:
     return html.escape(str(value), quote=True)
+
+
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _workspace_file_ref(workspace: Path, path: Path) -> dict[str, Any]:
+    return {
+        "relative_path": path.relative_to(workspace).as_posix(),
+        "size_bytes": path.stat().st_size,
+        "digest": _sha256_file(path),
+    }
 
 
 def _sha256_file(path: Path) -> str:

@@ -20,6 +20,7 @@ def build_measurement_record_review_html(
     review = _review_payload(operator_review)
     entries = review["catalog"]["entries"]
     running = review["running_inspections"]
+    context_attachments = review.get("context_attachments", {"entries": []})
     selected = review["selected_record"]
     findings = review["review_findings"]
     return f"""<!doctype html>
@@ -51,6 +52,11 @@ def build_measurement_record_review_html(
     <section>
       <h2>Selected Record</h2>
       {_selected_record(selected)}
+    </section>
+
+    <section>
+      <h2>Context Attachments</h2>
+      {_context_attachment_table(context_attachments.get("entries", []))}
     </section>
 
     <section>
@@ -170,6 +176,31 @@ def _selected_record(selected: dict[str, Any] | None) -> str:
             ]
         )
     return _fact_list(facts)
+
+
+def _context_attachment_table(entries: list[dict[str, Any]]) -> str:
+    if not entries:
+        return '<p class="empty">No context attachment receipts were recorded.</p>'
+    rows = []
+    for entry in entries:
+        for attachment in entry["attachments"]:
+            rows.append(
+                "<tr>"
+                f"<td><code>{_esc(entry['record_id'])}</code></td>"
+                f"<td>{_esc(attachment['family'])}</td>"
+                f"<td>{_esc(attachment['role'])}</td>"
+                f"<td>{_esc(attachment.get('label'))}</td>"
+                f"<td>{_esc(attachment['reference_kind'])}</td>"
+                f"<td><code>{_esc(attachment['reference_value'])}</code></td>"
+                f"<td>{_esc(attachment['state'])}</td>"
+                "</tr>"
+            )
+    return (
+        "<table><thead><tr>"
+        "<th>Record</th><th>Family</th><th>Role</th><th>Label</th>"
+        "<th>Reference</th><th>Value</th><th>State</th>"
+        "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
+    )
 
 
 def _running_table(running: list[dict[str, Any]]) -> str:
