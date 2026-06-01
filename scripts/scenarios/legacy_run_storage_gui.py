@@ -239,6 +239,12 @@ def _summary(
     legacy_source_path: Path,
     normalized_source_path: Path,
 ) -> dict[str, Any]:
+    measurement_review = _measurement_review_model(
+        legacy_run=legacy_run,
+        import_run=import_run,
+        inventory=inventory,
+        read_view=read_view,
+    )
     return {
         "scenario": "legacy_run_storage_gui",
         "workspace": str(workspace),
@@ -260,10 +266,114 @@ def _summary(
         "import_run": import_run,
         "inventory": inventory,
         "read_view": read_view,
+        "measurement_review": measurement_review,
     }
 
 
+def _measurement_review_model(
+    *,
+    legacy_run: dict[str, Any],
+    import_run: dict[str, Any],
+    inventory: dict[str, Any],
+    read_view: dict[str, Any],
+) -> dict[str, Any]:
+    entries = {entry["record_id"]: entry for entry in inventory["entries"]}
+    legacy_request = legacy_run["request"]
+    import_request = import_run["request"]
+    source_id = import_request["import_source"]["source_id"]
+    imported_from_legacy = source_id == legacy_request["record_id"]
+    primary_locator = _first_locator_by_role(legacy_request["locators"], "primary_data")
+    imported_entry = entries[import_request["record_id"]]
+    legacy_entry = entries[legacy_request["record_id"]]
+    preview = read_view["table"]["preview"]
+    return {
+        "artifact_posture": "scenario_measurement_review_projection",
+        "projection_policy": {
+            "input_authority": "scenario_outputs_and_storage_inventory",
+            "storage_mutation": "not_performed",
+            "relationship_inference": "durable_import_source_id_only",
+            "recursive_relation_traversal": "not_performed",
+            "final_gui_contract": "not_defined",
+        },
+        "measurements": [
+            {
+                "record_id": import_request["record_id"],
+                "title": import_request.get("label") or import_request["record_id"],
+                "kind": "converted_primary_data",
+                "experiment_type": import_request.get("experiment_type"),
+                "primary_data": {
+                    "state": "available",
+                    "row_count": read_view["table"]["row_count"],
+                    "columns": preview["columns"],
+                    "preview_rows": preview["rows"],
+                },
+                "source": {
+                    "relationship": (
+                        "converted_from_legacy_record"
+                        if imported_from_legacy
+                        else "declared_import_source"
+                    ),
+                    "legacy_record_id": source_id,
+                    "legacy_system_id": legacy_request["legacy_system_id"],
+                    "legacy_run_id": legacy_request["legacy_run_id"],
+                    "primary_locator": primary_locator,
+                    "normalized_source": import_request["import_source"]["content_ref"],
+                },
+                "storage": {
+                    "record_dir": imported_entry["record_dir"],
+                    "read_model_state": imported_entry["read_model"]["state"],
+                    "legacy_receipt_state": imported_entry["legacy_run"]["state"],
+                },
+                "next_action": "review_primary_data_preview",
+            },
+            {
+                "record_id": legacy_request["record_id"],
+                "title": legacy_request.get("label") or legacy_request["record_id"],
+                "kind": "legacy_locator_record",
+                "experiment_type": legacy_request.get("experiment_type"),
+                "primary_data": {
+                    "state": "not_imported_on_legacy_record",
+                    "row_count": None,
+                    "columns": [],
+                    "preview_rows": [],
+                },
+                "source": {
+                    "relationship": "legacy_system_record",
+                    "legacy_record_id": legacy_request["record_id"],
+                    "legacy_system_id": legacy_request["legacy_system_id"],
+                    "legacy_run_id": legacy_request["legacy_run_id"],
+                    "primary_locator": primary_locator,
+                    "related_imported_record_id": (
+                        import_request["record_id"] if imported_from_legacy else None
+                    ),
+                },
+                "storage": {
+                    "record_dir": legacy_entry["record_dir"],
+                    "read_model_state": legacy_entry["read_model"]["state"],
+                    "legacy_receipt_state": legacy_entry["legacy_run"]["state"],
+                },
+                "next_action": "review_converted_imported_record",
+            },
+        ],
+        "diagnostics": {
+            "inventory_classification": inventory["workflow"]["classification"],
+            "review_finding_count": len(inventory["review_findings"]),
+        },
+    }
+
+
+def _first_locator_by_role(
+    locators: list[dict[str, Any]],
+    role: str,
+) -> dict[str, Any] | None:
+    for locator in locators:
+        if locator["role"] == role:
+            return locator
+    return None
+
+
 def _html_review(summary: dict[str, Any]) -> str:
+    measurement_review = summary["measurement_review"]
     inventory_entries = summary["inventory"]["entries"]
     table = summary["read_view"]["table"]
     preview = table["preview"]
@@ -293,6 +403,11 @@ def _html_review(summary: dict[str, Any]) -> str:
       font-size: 24px;
       margin: 0 0 16px;
     }}
+    .subtitle {{
+      color: #59616d;
+      font-size: 14px;
+      margin: -8px 0 20px;
+    }}
     h2 {{
       font-size: 16px;
       margin: 24px 0 8px;
@@ -317,6 +432,46 @@ def _html_review(summary: dict[str, Any]) -> str:
       font-size: 14px;
       font-weight: 600;
       overflow-wrap: anywhere;
+    }}
+    .measurements {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 14px;
+      margin-top: 14px;
+    }}
+    .measurement {{
+      background: #ffffff;
+      border: 1px solid #d9dde3;
+      border-radius: 6px;
+      padding: 14px;
+    }}
+    .measurement h3 {{
+      font-size: 15px;
+      margin: 0 0 4px;
+    }}
+    .meta {{
+      color: #59616d;
+      font-size: 12px;
+      margin-bottom: 12px;
+      overflow-wrap: anywhere;
+    }}
+    .facts {{
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      gap: 6px 10px;
+      font-size: 13px;
+    }}
+    .facts dt {{
+      color: #59616d;
+    }}
+    .facts dd {{
+      margin: 0;
+      overflow-wrap: anywhere;
+    }}
+    .secondary {{
+      margin-top: 24px;
+      padding-top: 8px;
+      border-top: 1px solid #d9dde3;
     }}
     table {{
       width: 100%;
@@ -347,17 +502,22 @@ def _html_review(summary: dict[str, Any]) -> str:
 </head>
 <body>
   <main>
-    <h1>Scopecat Legacy Run Scenario</h1>
+    <h1>Measurement Review</h1>
+    <p class="subtitle">Legacy run recorded, converted to normalized primary data, and shown as user-facing measurement entries.</p>
     <section class="summary">
       {_status_tile("Legacy record", summary["workflow"]["legacy_record_classification"])}
       {_status_tile("Primary import", summary["workflow"]["import_classification"])}
       {_status_tile("Inventory", summary["workflow"]["inventory_classification"])}
       {_status_tile("Read view", summary["workflow"]["read_view_classification"])}
     </section>
-    <h2>Storage Inventory</h2>
-    {_inventory_table(inventory_entries)}
+    <h2>Measurements</h2>
+    {_measurement_cards(measurement_review["measurements"])}
     <h2>Primary Data Preview</h2>
     {_preview_table(columns, rows)}
+    <section class="secondary">
+      <h2>Storage Diagnostics</h2>
+      {_inventory_table(inventory_entries)}
+    </section>
     <h2>Generated Files</h2>
     <table>
       <tbody>
@@ -378,6 +538,36 @@ def _status_tile(label: str, value: str) -> str:
         f'<div class="value">{_escape(value)}</div>'
         "</div>"
     )
+
+
+def _measurement_cards(measurements: list[dict[str, Any]]) -> str:
+    return (
+        '<section class="measurements">'
+        + "".join(_measurement_card(measurement) for measurement in measurements)
+        + "</section>"
+    )
+
+
+def _measurement_card(measurement: dict[str, Any]) -> str:
+    source = measurement["source"]
+    primary = measurement["primary_data"]
+    locator = source.get("primary_locator") or {}
+    related = source.get("related_imported_record_id") or source.get("legacy_record_id")
+    return f"""
+      <article class="measurement">
+        <h3>{_escape(measurement["title"])}</h3>
+        <div class="meta">{_escape(measurement["record_id"])} · {_escape(measurement["kind"])}</div>
+        <dl class="facts">
+          <dt>Primary data</dt><dd>{_escape(primary["state"])}</dd>
+          <dt>Rows</dt><dd>{_escape(primary["row_count"] if primary["row_count"] is not None else "not imported")}</dd>
+          <dt>Source</dt><dd>{_escape(source["relationship"])}</dd>
+          <dt>Legacy run</dt><dd>{_escape(source["legacy_system_id"])} / {_escape(source["legacy_run_id"])}</dd>
+          <dt>Related record</dt><dd>{_escape(related)}</dd>
+          <dt>Legacy locator</dt><dd><code>{_escape(locator.get("value", "not declared"))}</code></dd>
+          <dt>Next action</dt><dd>{_escape(measurement["next_action"])}</dd>
+        </dl>
+      </article>
+    """
 
 
 def _inventory_table(entries: list[dict[str, Any]]) -> str:

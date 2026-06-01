@@ -49,10 +49,30 @@ class LegacyRunStorageGuiScenarioTest(unittest.TestCase):
             [entry["record_id"] for entry in full_summary["inventory"]["entries"]],
             ["imported-run-001", "legacy-run-001"],
         )
+        self.assertEqual(
+            [
+                measurement["record_id"]
+                for measurement in full_summary["measurement_review"]["measurements"]
+            ],
+            ["imported-run-001", "legacy-run-001"],
+        )
+        imported_measurement = full_summary["measurement_review"]["measurements"][0]
+        self.assertEqual(
+            imported_measurement["source"]["relationship"],
+            "converted_from_legacy_record",
+        )
+        self.assertEqual(imported_measurement["source"]["legacy_record_id"], "legacy-run-001")
+        self.assertEqual(
+            imported_measurement["source"]["primary_locator"]["value"],
+            "legacy-system/run-001.tsv",
+        )
         self.assertEqual(full_summary["read_view"]["table"]["row_count"], 5)
-        self.assertIn("Scopecat Legacy Run Scenario", html)
+        self.assertIn("Measurement Review", html)
+        self.assertIn("Storage Diagnostics", html)
+        self.assertIn("converted_from_legacy_record", html)
         self.assertIn("legacy-run-001", html)
         self.assertIn("imported-run-001", html)
+        self.assertIn("legacy-system/run-001.tsv", html)
         self.assertIn("signal_counts", html)
 
 
