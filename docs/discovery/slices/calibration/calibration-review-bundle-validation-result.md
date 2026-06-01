@@ -31,7 +31,8 @@ The implementation candidate shows that a side-effect-free summary can:
 
 - assemble declared child summary facts into one read-only calibration review
   bundle;
-- require all expected child summary types to be present;
+- require all expected child summary types to be present for this complete
+  full-chain fixture;
 - validate that child summaries are declared inputs and are not rerun by the
   bundle;
 - validate step, observation, measurement, fit-result, proposed-write, and
@@ -80,6 +81,14 @@ semantics. That downstream boundary is now validated separately by the
 parameter-state intake/storage slices and the calibration-derived
 parameter-state measurement-context backbone.
 
+The required child-summary set is a full-chain fixture constraint, not a
+general product requirement that every calibration notebook or CLI workflow
+manufacture the whole chain before review. Partial notebook workflows,
+observation-only steps, externally reviewed fits, or steps without proposed
+writes should remain valid user workflows; they need either missing-evidence
+review, partial-bundle fixtures, or another explicitly scoped slice before the
+complete-chain shape is treated as product behavior.
+
 ## Follow-Up
 
 Stop this slice at read-only bundle assembly unless a concrete workflow needs
@@ -91,6 +100,8 @@ Likely follow-up slices that do not cross the parameter-state boundary:
 - calibration timeline/trace projection for ordering and event semantics;
 - calibration review-state projection for notebook or CLI review surfaces,
   still without GUI or action execution.
+- partial-chain review bundles for real notebook workflows that do not yet
+  have observation, fit, proposed-write, and handoff summaries for every step.
 
 For route-level continuity beyond this calibration-local bundle, use
 [`calibration-derived-parameter-state-measurement-context-validation-result.md`](calibration-derived-parameter-state-measurement-context-validation-result.md).

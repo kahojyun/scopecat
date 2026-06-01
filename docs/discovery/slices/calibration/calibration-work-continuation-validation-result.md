@@ -52,7 +52,7 @@ The expected summary organizes that context into:
 - outputs;
 - review gates;
 - declared writes;
-- applied writes;
+- externally declared applied-write evidence;
 - requested next actions;
 - attention-worthy warnings.
 
@@ -67,8 +67,11 @@ The fixture clarified several boundaries that should be preserved:
 - Planned context and observed context need distinct provenance. The expected
   summary separates `plan_source`, `lifecycle_source`, and observed output
   `authority`.
-- Proposed writes and applied writes are separate. A user-authored proposed
-  write is not a Scopecat-decided mutation.
+- Proposed writes and externally declared applied-write evidence are separate.
+  A user-authored proposed write is not a Scopecat-decided mutation. The early
+  `applied_writes` fixture field should be read as externally supplied review
+  evidence, not as proof of current instrument state, Scopecat write-back, or
+  managed parameter-state lineage.
 - Review-needed and blocked states are ordinary calibration-continuation state.
   Warnings explain attention-worthy consequences such as failed fit quality,
   blocked downstream steps, or write review requirements.
@@ -115,7 +118,7 @@ The current summary can answer:
 - which measurements, fit previews, and parameter snapshots exist;
 - whether fit quality failed the fixture-declared threshold;
 - which parameter write was proposed;
-- that no write was applied;
+- that no write was applied in this fixture;
 - which manual choices are available: review fit, accept outside Scopecat after
   review, rerun the Rabi step, skip the target, or wait because T1 is blocked.
 
@@ -132,6 +135,14 @@ does not apply it. This points to a likely Scopecat capability, but not yet a
 write-back contract: Scopecat may need to record and summarize proposals even
 when parameter snapshots, calibration code, and final parameter authority remain
 externally managed.
+
+This result predates the later route-level vocabulary that splits external
+apply from parameter-state handoff. If this slice continues, `applied_writes`
+should either be renamed or explicitly scoped as external-apply evidence:
+user-declared evidence that an outside system or file was updated. It should
+not become a managed parameter-state snapshot, hardware apply receipt, current
+instrument-state assertion, or Scopecat write-back record without a separate
+validated boundary.
 
 Blocked-cause traceability is useful, but it should not become the primary user
 surface if the system is reliable. Users should normally care about current

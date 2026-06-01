@@ -75,6 +75,15 @@ slice still records no application. That keeps calibration review workflow
 pressure separate from parameter-store authority and hardware-control
 behavior.
 
+`accepted_for_external_apply` is the early-adoption path: it records that a
+user accepts the proposed value for action outside Scopecat, such as updating a
+legacy parameter file or lab-owned tool. It does not create managed
+parameter-state context, prove current hardware state, or imply Scopecat
+write-back. The managed parameter-state path is validated separately by
+[`calibration-accepted-write-handoff-validation-result.md`](calibration-accepted-write-handoff-validation-result.md),
+which requires `accepted_for_parameter_state_handoff` before handing the
+proposal to parameter-state-owned intake/storage.
+
 ## Follow-Up
 
 Stop this slice at review-only proposed writes unless a concrete workflow needs

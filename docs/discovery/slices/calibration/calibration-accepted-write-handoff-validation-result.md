@@ -72,6 +72,13 @@ It does not:
 Calibration can own the decision that a proposed write is ready to hand to
 parameter-state management without becoming the parameter-state authority.
 
+This handoff is not the same as external apply. External apply records a
+user-owned outside-Scopecat action path, and any files or receipts from that
+path remain supporting evidence unless a later adapter/import route promotes
+them. This slice only covers the managed parameter-state path: a proposed write
+must be explicitly accepted for parameter-state handoff before parameter-state
+intake/storage can consider it.
+
 The handoff carries enough structured context for parameter-state management to
 start a draft/review flow: base state, lineage, parameter path, old value, and
 candidate value. It still creates no draft, no review acceptance, no committed
