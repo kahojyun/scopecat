@@ -26,6 +26,8 @@ explicit prior prepared-run review summaries
   -> compose_prepared_run_review_gate(...)
   -> PreparedRunReviewGateResult
   -> local review_summary projection
+  -> optional PreparedRunAcknowledgementReviewRequest
+  -> local acknowledgement/continuation review_summary projection
 ```
 
 The raw-dictionary adapter remains available for current fixture and edge use:
@@ -48,6 +50,11 @@ The promoted baseline includes:
 - missing required context precedence as `blocked_by_required_context`;
 - clear inputs producing `ready_for_manual_review`;
 - flagged non-required areas producing `manual_pre_run_review_needed`;
+- optional local acknowledgement review over selected gate review items and
+  findings;
+- acknowledgement continuation state that can record non-required review items
+  as handled for manual continuation while keeping required-context blocks
+  blocked;
 - local `review_summary` / local review projection posture.
 
 ## Explicit Non-Promotions
@@ -59,7 +66,7 @@ This decision does not promote:
 - prepared-run context creation or catalog discovery;
 - parameter-state storage, source-agnostic parameter-state consumption, or
   parameter write-back;
-- acknowledgement, approval, GUI view-state, or GUI persistence behavior;
+- approval, GUI view-state, or GUI persistence behavior;
 - runtime readiness, run permission, run safety, restore behavior, scheduler
   behavior, automatic run start, or hardware control;
 - dependency resolution, dependency sync, package installation, runtime
@@ -86,7 +93,6 @@ unless a later decision promotes a separately scoped boundary.
 Do not continue by promoting the whole prepared-run route. The next engineering
 phase should choose one explicit path:
 
-- acknowledgement integration over the local review-gate result;
 - GUI/view-state projection over the accepted review-gate result;
 - route-local connection to accepted environment-operation review objects;
 - a separately scoped prepared-run context construction boundary.
