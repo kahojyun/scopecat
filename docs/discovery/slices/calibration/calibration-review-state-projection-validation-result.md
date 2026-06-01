@@ -65,17 +65,22 @@ The calibration-only review path now has a compact per-step review-state
 projection without crossing into execution or parameter-state intake.
 
 The projection can tell a notebook or CLI what needs attention, but the
-available actions are labels only. Handoff-ready steps explicitly wait for the
-parameter-state thread.
+available actions are labels only. Handoff-ready steps explicitly stop before
+parameter-state-owned intake; the downstream intake/storage and later
+measurement-context continuity are now validated in separate parameter-state
+and route-level slices.
 
 ## Follow-Up
 
-This is a reasonable stopping point for the calibration-only side while the
-parameter-state intake thread is still active.
+This remains a reasonable stopping point for the calibration-only side. The
+previous pause on parameter-state intake is resolved for the current route
+backbone, but this slice still should not create parameter-state intake,
+committed states, or measurement-context links itself.
 
 Possible later slices:
 
 - explicit user-action recording against review-state cards, still without
   executing actions;
 - route-level consolidation notes for calibration review responsibilities;
-- parameter-state intake only after the other thread settles that boundary.
+- full-route missing-context pressure over the validated calibration-derived
+  parameter-state measurement-context backbone.

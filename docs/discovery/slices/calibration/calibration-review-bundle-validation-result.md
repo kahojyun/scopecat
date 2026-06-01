@@ -68,13 +68,17 @@ It does not:
 
 ## Result
 
-The recent calibration slices can be reviewed together as one coherent chain
-without moving the parameter-state boundary forward.
+The recent calibration slices can be reviewed together as one coherent
+calibration-local chain without moving parameter-state ownership into
+calibration.
 
 The bundle verifies that the step record, observation link, measurement, fit
 result, proposed write, and accepted handoff references line up. Its terminal
 status is deliberately phrased as `handoff_ready_without_parameter_state_intake`
-so the other parameter-state thread can own intake and commit semantics.
+because this slice stops before parameter-state-owned intake and commit
+semantics. That downstream boundary is now validated separately by the
+parameter-state intake/storage slices and the calibration-derived
+parameter-state measurement-context backbone.
 
 ## Follow-Up
 
@@ -87,3 +91,6 @@ Likely follow-up slices that do not cross the parameter-state boundary:
 - calibration timeline/trace projection for ordering and event semantics;
 - calibration review-state projection for notebook or CLI review surfaces,
   still without GUI or action execution.
+
+For route-level continuity beyond this calibration-local bundle, use
+[`calibration-derived-parameter-state-measurement-context-validation-result.md`](calibration-derived-parameter-state-measurement-context-validation-result.md).
