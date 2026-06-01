@@ -13,6 +13,10 @@ recursive relation traversal, analysis-DAG inference, fit validation,
 measurement-validity decisions, portable/public export, GUI workflow, or a
 shared artifact schema.
 
+Artifact posture: `internal_validation_summary`. This validation result, its
+fixture input, and expected output are repository-safe discovery artifacts, not
+portable/public export artifacts.
+
 ## Fixture
 
 Fixture:

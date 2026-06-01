@@ -13,6 +13,10 @@ code execution, setup-truth decision, measurement-validity decision, context
 restore, write-back, recursive relation traversal, GUI workflow, or shared
 status schema.
 
+Artifact posture: `internal_validation_summary`. This validation result, its
+fixture input, and expected output are repository-safe discovery artifacts, not
+portable/public export artifacts.
+
 ## Fixture
 
 Fixture:

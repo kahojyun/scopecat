@@ -13,6 +13,10 @@ hardware-control contract, parameter write-back contract, setup-mutation
 contract, environment manager, code execution contract, restore contract,
 workflow DAG, or GUI design.
 
+Artifact posture: `internal_validation_summary`. This validation result, its
+fixture input, and expected output are repository-safe discovery artifacts, not
+portable/public export artifacts.
+
 ## Fixture
 
 Fixture:

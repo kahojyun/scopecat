@@ -48,9 +48,9 @@
         }
       },
       {
-        "context_id": "station-registry-mmcs2-redacted",
+        "context_id": "station-registry-synthetic-redacted",
         "family": "station_registry",
-        "label": "redacted MMCS2 station registry",
+        "label": "redacted synthetic station registry",
         "record_status": "selected_station_context",
         "authority": "setup_binding_fixture",
         "payload_handling": "family_owned_summary_only",
@@ -148,8 +148,8 @@
         "role": "station_context",
         "required": false,
         "include_state": "selected",
-        "context_id": "station-registry-mmcs2-redacted",
-        "context_label": "redacted MMCS2 station registry",
+        "context_id": "station-registry-synthetic-redacted",
+        "context_label": "redacted synthetic station registry",
         "record_status": "selected_station_context",
         "authority": "setup_binding_fixture"
       },

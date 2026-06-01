@@ -7,6 +7,10 @@ Implementation candidate validation result, not an ADR.
 This result records what the first setup-binding fixture proved and where the
 production-shaped summary boundary remains intentionally narrow.
 
+Artifact posture: `internal_validation_summary`. This validation result, its
+fixture inputs, and expected output are repository-safe discovery artifacts,
+not portable/public export artifacts.
+
 ## Fixture
 
 - `tests/fixtures/setup_binding/basic_binding_context/`
@@ -49,7 +53,7 @@ using one-off fields for each selected state, it uses:
 "inputs": [
   {"name": "parameter_state", "snapshot_id": "param-state-0002"},
   {"name": "setup_binding", "snapshot_id": "setup-binding-0002"},
-  {"name": "station_registry", "snapshot_id": "station-registry-mmcs2-redacted"}
+  {"name": "station_registry", "snapshot_id": "station-registry-synthetic-redacted"}
 ]
 ```
 

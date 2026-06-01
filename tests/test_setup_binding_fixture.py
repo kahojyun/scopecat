@@ -50,7 +50,7 @@ class SetupBindingFixtureTest(unittest.TestCase):
         summary = _expected_summary()["candidate_summary"]
         registry = summary["station_registry_contexts"][0]
 
-        self.assertEqual(registry["registry_id"], "station-registry-mmcs2-redacted")
+        self.assertEqual(registry["registry_id"], "station-registry-synthetic-redacted")
         self.assertEqual(registry["registry_scope"], "station_configuration")
         self.assertFalse(registry["contains_connection_payloads"])
         self.assertEqual(

@@ -12,8 +12,8 @@
   "candidate_summary": {
     "station_registry_contexts": [
       {
-        "registry_id": "station-registry-mmcs2-redacted",
-        "registry_label": "redacted MMCS2 station registry",
+        "registry_id": "station-registry-synthetic-redacted",
+        "registry_label": "redacted synthetic station registry",
         "registry_scope": "station_configuration",
         "contains_connection_payloads": false,
         "resource_count": 5
@@ -32,7 +32,7 @@
       },
       {
         "name": "station_registry",
-        "snapshot_id": "station-registry-mmcs2-redacted",
+        "snapshot_id": "station-registry-synthetic-redacted",
         "lifecycle_semantics": "station_context_reference"
       }
     ],
@@ -43,7 +43,7 @@
         "snapshot_label": "qA default binding before bias-line move",
         "sample_id": "sample-alpha",
         "cooldown_id": "cooldown-2026-05",
-        "selected_registry_id": "station-registry-mmcs2-redacted",
+        "selected_registry_id": "station-registry-synthetic-redacted",
         "inner_payload_handling": "opaque_payload_with_declared_summary_fields",
         "logical_binding_count": 3,
         "generated_view_count": 0
@@ -54,7 +54,7 @@
         "snapshot_label": "qA default binding after bias-line move",
         "sample_id": "sample-alpha",
         "cooldown_id": "cooldown-2026-05",
-        "selected_registry_id": "station-registry-mmcs2-redacted",
+        "selected_registry_id": "station-registry-synthetic-redacted",
         "inner_payload_handling": "opaque_payload_with_declared_summary_fields",
         "logical_binding_count": 6,
         "generated_view_count": 2
@@ -168,7 +168,7 @@
           },
           {
             "name": "station_registry",
-            "snapshot_id": "station-registry-mmcs2-redacted",
+            "snapshot_id": "station-registry-synthetic-redacted",
             "role": "station_context"
           }
         ],

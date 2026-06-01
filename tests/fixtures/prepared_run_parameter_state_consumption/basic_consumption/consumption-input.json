@@ -101,8 +101,8 @@
         "role": "station_context",
         "required": true,
         "include_state": "selected",
-        "context_id": "station-registry-mmcs2-redacted",
-        "context_label": "redacted MMCS2 station registry",
+        "context_id": "station-registry-synthetic-redacted",
+        "context_label": "redacted synthetic station registry",
         "record_status": "selected_station_context",
         "authority": "setup_binding_fixture"
       },

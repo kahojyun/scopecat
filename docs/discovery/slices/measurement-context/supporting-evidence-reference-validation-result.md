@@ -13,6 +13,10 @@ generator, external file authority, artifact-provenance validator, recursive
 relation traversal, measurement validity decision, implicit run-start context,
 GUI workflow, or shared attachment schema.
 
+Artifact posture: `internal_validation_summary`. This validation result, its
+fixture input, and expected output are repository-safe discovery artifacts, not
+portable/public export artifacts.
+
 ## Fixture
 
 Fixture:

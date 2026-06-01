@@ -11,6 +11,10 @@ It is not a final calibration step schema, fit-result schema, relation graph,
 fitting framework, executor, scheduler, write-back contract, hardware-control
 contract, storage model, workflow DAG, or GUI design.
 
+Artifact posture: `internal_validation_summary`. This validation result, its
+fixture input, and expected output are repository-safe discovery artifacts, not
+portable/public export artifacts.
+
 ## Fixture
 
 Fixture:
