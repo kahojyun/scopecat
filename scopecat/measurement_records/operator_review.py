@@ -147,12 +147,24 @@ class MeasurementRecordOperatorReviewRequest:
             raise ValueError("operator review verify_source_digests must be boolean")
         if not isinstance(self.running_inspection_requests, tuple):
             raise ValueError("operator review running_inspection_requests must be a tuple")
+        request_ids: set[str] = set()
+        record_ids: set[str] = set()
         for request in self.running_inspection_requests:
             if not isinstance(request, MeasurementRecordRunningInspectionRequest):
                 raise ValueError(
                     "operator review running_inspection_requests must contain "
                     "MeasurementRecordRunningInspectionRequest objects"
                 )
+            if request.request_id in request_ids:
+                raise ValueError(
+                    "operator review running_inspection_requests must have unique request_id values"
+                )
+            if request.record_id in record_ids:
+                raise ValueError(
+                    "operator review running_inspection_requests must have unique record_id values"
+                )
+            request_ids.add(request.request_id)
+            record_ids.add(request.record_id)
         _validate_positive_integer(self.latest_row_limit, "operator review latest_row_limit")
 
     def to_dict(self) -> dict[str, Any]:

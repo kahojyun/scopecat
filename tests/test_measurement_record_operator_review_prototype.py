@@ -478,6 +478,24 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
         self.assertEqual(run.classification, "measurement_record_operator_review_ready")
         self.assertEqual(run.to_dict()["selected_record"]["record"]["record_id"], "run-3101-rabi")
 
+    def test_operator_review_rejects_duplicate_running_record_snapshots(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unique record_id"):
+            _operator_request(
+                running_inspection_requests=(
+                    _running_request(record_id="run-4101-t1", request_id="inspect-t1-a"),
+                    _running_request(record_id="run-4101-t1", request_id="inspect-t1-b"),
+                )
+            )
+
+    def test_operator_review_rejects_duplicate_running_request_ids(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unique request_id"):
+            _operator_request(
+                running_inspection_requests=(
+                    _running_request(record_id="run-4101-t1", request_id="inspect-duplicate"),
+                    _running_request(record_id="run-4102-ramsey", request_id="inspect-duplicate"),
+                )
+            )
+
     def test_missing_selected_record_is_review_finding(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root = Path(temp_dir) / "storage"

@@ -123,7 +123,10 @@ projects a read model, and returns a local durable import receipt. It does not
 import into existing records, attach to pre-created shells, merge primary data,
 replace manifests, or import linked-context payloads.
 The import preflight validates the declared source digest, byte size, CSV table
-shape, and row count before creating the durable record shell.
+shape, and row count before creating the durable record shell. If a later
+pipeline step fails synchronously after record creation, the import path
+best-effort removes the new record directory rather than leaving a partial
+new-record import.
 
 The first in-progress update slice is implemented through
 `append_in_progress_measurement_record(...)` and
@@ -144,7 +147,10 @@ append segments, then returns a visible string-row table and progress summary
 for local inspection. `summarize_running_measurement_inspection(...)` projects
 a compact local summary with latest visible rows, progress, review finding
 codes, and a next local action. These operations perform no storage mutation
-and do not make append segments canonical primary data.
+and do not make append segments canonical primary data. Append segments are
+validated as row-only CSV segments against the base primary table header during
+inspection; repeated headers, empty segments, or row-width mismatches block the
+inspection view rather than being shown as visible data rows.
 
 The module also exposes a narrow read-only CLI smoke entrypoint:
 
@@ -189,7 +195,9 @@ Optional `--running-record-id`, `--running-record-dir`,
 `--running-update-receipt-path` arguments add one caller-declared running
 inspection to the local review. For multiple declared running inspections, use
 `--source ./operator-review-source.json` with the raw operator-review source
-schema instead of growing ad hoc flags. When `--source` is present, request
+schema instead of growing ad hoc flags. Declared running inspections must have
+unique request ids and unique record ids so the selected-record summary is not
+ambiguous. When `--source` is present, request
 shaping flags are rejected rather than silently ignored. Partial running flags
 without `--running-record-id` are also rejected so declared running-inspection
 intent is not dropped. The CLI remains a smoke surface; it does not scan for
