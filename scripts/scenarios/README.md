@@ -16,7 +16,8 @@ legacy locators in Measurement Records storage, converts the legacy file to
 normalized primary CSV, attaches that CSV to the same legacy Measurement
 Records record, lists storage inventory, projects a measurement-oriented
 review model, and writes a static HTML review page. The page leads with user
-measurement entries and keeps raw storage inventory as diagnostics.
+measurement entries and keeps record-local storage artifacts plus raw storage
+inventory as diagnostics.
 
 The scenario treats legacy system id, legacy run id, label, experiment type,
 and locator values as the user-facing input. Scopecat request ids, record ids,
@@ -29,4 +30,5 @@ Use `--workspace ./path` to keep outputs in a specific directory. Use `--open`
 to open the generated HTML page in the default browser.
 
 The scenario deliberately does not define a final GUI, adapter framework,
-legacy schema, storage schema, or generic existing-record import behavior.
+legacy schema, storage schema, generic existing-record import behavior,
+product history, or audit-log semantics.

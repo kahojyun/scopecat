@@ -347,6 +347,11 @@ def _summary(
         inventory=inventory,
         read_view=read_view,
     )
+    record_diagnostics = _record_diagnostics(
+        workspace=workspace,
+        legacy_run=legacy_run,
+        primary_attach=primary_attach,
+    )
     return {
         "scenario": "legacy_run_storage_gui",
         "workspace": str(workspace),
@@ -370,6 +375,7 @@ def _summary(
         "inventory": inventory,
         "read_view": read_view,
         "measurement_review": measurement_review,
+        "record_diagnostics": record_diagnostics,
     }
 
 
@@ -454,9 +460,120 @@ def _first_locator_by_role(
     return None
 
 
+def _record_diagnostics(
+    *,
+    workspace: Path,
+    legacy_run: dict[str, Any],
+    primary_attach: dict[str, Any],
+) -> dict[str, Any]:
+    storage_root = workspace / "storage"
+    legacy_request = legacy_run["request"]
+    attach_request = primary_attach["request"]
+    artifacts = [
+        _record_artifact(
+            storage_root,
+            order=1,
+            role="creation_shell",
+            label="Created record shell",
+            relative_path=legacy_request["creation_manifest_path"],
+        ),
+        _record_artifact(
+            storage_root,
+            order=2,
+            role="legacy_facts_receipt",
+            label="Recorded legacy facts",
+            relative_path=legacy_request["legacy_receipt_path"],
+        ),
+        _record_artifact(
+            storage_root,
+            order=3,
+            role="attached_primary_data",
+            label="Attached converted primary data",
+            relative_path=attach_request["primary_data_path"],
+        ),
+        _record_artifact(
+            storage_root,
+            order=4,
+            role="writer_receipt",
+            label="Accepted primary data write",
+            relative_path=attach_request["writer_receipt_path"],
+        ),
+        _record_artifact(
+            storage_root,
+            order=5,
+            role="finalization_receipt",
+            label="Finalized review state",
+            relative_path=attach_request["finalization_receipt_path"],
+        ),
+        _record_artifact(
+            storage_root,
+            order=6,
+            role="read_model_projection",
+            label="Projected review model",
+            relative_path=attach_request["read_model_path"],
+        ),
+    ]
+    return {
+        "artifact_posture": "scenario_record_artifact_diagnostics",
+        "record_id": legacy_request["record_id"],
+        "record_dir": legacy_request["record_dir"],
+        "diagnostics_policy": {
+            "input_authority": "scenario_known_record_local_artifact_paths",
+            "storage_mutation": "not_performed",
+            "history_semantics": "not_claimed",
+            "audit_log_semantics": "not_claimed",
+            "complete_update_discovery": "not_performed",
+            "final_gui_contract": "not_defined",
+        },
+        "artifacts": artifacts,
+    }
+
+
+def _record_artifact(
+    storage_root: Path,
+    *,
+    order: int,
+    role: str,
+    label: str,
+    relative_path: str,
+) -> dict[str, Any]:
+    path = storage_root / relative_path
+    if path.is_symlink():
+        return {
+            "order": order,
+            "role": role,
+            "label": label,
+            "state": "symlink",
+            "path": relative_path,
+            "size_bytes": None,
+            "digest": None,
+        }
+    if not path.exists():
+        return {
+            "order": order,
+            "role": role,
+            "label": label,
+            "state": "missing",
+            "path": relative_path,
+            "size_bytes": None,
+            "digest": None,
+        }
+    content = path.read_bytes()
+    return {
+        "order": order,
+        "role": role,
+        "label": label,
+        "state": "present",
+        "path": relative_path,
+        "size_bytes": len(content),
+        "digest": f"sha256:{hashlib.sha256(content).hexdigest()}",
+    }
+
+
 def _html_review(summary: dict[str, Any]) -> str:
     measurement_review = summary["measurement_review"]
     inventory_entries = summary["inventory"]["entries"]
+    record_artifacts = summary["record_diagnostics"]["artifacts"]
     table = summary["read_view"]["table"]
     preview = table["preview"]
     rows = preview["rows"]
@@ -493,6 +610,10 @@ def _html_review(summary: dict[str, Any]) -> str:
     h2 {{
       font-size: 16px;
       margin: 24px 0 8px;
+    }}
+    h3 {{
+      font-size: 14px;
+      margin: 16px 0 8px;
     }}
     .summary {{
       display: grid;
@@ -598,6 +719,9 @@ def _html_review(summary: dict[str, Any]) -> str:
     {_preview_table(columns, rows)}
     <section class="secondary">
       <h2>Storage Diagnostics</h2>
+      <h3>Record Artifacts</h3>
+      {_record_artifacts_table(record_artifacts)}
+      <h3>Inventory By Record</h3>
       {_inventory_table(inventory_entries)}
     </section>
     <h2>Generated Files</h2>
@@ -650,6 +774,26 @@ def _measurement_card(measurement: dict[str, Any]) -> str:
         </dl>
       </article>
     """
+
+
+def _record_artifacts_table(artifacts: list[dict[str, Any]]) -> str:
+    rows = []
+    for artifact in artifacts:
+        rows.append(
+            "<tr>"
+            f"<td>{_escape(artifact['order'])}</td>"
+            f"<td>{_escape(artifact['label'])}</td>"
+            f"<td>{_escape(artifact['state'])}</td>"
+            f"<td>{_escape(artifact['role'])}</td>"
+            f"<td><code>{_escape(artifact['path'])}</code></td>"
+            f"<td>{_escape(artifact['size_bytes'] if artifact['size_bytes'] is not None else '')}</td>"
+            "</tr>"
+        )
+    return (
+        "<table><thead><tr>"
+        "<th>#</th><th>Artifact</th><th>State</th><th>Role</th><th>Path</th><th>Bytes</th>"
+        "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
+    )
 
 
 def _inventory_table(entries: list[dict[str, Any]]) -> str:

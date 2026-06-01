@@ -84,9 +84,40 @@ class LegacyRunStorageGuiScenarioTest(unittest.TestCase):
             measurement["storage_artifacts"]["record_id"],
             "rec-legacy-labview-lv-run-001",
         )
+        self.assertEqual(
+            [artifact["role"] for artifact in full_summary["record_diagnostics"]["artifacts"]],
+            [
+                "creation_shell",
+                "legacy_facts_receipt",
+                "attached_primary_data",
+                "writer_receipt",
+                "finalization_receipt",
+                "read_model_projection",
+            ],
+        )
+        self.assertEqual(
+            {
+                artifact["role"]: artifact["state"]
+                for artifact in full_summary["record_diagnostics"]["artifacts"]
+            },
+            {
+                "creation_shell": "present",
+                "legacy_facts_receipt": "present",
+                "attached_primary_data": "present",
+                "writer_receipt": "present",
+                "finalization_receipt": "present",
+                "read_model_projection": "present",
+            },
+        )
+        self.assertEqual(
+            full_summary["record_diagnostics"]["diagnostics_policy"]["history_semantics"],
+            "not_claimed",
+        )
         self.assertEqual(full_summary["read_view"]["table"]["row_count"], 5)
         self.assertIn("Measurement Review", html)
         self.assertIn("Storage Diagnostics", html)
+        self.assertIn("Record Artifacts", html)
+        self.assertIn("Attached converted primary data", html)
         self.assertIn("attached_converted_primary_data", html)
         self.assertIn("legacy-labview / lv-run-001", html)
         self.assertIn("legacy-system/run-001.tsv", html)
