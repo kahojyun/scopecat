@@ -148,6 +148,27 @@ pipeline step fails synchronously after record creation, the import path
 best-effort removes the new record directory rather than leaving a partial
 new-record import.
 
+The first legacy-run storage slice is implemented through
+`record_legacy_measurement_run(...)` and
+`record_legacy_measurement_run_from_request(...)`. It records declared facts
+about an externally executed legacy run by creating a Measurement Records shell
+with `creation_source_kind: legacy_system` and writing one record-local
+`legacy-run-receipt.json`. The receipt preserves declared legacy system/run
+identity, optional timing labels, declared locators, optional context
+references, and operator notes. It does not import primary data, observe
+legacy files, parse old formats, execute legacy code, validate locator
+availability, refresh read models, finalize lifecycle state, or decide
+measurement validity.
+
+The first storage-inventory slice is implemented through
+`list_measurement_record_storage(...)` and
+`list_measurement_record_storage_from_request(...)`. It scans a caller-declared
+`records/` directory and lists visible record manifests, projected read models
+when present, and record-local legacy receipts when present. It reports missing
+or malformed manifests, read models, and legacy receipts as review findings.
+It is read-only: it does not repair storage, refresh read models, observe
+primary data, import legacy payloads, replace manifests, or persist GUI state.
+
 The first in-progress update slice is implemented through
 `append_in_progress_measurement_record(...)` and
 `append_in_progress_measurement_record_from_request(...)`. It consumes an
@@ -234,6 +255,23 @@ without `--running-record-id` are also rejected so declared running-inspection
 intent is not dropped. The CLI remains a smoke surface; it does not scan for
 update receipts or run import, refresh, finalization, repair, or GUI state
 persistence.
+
+The CLI can record declared legacy-run information and list local storage:
+
+```sh
+python -m scopecat.measurement_records record-legacy-run \
+  --storage-root ./storage \
+  --source ./legacy-run-source.json
+
+python -m scopecat.measurement_records storage-inventory \
+  --storage-root ./storage \
+  --request-id inventory-001
+```
+
+These commands are smoke surfaces. `record-legacy-run` writes only the record
+shell and record-local legacy receipt described by its source JSON.
+`storage-inventory` scans only the declared records directory and does not
+repair, refresh, import, observe legacy files, or infer primary-data shape.
 
 The first saved operator-review receipt boundary is implemented through
 `save_measurement_record_operator_review_receipt(...)` and

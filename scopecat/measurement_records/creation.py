@@ -16,7 +16,7 @@ CREATION_SCHEMA = "scopecat.measurement_record_creation.v0"
 CANDIDATE_MANIFEST_SCHEMA = "measurement_record_creation_candidate_v0"
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 INITIAL_LIFECYCLE_STATES = {"created", "in_progress", "review_needed"}
-CREATION_SOURCE_KINDS = {"manual", "writer", "import", "handoff"}
+CREATION_SOURCE_KINDS = {"manual", "writer", "import", "handoff", "legacy_system"}
 RECORD_MANIFEST_NAME = "record-manifest.json"
 CREATION_POLICY = {
     "workflow_authority": "approved_measurement_record_creation_request",

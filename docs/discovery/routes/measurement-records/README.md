@@ -59,8 +59,12 @@ Legacy brownfield adoption is currently closed around a post-run-first route:
 external legacy execution can remain unchanged while Scopecat records declared
 sidecar facts, reviews flexible locators, optionally observes an explicit
 file-backed locator, and carries reviewed sidecar facts forward as
-review/debug evidence. During-run event capture remains future-compatible but
-not earned as runner ownership. See
+review/debug evidence. The first live storage vertical now records declared
+legacy run facts into Measurement Records storage and lists those records in a
+read-only storage inventory; it still does not import primary data, observe
+legacy files, execute legacy code, repair references, or own runners.
+During-run event capture remains future-compatible but not earned as runner
+ownership. See
 [`legacy-brownfield-adoption-decision.md`](legacy-brownfield-adoption-decision.md).
 
 Handoff package work has moved from discovery route ownership into the accepted
@@ -76,7 +80,9 @@ Prefer one of these only when the named workflow exists:
 | --- | --- |
 | Create durable measurement-record shells before writer/import integration | Start from [`architecture/measurement-records/creation-lifecycle-decision.md`](../../../architecture/measurement-records/creation-lifecycle-decision.md). |
 | Import reviewed normalized primary data into durable storage | Start from [`architecture/handoff/durable-import-storage-decision.md`](../../../architecture/handoff/durable-import-storage-decision.md) and the live [`scopecat/measurement_records/README.md`](../../../../scopecat/measurement_records/README.md): create a new measurement record through the existing receipt/read-model pipeline. |
+| Record legacy system information before import | Start from [`architecture/measurement-records/legacy-run-storage-inventory-decision.md`](../../../architecture/measurement-records/legacy-run-storage-inventory-decision.md) and the live [`scopecat/measurement_records/README.md`](../../../../scopecat/measurement_records/README.md): create a legacy-system record shell plus record-local legacy receipt, then list it through storage inventory. |
 | Read or preview stored/package-local normalized data through one contract | Start from the live [`scopecat/measurement_records/README.md`](../../../../scopecat/measurement_records/README.md) normalized primary table contract; package-local consumers still need their own concrete integration boundary. |
+| List what local Measurement Records storage contains | Start from the live storage inventory API in [`scopecat/measurement_records/README.md`](../../../../scopecat/measurement_records/README.md). It scans manifests, read models, and legacy receipts without repair, refresh, primary-data observation, or legacy payload import. |
 | Inspect a still-running durable record | Start from [`architecture/measurement-records/creation-lifecycle-decision.md`](../../../architecture/measurement-records/creation-lifecycle-decision.md): in-progress append receipts plus read-only running inspection. |
 | Add durable storage editing beyond existing append receipts | Choose a stronger boundary: existing-record import/update, stale-lock cleanup, crash recovery, conflict policy, manifest replacement, read-model refresh, or canonical append visibility. |
 | Accept adapter-produced input through a real workflow | Extend [`adapter-output-boundary-validation-result.md`](../../slices/measurement-records/adapter-output-boundary-validation-result.md) into a concrete transport, discovery, trust, and failure model. |
@@ -92,7 +98,8 @@ data-level observation, or that adapters own legacy parsing.
 Do not add another brownfield sidecar slice merely to restate post-run-first
 adoption, flexible legacy locators, optional context links, supporting evidence
 posture, file-level observation limits, review-evidence receipt readback, or
-no-runner/no-import/no-write-back boundaries.
+no-runner/no-import/no-write-back boundaries. New legacy work should now prove
+a concrete storage, inventory, import, review, or continuation workflow.
 
 ## Route Documents
 

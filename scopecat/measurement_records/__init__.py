@@ -33,6 +33,14 @@ from scopecat.measurement_records.in_progress_update import (
     append_in_progress_measurement_record,
     append_in_progress_measurement_record_from_request,
 )
+from scopecat.measurement_records.legacy_run import (
+    LegacyRunContextReference,
+    LegacyRunLocator,
+    LegacyRunRecordRequest,
+    LegacyRunRecordRun,
+    record_legacy_measurement_run,
+    record_legacy_measurement_run_from_request,
+)
 from scopecat.measurement_records.normalized_primary_table import (
     MeasurementRecordNormalizedPrimaryColumnDeclaration,
     MeasurementRecordNormalizedPrimaryTableRequest,
@@ -81,6 +89,12 @@ from scopecat.measurement_records.running_inspection import (
     inspect_running_measurement_record_from_request,
     summarize_running_measurement_inspection,
 )
+from scopecat.measurement_records.storage_inventory import (
+    MeasurementRecordStorageInventoryRequest,
+    MeasurementRecordStorageInventoryRun,
+    list_measurement_record_storage,
+    list_measurement_record_storage_from_request,
+)
 from scopecat.measurement_records.writer_integration import (
     MeasurementRecordWriterChunk,
     MeasurementRecordWriterRequest,
@@ -90,6 +104,10 @@ from scopecat.measurement_records.writer_integration import (
 )
 
 __all__ = [
+    "LegacyRunContextReference",
+    "LegacyRunLocator",
+    "LegacyRunRecordRequest",
+    "LegacyRunRecordRun",
     "MeasurementRecordAppendChunk",
     "MeasurementRecordCatalogRequest",
     "MeasurementRecordCatalogRun",
@@ -120,6 +138,8 @@ __all__ = [
     "MeasurementRecordReadRun",
     "MeasurementRecordRunningInspectionRequest",
     "MeasurementRecordRunningInspectionRun",
+    "MeasurementRecordStorageInventoryRequest",
+    "MeasurementRecordStorageInventoryRun",
     "MeasurementRecordWriterChunk",
     "MeasurementRecordWriterRequest",
     "MeasurementRecordWriterRun",
@@ -137,10 +157,14 @@ __all__ = [
     "import_measurement_record_from_request",
     "inspect_running_measurement_record",
     "inspect_running_measurement_record_from_request",
+    "list_measurement_record_storage",
+    "list_measurement_record_storage_from_request",
     "project_measurement_record_read_model",
     "project_measurement_record_read_model_from_read_view",
     "read_created_record_primary_table",
     "read_created_record_primary_table_from_request",
+    "record_legacy_measurement_run",
+    "record_legacy_measurement_run_from_request",
     "refresh_measurement_record_read_model",
     "refresh_measurement_record_read_model_from_read_view",
     "review_measurement_records",

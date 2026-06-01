@@ -7,6 +7,7 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
+from scopecat.measurement_records.legacy_run import record_legacy_measurement_run
 from scopecat.measurement_records.operator_review import (
     MeasurementRecordOperatorReviewRequest,
     review_measurement_records,
@@ -17,6 +18,11 @@ from scopecat.measurement_records.running_inspection import (
     MeasurementRecordRunningInspectionRequest,
     inspect_running_measurement_record_from_request,
     summarize_running_measurement_inspection,
+)
+from scopecat.measurement_records.storage_inventory import (
+    MeasurementRecordStorageInventoryRequest,
+    list_measurement_record_storage,
+    list_measurement_record_storage_from_request,
 )
 
 
@@ -76,6 +82,31 @@ def _operator_review_receipt_summary(args: argparse.Namespace) -> dict[str, obje
     if not isinstance(receipt, dict):
         raise ValueError("operator review receipt JSON must be an object")
     return summarize_measurement_record_operator_review_receipt(receipt)
+
+
+def _record_legacy_run(args: argparse.Namespace) -> dict[str, object]:
+    source = json.loads(args.source.read_text(encoding="utf-8"))
+    if not isinstance(source, dict):
+        raise ValueError("legacy run source JSON must be an object")
+    return record_legacy_measurement_run(source, storage_root=args.storage_root).to_dict()
+
+
+def _storage_inventory(args: argparse.Namespace) -> dict[str, object]:
+    if args.source is not None:
+        source = json.loads(args.source.read_text(encoding="utf-8"))
+        if not isinstance(source, dict):
+            raise ValueError("storage inventory source JSON must be an object")
+        return list_measurement_record_storage(source, storage_root=args.storage_root).to_dict()
+    request = MeasurementRecordStorageInventoryRequest(
+        request_id=args.request_id,
+        records_dir=args.records_dir,
+        include_read_models=not args.skip_read_models,
+        include_legacy_receipts=not args.skip_legacy_receipts,
+    )
+    return list_measurement_record_storage_from_request(
+        request,
+        storage_root=args.storage_root,
+    ).to_dict()
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -140,6 +171,33 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Print a compact summary for a saved operator-review receipt.",
     )
     receipt_parser.add_argument("--receipt-path", type=Path, required=True)
+
+    legacy_parser = subparsers.add_parser(
+        "record-legacy-run",
+        help="Record declared legacy-run information in local storage.",
+    )
+    legacy_parser.add_argument("--storage-root", type=Path, required=True)
+    legacy_parser.add_argument(
+        "--source",
+        type=Path,
+        required=True,
+        help="JSON source matching the legacy-run record raw source schema.",
+    )
+
+    inventory_parser = subparsers.add_parser(
+        "storage-inventory",
+        help="Print a read-only inventory of visible Measurement Records storage.",
+    )
+    inventory_parser.add_argument("--storage-root", type=Path, required=True)
+    inventory_parser.add_argument(
+        "--source",
+        type=Path,
+        help="JSON source matching the storage-inventory raw source schema.",
+    )
+    inventory_parser.add_argument("--request-id")
+    inventory_parser.add_argument("--records-dir", default="records")
+    inventory_parser.add_argument("--skip-read-models", action="store_true")
+    inventory_parser.add_argument("--skip-legacy-receipts", action="store_true")
 
     args = parser.parse_args(argv)
     if args.command == "running-inspection-summary":
@@ -219,6 +277,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         payload = _operator_review(args)
     elif args.command == "operator-review-receipt-summary":
         payload = _operator_review_receipt_summary(args)
+    elif args.command == "record-legacy-run":
+        payload = _record_legacy_run(args)
+    elif args.command == "storage-inventory":
+        if args.source is None and args.request_id is None:
+            parser.error("--request-id is required unless --source is provided")
+        if args.source is not None:
+            ignored = []
+            for name, value, default in (
+                ("--request-id", args.request_id, None),
+                ("--records-dir", args.records_dir, "records"),
+                ("--skip-read-models", args.skip_read_models, False),
+                ("--skip-legacy-receipts", args.skip_legacy_receipts, False),
+            ):
+                if value != default:
+                    ignored.append(name)
+            if ignored:
+                parser.error(
+                    "--source cannot be combined with request-shaping flags: " + ", ".join(ignored)
+                )
+        payload = _storage_inventory(args)
     else:  # pragma: no cover - argparse enforces known commands.
         parser.error("unsupported command")
     print(json.dumps(payload, indent=2, sort_keys=True))

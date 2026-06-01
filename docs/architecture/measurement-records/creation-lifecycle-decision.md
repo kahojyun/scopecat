@@ -83,8 +83,8 @@ The first manifest should be intentionally small. It may include:
 
 - schema name such as `measurement_record_creation_candidate_v0`;
 - record id;
-- creation source kind such as `manual`, `writer`, `import`, or `handoff`,
-  only as declared provenance, not as workflow authority;
+- creation source kind such as `manual`, `writer`, `import`, `handoff`, or
+  `legacy_system`, only as declared provenance, not as workflow authority;
 - initial lifecycle state;
 - created timestamp if supplied by the caller or injected clock;
 - optional label or experiment metadata as reviewed free text;
@@ -169,6 +169,11 @@ symlink-parent rejection, initial manifest writing, local receipt projection,
 and best-effort rollback when manifest writing fails. It keeps `record_id`
 caller-declared and public-safe; it does not generate UUIDs, allocate
 namespace ids, or parse record ids for meaning.
+
+`legacy_system` is accepted as a creation source kind only for the
+Measurement Records legacy-run storage workflow. The creation manifest still
+does not import legacy payloads, observe source files, execute legacy code, or
+grant import/finalization authority by itself.
 
 ## Existing-Record Append Update Checkpoint
 
