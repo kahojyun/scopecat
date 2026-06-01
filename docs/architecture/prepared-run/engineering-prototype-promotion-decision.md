@@ -28,6 +28,8 @@ explicit prior prepared-run review summaries
   -> local review_summary projection
   -> optional PreparedRunAcknowledgementReviewRequest
   -> local acknowledgement/continuation review_summary projection
+  -> local PreparedRunReviewViewStateRequest
+  -> local review view-state projection
 ```
 
 The raw-dictionary adapter remains available for current fixture and edge use:
@@ -55,6 +57,11 @@ The promoted baseline includes:
 - acknowledgement continuation state that can record non-required review items
   as handled for manual continuation while keeping required-context blocks
   blocked;
+- deterministic local view-state projection over the gate and optional
+  acknowledgement output;
+- header state, review item rows, finding rows, acknowledgement state,
+  label-only next actions, and attention/non-claim notices for manual review
+  presentation;
 - local `review_summary` / local review projection posture.
 
 ## Explicit Non-Promotions
@@ -66,7 +73,7 @@ This decision does not promote:
 - prepared-run context creation or catalog discovery;
 - parameter-state storage, source-agnostic parameter-state consumption, or
   parameter write-back;
-- approval, GUI view-state, or GUI persistence behavior;
+- approval, GUI component behavior, or GUI persistence behavior;
 - runtime readiness, run permission, run safety, restore behavior, scheduler
   behavior, automatic run start, or hardware control;
 - dependency resolution, dependency sync, package installation, runtime
@@ -74,6 +81,7 @@ This decision does not promote:
   is synchronized;
 - code import, selected-code execution, notebook execution, or generated
   artifact regeneration;
+- action execution from view-state labels;
 - portable/export artifacts or public documentation output.
 
 ## Discovery Candidate Posture
@@ -93,7 +101,7 @@ unless a later decision promotes a separately scoped boundary.
 Do not continue by promoting the whole prepared-run route. The next engineering
 phase should choose one explicit path:
 
-- GUI/view-state projection over the accepted review-gate result;
+- GUI component integration over the accepted view-state data;
 - route-local connection to accepted environment-operation review objects;
 - a separately scoped prepared-run context construction boundary.
 

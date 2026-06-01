@@ -20,6 +20,13 @@ continuation summary. Acknowledgements can show that non-required review items
 have been handled for manual continuation, but they do not repair missing
 required context or grant execution authority.
 
+The view-state layer projects an existing gate result plus optional
+acknowledgement summary into deterministic local data for presenting manual
+pre-run review. It includes header state, review item rows, finding rows,
+acknowledgement state, label-only next actions, and attention notices. It does
+not define GUI components, persist GUI state, execute actions, refresh facts,
+or change review authority.
+
 The output posture is local `review_summary` / local review projection. It is
 not a portable, public, or export artifact.
 
@@ -44,6 +51,11 @@ Current local surface:
 - `PreparedRunAcknowledgementReviewResult.to_dict()`;
 - `build_prepared_run_acknowledgement_summary(...)` as the raw-dictionary
   adapter.
+- `PreparedRunReviewViewStateRequest.from_gate_result(...)`;
+- `PreparedRunReviewViewStateRequest.from_summary(...)`;
+- `project_prepared_run_review_view_state(...)`;
+- `PreparedRunReviewViewStateResult.to_dict()`;
+- `build_prepared_run_review_view_state(...)` as the raw-dictionary adapter.
 
 The typed request/result objects are route-local engineering objects. The raw
 dictionary adapter exists at the edge for fixture parity and current callers.
