@@ -22,6 +22,7 @@ user documentation and does not replace discovery validation evidence.
 | [`handoff/durable-import-storage-decision.md`](handoff/durable-import-storage-decision.md) | Accepted first durable import/storage boundary: approved normalized import creates a new measurement record through the Measurement Records pipeline. |
 | [`prepared-run/engineering-prototype-promotion-decision.md`](prepared-run/engineering-prototype-promotion-decision.md) | Canonical accepted prepared-run context-construction and review implementation boundary and next decision gate. |
 | [`parameter-state/engineering-prototype-promotion-decision.md`](parameter-state/engineering-prototype-promotion-decision.md) | Canonical accepted parameter-state route-local implementation boundary for adapter import review, storage read/write, selection context, and prepared-run review composition. |
+| [`selected-reference/engineering-prototype-promotion-decision.md`](selected-reference/engineering-prototype-promotion-decision.md) | Canonical accepted narrow selected-reference context and recorded-code comparison boundary. |
 
 ## Historical Notes
 

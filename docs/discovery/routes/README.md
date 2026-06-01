@@ -22,6 +22,7 @@ explicitly marked retired; use validation results for slice-local evidence.
 | [`parameter-state/README.md`](parameter-state/README.md) | Parameter-state management, adapter import review, storage read/write, selection context, and prepared-run review composition. |
 | [`calibration-continuation/README.md`](calibration-continuation/README.md) | Calibration continuation, reviewable step state, accepted write handoff, and calibration-derived parameter-state measurement context. |
 | [`calibration-continuation/decision.md`](calibration-continuation/decision.md) | Current calibration continuation route decision consolidation, deferred decisions, reopen triggers, and stop rule. |
+| [`selected-reference/README.md`](selected-reference/README.md) | Selected-reference context comparison, recorded-code comparison, and objective comparison findings. |
 
 ## Retired Route Notes
 
