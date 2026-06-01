@@ -140,7 +140,7 @@ class MeasurementRecordLegacyStorageInventoryPrototypeTest(unittest.TestCase):
 
         self.assertEqual(run.classification, "recorded_legacy_run")
         self.assertTrue(run.recorded)
-        self.assertEqual(manifest["record"]["lifecycle_state"], "review_needed")
+        self.assertEqual(manifest["record"]["lifecycle_state"], "created")
         self.assertEqual(manifest["creation"]["source_kind"], "legacy_system")
         self.assertEqual(manifest["primary_data"], {"state": "not_recorded", "references": []})
         self.assertEqual(receipt["schema"], LEGACY_RUN_RECEIPT_SCHEMA)

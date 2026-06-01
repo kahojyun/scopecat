@@ -3,8 +3,8 @@
 
 This scenario is intentionally small and local. It creates synthetic legacy
 output, records legacy locators in Scopecat storage, converts the legacy output
-to normalized primary CSV, imports that primary data as a Measurement Record,
-lists storage inventory, and writes a static HTML review page.
+to normalized primary CSV, attaches that primary data to the same Measurement
+Record, lists storage inventory, and writes a static HTML review page.
 """
 
 from __future__ import annotations
@@ -27,18 +27,16 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scopecat.measurement_records import (  # noqa: E402
+    LegacyPrimaryImportRequest,
     LegacyRunLocator,
     LegacyRunRecordRequest,
-    MeasurementRecordDurableImportRequest,
     MeasurementRecordImportSource,
     MeasurementRecordReadRequest,
     MeasurementRecordStorageInventoryRequest,
+    attach_converted_primary_data_to_legacy_record_from_request,
     list_measurement_record_storage_from_request,
     read_created_record_primary_table_from_request,
     record_legacy_measurement_run_from_request,
-)
-from scopecat.measurement_records.durable_import import (  # noqa: E402
-    import_measurement_record_from_request,
 )
 
 
@@ -93,10 +91,9 @@ class ScenarioIds:
     """
 
     measurement_id: str
-    legacy_record_id: str
-    imported_record_id: str
+    record_id: str
     legacy_record_request_id: str
-    import_request_id: str
+    primary_attach_request_id: str
     inventory_request_id: str
     read_request_id: str
     primary_locator_id: str
@@ -106,10 +103,9 @@ class ScenarioIds:
     def to_dict(self) -> dict[str, str]:
         return {
             "measurement_id": self.measurement_id,
-            "legacy_record_id": self.legacy_record_id,
-            "imported_record_id": self.imported_record_id,
+            "record_id": self.record_id,
             "legacy_record_request_id": self.legacy_record_request_id,
-            "import_request_id": self.import_request_id,
+            "primary_attach_request_id": self.primary_attach_request_id,
             "inventory_request_id": self.inventory_request_id,
             "read_request_id": self.read_request_id,
             "primary_locator_id": self.primary_locator_id,
@@ -142,8 +138,8 @@ def run_scenario(workspace: Path | None = None, *, open_browser: bool = False) -
         legacy_source_path,
         content_root / "normalized" / f"{scenario_ids.measurement_id}.csv",
     )
-    import_run = import_measurement_record_from_request(
-        _import_request(
+    primary_attach = attach_converted_primary_data_to_legacy_record_from_request(
+        _primary_attach_request(
             scenario_input,
             scenario_ids,
             normalized_source_path,
@@ -159,9 +155,9 @@ def run_scenario(workspace: Path | None = None, *, open_browser: bool = False) -
     read_view = read_created_record_primary_table_from_request(
         MeasurementRecordReadRequest(
             request_id=scenario_ids.read_request_id,
-            record_id=scenario_ids.imported_record_id,
-            record_dir=f"records/{scenario_ids.imported_record_id}",
-            writer_receipt_path=f"records/{scenario_ids.imported_record_id}/writer-receipt.json",
+            record_id=scenario_ids.record_id,
+            record_dir=f"records/{scenario_ids.record_id}",
+            writer_receipt_path=f"records/{scenario_ids.record_id}/writer-receipt.json",
             preview_row_limit=10,
         ),
         storage_root=storage_root,
@@ -170,7 +166,7 @@ def run_scenario(workspace: Path | None = None, *, open_browser: bool = False) -
     summary = _summary(
         workspace=scenario_workspace,
         legacy_run=legacy_run.to_dict(),
-        import_run=import_run.to_dict(),
+        primary_attach=primary_attach.to_dict(),
         inventory=inventory.to_dict(),
         read_view=read_view.to_dict(),
         legacy_source_path=legacy_source_path,
@@ -217,10 +213,9 @@ def _scenario_ids(source: LegacyScenarioInput) -> ScenarioIds:
     base = _slug(f"{source.legacy_system_id}-{source.legacy_run_id}")
     return ScenarioIds(
         measurement_id=f"meas-{base}",
-        legacy_record_id=f"rec-{base}-legacy",
-        imported_record_id=f"rec-{base}-primary",
+        record_id=f"rec-{base}",
         legacy_record_request_id=f"record-{base}-legacy",
-        import_request_id=f"import-{base}-primary",
+        primary_attach_request_id=f"attach-{base}-primary",
         inventory_request_id=f"inventory-{base}",
         read_request_id=f"read-{base}-primary",
         primary_locator_id=f"loc-{base}-primary",
@@ -241,8 +236,8 @@ def _legacy_record_request(
     return LegacyRunRecordRequest(
         request_id=ids.legacy_record_request_id,
         approval_state="approved",
-        record_id=ids.legacy_record_id,
-        record_dir=f"records/{ids.legacy_record_id}",
+        record_id=ids.record_id,
+        record_dir=f"records/{ids.record_id}",
         legacy_system_id=source.legacy_system_id,
         legacy_run_id=source.legacy_run_id,
         created_at=source.created_at,
@@ -268,28 +263,26 @@ def _legacy_record_request(
     )
 
 
-def _import_request(
+def _primary_attach_request(
     source: LegacyScenarioInput,
     ids: ScenarioIds,
     normalized_source_path: Path,
     rows_recorded: int,
-) -> MeasurementRecordDurableImportRequest:
+) -> LegacyPrimaryImportRequest:
     content_ref = f"normalized/{ids.measurement_id}.csv"
-    return MeasurementRecordDurableImportRequest(
-        request_id=ids.import_request_id,
+    return LegacyPrimaryImportRequest(
+        request_id=ids.primary_attach_request_id,
         approval_state="approved",
-        record_id=ids.imported_record_id,
-        record_dir=f"records/{ids.imported_record_id}",
-        primary_data_path=f"records/{ids.imported_record_id}/primary.csv",
-        writer_receipt_path=f"records/{ids.imported_record_id}/writer-receipt.json",
-        finalization_receipt_path=f"records/{ids.imported_record_id}/finalization-receipt.json",
-        read_model_path=f"records/{ids.imported_record_id}/record-read-model.json",
-        creation_source_kind="import",
-        label=source.label,
-        experiment_type=source.experiment_type,
+        record_id=ids.record_id,
+        record_dir=f"records/{ids.record_id}",
+        legacy_receipt_path=f"records/{ids.record_id}/legacy-run-receipt.json",
+        primary_data_path=f"records/{ids.record_id}/primary.csv",
+        writer_receipt_path=f"records/{ids.record_id}/writer-receipt.json",
+        finalization_receipt_path=f"records/{ids.record_id}/finalization-receipt.json",
+        read_model_path=f"records/{ids.record_id}/record-read-model.json",
         import_source=MeasurementRecordImportSource(
             source_kind="adapter_normalized_primary_data",
-            source_id=ids.legacy_record_id,
+            source_id=ids.record_id,
             source_item_id=ids.normalized_source_item_id,
             content_ref=content_ref,
             declared_digest=_sha256_file(normalized_source_path),
@@ -340,7 +333,7 @@ def _summary(
     *,
     workspace: Path,
     legacy_run: dict[str, Any],
-    import_run: dict[str, Any],
+    primary_attach: dict[str, Any],
     inventory: dict[str, Any],
     read_view: dict[str, Any],
     legacy_source_path: Path,
@@ -350,7 +343,7 @@ def _summary(
 ) -> dict[str, Any]:
     measurement_review = _measurement_review_model(
         legacy_run=legacy_run,
-        import_run=import_run,
+        primary_attach=primary_attach,
         inventory=inventory,
         read_view=read_view,
     )
@@ -365,16 +358,15 @@ def _summary(
         "generated_ids": scenario_ids.to_dict(),
         "workflow": {
             "legacy_record_classification": legacy_run["workflow"]["classification"],
-            "import_classification": import_run["workflow"]["classification"],
+            "primary_attach_classification": primary_attach["workflow"]["classification"],
             "inventory_classification": inventory["workflow"]["classification"],
             "read_view_classification": read_view["workflow"]["classification"],
         },
         "records": {
-            "legacy_record_id": scenario_ids.legacy_record_id,
-            "imported_record_id": scenario_ids.imported_record_id,
+            "record_id": scenario_ids.record_id,
         },
         "legacy_run": legacy_run,
-        "import_run": import_run,
+        "primary_attach": primary_attach,
         "inventory": inventory,
         "read_view": read_view,
         "measurement_review": measurement_review,
@@ -384,17 +376,16 @@ def _summary(
 def _measurement_review_model(
     *,
     legacy_run: dict[str, Any],
-    import_run: dict[str, Any],
+    primary_attach: dict[str, Any],
     inventory: dict[str, Any],
     read_view: dict[str, Any],
 ) -> dict[str, Any]:
     entries = {entry["record_id"]: entry for entry in inventory["entries"]}
     legacy_request = legacy_run["request"]
-    import_request = import_run["request"]
-    source_id = import_request["import_source"]["source_id"]
-    imported_from_legacy = source_id == legacy_request["record_id"]
+    attach_request = primary_attach["request"]
+    source_id = attach_request["import_source"]["source_id"]
+    attached_to_legacy = source_id == legacy_request["record_id"]
     primary_locator = _first_locator_by_role(legacy_request["locators"], "primary_data")
-    imported_entry = entries[import_request["record_id"]]
     legacy_entry = entries[legacy_request["record_id"]]
     preview = read_view["table"]["preview"]
     measurement_id = _slug(
@@ -405,7 +396,7 @@ def _measurement_review_model(
         "projection_policy": {
             "input_authority": "scenario_outputs_and_storage_inventory",
             "storage_mutation": "not_performed",
-            "relationship_inference": "durable_import_source_id_only",
+            "relationship_inference": "legacy_primary_attach_source_id_only",
             "scopecat_id_generation": "scenario_local_from_legacy_facts",
             "recursive_relation_traversal": "not_performed",
             "final_gui_contract": "not_defined",
@@ -414,8 +405,8 @@ def _measurement_review_model(
             {
                 "measurement_id": f"meas-{measurement_id}",
                 "title": legacy_request.get("label") or legacy_request["legacy_run_id"],
-                "kind": "legacy_measurement_with_imported_primary_data",
-                "experiment_type": import_request.get("experiment_type"),
+                "kind": "legacy_measurement_with_primary_data",
+                "experiment_type": legacy_request.get("experiment_type"),
                 "primary_data": {
                     "state": "available",
                     "row_count": read_view["table"]["row_count"],
@@ -431,19 +422,17 @@ def _measurement_review_model(
                 },
                 "conversion": {
                     "relationship": (
-                        "converted_from_recorded_legacy_locator"
-                        if imported_from_legacy
+                        "attached_converted_primary_data"
+                        if attached_to_legacy
                         else "declared_import_source"
                     ),
-                    "normalized_source": import_request["import_source"]["content_ref"],
+                    "normalized_source": attach_request["import_source"]["content_ref"],
                 },
                 "storage_artifacts": {
-                    "legacy_record_id": legacy_request["record_id"],
-                    "legacy_record_dir": legacy_entry["record_dir"],
+                    "record_id": legacy_request["record_id"],
+                    "record_dir": legacy_entry["record_dir"],
                     "legacy_receipt_state": legacy_entry["legacy_run"]["state"],
-                    "primary_record_id": import_request["record_id"],
-                    "primary_record_dir": imported_entry["record_dir"],
-                    "primary_read_model_state": imported_entry["read_model"]["state"],
+                    "read_model_state": legacy_entry["read_model"]["state"],
                 },
                 "next_action": "review_primary_data_preview",
             },
@@ -599,7 +588,7 @@ def _html_review(summary: dict[str, Any]) -> str:
     <p class="subtitle">Legacy run recorded, converted to normalized primary data, and shown as one user-facing measurement.</p>
     <section class="summary">
       {_status_tile("Legacy record", summary["workflow"]["legacy_record_classification"])}
-      {_status_tile("Primary import", summary["workflow"]["import_classification"])}
+      {_status_tile("Primary attach", summary["workflow"]["primary_attach_classification"])}
       {_status_tile("Inventory", summary["workflow"]["inventory_classification"])}
       {_status_tile("Read view", summary["workflow"]["read_view_classification"])}
     </section>
@@ -653,10 +642,10 @@ def _measurement_card(measurement: dict[str, Any]) -> str:
         <div class="meta">{_escape(legacy["legacy_system_id"])} / {_escape(legacy["legacy_run_id"])} · {_escape(measurement["kind"])}</div>
         <dl class="facts">
           <dt>Primary data</dt><dd>{_escape(primary["state"])}</dd>
-          <dt>Rows</dt><dd>{_escape(primary["row_count"] if primary["row_count"] is not None else "not imported")}</dd>
+          <dt>Rows</dt><dd>{_escape(primary["row_count"] if primary["row_count"] is not None else "not attached")}</dd>
           <dt>Source</dt><dd>{_escape(conversion["relationship"])}</dd>
           <dt>Legacy locator</dt><dd><code>{_escape(locator.get("value", "not declared"))}</code></dd>
-          <dt>Scopecat artifacts</dt><dd>{_escape(storage["legacy_record_id"])} + {_escape(storage["primary_record_id"])}</dd>
+          <dt>Scopecat record</dt><dd>{_escape(storage["record_id"])}</dd>
           <dt>Next action</dt><dd>{_escape(measurement["next_action"])}</dd>
         </dl>
       </article>

@@ -160,6 +160,20 @@ legacy files, parse old formats, execute legacy code, validate locator
 availability, refresh read models, finalize lifecycle state, or decide
 measurement validity.
 
+The first legacy primary-data attach slice is implemented through
+`attach_converted_primary_data_to_legacy_record(...)` and
+`attach_converted_primary_data_to_legacy_record_from_request(...)`. It consumes
+an approved request for an existing `legacy_system` record plus reviewed
+normalized primary-data facts whose `source_id` is that same legacy record id.
+It preflights the converted CSV digest, byte size, shape, and row count, then
+writes primary data through the existing writer/read/finalization/projection
+pipeline into the same record directory. It leaves the legacy receipt and
+creation manifest unchanged, rolls back newly written primary-data artifacts
+on synchronous pipeline failure, and does not create a second imported record.
+It does not observe legacy files, parse legacy formats, replace manifests,
+merge primary data, define adapter transport, define record-id generation, or
+define final storage schema.
+
 The first storage-inventory slice is implemented through
 `list_measurement_record_storage(...)` and
 `list_measurement_record_storage_from_request(...)`. It scans a caller-declared

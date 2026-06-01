@@ -33,6 +33,12 @@ from scopecat.measurement_records.in_progress_update import (
     append_in_progress_measurement_record,
     append_in_progress_measurement_record_from_request,
 )
+from scopecat.measurement_records.legacy_primary_import import (
+    LegacyPrimaryImportRequest,
+    LegacyPrimaryImportRun,
+    attach_converted_primary_data_to_legacy_record,
+    attach_converted_primary_data_to_legacy_record_from_request,
+)
 from scopecat.measurement_records.legacy_run import (
     LegacyRunContextReference,
     LegacyRunLocator,
@@ -104,6 +110,8 @@ from scopecat.measurement_records.writer_integration import (
 )
 
 __all__ = [
+    "LegacyPrimaryImportRequest",
+    "LegacyPrimaryImportRun",
     "LegacyRunContextReference",
     "LegacyRunLocator",
     "LegacyRunRecordRequest",
@@ -147,6 +155,8 @@ __all__ = [
     "append_existing_measurement_record_from_request",
     "append_in_progress_measurement_record",
     "append_in_progress_measurement_record_from_request",
+    "attach_converted_primary_data_to_legacy_record",
+    "attach_converted_primary_data_to_legacy_record_from_request",
     "catalog_measurement_record_read_models",
     "catalog_measurement_record_read_models_from_request",
     "create_measurement_record",

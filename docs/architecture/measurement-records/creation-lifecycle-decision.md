@@ -171,9 +171,12 @@ caller-declared and public-safe; it does not generate UUIDs, allocate
 namespace ids, or parse record ids for meaning.
 
 `legacy_system` is accepted as a creation source kind only for the
-Measurement Records legacy-run storage workflow. The creation manifest still
-does not import legacy payloads, observe source files, execute legacy code, or
-grant import/finalization authority by itself.
+Measurement Records legacy-run storage workflow. That workflow now creates the
+legacy shell in `created` state so an explicit approved converted-primary
+attach operation can reuse the existing writer/read/finalization/projection
+pipeline against the same record. The creation manifest still does not import
+legacy payloads, observe source files, execute legacy code, or grant
+import/finalization authority by itself.
 
 ## Existing-Record Append Update Checkpoint
 

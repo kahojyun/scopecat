@@ -61,8 +61,10 @@ sidecar facts, reviews flexible locators, optionally observes an explicit
 file-backed locator, and carries reviewed sidecar facts forward as
 review/debug evidence. The first live storage vertical now records declared
 legacy run facts into Measurement Records storage and lists those records in a
-read-only storage inventory; it still does not import primary data, observe
-legacy files, execute legacy code, repair references, or own runners.
+read-only storage inventory. A follow-on live attach operation can add
+reviewed converted normalized primary data to the same legacy record without
+creating a second imported record. It still does not observe legacy files,
+execute legacy code, parse legacy formats, repair references, or own runners.
 During-run event capture remains future-compatible but not earned as runner
 ownership. See
 [`legacy-brownfield-adoption-decision.md`](legacy-brownfield-adoption-decision.md).
@@ -80,11 +82,11 @@ Prefer one of these only when the named workflow exists:
 | --- | --- |
 | Create durable measurement-record shells before writer/import integration | Start from [`architecture/measurement-records/creation-lifecycle-decision.md`](../../../architecture/measurement-records/creation-lifecycle-decision.md). |
 | Import reviewed normalized primary data into durable storage | Start from [`architecture/handoff/durable-import-storage-decision.md`](../../../architecture/handoff/durable-import-storage-decision.md) and the live [`scopecat/measurement_records/README.md`](../../../../scopecat/measurement_records/README.md): create a new measurement record through the existing receipt/read-model pipeline. |
-| Record legacy system information before import | Start from [`architecture/measurement-records/legacy-run-storage-inventory-decision.md`](../../../architecture/measurement-records/legacy-run-storage-inventory-decision.md) and the live [`scopecat/measurement_records/README.md`](../../../../scopecat/measurement_records/README.md): create a legacy-system record shell plus record-local legacy receipt, then list it through storage inventory. |
+| Record legacy system information and later attach converted primary data | Start from [`architecture/measurement-records/legacy-run-storage-inventory-decision.md`](../../../architecture/measurement-records/legacy-run-storage-inventory-decision.md) and the live [`scopecat/measurement_records/README.md`](../../../../scopecat/measurement_records/README.md): create a legacy-system record shell plus record-local legacy receipt, attach reviewed converted normalized primary data to that same record when available, then list it through storage inventory. |
 | Read or preview stored/package-local normalized data through one contract | Start from the live [`scopecat/measurement_records/README.md`](../../../../scopecat/measurement_records/README.md) normalized primary table contract; package-local consumers still need their own concrete integration boundary. |
 | List what local Measurement Records storage contains | Start from the live storage inventory API in [`scopecat/measurement_records/README.md`](../../../../scopecat/measurement_records/README.md). It scans manifests, read models, and legacy receipts without repair, refresh, primary-data observation, or legacy payload import. |
 | Inspect a still-running durable record | Start from [`architecture/measurement-records/creation-lifecycle-decision.md`](../../../architecture/measurement-records/creation-lifecycle-decision.md): in-progress append receipts plus read-only running inspection. |
-| Add durable storage editing beyond existing append receipts | Choose a stronger boundary: existing-record import/update, stale-lock cleanup, crash recovery, conflict policy, manifest replacement, read-model refresh, or canonical append visibility. |
+| Add durable storage editing beyond existing append receipts and legacy primary attach | Choose a stronger boundary: generic existing-record import/update, stale-lock cleanup, crash recovery, conflict policy, manifest replacement, read-model refresh, or canonical append visibility. |
 | Accept adapter-produced input through a real workflow | Extend [`adapter-output-boundary-validation-result.md`](../../slices/measurement-records/adapter-output-boundary-validation-result.md) into a concrete transport, discovery, trust, and failure model. |
 | Recover moved reference-only records | Validate reference repair/review without automatic path discovery by default. |
 | Add lower-latency legacy adoption | Reopen [`legacy-brownfield-adoption-decision.md`](legacy-brownfield-adoption-decision.md): validate a narrow during-run event/supporting-evidence append boundary without runner control. |

@@ -341,7 +341,7 @@ def record_legacy_measurement_run_from_request(
         approval_state=request.approval_state,
         record_id=request.record_id,
         record_dir=request.record_dir,
-        initial_lifecycle_state="review_needed",
+        initial_lifecycle_state="created",
         creation_source_kind="legacy_system",
         created_at=request.created_at,
         label=request.label,
