@@ -10,6 +10,9 @@ from implementation_candidates.prepared_run_review_gate import (
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests" / "fixtures" / "prepared_run_review_gate" / "basic_gate"
+ENVIRONMENT_OPERATION_FIXTURE = (
+    ROOT / "tests" / "fixtures" / "environment_operation_review_bundle" / "basic_operation_review"
+)
 
 
 def _load_input() -> dict:
@@ -20,6 +23,18 @@ def _expected_candidate() -> dict:
     return json.loads((FIXTURE / "expected-review-gate-summary.json").read_text(encoding="utf-8"))[
         "candidate_summary"
     ]
+
+
+def _operation_summary_for_gate() -> dict:
+    summary = json.loads(
+        (
+            ENVIRONMENT_OPERATION_FIXTURE / "expected-environment-operation-review-summary.json"
+        ).read_text(encoding="utf-8")
+    )["candidate_summary"]
+    summary["operation_review_request"]["prepared_run_context_id"] = (
+        "prepared-run-context-chevron-qA-required-context-case"
+    )
+    return summary
 
 
 def _clear_non_parameter_findings(source: dict) -> None:
@@ -150,6 +165,73 @@ class PreparedRunReviewGateSummaryCandidateTest(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "prepared_run_context_id"):
+            build_prepared_run_review_gate_summary(source)
+
+    def test_optional_environment_operation_review_can_be_ready_evidence(self) -> None:
+        source = _load_input()
+        _clear_non_parameter_findings(source)
+        source["environment_operation_review_summary"] = _operation_summary_for_gate()
+
+        summary = build_prepared_run_review_gate_summary(source)
+
+        self.assertEqual(summary["gate_decision"]["overall_state"], "ready_for_manual_review")
+        self.assertIn(
+            {
+                "area": "environment_operation",
+                "state": "ready_for_manual_review",
+                "reason_codes": [],
+                "finding_count": 0,
+            },
+            summary["review_items"],
+        )
+        self.assertEqual(summary["gate_decision"]["environment_operation"], "not_performed")
+
+    def test_optional_environment_operation_findings_are_carried(self) -> None:
+        source = _load_input()
+        _clear_non_parameter_findings(source)
+        operation_summary = _operation_summary_for_gate()
+        operation_summary["operation_review_status"] = "operation_review_has_findings"
+        operation_summary["operation_review_findings"] = [
+            {
+                "code": "uv_sync_result_has_findings",
+                "severity": "review",
+                "basis": "Prior uv sync result summary carries review findings.",
+                "source": "uv_sync_result",
+                "does_not_claim": "verified_synchronized_environment",
+            }
+        ]
+        source["environment_operation_review_summary"] = operation_summary
+
+        summary = build_prepared_run_review_gate_summary(source)
+
+        self.assertEqual(summary["gate_decision"]["overall_state"], "manual_pre_run_review_needed")
+        self.assertIn(
+            "needs_environment_operation_review",
+            {item["state"] for item in summary["review_items"]},
+        )
+        self.assertIn(
+            "uv_sync_result_has_findings",
+            {finding["code"] for finding in summary["aggregated_review_findings"]},
+        )
+
+    def test_optional_environment_operation_review_must_match_request_context(self) -> None:
+        source = _load_input()
+        source["environment_operation_review_summary"] = _operation_summary_for_gate()
+        source["environment_operation_review_summary"]["operation_review_request"][
+            "prepared_run_context_id"
+        ] = "different-context"
+
+        with self.assertRaisesRegex(ValueError, "prepared_run_context_id"):
+            build_prepared_run_review_gate_summary(source)
+
+    def test_optional_environment_operation_review_keeps_review_summary_posture(self) -> None:
+        source = _load_input()
+        source["environment_operation_review_summary"] = _operation_summary_for_gate()
+        source["environment_operation_review_summary"]["environment_operation_review_policy"][
+            "summary_policy"
+        ] = "export/package"
+
+        with self.assertRaisesRegex(ValueError, "summary_policy"):
             build_prepared_run_review_gate_summary(source)
 
 

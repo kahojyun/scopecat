@@ -14,6 +14,7 @@ GUI design, or shared gate schema.
 - [`prepared-run-scope-alignment-validation-result.md`](prepared-run-scope-alignment-validation-result.md)
 - [`../experiment-code/prepared-run-context-validation-result.md`](../experiment-code/prepared-run-context-validation-result.md)
 - [`../experiment-code/environment-review-bundle-validation-result.md`](../experiment-code/environment-review-bundle-validation-result.md)
+- [`../environment-operation/environment-operation-review-bundle-validation-result.md`](../environment-operation/environment-operation-review-bundle-validation-result.md)
 - [`prepared-run-review-gate-validation-plan.md`](prepared-run-review-gate-validation-plan.md)
 - `tests/fixtures/prepared_run_review_gate/basic_gate/`
 - `implementation_candidates/prepared_run_review_gate/`
@@ -29,9 +30,14 @@ review composition boundary:
   requirement semantics;
 - required context, parameter state, scope alignment, workspace, and
   environment review areas are classified separately;
+- an environment-operation review bundle can be consumed as optional prior
+  review evidence when it is a local `review_summary` for the same prepared
+  run context;
 - missing required context takes precedence as `blocked_by_required_context`;
 - unresolved parameter, scope, workspace, or environment findings produce
   `manual_pre_run_review_needed`;
+- unresolved environment-operation findings also produce
+  `manual_pre_run_review_needed` when that optional summary is supplied;
 - clear inputs produce `ready_for_manual_review`;
 - child findings are aggregated with source area and reason codes;
 - no run-start permission, hardware safety, parameter write-back, dependency
@@ -46,6 +52,7 @@ The candidate summary can answer:
 - which prepared-run context and measurement are being reviewed;
 - whether required contexts are unavailable;
 - whether parameter, scope, workspace, or environment areas need review;
+- whether a supplied environment-operation review has findings;
 - which source findings explain the manual pre-run review state;
 - whether all reviewed areas are clear for manual review presentation;
 - why the gate does not imply run-start permission, hardware safety,
@@ -55,14 +62,20 @@ The expected-output fixture is an `internal_validation_summary` repository
 artifact. The candidate models a local manual review surface, but this slice
 does not validate portable/export review artifact behavior.
 
+The environment-operation input remains optional. The gate validates only the
+operation-review posture, prepared-run-context continuity, status/finding
+consistency, and selected fields needed for aggregation. It does not re-run
+the environment-operation bundle, verify sync results, or assume ownership of
+manifest, command, or dependency semantics.
+
 ## Remaining Questions
 
 - Should user acknowledgements turn selected `needs_*_review` items into an
   accepted local review state?
 - Should GUI view-state projection consume this gate next?
 - Should catalog/index discovery populate the child summaries before this gate?
-- Should environment operation results, after an approved `uv sync`, produce a
-  second-pass gate input?
+- Should environment operation results, after an approved `uv sync`, become
+  part of a second-pass gate fixture with acknowledgements?
 
 ## Not Earned
 
