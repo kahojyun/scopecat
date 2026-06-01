@@ -33,6 +33,26 @@ It does not replace the creation manifest, refresh a read model, mark records
 complete or failed, merge existing primary data, or define final storage
 schema.
 
+The normalized primary table contract is implemented through
+`summarize_normalized_primary_table(...)` and
+`summarize_normalized_primary_table_from_request(...)`:
+
+```text
+caller-provided normalized CSV bytes
+  -> UTF-8 decode
+  -> unique non-blank header validation
+  -> rectangular string-row validation
+  -> declared preview-column binding
+  -> local normalized table summary
+```
+
+It is side-effect-free and route-local. It does not observe files, validate
+file integrity, parse legacy sources, mutate storage, infer schemas, infer
+scalar types, infer scan shapes, invoke dataframe adapters, build plot series,
+or define public SDK names. The created-record read view uses the same
+normalized CSV validation for its writer-receipt-declared primary data while
+preserving its existing receipt/read-view authority.
+
 The first read-view slice reads primary table facts through a writer receipt:
 
 ```text

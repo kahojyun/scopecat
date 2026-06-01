@@ -33,6 +33,13 @@ from scopecat.measurement_records.in_progress_update import (
     append_in_progress_measurement_record,
     append_in_progress_measurement_record_from_request,
 )
+from scopecat.measurement_records.normalized_primary_table import (
+    MeasurementRecordNormalizedPrimaryColumnDeclaration,
+    MeasurementRecordNormalizedPrimaryTableRequest,
+    MeasurementRecordNormalizedPrimaryTableRun,
+    summarize_normalized_primary_table,
+    summarize_normalized_primary_table_from_request,
+)
 from scopecat.measurement_records.operator_review import (
     MeasurementRecordOperatorReviewReceiptRequest,
     MeasurementRecordOperatorReviewReceiptRun,
@@ -98,6 +105,9 @@ __all__ = [
     "MeasurementRecordImportSource",
     "MeasurementRecordInProgressUpdateRequest",
     "MeasurementRecordInProgressUpdateRun",
+    "MeasurementRecordNormalizedPrimaryColumnDeclaration",
+    "MeasurementRecordNormalizedPrimaryTableRequest",
+    "MeasurementRecordNormalizedPrimaryTableRun",
     "MeasurementRecordOperatorReviewReceiptRequest",
     "MeasurementRecordOperatorReviewReceiptRun",
     "MeasurementRecordOperatorReviewRequest",
@@ -137,6 +147,8 @@ __all__ = [
     "review_measurement_records_from_request",
     "save_measurement_record_operator_review_receipt",
     "summarize_measurement_record_operator_review_receipt",
+    "summarize_normalized_primary_table",
+    "summarize_normalized_primary_table_from_request",
     "summarize_running_measurement_inspection",
     "write_created_record_primary_data",
     "write_created_record_primary_data_from_request",

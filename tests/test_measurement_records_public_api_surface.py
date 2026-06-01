@@ -34,6 +34,7 @@ class MeasurementRecordsPublicApiSurfaceTest(unittest.TestCase):
         expected_names = {
             "MeasurementRecordDurableImportRequest",
             "MeasurementRecordExistingUpdateRequest",
+            "MeasurementRecordNormalizedPrimaryTableRequest",
             "MeasurementRecordReadModelProjectionRequest",
             "MeasurementRecordReadModelRefreshRequest",
             "MeasurementRecordCatalogRequest",
@@ -42,6 +43,7 @@ class MeasurementRecordsPublicApiSurfaceTest(unittest.TestCase):
             "project_measurement_record_read_model_from_read_view",
             "refresh_measurement_record_read_model_from_read_view",
             "catalog_measurement_record_read_models_from_request",
+            "summarize_normalized_primary_table_from_request",
         }
 
         self.assertTrue(expected_names.issubset(measurement_records.__all__))

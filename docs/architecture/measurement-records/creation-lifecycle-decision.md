@@ -211,6 +211,25 @@ mark a record `complete` or `failed`, merge existing primary data, import
 packages, define conflict resolution beyond no-overwrite, or promote final
 storage schema.
 
+## Normalized Primary Table Checkpoint
+
+The normalized primary table contract is implemented in
+[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+It exposes a raw-dictionary entrypoint,
+`summarize_normalized_primary_table(...)`, and a typed request entrypoint,
+`summarize_normalized_primary_table_from_request(...)`.
+
+This slice consumes caller-provided bytes that are already declared to be
+Scopecat normalized primary CSV data. It validates UTF-8 decoding, unique
+non-blank headers, rectangular string-valued rows, declared preview-column
+bindings, and optional declared row-count review findings. It is used by the
+created-record read view as the route-local CSV table validation contract.
+
+It deliberately does not observe files, validate file integrity, parse legacy
+sources, mutate storage, infer schemas, infer scalar types, infer scan shapes,
+invoke dataframe adapters, build plot series, define public SDK names, or
+promote adapter transport behavior.
+
 ## Read View Checkpoint
 
 The first read-view slice is implemented in
@@ -223,9 +242,10 @@ This slice consumes an existing creation manifest and a caller-provided
 record-local writer receipt path. It verifies record id, record directory,
 creation manifest path, writer receipt path, primary data path, digest, and
 size continuity before reading the writer-receipt-declared primary CSV as
-string-valued table rows. It reports row-count mismatch as a review finding
-and rejects malformed CSV, missing writer receipts, symlink targets, and
-continuity mismatches.
+string-valued table rows through the route-local normalized primary table
+contract. It reports row-count mismatch as a review finding and rejects
+malformed CSV, missing writer receipts, symlink targets, and continuity
+mismatches.
 
 It deliberately does not replace the creation manifest, refresh a read model,
 finalize lifecycle state, infer schema or scalar types, build plot series,

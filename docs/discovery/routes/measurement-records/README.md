@@ -47,9 +47,10 @@ separations:
   file-level observation;
 - adapter-normalized primary data is the route's current path to preview,
   copy, storage, package, SDK/table access, and plotting;
-- normalized primary table reading is the first shared data-level table
-  contract, but it does not observe files, infer schemas, build plot series,
-  or define dataframe behavior;
+- normalized primary table reading is now a route-local engineering prototype
+  contract for already-provided bytes and created-record read-view validation,
+  but it does not observe files, infer schemas, build plot series, or define
+  dataframe behavior;
 - existing-record append receipt records append evidence under an existing
   record, but it does not replace manifests, merge primary data, refresh read
   models, define lock identity, or accept crash recovery.
@@ -75,7 +76,7 @@ Prefer one of these only when the named workflow exists:
 | --- | --- |
 | Create durable measurement-record shells before writer/import integration | Start from [`architecture/measurement-records/creation-lifecycle-decision.md`](../../../architecture/measurement-records/creation-lifecycle-decision.md). |
 | Import reviewed normalized primary data into durable storage | Start from [`architecture/handoff/durable-import-storage-decision.md`](../../../architecture/handoff/durable-import-storage-decision.md) and the live [`scopecat/measurement_records/README.md`](../../../../scopecat/measurement_records/README.md): create a new measurement record through the existing receipt/read-model pipeline. |
-| Read or preview stored/package-local normalized data through one contract | Adopt [`slices/measurement-records/normalized-primary-table-validation-result.md`](../../slices/measurement-records/normalized-primary-table-validation-result.md) at that concrete consumer boundary. |
+| Read or preview stored/package-local normalized data through one contract | Start from the live [`scopecat/measurement_records/README.md`](../../../../scopecat/measurement_records/README.md) normalized primary table contract; package-local consumers still need their own concrete integration boundary. |
 | Inspect a still-running durable record | Start from [`architecture/measurement-records/creation-lifecycle-decision.md`](../../../architecture/measurement-records/creation-lifecycle-decision.md): in-progress append receipts plus read-only running inspection. |
 | Add durable storage editing beyond existing append receipts | Choose a stronger boundary: existing-record import/update, stale-lock cleanup, crash recovery, conflict policy, manifest replacement, read-model refresh, or canonical append visibility. |
 | Accept adapter-produced input through a real workflow | Extend [`adapter-output-boundary-validation-result.md`](../../slices/measurement-records/adapter-output-boundary-validation-result.md) into a concrete transport, discovery, trust, and failure model. |
@@ -115,7 +116,7 @@ no-runner/no-import/no-write-back boundaries.
 | --- | --- |
 | [`preview-ready-selected-measurement-export-validation-result.md`](../../slices/measurement-records/preview-ready-selected-measurement-export-validation-result.md) | First implementation-shaped selected measurement export candidate. |
 | [`measurement-record-import-preview-validation-result.md`](../../slices/measurement-records/measurement-record-import-preview-validation-result.md) | Side-effect-free incoming-record import preview candidate. |
-| [`normalized-primary-table-validation-result.md`](../../slices/measurement-records/normalized-primary-table-validation-result.md) | Normalized primary CSV table read candidate over already-provided bytes. |
+| [`normalized-primary-table-validation-result.md`](../../slices/measurement-records/normalized-primary-table-validation-result.md) | Historical validation evidence for the promoted route-local normalized primary CSV table contract over already-provided bytes. |
 | [`adapter-authored-legacy-import-validation-result.md`](../../slices/measurement-records/adapter-authored-legacy-import-validation-result.md) | Normalized adapter-authored legacy import manifest candidate. |
 | [`adapter-output-boundary-validation-result.md`](../../slices/measurement-records/adapter-output-boundary-validation-result.md) | File-shaped adapter-produced input boundary as transport pressure. |
 | [`legacy-import-acceptance-validation-result.md`](../../slices/measurement-records/legacy-import-acceptance-validation-result.md) | Historical approved copy-into-new-record acceptance candidate; active new-record import is owned by durable Measurement Records import. |

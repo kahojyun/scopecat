@@ -133,6 +133,10 @@ class MeasurementRecordReadViewPrototypeTest(unittest.TestCase):
         self.assertEqual(run.table["row_count"], 5)
         self.assertEqual(run.table["declared_row_count"], 5)
         self.assertEqual(
+            run.table["table_policy"]["table_parser"],
+            "measurement_records_normalized_primary_table",
+        )
+        self.assertEqual(
             [column["name"] for column in run.table["columns"]],
             ["drive_amplitude", "excited_state_probability"],
         )

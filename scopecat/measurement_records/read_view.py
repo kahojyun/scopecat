@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import copy
-import csv
-import io
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,6 +28,9 @@ from scopecat.measurement_records.creation import (
     validate_public_identifier,
     validate_relative_path,
     validate_text,
+)
+from scopecat.measurement_records.normalized_primary_table import (
+    summarize_observed_primary_table_for_read_view,
 )
 from scopecat.measurement_records.writer_integration import WRITER_RECEIPT_SCHEMA
 
@@ -282,73 +283,11 @@ def _read_table(
     declared_row_count: int,
     preview_row_limit: int,
 ) -> tuple[dict[str, Any], list[dict[str, str]]]:
-    decoded = _decode_csv(content)
-    reader = csv.reader(io.StringIO(decoded, newline=""))
-    try:
-        header = next(reader)
-    except StopIteration as exc:
-        raise ValueError("read view primary table requires a CSV header") from exc
-    if not header:
-        raise ValueError("read view primary table requires a CSV header")
-    for index, name in enumerate(header):
-        if not isinstance(name, str) or name.strip() == "":
-            raise ValueError(f"read view primary table column {index} name must be non-blank")
-    if len(set(header)) != len(header):
-        raise ValueError("read view primary table requires unique CSV headers")
-
-    rows = []
-    for row in reader:
-        if len(row) != len(header):
-            raise ValueError("read view primary table rows must match the CSV header")
-        rows.append(dict(zip(header, row, strict=True)))
-
-    findings: list[dict[str, str]] = []
-    if declared_row_count != len(rows):
-        findings.append(
-            {
-                "code": "primary_table_row_count_mismatch",
-                "severity": "review",
-                "target": source,
-                "message": "Observed row count differs from the writer receipt row count.",
-                "does_not_claim": "source_repair_or_manifest_refresh",
-            }
-        )
-
-    return (
-        {
-            "table_schema": "measurement_record_primary_table_read_candidate_v0",
-            "table_policy": {
-                "input_authority": "writer_receipt_declared_primary_data",
-                "format": "csv_table",
-                "file_observation": "declared_primary_data_only",
-                "schema_inference": "not_performed",
-                "scalar_type_inference": "not_performed",
-                "dataframe_adapter": "not_invoked",
-                "storage_mutation": "not_performed",
-            },
-            "source": source,
-            "format": "csv_table",
-            "classification": "primary_table_review_needed" if findings else "primary_table_ready",
-            "columns": [
-                {
-                    "name": name,
-                    "position": position,
-                    "declared": False,
-                    "role": "undeclared",
-                    "unit": None,
-                }
-                for position, name in enumerate(header)
-            ],
-            "row_count": len(rows),
-            "declared_row_count": declared_row_count,
-            "rows": copy.deepcopy(rows),
-            "preview": {
-                "row_limit": preview_row_limit,
-                "columns": list(header),
-                "rows": copy.deepcopy(rows[:preview_row_limit]),
-            },
-        },
-        findings,
+    return summarize_observed_primary_table_for_read_view(
+        content,
+        source=source,
+        declared_row_count=declared_row_count,
+        preview_row_limit=preview_row_limit,
     )
 
 
@@ -380,13 +319,6 @@ def _writer_receipt_ref(receipt: dict[str, Any]) -> dict[str, Any]:
 
 def _path_under(root: Path, relative_path: str) -> Path:
     return _path_under_common(root, relative_path, "read view path")
-
-
-def _decode_csv(content: bytes) -> str:
-    try:
-        return content.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise ValueError("read view primary table must be utf-8 CSV") from exc
 
 
 def _validate_positive_integer(value: Any, owner: str) -> int:
