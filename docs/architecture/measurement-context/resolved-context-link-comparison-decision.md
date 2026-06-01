@@ -62,7 +62,8 @@ system.
 | --- | --- | --- |
 | Resolved context-link comparison | Promoted into route-local engineering code with typed request/result objects and a raw-dictionary adapter only at the fixture/current-caller edge. | [`scopecat/measurement_context/README.md`](../../../scopecat/measurement_context/README.md), this decision |
 | Selected-reference comparison consumption | This module provides resolved-link comparison findings that selected-reference review flows may consume later. It does not change the selected-reference module API. | [`scopecat/selected_reference/README.md`](../../../scopecat/selected_reference/README.md) |
-| Remaining measurement-context support families | Named run-start inputs, context link construction, supporting evidence, artifact provenance/observation, post-run review, and context readiness remain implementation-candidate evidence. | [`../../discovery/synthesis/measurement-context-backlog.md`](../../discovery/synthesis/measurement-context-backlog.md) |
+| Measurement context-link construction | Promoted separately into route-local engineering code as explicit link summary construction. | [`context-link-construction-decision.md`](context-link-construction-decision.md) |
+| Remaining measurement-context support families | Named run-start inputs, supporting evidence, artifact provenance/observation, post-run review, and context readiness remain implementation-candidate evidence. | [`../../discovery/synthesis/measurement-context-backlog.md`](../../discovery/synthesis/measurement-context-backlog.md) |
 
 ## Next Decision Gate
 

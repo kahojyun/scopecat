@@ -6,14 +6,20 @@ import unittest
 from pathlib import Path
 
 from scopecat.measurement_context import (
+    MeasurementContextLinkRequest,
     ResolvedContextLinkComparisonRequest,
+    build_measurement_context_link_summary,
     build_resolved_context_link_comparison_summary,
     compare_resolved_context_links,
+    summarize_measurement_context_links,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURE = (
+COMPARISON_FIXTURE = (
     ROOT / "tests" / "fixtures" / "resolved_context_link_comparison" / "basic_selected_reference"
+)
+CONTEXT_LINK_FIXTURE = (
+    ROOT / "tests" / "fixtures" / "measurement_context_link" / "basic_optional_links"
 )
 
 
@@ -27,13 +33,15 @@ def _candidate_summary(path: Path) -> dict:
 
 class MeasurementContextEngineeringPrototypeTest(unittest.TestCase):
     def test_typed_api_matches_validated_candidate_output(self) -> None:
-        source = _read_json(FIXTURE / "resolved-context-comparison-input.json")
+        source = _read_json(COMPARISON_FIXTURE / "resolved-context-comparison-input.json")
         request = ResolvedContextLinkComparisonRequest.from_dict(source)
         result = compare_resolved_context_links(request)
 
         self.assertEqual(
             result.to_dict(),
-            _candidate_summary(FIXTURE / "expected-resolved-context-comparison-summary.json"),
+            _candidate_summary(
+                COMPARISON_FIXTURE / "expected-resolved-context-comparison-summary.json"
+            ),
         )
         self.assertEqual(result.comparison["reference_mark_label"], "last-working")
         self.assertEqual(
@@ -42,28 +50,28 @@ class MeasurementContextEngineeringPrototypeTest(unittest.TestCase):
         )
 
     def test_rejects_intent_selector_comparison_expansion(self) -> None:
-        source = _read_json(FIXTURE / "resolved-context-comparison-input.json")
+        source = _read_json(COMPARISON_FIXTURE / "resolved-context-comparison-input.json")
         source["comparison_request"]["comparison_scope"] = ["measurement_intent_selectors"]
 
         with self.assertRaisesRegex(ValueError, "resolved context-link boundary"):
             build_resolved_context_link_comparison_summary(source)
 
     def test_rejects_payload_comparison_expansion(self) -> None:
-        source = _read_json(FIXTURE / "resolved-context-comparison-input.json")
+        source = _read_json(COMPARISON_FIXTURE / "resolved-context-comparison-input.json")
         source["context_records"][0]["payload_handling"] = "payload_opened_and_compared"
 
         with self.assertRaisesRegex(ValueError, "payload handling must remain family-owned"):
             build_resolved_context_link_comparison_summary(source)
 
     def test_rejects_required_context_for_record_validity(self) -> None:
-        source = _read_json(FIXTURE / "resolved-context-comparison-input.json")
+        source = _read_json(COMPARISON_FIXTURE / "resolved-context-comparison-input.json")
         source["measurements"][0]["context_links"][0]["required_for_record_validity"] = True
 
         with self.assertRaisesRegex(ValueError, "optional for measurement record validity"):
             ResolvedContextLinkComparisonRequest.from_dict(source)
 
     def test_rejects_missing_optional_context_without_reason(self) -> None:
-        source = _read_json(FIXTURE / "resolved-context-comparison-input.json")
+        source = _read_json(COMPARISON_FIXTURE / "resolved-context-comparison-input.json")
         current_environment = source["measurements"][1]["context_links"][3]
         current_environment.pop("missing_reason")
 
@@ -71,14 +79,14 @@ class MeasurementContextEngineeringPrototypeTest(unittest.TestCase):
             build_resolved_context_link_comparison_summary(source)
 
     def test_rejects_private_or_path_shaped_ids(self) -> None:
-        source = _read_json(FIXTURE / "resolved-context-comparison-input.json")
+        source = _read_json(COMPARISON_FIXTURE / "resolved-context-comparison-input.json")
         source["context_records"][0]["context_id"] = "/Users/lab/private/param-state"
 
         with self.assertRaisesRegex(ValueError, "context id must be public-safe"):
             build_resolved_context_link_comparison_summary(source)
 
     def test_outputs_do_not_alias_inputs_or_result_objects(self) -> None:
-        source = _read_json(FIXTURE / "resolved-context-comparison-input.json")
+        source = _read_json(COMPARISON_FIXTURE / "resolved-context-comparison-input.json")
         original = copy.deepcopy(source)
         result = compare_resolved_context_links(
             ResolvedContextLinkComparisonRequest.from_dict(source)
@@ -91,6 +99,59 @@ class MeasurementContextEngineeringPrototypeTest(unittest.TestCase):
         self.assertEqual(result.comparison["reference_mark_label"], "last-working")
         self.assertEqual(result.to_dict()["not_compared_scope"][0], "measurement_intent_selectors")
         self.assertNotEqual(source, original)
+
+    def test_context_link_typed_api_matches_validated_candidate_output(self) -> None:
+        source = _read_json(CONTEXT_LINK_FIXTURE / "context-link-input.json")
+        request = MeasurementContextLinkRequest.from_dict(source)
+        result = summarize_measurement_context_links(request)
+
+        self.assertEqual(
+            result.to_dict(),
+            _candidate_summary(CONTEXT_LINK_FIXTURE / "expected-context-link-summary.json"),
+        )
+        self.assertEqual(result.measurement_records[0]["context_link_count"], 0)
+        self.assertEqual(result.linked_context_refs[0]["context_id"], "param-state-0007")
+        self.assertEqual(
+            build_measurement_context_link_summary(source),
+            result.to_dict(),
+        )
+
+    def test_context_link_rejects_policy_expansion(self) -> None:
+        source = _read_json(CONTEXT_LINK_FIXTURE / "context-link-input.json")
+        source["context_link_policy"]["context_import"] = "performed"
+
+        with self.assertRaisesRegex(ValueError, "context_import"):
+            build_measurement_context_link_summary(source)
+
+    def test_context_link_rejects_required_context_for_record_validity(self) -> None:
+        source = _read_json(CONTEXT_LINK_FIXTURE / "context-link-input.json")
+        source["measurement_records"][1]["context_links"][0]["required_for_record_validity"] = True
+
+        with self.assertRaisesRegex(ValueError, "optional for measurement record validity"):
+            MeasurementContextLinkRequest.from_dict(source)
+
+    def test_context_link_rejects_private_or_path_shaped_ids(self) -> None:
+        source = _read_json(CONTEXT_LINK_FIXTURE / "context-link-input.json")
+        source["measurement_records"][1]["context_links"][0]["link_id"] = "/Users/lab/private/link"
+
+        with self.assertRaisesRegex(ValueError, "context link id must be public-safe"):
+            build_measurement_context_link_summary(source)
+
+    def test_context_link_outputs_do_not_alias_inputs_or_result_objects(self) -> None:
+        source = _read_json(CONTEXT_LINK_FIXTURE / "context-link-input.json")
+        result = summarize_measurement_context_links(
+            MeasurementContextLinkRequest.from_dict(source)
+        )
+        summary = result.to_dict()
+
+        source["context_records"][0]["declared_summary"]["trusted_entry_count"] = 99
+        summary["linked_context_refs"][0]["context_id"] = "mutated"
+
+        self.assertEqual(
+            result.to_dict()["context_records"][0]["declared_summary"]["trusted_entry_count"],
+            4,
+        )
+        self.assertEqual(result.linked_context_refs[0]["context_id"], "param-state-0007")
 
 
 if __name__ == "__main__":
