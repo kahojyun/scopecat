@@ -8,10 +8,13 @@ from pathlib import Path
 from scopecat.measurement_context import (
     MeasurementContextLinkRequest,
     ResolvedContextLinkComparisonRequest,
+    SupportingEvidenceReferenceRequest,
     build_measurement_context_link_summary,
     build_resolved_context_link_comparison_summary,
+    build_supporting_evidence_reference_summary,
     compare_resolved_context_links,
     summarize_measurement_context_links,
+    summarize_supporting_evidence_reference,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +23,13 @@ COMPARISON_FIXTURE = (
 )
 CONTEXT_LINK_FIXTURE = (
     ROOT / "tests" / "fixtures" / "measurement_context_link" / "basic_optional_links"
+)
+SUPPORTING_EVIDENCE_FIXTURE = (
+    ROOT
+    / "tests"
+    / "fixtures"
+    / "supporting_evidence_reference"
+    / "basic_supporting_evidence_reference"
 )
 
 
@@ -152,6 +162,68 @@ class MeasurementContextEngineeringPrototypeTest(unittest.TestCase):
             4,
         )
         self.assertEqual(result.linked_context_refs[0]["context_id"], "param-state-0007")
+
+    def test_supporting_evidence_typed_api_matches_validated_candidate_output(self) -> None:
+        source = _read_json(SUPPORTING_EVIDENCE_FIXTURE / "supporting-evidence-input.json")
+        request = SupportingEvidenceReferenceRequest.from_dict(source)
+        result = summarize_supporting_evidence_reference(request)
+
+        self.assertEqual(
+            result.to_dict(),
+            _candidate_summary(
+                SUPPORTING_EVIDENCE_FIXTURE / "expected-supporting-evidence-summary.json"
+            ),
+        )
+        self.assertEqual(result.classification, "needs_related_target_review")
+        self.assertEqual(result.supporting_links[0]["target_type"], "running_measurement")
+        self.assertEqual(
+            build_supporting_evidence_reference_summary(source),
+            result.to_dict(),
+        )
+
+    def test_supporting_evidence_rejects_payload_or_file_claims(self) -> None:
+        source = _read_json(SUPPORTING_EVIDENCE_FIXTURE / "supporting-evidence-input.json")
+        source["supporting_evidence_policy"]["payload_import"] = "performed"
+
+        with self.assertRaisesRegex(ValueError, "payload_import"):
+            build_supporting_evidence_reference_summary(source)
+
+        source = _read_json(SUPPORTING_EVIDENCE_FIXTURE / "supporting-evidence-input.json")
+        source["supporting_evidence_policy"]["file_observation"] = "performed"
+
+        with self.assertRaisesRegex(ValueError, "file_observation"):
+            build_supporting_evidence_reference_summary(source)
+
+    def test_supporting_evidence_rejects_private_or_path_shaped_ids(self) -> None:
+        source = _read_json(SUPPORTING_EVIDENCE_FIXTURE / "supporting-evidence-input.json")
+        source["evidence"]["evidence_id"] = "/Users/lab/private/evidence"
+
+        with self.assertRaisesRegex(ValueError, "supporting evidence id must be public-safe"):
+            SupportingEvidenceReferenceRequest.from_dict(source)
+
+        source = _read_json(SUPPORTING_EVIDENCE_FIXTURE / "supporting-evidence-input.json")
+        source["related_targets"][0]["target_id"] = "../private/target"
+
+        with self.assertRaisesRegex(
+            ValueError, "supporting evidence target id must be public-safe"
+        ):
+            build_supporting_evidence_reference_summary(source)
+
+    def test_supporting_evidence_outputs_do_not_alias_inputs_or_result_objects(self) -> None:
+        source = _read_json(SUPPORTING_EVIDENCE_FIXTURE / "supporting-evidence-input.json")
+        result = summarize_supporting_evidence_reference(
+            SupportingEvidenceReferenceRequest.from_dict(source)
+        )
+        summary = result.to_dict()
+
+        source["evidence"]["declared_reference"]["value"] = "mutated"
+        summary["supporting_links"][0]["target_id"] = "mutated"
+
+        self.assertEqual(
+            result.to_dict()["evidence"]["declared_reference"]["value"],
+            "artifacts/rabi-run-stderr-excerpt.txt",
+        )
+        self.assertEqual(result.supporting_links[0]["target_id"], "running-measurement-rabi-0042")
 
 
 if __name__ == "__main__":
