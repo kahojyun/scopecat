@@ -1,0 +1,170 @@
+{
+  "summary_policy": "internal_validation_summary",
+  "reference_semantics": {
+    "surface_boundary": "notebook/CLI-shaped summary data, not a rendered GUI or executable notebook",
+    "action_posture": "review actions are labels only and cannot execute workflow changes"
+  },
+  "candidate_summary": {
+    "surface_policy": {
+      "surface_authority": "declared_calibration_continuation_review_surface",
+      "input_source": "declared_review_state_backbone_and_findings_summaries",
+      "surface_consumers": "notebook_or_cli",
+      "payload_handling": "summary_facts_and_labels_only",
+      "rendering": "not_performed",
+      "gui_workflow": "not_defined",
+      "notebook_execution": "not_performed",
+      "action_execution": "not_performed",
+      "measurement_payload_read": "not_performed",
+      "fit_execution": "not_performed",
+      "calibration_execution": "not_performed",
+      "parameter_write_back": "not_performed",
+      "hardware_control": "not_performed",
+      "automatic_run_start": "not_performed",
+      "storage_mutation": "not_performed",
+      "shared_surface_schema": "not_defined"
+    },
+    "surface_request": {
+      "surface_id": "calibration-continuation-surface-0001",
+      "route_id": "calibration-continuation",
+      "selected_step_id": "step-record-rabi-qA-0001"
+    },
+    "route_header": {
+      "surface_state": "blocked_with_context_findings",
+      "review_card_count": 2,
+      "backbone_finding_count": 2,
+      "selected_step_id": "step-record-rabi-qA-0001"
+    },
+    "step_review_lane": {
+      "state_counts": {
+        "handoff_ready_for_parameter_state_thread": 1,
+        "needs_fit_review": 1
+      },
+      "cards": [
+        {
+          "step_record_id": "step-record-rabi-qA-0001",
+          "target": "qA",
+          "review_state": "handoff_ready_for_parameter_state_thread",
+          "state_source": "evidence",
+          "finding_count": 0,
+          "available_review_actions": [
+            "inspect_handoff",
+            "wait_for_parameter_state_thread"
+          ],
+          "action_posture": "labels_only_not_executed"
+        },
+        {
+          "step_record_id": "step-record-rabi-qD-0004",
+          "target": "qD",
+          "review_state": "needs_fit_review",
+          "state_source": "evidence",
+          "finding_count": 1,
+          "available_review_actions": [
+            "inspect_fit_result",
+            "record_fit_review_outcome"
+          ],
+          "action_posture": "labels_only_not_executed"
+        }
+      ]
+    },
+    "backbone_context_panel": {
+      "classification": "calibration_derived_parameter_state_selected_for_later_measurement_context",
+      "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
+      "measurement_id": "measurement-05001",
+      "selected_parameter_state_id": "param-state-0008",
+      "measurement_context_link_id": "ctx-link-05001-params",
+      "context_policy": "valid_without_context"
+    },
+    "backbone_findings_panel": {
+      "classification": "calibration_backbone_context_blocked",
+      "blocked_case_count": 1,
+      "review_case_count": 1,
+      "ready_case_count": 1,
+      "finding_count": 2,
+      "findings": [
+        {
+          "case_id": "intake-unavailable",
+          "code": "parameter_state_intake_unavailable",
+          "severity": "blocked",
+          "basis": "No parameter-state intake summary is available for the accepted handoff.",
+          "does_not_claim": "parameter_state_commit_or_storage"
+        },
+        {
+          "case_id": "measurement-link-missing",
+          "code": "measurement_context_link_missing",
+          "severity": "review",
+          "basis": "Later measurement record has no parameter-state run-start context link.",
+          "does_not_claim": "measurement_record_invalid"
+        }
+      ]
+    },
+    "action_palette": [
+      {
+        "source": "review_state_card",
+        "target_id": "step-record-rabi-qA-0001",
+        "action_label": "inspect_handoff",
+        "posture": "labels_only_not_executed"
+      },
+      {
+        "source": "review_state_card",
+        "target_id": "step-record-rabi-qA-0001",
+        "action_label": "wait_for_parameter_state_thread",
+        "posture": "labels_only_not_executed"
+      },
+      {
+        "source": "review_state_card",
+        "target_id": "step-record-rabi-qD-0004",
+        "action_label": "inspect_fit_result",
+        "posture": "labels_only_not_executed"
+      },
+      {
+        "source": "review_state_card",
+        "target_id": "step-record-rabi-qD-0004",
+        "action_label": "record_fit_review_outcome",
+        "posture": "labels_only_not_executed"
+      },
+      {
+        "source": "backbone_context_finding",
+        "target_id": "intake-unavailable",
+        "action_label": "inspect_parameter_state_intake_unavailable",
+        "posture": "labels_only_not_executed"
+      },
+      {
+        "source": "backbone_context_finding",
+        "target_id": "measurement-link-missing",
+        "action_label": "inspect_measurement_context_link_missing",
+        "posture": "labels_only_not_executed"
+      }
+    ],
+    "attention": [
+      {
+        "code": "surface_is_not_gui",
+        "severity": "review",
+        "basis": "The output is notebook/CLI-shaped data and does not define components.",
+        "does_not_claim": "gui_contract"
+      },
+      {
+        "code": "actions_are_labels_only",
+        "severity": "review",
+        "basis": "Available actions name possible reviewer moves but cannot execute them.",
+        "does_not_claim": "action_execution"
+      },
+      {
+        "code": "context_findings_do_not_invalidate_measurements",
+        "severity": "info",
+        "basis": "Backbone context findings stay review evidence.",
+        "does_not_claim": "measurement_validity_decision"
+      }
+    ]
+  },
+  "decisions_not_earned": [
+    "GUI workflow",
+    "notebook execution",
+    "action execution",
+    "shared surface schema",
+    "measurement payload read",
+    "fit or calibration execution",
+    "hardware control",
+    "parameter write-back",
+    "automatic run start"
+  ]
+}
