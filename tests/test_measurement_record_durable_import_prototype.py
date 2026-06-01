@@ -6,6 +6,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from scopecat.measurement_records import (
     MeasurementRecordDurableImportRequest,
@@ -245,6 +246,58 @@ class MeasurementRecordDurableImportPrototypeTest(unittest.TestCase):
         self.assertEqual(run.classification, "rolled_back_after_import_failure")
         self.assertTrue(run.rollback_performed)
         self.assertIn("projection", run.import_error or "")
+
+    def test_read_view_failure_after_writer_rolls_back_new_record(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+
+            with patch(
+                "scopecat.measurement_records.durable_import."
+                "read_created_record_primary_table_from_request",
+                side_effect=RuntimeError("simulated read-view failure"),
+            ):
+                run = import_measurement_record_from_request(
+                    _request(),
+                    content_root=content_root,
+                    storage_root=storage_root,
+                )
+
+            self.assertFalse((storage_root / "records" / "run-3101-rabi").exists())
+
+        self.assertEqual(run.classification, "rolled_back_after_import_failure")
+        self.assertTrue(run.rollback_performed)
+        self.assertEqual(run.to_dict()["pipeline"]["writer"], "written_to_created_record")
+        self.assertIsNone(run.to_dict()["pipeline"]["read_view"])
+        self.assertIn("read_view step failed", run.import_error or "")
+
+    def test_finalization_failure_after_read_view_rolls_back_new_record(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+
+            with patch(
+                "scopecat.measurement_records.durable_import."
+                "finalize_measurement_record_from_read_view",
+                side_effect=RuntimeError("simulated finalization failure"),
+            ):
+                run = import_measurement_record_from_request(
+                    _request(),
+                    content_root=content_root,
+                    storage_root=storage_root,
+                )
+
+            self.assertFalse((storage_root / "records" / "run-3101-rabi").exists())
+
+        self.assertEqual(run.classification, "rolled_back_after_import_failure")
+        self.assertTrue(run.rollback_performed)
+        self.assertEqual(run.to_dict()["pipeline"]["read_view"], "primary_table_ready")
+        self.assertIsNone(run.to_dict()["pipeline"]["finalization"])
+        self.assertIn("finalization step failed", run.import_error or "")
 
     def test_source_policy_must_match_candidate_boundary(self) -> None:
         source = _raw_source()

@@ -42,6 +42,10 @@ def _digest(path: Path) -> str:
     return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
 
 
+def _digest_bytes(content: bytes) -> str:
+    return f"sha256:{hashlib.sha256(content).hexdigest()}"
+
+
 def _writer_chunk_one() -> MeasurementRecordWriterChunk:
     path = CHUNK_FIXTURE / "chunks" / "chunk-1.csv"
     return MeasurementRecordWriterChunk(
@@ -844,6 +848,99 @@ class MeasurementRecordInProgressUpdatePrototypeTest(unittest.TestCase):
         self.assertEqual(
             [finding["code"] for finding in run.review_findings], ["visible_row_count_mismatch"]
         )
+
+    def test_running_inspection_rejects_append_segment_header_repeat(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            _populate_in_progress_record(storage_root, content_root, state="in_progress")
+            append_run = append_in_progress_measurement_record_from_request(
+                _update_request(),
+                storage_root=storage_root,
+                content_root=content_root,
+            )
+            if not append_run.updated:
+                raise AssertionError(append_run.to_dict())
+            segment_content = b"drive_amplitude,excited_state_probability\n0.75,0.83\n1.00,0.94\n"
+            segment_path = storage_root / "records" / "run-3101-rabi" / "segments" / "chunk-2.csv"
+            segment_path.write_bytes(segment_content)
+            receipt_path = (
+                storage_root / "records" / "run-3101-rabi" / "updates" / "update-3101-2.json"
+            )
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            receipt["append_segment"]["digest"] = _digest_bytes(segment_content)
+            receipt["append_segment"]["size_bytes"] = len(segment_content)
+            receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "must not repeat CSV header"):
+                inspect_running_measurement_record_from_request(
+                    _inspection_request(),
+                    storage_root=storage_root,
+                )
+
+    def test_running_inspection_rejects_append_segment_width_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            _populate_in_progress_record(storage_root, content_root, state="in_progress")
+            append_run = append_in_progress_measurement_record_from_request(
+                _update_request(),
+                storage_root=storage_root,
+                content_root=content_root,
+            )
+            if not append_run.updated:
+                raise AssertionError(append_run.to_dict())
+            segment_content = b"0.75,0.83,extra\n1.00,0.94,extra\n"
+            segment_path = storage_root / "records" / "run-3101-rabi" / "segments" / "chunk-2.csv"
+            segment_path.write_bytes(segment_content)
+            receipt_path = (
+                storage_root / "records" / "run-3101-rabi" / "updates" / "update-3101-2.json"
+            )
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            receipt["append_segment"]["digest"] = _digest_bytes(segment_content)
+            receipt["append_segment"]["size_bytes"] = len(segment_content)
+            receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "append segment rows"):
+                inspect_running_measurement_record_from_request(
+                    _inspection_request(),
+                    storage_root=storage_root,
+                )
+
+    def test_running_inspection_rejects_empty_append_segment(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            _populate_in_progress_record(storage_root, content_root, state="in_progress")
+            append_run = append_in_progress_measurement_record_from_request(
+                _update_request(),
+                storage_root=storage_root,
+                content_root=content_root,
+            )
+            if not append_run.updated:
+                raise AssertionError(append_run.to_dict())
+            segment_content = b""
+            segment_path = storage_root / "records" / "run-3101-rabi" / "segments" / "chunk-2.csv"
+            segment_path.write_bytes(segment_content)
+            receipt_path = (
+                storage_root / "records" / "run-3101-rabi" / "updates" / "update-3101-2.json"
+            )
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            receipt["append_segment"]["digest"] = _digest_bytes(segment_content)
+            receipt["append_segment"]["size_bytes"] = len(segment_content)
+            receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "append segment must contain rows"):
+                inspect_running_measurement_record_from_request(
+                    _inspection_request(),
+                    storage_root=storage_root,
+                )
 
     def test_running_inspection_rejects_non_contiguous_update_receipts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

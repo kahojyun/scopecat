@@ -180,7 +180,8 @@ finalizes the record as `complete`, projects `record-read-model.json`, and
 returns a local durable import receipt with each pipeline step
 classification. It proves unapproved no-mutation behavior, source fact
 mismatch blocking before mutation, no-overwrite destination blocking,
-row-count/finalization rollback, and projection-failure rollback.
+row-count blocking before mutation, read-view rollback, finalization rollback,
+and projection-failure rollback.
 
 It deliberately does not import into an existing record, attach to an existing
 created shell, merge primary data, replace manifests, import linked-context
