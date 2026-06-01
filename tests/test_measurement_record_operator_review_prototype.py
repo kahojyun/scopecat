@@ -12,8 +12,6 @@ from pathlib import Path
 from scopecat.measurement_records import (
     MEASUREMENT_RECORD_REVIEW_ARTIFACT_NAME,
     MeasurementRecordAppendChunk,
-    MeasurementRecordContextAttachment,
-    MeasurementRecordContextAttachmentRequest,
     MeasurementRecordCreationRequest,
     MeasurementRecordFinalizationRequest,
     MeasurementRecordInProgressUpdateRequest,
@@ -21,16 +19,18 @@ from scopecat.measurement_records import (
     MeasurementRecordOperatorReviewRequest,
     MeasurementRecordReadModelProjectionRequest,
     MeasurementRecordReadRequest,
+    MeasurementRecordReference,
+    MeasurementRecordReferenceRequest,
     MeasurementRecordRunningInspectionRequest,
     MeasurementRecordWriterChunk,
     MeasurementRecordWriterRequest,
     append_in_progress_measurement_record_from_request,
-    attach_measurement_record_context_from_request,
     build_measurement_record_review_html,
     create_measurement_record_from_request,
     finalize_measurement_record_from_read_view,
     project_measurement_record_read_model_from_read_view,
     read_created_record_primary_table_from_request,
+    record_measurement_record_references_from_request,
     review_measurement_records,
     review_measurement_records_from_request,
     save_measurement_record_operator_review_receipt,
@@ -164,28 +164,28 @@ def _operator_request(**overrides: object) -> MeasurementRecordOperatorReviewReq
     return MeasurementRecordOperatorReviewRequest(**values)
 
 
-def _context_attachment_request(
+def _recorded_reference_request(
     record_id: str = "run-3101-rabi",
-) -> MeasurementRecordContextAttachmentRequest:
-    return MeasurementRecordContextAttachmentRequest(
-        request_id=f"attach-context-{record_id}",
+) -> MeasurementRecordReferenceRequest:
+    return MeasurementRecordReferenceRequest(
+        request_id=f"record-references-{record_id}",
         approval_state="approved",
         record_id=record_id,
         record_dir=_record_dir(record_id),
-        attachment_set_id=f"context-{record_id}",
-        attachments=(
-            MeasurementRecordContextAttachment(
-                attachment_id="param-file-001",
+        reference_set_id=f"references-{record_id}",
+        references=(
+            MeasurementRecordReference(
+                reference_id="param-file-001",
                 family="parameter_state",
                 role="parameter_file",
                 reference_kind="workspace_relative_path",
                 reference_value=f"legacy-system/params/{record_id}.json",
                 label="Legacy parameter file",
             ),
-            MeasurementRecordContextAttachment(
-                attachment_id="analysis-summary-001",
-                family="preliminary_analysis",
-                role="analysis_result",
+            MeasurementRecordReference(
+                reference_id="analysis-summary-001",
+                family="derived_artifact",
+                role="preliminary_analysis_result",
                 reference_kind="workspace_relative_path",
                 reference_value=f"analysis/{record_id}/summary.csv",
                 label="Initial analysis summary",
@@ -375,20 +375,20 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
         self.assertEqual(payload["selected_record"]["source"], "catalog")
         self.assertEqual(payload["selected_record"]["record"]["lifecycle_state"], "complete")
         self.assertEqual(payload["next_action"], "review_selected_record_summary")
-        self.assertEqual(payload["context_attachments"]["entries"], [])
+        self.assertEqual(payload["recorded_references"]["entries"], [])
         self.assertEqual(payload["review_findings"], [])
         self.assertEqual(after, before)
         self.assertIn("storage_mutation", payload["workflow"]["does_not_claim"])
 
-    def test_operator_review_surfaces_context_attachments(self) -> None:
+    def test_operator_review_surfaces_recorded_references(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root = Path(temp_dir) / "storage"
             content_root = Path(temp_dir) / "content"
             storage_root.mkdir()
             shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
             _populate_projected_record(storage_root, content_root)
-            attach_run = attach_measurement_record_context_from_request(
-                _context_attachment_request(),
+            record_run = record_measurement_record_references_from_request(
+                _recorded_reference_request(),
                 storage_root=storage_root,
             )
 
@@ -399,16 +399,16 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
             html = build_measurement_record_review_html(run)
 
         payload = run.to_dict()
-        self.assertTrue(attach_run.attached)
+        self.assertTrue(record_run.recorded)
         self.assertEqual(
-            payload["context_attachments"]["entries"][0]["record_id"],
+            payload["recorded_references"]["entries"][0]["record_id"],
             "run-3101-rabi",
         )
         self.assertEqual(
-            [item["role"] for item in payload["context_attachments"]["entries"][0]["attachments"]],
-            ["parameter_file", "analysis_result"],
+            [item["role"] for item in payload["recorded_references"]["entries"][0]["references"]],
+            ["parameter_file", "preliminary_analysis_result"],
         )
-        self.assertIn("Context Attachments", html)
+        self.assertIn("Recorded References", html)
         self.assertIn("Legacy parameter file", html)
         self.assertIn("Initial analysis summary", html)
 

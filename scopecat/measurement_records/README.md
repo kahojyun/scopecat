@@ -174,26 +174,27 @@ It does not observe legacy files, parse legacy formats, replace manifests,
 merge primary data, define adapter transport, define record-id generation, or
 define final storage schema.
 
-The first context-attachment slice is implemented through
-`attach_measurement_record_context(...)` and
-`attach_measurement_record_context_from_request(...)`. It consumes an approved
+The first recorded-references slice is implemented through
+`record_measurement_record_references(...)` and
+`record_measurement_record_references_from_request(...)`. It consumes an approved
 request for an existing record and writes one no-overwrite record-local receipt
-under `context-attachments/`. The receipt carries explicit user-declared
+under `recorded-references/`. The receipt carries explicit user-declared
 references for parameter files or snapshots, setup-binding files or snapshots,
-experiment-code files/directories or managed versions, preliminary analysis
-results, and supporting evidence. It is append-friendly: later requests can
-declare a previous context-attachment receipt instead of rewriting the manifest
-or read model. It does not observe referenced files, import payloads, parse
-parameter/setup/code/analysis formats, execute code or analysis, verify target
-checksums, write parameters, replace manifests, refresh read models, or define
-final storage schema.
+experiment-code files/directories or managed versions, derived artifacts such
+as preliminary analysis results, and supporting evidence. It is append-friendly:
+later requests can declare a previous recorded-reference receipt instead of
+rewriting the manifest or read model. It does not observe referenced files,
+import payloads, parse parameter/setup/code/artifact formats, execute code or
+analysis, verify target checksums, write parameters, replace manifests, refresh
+read models, or define final storage schema.
 
-`list_measurement_record_context_attachments(...)` reads those record-local
+`list_measurement_record_references(...)` reads those record-local
 receipts for local review. Operator review includes the resulting
-`context_attachments` projection so the local HTML artifact can show, for each
-measurement, which parameter/setup/code/analysis context has been recorded.
+`recorded_references` projection so the local HTML artifact can show, for each
+measurement, which parameter, setup, code, derived artifact, and evidence
+references were recorded.
 These references are review facts only; they are not canonical storage
-authority, portable export contents, GUI state, or a shared attachment schema.
+authority, portable export contents, GUI state, or a shared reference schema.
 
 The first storage-inventory slice is implemented through
 `list_measurement_record_storage(...)` and

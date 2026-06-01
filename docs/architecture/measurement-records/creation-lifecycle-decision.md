@@ -692,36 +692,37 @@ It does not accept automatic retune, scan-plan adjustment, parameter write-back,
 saved GUI state, or scientific fit validity as part of the current
 Measurement Records storage boundary.
 
-## Context Attachment Checkpoint
+## Recorded References Checkpoint
 
-The first context-attachment slice is implemented in
+The first recorded-references slice is implemented in
 [`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
 It exposes raw-dictionary and typed entrypoints:
-`attach_measurement_record_context(...)`,
-`attach_measurement_record_context_from_request(...)`, and
-`list_measurement_record_context_attachments(...)`.
+`record_measurement_record_references(...)`,
+`record_measurement_record_references_from_request(...)`, and
+`list_measurement_record_references(...)`.
 
 This slice adds one explicit record-local mutation:
 
 ```text
 existing measurement record
-  -> approved context attachment request
-  -> record-local no-overwrite context attachment receipt
-  -> read-only context attachment review projection
+  -> approved recorded reference request
+  -> record-local no-overwrite recorded reference receipt
+  -> read-only recorded reference review projection
 ```
 
 The receipt can carry user-declared references for parameter files or
 snapshots, setup-binding files or snapshots, experiment-code files/directories
-or managed versions, preliminary analysis results, and supporting evidence. It
-is append-friendly: a later receipt can declare a previous context-attachment
-receipt instead of replacing the creation manifest or derived read model.
-Operator review reads these receipts and exposes them as `context_attachments`
-so local HTML review can show the user what context was recorded for each
+or managed versions, derived artifacts such as preliminary analysis results,
+and supporting evidence. It is append-friendly: a later receipt can declare a
+previous recorded-reference receipt instead of replacing the creation manifest
+or derived read model.
+Operator review reads these receipts and exposes them as `recorded_references`
+so local HTML review can show the user what references were recorded for each
 measurement.
 
-This checkpoint deliberately keeps Measurement Records as the attachment
+This checkpoint deliberately keeps Measurement Records as the references
 visibility layer, not the payload owner. It does not observe referenced files,
-import context payloads, parse parameter/setup/code/analysis formats, execute
+import referenced payloads, parse parameter/setup/code/artifact formats, execute
 code or analysis, verify target checksums, infer relation graphs, write
 parameters, replace manifests, refresh read models, define canonical GUI state,
 or define final storage schema.
@@ -734,13 +735,13 @@ It exposes raw-dictionary and typed entrypoints:
 `review_measurement_records(...)` and
 `review_measurement_records_from_request(...)`.
 
-This slice composes the existing read-model catalog, record-local context
-attachment receipts, and optional caller-declared running inspections:
+This slice composes the existing read-model catalog, record-local recorded
+reference receipts, and optional caller-declared running inspections:
 
 ```text
 records directory
   -> catalog projected read models
-  -> context attachment receipt review
+  -> recorded reference receipt review
   -> optional caller-declared running inspection requests
   -> selected local record summary
   -> aggregated operator-review findings
@@ -748,9 +749,9 @@ records directory
 
 It deliberately remains read-only. It does not refresh read models, discover
 update receipts, replace manifests, finalize lifecycle state, repair storage,
-mutate records, import context payloads, define canonical storage authority, or
-persist GUI review state. Missing projected read models still surface through
-the catalog, but an
+mutate records, import referenced payloads, define canonical storage authority,
+or persist GUI review state. Missing projected read models still surface
+through the catalog, but an
 in-progress record that is explicitly supplied through a running inspection is
 not treated as a top-level operator-review problem merely because it lacks a
 derived read model. Catalog entries with embedded projected-read-model review

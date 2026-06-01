@@ -49,9 +49,9 @@ class LegacyRunStorageGuiScenarioTest(unittest.TestCase):
                     "attached_legacy_primary_data",
                     "attached_legacy_primary_data",
                 ],
-                "context_attach_classifications": [
-                    "attached_measurement_record_context",
-                    "attached_measurement_record_context",
+                "recorded_reference_classifications": [
+                    "recorded_measurement_record_references",
+                    "recorded_measurement_record_references",
                 ],
                 "inventory_classification": "measurement_record_storage_inventory_ready",
                 "read_view_classifications": [
@@ -99,7 +99,7 @@ class LegacyRunStorageGuiScenarioTest(unittest.TestCase):
             2,
         )
         self.assertEqual(
-            len(full_summary["operator_review"]["context_attachments"]["entries"]),
+            len(full_summary["operator_review"]["recorded_references"]["entries"]),
             2,
         )
         self.assertEqual(
@@ -155,7 +155,7 @@ class LegacyRunStorageGuiScenarioTest(unittest.TestCase):
                 "writer_receipt",
                 "finalization_receipt",
                 "read_model_projection",
-                "context_attachment_receipt",
+                "recorded_reference_receipt",
             ],
         )
         self.assertEqual(
@@ -170,7 +170,7 @@ class LegacyRunStorageGuiScenarioTest(unittest.TestCase):
                 "writer_receipt": "present",
                 "finalization_receipt": "present",
                 "read_model_projection": "present",
-                "context_attachment_receipt": "present",
+                "recorded_reference_receipt": "present",
             },
         )
         self.assertEqual(
@@ -198,7 +198,7 @@ class LegacyRunStorageGuiScenarioTest(unittest.TestCase):
         self.assertIn("legacy-system/run-002.tsv", html)
         self.assertIn("signal_counts", html)
         self.assertIn("Measurement Records Review", operator_review_html)
-        self.assertIn("Context Attachments", operator_review_html)
+        self.assertIn("Recorded References", operator_review_html)
         self.assertIn("Legacy parameter file", operator_review_html)
         self.assertIn("rec-legacy-labview-lv-run-001", operator_review_html)
         self.assertIn("rec-legacy-labview-lv-run-002", operator_review_html)
