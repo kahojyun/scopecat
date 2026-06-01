@@ -50,6 +50,7 @@ canonical parameter context while keeping calibration evidence as provenance.
 | Parameter-state intake/storage owns the managed snapshot. | [`../../slices/parameter-state/calibration-parameter-state-intake-validation-result.md`](../../slices/parameter-state/calibration-parameter-state-intake-validation-result.md), [`../../slices/parameter-state/calibration-parameter-state-storage-validation-result.md`](../../slices/parameter-state/calibration-parameter-state-storage-validation-result.md) |
 | Prepared-run review can consume the calibration-derived state. | [`../../slices/parameter-state/prepared-run-source-agnostic-parameter-state-consumption-validation-result.md`](../../slices/parameter-state/prepared-run-source-agnostic-parameter-state-consumption-validation-result.md), [`../../slices/parameter-state/prepared-run-source-agnostic-parameter-state-review-chain-validation-result.md`](../../slices/parameter-state/prepared-run-source-agnostic-parameter-state-review-chain-validation-result.md) |
 | The full backbone composes into later measurement context. | [`../../slices/calibration/calibration-derived-parameter-state-measurement-context-validation-result.md`](../../slices/calibration/calibration-derived-parameter-state-measurement-context-validation-result.md) |
+| Missing or partial backbone context becomes review findings. | [`../../slices/calibration/calibration-backbone-context-findings-validation-result.md`](../../slices/calibration/calibration-backbone-context-findings-validation-result.md) |
 
 ## Boundary
 
@@ -74,5 +75,5 @@ user workflow question. High-value follow-ups are:
   those actions;
 - consolidate how notebook/CLI surfaces consume the existing review-state and
   backbone summaries;
-- pressure missing evidence and partial context in the full backbone instead
-  of adding new shared schemas.
+- pressure combined backbone findings with real notebook/CLI display needs
+  before adding GUI behavior or shared route schemas.
