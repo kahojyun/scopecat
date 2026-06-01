@@ -61,15 +61,13 @@ system.
 | --- | --- | --- |
 | Selected-reference basic context comparison | Promoted into route-local engineering code with typed request/result objects and raw-dictionary adapters only at the fixture/current-caller edge. | [`scopecat/selected_reference/README.md`](../../../scopecat/selected_reference/README.md), this decision |
 | Selected-reference recorded-code context comparison | Promoted as declared recorded-code context comparison only. It compares context IDs, snapshot record identities, included file inventory, source-observation tokens, and declared refs without Git, source reads, restore, dependency, or execution claims. | [`scopecat/selected_reference/README.md`](../../../scopecat/selected_reference/README.md), this decision |
-| Resolved measurement-record context-link comparison | Remains measurement-context support evidence. It is not promoted in this module because its authority is actual measurement-record context links rather than the current selected-reference fixture shapes. | [`../../discovery/synthesis/measurement-context-backlog.md`](../../discovery/synthesis/measurement-context-backlog.md) |
+| Resolved measurement-record context-link comparison | Promoted separately as measurement-context support. It is not part of this module because its authority is actual measurement-record context links rather than the current selected-reference fixture shapes. | [`../measurement-context/resolved-context-link-comparison-decision.md`](../measurement-context/resolved-context-link-comparison-decision.md), [`../../../scopecat/measurement_context/README.md`](../../../scopecat/measurement_context/README.md) |
 
 ## Next Decision Gate
 
 Do not continue by promoting the whole selected-reference route. Future work
 should choose one explicit authority change:
 
-- resolved measurement-record context-link comparison as a live measurement
-  context support surface;
 - GUI or notebook review presentation over comparison findings;
 - quick preview/overlay consumption over compatible declared preview metadata;
 - raw-data or fit-quality comparison;
