@@ -7,6 +7,12 @@ from scopecat.prepared_run.acknowledgement import (
     build_prepared_run_acknowledgement_summary,
     compose_prepared_run_acknowledgement_review,
 )
+from scopecat.prepared_run.context import (
+    PreparedRunContextRequest,
+    PreparedRunContextResult,
+    build_prepared_run_context_summary,
+    compose_prepared_run_context,
+)
 from scopecat.prepared_run.review_gate import (
     AggregatedReviewFinding,
     PreparedRunReviewGateRequest,
@@ -28,15 +34,19 @@ __all__ = [
     "PreparedRunAcknowledgement",
     "PreparedRunAcknowledgementReviewRequest",
     "PreparedRunAcknowledgementReviewResult",
+    "PreparedRunContextRequest",
+    "PreparedRunContextResult",
     "PreparedRunReviewGateRequest",
     "PreparedRunReviewGateResult",
     "PreparedRunReviewViewStateRequest",
     "PreparedRunReviewViewStateResult",
     "ReviewItem",
     "build_prepared_run_acknowledgement_summary",
+    "build_prepared_run_context_summary",
     "build_prepared_run_review_gate_summary",
     "build_prepared_run_review_view_state",
     "compose_prepared_run_acknowledgement_review",
+    "compose_prepared_run_context",
     "compose_prepared_run_review_gate",
     "project_environment_operation_review_for_prepared_run",
     "project_prepared_run_review_view_state",

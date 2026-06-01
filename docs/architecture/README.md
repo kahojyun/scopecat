@@ -18,7 +18,7 @@ user documentation and does not replace discovery validation evidence.
 | [`measurement-records/creation-lifecycle-decision.md`](measurement-records/creation-lifecycle-decision.md) | Decisions and implementation checkpoints for durable measurement-record creation, writer integration, read view, finalization, read-model projection/refresh, durable import, and in-progress inspection. |
 | [`handoff/engineering-prototype-promotion-decision.md`](handoff/engineering-prototype-promotion-decision.md) | Canonical accepted handoff package-use implementation boundary, with historical candidate-storage checkpoints called out separately. |
 | [`handoff/durable-import-storage-decision.md`](handoff/durable-import-storage-decision.md) | Accepted first durable import/storage boundary: approved normalized import creates a new measurement record through the Measurement Records pipeline. |
-| [`prepared-run/engineering-prototype-promotion-decision.md`](prepared-run/engineering-prototype-promotion-decision.md) | Canonical accepted prepared-run review-gate implementation boundary and next decision gate. |
+| [`prepared-run/engineering-prototype-promotion-decision.md`](prepared-run/engineering-prototype-promotion-decision.md) | Canonical accepted prepared-run context-construction and review implementation boundary and next decision gate. |
 
 ## Historical Notes
 

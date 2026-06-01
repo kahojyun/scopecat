@@ -1,20 +1,30 @@
 # Prepared Run Module
 
-Local engineering prototype module for prepared-run review composition.
+Local engineering prototype module for prepared-run context construction and
+review composition.
 
-This module is the accepted implementation boundary for the first narrow
-prepared-run surface: the manual pre-run review gate. The promoted boundary is
-owned by
+This module is the accepted implementation boundary for narrow prepared-run
+surfaces: declared context construction, manual pre-run review composition,
+acknowledgement review, and local view-state projection. The promoted boundary
+is owned by
 [`../../docs/architecture/prepared-run/engineering-prototype-promotion-decision.md`](../../docs/architecture/prepared-run/engineering-prototype-promotion-decision.md).
 
-The module composes explicit prior review summaries for prepared-run context,
-parameter-state gate, scope alignment, environment review, and optional
-environment-operation review evidence. The optional environment-operation
-evidence can be the historical discovery-style review bundle or a typed
-`scopecat.environment_operation.EnvironmentOperationReview` projected through
-`project_environment_operation_review_for_prepared_run(...)`. The projection
-adds the prepared-run context reference required by the gate; it does not
-execute, inspect, or reinterpret manager behavior. The gate validates
+The context layer composes declared family-owned context records into
+prepared-run context summaries. It validates selected reference continuity,
+workspace-observation alignment to the selected managed code version, and
+manual-run target alignment to selected measurement intent. It reports missing
+required context and workspace-observation findings as review facts without
+starting runs, inspecting files, applying parameters, syncing environments, or
+defining a shared context schema.
+
+The review-gate layer composes explicit prior review summaries for prepared-run
+context, parameter-state gate, scope alignment, environment review, and
+optional environment-operation review evidence. The optional
+environment-operation evidence can be the historical discovery-style review
+bundle or a typed `scopecat.environment_operation.EnvironmentOperationReview`
+projected through `project_environment_operation_review_for_prepared_run(...)`.
+The projection adds the prepared-run context reference required by the gate; it
+does not execute, inspect, or reinterpret manager behavior. The gate validates
 prepared-run-context continuity, preserves child findings, and returns a local
 review projection for manual pre-run review.
 
@@ -35,16 +45,20 @@ or change review authority.
 The output posture is local `review_summary` / local review projection. It is
 not a portable, public, or export artifact.
 
-It does not own prepared-run context construction, parameter-state storage,
-scope alignment, environment review, environment operation execution, runtime
-readiness, hardware readiness, parameter write-back, scheduler behavior,
-automatic run start, restore behavior, GUI persistence, portable/export output,
-or shared run-context schemas.
+It does not own parameter-state storage, scope alignment, environment review,
+environment operation execution, runtime readiness, hardware readiness,
+parameter write-back, scheduler behavior, automatic run start, restore
+behavior, GUI persistence, portable/export output, or shared run-context
+schemas.
 
 ## API Surface
 
 Current local surface:
 
+- `PreparedRunContextRequest.from_dict(...)`;
+- `compose_prepared_run_context(...)`;
+- `PreparedRunContextResult.to_dict()`;
+- `build_prepared_run_context_summary(...)` as the raw-dictionary adapter.
 - `PreparedRunReviewGateRequest.from_dict(...)`;
 - `project_environment_operation_review_for_prepared_run(...)`;
 - `compose_prepared_run_review_gate(...)`;
