@@ -30,6 +30,7 @@ HANDOFF_DURABLE_IMPORT_POLICY = {
     "import_plan": "required_ready_single_measurement_import_plan",
     "destination_authority": "caller_declared_durable_record_destination",
     "source_mapping": "handoff_package_measurement_primary_data",
+    "durable_source_preflight": "delegated_to_measurement_record_durable_import",
     "durable_import": "delegated_to_measurement_record_durable_import",
     "candidate_storage_acceptance": "not_performed",
     "batch_import": "not_performed",

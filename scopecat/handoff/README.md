@@ -63,6 +63,10 @@ or batch multiple package measurements in one durable import operation.
 single-measurement `HandoffImportPlanRun`; `run_handoff_durable_import(...)`
 is the raw edge that runs the import plan first and then delegates mutation to
 the durable Measurement Records import pipeline.
+The adapter does not treat the ready handoff import plan as sufficient write
+authority for bytes on disk: the delegated durable import pipeline re-opens the
+package member under the package directory and preflights digest, byte size,
+normalized CSV shape, and row count before any durable storage mutation.
 `summarize_handoff_durable_import_receipt(...)` reads the local adapter receipt
 back into a small continuation summary with package id, selected measurement,
 destination record, final state, next action, and durable import outcome. It

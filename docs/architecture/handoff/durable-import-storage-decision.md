@@ -298,12 +298,16 @@ to match that plan, requires declared digest and size facts, verifies observed
 and declared primary-data size agreement, maps the package primary-data facts
 to `MeasurementRecordImportSource(source_kind="handoff_package")`, and calls
 `import_measurement_record_from_request(...)` with the package directory as the
-content root.
+content root. The delegated Measurement Records durable import pipeline then
+re-opens the package member and preflights digest, byte size, normalized CSV
+shape, and row count before durable storage mutation, so a stale ready handoff
+plan does not by itself authorize writing changed package bytes.
 
 Tests cover successful import, raw-edge composition, blocked-plan no-mutation
-behavior, and package-id mismatch validation. The adapter continues to leave
-no-overwrite, rollback, finalization, and read-model projection semantics to
-the Measurement Records durable import pipeline.
+behavior, stale-package source revalidation before mutation, and package-id
+mismatch validation. The adapter continues to leave no-overwrite, rollback,
+finalization, and read-model projection semantics to the Measurement Records
+durable import pipeline.
 
 ## Handoff Durable Receipt Summary Checkpoint
 

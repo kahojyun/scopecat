@@ -383,6 +383,47 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
         self.assertEqual(run.classification, "blocked_before_handoff_durable_import")
         self.assertIsNone(run.durable_import_request)
 
+    def test_stale_ready_plan_revalidates_source_before_durable_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            storage_root.mkdir()
+            import_plan = _import_plan_run(package_dir)
+            (package_dir / "measurements" / "legacy-rabi-001" / "primary.csv").write_text(
+                "drive_frequency,signal\n5.00,0.99\n",
+                encoding="utf-8",
+            )
+
+            run = run_handoff_durable_import_from_plan(
+                _request(),
+                import_plan=import_plan,
+                storage_root=storage_root,
+            )
+            summary = run.to_dict()
+            records_exist = (storage_root / "records").exists()
+
+        self.assertEqual(run.classification, "blocked_before_handoff_durable_import")
+        self.assertIsNotNone(run.durable_import_request)
+        self.assertFalse(run.imported)
+        self.assertEqual(
+            run.durable_import_run.classification if run.durable_import_run else None,
+            "blocked_before_import",
+        )
+        self.assertIn(
+            "digest does not match",
+            run.durable_import_run.import_error if run.durable_import_run else "",
+        )
+        self.assertFalse(records_exist)
+        self.assertEqual(
+            summary["handoff_durable_import_policy"]["durable_source_preflight"],
+            "delegated_to_measurement_record_durable_import",
+        )
+        self.assertEqual(
+            summary["durable_import_result"]["workflow"]["steps"],
+            ["validate_durable_import_request", "preflight_normalized_source"],
+        )
+
     def test_summarizes_blocked_plan_without_authorizing_retry(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
