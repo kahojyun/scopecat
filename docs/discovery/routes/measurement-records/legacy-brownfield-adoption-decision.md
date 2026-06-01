@@ -76,6 +76,7 @@ legacy runner adapter.
 | Evidence append | Reviewed legacy sidecar append intent, reviewed legacy sidecar evidence append receipt | Let an explicit operator approval carry reviewed sidecar/locator facts forward as review/debug evidence, then write one no-overwrite receipt under an existing record without importing primary data or replacing manifests. |
 | Readback | Legacy evidence receipt read view | Read declared review-evidence receipt paths without storage scan, primary-data read/import, read-model refresh, reference repair, parameter write-back, or measurement-validity decisions. |
 | Route backbone | Legacy brownfield adoption backbone | Validate measurement and receipt continuity across the chain, while preserving post-run-first adoption and during-run compatibility without runner ownership. |
+| Calibration handoff bridge | Legacy calibration handoff parameter-state bridge | Let an explicitly approved bridge carry reviewed legacy sidecar evidence to a calibration accepted-write handoff and parameter-state intake summary without legacy write-back, parameter-state storage mutation, hardware apply, payload import, or inferred links. |
 
 ## Boundary Decisions
 
@@ -110,8 +111,8 @@ Keep these out of the current route until a named workflow requires them:
 - stronger durable storage integration such as manifest replacement,
   read-model refresh, canonical append visibility, lock identity, stale-lock
   cleanup, crash recovery, and conflict policy;
-- calibration accepted-write handoff composition into parameter-state
-  management;
+- further calibration handoff behavior beyond the explicit review bridge,
+  such as storage visibility, prepared-run selection, or legacy write-back;
 - parameter write-back, hardware apply, rollback, hardware control, or current
   instrument-state recording;
 - GUI workflow, action execution, scheduler behavior, or run blocking;
@@ -138,9 +139,9 @@ appears:
   model:
   validate read-model refresh or canonical append visibility separately from
   the first receipt read-view.
-- Users need legacy calibration outputs to become managed parameter state:
-  validate a separate composition from sidecar evidence or calibration
-  accepted-write handoff into parameter-state management.
+- Users need legacy-calibration-derived managed state to be stored, selected
+  for a later prepared run, or written back to legacy files:
+  validate each boundary separately from the current explicit review bridge.
 - Real operator workflows show that the current post-run review stages or
   locator sufficiency labels do not match how users actually find and review
   old runs.

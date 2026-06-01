@@ -266,6 +266,16 @@ storage mutation, primary-data import, legacy parsing, reference repair,
 parameter write-back, measurement-validity decisions, runner ownership, or GUI
 behavior.
 
+Adjacent legacy calibration handoff bridge result:
+[`legacy-calibration-handoff-parameter-state-bridge-validation-result.md`](../slices/measurement-records/legacy-calibration-handoff-parameter-state-bridge-validation-result.md)
+validates an explicit operator-approved bridge from a legacy brownfield
+adoption summary to calibration accepted-write handoff and calibration
+parameter-state intake summaries, requiring measurement/provenance continuity
+while keeping legacy sidecar facts as review/debug evidence and avoiding fresh
+observation, primary-data import, legacy parsing, parameter-state storage
+mutation, legacy parameter write-back, hardware write-back, reference repair,
+measurement-validity decisions, or GUI behavior.
+
 First post-run review result:
 [`post-run-review-bundle-validation-result.md`](../slices/measurement-context/post-run-review-bundle-validation-result.md)
 validates a local post-run review composition over completed measurement
