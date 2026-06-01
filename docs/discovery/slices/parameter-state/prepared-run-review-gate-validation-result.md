@@ -2,11 +2,16 @@
 
 ## Status
 
-Implementation candidate validated.
+Implementation candidate validated; promoted as a narrow engineering prototype.
 
 This is not an ADR, run-start contract, hardware-control contract, dependency
 sync contract, parameter write-back contract, executor, managed-runner design,
 GUI design, or shared gate schema.
+
+Promotion note: the live engineering prototype boundary for this surface is
+[`../../../architecture/prepared-run/engineering-prototype-promotion-decision.md`](../../../architecture/prepared-run/engineering-prototype-promotion-decision.md)
+and `scopecat/prepared_run/`. The implementation candidate remains historical
+validation evidence, not the active owner for new review-gate behavior.
 
 ## Inputs
 
