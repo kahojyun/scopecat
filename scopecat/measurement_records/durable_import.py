@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+import csv
+import io
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -469,6 +471,8 @@ def _parse_source(source: dict[str, Any]) -> MeasurementRecordDurableImportReque
 
 
 def _preflight_source(request: MeasurementRecordDurableImportRequest, content_root: Path) -> None:
+    if request.import_source.primary_data_format != "csv_table":
+        raise _DurableImportFailure("durable import source format is unsupported")
     path = _path_under(content_root, request.import_source.content_ref)
     _ensure_no_symlink_parents(
         content_root,
@@ -485,6 +489,34 @@ def _preflight_source(request: MeasurementRecordDurableImportRequest, content_ro
         raise _DurableImportFailure("durable import source digest does not match")
     if len(content) != request.import_source.size_bytes:
         raise _DurableImportFailure("durable import source size does not match")
+    rows = _count_normalized_csv_rows(content)
+    if rows != request.import_source.rows_recorded:
+        raise _DurableImportFailure("durable import source row count does not match")
+
+
+def _count_normalized_csv_rows(content: bytes) -> int:
+    try:
+        decoded = content.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise _DurableImportFailure("durable import source must be utf-8 CSV") from exc
+    reader = csv.reader(io.StringIO(decoded, newline=""))
+    try:
+        header = next(reader)
+    except StopIteration as exc:
+        raise _DurableImportFailure("durable import source requires a CSV header") from exc
+    if not header:
+        raise _DurableImportFailure("durable import source requires a CSV header")
+    if any(name.strip() == "" for name in header):
+        raise _DurableImportFailure("durable import source CSV headers must be non-blank")
+    if len(set(header)) != len(header):
+        raise _DurableImportFailure("durable import source requires unique CSV headers")
+
+    rows = 0
+    for row in reader:
+        if len(row) != len(header):
+            raise _DurableImportFailure("durable import source rows must match the CSV header")
+        rows += 1
+    return rows
 
 
 def _creation_request(
