@@ -114,6 +114,16 @@ from scopecat.measurement_records.storage_inventory import (
     list_measurement_record_storage,
     list_measurement_record_storage_from_request,
 )
+from scopecat.measurement_records.user_workflow import (
+    ConvertedPrimaryData,
+    LegacyMeasurementRecordRequest,
+    LegacyMeasurementRecordRun,
+    LegacyMeasurementSource,
+    RecordedReferenceInput,
+    legacy_measurement_slug,
+    record_legacy_measurement,
+    record_legacy_measurement_from_request,
+)
 from scopecat.measurement_records.writer_integration import (
     MeasurementRecordWriterChunk,
     MeasurementRecordWriterRequest,
@@ -124,6 +134,10 @@ from scopecat.measurement_records.writer_integration import (
 
 __all__ = [
     "MEASUREMENT_RECORD_REVIEW_ARTIFACT_NAME",
+    "ConvertedPrimaryData",
+    "LegacyMeasurementRecordRequest",
+    "LegacyMeasurementRecordRun",
+    "LegacyMeasurementSource",
     "LegacyPrimaryImportRequest",
     "LegacyPrimaryImportRun",
     "LegacyRunContextReference",
@@ -168,6 +182,7 @@ __all__ = [
     "MeasurementRecordWriterChunk",
     "MeasurementRecordWriterRequest",
     "MeasurementRecordWriterRun",
+    "RecordedReferenceInput",
     "append_existing_measurement_record",
     "append_existing_measurement_record_from_request",
     "append_in_progress_measurement_record",
@@ -185,6 +200,7 @@ __all__ = [
     "import_measurement_record_from_request",
     "inspect_running_measurement_record",
     "inspect_running_measurement_record_from_request",
+    "legacy_measurement_slug",
     "list_measurement_record_references",
     "list_measurement_record_storage",
     "list_measurement_record_storage_from_request",
@@ -192,6 +208,8 @@ __all__ = [
     "project_measurement_record_read_model_from_read_view",
     "read_created_record_primary_table",
     "read_created_record_primary_table_from_request",
+    "record_legacy_measurement",
+    "record_legacy_measurement_from_request",
     "record_legacy_measurement_run",
     "record_legacy_measurement_run_from_request",
     "record_measurement_record_references",

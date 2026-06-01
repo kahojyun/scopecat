@@ -13,16 +13,18 @@ uv run python scripts/scenarios/legacy_run_storage_gui.py
 
 The script creates synthetic legacy-system output files, records declared
 legacy locators in Measurement Records storage, converts each legacy file to
-normalized primary CSV, attaches each CSV to the same legacy Measurement
-Records record for that run, records explicit parameter-file, setup-binding,
-code-directory, and preliminary-analysis artifact references as record-local
-recorded-reference receipts, lists storage inventory, projects a
-measurement-oriented review model, and writes a static HTML review page. The
-page leads with user measurement entries and recorded references, then keeps
-record-local storage artifacts plus raw storage inventory as diagnostics. The
-scenario also writes the promoted Measurement Records operator-review HTML
-artifact so the scenario can be compared with the reusable prototype review
-surface.
+normalized primary CSV, then records each measurement through the
+`record_legacy_measurement(...)` user-facing workflow facade. That facade
+attaches the converted CSV to the same legacy Measurement Records record,
+records explicit parameter-file, setup-binding, code-directory, and
+preliminary-analysis artifact references as record-local recorded-reference
+receipts, and reads a primary-data preview. The scenario then lists storage
+inventory, projects a measurement-oriented review model, and writes a static
+HTML review page. The page leads with user measurement entries and recorded
+references, then keeps record-local storage artifacts plus raw storage
+inventory as diagnostics. The scenario also writes the promoted Measurement
+Records operator-review HTML artifact so the scenario can be compared with the
+reusable prototype review surface.
 
 The scenario treats legacy system id, legacy run id, label, experiment type,
 and locator values as the user-facing input. Scopecat request ids, record ids,

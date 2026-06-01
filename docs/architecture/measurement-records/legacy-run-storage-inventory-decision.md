@@ -22,6 +22,7 @@ approved legacy run record request
   -> create Measurement Records shell with creation_source_kind=legacy_system
   -> write record-local legacy-run-receipt.json
   -> optionally attach reviewed converted primary data to the same record
+  -> optionally record selected parameter/setup/code/artifact references
   -> later scan records/ for manifests, read models, and legacy receipts
   -> show a compact storage inventory
 ```
@@ -29,8 +30,12 @@ approved legacy run record request
 The first operation records declared legacy facts and references only. The
 optional attach operation accepts already converted normalized primary data as
 reviewed input and writes it into the same legacy record through the existing
-writer/read/finalization/projection pipeline. The workflow does not open legacy
-files, parse old formats, execute old code, observe source payloads, repair
+writer/read/finalization/projection pipeline. The first user-facing workflow
+facade composes those receipt primitives around legacy system id, legacy run
+id, converted primary data, and selected references, deriving local Scopecat
+ids from the legacy facts instead of asking the caller for receipt request ids
+or record ids. The workflow does not open legacy files, parse old formats,
+execute old code, observe source payloads, import referenced payloads, repair
 references, or decide scientific validity.
 
 ## Why This Boundary
@@ -68,6 +73,11 @@ The live prototype may:
   byte size, CSV shape, and row count;
 - finalize and project that same record through existing receipts/read-models
   without replacing the creation manifest;
+- record explicit parameter, setup-binding, code, preliminary-analysis, and
+  supporting-evidence references as record-local review receipts;
+- compose the above primitives through a prototype user-facing facade that
+  accepts legacy facts and converted primary-data facts without requiring the
+  user to supply Scopecat ids;
 - scan `records/` and list records that have only a manifest, a projected read
   model, a legacy receipt, or a mix of those artifacts;
 - surface malformed or missing record-local legacy receipts as review findings.
@@ -86,6 +96,7 @@ This decision does not accept:
   recovery, or concurrent storage mutation;
 - canonical GUI state, public export schema, shared context schema, or
   scientific validity claims.
+- final public SDK shape or shared id-generation policy.
 
 ## Stop Condition
 
@@ -104,4 +115,7 @@ Stop this slice when tests prove:
   mutation;
 - attach failures after primary-data mutation roll back only newly attached
   artifacts while preserving the legacy record and legacy receipt;
+- a scenario can record multiple legacy measurements through the user-facing
+  workflow facade, attach each converted primary data file to its same record,
+  record selected references, and render a measurement-oriented review page;
 - CLI smoke commands can record a legacy run and list storage inventory.

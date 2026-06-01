@@ -196,6 +196,19 @@ references were recorded.
 These references are review facts only; they are not canonical storage
 authority, portable export contents, GUI state, or a shared reference schema.
 
+The first user-facing legacy measurement workflow is implemented through
+`record_legacy_measurement(...)` and
+`record_legacy_measurement_from_request(...)`. It composes the accepted
+legacy-run, converted-primary-data attach, recorded-reference, and primary
+preview primitives behind one request shaped around user facts: legacy system
+id, legacy run id, optional locators, converted primary CSV path, row count,
+and selected references. The workflow derives local Scopecat ids from legacy
+facts so callers do not provide receipt request ids, record ids, reference set
+ids, or read request ids. It is a prototype facade over existing receipts, not
+a final public SDK. It does not observe legacy payloads, parse legacy formats,
+import referenced files, execute code or analysis, persist GUI state, define
+shared id policy, or replace lower-level receipt APIs.
+
 The first storage-inventory slice is implemented through
 `list_measurement_record_storage(...)` and
 `list_measurement_record_storage_from_request(...)`. It scans a caller-declared

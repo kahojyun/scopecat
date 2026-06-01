@@ -41,6 +41,10 @@ class LegacyRunStorageGuiScenarioTest(unittest.TestCase):
         self.assertEqual(
             console_summary["workflow"],
             {
+                "user_workflow_classifications": [
+                    "recorded_legacy_measurement",
+                    "recorded_legacy_measurement",
+                ],
                 "legacy_record_classifications": [
                     "recorded_legacy_run",
                     "recorded_legacy_run",
@@ -101,6 +105,42 @@ class LegacyRunStorageGuiScenarioTest(unittest.TestCase):
         self.assertEqual(
             len(full_summary["operator_review"]["recorded_references"]["entries"]),
             2,
+        )
+        self.assertEqual(
+            [
+                workflow_run["workflow"]["classification"]
+                for workflow_run in full_summary["user_workflow_runs"]
+            ],
+            [
+                "recorded_legacy_measurement",
+                "recorded_legacy_measurement",
+            ],
+        )
+        self.assertEqual(
+            [
+                workflow_run["workflow"]["does_not_claim"]
+                for workflow_run in full_summary["user_workflow_runs"]
+            ],
+            [
+                [
+                    "final_public_sdk",
+                    "legacy_payload_observation",
+                    "legacy_format_parsing",
+                    "reference_payload_import",
+                    "code_execution",
+                    "analysis_execution",
+                    "gui_state_persistence",
+                ],
+                [
+                    "final_public_sdk",
+                    "legacy_payload_observation",
+                    "legacy_format_parsing",
+                    "reference_payload_import",
+                    "code_execution",
+                    "analysis_execution",
+                    "gui_state_persistence",
+                ],
+            ],
         )
         self.assertEqual(
             full_summary["operator_review_artifact"]["html_artifact"]["filename"],
