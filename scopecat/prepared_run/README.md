@@ -9,9 +9,14 @@ owned by
 
 The module composes explicit prior review summaries for prepared-run context,
 parameter-state gate, scope alignment, environment review, and optional
-environment-operation review evidence. It validates prepared-run-context
-continuity, preserves child findings, and returns a local review projection for
-manual pre-run review.
+environment-operation review evidence. The optional environment-operation
+evidence can be the historical discovery-style review bundle or a typed
+`scopecat.environment_operation.EnvironmentOperationReview` projected through
+`project_environment_operation_review_for_prepared_run(...)`. The projection
+adds the prepared-run context reference required by the gate; it does not
+execute, inspect, or reinterpret manager behavior. The gate validates
+prepared-run-context continuity, preserves child findings, and returns a local
+review projection for manual pre-run review.
 
 The acknowledgement layer is an adjacent local review boundary over an existing
 `PreparedRunReviewGateResult` or raw gate summary. It records operator-declared
@@ -41,6 +46,7 @@ or shared run-context schemas.
 Current local surface:
 
 - `PreparedRunReviewGateRequest.from_dict(...)`;
+- `project_environment_operation_review_for_prepared_run(...)`;
 - `compose_prepared_run_review_gate(...)`;
 - `PreparedRunReviewGateResult.to_dict()`;
 - `build_prepared_run_review_gate_summary(...)` as the raw-dictionary adapter.

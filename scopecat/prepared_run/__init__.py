@@ -14,6 +14,7 @@ from scopecat.prepared_run.review_gate import (
     ReviewItem,
     build_prepared_run_review_gate_summary,
     compose_prepared_run_review_gate,
+    project_environment_operation_review_for_prepared_run,
 )
 from scopecat.prepared_run.view_state import (
     PreparedRunReviewViewStateRequest,
@@ -37,5 +38,6 @@ __all__ = [
     "build_prepared_run_review_view_state",
     "compose_prepared_run_acknowledgement_review",
     "compose_prepared_run_review_gate",
+    "project_environment_operation_review_for_prepared_run",
     "project_prepared_run_review_view_state",
 ]

@@ -35,6 +35,14 @@ explicit prior prepared-run review summaries
 The raw-dictionary adapter remains available for current fixture and edge use:
 `build_prepared_run_review_gate_summary(...)`.
 
+This accepted integration step keeps prepared-run as the consumer of prior
+evidence: typed `EnvironmentOperationReview` objects from
+`scopecat.environment_operation` can be projected into the optional
+environment-operation evidence slot by
+`project_environment_operation_review_for_prepared_run(...)`. The projection
+adds only the prepared-run context reference required for continuity checks and
+does not move manager semantics or execution review into prepared-run.
+
 ## Accepted Baseline
 
 The promoted baseline includes:
@@ -48,6 +56,8 @@ The promoted baseline includes:
 - review item aggregation for required context, parameter state, scope
   alignment, workspace context, environment review, and optional
   environment-operation review evidence;
+- optional typed environment-operation review evidence projected from the
+  accepted `scopecat.environment_operation` review object;
 - aggregated child findings with source areas and preserved non-claims;
 - missing required context precedence as `blocked_by_required_context`;
 - clear inputs producing `ready_for_manual_review`;
@@ -102,7 +112,6 @@ Do not continue by promoting the whole prepared-run route. The next engineering
 phase should choose one explicit path:
 
 - GUI component integration over the accepted view-state data;
-- route-local connection to accepted environment-operation review objects;
 - a separately scoped prepared-run context construction boundary.
 
 Each path needs its own non-claims before it can add run-start authority,

@@ -28,6 +28,12 @@ Route-local operation reviews compose one selected `UvSyncIntent` with one
 selected `UvSyncResult`. They surface alignment mismatches and result findings
 as review items without deciding run permission or runtime readiness.
 
+The typed `EnvironmentOperationReview` remains owned by this module. Prepared
+run can consume it as optional prior evidence through its local projection
+adapter, which adds a prepared-run context reference for gate continuity while
+leaving manager semantics, execution review, runtime probing, and readiness
+claims in this module's boundary.
+
 The route-level workflow entrypoint composes that validated vertical into one
 call: execute approved sync, project the typed result, review it, and run the
 bounded runtime probe only when the sync result is successful and review-clean.
