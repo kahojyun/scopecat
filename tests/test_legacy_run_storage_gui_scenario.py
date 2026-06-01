@@ -39,53 +39,94 @@ class LegacyRunStorageGuiScenarioTest(unittest.TestCase):
         self.assertEqual(
             console_summary["workflow"],
             {
-                "legacy_record_classification": "recorded_legacy_run",
-                "primary_attach_classification": "attached_legacy_primary_data",
+                "legacy_record_classifications": [
+                    "recorded_legacy_run",
+                    "recorded_legacy_run",
+                ],
+                "primary_attach_classifications": [
+                    "attached_legacy_primary_data",
+                    "attached_legacy_primary_data",
+                ],
                 "inventory_classification": "measurement_record_storage_inventory_ready",
-                "read_view_classification": "primary_table_ready",
+                "read_view_classifications": [
+                    "primary_table_ready",
+                    "primary_table_ready",
+                ],
             },
         )
         self.assertEqual(
             full_summary["user_input"],
-            {
-                "legacy_system_id": "legacy-labview",
-                "legacy_run_id": "lv-run-001",
-                "label": "Legacy LabVIEW Run 001",
-                "experiment_type": "rabi",
-                "primary_locator": "legacy-system/run-001.tsv",
-                "notebook_locator": "legacy-notebook://operator-workstation/run-001",
-                "run_started_at": "2026-06-01T08:50:00Z",
-                "run_completed_at": "2026-06-01T08:55:00Z",
-                "created_at": "2026-06-01T09:00:00Z",
-            },
+            [
+                {
+                    "legacy_system_id": "legacy-labview",
+                    "legacy_run_id": "lv-run-001",
+                    "label": "Legacy LabVIEW Run 001",
+                    "experiment_type": "rabi",
+                    "primary_locator": "legacy-system/run-001.tsv",
+                    "notebook_locator": "legacy-notebook://operator-workstation/run-001",
+                    "run_started_at": "2026-06-01T08:50:00Z",
+                    "run_completed_at": "2026-06-01T08:55:00Z",
+                    "created_at": "2026-06-01T09:00:00Z",
+                },
+                {
+                    "legacy_system_id": "legacy-labview",
+                    "legacy_run_id": "lv-run-002",
+                    "label": "Legacy LabVIEW Run 002",
+                    "experiment_type": "ramsey",
+                    "primary_locator": "legacy-system/run-002.tsv",
+                    "notebook_locator": "legacy-notebook://operator-workstation/run-002",
+                    "run_started_at": "2026-06-01T09:45:00Z",
+                    "run_completed_at": "2026-06-01T09:52:00Z",
+                    "created_at": "2026-06-01T10:00:00Z",
+                },
+            ],
         )
         self.assertEqual(
             set(entry["record_id"] for entry in full_summary["inventory"]["entries"]),
-            {"rec-legacy-labview-lv-run-001"},
+            {
+                "rec-legacy-labview-lv-run-001",
+                "rec-legacy-labview-lv-run-002",
+            },
         )
         self.assertEqual(
             [
                 measurement["measurement_id"]
                 for measurement in full_summary["measurement_review"]["measurements"]
             ],
-            ["meas-legacy-labview-lv-run-001"],
+            [
+                "meas-legacy-labview-lv-run-001",
+                "meas-legacy-labview-lv-run-002",
+            ],
         )
-        measurement = full_summary["measurement_review"]["measurements"][0]
+        measurement, second_measurement = full_summary["measurement_review"]["measurements"]
         self.assertEqual(
             measurement["conversion"]["relationship"],
             "attached_converted_primary_data",
         )
+        self.assertEqual(
+            second_measurement["conversion"]["relationship"],
+            "attached_converted_primary_data",
+        )
         self.assertEqual(measurement["legacy"]["legacy_run_id"], "lv-run-001")
+        self.assertEqual(second_measurement["legacy"]["legacy_run_id"], "lv-run-002")
         self.assertEqual(
             measurement["legacy"]["primary_locator"]["value"],
             "legacy-system/run-001.tsv",
+        )
+        self.assertEqual(
+            second_measurement["legacy"]["primary_locator"]["value"],
+            "legacy-system/run-002.tsv",
         )
         self.assertEqual(
             measurement["storage_artifacts"]["record_id"],
             "rec-legacy-labview-lv-run-001",
         )
         self.assertEqual(
-            [artifact["role"] for artifact in full_summary["record_diagnostics"]["artifacts"]],
+            second_measurement["storage_artifacts"]["record_id"],
+            "rec-legacy-labview-lv-run-002",
+        )
+        self.assertEqual(
+            [artifact["role"] for artifact in full_summary["record_diagnostics"][0]["artifacts"]],
             [
                 "creation_shell",
                 "legacy_facts_receipt",
@@ -98,7 +139,7 @@ class LegacyRunStorageGuiScenarioTest(unittest.TestCase):
         self.assertEqual(
             {
                 artifact["role"]: artifact["state"]
-                for artifact in full_summary["record_diagnostics"]["artifacts"]
+                for artifact in full_summary["record_diagnostics"][0]["artifacts"]
             },
             {
                 "creation_shell": "present",
@@ -110,17 +151,23 @@ class LegacyRunStorageGuiScenarioTest(unittest.TestCase):
             },
         )
         self.assertEqual(
-            full_summary["record_diagnostics"]["diagnostics_policy"]["history_semantics"],
+            full_summary["record_diagnostics"][0]["diagnostics_policy"]["history_semantics"],
             "not_claimed",
         )
-        self.assertEqual(full_summary["read_view"]["table"]["row_count"], 5)
+        self.assertEqual(
+            [read_view["table"]["row_count"] for read_view in full_summary["read_views"]],
+            [5, 4],
+        )
         self.assertIn("Measurement Review", html)
+        self.assertIn("Legacy LabVIEW Run 002", html)
         self.assertIn("Storage Diagnostics", html)
         self.assertIn("Record Artifacts", html)
         self.assertIn("Attached converted primary data", html)
         self.assertIn("attached_converted_primary_data", html)
         self.assertIn("legacy-labview / lv-run-001", html)
+        self.assertIn("legacy-labview / lv-run-002", html)
         self.assertIn("legacy-system/run-001.tsv", html)
+        self.assertIn("legacy-system/run-002.tsv", html)
         self.assertIn("signal_counts", html)
 
 
