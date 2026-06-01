@@ -20,6 +20,7 @@ explicitly marked retired; use validation results for slice-local evidence.
 | [`experiment-code/README.md`](experiment-code/README.md) | Experiment-code recording, managed code versions, workspace materialization, and prepared-run code context. |
 | [`environment-operation/README.md`](environment-operation/README.md) | Environment declaration, file observation, review bundles, manager command intent, and external result recording. |
 | [`parameter-state/README.md`](parameter-state/README.md) | Parameter-state management, adapter import review, storage read/write, selection context, and prepared-run review composition. |
+| [`setup-binding/README.md`](setup-binding/README.md) | Setup-binding snapshots, generated line/readout views, measurement run-start setup-context references, and binding-change attention. |
 | [`calibration-continuation/README.md`](calibration-continuation/README.md) | Calibration continuation, reviewable step state, accepted write handoff, and calibration-derived parameter-state measurement context. |
 | [`calibration-continuation/decision.md`](calibration-continuation/decision.md) | Current calibration continuation route decision consolidation, deferred decisions, reopen triggers, and stop rule. |
 | [`selected-reference/README.md`](selected-reference/README.md) | Selected-reference context comparison, recorded-code comparison, and objective comparison findings. |
@@ -38,4 +39,4 @@ explicitly marked retired; use validation results for slice-local evidence.
 | [`../problem-briefs/README.md`](../problem-briefs/README.md) | Evidence-backed problem framing before choosing a validation question. |
 | [`../slices/README.md`](../slices/README.md) | Current discovery slice inventory by route and maturity. |
 | [`../synthesis/measurement-context-backlog.md`](../synthesis/measurement-context-backlog.md) | Shared backlog for measurement-context-shaped validation work across routes. |
-| [`../problem-briefs/setup-binding.md`](../problem-briefs/setup-binding.md) and [`../slices/setup-binding/setup-binding-validation-result.md`](../slices/setup-binding/setup-binding-validation-result.md) | Setup binding is currently reviewed as a slice/problem-brief owner, not as a route decision owner. Treat setup binding as its own context family until a later workflow earns a route-level decision. |
+| [`../problem-briefs/setup-binding.md`](../problem-briefs/setup-binding.md) and [`../slices/setup-binding/setup-binding-validation-result.md`](../slices/setup-binding/setup-binding-validation-result.md) | Historical setup-binding evidence. The active narrow route-local owner is [`setup-binding/README.md`](setup-binding/README.md). |
