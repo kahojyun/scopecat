@@ -13,6 +13,8 @@ import copy
 from dataclasses import dataclass, field
 from typing import Any
 
+from scopecat.environment_operation import EnvironmentOperationReview
+
 EXPECTED_REVIEW_GATE_POLICY = {
     "gate_authority": "explicit_prepared_run_review_composition",
     "input_sources": "explicit_prior_review_summaries",
@@ -33,6 +35,24 @@ EXPECTED_REVIEW_GATE_POLICY = {
     "gui_workflow": "not_defined",
     "shared_gate_schema": "not_defined",
 }
+
+
+def project_environment_operation_review_for_prepared_run(
+    operation_review: EnvironmentOperationReview,
+    *,
+    prepared_run_context_id: str,
+) -> dict[str, Any]:
+    """Project a typed environment-operation review into prepared-run evidence."""
+
+    if not isinstance(operation_review, EnvironmentOperationReview):
+        raise ValueError("environment operation review evidence must be typed")
+    if not isinstance(prepared_run_context_id, str) or not prepared_run_context_id:
+        raise ValueError("prepared_run_context_id is required")
+
+    summary = operation_review.to_dict()
+    summary["operation_review_request"] = copy.deepcopy(summary["operation_review_request"])
+    summary["operation_review_request"]["prepared_run_context_id"] = prepared_run_context_id
+    return summary
 
 
 @dataclass(frozen=True, init=False)
@@ -335,6 +355,59 @@ def _validate_environment_operation_review_summary(source: dict[str, Any]) -> No
         return
 
     policy = summary["environment_operation_review_policy"]
+    if policy.get("review_authority") == "route_local_uv_sync_execution_review":
+        _validate_typed_environment_operation_review_summary(summary)
+        return
+
+    _validate_discovery_environment_operation_review_summary(summary)
+
+
+def _validate_typed_environment_operation_review_summary(summary: dict[str, Any]) -> None:
+    policy = summary["environment_operation_review_policy"]
+    expected = {
+        "summary_policy": "review_summary",
+        "review_authority": "route_local_uv_sync_execution_review",
+        "manager_scope": "uv_only",
+        "process_execution": "already_recorded_not_performed_by_review",
+        "dependency_sync_verification": "not_performed",
+        "package_install_verification": "not_performed",
+        "runtime_probe": "not_performed",
+        "code_import_execution": "not_performed",
+        "hardware_probe": "not_performed",
+        "run_blocking_decision": "not_made",
+        "readiness_claim": "not_claimed",
+    }
+    if set(policy) != set(expected):
+        raise ValueError("typed environment operation review policy shape")
+    for key, expected_value in expected.items():
+        if policy[key] != expected_value:
+            raise ValueError(f"environment operation review summary {key} must be {expected_value}")
+
+    request = summary["operation_review_request"]
+    if request["expected_manager"] != "uv":
+        raise ValueError("environment operation review expected_manager must be uv")
+    if request["expected_operation"] != "sync":
+        raise ValueError("environment operation review expected_operation must be sync")
+    for key in (
+        "review_id",
+        "intent_request_id",
+        "sync_result_id",
+        "prepared_run_context_id",
+    ):
+        if not isinstance(request[key], str) or not request[key]:
+            raise ValueError(f"environment operation review {key} must be text")
+
+    _validate_environment_operation_status_and_findings(
+        summary,
+        allowed_statuses={
+            "uv_sync_completed_success_with_review_limits",
+            "operation_review_has_findings",
+        },
+    )
+
+
+def _validate_discovery_environment_operation_review_summary(summary: dict[str, Any]) -> None:
+    policy = summary["environment_operation_review_policy"]
     expected = {
         "summary_policy": "review_summary",
         "bundle_authority": "explicit_prior_environment_operation_summaries",
@@ -358,12 +431,23 @@ def _validate_environment_operation_review_summary(source: dict[str, Any]) -> No
         if policy[key] != expected_value:
             raise ValueError(f"environment operation review summary {key} must be {expected_value}")
 
+    _validate_environment_operation_status_and_findings(
+        summary,
+        allowed_statuses={
+            "external_sync_reported_success_with_review_limits",
+            "operation_review_has_findings",
+        },
+    )
+
+
+def _validate_environment_operation_status_and_findings(
+    summary: dict[str, Any],
+    *,
+    allowed_statuses: set[str],
+) -> None:
     status = summary["operation_review_status"]
     findings = summary["operation_review_findings"]
-    if status not in {
-        "external_sync_reported_success_with_review_limits",
-        "operation_review_has_findings",
-    }:
+    if status not in allowed_statuses:
         raise ValueError("unsupported environment operation review status")
     if findings and status != "operation_review_has_findings":
         raise ValueError("environment operation findings require operation_review_has_findings")

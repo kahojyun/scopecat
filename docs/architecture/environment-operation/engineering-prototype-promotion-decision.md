@@ -78,6 +78,12 @@ The promoted baseline includes:
   sync, reviews the typed result, conditionally probes successful review-clean
   sync results, and records skipped probe state explicitly.
 
+The prepared-run route now consumes `EnvironmentOperationReview` as optional
+prior evidence through a prepared-run-owned projection adapter. That
+integration does not change environment-operation ownership: this route still
+owns intent/result/review semantics, manager scope, process-execution records,
+runtime probe eligibility, and non-readiness claims.
+
 ## Explicit Non-Promotions
 
 This decision does not promote:
@@ -132,9 +138,8 @@ approved uv sync intent
 
 The next engineering phase should choose one explicit path:
 
-- operation-review integration: add optional manifest preflight or prepared-run
-  context references to the route-local operation review without turning them
-  into sync prerequisites;
+- operation-review integration: add optional manifest preflight to the
+  route-local operation review without turning it into a sync prerequisite;
 - runtime-readiness review: validate package-state observation, selected
   experiment-code import, or run-readiness decisions separately from the
   current interpreter fact probe;
