@@ -193,6 +193,7 @@ def inspect_running_measurement_record_from_request(
     update_receipts, append_segments = _read_update_receipts_and_segments(
         root, request, writer_receipt
     )
+    _validate_append_segment_tables(primary_content, append_segments)
     visible_content = _combine_visible_content(primary_content, append_segments)
     declared_rows = (
         update_receipts[-1]["append_chunk"]["total_rows_recorded"]
@@ -544,6 +545,43 @@ def _combine_visible_content(primary_content: bytes, append_segments: list[bytes
     return content
 
 
+def _validate_append_segment_tables(primary_content: bytes, append_segments: list[bytes]) -> None:
+    if not append_segments:
+        return
+    header = _read_csv_header(primary_content, owner="running inspection primary table")
+    for segment in append_segments:
+        decoded = _decode_csv(segment)
+        reader = csv.reader(io.StringIO(decoded, newline=""))
+        row_seen = False
+        for row in reader:
+            row_seen = True
+            if row == header:
+                raise ValueError("running inspection append segment must not repeat CSV header")
+            if len(row) != len(header):
+                raise ValueError(
+                    "running inspection append segment rows must match the primary CSV header"
+                )
+        if not row_seen:
+            raise ValueError("running inspection append segment must contain rows")
+
+
+def _read_csv_header(content: bytes, *, owner: str) -> list[str]:
+    decoded = _decode_csv(content)
+    reader = csv.reader(io.StringIO(decoded, newline=""))
+    try:
+        header = next(reader)
+    except StopIteration as exc:
+        raise ValueError(f"{owner} requires a CSV header") from exc
+    if not header:
+        raise ValueError(f"{owner} requires a CSV header")
+    for index, name in enumerate(header):
+        if not isinstance(name, str) or name.strip() == "":
+            raise ValueError(f"{owner} column {index} name must be non-blank")
+    if len(set(header)) != len(header):
+        raise ValueError(f"{owner} requires unique CSV headers")
+    return header
+
+
 def _read_table(
     content: bytes,
     *,
@@ -553,17 +591,8 @@ def _read_table(
 ) -> tuple[dict[str, Any], list[dict[str, str]]]:
     decoded = _decode_csv(content)
     reader = csv.reader(io.StringIO(decoded, newline=""))
-    try:
-        header = next(reader)
-    except StopIteration as exc:
-        raise ValueError("running inspection primary table requires a CSV header") from exc
-    if not header:
-        raise ValueError("running inspection primary table requires a CSV header")
-    for index, name in enumerate(header):
-        if not isinstance(name, str) or name.strip() == "":
-            raise ValueError(f"running inspection table column {index} name must be non-blank")
-    if len(set(header)) != len(header):
-        raise ValueError("running inspection primary table requires unique CSV headers")
+    header = _read_csv_header(content, owner="running inspection primary table")
+    next(reader, None)
 
     rows = []
     for row in reader:

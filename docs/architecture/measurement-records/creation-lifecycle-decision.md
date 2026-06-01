@@ -618,7 +618,10 @@ mutation, update-receipt rollback, progress mismatch review findings, and
 non-contiguous update receipt rejection. Follow-up coverage proves compact
 inspection summaries, second append requests through a declared previous
 update receipt, ordinary multiple-receipt inspection, and rejection of a gap
-between multiple append receipts. The module also exposes
+between multiple append receipts. Running inspection also validates append
+segments as row-only CSV segments against the base primary table header,
+rejecting repeated headers, empty segments, and row-width mismatches before
+projecting visible rows. The module also exposes
 `python -m scopecat.measurement_records running-inspection-summary` as a
 read-only smoke CLI for printing the compact local summary from
 caller-declared paths.
@@ -676,6 +679,9 @@ smoke surface for printing the composed review JSON from a caller-declared
 storage root and optional running-inspection paths. The CLI also accepts
 `--source` for the raw operator-review source shape when callers need to
 declare multiple running inspections without adding more flag-only surface.
+Multiple declared running inspections must have unique request ids and unique
+record ids so the selected-record summary has one unambiguous source per
+running record.
 When `--source` is used, request-shaping flags are rejected so caller intent
 does not depend on silent precedence. Partial running-inspection flags without
 `--running-record-id` are also rejected so caller intent is not silently

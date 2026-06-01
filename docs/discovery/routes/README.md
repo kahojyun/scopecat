@@ -13,6 +13,7 @@ explicitly marked retired; use validation results for slice-local evidence.
 | Route | Use For |
 | --- | --- |
 | [`adoption-routes.md`](adoption-routes.md) | Compare evidence-backed adoption routes by durable user workflow. |
+| [`prototype-promotion-map.md`](prototype-promotion-map.md) | Coordinate route-by-route discovery-to-engineering prototype promotion status. |
 | [`measurement-records/README.md`](measurement-records/README.md) | Measurement records, import/source decisions, storage writing, selected handoff, package use, and source observation. |
 | [`measurement-records/import-source-decision.md`](measurement-records/import-source-decision.md) | Current import/source route decisions, deferred decisions, reopen triggers, and next-slice guidance. |
 | [`measurement-records/legacy-brownfield-adoption-decision.md`](measurement-records/legacy-brownfield-adoption-decision.md) | Current post-run-first legacy adoption route decisions, deferred decisions, reopen triggers, and stop rule. |
