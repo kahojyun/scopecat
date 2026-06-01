@@ -137,6 +137,19 @@ version, materialization, and editable-folder observation. A new composition
 slice is justified only if a real consumer needs one review surface that is not
 already covered by prepared run context or reference-based rerun preparation.
 
+## Engineering Coverage
+
+Freezing the validation results does not mean every discovery candidate became
+a live engineering surface. Use this matrix when deciding whether to update an
+old validation result, the architecture note, or the module README.
+
+| Discovery slice group | Engineering coverage | Current owner |
+| --- | --- | --- |
+| Experiment-code recording, managed code version, workspace materialization intent, approved workspace materialization, editable-folder observation, reference-based rerun preparation | Promoted into route-local engineering code with typed request/result objects. The live boundary belongs to the module and architecture docs, and the original implementation candidates and validation results remain historical evidence. | [`scopecat/experiment_code/README.md`](../../../../scopecat/experiment_code/README.md), [`engineering-prototype-promotion-decision.md`](../../../architecture/experiment-code/engineering-prototype-promotion-decision.md) |
+| Prepared-run context over selected code/workspace context | Promoted through the prepared-run route rather than duplicated here. | [`scopecat/prepared_run/README.md`](../../../../scopecat/prepared_run/README.md), [`prepared-run/engineering-prototype-promotion-decision.md`](../../../architecture/prepared-run/engineering-prototype-promotion-decision.md) |
+| Declared environment inventory, environment comparison, environment file observation, environment review, and manager-operation slices | Owned by environment-operation or historical discovery docs; not promoted as experiment-code APIs. | [`environment-operation/README.md`](../environment-operation/README.md), [`environment-operation/engineering-prototype-promotion-decision.md`](../../../architecture/environment-operation/engineering-prototype-promotion-decision.md) |
+| Comparable code surface and selected-reference comparison | Retained as discovery evidence and route pressure. No semantic diff, Git diagnostics, or shared comparison API is promoted here. | Historical validation results and future narrower decisions if reopened. |
+
 ## Cross-Route Relationship
 
 Current cross-route coupling should stay reference-based:
