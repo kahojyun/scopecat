@@ -87,6 +87,12 @@ what changed and what is unavailable. It does not:
 - restore, load, import, or execute selected code snapshots;
 - compare source semantics beyond declared recorded-code observations.
 
+When this candidate reports a missing fit-summary relation, that finding means
+only that a selected supporting artifact/link is unavailable in the comparison
+fixture. It is not a fit-quality judgment, analysis-validity judgment, or
+scientific completeness requirement. Fit-quality comparison remains a separate
+future slice.
+
 The reference-selection model can start from ordinary measurement marks. A
 user may mark a run as last-working, notable, best-observed, or simply
 relevant. Selected-reference comparison can compare against that marked run

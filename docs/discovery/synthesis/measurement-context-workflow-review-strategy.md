@@ -23,12 +23,12 @@ workflow model rather than Python mechanics.
 ## Migration Ladder
 
 Scopecat should support partial adoption. A user should be able to start with
-opaque review material around legacy scripts, then adopt managed context only
-where it removes real ambiguity.
+opaque supporting evidence around legacy scripts, then adopt managed context
+only where it removes real ambiguity.
 
 ```mermaid
 flowchart LR
-  L0["Legacy-first\nattachments, notes,\nopaque snapshots"]
+  L0["Legacy-first\nattachments, notes,\nopaque evidence"]
   L1["Reference-first\nselected context links\nwithout payload ownership"]
   L2["Managed parameter state\nsnapshots, lineage,\ntrust/current facts"]
   L3["Setup binding\nsetup, station,\nreadout context"]
@@ -38,7 +38,11 @@ flowchart LR
   L0 --> L1 --> L2 --> L3 --> L4 --> L5
 ```
 
-Early users may only use Scopecat as a structured review notebook. Later users
+Early users may only use Scopecat as a structured review notebook. A copied
+parameter JSON, XLSX table, runtime config, or other opaque legacy snapshot is
+supporting evidence by default. It should not become managed parameter state
+merely because it looks parameter-shaped; managed parameter state should keep
+its own structured lineage, readiness, trust, and review semantics. Later users
 may choose managed parameter state, setup binding, code context, or richer
 artifact provenance. Measurement-record validity should not depend on adopting
 all of these routes.
@@ -52,7 +56,7 @@ flowchart TD
   A["Existing lab workflow"] --> B["Prepare run or calibration step"]
   B --> C{"Context adopted for this route?"}
 
-  C --> C0["No\nattach notes, logs,\nopaque snapshots"]
+  C --> C0["No\nattach notes, logs,\nopaque evidence"]
   C --> C1["Partially\nreference-only context links"]
   C --> C2["Yes\nmanaged parameter/setup/code records"]
 
@@ -102,17 +106,31 @@ measurement validity has been decided.
   unless a narrower workflow explicitly earns stronger semantics.
 - Measurement intent may carry moving selectors; measurement records carry the
   resolved snapshot links actually used.
-- Supporting evidence is not canonical context by default.
+- Supporting evidence is not canonical context by default. Opaque legacy
+  parameter files, spreadsheets, runtime configs, logs, screenshots, and debug
+  objects stay supporting evidence unless a later accepted import/adapter slice
+  maps them into a family-owned context record.
 - Attachments and debug logs are opaque supporting evidence unless a later
   accepted slice promotes a specific artifact family into context.
-- Artifact provenance is optional and declared; it does not prove complete
+- Artifact provenance is optional and declared; it is useful when an artifact's
+  producer or source matters for review, comparison, or handoff, but it is not
+  a default requirement for every attachment and it does not prove complete
   analysis lineage.
-- Artifact observation is file-level only; it does not parse payloads, generate
+- Artifact observation is optional and file-level only; it is useful when
+  availability or integrity matters, but it does not parse payloads, generate
   previews, or decide artifact correctness.
 - Context readiness is local review state; it is not runnable readiness,
   hardware safety, setup truth, or run blocking.
 - Calibration review slices should be checked against real notebook workflows
   before treating their child-summary chain as required product shape.
+- Calibration external apply and parameter-state handoff are separate adoption
+  paths. External apply records that a user intends to update an outside system
+  or parameter file; it does not create managed parameter context. Parameter-
+  state handoff is the path that intentionally creates or updates a managed
+  Scopecat parameter-state snapshot.
+- Setup binding can be reviewed as its own context family. Review surfaces may
+  show selected parameter state and station registry alongside it, but setup
+  binding should not be forced into the parameter-state model.
 
 ## Review Checklist
 
@@ -134,11 +152,11 @@ Use this order for branch review:
 
 - Which local policies or templates, if any, turn review findings into
   mandatory gates?
-- Are opaque snapshots initially only supporting evidence, or is there a weak
-  context-record envelope users expect early?
+- Which opaque legacy files, if any, deserve an explicit import/adapter path
+  into managed parameter state instead of remaining supporting evidence?
 - Which artifact types actually need provenance and file-level observation in
-  normal review?
-- Does calibration acceptance mean external apply, parameter-state handoff, or
-  two distinct states?
+  normal review, rather than staying plain supporting evidence?
+- Which workflows use calibration external apply, which use parameter-state
+  handoff, and where do users need to see both decisions side by side?
 - Should post-run artifact observation coverage ever be required, or only
   surfaced when provided?

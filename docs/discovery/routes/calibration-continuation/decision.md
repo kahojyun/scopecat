@@ -43,7 +43,16 @@ Parameter-state management owns accepted handoff intake, managed snapshot
 creation, storage, read views, and later prepared-run parameter-context
 selection. Calibration evidence remains provenance for the managed
 parameter-state snapshot. The managed parameter-state snapshot is the
-canonical parameter context for later prepared runs and measurement records.
+canonical parameter context for later prepared runs and measurement records
+when users have adopted Scopecat parameter-state management.
+
+An external apply decision is separate. It records that a user intends to apply
+or has applied a proposed calibration change outside Scopecat, such as by
+editing an existing parameter file or using a lab-owned tool. External apply
+does not create managed parameter context, does not prove hardware state, and
+does not replace parameter-state handoff. Any external files or receipts from
+that path remain supporting evidence unless a later adapter/import route maps
+them into managed parameter state.
 
 Measurement records can link the selected parameter-state snapshot as
 optional reference-only run-start context. Missing or mismatched measurement
@@ -66,7 +75,7 @@ advance workflow state automatically.
 | --- | --- | --- |
 | Continuation state | Calibration work continuation | Assemble planned steps, observed outputs, review gates, proposed writes, blocked steps, and interventions without scheduler or executor ownership. |
 | Step and observation continuity | Step intent resolution, step observation link | Freeze moving intent selectors into step records and link measurement records as observed outputs without payload reads or shared relation graph behavior. |
-| Fit/write review chain | Fit result link, proposed write link, accepted write handoff | Preserve observation, measurement, fit-result, proposed-write, base parameter-state, and accepted handoff continuity without fitting, write-back, rollback, or hardware control. |
+| Fit/write review chain | Fit result link, proposed write link, accepted write handoff | Preserve observation, measurement, fit-result, proposed-write, base parameter-state, external-apply decisions, and accepted handoff continuity without fitting, write-back, rollback, hardware control, or treating external apply as managed state. |
 | Review completeness | Review bundle, missing evidence findings, timeline trace, review state projection | Surface missing evidence, ordering/timestamp issues, and per-step review cards without executing actions or starting parameter-state intake. |
 | Parameter-state bridge | Calibration parameter-state intake/storage, source-agnostic prepared-run consumption/review chain | Let accepted calibration writes become managed parameter-state snapshots and later prepared-run parameter context through parameter-state-owned boundaries. |
 | Measurement context backbone | Calibration-derived parameter-state measurement context, backbone context findings | Prove happy-path continuity into later measurement context and surface missing/partial context as review findings. |
@@ -82,8 +91,10 @@ Keep these boundaries explicit:
   explicitly validates payload reads.
 - Fit results are declared external summaries. The route does not execute,
   score, select models, choose ROIs, or infer scientific validity.
-- Proposed writes and accepted handoffs remain `not_applied` until a separate
-  hardware/write-back authority exists.
+- Proposed writes and accepted parameter-state handoffs remain `not_applied`
+  until a separate hardware/write-back authority exists. External apply is an
+  explicitly outside-Scopecat decision path; it can be recorded for review, but
+  it does not create managed parameter state or prove current instrument state.
 - Compatibility outputs are not canonical context. The managed
   parameter-state snapshot is the parameter context; derivative files are
   optional supporting evidence if another artifact route needs them.

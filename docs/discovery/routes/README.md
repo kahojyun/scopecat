@@ -35,3 +35,4 @@ explicitly marked retired; use validation results for slice-local evidence.
 | [`../problem-briefs/README.md`](../problem-briefs/README.md) | Evidence-backed problem framing before choosing a validation question. |
 | [`../slices/README.md`](../slices/README.md) | Current discovery slice inventory by route and maturity. |
 | [`../synthesis/measurement-context-backlog.md`](../synthesis/measurement-context-backlog.md) | Shared backlog for measurement-context-shaped validation work across routes. |
+| [`../problem-briefs/setup-binding.md`](../problem-briefs/setup-binding.md) and [`../slices/setup-binding/setup-binding-validation-result.md`](../slices/setup-binding/setup-binding-validation-result.md) | Setup binding is currently reviewed as a slice/problem-brief owner, not as a route decision owner. Treat setup binding as its own context family until a later workflow earns a route-level decision. |

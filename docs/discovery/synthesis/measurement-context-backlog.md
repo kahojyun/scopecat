@@ -18,7 +18,7 @@ Several discovery routes are currently split by domain:
 - experiment code context;
 - declared environment context;
 - recorded analysis choices;
-- attachments, artifacts, and handoff context;
+- supporting evidence, promoted artifact-family context, and handoff context;
 - selected-reference comparison context.
 
 These are not the same domain, but they repeat the same product shape: a
@@ -43,7 +43,8 @@ In scope:
 - reviewable context changes;
 - readiness or status summaries;
 - selected parameter-state snapshots as parameter context;
-- explicit attachment/debug artifact references when a user supplies them.
+- explicit supporting-evidence references when a user supplies attachments,
+  debug logs, or opaque legacy snapshots.
 
 Out of scope:
 
@@ -64,6 +65,12 @@ default. They should enter this backlog only through a generic
 debug/attachment route, or when a later accepted decision says a specific
 artifact family has become real context. The active parameter route should
 prefer the managed parameter-state snapshot as the canonical context.
+
+Opaque legacy files are treated the same way by default. A copied parameter
+JSON, XLSX table, runtime config, or whole legacy snapshot may be valuable
+review/debug evidence, but it should not be modeled as managed parameter state
+unless a parameter-state import/adapter slice maps it into structured
+parameter entries, lineage, readiness, trust, and review semantics.
 
 ## Choosing A Validation Slice
 
@@ -102,9 +109,11 @@ Applies to: parameter state, setup binding, station registry context, code
 context, declared environment context, and analysis choices.
 
 Attachments, debug logs, compatibility outputs, and ordinary artifacts are
-supporting evidence by default, not context records. They should enter this
-context-snapshot slot only if a later accepted slice promotes a specific
-artifact family into real context.
+supporting evidence by default, not context records. This includes opaque
+parameter files and spreadsheets supplied during early adoption. They should
+enter this context-snapshot slot only if a later accepted slice promotes a
+specific artifact family into real context, or maps legacy parameter files into
+managed parameter-state records through an explicit adapter/import boundary.
 
 First fixture: one family-specific context record with explicit authority,
 declared summary fields, references, and opaque or family-owned payload.
@@ -120,9 +129,9 @@ models?
 
 Applies to: parameter state, setup binding, code context, environment context,
 analysis choices, promoted artifact-family context, and selected-reference
-packages. Derivative compatibility artifacts apply only when explicitly
-supplied as debug/attachment evidence; they are not implied by selecting
-parameter state.
+packages. Derivative compatibility artifacts and opaque legacy snapshots apply
+only when explicitly supplied as supporting evidence; they are not implied by
+selecting parameter state.
 
 First fixture: a measurement or step with explicit context links, family names,
 roles, include state, and missing or unavailable context findings.
@@ -349,13 +358,18 @@ claims, and cause attribution.
 ### 5. Reviewable Context Change
 
 Validation question: can Scopecat represent a proposed, accepted, rejected, or
-applied context change for review without taking authority to perform it?
+externally applied context change for review without taking authority to
+perform it?
 
 Applies to: parameter writes, setup-binding edits, calibration writes, selected
 configuration updates, and external compatibility-file updates.
 
 First fixture: one proposed change set against a known context record, with
-review status and before/after summary.
+review status and before/after summary. A decision accepted for external apply
+means the user intends to update an outside system or parameter file; it is not
+the same as a parameter-state handoff and does not create managed parameter
+context. A decision accepted for parameter-state handoff intentionally feeds a
+managed Scopecat parameter-state snapshot path.
 
 Boundary: no hardware mutation, rollback, automatic correction, durable branch
 semantics, scheduler, executor, or write-back authority.

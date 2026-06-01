@@ -119,7 +119,7 @@ schema.
 | External source reference | Storage-transition export, incoming-record import preview, adapter-authored legacy import, reference-only legacy import, reference-only source observation, measurement boundary | A declared pointer to original or lab-managed external data for provenance, transition, or later observation. It can carry source identity, reference state, redacted display facts, and file-level observations, but does not imply Scopecat can parse, preview, or plot the referenced data. |
 | Declared preview metadata | Export, incoming-record import preview, handoff package contents preview, adapter output boundary, normalized primary table, legacy import acceptance, reference-only legacy import, running inspection, new-run writer, storage writer, source observation, scan/data-shape | Shape, roles, labels, units, axis order, row order, and plot candidates supplied explicitly enough to support preview without schema inference when paired with Scopecat-readable or adapter-normalized data. For external source references, preview metadata remains a declared adapter/manifest assertion until normalized data or data-level observation is validated. |
 | Observed table fact | Handoff package opener, handoff package read view, normalized primary table | String-valued rows and columns read from a normalized table source after malformed table shapes are rejected. This currently proves table shape and declared-column binding, not scalar types, dtypes, scan shape, plotting semantics, streaming, or query behavior. |
-| Linked context | Export, incoming-record import preview, handoff package contents preview, adapter output boundary, legacy import acceptance, reference-only legacy import, derived artifact source links, calibration continuation, measurement boundary | Snapshots, attachments, artifacts, fit previews, notes, or derived outputs connected to a measurement, package, or step with explicit relation and authority. Adapter output boundary currently observes linked-context file facts only; it does not import or interpret payloads. |
+| Linked context | Export, incoming-record import preview, handoff package contents preview, adapter output boundary, legacy import acceptance, reference-only legacy import, derived artifact source links, calibration continuation, measurement boundary | Family-owned context records connected to a measurement, package, or step with explicit relation and authority. Attachments, notes, debug logs, opaque parameter files, ordinary artifacts, and fit previews are supporting evidence by default, not canonical context, unless a later accepted slice promotes a specific artifact family or imports a legacy file into a managed family-owned context record. Adapter output boundary currently observes linked file facts only; it does not import or interpret payloads. |
 | Include state | Export, handoff package contents preview, measurement boundary | Whether linked context is default-included, user-included, visible-but-excluded, visible-but-not-packaged, missing, or local-only; this is not recursive graph traversal. |
 | Lifecycle or progress state | Running inspection, new-run writer, calibration continuation | Current status of a measurement or step, such as running, complete, partial, review-needed, failed, or blocked. |
 | Intervention or operation | Running inspection, calibration continuation, future GUI pressure | A user-facing item that needs attention or can be acted on, without implying autonomous execution. |
@@ -291,16 +291,20 @@ export output while staying separate from incoming-record import preview.
 
 The third pressure is externally managed context. Early adoption should assume
 users may still own some snapshots, scripts, parameter files, local paths, and
-analysis artifacts outside Scopecat. Scopecat can record provenance, relation,
-warnings, and proposal state without claiming full storage, runtime, parameter,
-or analysis authority.
+analysis artifacts outside Scopecat. Scopecat can record them as supporting
+evidence, provenance, relation, warnings, and proposal state without claiming
+full storage, runtime, parameter, or analysis authority. A whole legacy
+parameter JSON or XLSX table should remain evidence until an explicit
+parameter-state import/adapter boundary maps it into Scopecat-managed parameter
+state semantics.
 
 The external-file policy note adds a narrower posture for this pressure:
 Scopecat is not a general backup system, external references can default to the
 latest external state, and original measurement data changes should not be
 silent. Lightweight observed file state, such as checksum, size, mtime, and
-observation time, is now candidate vocabulary but not an accepted integrity
-contract.
+observation time, is now candidate vocabulary when identity or integrity
+matters for review. It is not an accepted integrity contract and should not
+become a default burden for every attachment or debug file.
 
 ## Not Yet Earned
 

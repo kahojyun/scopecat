@@ -54,7 +54,11 @@ using one-off fields for each selected state, it uses:
 ```
 
 This shape is useful future pressure, but it does not earn a universal
-snapshot framework. Each snapshot family still needs its own meaning.
+snapshot framework or a global requirement that every measurement provide all
+three inputs. The fixture chooses parameter state, setup binding, and station
+registry together because that is the setup-binding pressure being validated.
+Each snapshot family still needs its own meaning, and setup binding should be
+reviewable as its own context family.
 
 ## Implementation Candidate
 
@@ -91,7 +95,11 @@ Setup binding remains separate from:
 Generated `line_info` and readout-group views are included because real setup
 binding often appears through generated runtime artifacts. The fixture records
 their labels and consumer hints, not a product contract for rendering or
-validating them.
+validating them. If a generated view depends on both setup binding and
+parameter/runtime context, this slice treats that view as declared binding
+context for review only. A later slice should decide whether such mixed
+generated views are setup-binding context, runtime context, or supporting
+evidence.
 
 The fixture also clarifies inner payload handling. A setup-binding snapshot may
 contain a user/project-defined payload needed by downstream runtime code.
@@ -111,6 +119,9 @@ and attention metadata.
   full wiring ontology;
 - parameter invalidation remains a domain/user decision, not an automatic
   consequence of binding changes;
+- whether real setup-binding review is usually independent, or usually shown
+  alongside selected parameter state and station-registry context, remains a
+  product workflow question;
 - many-snapshot measurement context may become useful, but shared extraction
   is still deferred until implementation pressure justifies it.
 
