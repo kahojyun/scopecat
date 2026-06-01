@@ -17,6 +17,7 @@ Use these documents before adding new Measurement Records behavior:
 | --- | --- |
 | [`policies/measurement-data-reference-boundary.md`](../../policies/measurement-data-reference-boundary.md) | Distinguish normalized primary data from external source references, attachments/artifacts, and previewable data items. |
 | [`routes/measurement-records/import-source-decision.md`](import-source-decision.md) | Current import/source route decisions, deferred decisions, reopen triggers, and next-work guidance. |
+| [`routes/measurement-records/legacy-brownfield-adoption-decision.md`](legacy-brownfield-adoption-decision.md) | Current post-run-first legacy adoption decisions, deferred decisions, reopen triggers, and stop rule. |
 | [`policies/package-purpose-boundary.md`](../../policies/package-purpose-boundary.md) | Boundary between analysis/review packages, shared lab references, and future offline execution migration. |
 | [`policies/artifact-preview-boundary.md`](../../policies/artifact-preview-boundary.md) | Boundary between arbitrary artifacts and declared previewable data items. |
 | [`policies/complex-response-boundary.md`](../../policies/complex-response-boundary.md) | Boundary for complex-valued response metadata and derived component views. |
@@ -53,6 +54,14 @@ separations:
   record, but it does not replace manifests, merge primary data, refresh read
   models, define lock identity, or accept crash recovery.
 
+Legacy brownfield adoption is currently closed around a post-run-first route:
+external legacy execution can remain unchanged while Scopecat records declared
+sidecar facts, reviews flexible locators, optionally observes an explicit
+file-backed locator, and carries reviewed sidecar facts forward as
+review/debug evidence. During-run event capture remains future-compatible but
+not earned as runner ownership. See
+[`legacy-brownfield-adoption-decision.md`](legacy-brownfield-adoption-decision.md).
+
 Handoff package work has moved from discovery route ownership into the accepted
 handoff architecture and module docs. Use the retired discovery handoff docs
 only for historical route synthesis. Shared lab references and offline
@@ -71,11 +80,18 @@ Prefer one of these only when the named workflow exists:
 | Add durable storage editing beyond in-progress append receipts | Validate stronger existing-record update behavior: existing-record import/update, stale-lock cleanup, crash recovery, conflict policy, or canonical append visibility. |
 | Accept adapter-produced input through a real workflow | Extend [`adapter-output-boundary-validation-result.md`](../../slices/measurement-records/adapter-output-boundary-validation-result.md) into a concrete transport, discovery, trust, and failure model. |
 | Recover moved reference-only records | Validate reference repair/review without automatic path discovery by default. |
+| Add lower-latency legacy adoption | Reopen [`legacy-brownfield-adoption-decision.md`](legacy-brownfield-adoption-decision.md): validate a narrow during-run event/supporting-evidence append boundary without runner control. |
+| Carry legacy calibration updates into managed state | Reopen [`legacy-brownfield-adoption-decision.md`](legacy-brownfield-adoption-decision.md): validate sidecar or calibration accepted-write handoff composition into parameter-state management. |
 | Continue handoff package behavior | Start from [`architecture/handoff/engineering-prototype-promotion-decision.md`](../../../architecture/handoff/engineering-prototype-promotion-decision.md), [`architecture/handoff/durable-import-storage-decision.md`](../../../architecture/handoff/durable-import-storage-decision.md), and [`scopecat/handoff/README.md`](../../../../scopecat/handoff/README.md), not the retired discovery route. |
 
 Do not add another import/source slice merely to restate that external source
 references are not previewable primary data, that file-level observation is not
 data-level observation, or that adapters own legacy parsing.
+
+Do not add another brownfield sidecar slice merely to restate post-run-first
+adoption, flexible legacy locators, optional context links, supporting evidence
+posture, file-level observation limits, review-evidence receipt readback, or
+no-runner/no-import/no-write-back boundaries.
 
 ## Route Documents
 
