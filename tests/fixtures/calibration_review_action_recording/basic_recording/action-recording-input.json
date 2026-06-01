@@ -1,0 +1,94 @@
+{
+  "action_recording_policy": {
+    "recording_authority": "declared_calibration_review_action_events",
+    "surface_source": "calibration_continuation_review_surface_summary",
+    "event_posture": "review_audit_intent_only",
+    "action_source": "surface_action_palette_labels",
+    "payload_handling": "labels_reasons_and_refs_only",
+    "rendering": "not_performed",
+    "gui_workflow": "not_defined",
+    "notebook_execution": "not_performed",
+    "action_execution": "not_performed",
+    "measurement_payload_read": "not_performed",
+    "fit_execution": "not_performed",
+    "calibration_execution": "not_performed",
+    "parameter_write_back": "not_performed",
+    "hardware_control": "not_performed",
+    "automatic_run_start": "not_performed",
+    "storage_mutation": "not_performed",
+    "shared_action_schema": "not_defined"
+  },
+  "review_surface_summary": {
+    "surface_policy": {
+      "surface_authority": "declared_calibration_continuation_review_surface",
+      "input_source": "declared_review_state_backbone_and_findings_summaries",
+      "surface_consumers": "notebook_or_cli",
+      "payload_handling": "summary_facts_and_labels_only",
+      "rendering": "not_performed",
+      "gui_workflow": "not_defined",
+      "notebook_execution": "not_performed",
+      "action_execution": "not_performed",
+      "measurement_payload_read": "not_performed",
+      "fit_execution": "not_performed",
+      "calibration_execution": "not_performed",
+      "parameter_write_back": "not_performed",
+      "hardware_control": "not_performed",
+      "automatic_run_start": "not_performed",
+      "storage_mutation": "not_performed",
+      "shared_surface_schema": "not_defined"
+    },
+    "surface_request": {
+      "surface_id": "calibration-continuation-surface-0001",
+      "route_id": "calibration-continuation",
+      "selected_step_id": "step-record-rabi-qA-0001"
+    },
+    "route_header": {
+      "surface_state": "blocked_with_context_findings",
+      "review_card_count": 2,
+      "backbone_finding_count": 2,
+      "selected_step_id": "step-record-rabi-qA-0001"
+    },
+    "action_palette": [
+      {
+        "source": "review_state_card",
+        "target_id": "step-record-rabi-qD-0004",
+        "action_label": "record_fit_review_outcome",
+        "posture": "labels_only_not_executed"
+      },
+      {
+        "source": "backbone_context_finding",
+        "target_id": "intake-unavailable",
+        "action_label": "inspect_parameter_state_intake_unavailable",
+        "posture": "labels_only_not_executed"
+      }
+    ]
+  },
+  "action_events": [
+    {
+      "event_id": "review-action-record-fit-qD-0001",
+      "order": 1,
+      "event_type": "record_review_action_choice",
+      "recorded_at": "2026-05-23T11:00:00Z",
+      "actor_ref": "operator:local-reviewer",
+      "surface_action_source": "review_state_card",
+      "target_id": "step-record-rabi-qD-0004",
+      "action_label": "record_fit_review_outcome",
+      "reason": "Reviewer chose to record the fit review outcome after inspecting the card.",
+      "event_posture": "review_audit_intent_only",
+      "execution_state": "not_executed"
+    },
+    {
+      "event_id": "review-action-inspect-intake-0002",
+      "order": 2,
+      "event_type": "record_review_action_choice",
+      "recorded_at": "2026-05-23T11:03:00Z",
+      "actor_ref": "operator:local-reviewer",
+      "surface_action_source": "backbone_context_finding",
+      "target_id": "intake-unavailable",
+      "action_label": "inspect_parameter_state_intake_unavailable",
+      "reason": "Reviewer selected the blocked backbone finding for inspection.",
+      "event_posture": "review_audit_intent_only",
+      "execution_state": "not_executed"
+    }
+  ]
+}

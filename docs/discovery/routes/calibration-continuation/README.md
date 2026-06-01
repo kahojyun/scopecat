@@ -52,6 +52,7 @@ canonical parameter context while keeping calibration evidence as provenance.
 | The full backbone composes into later measurement context. | [`../../slices/calibration/calibration-derived-parameter-state-measurement-context-validation-result.md`](../../slices/calibration/calibration-derived-parameter-state-measurement-context-validation-result.md) |
 | Missing or partial backbone context becomes review findings. | [`../../slices/calibration/calibration-backbone-context-findings-validation-result.md`](../../slices/calibration/calibration-backbone-context-findings-validation-result.md) |
 | Notebook/CLI consumption can show review cards and backbone findings together. | [`../../slices/calibration/calibration-continuation-review-surface-validation-result.md`](../../slices/calibration/calibration-continuation-review-surface-validation-result.md) |
+| Explicit user choices can be recorded against review-surface labels. | [`../../slices/calibration/calibration-review-action-recording-validation-result.md`](../../slices/calibration/calibration-review-action-recording-validation-result.md) |
 
 ## Boundary
 
@@ -72,7 +73,7 @@ This route still does not earn:
 Prefer route-level or workflow-action slices only when they answer a concrete
 user workflow question. High-value follow-ups are:
 
-- record explicit user actions against review-state cards without executing
-  those actions;
-- pressure explicit user-action recording over the labels exposed by the
-  review surface before adding GUI behavior or shared route schemas.
+- consolidate whether the current calibration continuation route is ready for
+  review as a coherent discovery backbone;
+- compare recorded review choices against real notebook/CLI review practices
+  before adding GUI behavior, execution behavior, or shared route schemas.

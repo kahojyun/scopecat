@@ -1,0 +1,97 @@
+{
+  "summary_policy": "internal_validation_summary",
+  "reference_semantics": {
+    "recording_boundary": "records user-declared choices against existing surface labels only",
+    "execution_posture": "recorded choices are not commands and do not execute workflow changes"
+  },
+  "candidate_summary": {
+    "action_recording_policy": {
+      "recording_authority": "declared_calibration_review_action_events",
+      "surface_source": "calibration_continuation_review_surface_summary",
+      "event_posture": "review_audit_intent_only",
+      "action_source": "surface_action_palette_labels",
+      "payload_handling": "labels_reasons_and_refs_only",
+      "rendering": "not_performed",
+      "gui_workflow": "not_defined",
+      "notebook_execution": "not_performed",
+      "action_execution": "not_performed",
+      "measurement_payload_read": "not_performed",
+      "fit_execution": "not_performed",
+      "calibration_execution": "not_performed",
+      "parameter_write_back": "not_performed",
+      "hardware_control": "not_performed",
+      "automatic_run_start": "not_performed",
+      "storage_mutation": "not_performed",
+      "shared_action_schema": "not_defined"
+    },
+    "surface_ref": {
+      "surface_id": "calibration-continuation-surface-0001",
+      "route_id": "calibration-continuation",
+      "surface_state": "blocked_with_context_findings"
+    },
+    "recorded_event_count": 2,
+    "recorded_events": [
+      {
+        "event_id": "review-action-record-fit-qD-0001",
+        "order": 1,
+        "recorded_at": "2026-05-23T11:00:00Z",
+        "actor_ref": "operator:local-reviewer",
+        "source": "review_state_card",
+        "target_id": "step-record-rabi-qD-0004",
+        "action_label": "record_fit_review_outcome",
+        "reason": "Reviewer chose to record the fit review outcome after inspecting the card.",
+        "event_posture": "review_audit_intent_only",
+        "execution_state": "not_executed"
+      },
+      {
+        "event_id": "review-action-inspect-intake-0002",
+        "order": 2,
+        "recorded_at": "2026-05-23T11:03:00Z",
+        "actor_ref": "operator:local-reviewer",
+        "source": "backbone_context_finding",
+        "target_id": "intake-unavailable",
+        "action_label": "inspect_parameter_state_intake_unavailable",
+        "reason": "Reviewer selected the blocked backbone finding for inspection.",
+        "event_posture": "review_audit_intent_only",
+        "execution_state": "not_executed"
+      }
+    ],
+    "event_counts_by_source": {
+      "backbone_context_finding": 1,
+      "review_state_card": 1
+    },
+    "recording_classification": "review_action_choices_recorded_without_execution",
+    "attention": [
+      {
+        "code": "actions_are_recorded_not_executed",
+        "severity": "review",
+        "basis": "Recorded events bind user intent to surface labels only.",
+        "does_not_claim": "action_execution"
+      },
+      {
+        "code": "surface_labels_are_authority",
+        "severity": "info",
+        "basis": "Events must reference labels already exposed by the review surface.",
+        "does_not_claim": "freeform_command_api"
+      },
+      {
+        "code": "workflow_state_not_mutated",
+        "severity": "review",
+        "basis": "Recording a user choice does not repair context, write parameters, or start runs.",
+        "does_not_claim": "workflow_mutation"
+      }
+    ]
+  },
+  "decisions_not_earned": [
+    "action execution",
+    "GUI workflow",
+    "notebook execution",
+    "shared action schema",
+    "measurement payload read",
+    "fit or calibration execution",
+    "hardware control",
+    "parameter write-back",
+    "automatic run start",
+    "storage mutation"
+  ]
+}
