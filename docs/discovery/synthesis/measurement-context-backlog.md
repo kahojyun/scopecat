@@ -256,6 +256,16 @@ scan, storage mutation, primary-data read/import, legacy payload parsing,
 preview verification, reference repair, parameter write-back,
 measurement-validity decisions, read-model refresh, or GUI behavior.
 
+Adjacent legacy brownfield adoption backbone result:
+[`legacy-brownfield-adoption-backbone-validation-result.md`](../slices/measurement-records/legacy-brownfield-adoption-backbone-validation-result.md)
+validates the post-run-first composition across prior legacy sidecar,
+post-run review, locator-observation review, append-intent, review-evidence
+receipt, and receipt-read summaries, while keeping lifecycle events compatible
+with a later during-run event writer and avoiding fresh observation, new
+storage mutation, primary-data import, legacy parsing, reference repair,
+parameter write-back, measurement-validity decisions, runner ownership, or GUI
+behavior.
+
 First post-run review result:
 [`post-run-review-bundle-validation-result.md`](../slices/measurement-context/post-run-review-bundle-validation-result.md)
 validates a local post-run review composition over completed measurement
