@@ -171,7 +171,7 @@ class MeasurementRecordDurableImportPrototypeTest(unittest.TestCase):
         self.assertEqual(run.classification, "blocked_before_import")
         self.assertIn("creation", run.import_error or "")
 
-    def test_row_count_mismatch_rolls_back_new_record(self) -> None:
+    def test_row_count_mismatch_blocks_before_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root = Path(temp_dir) / "storage"
             content_root = Path(temp_dir) / "content"
@@ -187,11 +187,11 @@ class MeasurementRecordDurableImportPrototypeTest(unittest.TestCase):
             self.assertFalse((storage_root / "records" / "run-3101-rabi").exists())
             self.assertFalse((storage_root / "records").exists())
 
-        self.assertEqual(run.classification, "rolled_back_after_import_failure")
-        self.assertTrue(run.rollback_performed)
-        self.assertIn("finalization", run.import_error or "")
+        self.assertEqual(run.classification, "blocked_before_import")
+        self.assertFalse(run.rollback_performed)
+        self.assertIn("row count does not match", run.import_error or "")
 
-    def test_read_view_failure_after_write_rolls_back_and_returns_receipt(self) -> None:
+    def test_malformed_source_blocks_before_mutation(self) -> None:
         malformed_csv = b"time,signal\n0\n"
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root = Path(temp_dir) / "storage"
@@ -217,10 +217,9 @@ class MeasurementRecordDurableImportPrototypeTest(unittest.TestCase):
             self.assertFalse((storage_root / "records" / "run-3101-rabi").exists())
             self.assertFalse((storage_root / "records").exists())
 
-        self.assertEqual(run.classification, "rolled_back_after_import_failure")
-        self.assertTrue(run.rollback_performed)
+        self.assertEqual(run.classification, "blocked_before_import")
+        self.assertFalse(run.rollback_performed)
         self.assertFalse(run.partial_commit)
-        self.assertIn("read_view", run.import_error or "")
         self.assertIn("rows must match", run.import_error or "")
 
     def test_projection_failure_rolls_back_new_record(self) -> None:

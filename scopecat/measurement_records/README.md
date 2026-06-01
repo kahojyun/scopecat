@@ -122,6 +122,8 @@ writes primary data through the writer integration, finalizes the record,
 projects a read model, and returns a local durable import receipt. It does not
 import into existing records, attach to pre-created shells, merge primary data,
 replace manifests, or import linked-context payloads.
+The import preflight validates the declared source digest, byte size, CSV table
+shape, and row count before creating the durable record shell.
 
 The first in-progress update slice is implemented through
 `append_in_progress_measurement_record(...)` and
