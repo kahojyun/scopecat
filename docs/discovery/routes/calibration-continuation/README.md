@@ -9,6 +9,9 @@ current calibration-to-measurement backbone. It does not accept a final
 workflow schema, relation graph, GUI, runner, scheduler, fitting framework,
 hardware-control contract, or shared measurement/parameter-state model.
 
+Current route closeout:
+[`decision.md`](decision.md).
+
 ## Route Posture
 
 Calibration continuation is currently validated as a reviewable local workflow:
@@ -70,10 +73,9 @@ This route still does not earn:
 
 ## Next Useful Work
 
-Prefer route-level or workflow-action slices only when they answer a concrete
-user workflow question. High-value follow-ups are:
+The current discovery backbone is ready for route-level review. Prefer new
+slices only when they answer a concrete workflow question that changes an
+authority boundary. High-value follow-ups are:
 
-- consolidate whether the current calibration continuation route is ready for
-  review as a coherent discovery backbone;
 - compare recorded review choices against real notebook/CLI review practices
   before adding GUI behavior, execution behavior, or shared route schemas.
