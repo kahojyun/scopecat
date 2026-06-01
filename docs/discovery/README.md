@@ -17,6 +17,7 @@ product contracts too early.
 | --- | --- |
 | [`doc-types.md`](doc-types.md) | Understand which discovery document type owns navigation, policies, route decisions, slice evidence, or synthesis. |
 | [`routes/README.md`](routes/README.md) | Navigate route owners, route decisions, and adoption routes by durable user workflow. |
+| [`routes/prototype-promotion-map.md`](routes/prototype-promotion-map.md) | Coordinate route-by-route discovery-to-engineering prototype promotion status. |
 | [`policies/README.md`](policies/README.md) | Navigate repeated boundary vocabulary and product posture documents. |
 | [`problem-briefs/README.md`](problem-briefs/README.md) | Start from evidence-backed problem framing before choosing a validation question. |
 | [`slices/README.md`](slices/README.md) | Browse the current discovery slice inventory by route and maturity. |
