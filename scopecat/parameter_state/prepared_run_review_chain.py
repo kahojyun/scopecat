@@ -100,8 +100,6 @@ def _validate_consumption_summary(source: dict[str, Any]) -> None:
             raise ValueError(f"source-agnostic consumption summary {key} must be {expected}")
     if summary["parameter_state"] is None:
         raise ValueError("review chain requires selected parameter_state facts")
-    if summary["parameter_state"]["source_kind"] != "calibration_handoff":
-        raise ValueError("first review-chain fixture expects calibration_handoff source_kind")
 
 
 def _validate_gate_input(source: dict[str, Any]) -> None:

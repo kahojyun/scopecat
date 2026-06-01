@@ -186,6 +186,61 @@ class ParameterStateEngineeringPrototypeTest(unittest.TestCase):
             {finding["code"] for finding in chain_summary["review_findings"]},
         )
 
+    def test_adapter_imported_state_reaches_prepared_run_review_chain(self) -> None:
+        read_fixture = FIXTURES / "source_agnostic_parameter_state_read_view" / "basic_read"
+        consumption_fixture = (
+            FIXTURES
+            / "prepared_run_source_agnostic_parameter_state_consumption"
+            / "basic_consumption"
+        )
+        chain_fixture = (
+            FIXTURES / "prepared_run_source_agnostic_parameter_state_review_chain" / "basic_chain"
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            shutil.copytree(ADAPTER_STORAGE_FIXTURE / "storage", storage_root)
+            read_input = _load(read_fixture / "read-view-input.json")
+            read_input["read_requests"] = read_input["read_requests"][:1]
+            read_summary = read_source_agnostic_parameter_state_view(
+                read_input,
+                storage_root=storage_root,
+            )
+
+        adapter_state_id = "param-state-imported-0001"
+        consumption_input = _load(consumption_fixture / "consumption-input.json")
+        consumption_input["source_agnostic_read_view_summary"] = read_summary
+        consumption_input["consumption_request"]["expected_state_id"] = adapter_state_id
+        consumption_input["consumption_request"]["parameter_context_id"] = adapter_state_id
+        for context_ref in consumption_input["prepared_run_context_summary"][
+            "selected_context_refs"
+        ]:
+            if context_ref["family"] == "parameter_state":
+                context_ref["context_id"] = adapter_state_id
+                context_ref["context_label"] = "qA default bias imported seed"
+                context_ref["record_status"] = "trusted_for_declared_scope"
+
+        consumption_summary = (
+            build_prepared_run_source_agnostic_parameter_state_consumption_summary(
+                consumption_input
+            )
+        )
+        chain_input = _load(chain_fixture / "review-chain-input.json")
+        chain_input["source_agnostic_consumption_summary"] = consumption_summary
+        chain_input["gate_input"]["parameter_state_consumption_summary"] = consumption_summary
+        chain_input["gate_input"]["gate_request"]["expected_state_id"] = adapter_state_id
+        chain_input["scope_alignment_input"]["parameter_state_consumption_summary"] = (
+            consumption_summary
+        )
+
+        chain_summary = build_prepared_run_source_agnostic_parameter_state_review_chain_summary(
+            chain_input
+        )
+
+        self.assertEqual(consumption_summary["parameter_state"]["source_kind"], "adapter_import")
+        self.assertEqual(chain_summary["selected_parameter_state"]["source_kind"], "adapter_import")
+        self.assertEqual(chain_summary["classification"], "parameter_review_chain_needs_review")
+
     def test_selection_context_matches_candidate_contract(self) -> None:
         fixture = FIXTURES / "parameter_state_selection_context" / "known_good_future_context"
 
