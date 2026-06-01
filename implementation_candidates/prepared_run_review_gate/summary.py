@@ -135,6 +135,48 @@ def _validate_environment_review_summary(source: dict[str, Any]) -> None:
         raise ValueError("environment review summary must not define managed runner")
 
 
+def _validate_environment_operation_review_summary(source: dict[str, Any]) -> None:
+    summary = source.get("environment_operation_review_summary")
+    if summary is None:
+        return
+
+    policy = summary["environment_operation_review_policy"]
+    expected = {
+        "summary_policy": "review_summary",
+        "bundle_authority": "explicit_prior_environment_operation_summaries",
+        "composition_authority": "review_projection_only",
+        "filesystem_inspection": "not_performed",
+        "manifest_read": "not_performed",
+        "lockfile_read": "not_performed",
+        "process_execution": "not_performed",
+        "dependency_output_parsing": "not_performed",
+        "dependency_resolution": "not_performed",
+        "dependency_sync": "externally_reported_not_verified_by_scopecat",
+        "package_install": "externally_reported_not_verified_by_scopecat",
+        "runtime_probe": "not_performed",
+        "code_import_execution": "not_performed",
+        "hardware_probe": "not_performed",
+        "run_blocking_decision": "not_made",
+        "readiness_claim": "not_claimed",
+        "shared_environment_schema": "not_defined",
+    }
+    for key, expected_value in expected.items():
+        if policy[key] != expected_value:
+            raise ValueError(f"environment operation review summary {key} must be {expected_value}")
+
+    status = summary["operation_review_status"]
+    findings = summary["operation_review_findings"]
+    if status not in {
+        "external_sync_reported_success_with_review_limits",
+        "operation_review_has_findings",
+    }:
+        raise ValueError("unsupported environment operation review status")
+    if findings and status != "operation_review_has_findings":
+        raise ValueError("environment operation findings require operation_review_has_findings")
+    if not findings and status == "operation_review_has_findings":
+        raise ValueError("operation_review_has_findings requires review findings")
+
+
 def _validate_request(source: dict[str, Any]) -> None:
     request = source["review_gate_request"]
     prepared_contexts = _prepared_context_by_id(source)
@@ -162,6 +204,13 @@ def _validate_request(source: dict[str, Any]) -> None:
     for bundle in source["environment_review_summary"]["review_bundles"]:
         if bundle["prepared_run_context_id"] != prepared_context_id:
             raise ValueError("environment review bundle prepared_run_context_id must match request")
+    operation_summary = source.get("environment_operation_review_summary")
+    if (
+        operation_summary is not None
+        and operation_summary["operation_review_request"]["prepared_run_context_id"]
+        != prepared_context_id
+    ):
+        raise ValueError("environment operation review prepared_run_context_id must match request")
 
 
 def _validate_references(source: dict[str, Any]) -> None:
@@ -170,6 +219,7 @@ def _validate_references(source: dict[str, Any]) -> None:
     _validate_parameter_gate_summary(source)
     _validate_scope_alignment_summary(source)
     _validate_environment_review_summary(source)
+    _validate_environment_operation_review_summary(source)
     _validate_request(source)
 
 
@@ -260,14 +310,32 @@ def _environment_item(source: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _environment_operation_item(source: dict[str, Any]) -> dict[str, Any] | None:
+    summary = source.get("environment_operation_review_summary")
+    if summary is None:
+        return None
+
+    findings = summary["operation_review_findings"]
+    return _review_item(
+        area="environment_operation",
+        state=("needs_environment_operation_review" if findings else "ready_for_manual_review"),
+        reason_codes=[finding["code"] for finding in findings],
+        finding_count=len(findings),
+    )
+
+
 def _review_items(source: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
+    items = [
         _required_context_item(source),
         _parameter_item(source),
         _scope_item(source),
         _workspace_item(source),
         _environment_item(source),
     ]
+    environment_operation_item = _environment_operation_item(source)
+    if environment_operation_item is not None:
+        items.append(environment_operation_item)
+    return items
 
 
 def _overall_state(items: list[dict[str, Any]]) -> str:
@@ -325,6 +393,12 @@ def _aggregated_findings(source: dict[str, Any]) -> list[dict[str, Any]]:
         _finding("environment", finding, code_key="finding")
         for finding in source["environment_review_summary"]["environment_review_findings"]
     )
+    operation_summary = source.get("environment_operation_review_summary")
+    if operation_summary is not None:
+        findings.extend(
+            _finding("environment_operation", finding, code_key="code")
+            for finding in operation_summary["operation_review_findings"]
+        )
     return findings
 
 
@@ -353,6 +427,12 @@ def _attention() -> list[dict[str, str]]:
             "severity": "review",
             "basis": "The gate does not import code, sync dependencies, or start a run.",
             "does_not_claim": "execution_permission",
+        },
+        {
+            "code": "environment_operation_review_optional",
+            "severity": "info",
+            "basis": "An environment-operation review bundle may be consumed as prior review evidence when present.",
+            "does_not_claim": "environment_operation_performed_by_gate",
         },
     ]
 

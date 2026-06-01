@@ -157,6 +157,12 @@
         "severity": "review",
         "basis": "The gate does not import code, sync dependencies, or start a run.",
         "does_not_claim": "execution_permission"
+      },
+      {
+        "code": "environment_operation_review_optional",
+        "severity": "info",
+        "basis": "An environment-operation review bundle may be consumed as prior review evidence when present.",
+        "does_not_claim": "environment_operation_performed_by_gate"
       }
     ]
   },
