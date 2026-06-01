@@ -68,8 +68,9 @@ the discovery landing page rather than a duplicate route inventory.
 | Import/source decisions | [`routes/measurement-records/import-source-decision.md`](routes/measurement-records/import-source-decision.md) |
 | Experiment code | [`routes/experiment-code/README.md`](routes/experiment-code/README.md) |
 | Environment operation | [`routes/environment-operation/README.md`](routes/environment-operation/README.md) |
+| Parameter state | Current implementation owners are [`routes/parameter-state/README.md`](routes/parameter-state/README.md), [`engineering-prototype-promotion-decision.md`](../architecture/parameter-state/engineering-prototype-promotion-decision.md), and [`scopecat/parameter_state/README.md`](../../scopecat/parameter_state/README.md). |
 | Measurement context backlog | [`synthesis/measurement-context-backlog.md`](synthesis/measurement-context-backlog.md) |
-| Parameter state, setup binding, calibration, selected reference | [`slices/README.md`](slices/README.md) plus the relevant problem brief in [`problem-briefs/`](problem-briefs/) |
+| Setup binding, calibration, selected reference | [`slices/README.md`](slices/README.md) plus the relevant problem brief in [`problem-briefs/`](problem-briefs/) |
 
 ## Promotion Discipline
 

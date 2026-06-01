@@ -19,6 +19,7 @@ explicitly marked retired; use validation results for slice-local evidence.
 | [`measurement-records/legacy-brownfield-adoption-decision.md`](measurement-records/legacy-brownfield-adoption-decision.md) | Current post-run-first legacy adoption route decisions, deferred decisions, reopen triggers, and stop rule. |
 | [`experiment-code/README.md`](experiment-code/README.md) | Experiment-code recording, managed code versions, workspace materialization, and prepared-run code context. |
 | [`environment-operation/README.md`](environment-operation/README.md) | Environment declaration, file observation, review bundles, manager command intent, and external result recording. |
+| [`parameter-state/README.md`](parameter-state/README.md) | Parameter-state management, adapter import review, storage read/write, selection context, and prepared-run review composition. |
 | [`calibration-continuation/README.md`](calibration-continuation/README.md) | Calibration continuation, reviewable step state, accepted write handoff, and calibration-derived parameter-state measurement context. |
 | [`calibration-continuation/decision.md`](calibration-continuation/decision.md) | Current calibration continuation route decision consolidation, deferred decisions, reopen triggers, and stop rule. |
 
