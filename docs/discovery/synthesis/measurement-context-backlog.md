@@ -155,7 +155,8 @@ context selectors, run-start resolution freezes those selectors to concrete
 context records, and the measurement record keeps only the resolved optional
 context links.
 
-First supporting-evidence result:
+First supporting-evidence result, now promoted as route-local engineering
+prototype:
 [`supporting-evidence-reference-validation-result.md`](../slices/measurement-context/supporting-evidence-reference-validation-result.md)
 validates the subcase where a user explicitly supplies debug, audit, handoff,
 or review evidence related to measurement, running-measurement, prepared-run,
@@ -163,7 +164,10 @@ operator-approval, parameter-state, or calibration-step targets while keeping
 the evidence reference optional, reference-only, and outside primary data,
 canonical context authority, and artifact provenance. Supporting evidence
 references are lifecycle explicit; during-run diagnostic evidence should not be
-implied by run-start context review.
+implied by run-start context review. Live behavior is owned by
+[`../../../scopecat/measurement_context/README.md`](../../../scopecat/measurement_context/README.md)
+and
+[`../../architecture/measurement-context/supporting-evidence-reference-decision.md`](../../architecture/measurement-context/supporting-evidence-reference-decision.md).
 
 First supporting-artifact provenance result:
 [`supporting-artifact-provenance-validation-result.md`](../slices/measurement-context/supporting-artifact-provenance-validation-result.md)

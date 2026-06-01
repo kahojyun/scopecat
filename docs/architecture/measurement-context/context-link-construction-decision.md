@@ -61,7 +61,8 @@ schema work.
 | --- | --- | --- |
 | Measurement context link | Promoted into route-local engineering code with typed request/result objects and a raw-dictionary adapter only at the fixture/current-caller edge. | [`scopecat/measurement_context/README.md`](../../../scopecat/measurement_context/README.md), this decision |
 | Resolved context-link comparison | Remains the side-effect-free comparison consumer over actual resolved links. | [`resolved-context-link-comparison-decision.md`](resolved-context-link-comparison-decision.md) |
-| Remaining measurement-context support families | Named run-start inputs, supporting evidence, artifact provenance/observation, post-run review, and context readiness remain implementation-candidate evidence. | [`../../discovery/synthesis/measurement-context-backlog.md`](../../discovery/synthesis/measurement-context-backlog.md) |
+| Supporting evidence references | Promoted separately into route-local engineering code as reference-only review evidence. | [`supporting-evidence-reference-decision.md`](supporting-evidence-reference-decision.md) |
+| Remaining measurement-context support families | Named run-start inputs, artifact provenance/observation, post-run review, and context readiness remain implementation-candidate evidence. | [`../../discovery/synthesis/measurement-context-backlog.md`](../../discovery/synthesis/measurement-context-backlog.md) |
 
 ## Next Decision Gate
 
@@ -70,7 +71,7 @@ should choose one explicit authority change:
 
 - named run-start input-set construction;
 - context-link storage or mutation behavior;
-- supporting evidence references and artifact provenance/observation;
+- supporting artifact provenance/observation;
 - post-run review bundle composition;
 - context readiness projection;
 - selected-reference or prepared-run consumption of context-link findings;

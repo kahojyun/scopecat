@@ -18,6 +18,19 @@ reference-only, keeps context optional for primary-data validity, and surfaces
 missing optional context as review findings.
 
 ```text
+explicit supporting-evidence manifest
+  -> user-supplied evidence reference
+  -> declared related targets
+  -> local supporting-evidence review summary
+```
+
+The supporting-evidence surface summarizes explicit debug, audit, handoff, or
+review-evidence references. It keeps `attachment`, `artifact`, and
+`unspecified` as label-only evidence kinds, requires explicit lifecycle
+posture, and surfaces unavailable evidence or target references as review
+findings.
+
+```text
 explicit current/reference measurement record pair
   -> user-selected reference mark
   -> resolved measurement-record context links
@@ -33,11 +46,15 @@ The outputs are local `review_summary` / local review projections. They do not
 compare measurement intent selectors, primary data, fit quality, context
 payloads, readiness, hardware runtime state, cause attribution, recursively
 traverse relations, import context, store or mutate context links, write back,
-restore behavior, execute code, or define GUI behavior. They also do not
-define a shared context schema or relation graph.
+import supporting-evidence payloads, observe files, validate checksums,
+validate artifact provenance, restore behavior, execute code, or define GUI
+behavior. They also do not define a shared context schema, relation graph, or
+attachment schema.
 
 The promoted boundaries are owned by
 [`../../docs/architecture/measurement-context/context-link-construction-decision.md`](../../docs/architecture/measurement-context/context-link-construction-decision.md)
+,
+[`../../docs/architecture/measurement-context/supporting-evidence-reference-decision.md`](../../docs/architecture/measurement-context/supporting-evidence-reference-decision.md),
 and
 [`../../docs/architecture/measurement-context/resolved-context-link-comparison-decision.md`](../../docs/architecture/measurement-context/resolved-context-link-comparison-decision.md).
 
@@ -49,6 +66,10 @@ Current local surface:
 - `summarize_measurement_context_links(...)`;
 - `MeasurementContextLinkResult.to_dict()`;
 - `build_measurement_context_link_summary(...)`;
+- `SupportingEvidenceReferenceRequest.from_dict(...)`;
+- `summarize_supporting_evidence_reference(...)`;
+- `SupportingEvidenceReferenceResult.to_dict()`;
+- `build_supporting_evidence_reference_summary(...)`;
 - `ResolvedContextLinkComparisonRequest.from_dict(...)`;
 - `compare_resolved_context_links(...)`;
 - `ResolvedContextLinkComparisonResult.to_dict()`;

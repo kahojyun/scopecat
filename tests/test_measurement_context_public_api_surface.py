@@ -14,10 +14,14 @@ class MeasurementContextPublicApiSurfaceTest(unittest.TestCase):
                 "MeasurementContextLinkResult",
                 "ResolvedContextLinkComparisonRequest",
                 "ResolvedContextLinkComparisonResult",
+                "SupportingEvidenceReferenceRequest",
+                "SupportingEvidenceReferenceResult",
                 "build_measurement_context_link_summary",
                 "build_resolved_context_link_comparison_summary",
+                "build_supporting_evidence_reference_summary",
                 "compare_resolved_context_links",
                 "summarize_measurement_context_links",
+                "summarize_supporting_evidence_reference",
             },
         )
 
