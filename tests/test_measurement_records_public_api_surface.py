@@ -33,9 +33,11 @@ class MeasurementRecordsPublicApiSurfaceTest(unittest.TestCase):
     def test_durable_import_and_read_model_routes_remain_top_level_exports(self) -> None:
         expected_names = {
             "MeasurementRecordDurableImportRequest",
+            "MeasurementRecordExistingUpdateRequest",
             "MeasurementRecordReadModelProjectionRequest",
             "MeasurementRecordReadModelRefreshRequest",
             "MeasurementRecordCatalogRequest",
+            "append_existing_measurement_record_from_request",
             "import_measurement_record_from_request",
             "project_measurement_record_read_model_from_read_view",
             "refresh_measurement_record_read_model_from_read_view",

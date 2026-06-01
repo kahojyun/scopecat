@@ -13,6 +13,13 @@ from scopecat.measurement_records.durable_import import (
     import_measurement_record,
     import_measurement_record_from_request,
 )
+from scopecat.measurement_records.existing_record_update import (
+    MeasurementRecordExistingAppendChunk,
+    MeasurementRecordExistingUpdateRequest,
+    MeasurementRecordExistingUpdateRun,
+    append_existing_measurement_record,
+    append_existing_measurement_record_from_request,
+)
 from scopecat.measurement_records.finalization import (
     MeasurementRecordFinalizationRequest,
     MeasurementRecordFinalizationRun,
@@ -83,6 +90,9 @@ __all__ = [
     "MeasurementRecordCreationRun",
     "MeasurementRecordDurableImportRequest",
     "MeasurementRecordDurableImportRun",
+    "MeasurementRecordExistingAppendChunk",
+    "MeasurementRecordExistingUpdateRequest",
+    "MeasurementRecordExistingUpdateRun",
     "MeasurementRecordFinalizationRequest",
     "MeasurementRecordFinalizationRun",
     "MeasurementRecordImportSource",
@@ -103,6 +113,8 @@ __all__ = [
     "MeasurementRecordWriterChunk",
     "MeasurementRecordWriterRequest",
     "MeasurementRecordWriterRun",
+    "append_existing_measurement_record",
+    "append_existing_measurement_record_from_request",
     "append_in_progress_measurement_record",
     "append_in_progress_measurement_record_from_request",
     "catalog_measurement_record_read_models",

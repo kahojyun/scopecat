@@ -152,6 +152,17 @@ validated as row-only CSV segments against the base primary table header during
 inspection; repeated headers, empty segments, or row-width mismatches block the
 inspection view rather than being shown as visible data rows.
 
+The first existing-record append update slice is implemented through
+`append_existing_measurement_record(...)` and
+`append_existing_measurement_record_from_request(...)`. It consumes an
+approved update request for a caller-declared existing record directory,
+preflights the current manifest and primary-data digest/size facts, reads only
+the declared append chunk, writes one new append segment and one update
+receipt, and releases a direct record-local lock guard. It does not replace
+the existing manifest, merge or compact primary data, refresh read models,
+scan storage, define stale-lock cleanup or crash recovery, infer schema, or
+make append segments canonical primary data.
+
 The module also exposes a narrow read-only CLI smoke entrypoint:
 
 ```sh
