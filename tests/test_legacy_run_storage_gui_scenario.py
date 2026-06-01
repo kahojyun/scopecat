@@ -46,32 +46,56 @@ class LegacyRunStorageGuiScenarioTest(unittest.TestCase):
             },
         )
         self.assertEqual(
-            [entry["record_id"] for entry in full_summary["inventory"]["entries"]],
-            ["imported-run-001", "legacy-run-001"],
+            full_summary["user_input"],
+            {
+                "legacy_system_id": "legacy-labview",
+                "legacy_run_id": "lv-run-001",
+                "label": "Legacy LabVIEW Run 001",
+                "experiment_type": "rabi",
+                "primary_locator": "legacy-system/run-001.tsv",
+                "notebook_locator": "legacy-notebook://operator-workstation/run-001",
+                "run_started_at": "2026-06-01T08:50:00Z",
+                "run_completed_at": "2026-06-01T08:55:00Z",
+                "created_at": "2026-06-01T09:00:00Z",
+            },
+        )
+        self.assertEqual(
+            set(entry["record_id"] for entry in full_summary["inventory"]["entries"]),
+            {
+                "rec-legacy-labview-lv-run-001-legacy",
+                "rec-legacy-labview-lv-run-001-primary",
+            },
         )
         self.assertEqual(
             [
-                measurement["record_id"]
+                measurement["measurement_id"]
                 for measurement in full_summary["measurement_review"]["measurements"]
             ],
-            ["imported-run-001", "legacy-run-001"],
+            ["meas-legacy-labview-lv-run-001"],
         )
-        imported_measurement = full_summary["measurement_review"]["measurements"][0]
+        measurement = full_summary["measurement_review"]["measurements"][0]
         self.assertEqual(
-            imported_measurement["source"]["relationship"],
-            "converted_from_legacy_record",
+            measurement["conversion"]["relationship"],
+            "converted_from_recorded_legacy_locator",
         )
-        self.assertEqual(imported_measurement["source"]["legacy_record_id"], "legacy-run-001")
+        self.assertEqual(measurement["legacy"]["legacy_run_id"], "lv-run-001")
         self.assertEqual(
-            imported_measurement["source"]["primary_locator"]["value"],
+            measurement["legacy"]["primary_locator"]["value"],
             "legacy-system/run-001.tsv",
+        )
+        self.assertEqual(
+            measurement["storage_artifacts"]["legacy_record_id"],
+            "rec-legacy-labview-lv-run-001-legacy",
+        )
+        self.assertEqual(
+            measurement["storage_artifacts"]["primary_record_id"],
+            "rec-legacy-labview-lv-run-001-primary",
         )
         self.assertEqual(full_summary["read_view"]["table"]["row_count"], 5)
         self.assertIn("Measurement Review", html)
         self.assertIn("Storage Diagnostics", html)
-        self.assertIn("converted_from_legacy_record", html)
-        self.assertIn("legacy-run-001", html)
-        self.assertIn("imported-run-001", html)
+        self.assertIn("converted_from_recorded_legacy_locator", html)
+        self.assertIn("legacy-labview / lv-run-001", html)
         self.assertIn("legacy-system/run-001.tsv", html)
         self.assertIn("signal_counts", html)
 
