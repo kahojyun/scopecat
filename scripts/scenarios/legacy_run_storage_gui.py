@@ -31,12 +31,15 @@ from scopecat.measurement_records import (  # noqa: E402
     LegacyRunLocator,
     LegacyRunRecordRequest,
     MeasurementRecordImportSource,
+    MeasurementRecordOperatorReviewRequest,
     MeasurementRecordReadRequest,
     MeasurementRecordStorageInventoryRequest,
     attach_converted_primary_data_to_legacy_record_from_request,
     list_measurement_record_storage_from_request,
     read_created_record_primary_table_from_request,
     record_legacy_measurement_run_from_request,
+    review_measurement_records_from_request,
+    write_measurement_record_review_artifact,
 )
 
 
@@ -50,6 +53,7 @@ class ScenarioResult:
     legacy_source_paths: tuple[Path, ...]
     normalized_source_paths: tuple[Path, ...]
     html_path: Path
+    operator_review_html_path: Path
     summary_path: Path
     summary: dict[str, Any]
 
@@ -124,9 +128,11 @@ def run_scenario(workspace: Path | None = None, *, open_browser: bool = False) -
     storage_root = scenario_workspace / "storage"
     content_root = scenario_workspace / "content"
     review_root = scenario_workspace / "review"
+    operator_review_root = scenario_workspace / "operator-review"
     storage_root.mkdir(exist_ok=True)
     content_root.mkdir(exist_ok=True)
     review_root.mkdir(exist_ok=True)
+    operator_review_root.mkdir(exist_ok=True)
 
     measurement_runs = []
     legacy_source_paths = []
@@ -180,11 +186,21 @@ def run_scenario(workspace: Path | None = None, *, open_browser: bool = False) -
         MeasurementRecordStorageInventoryRequest(request_id="inventory-legacy-measurements"),
         storage_root=storage_root,
     )
+    operator_review = review_measurement_records_from_request(
+        MeasurementRecordOperatorReviewRequest(request_id="operator-review-legacy-measurements"),
+        storage_root=storage_root,
+    )
+    operator_review_artifact = write_measurement_record_review_artifact(
+        operator_review,
+        output_dir=operator_review_root,
+    )
 
     summary = _summary(
         workspace=scenario_workspace,
         measurement_runs=measurement_runs,
         inventory=inventory.to_dict(),
+        operator_review=operator_review.to_dict(),
+        operator_review_artifact=operator_review_artifact,
     )
     html_path = review_root / "legacy-run-review.html"
     html_path.write_text(_html_review(summary), encoding="utf-8")
@@ -202,6 +218,7 @@ def run_scenario(workspace: Path | None = None, *, open_browser: bool = False) -
         legacy_source_paths=tuple(legacy_source_paths),
         normalized_source_paths=tuple(normalized_source_paths),
         html_path=html_path,
+        operator_review_html_path=Path(operator_review_artifact["html_artifact"]["local_path"]),
         summary_path=summary_path,
         summary=summary,
     )
@@ -369,6 +386,8 @@ def _summary(
     workspace: Path,
     measurement_runs: list[dict[str, Any]],
     inventory: dict[str, Any],
+    operator_review: dict[str, Any],
+    operator_review_artifact: dict[str, Any],
 ) -> dict[str, Any]:
     measurement_review = _measurement_review_model(
         measurement_runs=measurement_runs,
@@ -423,6 +442,8 @@ def _summary(
         "legacy_runs": legacy_runs,
         "primary_attaches": primary_attaches,
         "inventory": inventory,
+        "operator_review": operator_review,
+        "operator_review_artifact": operator_review_artifact,
         "read_views": read_views,
         "measurement_review": measurement_review,
         "record_diagnostics": record_diagnostics,
@@ -964,6 +985,7 @@ def _console_summary(result: ScenarioResult) -> dict[str, Any]:
         ],
         "diagnostic_records": result.summary["records"],
         "html_review": str(result.html_path),
+        "operator_review_html": str(result.operator_review_html_path),
         "scenario_summary": str(result.summary_path),
     }
 

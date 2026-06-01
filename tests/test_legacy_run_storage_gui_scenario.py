@@ -32,8 +32,10 @@ class LegacyRunStorageGuiScenarioTest(unittest.TestCase):
             console_summary = json.loads(completed.stdout)
             summary_path = Path(console_summary["scenario_summary"])
             html_path = Path(console_summary["html_review"])
+            operator_review_html_path = Path(console_summary["operator_review_html"])
             full_summary = json.loads(summary_path.read_text(encoding="utf-8"))
             html = html_path.read_text(encoding="utf-8")
+            operator_review_html = operator_review_html_path.read_text(encoding="utf-8")
 
         self.assertEqual(console_summary["scenario"], "legacy_run_storage_gui")
         self.assertEqual(
@@ -87,6 +89,17 @@ class LegacyRunStorageGuiScenarioTest(unittest.TestCase):
                 "rec-legacy-labview-lv-run-001",
                 "rec-legacy-labview-lv-run-002",
             },
+        )
+        self.assertEqual(
+            full_summary["operator_review"]["catalog"]["entry_count"],
+            2,
+        )
+        self.assertEqual(
+            full_summary["operator_review_artifact"]["html_artifact"]["filename"],
+            "measurement-record-review.html",
+        )
+        self.assertFalse(
+            full_summary["operator_review_artifact"]["html_artifact"]["durable_storage_member"],
         )
         self.assertEqual(
             [
@@ -169,6 +182,9 @@ class LegacyRunStorageGuiScenarioTest(unittest.TestCase):
         self.assertIn("legacy-system/run-001.tsv", html)
         self.assertIn("legacy-system/run-002.tsv", html)
         self.assertIn("signal_counts", html)
+        self.assertIn("Measurement Records Review", operator_review_html)
+        self.assertIn("rec-legacy-labview-lv-run-001", operator_review_html)
+        self.assertIn("rec-legacy-labview-lv-run-002", operator_review_html)
 
 
 if __name__ == "__main__":
