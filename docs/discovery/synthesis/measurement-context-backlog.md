@@ -139,11 +139,14 @@ roles, include state, and missing or unavailable context findings.
 Boundary: no recursive relation traversal, automatic inclusion of adjacent
 records, shared relation graph, restore, execution, or cause attribution.
 
-First direct result:
+First direct result, now promoted as route-local engineering prototype:
 [`measurement-context-link-validation-result.md`](../slices/measurement-context/measurement-context-link-validation-result.md)
 validates measurement records with zero, resolved, and missing optional
 context links while keeping context reference-only and optional for primary
-measurement-record validity.
+measurement-record validity. Live behavior is owned by
+[`../../../scopecat/measurement_context/README.md`](../../../scopecat/measurement_context/README.md)
+and
+[`../../architecture/measurement-context/context-link-construction-decision.md`](../../architecture/measurement-context/context-link-construction-decision.md).
 
 First intent-resolution result:
 [`measurement-intent-resolution-validation-result.md`](../slices/measurement-context/measurement-intent-resolution-validation-result.md)
