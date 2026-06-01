@@ -97,6 +97,8 @@ def _validate_file_record(version_id: str, file_record: dict[str, Any]) -> None:
 
 def _validate_policy(source: dict[str, Any]) -> None:
     policy = source["managed_version_policy"]
+    if set(policy) != set(_EXPECTED_POLICY):
+        raise ValueError("expected managed code version policy shape")
     for key, expected in _EXPECTED_POLICY.items():
         if policy[key] != expected:
             raise ValueError(f"managed code version policy {key} must be {expected}")

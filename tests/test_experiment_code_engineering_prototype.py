@@ -234,6 +234,14 @@ class ExperimentCodeEngineeringPrototypeTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "non-relative file path"):
             ManagedCodeVersionRequest.from_dict(source)
 
+    def test_managed_version_rejects_extra_policy_claims(self) -> None:
+        fixture = ROOT / "tests" / "fixtures" / "managed_code_version" / "basic_record"
+        source = _read_json(fixture / "managed-code-version-input.json")
+        source["managed_version_policy"]["code_import"] = "performed"
+
+        with self.assertRaisesRegex(ValueError, "expected managed code version policy shape"):
+            ManagedCodeVersionRequest.from_dict(source)
+
     def test_materialization_blocked_path_does_not_write_any_file(self) -> None:
         fixture = ROOT / "tests" / "fixtures" / "workspace_materialization" / "basic_workspace"
         source = _read_json(fixture / "workspace-materialization-input.json")
