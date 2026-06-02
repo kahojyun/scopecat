@@ -14,6 +14,19 @@ or vertical slice should validate.
 implementation owners for accepted slices. This document records the user
 workflow thread and its validated or missing steps.
 
+## Current Workflow Focus
+
+The main composition gap is the legacy portable handoff workflow: import or
+record a legacy-backed measurement into Scopecat storage, select one stored
+measurement, export a handoff package, preview it on another computer, and
+import it into that computer's storage.
+
+The validated ends already exist: Measurement Records can store legacy-backed
+records and Handoff can preview/gate/import one ready package measurement into
+another storage root. The missing seam is selected stored Measurement Record to
+single-measurement handoff package export, including identity continuity and
+portable/export posture for that package boundary.
+
 ## How To Read
 
 - Start with rows marked `Composition gap`; those are the clearest next

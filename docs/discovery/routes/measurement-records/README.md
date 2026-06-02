@@ -74,24 +74,20 @@ handoff prototype-boundary and module docs. Use the retired discovery handoff do
 only for historical route synthesis. Shared lab references and offline
 execution migration still require separate boundary work.
 
-## Current Next Work
+## Engineering Owner Pointers
 
-Prefer one of these only when the named workflow exists:
+This discovery route no longer owns active implementation sequencing. For live
+Measurement Records work, start from
+[`../../../engineering/workflow-validation-map.md`](../../../engineering/workflow-validation-map.md),
+[`../../../engineering/vertical-slice-register.md`](../../../engineering/vertical-slice-register.md),
+the relevant prototype-boundary note, and the live
+[`src/scopecat/measurement_records/README.md`](../../../../src/scopecat/measurement_records/README.md).
+For live handoff work, start from the engineering handoff boundary notes and
+[`src/scopecat/handoff/README.md`](../../../../src/scopecat/handoff/README.md),
+not the retired discovery handoff route.
 
-| Need | Next Boundary |
-| --- | --- |
-| Create durable measurement-record shells before writer/import integration | Start from [`engineering/prototype-boundaries/measurement-records-creation-lifecycle.md`](../../../engineering/prototype-boundaries/measurement-records-creation-lifecycle.md). |
-| Import reviewed normalized primary data into durable storage | Start from [`engineering/prototype-boundaries/handoff-durable-import-storage.md`](../../../engineering/prototype-boundaries/handoff-durable-import-storage.md) and the live [`src/scopecat/measurement_records/README.md`](../../../../src/scopecat/measurement_records/README.md): create a new measurement record through the existing receipt/read-model pipeline. |
-| Record a legacy measurement with converted primary data and selected references | Start from [`engineering/prototype-boundaries/measurement-records-legacy-run-storage.md`](../../../engineering/prototype-boundaries/measurement-records-legacy-run-storage.md), the live [`src/scopecat/measurement_records/README.md`](../../../../src/scopecat/measurement_records/README.md), and the `record_legacy_measurement(...)` workflow facade: accept user-facing legacy facts, attach reviewed converted normalized primary data to the same generated record, record selected parameter/setup/code/artifact references, then review it as one measurement. |
-| Read or preview stored/package-local normalized data through one contract | Start from the live [`src/scopecat/measurement_records/README.md`](../../../../src/scopecat/measurement_records/README.md) normalized primary table contract; package-local consumers still need their own concrete integration boundary. |
-| List what local Measurement Records storage contains | Start from the live storage inventory API in [`src/scopecat/measurement_records/README.md`](../../../../src/scopecat/measurement_records/README.md). It scans manifests, read models, and legacy receipts without repair, refresh, primary-data observation, or legacy payload import. |
-| Inspect a still-running durable record | Start from [`engineering/prototype-boundaries/measurement-records-creation-lifecycle.md`](../../../engineering/prototype-boundaries/measurement-records-creation-lifecycle.md): in-progress append receipts plus read-only running inspection. |
-| Add durable storage editing beyond existing append receipts and legacy primary attach | Choose a stronger boundary: generic existing-record import/update, stale-lock cleanup, crash recovery, conflict policy, manifest replacement, read-model refresh, or canonical append visibility. |
-| Accept adapter-produced input through a real workflow | Extend [`adapter-output-boundary-validation-result.md`](../../slices/measurement-records/adapter-output-boundary-validation-result.md) into a concrete transport, discovery, trust, and failure model. |
-| Recover moved reference-only records | Validate reference repair/review without automatic path discovery by default. |
-| Add lower-latency legacy adoption | Reopen [`legacy-brownfield-adoption-decision.md`](legacy-brownfield-adoption-decision.md): validate a narrow during-run event/supporting-evidence append boundary without runner control. |
-| Carry legacy calibration updates into managed state | Reopen [`legacy-brownfield-adoption-decision.md`](legacy-brownfield-adoption-decision.md): validate sidecar or calibration accepted-write handoff composition into parameter-state management. |
-| Continue handoff package behavior | Start from [`engineering/prototype-boundaries/handoff.md`](../../../engineering/prototype-boundaries/handoff.md), [`engineering/prototype-boundaries/handoff-durable-import-storage.md`](../../../engineering/prototype-boundaries/handoff-durable-import-storage.md), and [`src/scopecat/handoff/README.md`](../../../../src/scopecat/handoff/README.md), not the retired discovery route. |
+Use this route index only to find discovery evidence, route decisions, deferred
+questions, and reopen triggers.
 
 Do not add another import/source slice merely to restate that external source
 references are not previewable primary data, that file-level observation is not
