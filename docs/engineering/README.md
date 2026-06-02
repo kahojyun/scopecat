@@ -17,6 +17,7 @@ Use these documents before adding or promoting live code:
 | --- | --- |
 | [`delivery-maturity-model.md`](delivery-maturity-model.md) | Classify workflow and capability maturity; choose validation methods without treating candidate/prototype counts as progress. |
 | [`workflow-validation-map.md`](workflow-validation-map.md) | Start from user workflow threads, validated steps, missing seams, and next validation questions. |
+| [`branch-plans/README.md`](branch-plans/README.md) | Find active branch plans for scoped implementation work before accepted boundaries are updated. |
 | [`implementation-register.md`](implementation-register.md) | Track live implementation owners and route readers to module and prototype-boundary detail. |
 | [`../product/capability-map.md`](../product/capability-map.md) | Track product capabilities, maturity, evidence state, and open advancement questions. |
 | [`terminology.md`](terminology.md) | Use standard terms for workflows, capabilities, maturity, validation methods, decisions, evidence, artifact boundaries, and ownership. |
@@ -34,6 +35,7 @@ decisions.
 This directory does not replace:
 
 - product direction, adoption, or capability maps;
+- issue, PR, or branch-specific execution plans;
 - discovery validation plans or results;
 - route-specific prototype boundary notes;
 - module READMEs that own live API details;
