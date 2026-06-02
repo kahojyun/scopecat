@@ -9,7 +9,9 @@ from scopecat.measurement_records import (
     ConvertedPrimaryData,
     LegacyMeasurementRecordRequest,
     LegacyMeasurementSource,
+    MeasurementRecordCreationRequest,
     RecordedReferenceInput,
+    create_measurement_record_from_request,
     legacy_measurement_slug,
     record_legacy_measurement,
     record_legacy_measurement_from_request,
@@ -153,6 +155,93 @@ class MeasurementRecordUserWorkflowPrototypeTest(unittest.TestCase):
                     storage_root=storage_root,
                     content_root=content_root,
                 )
+
+    def test_record_collision_does_not_continue_into_reference_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            content_root.mkdir()
+            primary_path = content_root / "normalized" / "lv-run-001.csv"
+            _write_csv(primary_path)
+            create_measurement_record_from_request(
+                MeasurementRecordCreationRequest(
+                    request_id="existing-record",
+                    approval_state="approved",
+                    record_id="rec-legacy-labview-lv-run-001",
+                    record_dir="records/rec-legacy-labview-lv-run-001",
+                    creation_source_kind="legacy_system",
+                ),
+                storage_root=storage_root,
+            )
+
+            run = record_legacy_measurement(
+                source=_source(),
+                primary_data=ConvertedPrimaryData(path=primary_path, rows_recorded=2),
+                references=_references(),
+                storage_root=storage_root,
+                content_root=content_root,
+            )
+
+            record_dir = storage_root / "records" / "rec-legacy-labview-lv-run-001"
+            self.assertFalse((record_dir / "recorded-references").exists())
+
+        payload = run.to_dict()
+        self.assertEqual(run.classification, "legacy_measurement_recording_review_needed")
+        self.assertFalse(run.recorded)
+        self.assertEqual(
+            payload["legacy_run"]["workflow"]["classification"],
+            "blocked_before_legacy_run_record",
+        )
+        self.assertIsNone(run.primary_attach)
+        self.assertIsNone(run.recorded_reference)
+        self.assertIsNone(run.read_view)
+        self.assertEqual(
+            payload["workflow"]["steps"],
+            [
+                "generate_scopecat_ids_from_legacy_facts",
+                "record_legacy_run",
+            ],
+        )
+
+    def test_attach_failure_does_not_continue_into_reference_or_read_steps(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            content_root.mkdir()
+            primary_path = content_root / "normalized" / "lv-run-001.csv"
+            _write_csv(primary_path)
+
+            run = record_legacy_measurement(
+                source=_source(),
+                primary_data=ConvertedPrimaryData(path=primary_path, rows_recorded=3),
+                references=_references(),
+                storage_root=storage_root,
+                content_root=content_root,
+            )
+
+            record_dir = storage_root / "records" / "rec-legacy-labview-lv-run-001"
+            self.assertTrue((record_dir / "legacy-run-receipt.json").exists())
+            self.assertFalse((record_dir / "recorded-references").exists())
+
+        payload = run.to_dict()
+        self.assertEqual(run.classification, "legacy_measurement_recording_review_needed")
+        self.assertFalse(run.recorded)
+        self.assertEqual(
+            payload["primary_attach"]["workflow"]["classification"],
+            "blocked_before_legacy_primary_import",
+        )
+        self.assertIsNone(run.recorded_reference)
+        self.assertIsNone(run.read_view)
+        self.assertEqual(
+            payload["workflow"]["steps"],
+            [
+                "generate_scopecat_ids_from_legacy_facts",
+                "record_legacy_run",
+                "attach_converted_primary_data",
+            ],
+        )
 
 
 if __name__ == "__main__":

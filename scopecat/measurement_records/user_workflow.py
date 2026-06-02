@@ -222,8 +222,8 @@ class LegacyMeasurementRecordRun:
     storage_root: Path
     content_root: Path
     legacy_run: LegacyRunRecordRun
-    primary_attach: LegacyPrimaryImportRun
-    read_view: MeasurementRecordReadRun
+    primary_attach: LegacyPrimaryImportRun | None = None
+    read_view: MeasurementRecordReadRun | None = None
     recorded_reference: MeasurementRecordReferenceRun | None = None
 
     @property
@@ -231,7 +231,9 @@ class LegacyMeasurementRecordRun:
         references_ready = self.recorded_reference is None or self.recorded_reference.recorded
         return (
             self.legacy_run.recorded
+            and self.primary_attach is not None
             and self.primary_attach.attached
+            and self.read_view is not None
             and self.read_view.classification == "primary_table_ready"
             and references_ready
         )
@@ -247,13 +249,7 @@ class LegacyMeasurementRecordRun:
             "artifact_posture": "local_legacy_measurement_user_workflow",
             "workflow": {
                 "classification": self.classification,
-                "steps": [
-                    "generate_scopecat_ids_from_legacy_facts",
-                    "record_legacy_run",
-                    "attach_converted_primary_data",
-                    *([] if self.recorded_reference is None else ["record_measurement_references"]),
-                    "read_primary_data_preview",
-                ],
+                "steps": _workflow_steps(self),
                 "does_not_claim": [
                     "final_public_sdk",
                     "legacy_payload_observation",
@@ -269,11 +265,13 @@ class LegacyMeasurementRecordRun:
             "storage_root": str(self.storage_root),
             "content_root": str(self.content_root),
             "legacy_run": self.legacy_run.to_dict(),
-            "primary_attach": self.primary_attach.to_dict(),
+            "primary_attach": None
+            if self.primary_attach is None
+            else self.primary_attach.to_dict(),
             "recorded_reference": (
                 None if self.recorded_reference is None else self.recorded_reference.to_dict()
             ),
-            "read_view": self.read_view.to_dict(),
+            "read_view": None if self.read_view is None else self.read_view.to_dict(),
             "measurement": {
                 "measurement_id": self.generated_ids.measurement_id,
                 "record_id": self.generated_ids.record_id,
@@ -324,11 +322,28 @@ def record_legacy_measurement_from_request(
         _legacy_record_request(request.source, ids),
         storage_root=storage,
     )
+    if not legacy_run.recorded:
+        return LegacyMeasurementRecordRun(
+            request=request,
+            generated_ids=ids,
+            storage_root=storage,
+            content_root=content,
+            legacy_run=legacy_run,
+        )
     primary_attach = attach_converted_primary_data_to_legacy_record_from_request(
         _primary_attach_request(request, ids, content_ref),
         content_root=content,
         storage_root=storage,
     )
+    if not primary_attach.attached:
+        return LegacyMeasurementRecordRun(
+            request=request,
+            generated_ids=ids,
+            storage_root=storage,
+            content_root=content,
+            legacy_run=legacy_run,
+            primary_attach=primary_attach,
+        )
     recorded_reference = None
     if request.references:
         recorded_reference = record_measurement_record_references_from_request(
@@ -355,6 +370,20 @@ def record_legacy_measurement_from_request(
         recorded_reference=recorded_reference,
         read_view=read_view,
     )
+
+
+def _workflow_steps(run: LegacyMeasurementRecordRun) -> list[str]:
+    steps = [
+        "generate_scopecat_ids_from_legacy_facts",
+        "record_legacy_run",
+    ]
+    if run.primary_attach is not None:
+        steps.append("attach_converted_primary_data")
+    if run.recorded_reference is not None:
+        steps.append("record_measurement_references")
+    if run.read_view is not None:
+        steps.append("read_primary_data_preview")
+    return steps
 
 
 def legacy_measurement_slug(source: LegacyMeasurementSource) -> str:

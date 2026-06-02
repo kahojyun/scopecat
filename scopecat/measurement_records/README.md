@@ -205,9 +205,11 @@ id, legacy run id, optional locators, converted primary CSV path, row count,
 and selected references. The workflow derives local Scopecat ids from legacy
 facts so callers do not provide receipt request ids, record ids, reference set
 ids, or read request ids. It is a prototype facade over existing receipts, not
-a final public SDK. It does not observe legacy payloads, parse legacy formats,
-import referenced files, execute code or analysis, persist GUI state, define
-shared id policy, or replace lower-level receipt APIs.
+a final public SDK. If a prerequisite step blocks, the facade returns a
+review-needed run without executing later mutation or read steps. It does not
+observe legacy payloads, parse legacy formats, import referenced files, execute
+code or analysis, persist GUI state, define shared id policy, or replace
+lower-level receipt APIs.
 
 The first storage-inventory slice is implemented through
 `list_measurement_record_storage(...)` and
