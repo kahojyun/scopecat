@@ -6,10 +6,8 @@ Current engineering-prototype implementation owner for Scopecat-authored
 handoff package use and durable Measurement Records handoff import adaptation.
 
 This module is route-local prototype code. It exposes production-shaped Python
-entrypoints over validated handoff discovery evidence without accepting final
-public SDK names, final package format, broad storage import behavior, GUI
-architecture, plotting stack, archive/trust semantics, or a shared
-measurement-record domain model.
+entrypoints over validated handoff discovery evidence. Boundary details live in
+the prototype-boundary notes linked below.
 
 For workflow and implementation ownership, start from
 [`../../../docs/engineering/workflow-validation-map.md`](../../../docs/engineering/workflow-validation-map.md)
@@ -121,15 +119,7 @@ for `measurement_record_directory_candidate_v0`. It is no longer exported from
 the top-level `scopecat.handoff` API and should not be extended for durable
 Measurement Records import.
 
-## Active Non-Goals
+## Boundary
 
-This module does not currently own:
-
-- final public SDK names or final package schema;
-- archive extraction, compression, signatures, authenticity, or trust policy;
-- batch import or broad package acceptance workflows;
-- linked-context payload packaging, restore, traversal, or import;
-- existing-record update, final storage schema, or broad conflict policy;
-- GUI components, production plotting, or dataframe/numeric adapters;
-- code/environment restore or runnable execution;
-- shared measurement-record, package, or cross-route domain model.
+This README owns live API orientation. Detailed scope limits live in the
+prototype-boundary notes linked above.

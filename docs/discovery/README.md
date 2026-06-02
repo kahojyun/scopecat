@@ -31,14 +31,19 @@ the default owner for engineering-prototype expansion.
 | [`../engineering/delivery-maturity-model.md`](../engineering/delivery-maturity-model.md) | Classify workflow and capability maturity before promoting code; treat candidates, spikes, prototypes, and scenarios as validation methods. |
 | [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md) | Start from user workflow threads, validated steps, and missing seams before selecting the next prototype or vertical slice. |
 | [`routes/README.md`](routes/README.md) | Navigate discovery route owners, route decisions, and historical adoption-route evidence by durable user workflow. |
-| [`../engineering/implementation-register.md`](../engineering/implementation-register.md) | Current live implementation owners; the old promotion coordination map is archived at [`archive/prototype-promotion-map.md`](archive/prototype-promotion-map.md). |
+| [`../engineering/implementation-register.md`](../engineering/implementation-register.md) | Current live implementation owners. |
 | [`policies/README.md`](policies/README.md) | Navigate repeated boundary vocabulary, artifact classification, and product strategy documents. |
 | [`problem-briefs/README.md`](problem-briefs/README.md) | Start from evidence-backed problem framing before choosing a validation question. |
-| [`slices/README.md`](slices/README.md) | Use discovery slice results as evidence; the old flat inventory is archived at [`archive/slice-inventory.md`](archive/slice-inventory.md). |
+| [`slices/README.md`](slices/README.md) | Use discovery slice results as evidence. |
 | [`synthesis/cross-slice.md`](synthesis/cross-slice.md) | See recurring candidate concepts, stable separations, and cross-route design pressure. |
 | [`synthesis/shared-model-extraction-deferral.md`](synthesis/shared-model-extraction-deferral.md) | Understand why shared domain models are intentionally deferred. |
 | [`synthesis/measurement-context-backlog.md`](synthesis/measurement-context-backlog.md) | Shared discovery backlog for context records attached to or selected for measurements, without accepting a shared schema. |
-| [`archive/README.md`](archive/README.md) | Find historical inventories, retired route synthesis, and frozen coordination maps after their active ownership moves elsewhere. |
+
+## Historical Reference
+
+Use [`archive/README.md`](archive/README.md) only when an active discovery owner
+points to historical inventories, retired route synthesis, or frozen
+coordination maps.
 
 ## Validation Slices
 
@@ -46,10 +51,10 @@ Validation slices are grouped by discovery route. A route can contain several
 slices at different maturity levels; a slice should stay narrow even when it
 tests part of a broader workflow or adoption path.
 
-The old flat slice inventory is archived at
-[`archive/slice-inventory.md`](archive/slice-inventory.md). Keep this README
-focused on navigation and use route indexes or route consolidation docs for
-discovery-specific sequencing.
+Keep this README focused on navigation and use route indexes or route
+consolidation docs for discovery-specific sequencing. The old flat slice
+inventory remains in [`archive/slice-inventory.md`](archive/slice-inventory.md)
+for historical reference.
 
 Future slice candidates should each answer one primary validation question. Do
 not combine import/export, storage, GUI, execution, redaction, write-back,

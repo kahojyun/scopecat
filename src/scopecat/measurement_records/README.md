@@ -99,9 +99,10 @@ persist GUI state, or become public product CLI contracts.
 
 ## Tests And Fixtures
 
-Module behavior is covered by repository `unittest` tests under `tests/` and
-small repository-safe fixtures under `tests/fixtures/measurement_*`,
-`tests/fixtures/*legacy*`, and related scenario fixtures. Run the repository
+Module behavior is covered by prototype tests under
+[`../../../tests/prototypes/measurement_records/`](../../../tests/prototypes/measurement_records/)
+and selected repository-safe fixture families under
+[`../../../tests/fixtures/`](../../../tests/fixtures/). Run the repository
 checks with:
 
 ```sh
@@ -110,18 +111,7 @@ uv run ruff check .
 uv run ruff format --check .
 ```
 
-## Active Non-Goals
+## Boundary
 
-This module does not currently own:
-
-- final storage schema or public SDK shape;
-- record-id generation policy;
-- existing-record merge import or manifest replacement;
-- conflict resolution beyond accepted no-overwrite and explicit append paths;
-- stale-lock cleanup, strong crash recovery, or concurrent storage mutation;
-- legacy file observation, legacy parsing, adapter discovery, or legacy code
-  execution;
-- scientific validity decisions;
-- portable handoff package export from stored Measurement Records;
-- GUI state persistence or production UI ownership;
-- shared measurement-record, run-context, or cross-route domain model.
+This README owns live API orientation. Detailed scope limits live in the
+prototype-boundary notes linked above.

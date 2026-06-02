@@ -28,7 +28,7 @@ A route is different from a validation slice:
 | --- | --- |
 | [`../../evidence/evidence-register.md`](../../evidence/evidence-register.md) | Stable evidence claims and source coverage. |
 | [`problem-briefs/README.md`](../problem-briefs/README.md) | Evidence-backed user-facing failure cases. |
-| [`README.md#validation-slices`](../README.md#validation-slices) | Current validation slices grouped under these routes. |
+| [`README.md#validation-slices`](../README.md#validation-slices) | Discovery validation slices historically grouped under these routes. |
 | [`../synthesis/cross-slice.md`](../synthesis/cross-slice.md) | Recurring candidate concepts across validated slices. |
 | [`../synthesis/measurement-context-backlog.md`](../synthesis/measurement-context-backlog.md) | Shared discovery backlog for context-shaped validation work across routes. |
 | [`../synthesis/shared-model-extraction-deferral.md`](../synthesis/shared-model-extraction-deferral.md) | Why shared domain models are still deferred. |
@@ -47,7 +47,7 @@ workflow commitment, or cross a materially different authority boundary.
 
 ## Historical Discovery Adoption Evidence
 
-| Historical route | Durable object | Discovery pressure | Evidence-backed behavior change | Current owner / read next |
+| Historical route | Durable object | Discovery pressure | Evidence-backed behavior change | Historical evidence / current owner |
 | --- | --- | --- | --- | --- |
 | Use measurement records for selection, inspection, handoff, and traceability | Measurement record and linked context. | Data Vault-style IDs, session paths, primary data, partial rows, companion artifacts, selected IDs, handoff packages, local paths, derived arrays, figures, fits, reports, and missing-context warnings. | Users treat measurement records as the anchor for source data, recorded context, selection, preview, export/import, running inspection, and later analysis traceability instead of reconstructing folders and notebooks manually. | [`measurement-records/README.md`](measurement-records/README.md), [`../problem-briefs/selected-run-handoff.md`](../problem-briefs/selected-run-handoff.md), [`../problem-briefs/measurement-record-boundary.md`](../problem-briefs/measurement-record-boundary.md), [`../problem-briefs/running-measurement-inspection.md`](../problem-briefs/running-measurement-inspection.md). |
 | Manage parameter state and reviewed writes | Parameter state lineage, reviewed import, storage read/write, and reviewable change. | Active parameter files, run-adjacent snapshots, copied seeds, dated variants, bad states, trust/readiness gaps, direct JSON/XLSX-derived values, reset/diff pressure, and run-preparation links. | Users recover, compare, import through adapters, commit, store, read, and review calibrated parameter states without treating mutable files as the only authority or letting Scopecat silently decide hardware mutation. | [`parameter-state/README.md`](parameter-state/README.md), [`../../engineering/prototype-boundaries/parameter-state.md`](../../engineering/prototype-boundaries/parameter-state.md), [`../problem-briefs/parameter-state-management.md`](../problem-briefs/parameter-state-management.md). |

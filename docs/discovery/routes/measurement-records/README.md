@@ -4,13 +4,16 @@
 
 Discovery route index.
 
-Decision status: no decision.
+Route index; this document makes no decision.
 
 This document keeps Measurement Records discovery evidence, route decisions,
 deferred questions, and reopen triggers in one place so
 [`README.md`](../../README.md) can stay a short entrypoint. It does not replace
 validation result documents, route decision consolidations, cross-slice
 synthesis, or live engineering owners.
+
+Linked decision documents own accepted choices. This route index only points to
+them and preserves discovery context.
 
 ## Read First
 
@@ -39,7 +42,7 @@ useful historical context:
 | [`archive/measurement-records-handoff-route/decision.md`](../../archive/measurement-records-handoff-route/decision.md) | Retired handoff route decision closeout; preserved for historical deferrals, reopen triggers, and stop-rule context. |
 | [`archive/measurement-records-handoff-route/contract-checklist.md`](../../archive/measurement-records-handoff-route/contract-checklist.md) | Historical route-local field categories and review checks for handoff package discovery slices. |
 
-## Route Posture
+## Route Status
 
 This route index records discovery status around recorded experiment data:
 selection, export, import, handoff package use, storage writing, source

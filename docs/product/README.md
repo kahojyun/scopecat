@@ -21,4 +21,4 @@ grouping.
 | --- | --- |
 | [`direction.md`](direction.md) | Product direction, default ownership assumptions, expansion strategy, and non-goals. |
 | [`adoption-model.md`](adoption-model.md) | Brownfield adoption paths, migration boundaries, and supporting capabilities. |
-| [`capability-map.md`](capability-map.md) | Product capabilities, maturity, evidence owners, and open advancement questions. |
+| [`capability-map.md`](capability-map.md) | Product capabilities, maturity, evidence state, implementation owner, boundary/evidence docs, and open advancement questions. |

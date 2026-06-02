@@ -89,19 +89,14 @@ need a separate artifact boundary and redaction decision.
 
 ## Tests And Fixtures
 
-Module behavior is covered by repository `unittest` tests under `tests/` and
-small repository-safe fixtures under `tests/fixtures/*environment*` and
-`tests/fixtures/prototypes/environment_operation/`.
+Module behavior is covered by prototype tests under
+[`../../../tests/prototypes/environment_operation/`](../../../tests/prototypes/environment_operation/).
+Repository-safe fixtures live under
+[`../../../tests/fixtures/prototypes/environment_operation/`](../../../tests/fixtures/prototypes/environment_operation/)
+and related environment fixture families under
+[`../../../tests/fixtures/`](../../../tests/fixtures/).
 
-## Active Non-Goals
+## Boundary
 
-This module does not currently own:
-
-- final manager abstraction or multi-manager behavior;
-- parsing `pyproject.toml`, parsing `uv.lock`, interpreting dependency output,
-  or verifying installed package state;
-- runtime-readiness decisions or run permission;
-- selected experiment-code import, notebook execution, or managed runner
-  behavior;
-- hardware readiness, hardware probing, or service operation;
-- GUI architecture or production UI workflow.
+This README owns live API orientation. Detailed scope limits live in the
+prototype-boundary note linked above.

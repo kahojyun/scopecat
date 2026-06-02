@@ -87,7 +87,7 @@ prototype boundary, update or reference:
 - [`../product/capability-map.md`](../product/capability-map.md), to name the
   product capability, maturity, evidence, and advancement question;
 - [`implementation-register.md`](implementation-register.md), to name the live
-  module, entrypoint, tests, fixtures, and artifact boundary;
+  implementation owner and route readers to detailed module and boundary docs;
 - the owning module README or prototype-boundary note, to define the accepted
   boundary and live API.
 
@@ -118,7 +118,7 @@ Production vertical slices must define:
   portable/export/package artifacts when the slice creates or changes them;
 - the regression tests or scenario tests that prove the accepted workflow.
 
-Artifact posture labels are required when repository safety, portability,
+Artifact-boundary labels are required when repository safety, portability,
 publicness, or redaction behavior affects implementation or review. Ordinary
 internal governance, architecture, and route-navigation documents usually do
 not need those labels.

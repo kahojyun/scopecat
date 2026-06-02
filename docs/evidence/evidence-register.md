@@ -11,7 +11,7 @@ or engineering boundary decisions.
 ## Purpose
 
 Keep the durable evidence base small enough to trust. Each row records a claim,
-its evidence posture, source coverage, and the workflow pressure it can inform.
+its evidence class, source coverage, and the workflow pressure it can inform.
 
 Use neighboring documents for other layers:
 
@@ -26,12 +26,15 @@ Use neighboring documents for other layers:
 
 Current evidence comes from:
 
-- predecessor measurement-system lessons and extracted data-shape notes;
-- the workflow improvement case under `~/x/sample/_research`;
+- predecessor measurement-system lessons and extracted data-shape notes:
+  [`research/extracted/predecessor-measurement-lessons.md`](research/extracted/predecessor-measurement-lessons.md);
+- workflow improvement case extraction:
+  [`research/extracted/lab-workflow-pressure-check.md`](research/extracted/lab-workflow-pressure-check.md);
 - current-owner clarification about lab workflow, primary adoption context,
   adoption risk, and long-term ambition;
 - prompt-method blind role-play and capability-gap checks;
-- external framework references for baseline comparison;
+- external framework references for baseline comparison:
+  [`external-baseline.md`](external-baseline.md);
 - historical automation discussion, treated only as low-confidence design
   pressure.
 
