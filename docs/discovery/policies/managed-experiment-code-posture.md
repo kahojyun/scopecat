@@ -9,7 +9,7 @@ management. It does not accept a final storage backend, Git replacement,
 workspace layout, package manager, environment manager, execution service,
 workflow/DAG model, merge model, sync protocol, GUI design, or code registry.
 The durable product direction lives in
-[`product-direction.md`](../../strategy/product-direction.md); this note owns the
+[`product-direction.md`](../../product/direction.md); this note owns the
 slice-specific discovery boundary.
 
 ## Direction

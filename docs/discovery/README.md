@@ -27,10 +27,10 @@ the default owner for engineering-prototype expansion.
 | [`../engineering/project-phase-model.md`](../engineering/project-phase-model.md) | Classify whether work is discovery, candidate, engineering prototype, production vertical slice, or supported workflow before promoting code. |
 | [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md) | Start from user workflow threads, validated steps, and missing seams before selecting the next prototype or vertical slice. |
 | [`routes/README.md`](routes/README.md) | Navigate discovery route owners, route decisions, and adoption routes by durable user workflow. |
-| [`routes/prototype-promotion-map.md`](routes/prototype-promotion-map.md) | Coordinate route-by-route discovery-to-engineering prototype promotion status. |
+| [`../engineering/vertical-slice-register.md`](../engineering/vertical-slice-register.md) | Current accepted implementation slice ownership; the old promotion coordination map is archived at [`archive/prototype-promotion-map.md`](archive/prototype-promotion-map.md). |
 | [`policies/README.md`](policies/README.md) | Navigate repeated boundary vocabulary and product posture documents. |
 | [`problem-briefs/README.md`](problem-briefs/README.md) | Start from evidence-backed problem framing before choosing a validation question. |
-| [`slices/README.md`](slices/README.md) | Browse the current discovery slice inventory by route and maturity. |
+| [`slices/README.md`](slices/README.md) | Use discovery slice results as evidence; the old flat inventory is archived at [`archive/slice-inventory.md`](archive/slice-inventory.md). |
 | [`synthesis/cross-slice.md`](synthesis/cross-slice.md) | See recurring candidate concepts, stable separations, and cross-route design pressure. |
 | [`synthesis/shared-model-extraction-deferral.md`](synthesis/shared-model-extraction-deferral.md) | Understand why shared domain models are intentionally deferred. |
 | [`synthesis/measurement-context-backlog.md`](synthesis/measurement-context-backlog.md) | Shared discovery backlog for context records attached to or selected for measurements, without accepting a shared schema. |
@@ -41,10 +41,10 @@ Validation slices are grouped by adoption route. A route can contain several
 slices at different maturity levels; a slice should stay narrow even when it
 tests part of a broader route.
 
-The detailed slice inventory now lives in
-[`slices/README.md`](slices/README.md). Keep this README focused on navigation
-and use route indexes or route consolidation docs for route-specific
-sequencing.
+The old flat slice inventory is archived at
+[`archive/slice-inventory.md`](archive/slice-inventory.md). Keep this README
+focused on navigation and use route indexes or route consolidation docs for
+discovery-specific sequencing.
 
 Future slice candidates should each answer one primary validation question. Do
 not combine import/export, storage, GUI, execution, redaction, write-back,
@@ -82,7 +82,7 @@ than a duplicate route inventory.
 | Environment operation | [`routes/environment-operation/README.md`](routes/environment-operation/README.md) |
 | Parameter state | Current implementation owners are [`routes/parameter-state/README.md`](routes/parameter-state/README.md), [`engineering-prototype-promotion-decision.md`](../architecture/parameter-state/engineering-prototype-promotion-decision.md), and [`src/scopecat/parameter_state/README.md`](../../src/scopecat/parameter_state/README.md). |
 | Measurement context backlog | [`synthesis/measurement-context-backlog.md`](synthesis/measurement-context-backlog.md) |
-| Setup binding, calibration, selected reference | [`slices/README.md`](slices/README.md) plus the relevant problem brief in [`problem-briefs/`](problem-briefs/) |
+| Setup binding, calibration, selected reference | Relevant route/problem brief plus archived slice evidence in [`archive/slice-inventory.md`](archive/slice-inventory.md) when needed. |
 
 ## Promotion Discipline
 

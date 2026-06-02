@@ -18,7 +18,8 @@ for implementation ownership.
 | Route | Use For |
 | --- | --- |
 | [`adoption-routes.md`](adoption-routes.md) | Compare evidence-backed adoption routes by durable user workflow. |
-| [`prototype-promotion-map.md`](prototype-promotion-map.md) | Coordinate route-by-route discovery-to-engineering prototype promotion status. |
+| [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md) | Current workflow sequencing after discovery evidence moves toward implementation. |
+| [`../../engineering/vertical-slice-register.md`](../../engineering/vertical-slice-register.md) | Current accepted implementation slice ownership. |
 | [`measurement-records/README.md`](measurement-records/README.md) | Measurement records, import/source decisions, storage writing, selected handoff, package use, and source observation. |
 | [`measurement-records/import-source-decision.md`](measurement-records/import-source-decision.md) | Current import/source route decisions, deferred decisions, reopen triggers, and next-slice guidance. |
 | [`measurement-records/legacy-brownfield-adoption-decision.md`](measurement-records/legacy-brownfield-adoption-decision.md) | Current post-run-first legacy adoption route decisions, deferred decisions, reopen triggers, and stop rule. |
@@ -43,6 +44,7 @@ for implementation ownership.
 | Owner | Use For |
 | --- | --- |
 | [`../problem-briefs/README.md`](../problem-briefs/README.md) | Evidence-backed problem framing before choosing a validation question. |
-| [`../slices/README.md`](../slices/README.md) | Current discovery slice inventory by route and maturity. |
+| [`../slices/README.md`](../slices/README.md) | How to use discovery slice results as evidence. |
+| [`../archive/slice-inventory.md`](../archive/slice-inventory.md) | Historical flat discovery slice inventory. |
 | [`../synthesis/measurement-context-backlog.md`](../synthesis/measurement-context-backlog.md) | Shared backlog for measurement-context-shaped validation work across routes. |
 | [`../problem-briefs/setup-binding.md`](../problem-briefs/setup-binding.md) and [`../slices/setup-binding/setup-binding-validation-result.md`](../slices/setup-binding/setup-binding-validation-result.md) | Historical setup-binding evidence. The active narrow route-local owner is [`setup-binding/README.md`](setup-binding/README.md). |

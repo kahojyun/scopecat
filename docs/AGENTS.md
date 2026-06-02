@@ -12,7 +12,7 @@
 - Preserve document-layer boundaries: `docs/evidence/` owns stable evidence
   claims and source posture, `docs/discovery/problem-briefs/` owns current
   problem framing, `docs/discovery/routes/adoption-routes.md` owns route-level
-  adoption paths, and `docs/strategy/product-direction.md` owns product
+  adoption paths, and `docs/product/direction.md` owns product
   direction and long-term boundary posture.
 - Keep cross-references purposeful: use them for entry points, owner
   boundaries, required dependencies, or source evidence. Avoid repeated

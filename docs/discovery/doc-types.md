@@ -19,7 +19,7 @@ type that owns the statement being made.
 | Route decision | [`routes/`](routes/) | Accepted-for-now route decisions, deferred decisions, reopen triggers, and stop rules. |
 | Slice plan | [`slices/`](slices/) | Pre-implementation validation intent for one narrow slice. |
 | Slice validation result | [`slices/`](slices/) | What one fixture or implementation candidate earned and explicitly did not earn. |
-| Slice inventory | [`slices/README.md`](slices/README.md) | Current maturity list for validated slices. |
+| Slice evidence entry | [`slices/README.md`](slices/README.md) | How to use validation results as evidence without treating the old inventory as a roadmap. |
 | Synthesis | [`synthesis/`](synthesis/) | Cross-slice recurring concepts, deferrals, and comparison pressure. |
 
 ## Ownership Rules

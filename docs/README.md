@@ -11,7 +11,7 @@ flat navigation map when you already know which owner you need.
 
 For product and implementation direction:
 
-1. [`strategy/product-direction.md`](strategy/product-direction.md) for product
+1. [`product/direction.md`](product/direction.md) for product
    posture, long-term boundaries, and non-goals.
 2. [`engineering/README.md`](engineering/README.md) for phase, workflow, and
    vertical-slice governance.
@@ -48,10 +48,10 @@ Keep durable statements in the narrowest owner:
 - architecture notes: [`architecture/README.md`](architecture/README.md)
 - problem framing: [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md)
 - adoption routes: [`discovery/routes/adoption-routes.md`](discovery/routes/adoption-routes.md)
-- discovery slices: [`discovery/slices/README.md`](discovery/slices/README.md)
+- discovery slice evidence: [`discovery/slices/README.md`](discovery/slices/README.md)
 - cross-slice synthesis: [`discovery/synthesis/cross-slice.md`](discovery/synthesis/cross-slice.md)
 - discovery deferrals: [`discovery/synthesis/shared-model-extraction-deferral.md`](discovery/synthesis/shared-model-extraction-deferral.md)
-- product direction: [`strategy/product-direction.md`](strategy/product-direction.md)
+- product direction: [`product/direction.md`](product/direction.md)
 - research inputs: [`evidence/research/README.md`](evidence/research/README.md)
 
 Create validation, decision, architecture, engineering governance, or user docs

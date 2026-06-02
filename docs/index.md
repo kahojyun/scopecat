@@ -9,7 +9,7 @@ the recommended top-down reading path.
 
 ```text
 docs/
-  strategy/   product direction and boundaries
+  product/   product direction and boundaries
   engineering/ project phase model, workflow validation map, slice register
   architecture/ engineering-boundary notes after discovery promotion
   discovery/  problem briefs, policies, routes, validation slices, synthesis
@@ -20,7 +20,7 @@ docs/
 | --- | --- |
 | [`README.md`](README.md) | Documentation purpose and editing rules. |
 | [`AGENTS.md`](AGENTS.md) | AI-session rules for work inside `docs/`. |
-| [`strategy/product-direction.md`](strategy/product-direction.md) | Current product direction, default ownership boundaries, and non-goals. |
+| [`product/direction.md`](product/direction.md) | Current product direction, default ownership boundaries, and non-goals. |
 | [`engineering/README.md`](engineering/README.md) | Engineering governance navigation for phase, workflow, and vertical slice rules. |
 | [`engineering/project-phase-model.md`](engineering/project-phase-model.md) | Phase responsibilities, promotion rules, code/test/fixture ownership, and drift control. |
 | [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md) | User workflow threads, validated steps, missing seams, and next validation questions. |
@@ -29,7 +29,7 @@ docs/
 | [`discovery/README.md`](discovery/README.md) | Discovery navigation for problem briefs, validation slices, synthesis, and deferrals. |
 | [`discovery/doc-types.md`](discovery/doc-types.md) | Discovery document type responsibilities and ownership rules. |
 | [`discovery/routes/adoption-routes.md`](discovery/routes/adoption-routes.md) | Evidence-backed adoption routes grouped by durable user workflow. |
-| [`discovery/slices/README.md`](discovery/slices/README.md) | Current discovery slice inventory. |
+| [`discovery/slices/README.md`](discovery/slices/README.md) | Discovery slice evidence entry and archived inventory pointer. |
 | [`discovery/synthesis/cross-slice.md`](discovery/synthesis/cross-slice.md) | Current synthesis across validated discovery slices. |
 | [`discovery/synthesis/shared-model-extraction-deferral.md`](discovery/synthesis/shared-model-extraction-deferral.md) | Current deferral of shared domain model extraction. |
 | [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md) | Evidence-backed problem briefs. |

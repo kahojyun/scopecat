@@ -12,7 +12,7 @@ too narrow for real lab work. Durable claims belong in:
 - [`../../evidence-register.md`](../../evidence-register.md)
 - [`../../../discovery/problem-briefs/`](../../../discovery/problem-briefs)
 - [`../../../discovery/routes/adoption-routes.md`](../../../discovery/routes/adoption-routes.md)
-- [`../../../strategy/product-direction.md`](../../../strategy/product-direction.md)
+- [`../../../product/direction.md`](../../../product/direction.md)
 
 Do not infer product scope directly from this note.
 
