@@ -10,13 +10,16 @@ live API syntax in
 [`../../../src/scopecat/handoff/README.md`](../../../src/scopecat/handoff/README.md)
 and leave the prototype plan/readiness notes as frozen snapshots.
 
-The candidate storage acceptance, acceptance-preflight, and import-workflow
-sections below are historical engineering checkpoints for the older
-`measurement_record_directory_candidate_v0` route. They remain evidence for
-review order, approval, local receipts, and rollback pressure, but they are no
-longer the active durable Measurement Records handoff import path. Current
-durable import ownership lives in
-[`handoff-durable-import-storage.md`](handoff-durable-import-storage.md).
+Historical candidate-storage checkpoints for the older
+`measurement_record_directory_candidate_v0` route remain evidence for review
+order, approval, local receipts, and rollback pressure, but they are no longer
+the active durable Measurement Records handoff import path. Current durable
+import ownership lives in
+[`handoff-durable-import-storage.md`](handoff-durable-import-storage.md);
+historical details live in
+[`handoff-candidate-storage-acceptance.md`](../archive/handoff-candidate-storage-acceptance.md)
+and
+[`handoff-storage-import-requirements-synthesis.md`](../archive/handoff-storage-import-requirements-synthesis.md).
 
 ## Decision
 
@@ -130,145 +133,30 @@ promote storage mutation, package acceptance, archive extraction, conflict
 detection, final storage schema, rollback behavior, signatures/authenticity,
 or linked-context payload import.
 
-## Historical Candidate Acceptance Preflight
+## Historical Candidate Context
 
-The older candidate-storage route included `run_acceptance_preflight(...)` as
-the first destination-aware receiving/import check. It consumed a ready
-non-mutating import plan, required an approved preflight request, accepted a
-caller-provided storage root plus declared relative destination paths, and
-observed only those exact paths for `no_overwrite` collision status.
+The older candidate-storage route proved that the read-only receiving path
+could hand off to an explicitly approved candidate storage mutation while
+preserving reviewed package, destination, local receipt, and rollback evidence.
+That path used destination acceptance preflight, candidate storage acceptance,
+and local import-workflow receipts over approve/reject/needs-review operator
+decisions.
 
-The preflight can return `ready_for_acceptance_mutation_request` only when the
-import plan is ready and declared destinations are available under the observed
-storage root. It returns `blocked_by_destination_collision` when a declared
-record directory, primary data path, or manifest path already exists,
-`blocked_by_destination_guardrail` when destination parent shape would block
-the later mutation, and `blocked_before_acceptance_preflight` when the import
-plan itself is not ready.
+Those details are archived because the current durable import path no longer
+writes the candidate layout directly. Durable receiving work now adapts
+reviewed package facts into Measurement Records durable import through
+[`handoff-durable-import-storage.md`](handoff-durable-import-storage.md).
 
-This was still not package acceptance. It did not write records, create
-manifests, choose final storage schema, resolve collisions, define rollback,
-or import linked-context payloads. It only answers whether a later explicit
-mutation request has enough reviewed destination facts to be considered.
-
-The first mutation implementation slice after this preflight is chosen in
-[`handoff-candidate-storage-acceptance.md`](../archive/handoff-candidate-storage-acceptance.md). Keep
-rollback and storage-acceptance implementation scope there rather than
-expanding this promotion snapshot.
-
-## Historical Candidate Storage Acceptance Slice
-
-The older candidate-storage route included `run_storage_acceptance(...)` as
-the first narrow storage mutation after a ready acceptance preflight. The
-owning historical scope is
-[`handoff-candidate-storage-acceptance.md`](../archive/handoff-candidate-storage-acceptance.md).
-
-This did not promote final storage schema, existing-record update,
-conflict resolution, crash recovery, archive trust, or linked-context payload
-import.
-
-This slice was implemented and covered as the first mutation checkpoint. It
-proves the read-only receiving path can hand off to one explicitly approved
-candidate storage write while preserving reviewed package, preflight, and
-destination facts across the mutation boundary. It also proves blocked
-preflight rejection, destination/root mismatch rejection, no-overwrite file
-creation, and best-effort synchronous rollback. Mutation details and rollback
-scope are owned by the storage-acceptance decision.
-
-This checkpoint should not be broadened for durable import. The current durable
-handoff import path adapts reviewed package facts into the Measurement Records
-durable import pipeline instead.
-
-## Historical Candidate Storage Decision Gate
-
-Do not continue by expanding handoff surface area in place. The accepted
-implementation boundary at this checkpoint had one complete candidate
-receiving/import mutation chain:
+The local CLI still supports read-only package orientation and receipt-summary
+review:
 
 ```text
-read-only package open
-  -> integrity observation
-  -> approved receiving gate
-  -> non-mutating import plan
-  -> destination acceptance preflight
-  -> approved candidate storage acceptance
+python -m scopecat.handoff <package-dir>
+python -m scopecat.handoff --receipt-summary <receipt.json>
 ```
 
-The next engineering phase needed to choose one explicit path:
-
-- import workflow hardening: define acceptance/rejection UX, review-state
-  persistence, and operator-facing error recovery around the existing candidate
-  mutation without broadening storage shape;
-- storage/archive requirements synthesis: compare the needs from source-root
-  package writing, legacy import, existing-record update, source observation,
-  package receiving, and running inspection before accepting a storage or
-  archive format. The historical synthesis is recorded in
-  [`handoff-storage-import-requirements-synthesis.md`](../archive/handoff-storage-import-requirements-synthesis.md);
-- durable import/storage decision: define the storage API boundary before
-  writing beyond the candidate layout. That path is now owned by
-  [`handoff-durable-import-storage.md`](handoff-durable-import-storage.md).
-
-The candidate workflow was enough to validate local writer/reader/review
-ergonomics plus a first explicitly approved candidate storage mutation. It was
-not evidence by itself for final storage schema, broad import workflow,
-existing-record update, archive format, signatures, authenticity, or
-adversarial package trust policy.
-
-## Historical Candidate Import Workflow Hardening Slice
-
-The older candidate-storage route included `run_import_workflow(...)` as a
-local operator-facing receipt over the candidate receiving/import chain:
-
-```text
-acceptance preflight
-  -> explicit operator decision
-  -> optional approved candidate storage acceptance
-  -> local workflow receipt
-```
-
-This slice hardened the candidate workflow without broadening storage
-authority. It recorded approved, rejected, and needs-review operator decisions;
-surfaced destination collision, destination guardrail, preflight block, storage
-block, and rollback states; and called the existing storage-acceptance mutation
-only when the operator decision was approved.
-Rejected and needs-review decisions carry a required single-line
-`operator_reason` as local review state. That reason is operator-facing context
-for continuing or abandoning the receiving workflow; it is not a package
-member, candidate storage manifest field, portable/export artifact, public SDK
-contract, or runtime redaction surface.
-The typed request path represented those mutually exclusive choices with
-`HandoffApprovedImportDecision`, `HandoffRejectedImportDecision`, and
-`HandoffNeedsReviewImportDecision` instead of a string plus unrelated optional
-fields. The raw dictionary adapter keeps the serialized
-`operator_decision`/`operator_reason` shape at the public edge and still
-validates untrusted input. The route also exposed small decision-helper
-functions, `approve_import(...)`, `reject_import(...)`, and
-`mark_import_needs_review(...)`, as ergonomic shorthand over those typed
-decision objects; they do not change workflow or receipt serialization.
-The companion `summarize_import_workflow_receipt(...)` helper validated a
-local workflow receipt and extracts the package id, measurement ids, final
-state, next action, and operator reason for operator continuation. It is
-read-only: it does not authorize retry, reuse prior preflight facts, reopen
-packages, recheck destinations, persist durable review state, or perform
-storage mutation.
-The route also included `review_import_workflow_retry(...)` as a read-only
-continuation check over a prior local receipt summary and a caller-provided
-fresh acceptance preflight. It can report whether the fresh preflight is ready
-for a retry request, but it does not prove destination freshness by itself,
-authorize storage acceptance, reuse prior preflight or storage-acceptance
-receipts, persist durable review state, or perform mutation.
-The local CLI retains read-only receipt summary support for historical
-candidate receipts: the existing
-`python -m scopecat.handoff <package-dir>` package-orientation command remains
-read-only, and `python -m scopecat.handoff --receipt-summary <receipt.json>`
-summarizes local receipts for continuation review. This CLI does not run
-package import, approve storage acceptance or durable import, persist review
-state, or become a public import API.
-
-It does not add final storage schema, conflict resolution, durable review-state
-persistence, existing-record update, stronger crash recovery, archive trust,
-signatures/authenticity, linked-context payload import, GUI ownership, or a
-public import API. Those remain separate reopen triggers.
+The CLI does not run package import, approve storage acceptance or durable
+import, persist review state, or become a public import API.
 
 ## Accepted Baseline
 
@@ -290,12 +178,6 @@ The promoted local package-use baseline includes:
 - linked context as visible reference-only review state;
 - local static HTML as the first review artifact;
 - non-mutating import planning after a ready receiving gate;
-- historical direct-module candidate acceptance preflight over exact declared
-  no-overwrite paths;
-- historical direct-module candidate storage acceptance mutation with
-  best-effort synchronous rollback;
-- historical direct-module local import workflow receipt over explicit
-  approve/reject/needs-review operator decisions;
 - read-only local receipt summaries for operator continuation;
 - read-only retry review for both historical candidate receipts and current
   durable handoff-import receipts;
