@@ -46,10 +46,10 @@ accepted demand without later validation. External framework coverage is a
 baseline for what a lab tool may reasonably expect, not proof of Scopecat
 product scope.
 
-Specific source details are intentionally routed through the research index,
-extracted notes, problem briefs, and validation-result documents. This register
-keeps stable claims and source families rather than duplicating every source
-anchor.
+Specific source details are intentionally routed through the
+[`research index`](research/research-index.md), extracted notes, problem
+briefs, and validation-result documents. This register keeps stable claims and
+source families rather than duplicating every source anchor.
 
 ## Use Rules
 

@@ -33,7 +33,7 @@ portable/export artifact-boundary behavior for that package.
 
 | ID | Task | Workflow | Capabilities | Evidence / Owner Links |
 | --- | --- | --- | --- | --- |
-| `VT-001` | Validate selected stored Measurement Record to single-measurement handoff package export. | Legacy measurement portable handoff. | Measurement Records, Handoff Packages. | [`../product/capability-map.md`](../product/capability-map.md), [`implementation-register.md`](implementation-register.md), [`prototype-boundaries/measurement-records-creation-lifecycle.md`](prototype-boundaries/measurement-records-creation-lifecycle.md), [`prototype-boundaries/handoff.md`](prototype-boundaries/handoff.md) |
+| `VT-001` | Validate selected stored Measurement Record to single-measurement handoff package export. | Legacy measurement portable handoff. | Measurement Records, Handoff Packages. | [`../product/capability-map.md`](../product/capability-map.md), [`implementation-register.md`](implementation-register.md), [`prototype-boundaries/measurement-records-creation-lifecycle.md`](prototype-boundaries/measurement-records-creation-lifecycle.md), [`prototype-boundaries/measurement-records-legacy-run-storage.md`](prototype-boundaries/measurement-records-legacy-run-storage.md), [`prototype-boundaries/handoff.md`](prototype-boundaries/handoff.md) |
 
 Keep this section short. Add a task only when it is the current or next
 validation target; use the workflow table below for broader background.

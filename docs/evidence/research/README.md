@@ -18,8 +18,8 @@ smallest owning document outside `research/`.
 - Raw notes may be messy, partial, and contradictory.
 - Extracted notes should summarize reusable claims and separate facts from
   interpretation.
-- Future sessions should read `research-index.md` and extracted notes before
-  raw notes.
+- Future sessions should read [`research-index.md`](research-index.md) and
+  extracted notes before raw notes.
 - Use normal Markdown links and indexes; do not rely on editor-specific
   backlink systems.
 - Do not store sensitive identity details or unredacted private material unless

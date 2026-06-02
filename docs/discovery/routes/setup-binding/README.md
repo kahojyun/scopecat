@@ -32,8 +32,9 @@ validity, start runs, or define a shared input-snapshot schema.
 
 ## Reopen Triggers
 
-Update this route and the promotion map when a branch changes any of these
-boundaries:
+Update the active workflow map, capability map, implementation register,
+prototype-boundary note, and module README when a branch promotes or changes
+any of these boundaries:
 
 - setup-binding storage/read behavior;
 - station-registry schema, station management, or connection payload handling;

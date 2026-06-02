@@ -15,6 +15,8 @@ flat navigation map when you already know which owner you need.
   [`product/adoption-model.md`](product/adoption-model.md)
 - Current product capabilities, maturity, evidence, and advancement questions:
   [`product/capability-map.md`](product/capability-map.md)
+- Current maturity vocabulary:
+  [`engineering/delivery-maturity-model.md`](engineering/delivery-maturity-model.md)
 - Current live implementation owners:
   [`engineering/implementation-register.md`](engineering/implementation-register.md)
 - Current route-local prototype boundaries:

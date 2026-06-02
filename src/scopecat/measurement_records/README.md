@@ -70,12 +70,13 @@ Measurement Records storage is caller-rooted local storage. Current accepted
 record-local artifacts include:
 
 - `record-manifest.json` as the immutable creation shell and origin identity;
-- local receipts for creation, writer integration, finalization, import,
-  legacy-run recording, references, updates, and review continuation;
+- record-local receipts for creation, writer integration, finalization, import,
+  legacy-run recording, references, and updates;
 - primary CSV bytes written through approved writer/import paths;
 - derived `record-read-model.json` as a replaceable local convenience
   projection, not canonical storage authority;
-- local review HTML written outside the storage root.
+- local review HTML and operator-review continuation receipts written outside
+  durable record storage authority.
 
 Runtime redaction is required only at declared or effective portable/export
 boundaries. Ordinary local storage, local receipts, and local review surfaces

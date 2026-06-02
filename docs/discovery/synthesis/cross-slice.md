@@ -21,8 +21,10 @@ recurring-concepts table below uses route and slice shorthand only.
 
 | Owner | Use For |
 | --- | --- |
-| [`../slices/README.md`](../slices/README.md) | Current slice inventory and maturity by route. |
+| [`../slices/README.md`](../slices/README.md) | Validation-result evidence usage by route; current maturity belongs in product and engineering owner docs. |
 | [`../routes/README.md`](../routes/README.md) | Route owners and route-specific sequencing. |
+| [`../../product/capability-map.md`](../../product/capability-map.md) | Current product capability maturity. |
+| [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md) | Current workflow state, gaps, and validation tasks. |
 | [`../routes/measurement-records/README.md`](../routes/measurement-records/README.md) | Measurement-record import, export, storage, source observation, handoff, and shape pressure. |
 | [`../archive/measurement-records-handoff-route/README.md`](../archive/measurement-records-handoff-route/README.md) | Retired handoff package route map, artifact boundary, stable route concepts, and historical next-work context. |
 | [`../archive/measurement-records-handoff-route/decision.md`](../archive/measurement-records-handoff-route/decision.md) | Retired handoff route decision closeout, historical deferrals, reopen triggers, and stop rule. |

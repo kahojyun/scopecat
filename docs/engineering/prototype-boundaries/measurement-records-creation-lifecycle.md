@@ -7,7 +7,8 @@ Accepted engineering-prototype boundary.
 This file owns the current durable Measurement Records prototype boundary. The
 filename is historical: the first accepted slice was record creation, but the
 live boundary now includes the route-local storage, read, update, import,
-reference, and local-review surfaces listed below. Keep exact API syntax in
+reference, and local-review surfaces listed below. Keep public entrypoint
+orientation in
 [`../../../src/scopecat/measurement_records/README.md`](../../../src/scopecat/measurement_records/README.md).
 
 ## Current Boundary
@@ -33,7 +34,7 @@ Accepted surface groups:
 | Running inspection | Reads caller-declared in-progress data and update receipts for local progress review without persisting GUI state. |
 | Recorded references | Writes record-local receipts for user-declared context references while leaving referenced payloads outside Measurement Records ownership. |
 | Operator review | Composes cataloged read models, recorded references, and optional running inspections into read-only local review summaries. |
-| Local review artifacts and receipts | Writes local static review HTML and operator-review continuation receipts outside durable record storage authority. |
+| Local review artifacts and receipts | Writes local static review HTML and operator-review continuation receipts as caller-rooted review artifacts outside durable record storage authority. |
 
 Legacy-run storage and converted-primary attach are owned separately by
 [`measurement-records-legacy-run-storage.md`](measurement-records-legacy-run-storage.md).
@@ -46,15 +47,16 @@ Measurement Records storage is local, caller-rooted durable storage. Current
 record-local artifacts are:
 
 - `record-manifest.json` as the immutable creation shell and origin identity;
-- local receipts for creation, writer integration, finalization, import,
-  legacy-run recording, references, updates, and review continuation;
+- record-local receipts for creation, writer integration, finalization, import,
+  legacy-run recording, references, and updates;
 - primary CSV bytes written through approved writer/import paths;
 - derived `record-read-model.json` as a replaceable local convenience
   projection, not canonical storage authority.
 
-Local review HTML and operator-review continuation receipts are local review
-artifacts. They do not become portable/export artifacts unless a later workflow
-explicitly promotes that boundary.
+Local review HTML and operator-review continuation receipts are caller-rooted
+local review artifacts, not record-local mutation authority. They do not become
+portable/export artifacts unless a later workflow explicitly promotes that
+boundary.
 
 ## Storage Authority
 
@@ -66,8 +68,8 @@ Current authority model:
   compaction;
 - read-model projection and refresh own derived read models, not canonical
   manifest replacement;
-- review operations own local projections, review artifacts, and continuation
-  receipts, not record mutation authority.
+- review operations own local projections and caller-rooted review artifacts,
+  not record mutation authority.
 
 The prototype keeps manifest replacement, existing-record merge import, broad
 conflict resolution, stale-lock cleanup, crash recovery, and concurrent storage

@@ -18,7 +18,7 @@ public/export documentation or define a generated artifact boundary.
 
 ## Rule
 
-Discovery work uses three artifact classifications:
+Discovery work uses three top-level artifact boundary classifications:
 
 - **local/review surface**: a Scopecat UI, review summary, local receipt, or
   discovery summary meant for the local user, developer, or reviewer;
@@ -51,6 +51,10 @@ redaction out of scope unless the slice explicitly accepts a redaction policy
 surface.
 
 ## Artifact Classes
+
+The detailed classes below preserve the same top-level model. `Internal
+validation output` is a repository-safe/internal validation subcase, not a
+fourth portable or review boundary.
 
 | Class | Meaning | Redaction responsibility |
 | --- | --- | --- |
