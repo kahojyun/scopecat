@@ -133,6 +133,13 @@ promote storage mutation, package acceptance, archive extraction, conflict
 detection, final storage schema, rollback behavior, signatures/authenticity,
 or linked-context payload import.
 
+The current durable import implementation is a separate accepted boundary:
+[`handoff-durable-import-storage.md`](handoff-durable-import-storage.md).
+That path adapts exactly one ready import-plan measurement into the
+Measurement Records durable import pipeline. Keep destination storage mutation,
+new-record import receipts, rollback classification, and retry review in that
+durable-import boundary rather than expanding this read-only package-use note.
+
 ## Historical Candidate Context
 
 The older candidate-storage route proved that the read-only receiving path
