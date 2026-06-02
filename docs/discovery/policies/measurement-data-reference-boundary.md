@@ -4,8 +4,6 @@
 
 Discovery boundary note.
 
-Decision status: no decision.
-
 This note clarifies the current Measurement Records distinction between data
 Scopecat can preview and files Scopecat can only reference or observe. It does
 not accept a final storage schema, importer API, adapter API, GUI contract,

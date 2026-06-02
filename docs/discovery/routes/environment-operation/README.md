@@ -4,8 +4,6 @@
 
 Discovery route synthesis.
 
-Decision status: no decision.
-
 This note harvests the current environment-operation validation work into one
 route-level view. It does not accept a final environment schema, shared
 environment-manager interface, general process executor, runtime readiness,

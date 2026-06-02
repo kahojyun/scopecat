@@ -4,8 +4,6 @@
 
 Discovery product strategy note.
 
-Decision status: no decision.
-
 This note records the intended product direction for experiment-code
 management. It does not accept a final storage backend, Git replacement,
 workspace layout, package manager, environment manager, execution service,

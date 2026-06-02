@@ -4,8 +4,6 @@
 
 Discovery policy rule.
 
-Decision status: no decision.
-
 This note defines the artifact surfaces that Scopecat discovery work should
 name when deciding redaction and reference-validation responsibility. It keeps
 local review surfaces useful while making portable/export/package boundaries

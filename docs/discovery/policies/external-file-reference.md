@@ -4,8 +4,6 @@
 
 Discovery policy sketch.
 
-Decision status: no decision.
-
 This note records candidate vocabulary and unresolved policy questions for
 externally referenced files. It does not accept a final storage architecture,
 backup model, checksum contract, file watcher, importer, package format, or

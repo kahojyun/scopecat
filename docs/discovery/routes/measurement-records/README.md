@@ -4,8 +4,6 @@
 
 Discovery route index.
 
-Route index; this document makes no decision.
-
 This document keeps Measurement Records discovery evidence, route decisions,
 deferred questions, and reopen triggers in one place so
 [`README.md`](../../README.md) can stay a short entrypoint. It does not replace
