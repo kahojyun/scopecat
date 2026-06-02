@@ -5,11 +5,15 @@
 Navigation index, not an ADR.
 
 This document lists validated discovery slices and their current maturity.
-Route-specific sequencing belongs in route indexes or route consolidation docs;
+Discovery sequencing belongs in route indexes or route consolidation docs;
 slice-local validation details remain in the linked validation result files.
-When a later architecture decision supersedes a slice for the active route, the
-slice remains listed as historical validation evidence rather than current API
-surface.
+When a later architecture decision or engineering register supersedes a slice
+for the active route, the slice remains listed as historical validation
+evidence rather than current API surface. Active engineering workflow
+sequencing belongs in
+[`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md),
+and accepted implementation ownership belongs in
+[`../../engineering/vertical-slice-register.md`](../../engineering/vertical-slice-register.md).
 
 ## Current Slice Inventory
 

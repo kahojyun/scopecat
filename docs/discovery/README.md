@@ -2,14 +2,22 @@
 
 ## Purpose
 
-Discovery owns current problem framing, adoption routes, validation
-artifacts, implementation-shaped exploration results, synthesis, and explicit
-deferrals.
+Discovery owns problem framing, adoption routes, validation artifacts,
+implementation-shaped exploration results before promotion, synthesis, and
+explicit deferrals.
 
 These documents are not user documentation and are not accepted architecture
 unless a narrower document says so. Use them to decide the next validation or
 implementation slice without promoting slice-local vocabulary into shared
 product contracts too early.
+
+After discovery evidence starts moving into live route-local code, active
+workflow sequencing belongs in
+[`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
+and implementation ownership belongs in
+[`../engineering/vertical-slice-register.md`](../engineering/vertical-slice-register.md).
+Discovery route and slice documents remain evidence and discovery posture, not
+the default owner for engineering-prototype expansion.
 
 ## Read First
 
@@ -18,7 +26,7 @@ product contracts too early.
 | [`doc-types.md`](doc-types.md) | Understand which discovery document type owns navigation, policies, route decisions, slice evidence, or synthesis. |
 | [`../engineering/project-phase-model.md`](../engineering/project-phase-model.md) | Classify whether work is discovery, candidate, engineering prototype, production vertical slice, or supported workflow before promoting code. |
 | [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md) | Start from user workflow threads, validated steps, and missing seams before selecting the next prototype or vertical slice. |
-| [`routes/README.md`](routes/README.md) | Navigate route owners, route decisions, and adoption routes by durable user workflow. |
+| [`routes/README.md`](routes/README.md) | Navigate discovery route owners, route decisions, and adoption routes by durable user workflow. |
 | [`routes/prototype-promotion-map.md`](routes/prototype-promotion-map.md) | Coordinate route-by-route discovery-to-engineering prototype promotion status. |
 | [`policies/README.md`](policies/README.md) | Navigate repeated boundary vocabulary and product posture documents. |
 | [`problem-briefs/README.md`](problem-briefs/README.md) | Start from evidence-backed problem framing before choosing a validation question. |
@@ -60,8 +68,10 @@ plan, using these discovery docs as supporting context.
 
 ## Route Pointers
 
-Use route owners for sequencing and detailed navigation. Keep this README as
-the discovery landing page rather than a duplicate route inventory.
+Use route owners for discovery sequencing and detailed navigation. Use the
+engineering workflow map and vertical slice register once a route has live
+implementation ownership. Keep this README as the discovery landing page rather
+than a duplicate route inventory.
 
 | Area | Owner |
 | --- | --- |

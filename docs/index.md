@@ -2,7 +2,8 @@
 
 ## Purpose
 
-Navigation map for current Scopecat docs.
+Flat navigation map for current Scopecat docs. Use [`README.md`](README.md) for
+the recommended top-down reading path.
 
 ## Map
 
