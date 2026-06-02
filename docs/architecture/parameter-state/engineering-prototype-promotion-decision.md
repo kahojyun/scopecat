@@ -19,8 +19,9 @@ The prototype owns these local review and storage surfaces:
 - explicit adapter manifest/receipt storage read view;
 - source-agnostic adapter/calibration read-view projection;
 - parameter-state selection-context summary;
-- prepared-run source-agnostic parameter-state consumption;
-- prepared-run parameter-state gate, scope alignment, and review-chain
+- parameter-state-local run-preparation consumption over source-agnostic
+  parameter-state facts;
+- parameter-state-local pre-run gate, scope alignment, and review-chain
   composition.
 
 The promoted code keeps the candidate contracts dictionary-shaped and
@@ -50,10 +51,11 @@ adapter-derived and calibration-derived manifest/receipt references, preserves
 typed provenance payloads, and reports checksum or continuity mismatches as
 review findings.
 
-Prepared-run consumption must use prior read-view facts. A clean consumption
-summary can still produce a review-chain `needs_review` classification when
-scope alignment finds partial target coverage; that is a review state, not an
-execution permission.
+Run-preparation consumption must use prior read-view facts. A clean
+consumption summary can still produce a review-chain `needs_review`
+classification when scope alignment finds partial target coverage; that is a
+parameter-state-local review state, not an execution permission or evidence
+that a live prepared-run route owner exists.
 
 Repository fixture and expected-output posture remains
 `internal_validation_summary`. Runtime redaction is not added because these
