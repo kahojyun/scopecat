@@ -2,13 +2,13 @@
 
 ## Status
 
-Discovery route index with an accepted narrow engineering prototype owner.
+Discovery route index; implementation candidate only for review surfaces.
 
 This route groups the validated calibration continuation slices and names the
-current calibration-to-measurement backbone. The narrow review-surface and
-review-action recording boundary is now promoted under
-[`../../../architecture/calibration-continuation/engineering-prototype-promotion-decision.md`](../../../architecture/calibration-continuation/engineering-prototype-promotion-decision.md)
-and [`../../../../scopecat/calibration_continuation/README.md`](../../../../scopecat/calibration_continuation/README.md).
+current calibration-to-measurement backbone. The previous promoted
+review-surface and review-action recording module was withdrawn because it
+mechanically promoted candidate summaries instead of closing a route-native
+workflow step.
 The route still does not accept a final workflow schema, relation graph, GUI,
 runner, scheduler, fitting framework, hardware-control contract, or shared
 measurement/parameter-state model.
@@ -77,7 +77,7 @@ This route still does not earn:
 
 ## Next Useful Work
 
-The current discovery backbone has a narrow local review-surface owner. Prefer
+The current discovery backbone has validated local review-surface candidates. Prefer
 new slices only when they answer a concrete workflow question that changes an
 authority boundary. High-value follow-ups are:
 

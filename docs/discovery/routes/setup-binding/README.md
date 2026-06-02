@@ -2,23 +2,21 @@
 
 ## Status
 
-Promoted narrow engineering prototype.
+Discovery route index; implementation candidate only.
 
-Setup binding now has a route-local live owner for side-effect-free summary
-and review projection:
-
-- [`../../../../scopecat/setup_binding/README.md`](../../../../scopecat/setup_binding/README.md)
-- [`../../../architecture/setup-binding/engineering-prototype-promotion-decision.md`](../../../architecture/setup-binding/engineering-prototype-promotion-decision.md)
+The previous route-local live owner was withdrawn because it mechanically
+promoted summary-shaped candidate behavior instead of a workflow-shaped
+setup-binding boundary.
 
 Artifact posture: `internal_validation_summary`.
 
-This route note coordinates discovery evidence and live engineering posture. It
+This route note coordinates discovery evidence and future engineering posture. It
 is not public documentation, a final station-registry schema, a hardware-control
 contract, or a shared run-context model.
 
-## Promoted Boundary
+## Candidate Boundary
 
-The accepted engineering prototype summarizes explicit setup-binding facts:
+The validated implementation candidate summarizes explicit setup-binding facts:
 
 - redacted station registry context references;
 - setup-binding snapshots for sample/cooldown/session-specific logical-to-
@@ -27,7 +25,7 @@ The accepted engineering prototype summarizes explicit setup-binding facts:
 - measurement run-start input references;
 - simple binding diffs and review attention.
 
-The promoted output is local review data. It does not inspect hardware, execute
+The candidate output is local review data. It does not inspect hardware, execute
 project generator/converter code, interpret opaque inner payloads, write
 parameter state, write setup state, infer wiring ontology, decide parameter
 validity, start runs, or define a shared input-snapshot schema.

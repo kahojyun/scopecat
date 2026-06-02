@@ -139,14 +139,12 @@ roles, include state, and missing or unavailable context findings.
 Boundary: no recursive relation traversal, automatic inclusion of adjacent
 records, shared relation graph, restore, execution, or cause attribution.
 
-First direct result, now promoted as route-local engineering prototype:
+First direct result:
 [`measurement-context-link-validation-result.md`](../slices/measurement-context/measurement-context-link-validation-result.md)
 validates measurement records with zero, resolved, and missing optional
 context links while keeping context reference-only and optional for primary
-measurement-record validity. Live behavior is owned by
-[`../../../scopecat/measurement_context/README.md`](../../../scopecat/measurement_context/README.md)
-and
-[`../../architecture/measurement-context/context-link-construction-decision.md`](../../architecture/measurement-context/context-link-construction-decision.md).
+measurement-record validity. The previous promoted owner was withdrawn; this
+result remains implementation-candidate evidence.
 
 First intent-resolution result:
 [`measurement-intent-resolution-validation-result.md`](../slices/measurement-context/measurement-intent-resolution-validation-result.md)
@@ -155,8 +153,7 @@ context selectors, run-start resolution freezes those selectors to concrete
 context records, and the measurement record keeps only the resolved optional
 context links.
 
-First supporting-evidence result, now promoted as route-local engineering
-prototype:
+First supporting-evidence result:
 [`supporting-evidence-reference-validation-result.md`](../slices/measurement-context/supporting-evidence-reference-validation-result.md)
 validates the subcase where a user explicitly supplies debug, audit, handoff,
 or review evidence related to measurement, running-measurement, prepared-run,
@@ -164,10 +161,8 @@ operator-approval, parameter-state, or calibration-step targets while keeping
 the evidence reference optional, reference-only, and outside primary data,
 canonical context authority, and artifact provenance. Supporting evidence
 references are lifecycle explicit; during-run diagnostic evidence should not be
-implied by run-start context review. Live behavior is owned by
-[`../../../scopecat/measurement_context/README.md`](../../../scopecat/measurement_context/README.md)
-and
-[`../../architecture/measurement-context/supporting-evidence-reference-decision.md`](../../architecture/measurement-context/supporting-evidence-reference-decision.md).
+implied by run-start context review. The previous promoted owner was
+withdrawn; this result remains implementation-candidate evidence.
 
 First supporting-artifact provenance result:
 [`supporting-artifact-provenance-validation-result.md`](../slices/measurement-context/supporting-artifact-provenance-validation-result.md)
