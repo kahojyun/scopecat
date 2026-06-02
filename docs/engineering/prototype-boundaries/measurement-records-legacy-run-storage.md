@@ -2,7 +2,7 @@
 
 ## Status
 
-Engineering prototype decision, not an ADR.
+Accepted engineering-prototype boundary.
 
 This note owns the first user-facing legacy storage vertical in Measurement
 Records: record declared information about an externally executed legacy run,

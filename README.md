@@ -18,7 +18,8 @@ boundaries, not finalized product commitments.
 Start with `docs/README.md`.
 
 The documentation workspace is the long-lived project memory for product
-analysis, research, architecture decisions, and future user documentation.
+analysis, research, engineering prototype boundaries, and future user
+documentation.
 It should not be treated as a finalized product specification.
 
 ## Development

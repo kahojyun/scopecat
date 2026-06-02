@@ -7,7 +7,7 @@ Implementation candidate validated.
 Document role: historical discovery validation result. It records what this
 slice earned and what it did not establish. Current handoff implementation
 boundaries are owned by
-[`handoff.md`](../../../../architecture/boundaries/handoff.md);
+[`handoff.md`](../../../../engineering/prototype-boundaries/handoff.md);
 do not update this result to mirror live API, writer, or reader changes.
 
 This result validates producer-to-reader compatibility for the validated

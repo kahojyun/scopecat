@@ -2,7 +2,7 @@
 
 ## Status
 
-Engineering prototype decision, not an ADR.
+Accepted engineering-prototype boundary.
 
 This note owns the first Measurement Records engineering prototype for durable
 record creation. It uses existing discovery and handoff evidence rather than

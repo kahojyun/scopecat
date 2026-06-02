@@ -1,18 +1,21 @@
-# Architecture Boundaries
+# Engineering Prototype Boundaries
 
 ## Status
 
-Accepted implementation-boundary notes, not public user documentation.
+Current route-local engineering prototype boundary notes.
 
 ## Purpose
 
-This directory owns current architecture decisions for live route-local
-engineering boundaries. Start from
-[`../../engineering/vertical-slice-register.md`](../../engineering/vertical-slice-register.md)
-to find the active slice, then open the boundary note listed here and the
-owning module README for API details.
+This directory records accepted live prototype boundaries: what can live under
+`src/scopecat/`, what tests must protect, and what remains outside scope.
 
-## Current Boundaries
+These notes are not final product architecture, public API commitments, or
+production vertical-slice acceptance. Start from
+[`../vertical-slice-register.md`](../vertical-slice-register.md) to find the
+active slice, then open the boundary note listed here and the owning module
+README for API details.
+
+## Prototype Boundaries
 
 | Boundary | Use For |
 | --- | --- |

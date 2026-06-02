@@ -2,7 +2,7 @@
 
 ## Status
 
-Engineering prototype decision, not an ADR.
+Accepted engineering-prototype boundary.
 
 This note chooses the first durable storage/import boundary after Measurement
 Records gained durable creation, writer attachment, read view, finalization,

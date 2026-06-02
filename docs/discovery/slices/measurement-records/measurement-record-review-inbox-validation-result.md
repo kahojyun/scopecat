@@ -16,7 +16,7 @@ portable/public export artifacts or user documentation.
 
 ## Inputs
 
-- [`measurement-records-creation-lifecycle.md`](../../../architecture/boundaries/measurement-records-creation-lifecycle.md)
+- [`measurement-records-creation-lifecycle.md`](../../../engineering/prototype-boundaries/measurement-records-creation-lifecycle.md)
 - `tests/fixtures/measurement_record_review_inbox/basic_workspace/`
 - `implementation_candidates/measurement_record_review_inbox/`
 

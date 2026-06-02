@@ -77,11 +77,11 @@ than a duplicate route inventory.
 | Area | Owner |
 | --- | --- |
 | Measurement Records | [`routes/measurement-records/README.md`](routes/measurement-records/README.md) |
-| Handoff packages | Current implementation owners are [`handoff.md`](../architecture/boundaries/handoff.md), [`handoff-durable-import-storage.md`](../architecture/boundaries/handoff-durable-import-storage.md), and [`src/scopecat/handoff/README.md`](../../src/scopecat/handoff/README.md); retired discovery synthesis remains in [`archive/measurement-records-handoff-route/README.md`](archive/measurement-records-handoff-route/README.md). |
+| Handoff packages | Current implementation owners are [`handoff.md`](../engineering/prototype-boundaries/handoff.md), [`handoff-durable-import-storage.md`](../engineering/prototype-boundaries/handoff-durable-import-storage.md), and [`src/scopecat/handoff/README.md`](../../src/scopecat/handoff/README.md); retired discovery synthesis remains in [`archive/measurement-records-handoff-route/README.md`](archive/measurement-records-handoff-route/README.md). |
 | Import/source decisions | [`routes/measurement-records/import-source-decision.md`](routes/measurement-records/import-source-decision.md) |
 | Experiment code | [`routes/experiment-code/README.md`](routes/experiment-code/README.md) |
 | Environment operation | [`routes/environment-operation/README.md`](routes/environment-operation/README.md) |
-| Parameter state | Current implementation owners are [`routes/parameter-state/README.md`](routes/parameter-state/README.md), [`parameter-state.md`](../architecture/boundaries/parameter-state.md), and [`src/scopecat/parameter_state/README.md`](../../src/scopecat/parameter_state/README.md). |
+| Parameter state | Current implementation owners are [`routes/parameter-state/README.md`](routes/parameter-state/README.md), [`parameter-state.md`](../engineering/prototype-boundaries/parameter-state.md), and [`src/scopecat/parameter_state/README.md`](../../src/scopecat/parameter_state/README.md). |
 | Measurement context backlog | [`synthesis/measurement-context-backlog.md`](synthesis/measurement-context-backlog.md) |
 | Setup binding, calibration, selected reference | Relevant route/problem brief plus archived slice evidence in [`archive/slice-inventory.md`](archive/slice-inventory.md) when needed. |
 
@@ -90,7 +90,7 @@ than a duplicate route inventory.
 Do not promote a validation result directly into shared architecture.
 
 Before moving a concept into accepted schema, shared implementation, live route
-code, or `docs/architecture/`, first classify the phase in
+code, or `docs/engineering/prototype-boundaries/`, first classify the phase in
 [`../engineering/project-phase-model.md`](../engineering/project-phase-model.md)
 and attach the work to a named workflow step, seam, or risk question in
 [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md).

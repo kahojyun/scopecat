@@ -2,7 +2,7 @@
 
 ## Status
 
-Frozen engineering prototype plan, not an ADR.
+Frozen engineering prototype plan.
 
 This document records the prototype objective, scope, non-claims, and stop
 conditions that launched the environment-operation engineering vertical. Do

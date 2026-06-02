@@ -1,16 +1,16 @@
-# Architecture Archive
+# Engineering Archive
 
 ## Status
 
-Historical architecture notes, frozen plans, readiness checkpoints, and retired
-candidate decisions.
+Historical engineering prototype notes, frozen plans, readiness checkpoints,
+and retired candidate decisions.
 
 ## Purpose
 
 This directory preserves rationale and historical checkpoints that no longer
 own current implementation sequencing or API truth. Use
-[`../boundaries/`](../boundaries/) for current implementation boundaries and
-[`../../engineering/vertical-slice-register.md`](../../engineering/vertical-slice-register.md)
+[`../prototype-boundaries/`](../prototype-boundaries/) for current prototype
+boundaries and [`../vertical-slice-register.md`](../vertical-slice-register.md)
 for active ownership.
 
 Do not update archived notes to mirror current APIs. Edit them only to fix

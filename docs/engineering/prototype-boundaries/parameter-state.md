@@ -1,8 +1,12 @@
 # Parameter-State Engineering Prototype Promotion Decision
 
-Status: accepted
+## Status
 
-Date: 2026-06-01
+Accepted engineering-prototype boundary.
+
+This is the current live route-local boundary note for the parameter-state
+prototype. Live API details belong in
+[`../../../src/scopecat/parameter_state/README.md`](../../../src/scopecat/parameter_state/README.md).
 
 ## Decision
 

@@ -2,11 +2,11 @@
 
 ## Status
 
-Engineering promotion decision, not an ADR.
+Accepted engineering-prototype boundary.
 
-This is the canonical environment-operation implementation-boundary note for
-the first route-local execution vertical. Update this file when an accepted
-boundary or next decision gate changes. Keep live API syntax in
+This is the current live route-local boundary note for the
+environment-operation prototype's first local execution vertical. Update this
+file when an accepted boundary or next decision gate changes. Keep live API syntax in
 [`../../../src/scopecat/environment_operation/README.md`](../../../src/scopecat/environment_operation/README.md)
 and leave the prototype plan/readiness notes as frozen snapshots.
 

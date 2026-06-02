@@ -9,7 +9,7 @@ a shared measurement-record domain model. It records the historical
 route-local contract discipline that was applied while adding or reviewing
 handoff package discovery slices. Current runtime handoff checks live in
 route-private `src/scopecat/handoff/_contracts.py`; current implementation
-boundaries live in the handoff architecture and module docs.
+boundaries live in the handoff prototype-boundary and module docs.
 
 ## Purpose
 

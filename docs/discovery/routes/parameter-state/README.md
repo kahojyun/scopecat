@@ -7,7 +7,7 @@ Route index with accepted engineering-prototype handoff.
 The live implementation boundary is owned by
 [`src/scopecat/parameter_state/README.md`](../../../../src/scopecat/parameter_state/README.md)
 and the promotion decision in
-[`docs/architecture/boundaries/parameter-state.md`](../../../architecture/boundaries/parameter-state.md).
+[`docs/engineering/prototype-boundaries/parameter-state.md`](../../../engineering/prototype-boundaries/parameter-state.md).
 Discovery validation results remain supporting evidence, not live API
 contracts.
 

@@ -21,7 +21,7 @@ For product and implementation direction:
 4. [`engineering/vertical-slice-register.md`](engineering/vertical-slice-register.md)
    to find the accepted implementation owner, entrypoint, tests, fixture
    boundary, and non-goals.
-5. [`architecture/README.md`](architecture/README.md) and the owning module
+5. [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) and the owning module
    README for live implementation boundaries and API details.
 
 For new discovery work:
@@ -45,7 +45,7 @@ Keep durable statements in the narrowest owner:
 - evidence claims: [`evidence/evidence-register.md`](evidence/evidence-register.md)
 - evidence interpretation: [`evidence/method.md`](evidence/method.md)
 - discovery navigation: [`discovery/README.md`](discovery/README.md)
-- architecture notes: [`architecture/README.md`](architecture/README.md)
+- prototype boundaries: [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md)
 - problem framing: [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md)
 - adoption routes: [`discovery/routes/adoption-routes.md`](discovery/routes/adoption-routes.md)
 - discovery slice evidence: [`discovery/slices/README.md`](discovery/slices/README.md)
@@ -54,12 +54,12 @@ Keep durable statements in the narrowest owner:
 - product direction: [`product/direction.md`](product/direction.md)
 - research inputs: [`evidence/research/README.md`](evidence/research/README.md)
 
-Create validation, decision, architecture, engineering governance, or user docs
+Create validation, decision, prototype-boundary, engineering governance, or user docs
 only when there is a specific durable owner and content for them. Engineering
 governance docs define phase, workflow, and slice ownership rules across
-routes. Architecture notes are for engineering-boundary ownership after
-discovery evidence starts turning into implementation work; they should link
-back to discovery evidence instead of copying it wholesale.
+routes. Prototype-boundary notes are for route-local engineering ownership
+after discovery evidence starts turning into implementation work; they should
+link back to discovery evidence instead of copying it wholesale.
 
 ## Editing Rules
 

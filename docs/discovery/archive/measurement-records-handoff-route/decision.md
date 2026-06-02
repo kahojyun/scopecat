@@ -13,8 +13,8 @@ GUI framework, a package archive format, signatures, final storage import
 behavior, or a shared measurement-record domain model.
 
 For current implementation boundaries, use
-[`handoff.md`](../../../architecture/boundaries/handoff.md),
-[`handoff-durable-import-storage.md`](../../../architecture/boundaries/handoff-durable-import-storage.md),
+[`handoff.md`](../../../engineering/prototype-boundaries/handoff.md),
+[`handoff-durable-import-storage.md`](../../../engineering/prototype-boundaries/handoff-durable-import-storage.md),
 and [`src/scopecat/handoff/README.md`](../../../../src/scopecat/handoff/README.md).
 
 ## Accepted For Now
@@ -63,7 +63,7 @@ importing the package into Scopecat storage. Dataframe-like tables, arrays,
 optional pandas/numpy adapters, hard dataframe dependencies, and final public
 SDK names remain deferred SDK/notebook pressure. Current implementation
 baseline details live in
-[`handoff.md`](../../../architecture/boundaries/handoff.md).
+[`handoff.md`](../../../engineering/prototype-boundaries/handoff.md).
 
 GUI/local review use is **plot-first when a plot is declared**. Experimental
 users commonly orient by the primary plot and structured context first, with
@@ -131,7 +131,7 @@ Do more handoff work only when one of these concrete triggers appears:
 - Users need durable/final local records beyond the implemented
   single-measurement new-record path:
   reopen from the accepted durable import path in
-  [`handoff-durable-import-storage.md`](../../../architecture/boundaries/handoff-durable-import-storage.md).
+  [`handoff-durable-import-storage.md`](../../../engineering/prototype-boundaries/handoff-durable-import-storage.md).
   The current trigger is satisfied for reviewed handoff package to
   single-measurement new durable record import, receipt summary, retry review,
   and CLI receipt summary. Existing-record update, batch import, conflict
@@ -139,7 +139,7 @@ Do more handoff work only when one of these concrete triggers appears:
   payload import, package trust/archive handling, public adapter transport, and
   GUI durable review state still need separate decisions. The older candidate
   mutation boundary is recorded in
-  [`handoff-candidate-storage-acceptance.md`](../../../architecture/archive/handoff-candidate-storage-acceptance.md).
+  [`handoff-candidate-storage-acceptance.md`](../../../engineering/archive/handoff-candidate-storage-acceptance.md).
 - Analysis or fit results need first-class display:
   validate a read-only analysis-result model before executing fits or
   accepting write-back.

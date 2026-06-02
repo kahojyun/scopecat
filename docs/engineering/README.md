@@ -2,8 +2,7 @@
 
 ## Status
 
-Engineering governance navigation, not an ADR, roadmap, or public user
-documentation.
+Engineering governance navigation.
 
 ## Purpose
 
@@ -19,13 +18,15 @@ Use these documents before adding or promoting live code:
 | [`project-phase-model.md`](project-phase-model.md) | Classify work by phase and apply promotion, code, test, fixture, and drift-control rules. |
 | [`workflow-validation-map.md`](workflow-validation-map.md) | Start from user workflow threads, validated steps, missing seams, and next validation questions. |
 | [`vertical-slice-register.md`](vertical-slice-register.md) | Find accepted implementation slices, owners, entrypoints, artifact boundaries, tests, and non-goals. |
+| [`prototype-boundaries/README.md`](prototype-boundaries/README.md) | Find current route-local engineering prototype boundaries and next decision gates. |
+| [`archive/README.md`](archive/README.md) | Find historical prototype plans, readiness checkpoints, and retired engineering decisions. |
 
 ## Boundary
 
 This directory does not replace:
 
 - discovery validation plans or results;
-- route-specific architecture decisions;
+- route-specific prototype boundary notes;
 - module READMEs that own live API details;
 - public user documentation.
 

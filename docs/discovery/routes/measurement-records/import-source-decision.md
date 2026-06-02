@@ -14,7 +14,7 @@ source observation slices.
 Later durable Measurement Records import work supersedes the copy-acceptance
 slice for active new-record import. Keep this document as discovery route
 evidence for source/reference separation and historical copy acceptance; use
-[`handoff-durable-import-storage.md`](../../../architecture/boundaries/handoff-durable-import-storage.md)
+[`handoff-durable-import-storage.md`](../../../engineering/prototype-boundaries/handoff-durable-import-storage.md)
 for the current durable new-record import boundary.
 
 It does not accept a stable import API, adapter API, legacy reader, final

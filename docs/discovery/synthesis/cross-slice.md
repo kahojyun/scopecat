@@ -43,7 +43,7 @@ pressure.
 | Evidence area | Current synthesis posture | Owner |
 | --- | --- | --- |
 | Measurement records | The strongest implementation-shaped boundary for primary recorded data, selected export, import/source separation, storage writing, source observation, running inspection, declared preview metadata, and package-facing handoff pressure. | [`../routes/measurement-records/README.md`](../routes/measurement-records/README.md) |
-| Handoff packages | A route-local open-before-import model moved from discovery into the accepted handoff architecture and module docs: write/carry package, preview manifest, open/read package, inspect locally, optionally observe integrity, then adapt one reviewed measurement into durable import. Historical discovery synthesis remains route-local. | [`../archive/measurement-records-handoff-route/README.md`](../archive/measurement-records-handoff-route/README.md) |
+| Handoff packages | A route-local open-before-import model moved from discovery into the accepted handoff prototype-boundary and module docs: write/carry package, preview manifest, open/read package, inspect locally, optionally observe integrity, then adapt one reviewed measurement into durable import. Historical discovery synthesis remains route-local. | [`../archive/measurement-records-handoff-route/README.md`](../archive/measurement-records-handoff-route/README.md) |
 | Import/source | Adapter-normalized primary data, preserved external source references, reference-only observation, copy acceptance, storage writing, and existing-record append receipts are distinct authority boundaries. | [`../routes/measurement-records/import-source-decision.md`](../routes/measurement-records/import-source-decision.md) |
 | Experiment code | Current evidence supports record -> promote -> materialize -> observe -> prepare as adjacent responsibilities around code context, without accepting Git semantics, environment restoration, code loading, or execution. | [`../routes/experiment-code/README.md`](../routes/experiment-code/README.md) |
 | Environment operation | Current evidence supports approve intent -> record result -> review locally for uv-specific operations. Discovery candidates validated declared external result recording; the route-local engineering prototype now covers one approved `uv sync` subprocess boundary without accepting verified package state, runtime readiness, code execution, or a shared manager abstraction. | [`../routes/environment-operation/README.md`](../routes/environment-operation/README.md) |
@@ -359,7 +359,7 @@ the current route or architecture owners instead of this synthesis:
 - [`../routes/environment-operation/README.md`](../routes/environment-operation/README.md)
 
 The retired handoff discovery route remains historical synthesis. Current
-handoff implementation guidance lives in the handoff architecture decisions and
+handoff implementation guidance lives in the handoff prototype-boundary notes and
 module README.
 
 The next useful synthesis change should do one of three things:

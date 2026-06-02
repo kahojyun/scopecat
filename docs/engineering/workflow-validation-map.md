@@ -2,8 +2,7 @@
 
 ## Status
 
-Workflow validation owner, not an ADR, roadmap, module README, or source of
-API truth.
+Workflow validation owner.
 
 ## Purpose
 
@@ -51,5 +50,6 @@ Update this map when a branch:
 - discovers that an implementation candidate is being copied without closing a
   named workflow question.
 
-Keep detailed API and code ownership in module READMEs and architecture notes.
+Keep detailed API and code ownership in module READMEs and prototype-boundary
+notes.
 Keep this map focused on the user workflow thread.

@@ -2,11 +2,12 @@
 
 ## Status
 
-Engineering promotion decision, not an ADR.
+Accepted engineering-prototype boundary.
 
-This is the canonical handoff implementation-boundary note. Update this file
-when an accepted boundary or next decision gate changes. Keep live API syntax
-in [`../../../src/scopecat/handoff/README.md`](../../../src/scopecat/handoff/README.md)
+This is the current live route-local boundary note for the handoff prototype.
+Update this file when an accepted boundary or next decision gate changes. Keep
+live API syntax in
+[`../../../src/scopecat/handoff/README.md`](../../../src/scopecat/handoff/README.md)
 and leave the prototype plan/readiness notes as frozen snapshots.
 
 The candidate storage acceptance, acceptance-preflight, and import-workflow

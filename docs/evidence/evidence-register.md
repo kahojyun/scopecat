@@ -6,7 +6,7 @@ Evidence register.
 
 This document owns stable `EV-*` evidence claims only. It does not own problem
 framing, route hypotheses, validation charters, prototype behavior, contracts,
-or architecture decisions.
+or engineering boundary decisions.
 
 ## Purpose
 
@@ -46,7 +46,7 @@ product scope.
 
 - Preserve evidence claims here; move problem clusters into discovery docs.
 - Do not rank product scope from this table alone.
-- Do not infer architecture contracts, storage schemas, execution ownership, or
+- Do not infer prototype-boundary contracts, storage schemas, execution ownership, or
   hardware safety rules from evidence rows.
 - Add new `EV-*` rows instead of renumbering referenced rows.
 - Mark latent pressure clearly when the current workflow cannot leave direct

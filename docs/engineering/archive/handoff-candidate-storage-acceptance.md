@@ -2,8 +2,8 @@
 
 ## Status
 
-Legacy engineering decision for the first handoff storage-acceptance
-implementation slice, not an ADR.
+Historical engineering decision for the first handoff storage-acceptance
+implementation slice.
 
 This note records historical evidence for the older candidate storage mutation
 boundary. It is no longer the current durable Measurement Records handoff
@@ -18,7 +18,7 @@ first-mutation slice scope, rollback expectations, and still-deferred storage
 questions. It is not a broad storage architecture decision. Keep current
 durable import route syntax in the handoff module README; keep the broader
 accepted handoff boundary in
-[`handoff.md`](../boundaries/handoff.md).
+[`handoff.md`](../prototype-boundaries/handoff.md).
 
 ## Decision
 

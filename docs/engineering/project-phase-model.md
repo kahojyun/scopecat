@@ -2,8 +2,7 @@
 
 ## Status
 
-Project engineering governance, not an ADR, roadmap, public contract, or user
-documentation.
+Project engineering governance.
 
 ## Purpose
 
@@ -36,14 +35,14 @@ workflow step, workflow seam, or risk question in
 
 ## Promotion Rules
 
-Before moving a concept into `src/scopecat/` or treating it as accepted
-architecture, update or reference:
+Before moving a concept into `src/scopecat/` or treating it as an accepted
+prototype boundary, update or reference:
 
 - [`workflow-validation-map.md`](workflow-validation-map.md), to name the user
   workflow, seam, or risk question;
 - [`vertical-slice-register.md`](vertical-slice-register.md), to name the
   implementation owner, entrypoint, tests, fixtures, and non-goals;
-- the owning module README or architecture decision, to define the accepted
+- the owning module README or prototype-boundary note, to define the accepted
   boundary and live API.
 
 Promotion should stop broad prototype expansion. After a prototype boundary is

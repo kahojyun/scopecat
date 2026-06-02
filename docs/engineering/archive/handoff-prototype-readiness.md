@@ -2,12 +2,12 @@
 
 ## Status
 
-Frozen engineering prototype readiness checkpoint, not an ADR.
+Frozen engineering prototype readiness checkpoint.
 
 This document records the stop/readiness assessment that justified ending the
 prototype line. Do not update it to mirror later API additions or mutation-slice
 decisions. Current accepted implementation boundaries live in
-[`handoff.md`](../boundaries/handoff.md).
+[`handoff.md`](../prototype-boundaries/handoff.md).
 
 ## Readiness Judgment
 
@@ -130,7 +130,7 @@ triggered by a named acceptance/import or storage-requirements decision, not by
 restating the same route-level conclusions.
 
 The promotion decision is recorded in
-[`handoff.md`](../boundaries/handoff.md).
+[`handoff.md`](../prototype-boundaries/handoff.md).
 
 ## Freeze Rule
 

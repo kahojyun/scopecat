@@ -10,7 +10,7 @@ repository-safe discovery artifacts, not portable/public/export artifacts.
 Document role: historical discovery validation result. It records what this
 slice earned before route-local execution/probe ownership moved into the
 engineering prototype. Current implementation-boundary guidance lives in
-[`prototype-readiness.md`](../../../architecture/archive/environment-operation-prototype-readiness.md);
+[`prototype-readiness.md`](../../../engineering/archive/environment-operation-prototype-readiness.md);
 do not update this result to mirror live API, runner, or workflow changes.
 
 This result validates a narrow Experiment Code Context operation-result slice:

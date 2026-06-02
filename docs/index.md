@@ -10,8 +10,8 @@ the recommended top-down reading path.
 ```text
 docs/
   product/   product direction and boundaries
-  engineering/ project phase model, workflow validation map, slice register
-  architecture/ engineering-boundary notes after discovery promotion
+  engineering/ project phase model, workflow validation map, slice register,
+               prototype boundaries, and engineering archive
   discovery/  problem briefs, policies, routes, validation slices, synthesis
   evidence/   evidence register, method, research, external baseline
 ```
@@ -25,7 +25,7 @@ docs/
 | [`engineering/project-phase-model.md`](engineering/project-phase-model.md) | Phase responsibilities, promotion rules, code/test/fixture ownership, and drift control. |
 | [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md) | User workflow threads, validated steps, missing seams, and next validation questions. |
 | [`engineering/vertical-slice-register.md`](engineering/vertical-slice-register.md) | Accepted implementation slices, owners, entrypoints, artifact boundaries, tests, and non-goals. |
-| [`architecture/README.md`](architecture/README.md) | Engineering-boundary notes promoted from discovery-backed implementation work. |
+| [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) | Current route-local engineering prototype boundaries promoted from discovery-backed implementation work. |
 | [`discovery/README.md`](discovery/README.md) | Discovery navigation for problem briefs, validation slices, synthesis, and deferrals. |
 | [`discovery/doc-types.md`](discovery/doc-types.md) | Discovery document type responsibilities and ownership rules. |
 | [`discovery/routes/adoption-routes.md`](discovery/routes/adoption-routes.md) | Evidence-backed adoption routes grouped by durable user workflow. |

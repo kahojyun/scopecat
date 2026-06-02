@@ -7,7 +7,7 @@ Fixture pressure validated.
 Document role: historical discovery validation result. It records what this
 slice earned and what it did not establish. Current handoff implementation
 boundaries are owned by
-[`handoff.md`](../../../../architecture/boundaries/handoff.md);
+[`handoff.md`](../../../../engineering/prototype-boundaries/handoff.md);
 do not update this result to mirror live API or route changes.
 
 This result validates richer repository fixtures against the existing
