@@ -1,4 +1,4 @@
-# Legacy Run Storage Inventory Decision
+# Legacy Run Storage Inventory Boundary
 
 ## Status
 
@@ -9,9 +9,9 @@ Records: record declared information about an externally executed legacy run,
 then list what local storage contains. Live API details belong in
 [`../../../src/scopecat/measurement_records/README.md`](../../../src/scopecat/measurement_records/README.md).
 
-## Decision
+## Current Boundary
 
-Accept a narrow post-run legacy storage workflow:
+The accepted post-run legacy storage workflow is:
 
 ```text
 approved legacy run record request
@@ -80,7 +80,7 @@ The live prototype may:
 
 ## Out Of Scope
 
-This decision does not accept:
+This boundary does not accept:
 
 - legacy code execution, runner hooks, notebook execution, or hardware control;
 - legacy file observation, checksum validation, payload import, preview

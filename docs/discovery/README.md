@@ -13,7 +13,7 @@ product contracts too early.
 
 After discovery evidence starts moving into live route-local code, active
 workflow sequencing belongs in
-[`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
+[`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md),
 product capability maturity belongs in
 [`../product/capability-map.md`](../product/capability-map.md), and
 implementation ownership belongs in

@@ -21,8 +21,8 @@ flat navigation map when you already know which owner you need.
   [`engineering/implementation-register.md`](engineering/implementation-register.md)
 - Current route-local prototype boundaries:
   [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md)
-- Active execution work should live in issues, PRs, or branch plans rather than
-  this landing page.
+- Active execution work should live in issues, PRs, or branch-specific working
+  notes when implementation starts rather than this landing page.
 
 ## Read Top Down
 

@@ -6,7 +6,8 @@
 - Keep public-facing documentation under `docs/user/` when it is introduced.
 - Treat `docs/user/` as publishable and redacted by default.
 - Keep active task queues, priorities, and implementation checklists in issues,
-  PRs, or branch plans rather than stable docs landing pages.
+  PRs, or branch-specific working notes when implementation starts rather than
+  stable docs landing pages.
 - Keep internal product, architecture, research, decision, and AI-assistive
   material out of user documentation unless it is intentionally promoted.
 - Prefer one owning document per durable fact. Cross-link instead of
