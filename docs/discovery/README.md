@@ -64,11 +64,11 @@ the discovery landing page rather than a duplicate route inventory.
 | Area | Owner |
 | --- | --- |
 | Measurement Records | [`routes/measurement-records/README.md`](routes/measurement-records/README.md) |
-| Handoff packages | Current implementation owners are [`engineering-prototype-promotion-decision.md`](../architecture/handoff/engineering-prototype-promotion-decision.md), [`durable-import-storage-decision.md`](../architecture/handoff/durable-import-storage-decision.md), and [`scopecat/handoff/README.md`](../../scopecat/handoff/README.md); retired discovery synthesis remains in [`routes/measurement-records/handoff/README.md`](routes/measurement-records/handoff/README.md). |
+| Handoff packages | Current implementation owners are [`engineering-prototype-promotion-decision.md`](../architecture/handoff/engineering-prototype-promotion-decision.md), [`durable-import-storage-decision.md`](../architecture/handoff/durable-import-storage-decision.md), and [`src/scopecat/handoff/README.md`](../../src/scopecat/handoff/README.md); retired discovery synthesis remains in [`routes/measurement-records/handoff/README.md`](routes/measurement-records/handoff/README.md). |
 | Import/source decisions | [`routes/measurement-records/import-source-decision.md`](routes/measurement-records/import-source-decision.md) |
 | Experiment code | [`routes/experiment-code/README.md`](routes/experiment-code/README.md) |
 | Environment operation | [`routes/environment-operation/README.md`](routes/environment-operation/README.md) |
-| Parameter state | Current implementation owners are [`routes/parameter-state/README.md`](routes/parameter-state/README.md), [`engineering-prototype-promotion-decision.md`](../architecture/parameter-state/engineering-prototype-promotion-decision.md), and [`scopecat/parameter_state/README.md`](../../scopecat/parameter_state/README.md). |
+| Parameter state | Current implementation owners are [`routes/parameter-state/README.md`](routes/parameter-state/README.md), [`engineering-prototype-promotion-decision.md`](../architecture/parameter-state/engineering-prototype-promotion-decision.md), and [`src/scopecat/parameter_state/README.md`](../../src/scopecat/parameter_state/README.md). |
 | Measurement context backlog | [`synthesis/measurement-context-backlog.md`](synthesis/measurement-context-backlog.md) |
 | Setup binding, calibration, selected reference | [`slices/README.md`](slices/README.md) plus the relevant problem brief in [`problem-briefs/`](problem-briefs/) |
 

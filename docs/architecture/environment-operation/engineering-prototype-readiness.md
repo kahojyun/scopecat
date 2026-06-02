@@ -10,7 +10,7 @@ additions or route extensions. Current accepted implementation boundaries live
 in
 [`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md).
 Keep routine API inventory in
-[`../../../scopecat/environment_operation/README.md`](../../../scopecat/environment_operation/README.md)
+[`../../../src/scopecat/environment_operation/README.md`](../../../src/scopecat/environment_operation/README.md)
 and leave the prototype plan as a frozen scope snapshot.
 
 Artifact posture: `internal_validation_summary`. This note is internal project
@@ -63,7 +63,7 @@ hardware readiness, or a shared environment-manager abstraction.
 
 These choices are strong enough to carry into PR review:
 
-- route-local `scopecat/environment_operation/` module boundary;
+- route-local `src/scopecat/environment_operation/` module boundary;
 - no runtime dependency on historical `implementation_candidates`;
 - `UvSyncIntent` as the first route-local approved command object;
 - bounded argv shape, currently `uv sync --locked --no-default-groups` plus

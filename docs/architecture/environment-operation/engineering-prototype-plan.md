@@ -10,7 +10,7 @@ not update it to mirror routine API additions. Current implementation-boundary
 guidance lives in
 [`engineering-prototype-readiness.md`](engineering-prototype-readiness.md);
 the current route-local Python surface lives in
-[`../../../scopecat/environment_operation/README.md`](../../../scopecat/environment_operation/README.md).
+[`../../../src/scopecat/environment_operation/README.md`](../../../src/scopecat/environment_operation/README.md).
 
 This plan started the engineering prototype for the environment-operation route.
 It follows the validated route posture:

@@ -7,7 +7,7 @@ Engineering promotion decision, not an ADR.
 This is the canonical environment-operation implementation-boundary note for
 the first route-local execution vertical. Update this file when an accepted
 boundary or next decision gate changes. Keep live API syntax in
-[`../../../scopecat/environment_operation/README.md`](../../../scopecat/environment_operation/README.md)
+[`../../../src/scopecat/environment_operation/README.md`](../../../src/scopecat/environment_operation/README.md)
 and leave the prototype plan/readiness notes as frozen snapshots.
 
 Artifact posture: `internal_validation_summary`. This note is internal project
@@ -49,7 +49,7 @@ It should not continue as broad prototype expansion.
 
 The promoted baseline includes:
 
-- the route-local `scopecat/environment_operation/` module boundary;
+- the route-local `src/scopecat/environment_operation/` module boundary;
 - no runtime dependency on historical `implementation_candidates`;
 - `UvSyncIntent` as the approved route-local command object parsed from a
   validated discovery-style intent summary;

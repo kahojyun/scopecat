@@ -40,10 +40,10 @@
   not execute analyzed fixture or source code.
 - Do not generalize architecture, ownership, or reusable contracts from one
   validation slice unless an accepted decision states that scope.
-- Use `uv` for Python environment and dependency management. This repository is
-  currently configured as a non-package project; do not add packaging or
-  publishing metadata unless the project explicitly moves beyond research,
-  fixtures, and implementation candidates.
+- Use `uv` for Python environment and dependency management. This repository
+  uses the `uv_build` backend with a `src/scopecat` package layout. Keep
+  research, fixtures, and implementation candidates outside the installable
+  package boundary unless a narrower accepted decision promotes them.
 - Use stdlib `unittest` for Python tests unless a narrower instruction says
   otherwise. Run tests with `uv run python -m unittest discover -s tests`; do
   not assume `pytest` is available.

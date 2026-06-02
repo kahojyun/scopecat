@@ -7,7 +7,7 @@ Engineering prototype decision, not an ADR.
 This note owns the first user-facing legacy storage vertical in Measurement
 Records: record declared information about an externally executed legacy run,
 then list what local storage contains. Live API details belong in
-[`../../../scopecat/measurement_records/README.md`](../../../scopecat/measurement_records/README.md).
+[`../../../src/scopecat/measurement_records/README.md`](../../../src/scopecat/measurement_records/README.md).
 
 Artifact posture: `internal_validation_summary`. This note is internal project
 memory. It creates no portable package output, public contract, public SDK, or

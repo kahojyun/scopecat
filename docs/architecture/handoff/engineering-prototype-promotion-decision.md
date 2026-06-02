@@ -6,7 +6,7 @@ Engineering promotion decision, not an ADR.
 
 This is the canonical handoff implementation-boundary note. Update this file
 when an accepted boundary or next decision gate changes. Keep live API syntax
-in [`../../../scopecat/handoff/README.md`](../../../scopecat/handoff/README.md)
+in [`../../../src/scopecat/handoff/README.md`](../../../src/scopecat/handoff/README.md)
 and leave the prototype plan/readiness notes as frozen snapshots.
 
 The candidate storage acceptance, acceptance-preflight, and import-workflow
@@ -280,7 +280,7 @@ public import API. Those remain separate reopen triggers.
 
 The promoted local package-use baseline includes:
 
-- the route-local `scopecat/handoff/` module boundary;
+- the route-local `src/scopecat/handoff/` module boundary;
 - `open_package(package_dir)` as the Python entrypoint;
 - `python -m scopecat.handoff <package-dir>` as the local CLI entrypoint;
 - route-private manifest validation and preview classification;

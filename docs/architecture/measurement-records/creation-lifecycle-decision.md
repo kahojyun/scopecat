@@ -10,7 +10,7 @@ opening a new broad discovery pass. It defines the smallest creation lifecycle
 boundary needed before later storage/import decisions can choose conflict
 policy, existing-record import, or stronger recovery behavior. Keep live API
 syntax in
-[`../../../scopecat/measurement_records/README.md`](../../../scopecat/measurement_records/README.md).
+[`../../../src/scopecat/measurement_records/README.md`](../../../src/scopecat/measurement_records/README.md).
 
 Artifact posture: `internal_validation_summary`. This note is internal project
 memory. It creates no portable package output, public contract, public SDK, or
@@ -158,7 +158,7 @@ same slice.
 ## Implementation Checkpoint
 
 The first prototype is implemented in
-[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+[`../../../src/scopecat/measurement_records/`](../../../src/scopecat/measurement_records/).
 It exposes a raw-dictionary entrypoint,
 `create_measurement_record(...)`, and a typed request entrypoint,
 `create_measurement_record_from_request(...)`.
@@ -181,7 +181,7 @@ import/finalization authority by itself.
 ## Existing-Record Append Update Checkpoint
 
 The first existing-record append update slice is implemented in
-[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+[`../../../src/scopecat/measurement_records/`](../../../src/scopecat/measurement_records/).
 It exposes a raw-dictionary entrypoint,
 `append_existing_measurement_record(...)`, and a route-local entrypoint,
 `append_existing_measurement_record_from_request(...)`.
@@ -201,7 +201,7 @@ run hardware, or define GUI workflow.
 ## Writer Integration Checkpoint
 
 The first writer-integration slice is also implemented in
-[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+[`../../../src/scopecat/measurement_records/`](../../../src/scopecat/measurement_records/).
 It exposes a raw-dictionary entrypoint,
 `write_created_record_primary_data(...)`, and a typed request entrypoint,
 `write_created_record_primary_data_from_request(...)`.
@@ -222,7 +222,7 @@ storage schema.
 ## Normalized Primary Table Checkpoint
 
 The normalized primary table contract is implemented in
-[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+[`../../../src/scopecat/measurement_records/`](../../../src/scopecat/measurement_records/).
 It exposes a raw-dictionary entrypoint,
 `summarize_normalized_primary_table(...)`, and a typed request entrypoint,
 `summarize_normalized_primary_table_from_request(...)`.
@@ -241,7 +241,7 @@ promote adapter transport behavior.
 ## Read View Checkpoint
 
 The first read-view slice is implemented in
-[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+[`../../../src/scopecat/measurement_records/`](../../../src/scopecat/measurement_records/).
 It exposes a raw-dictionary entrypoint,
 `read_created_record_primary_table(...)`, and a typed request entrypoint,
 `read_created_record_primary_table_from_request(...)`.
@@ -324,7 +324,7 @@ finalization receipt.
 ## Finalization Implementation Checkpoint
 
 The first receipt-based finalization slice is implemented in
-[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+[`../../../src/scopecat/measurement_records/`](../../../src/scopecat/measurement_records/).
 It exposes a raw-dictionary entrypoint, `finalize_measurement_record(...)`,
 and a typed request entrypoint,
 `finalize_measurement_record_from_read_view(...)`.
@@ -407,7 +407,7 @@ a compact current-state summary after receipt-based finalization.
 ## Read Model Projection Implementation Checkpoint
 
 The first derived read-model projection slice is implemented in
-[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+[`../../../src/scopecat/measurement_records/`](../../../src/scopecat/measurement_records/).
 It exposes a raw-dictionary entrypoint,
 `project_measurement_record_read_model(...)`, and a typed request entrypoint,
 `project_measurement_record_read_model_from_read_view(...)`.
@@ -428,7 +428,7 @@ recovery.
 ## Read Model Catalog Implementation Checkpoint
 
 The first read-only catalog slice is implemented in
-[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+[`../../../src/scopecat/measurement_records/`](../../../src/scopecat/measurement_records/).
 It exposes a raw-dictionary entrypoint,
 `catalog_measurement_record_read_models(...)`, and a typed request entrypoint,
 `catalog_measurement_record_read_models_from_request(...)`.
@@ -514,7 +514,7 @@ identity remain separate storage-hardening decisions.
 ## Read Model Refresh Implementation Checkpoint
 
 The first read-model refresh slice is implemented in
-[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+[`../../../src/scopecat/measurement_records/`](../../../src/scopecat/measurement_records/).
 It exposes a raw-dictionary entrypoint,
 `refresh_measurement_record_read_model(...)`, and a typed request entrypoint,
 `refresh_measurement_record_read_model_from_read_view(...)`.
@@ -649,7 +649,7 @@ This decision does not accept:
 ## In-Progress Update Implementation Checkpoint
 
 The first in-progress update and inspection slice is implemented in
-[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+[`../../../src/scopecat/measurement_records/`](../../../src/scopecat/measurement_records/).
 It exposes raw-dictionary and typed entrypoints:
 `append_in_progress_measurement_record(...)`,
 `append_in_progress_measurement_record_from_request(...)`,
@@ -695,7 +695,7 @@ Measurement Records storage boundary.
 ## Recorded References Checkpoint
 
 The first recorded-references slice is implemented in
-[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+[`../../../src/scopecat/measurement_records/`](../../../src/scopecat/measurement_records/).
 It exposes raw-dictionary and typed entrypoints:
 `record_measurement_record_references(...)`,
 `record_measurement_record_references_from_request(...)`, and
@@ -730,7 +730,7 @@ or define final storage schema.
 ## Operator Review Composition Checkpoint
 
 The first read-only operator-review composition slice is implemented in
-[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+[`../../../src/scopecat/measurement_records/`](../../../src/scopecat/measurement_records/).
 It exposes raw-dictionary and typed entrypoints:
 `review_measurement_records(...)` and
 `review_measurement_records_from_request(...)`.
@@ -777,7 +777,7 @@ repair, or GUI-state persistence.
 ## Operator Review Artifact Checkpoint
 
 The first local static operator-review artifact slice is implemented in
-[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+[`../../../src/scopecat/measurement_records/`](../../../src/scopecat/measurement_records/).
 It exposes:
 `build_measurement_record_review_html(...)` and
 `write_measurement_record_review_artifact(...)`.
@@ -803,7 +803,7 @@ export.
 ## Operator Review Receipt Checkpoint
 
 The first saved operator-review receipt slice is implemented in
-[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+[`../../../src/scopecat/measurement_records/`](../../../src/scopecat/measurement_records/).
 It exposes:
 `save_measurement_record_operator_review_receipt(...)` and
 `summarize_measurement_record_operator_review_receipt(...)`.
