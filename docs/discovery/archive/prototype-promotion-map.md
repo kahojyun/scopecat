@@ -2,24 +2,22 @@
 
 ## Status
 
-Coordination index, not an ADR, roadmap, or source of implementation truth.
+Archived coordination index, not an ADR, roadmap, or source of implementation
+truth.
 
-This document tracks route-by-route promotion posture for Scopecat discovery
-and engineering-prototype work. Use it to coordinate parallel branches, find
-the current live owner where one exists, and see when this index must be
-updated. Do not use it to broaden a route's scope, override an architecture
-note, infer final product sequencing, or decide whether a user workflow is
-validated.
+This document preserves a historical route-by-route promotion posture for
+Scopecat discovery and engineering-prototype work. Do not use it to find
+current live owners, coordinate new branches, broaden a route's scope, override
+an engineering boundary, infer final product sequencing, or decide whether a
+user workflow is validated.
 
 Workflow validation is owned by
 [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md).
 Implementation slice ownership is owned by
 [`../../engineering/vertical-slice-register.md`](../../engineering/vertical-slice-register.md).
 
-Implementation branches that promote, retire, or materially change a route
-boundary must update the affected rows here in the same change. If an
-implementation branch lands elsewhere first, rebase this matrix and update the
-affected rows instead of treating this file as authoritative forever.
+Do not update this matrix to mirror current implementation APIs. Edit it only
+to fix broken links, safety issues, or historical supersession notes.
 
 ## Status Vocabulary
 
@@ -32,9 +30,9 @@ affected rows instead of treating this file as authoritative forever.
 | Paused or blocked | Broad expansion should stop, or promotion needs a missing authority decision, external contract, or product boundary. |
 | Superseded | A former candidate or discovery path has been replaced by an accepted owner or newer decision; keep it as evidence, not as the implementation path. |
 
-## Promotion Matrix
+## Historical Promotion Matrix
 
-| Route or slice family | Current status | Active live owner | Evidence or historical owner | Coordination note | Next update trigger |
+| Route or slice family | Archived status | Live owner at archive time | Evidence or historical owner | Historical coordination note | Historical update trigger |
 | --- | --- | --- | --- | --- | --- |
 | Measurement Records durable creation, writer integration, normalized primary table, read view, finalization, read-model projection, catalog, refresh, running inspection, operator review, local review artifact, durable new-record import, existing-record append update, legacy-run recording, legacy converted-primary attach, recorded reference receipts, and storage inventory | Promoted engineering prototype | [`src/scopecat/measurement_records/README.md`](../../../src/scopecat/measurement_records/README.md), [`measurement-records-creation-lifecycle.md`](../../engineering/prototype-boundaries/measurement-records-creation-lifecycle.md), [`measurement-records-legacy-run-storage.md`](../../engineering/prototype-boundaries/measurement-records-legacy-run-storage.md), [`handoff-durable-import-storage.md`](../../engineering/prototype-boundaries/handoff-durable-import-storage.md) | [`measurement-records/README.md`](../routes/measurement-records/README.md), [`import-source-decision.md`](../routes/measurement-records/import-source-decision.md), [`normalized-primary-table-validation-result.md`](../slices/measurement-records/normalized-primary-table-validation-result.md), [`existing-record-update-validation-result.md`](../slices/measurement-records/existing-record-update-validation-result.md), [`legacy-run-sidecar-manifest-validation-result.md`](../slices/measurement-records/legacy-run-sidecar-manifest-validation-result.md), [`legacy-brownfield-adoption-backbone-validation-result.md`](../slices/measurement-records/legacy-brownfield-adoption-backbone-validation-result.md) | The active durable-storage path is the `src/scopecat/measurement_records/` pipeline. Legacy-run recording is promoted as a storage workflow: create a `legacy_system` record shell, write one record-local legacy receipt, optionally attach reviewed converted normalized primary data to that same record, record explicit parameter, setup, code, derived artifact, and evidence references as record-local receipts, and list/review it through read-only inventory, operator review, and a local static review artifact. It does not observe legacy files, parse legacy formats, execute legacy code or analysis, repair references, replace manifests, create a second imported record for the same user measurement, persist GUI state, or promote a sidecar workflow schema. Normalized primary table and existing-record append update retain their prior narrow boundaries. | Update when a Measurement Records branch adds or retires a promoted lifecycle/import/update/table/legacy/reference/inventory/review operation, changes receipt/read-model/table authority, or chooses stronger generic existing-record import/update, legacy observation, referenced payload import, inventory repair, GUI persistence, or adapter transport behavior. |
 | Handoff package writer, read-only package use, local inspection/review, integrity gate, receiving gate, import plan, and durable-import adaptation | Promoted engineering prototype | [`src/scopecat/handoff/README.md`](../../../src/scopecat/handoff/README.md), [`handoff.md`](../../engineering/prototype-boundaries/handoff.md), [`handoff-durable-import-storage.md`](../../engineering/prototype-boundaries/handoff-durable-import-storage.md) | [`measurement-records-handoff-route/README.md`](measurement-records-handoff-route/README.md) | The active handoff path is local package write/read/review plus non-mutating import planning into Measurement Records durable import. | Update when handoff branches change package write/read/import-plan behavior, add archive/trust/signature handling, or promote batch import. |
@@ -55,13 +53,12 @@ affected rows instead of treating this file as authoritative forever.
 | Shared domain models, shared relation schema, universal warning taxonomy, shared run-context schema, and reusable cross-route builder package | Paused or blocked | None. | [`shared-model-extraction-deferral.md`](../synthesis/shared-model-extraction-deferral.md), [`cross-slice.md`](../synthesis/cross-slice.md) | Current evidence explicitly defers extraction. This map does not promote shared models. | Update only when a narrower accepted decision authorizes shared extraction after at least two accepted boundaries need the same behavior and tests. |
 | Cross-slice contract primitives and filesystem mutation helpers | Next-promotion-ready | None as a shared live module; similar guardrails are currently route-local in promoted modules. | [`contract-primitives-validation-result.md`](../slices/support/contract-primitives-validation-result.md), [`filesystem-mutation-helpers-validation-result.md`](../slices/support/filesystem-mutation-helpers-validation-result.md), [`shared-model-extraction-deferral.md`](../synthesis/shared-model-extraction-deferral.md) | Candidate helpers are repeatedly useful. Promote only a narrower shared helper when accepted implementation code would otherwise duplicate matching semantics and tests. | Update when an implementation branch extracts shared helper code, or when a route explicitly keeps duplicated route-local guardrails by decision. |
 
-## Update Rule
+## Archive Edit Rule
 
-When a branch changes promotion posture:
+When a branch changes current promotion posture:
 
-- update the owning architecture, route, or module README first;
-- update only the rows affected by that boundary change;
-- keep status labels from the vocabulary above;
-- preserve historical evidence links when a candidate is superseded;
-- avoid adding roadmap sequencing unless the owning decision document already
-  accepts that sequencing.
+- update the active engineering workflow map, slice register, boundary note, or
+  module README instead of this archived matrix;
+- preserve this file as historical evidence;
+- edit this file only for broken links, safety issues, or explicit
+  supersession clarification.

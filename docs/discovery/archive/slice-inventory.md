@@ -2,22 +2,22 @@
 
 ## Status
 
-Navigation index, not an ADR.
+Archived navigation index, not an ADR.
 
-This document lists validated discovery slices and their current maturity.
-Discovery sequencing belongs in route indexes or route consolidation docs;
+This document preserves a historical inventory of validated discovery slices
+and the maturity labels they had when this inventory was archived. Active
+discovery sequencing belongs in route indexes or route consolidation docs;
 slice-local validation details remain in the linked validation result files.
-When a later architecture decision or engineering register supersedes a slice
-for the active route, the slice remains listed as historical validation
-evidence rather than current API surface. Active engineering workflow
-sequencing belongs in
+When an engineering register supersedes a slice for the active route, the
+slice remains listed here as historical validation evidence rather than current
+API surface. Active engineering workflow sequencing belongs in
 [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md),
 and accepted implementation ownership belongs in
 [`../../engineering/vertical-slice-register.md`](../../engineering/vertical-slice-register.md).
 
-## Current Slice Inventory
+## Historical Slice Inventory
 
-| Slice | Route | Current maturity | Boundary |
+| Slice | Route | Archived maturity | Boundary |
 | --- | --- | --- | --- |
 | Preview-ready selected measurement export | Measurement records | Implementation candidate validated | Pure summary for explicit selected measurement sets, default bundles, linked context, declared preview metadata, degraded-preview warnings, and non-recursive traversal. |
 | Storage-transition export | Measurement records | Fixture validated | Source identity, current reference, package materialization, and external-reference policy pressure without accepting storage, checksum, backup, package writer, importer, or GUI behavior. |

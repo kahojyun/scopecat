@@ -25,7 +25,7 @@ targets. It keeps evidence reference-only, keeps attachment/artifact as
 label-only evidence kinds, and treats unavailable evidence or target
 references as review findings.
 
-The comparison engineering prototype compares actual resolved
+The resolved-context comparison implementation candidate compares actual resolved
 measurement-record context links between a current measurement record and a
 user-selected reference measurement record.
 
@@ -59,8 +59,9 @@ The broader measurement-context support backlog remains candidate-only:
 
 ## Reopen Triggers
 
-Update this route and the promotion map when a branch changes any of these
-boundaries:
+Update this route index only when new discovery evidence changes any of these
+boundaries. Live engineering promotion should update the engineering workflow
+map, slice register, prototype-boundary note, and module README instead:
 
 - resolved-link comparison API or finding semantics;
 - context-link construction, storage, or mutation behavior;

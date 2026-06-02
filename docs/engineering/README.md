@@ -34,6 +34,7 @@ It defines the project-level rules for when those narrower owners should be
 created, updated, promoted, or left as historical evidence.
 
 Artifact/export boundary labels belong on generated fixtures, expected outputs,
-review artifacts, packages, public docs, or other artifacts whose portability
-or redaction behavior matters. They are not required for ordinary internal
-engineering governance documents in this directory.
+review artifacts, packages, public docs, or other generated artifacts only when
+they are part of a validation, review, portable/export, or public boundary.
+They are not required for ordinary internal engineering governance documents in
+this directory.
