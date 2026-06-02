@@ -36,8 +36,8 @@ for implementation ownership.
 
 | Route | Use For |
 | --- | --- |
-| [`measurement-records/handoff/README.md`](measurement-records/handoff/README.md) | Retired handoff package route map and historical discovery synthesis; current handoff boundaries live in architecture and module docs. |
-| [`measurement-records/handoff/decision.md`](measurement-records/handoff/decision.md) | Retired handoff route decision closeout; preserved for historical deferrals, reopen triggers, and stop-rule context. |
+| [`../archive/measurement-records-handoff-route/README.md`](../archive/measurement-records-handoff-route/README.md) | Retired handoff package route map and historical discovery synthesis; current handoff boundaries live in architecture and module docs. |
+| [`../archive/measurement-records-handoff-route/decision.md`](../archive/measurement-records-handoff-route/decision.md) | Retired handoff route decision closeout; preserved for historical deferrals, reopen triggers, and stop-rule context. |
 
 ## Related Non-Route Owners
 

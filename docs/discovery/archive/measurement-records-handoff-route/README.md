@@ -12,9 +12,9 @@ import API, dataframe dependency, plotting library, archive format, signature
 model, or shared measurement-record domain model.
 
 For current implementation boundaries, use
-[`handoff.md`](../../../../architecture/boundaries/handoff.md),
-[`handoff-durable-import-storage.md`](../../../../architecture/boundaries/handoff-durable-import-storage.md),
-and [`src/scopecat/handoff/README.md`](../../../../../src/scopecat/handoff/README.md).
+[`handoff.md`](../../../architecture/boundaries/handoff.md),
+[`handoff-durable-import-storage.md`](../../../architecture/boundaries/handoff-durable-import-storage.md),
+and [`src/scopecat/handoff/README.md`](../../../../src/scopecat/handoff/README.md).
 Keep validation evidence and retired route discovery synthesis here; keep
 implementation-boundary guidance in the architecture and module docs.
 
@@ -60,10 +60,10 @@ old validation result, the architecture notes, or the module README.
 
 | Discovery slice group | Engineering coverage | Current owner |
 | --- | --- | --- |
-| Writer, contents preview, opener, read view, tables, integrity observation, inspection artifact, receiving gate, import plan, durable import adapter, package workflow | Promoted into route-local engineering code. The implementation may harden internals beyond the original candidate, but the live boundary belongs to the module and architecture docs. | [`src/scopecat/handoff/README.md`](../../../../../src/scopecat/handoff/README.md), [`handoff.md`](../../../../architecture/boundaries/handoff.md), [`handoff-durable-import-storage.md`](../../../../architecture/boundaries/handoff-durable-import-storage.md) |
+| Writer, contents preview, opener, read view, tables, integrity observation, inspection artifact, receiving gate, import plan, durable import adapter, package workflow | Promoted into route-local engineering code. The implementation may harden internals beyond the original candidate, but the live boundary belongs to the module and architecture docs. | [`src/scopecat/handoff/README.md`](../../../../src/scopecat/handoff/README.md), [`handoff.md`](../../../architecture/boundaries/handoff.md), [`handoff-durable-import-storage.md`](../../../architecture/boundaries/handoff-durable-import-storage.md) |
 | Round trip and route-pressure fixtures | Partially retained as compatibility and fixture pressure. They inform engineering tests and accepted route posture, but they are not separate live product APIs. | Engineering tests plus this route README; validation results stay historical. |
 | Preview shape view, preview consumption, visual review, GUI view state, SDK view model, SDK ergonomics | Retained as UX/API pressure only. Some concepts are reflected in `HandoffPackage`, `HandoffTable`, `HandoffPlotSeries`, and `build_inspection_html(...)`, but no final GUI state API, SDK view model, pandas/numpy adapter contract, or plotting layer has been promoted. | Historical validation results and future narrower decisions if a concrete workflow reopens them. |
-| Candidate acceptance/storage layout | Retained only as historical engineering evidence for the first candidate storage acceptance mutation, not as the current top-level handoff API, final storage architecture, archive format, existing-record update, or conflict policy. | [`handoff-candidate-storage-acceptance.md`](../../../../architecture/archive/handoff-candidate-storage-acceptance.md) |
+| Candidate acceptance/storage layout | Retained only as historical engineering evidence for the first candidate storage acceptance mutation, not as the current top-level handoff API, final storage architecture, archive format, existing-record update, or conflict policy. | [`handoff-candidate-storage-acceptance.md`](../../../architecture/archive/handoff-candidate-storage-acceptance.md) |
 
 ## Accepted Local Baseline
 
@@ -75,19 +75,19 @@ architecture promotion and durable import decisions, and current exported API
 details live in the module README.
 
 Use
-[`prototype-plan.md`](../../../../architecture/archive/handoff-prototype-plan.md)
+[`prototype-plan.md`](../../../architecture/archive/handoff-prototype-plan.md)
 for the frozen historical prototype objective, scope, fixture policy, stop
 conditions, and promotion criteria.
 
 Use
-[`prototype-readiness.md`](../../../../architecture/archive/handoff-prototype-readiness.md)
+[`prototype-readiness.md`](../../../architecture/archive/handoff-prototype-readiness.md)
 for the frozen stop-criteria checkpoint that ended the prototype line.
 
 Use
-[`handoff.md`](../../../../architecture/boundaries/handoff.md)
+[`handoff.md`](../../../architecture/boundaries/handoff.md)
 for the canonical accepted implementation boundary and next decision gate.
 
-Use [`../../../../../src/scopecat/handoff/README.md`](../../../../../src/scopecat/handoff/README.md)
+Use [`../../../../src/scopecat/handoff/README.md`](../../../../src/scopecat/handoff/README.md)
 for the current route-local Python API surface.
 
 ## Artifact Boundary
@@ -160,16 +160,16 @@ primitive behavior:
 ## Completed Focused Follow-Ups
 
 - **Minimal GUI view-state candidate**: validated in
-  [`gui-view-state-validation-result.md`](../../../slices/measurement-records/handoff/gui-view-state-validation-result.md).
+  [`gui-view-state-validation-result.md`](../../slices/measurement-records/handoff/gui-view-state-validation-result.md).
   Further GUI work should now require a new interaction, rendering, or product
   layout question rather than repeating route-level state projection.
 - **Richer package fixture pressure**: validated in
-  [`route-pressure-validation-result.md`](../../../slices/measurement-records/handoff/route-pressure-validation-result.md).
+  [`route-pressure-validation-result.md`](../../slices/measurement-records/handoff/route-pressure-validation-result.md).
   The route now has repository-safe pressure for multi-plot, table-only,
   shared linked-context, degraded-preview, and optional digest/size cases
   without creating another handoff implementation layer.
 - **SDK ergonomics spike**: validated in
-  [`sdk-ergonomics-spike-validation-result.md`](../../../slices/measurement-records/handoff/sdk-ergonomics-spike-validation-result.md).
+  [`sdk-ergonomics-spike-validation-result.md`](../../slices/measurement-records/handoff/sdk-ergonomics-spike-validation-result.md).
   Notebook-style use can discover measurements, get dataframe-like tables,
   get declared plot records/arrays, and keep context visible without adding
   hard pandas/numpy dependencies or finalizing the public SDK.

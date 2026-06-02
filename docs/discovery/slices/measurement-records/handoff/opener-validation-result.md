@@ -86,5 +86,5 @@ Package-integrity or archive validation should stay separate unless a narrower
 question shows it is required before safe read-only opening.
 
 Future opener or package-route changes should use
-[`routes/measurement-records/handoff/contract-checklist.md`](../../../routes/measurement-records/handoff/contract-checklist.md)
+[`archive/measurement-records-handoff-route/contract-checklist.md`](../../../archive/measurement-records-handoff-route/contract-checklist.md)
 to classify emitted fields before adding validation or output shape.

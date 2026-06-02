@@ -34,6 +34,7 @@ the default owner for engineering-prototype expansion.
 | [`synthesis/cross-slice.md`](synthesis/cross-slice.md) | See recurring candidate concepts, stable separations, and cross-route design pressure. |
 | [`synthesis/shared-model-extraction-deferral.md`](synthesis/shared-model-extraction-deferral.md) | Understand why shared domain models are intentionally deferred. |
 | [`synthesis/measurement-context-backlog.md`](synthesis/measurement-context-backlog.md) | Shared discovery backlog for context records attached to or selected for measurements, without accepting a shared schema. |
+| [`archive/README.md`](archive/README.md) | Find historical inventories, retired route synthesis, and frozen coordination maps after their active ownership moves elsewhere. |
 
 ## Validation Slices
 
@@ -76,7 +77,7 @@ than a duplicate route inventory.
 | Area | Owner |
 | --- | --- |
 | Measurement Records | [`routes/measurement-records/README.md`](routes/measurement-records/README.md) |
-| Handoff packages | Current implementation owners are [`handoff.md`](../architecture/boundaries/handoff.md), [`handoff-durable-import-storage.md`](../architecture/boundaries/handoff-durable-import-storage.md), and [`src/scopecat/handoff/README.md`](../../src/scopecat/handoff/README.md); retired discovery synthesis remains in [`routes/measurement-records/handoff/README.md`](routes/measurement-records/handoff/README.md). |
+| Handoff packages | Current implementation owners are [`handoff.md`](../architecture/boundaries/handoff.md), [`handoff-durable-import-storage.md`](../architecture/boundaries/handoff-durable-import-storage.md), and [`src/scopecat/handoff/README.md`](../../src/scopecat/handoff/README.md); retired discovery synthesis remains in [`archive/measurement-records-handoff-route/README.md`](archive/measurement-records-handoff-route/README.md). |
 | Import/source decisions | [`routes/measurement-records/import-source-decision.md`](routes/measurement-records/import-source-decision.md) |
 | Experiment code | [`routes/experiment-code/README.md`](routes/experiment-code/README.md) |
 | Environment operation | [`routes/environment-operation/README.md`](routes/environment-operation/README.md) |

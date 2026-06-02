@@ -124,7 +124,7 @@ preview rows.
 
 Before changing this route again, apply the route-local field-category checklist
 in
-[`routes/measurement-records/handoff/contract-checklist.md`](../../../routes/measurement-records/handoff/contract-checklist.md)
+[`archive/measurement-records-handoff-route/contract-checklist.md`](../../../archive/measurement-records-handoff-route/contract-checklist.md)
 so managed identifiers, package paths, redacted display references, free text,
 and declared manifest facts are reviewed by category rather than one field at a
 time.

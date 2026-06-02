@@ -28,9 +28,9 @@ useful historical context:
 
 | Document | Use For |
 | --- | --- |
-| [`routes/measurement-records/handoff/README.md`](handoff/README.md) | Retired handoff package route map and historical discovery synthesis; current handoff boundaries live in architecture and module docs. |
-| [`routes/measurement-records/handoff/decision.md`](handoff/decision.md) | Retired handoff route decision closeout; preserved for historical deferrals, reopen triggers, and stop-rule context. |
-| [`routes/measurement-records/handoff/contract-checklist.md`](handoff/contract-checklist.md) | Historical route-local field categories and review checks for handoff package discovery slices. |
+| [`archive/measurement-records-handoff-route/README.md`](../../archive/measurement-records-handoff-route/README.md) | Retired handoff package route map and historical discovery synthesis; current handoff boundaries live in architecture and module docs. |
+| [`archive/measurement-records-handoff-route/decision.md`](../../archive/measurement-records-handoff-route/decision.md) | Retired handoff route decision closeout; preserved for historical deferrals, reopen triggers, and stop-rule context. |
+| [`archive/measurement-records-handoff-route/contract-checklist.md`](../../archive/measurement-records-handoff-route/contract-checklist.md) | Historical route-local field categories and review checks for handoff package discovery slices. |
 
 ## Route Posture
 

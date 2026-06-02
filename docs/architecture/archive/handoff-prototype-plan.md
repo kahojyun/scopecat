@@ -41,9 +41,9 @@ packaging before proving read-only use.
 ## Discovery Evidence Reused
 
 The prototype starts from the route decisions in
-[`decision.md`](../../discovery/routes/measurement-records/handoff/decision.md)
+[`decision.md`](../../discovery/archive/measurement-records-handoff-route/decision.md)
 and the consolidation in
-[`README.md`](../../discovery/routes/measurement-records/handoff/README.md).
+[`README.md`](../../discovery/archive/measurement-records-handoff-route/README.md).
 The most relevant slice
 evidence is:
 
