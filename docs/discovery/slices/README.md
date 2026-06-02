@@ -2,7 +2,7 @@
 
 ## Status
 
-Navigation entry, not an inventory, roadmap, ADR, or implementation owner.
+Discovery slice evidence entry.
 
 ## Purpose
 

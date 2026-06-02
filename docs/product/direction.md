@@ -7,8 +7,24 @@ Current product direction.
 ## Purpose
 
 State what Scopecat is trying to become and the default ownership assumptions
-that guide discovery. Narrower validation, decision, contract, and architecture
-docs should own details when they are needed.
+that guide discovery. Narrower validation, decision, contract, and
+prototype-boundary docs should own details when they are needed.
+
+## Summary
+
+- Scopecat is a brownfield-friendly evidence, review, and handoff layer around
+  existing scientific measurement systems.
+- Early value should come from practical workflow return: recovery, selection,
+  handoff, diagnostic clarity, readable progress, and runnable calibration work.
+- Existing experiment systems own low-level control and mutation by default;
+  Scopecat records, explains, packages, reviews, and bridges around them.
+- Cross-machine value starts with portable records, handoff packages, explicit
+  export/import, and open-before-import review.
+- Deeper runtime, driver, scan, service, or migration ownership is possible but
+  requires a narrower validated workflow and explicit decision.
+- Redaction and artifact posture are boundary-specific: portable/export
+  artifacts need stronger handling than local repository-safe fixtures or
+  review surfaces.
 
 ## Direction
 

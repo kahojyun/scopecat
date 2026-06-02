@@ -2,7 +2,7 @@
 
 ## Status
 
-Navigation index, not an ADR.
+Discovery route navigation index.
 
 Routes group discovery work by durable user workflow and authority boundary.
 Use route indexes for discovery posture and validation sequencing unless an

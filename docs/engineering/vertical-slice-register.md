@@ -16,6 +16,17 @@ It complements [`workflow-validation-map.md`](workflow-validation-map.md):
 Use this document before adding live code or before treating a discovery
 candidate as accepted implementation.
 
+## How To Read
+
+- Each row is a current live implementation owner, not a final product
+  architecture commitment.
+- `Phase` tells whether the owner is still an engineering prototype or has
+  become a production vertical slice.
+- `Owner` points to the module README and prototype-boundary note that own
+  details; this register only summarizes the accepted boundary.
+- `Accepted Non-Goals` are active guardrails. New work that crosses one should
+  create or update a named workflow question before changing code.
+
 ## Slice Register
 
 | Slice | Phase | Workflow Covered | Entrypoint Or Surface | Storage Or Artifact Boundary | Tests And Fixtures | Owner | Accepted Non-Goals |

@@ -14,6 +14,18 @@ or vertical slice should validate.
 implementation owners for accepted slices. This document records the user
 workflow thread and its validated or missing steps.
 
+## How To Read
+
+- Start with rows marked `Composition gap`; those are the clearest next
+  workflow-seam candidates.
+- Rows marked `Engineering prototype` have live route-local owners, but they
+  are not production-supported workflows.
+- Rows marked `Implementation candidate` should not be copied into live code
+  unless they close a named workflow step, seam, or risk question.
+- Use `Next Validation Question` to choose the next prototype; use
+  [`vertical-slice-register.md`](vertical-slice-register.md) to find code and
+  fixture ownership.
+
 ## Status Vocabulary
 
 | Status | Meaning |

@@ -87,7 +87,8 @@ than a duplicate route inventory.
 
 ## Promotion Discipline
 
-Do not promote a validation result directly into shared architecture.
+Do not promote a validation result directly into shared product or engineering
+boundaries.
 
 Before moving a concept into accepted schema, shared implementation, live route
 code, or `docs/engineering/prototype-boundaries/`, first classify the phase in

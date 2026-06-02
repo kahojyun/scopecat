@@ -1,11 +1,24 @@
 # Scopecat Docs
 
 `docs/` is Scopecat's durable project memory. It keeps product direction,
-research conclusions, problem framing, decisions, and future user documentation
-in plain Markdown.
+research conclusions, problem framing, decisions, and user documentation when
+introduced.
 
 Start here for the top-down reading path. Use [`index.md`](index.md) only as a
 flat navigation map when you already know which owner you need.
+
+## Current State
+
+- Scopecat is in engineering-prototype phase, not production-supported release.
+- Current live owners are Measurement Records, Handoff, Environment Operation,
+  and Parameter State route modules.
+- The main composition gap is legacy measurement portable handoff: recorded
+  legacy run -> selected stored measurement -> handoff package -> preview and
+  import on another computer.
+- Discovery docs are evidence and route posture; implementation ownership lives
+  in engineering registers, prototype-boundary notes, and module READMEs.
+- Production vertical slices should be promoted only from named workflow steps,
+  seams, or risk questions.
 
 ## Read Top Down
 
@@ -41,7 +54,7 @@ Keep durable statements in the narrowest owner:
 - engineering governance: [`engineering/README.md`](engineering/README.md)
 - engineering phase rules: [`engineering/project-phase-model.md`](engineering/project-phase-model.md)
 - workflow validation state: [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md)
-- accepted vertical slices: [`engineering/vertical-slice-register.md`](engineering/vertical-slice-register.md)
+- accepted implementation slices: [`engineering/vertical-slice-register.md`](engineering/vertical-slice-register.md)
 - evidence claims: [`evidence/evidence-register.md`](evidence/evidence-register.md)
 - evidence interpretation: [`evidence/method.md`](evidence/method.md)
 - discovery navigation: [`discovery/README.md`](discovery/README.md)
@@ -54,12 +67,12 @@ Keep durable statements in the narrowest owner:
 - product direction: [`product/direction.md`](product/direction.md)
 - research inputs: [`evidence/research/README.md`](evidence/research/README.md)
 
-Create validation, decision, prototype-boundary, engineering governance, or user docs
-only when there is a specific durable owner and content for them. Engineering
-governance docs define phase, workflow, and slice ownership rules across
-routes. Prototype-boundary notes are for route-local engineering ownership
-after discovery evidence starts turning into implementation work; they should
-link back to discovery evidence instead of copying it wholesale.
+Create validation, decision, prototype-boundary, engineering governance, or
+user docs only when there is a specific durable owner and content for them.
+Engineering governance docs define phase, workflow, and slice ownership rules
+across routes. Prototype-boundary notes are for route-local engineering
+ownership after discovery evidence starts turning into implementation work;
+they should link back to discovery evidence instead of copying it wholesale.
 
 ## Editing Rules
 

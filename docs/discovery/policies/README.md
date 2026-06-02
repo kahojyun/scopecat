@@ -2,11 +2,12 @@
 
 ## Status
 
-Navigation index, not an ADR.
+Discovery policy navigation index.
 
 Policies record repeated boundary vocabulary and product posture that more than
-one route or slice may need. They do not accept final architecture unless a
-narrower decision document says so.
+one route or slice may need. They do not accept final product architecture,
+storage schema, or public API behavior unless a narrower decision document says
+so.
 
 ## Current Policies
 

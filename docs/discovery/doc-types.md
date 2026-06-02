@@ -2,11 +2,11 @@
 
 ## Status
 
-Documentation convention, not an ADR.
+Discovery documentation convention.
 
 Discovery docs intentionally preserve problem framing, validation evidence, and
-deferred decisions before architecture is accepted. Use the narrowest document
-type that owns the statement being made.
+deferred decisions before engineering or production owners accept a boundary.
+Use the narrowest document type that owns the statement being made.
 
 ## Types
 

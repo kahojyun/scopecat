@@ -36,9 +36,9 @@ recurring-concepts table below uses route and slice shorthand only.
 ## Route Evidence Summary
 
 Current route evidence is strong enough to compare recurring concepts, but not
-strong enough to promote a shared architecture package. Route-local sequencing
-and stop rules belong in route owners; this document only records cross-route
-pressure.
+strong enough to promote shared models, shared schemas, or shared implementation
+packages. Route-local sequencing and stop rules belong in route owners; this
+document only records cross-route pressure.
 
 | Evidence area | Current synthesis posture | Owner |
 | --- | --- | --- |
@@ -346,12 +346,13 @@ The cross-slice comparison still does not earn:
 
 ## Use This Synthesis
 
-Use this document as the comparison point before promoting shared architecture.
-It should answer whether a concept is recurring cross-slice pressure, a stable
-separation, a route-local decision, or still only slice-local vocabulary.
+Use this document as the comparison point before promoting shared models,
+schemas, packages, or engineering boundaries. It should answer whether a
+concept is recurring cross-slice pressure, a stable separation, a route-local
+decision, or still only slice-local vocabulary.
 
 For route sequencing, next-work choices, stop rules, and reopen triggers, use
-the current route or architecture owners instead of this synthesis:
+the current route, engineering, or module owners instead of this synthesis:
 
 - [`../routes/measurement-records/README.md`](../routes/measurement-records/README.md)
 - [`../routes/measurement-records/import-source-decision.md`](../routes/measurement-records/import-source-decision.md)
