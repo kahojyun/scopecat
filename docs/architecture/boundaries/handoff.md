@@ -15,7 +15,7 @@ sections below are historical engineering checkpoints for the older
 review order, approval, local receipts, and rollback pressure, but they are no
 longer the active durable Measurement Records handoff import path. Current
 durable import ownership lives in
-[`durable-import-storage-decision.md`](durable-import-storage-decision.md).
+[`handoff-durable-import-storage.md`](handoff-durable-import-storage.md).
 
 ## Decision
 
@@ -151,7 +151,7 @@ or import linked-context payloads. It only answers whether a later explicit
 mutation request has enough reviewed destination facts to be considered.
 
 The first mutation implementation slice after this preflight is chosen in
-[`storage-acceptance-decision.md`](storage-acceptance-decision.md). Keep
+[`handoff-candidate-storage-acceptance.md`](../archive/handoff-candidate-storage-acceptance.md). Keep
 rollback and storage-acceptance implementation scope there rather than
 expanding this promotion snapshot.
 
@@ -160,7 +160,7 @@ expanding this promotion snapshot.
 The older candidate-storage route included `run_storage_acceptance(...)` as
 the first narrow storage mutation after a ready acceptance preflight. The
 owning historical scope is
-[`storage-acceptance-decision.md`](storage-acceptance-decision.md).
+[`handoff-candidate-storage-acceptance.md`](../archive/handoff-candidate-storage-acceptance.md).
 
 This did not promote final storage schema, existing-record update,
 conflict resolution, crash recovery, archive trust, or linked-context payload
@@ -202,10 +202,10 @@ The next engineering phase needed to choose one explicit path:
   package writing, legacy import, existing-record update, source observation,
   package receiving, and running inspection before accepting a storage or
   archive format. The historical synthesis is recorded in
-  [`storage-import-requirements-synthesis.md`](storage-import-requirements-synthesis.md);
+  [`handoff-storage-import-requirements-synthesis.md`](../archive/handoff-storage-import-requirements-synthesis.md);
 - durable import/storage decision: define the storage API boundary before
   writing beyond the candidate layout. That path is now owned by
-  [`durable-import-storage-decision.md`](durable-import-storage-decision.md).
+  [`handoff-durable-import-storage.md`](handoff-durable-import-storage.md).
 
 The candidate workflow was enough to validate local writer/reader/review
 ergonomics plus a first explicitly approved candidate storage mutation. It was
@@ -364,7 +364,7 @@ capabilities, such as:
 ## Verification
 
 Promotion was made after the engineering readiness assessment in
-[`engineering-prototype-readiness.md`](engineering-prototype-readiness.md) and
+[`prototype-readiness.md`](../archive/handoff-prototype-readiness.md) and
 should be preserved with:
 
 ```text

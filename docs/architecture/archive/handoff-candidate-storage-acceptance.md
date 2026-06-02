@@ -18,7 +18,7 @@ first-mutation slice scope, rollback expectations, and still-deferred storage
 questions. It is not a broad storage architecture decision. Keep current
 durable import route syntax in the handoff module README; keep the broader
 accepted handoff boundary in
-[`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md).
+[`handoff.md`](../boundaries/handoff.md).
 
 ## Decision
 

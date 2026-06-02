@@ -8,7 +8,7 @@ This document records the prototype objective, scope, non-claims, and stop
 conditions that launched the environment-operation engineering vertical. Do
 not update it to mirror routine API additions. Current implementation-boundary
 guidance lives in
-[`engineering-prototype-readiness.md`](engineering-prototype-readiness.md);
+[`environment-operation-prototype-readiness.md`](environment-operation-prototype-readiness.md);
 the current route-local Python surface lives in
 [`../../../src/scopecat/environment_operation/README.md`](../../../src/scopecat/environment_operation/README.md).
 

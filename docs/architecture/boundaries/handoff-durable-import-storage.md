@@ -8,7 +8,7 @@ This note chooses the first durable storage/import boundary after Measurement
 Records gained durable creation, writer attachment, read view, finalization,
 read-model projection, catalog, refresh, and an explicit decision against
 manifest replacement. It supersedes the waiting posture in
-[`storage-import-requirements-synthesis.md`](storage-import-requirements-synthesis.md)
+[`handoff-storage-import-requirements-synthesis.md`](../archive/handoff-storage-import-requirements-synthesis.md)
 for the narrow question of what durable import can implement first.
 
 ## Decision

@@ -12,8 +12,8 @@ import API, dataframe dependency, plotting library, archive format, signature
 model, or shared measurement-record domain model.
 
 For current implementation boundaries, use
-[`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md),
-[`durable-import-storage-decision.md`](../../../../architecture/handoff/durable-import-storage-decision.md),
+[`handoff.md`](../../../../architecture/boundaries/handoff.md),
+[`handoff-durable-import-storage.md`](../../../../architecture/boundaries/handoff-durable-import-storage.md),
 and [`src/scopecat/handoff/README.md`](../../../../../src/scopecat/handoff/README.md).
 Keep validation evidence and retired route discovery synthesis here; keep
 implementation-boundary guidance in the architecture and module docs.
@@ -60,10 +60,10 @@ old validation result, the architecture notes, or the module README.
 
 | Discovery slice group | Engineering coverage | Current owner |
 | --- | --- | --- |
-| Writer, contents preview, opener, read view, tables, integrity observation, inspection artifact, receiving gate, import plan, durable import adapter, package workflow | Promoted into route-local engineering code. The implementation may harden internals beyond the original candidate, but the live boundary belongs to the module and architecture docs. | [`src/scopecat/handoff/README.md`](../../../../../src/scopecat/handoff/README.md), [`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md), [`durable-import-storage-decision.md`](../../../../architecture/handoff/durable-import-storage-decision.md) |
+| Writer, contents preview, opener, read view, tables, integrity observation, inspection artifact, receiving gate, import plan, durable import adapter, package workflow | Promoted into route-local engineering code. The implementation may harden internals beyond the original candidate, but the live boundary belongs to the module and architecture docs. | [`src/scopecat/handoff/README.md`](../../../../../src/scopecat/handoff/README.md), [`handoff.md`](../../../../architecture/boundaries/handoff.md), [`handoff-durable-import-storage.md`](../../../../architecture/boundaries/handoff-durable-import-storage.md) |
 | Round trip and route-pressure fixtures | Partially retained as compatibility and fixture pressure. They inform engineering tests and accepted route posture, but they are not separate live product APIs. | Engineering tests plus this route README; validation results stay historical. |
 | Preview shape view, preview consumption, visual review, GUI view state, SDK view model, SDK ergonomics | Retained as UX/API pressure only. Some concepts are reflected in `HandoffPackage`, `HandoffTable`, `HandoffPlotSeries`, and `build_inspection_html(...)`, but no final GUI state API, SDK view model, pandas/numpy adapter contract, or plotting layer has been promoted. | Historical validation results and future narrower decisions if a concrete workflow reopens them. |
-| Candidate acceptance/storage layout | Retained only as historical engineering evidence for the first candidate storage acceptance mutation, not as the current top-level handoff API, final storage architecture, archive format, existing-record update, or conflict policy. | [`storage-acceptance-decision.md`](../../../../architecture/handoff/storage-acceptance-decision.md) |
+| Candidate acceptance/storage layout | Retained only as historical engineering evidence for the first candidate storage acceptance mutation, not as the current top-level handoff API, final storage architecture, archive format, existing-record update, or conflict policy. | [`handoff-candidate-storage-acceptance.md`](../../../../architecture/archive/handoff-candidate-storage-acceptance.md) |
 
 ## Accepted Local Baseline
 
@@ -75,16 +75,16 @@ architecture promotion and durable import decisions, and current exported API
 details live in the module README.
 
 Use
-[`engineering-prototype-plan.md`](../../../../architecture/handoff/engineering-prototype-plan.md)
+[`prototype-plan.md`](../../../../architecture/archive/handoff-prototype-plan.md)
 for the frozen historical prototype objective, scope, fixture policy, stop
 conditions, and promotion criteria.
 
 Use
-[`engineering-prototype-readiness.md`](../../../../architecture/handoff/engineering-prototype-readiness.md)
+[`prototype-readiness.md`](../../../../architecture/archive/handoff-prototype-readiness.md)
 for the frozen stop-criteria checkpoint that ended the prototype line.
 
 Use
-[`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md)
+[`handoff.md`](../../../../architecture/boundaries/handoff.md)
 for the canonical accepted implementation boundary and next decision gate.
 
 Use [`../../../../../src/scopecat/handoff/README.md`](../../../../../src/scopecat/handoff/README.md)

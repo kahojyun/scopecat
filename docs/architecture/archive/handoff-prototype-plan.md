@@ -6,7 +6,7 @@ Frozen engineering prototype plan, not accepted architecture.
 
 This document is a historical plan snapshot. Do not update it to mirror every
 new promoted API. Current accepted implementation boundaries live in
-[`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md);
+[`handoff.md`](../boundaries/handoff.md);
 current exported API details live in
 [`../../../src/scopecat/handoff/README.md`](../../../src/scopecat/handoff/README.md).
 
@@ -139,7 +139,7 @@ current accepted boundary in the promotion decision and the current exported
 surface in the module README.
 
 Promotion follow-up decisions resolved by
-[`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md):
+[`handoff.md`](../boundaries/handoff.md):
 
 - leading-underscore helper modules stay route-private;
 - static HTML remains the first local review surface;
@@ -240,9 +240,9 @@ failure semantics, reconsider shared model extraction with a narrower accepted
 decision or ADR.
 
 Current stop-criteria assessment is recorded in
-[`engineering-prototype-readiness.md`](engineering-prototype-readiness.md);
+[`handoff-prototype-readiness.md`](handoff-prototype-readiness.md);
 the promotion decision is recorded in
-[`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md).
+[`handoff.md`](../boundaries/handoff.md).
 
 ## Remaining Follow-Up Questions
 

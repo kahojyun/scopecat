@@ -8,7 +8,7 @@ This document records the stop/readiness assessment that justified ending the
 environment-operation prototype line. Do not update it to mirror later API
 additions or route extensions. Current accepted implementation boundaries live
 in
-[`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md).
+[`environment-operation.md`](../boundaries/environment-operation.md).
 Keep routine API inventory in
 [`../../../src/scopecat/environment_operation/README.md`](../../../src/scopecat/environment_operation/README.md)
 and leave the prototype plan as a frozen scope snapshot.
@@ -110,7 +110,7 @@ requires it, or if a future route extension explicitly chooses one as evidence.
 The approved `uv sync` execution/review boundary plus the bounded post-sync
 runtime probe has been promoted as the accepted local boundary. Future
 environment-operation work should start from
-[`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md).
+[`environment-operation.md`](../boundaries/environment-operation.md).
 
 Future environment-operation work should be triggered by a new boundary
 question: broader review-bundle integration with optional manifest or
