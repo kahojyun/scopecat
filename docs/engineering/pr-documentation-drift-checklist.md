@@ -11,13 +11,13 @@ nearest owner and avoid turning candidates or future plans into current truth.
 
 ## Checklist
 
-- **Phase**: classify the change as discovery evidence, implementation
-  candidate, engineering prototype, production vertical slice, or supported
-  workflow.
+- **Maturity**: classify the affected workflow or capability maturity using
+  the delivery maturity model. Treat candidates, spikes, prototypes, and
+  scenarios as validation methods, not progress metrics by themselves.
 - **Owner**: update the nearest owner only: workflow map for workflow status,
-  slice register for live implementation ownership, prototype-boundary notes
-  for route boundaries, module READMEs for API details, or discovery docs for
-  evidence.
+  capability register for product capability maturity and implementation
+  ownership, prototype-boundary notes for route boundaries, module READMEs for
+  API details, or discovery docs for evidence.
 - **No duplicate state**: avoid copying the same current state, owner table,
   next work, or non-goal into multiple README files.
 - **Candidate promotion**: if discovery results or `implementation_candidates/`
@@ -34,5 +34,6 @@ nearest owner and avoid turning candidates or future plans into current truth.
   supersession clarification.
 - **Future flexibility**: do not describe an unvalidated future owner, request
   shape, schema, GUI, storage model, SDK, or redaction policy as accepted.
-- **Reader test**: a context-free reader should be able to answer what phase
-  changed, who owns it, and what was not accepted.
+- **Reader test**: a context-free reader should be able to answer which
+  workflow or capability changed, what maturity changed, who owns it, and what
+  remains unaccepted.

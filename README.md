@@ -20,7 +20,7 @@ Current implementation phase: engineering prototype.
 
 The repository contains live route-local prototype owners, discovery evidence,
 and historical candidates. It is not a finalized product architecture or
-production-supported workflow yet.
+maintained product capability yet.
 
 ## Documentation
 

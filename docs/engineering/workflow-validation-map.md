@@ -10,9 +10,9 @@ This map organizes Scopecat progress by user workflow rather than by candidate
 file, fixture family, or code module. Use it to decide what the next prototype
 or vertical slice should validate.
 
-[`vertical-slice-register.md`](vertical-slice-register.md) records the
-implementation owners for accepted slices. This document records the user
-workflow thread and its validated or missing steps.
+[`capability-register.md`](capability-register.md) records product
+capabilities, maturity, evidence, and implementation owners. This document
+records the user workflow thread and its validated or missing steps.
 
 ## Current Workflow Focus
 
@@ -31,21 +31,22 @@ portable/export posture for that package boundary.
 
 - Start with rows marked `Composition gap`; those are the clearest next
   workflow-seam candidates.
-- Rows marked `Engineering prototype` have live route-local owners, but they
-  are not production-supported workflows.
+- Rows marked `Engineering prototype` have live route-local implementation
+  owners, but they are not production vertical slices or maintained product
+  capabilities.
 - Rows marked `Implementation candidate` should not be copied into live code
   unless they close a named workflow step, seam, or risk question.
 - Use `Next Validation Question` to choose the next prototype.
-- Use [`vertical-slice-register.md`](vertical-slice-register.md) to find live
-  implementation owners, entrypoints, tests, fixtures, artifacts, and
-  non-goals.
+- Use [`capability-register.md`](capability-register.md) to find product
+  capabilities, maturity, supporting evidence, implementation owners, and open
+  advancement questions.
 
 ## Status Vocabulary
 
 | Status | Meaning |
 | --- | --- |
 | Discovery evidence | Evidence exists, but no accepted live implementation owns the workflow step. |
-| Implementation candidate | Candidate behavior exists and may have fixtures/tests, but it is not an accepted live route owner. |
+| Implementation candidate | Candidate behavior exists and may have fixtures/tests, but it remains validation evidence rather than product progress unless promoted through a named workflow or capability question. |
 | Engineering prototype | A route-local production-shaped prototype validates a named workflow step, seam, or risk question. |
 | Production vertical slice | A scoped user workflow is accepted from entrypoint to durable state or output with defined failure behavior. |
 | Composition gap | Adjacent validated steps exist, but the user workflow still lacks a validated seam between them. |
@@ -73,8 +74,8 @@ Update this map when a branch:
 - validates a seam between two accepted routes;
 - changes a workflow's generated artifact, portable/export, or redaction
   boundary;
-- discovers that an implementation candidate is being copied without closing a
-  named workflow question.
+- discovers that a validation artifact is being counted as progress without
+  closing a named workflow or capability question.
 
 Keep detailed API and code ownership in module READMEs and prototype-boundary
 notes.

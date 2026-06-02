@@ -15,7 +15,7 @@ After discovery evidence starts moving into live route-local code, active
 workflow sequencing belongs in
 [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
 and implementation ownership belongs in
-[`../engineering/vertical-slice-register.md`](../engineering/vertical-slice-register.md).
+[`../engineering/capability-register.md`](../engineering/capability-register.md).
 Discovery route and slice documents remain evidence and discovery posture, not
 the default owner for engineering-prototype expansion.
 
@@ -24,10 +24,10 @@ the default owner for engineering-prototype expansion.
 | Document | Use For |
 | --- | --- |
 | [`doc-types.md`](doc-types.md) | Understand which discovery document type owns navigation, policies, route decisions, slice evidence, or synthesis. |
-| [`../engineering/project-phase-model.md`](../engineering/project-phase-model.md) | Classify whether work is discovery, candidate, engineering prototype, production vertical slice, or supported workflow before promoting code. |
+| [`../engineering/delivery-maturity-model.md`](../engineering/delivery-maturity-model.md) | Classify workflow and capability maturity before promoting code; treat candidates, spikes, prototypes, and scenarios as validation methods. |
 | [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md) | Start from user workflow threads, validated steps, and missing seams before selecting the next prototype or vertical slice. |
 | [`routes/README.md`](routes/README.md) | Navigate discovery route owners, route decisions, and adoption routes by durable user workflow. |
-| [`../engineering/vertical-slice-register.md`](../engineering/vertical-slice-register.md) | Current accepted implementation slice ownership; the old promotion coordination map is archived at [`archive/prototype-promotion-map.md`](archive/prototype-promotion-map.md). |
+| [`../engineering/capability-register.md`](../engineering/capability-register.md) | Current product capabilities, maturity, evidence, and implementation owners; the old promotion coordination map is archived at [`archive/prototype-promotion-map.md`](archive/prototype-promotion-map.md). |
 | [`policies/README.md`](policies/README.md) | Navigate repeated boundary vocabulary and product posture documents. |
 | [`problem-briefs/README.md`](problem-briefs/README.md) | Start from evidence-backed problem framing before choosing a validation question. |
 | [`slices/README.md`](slices/README.md) | Use discovery slice results as evidence; the old flat inventory is archived at [`archive/slice-inventory.md`](archive/slice-inventory.md). |
@@ -81,7 +81,7 @@ boundaries.
 
 Before moving a concept into accepted schema, shared implementation, live route
 code, or `docs/engineering/prototype-boundaries/`, first classify the phase in
-[`../engineering/project-phase-model.md`](../engineering/project-phase-model.md)
+[`../engineering/delivery-maturity-model.md`](../engineering/delivery-maturity-model.md)
 and attach the work to a named workflow step, seam, or risk question in
 [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md).
 Then make sure there is:

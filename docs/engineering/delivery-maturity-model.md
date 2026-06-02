@@ -1,4 +1,4 @@
-# Project Phase Model
+# Delivery Maturity Model
 
 ## Status
 
@@ -6,35 +6,72 @@ Project engineering governance.
 
 ## Purpose
 
-This document defines the engineering maturity stages used when discovery work
-moves toward production code. Use it before promoting discovery work into
-implementation or before expanding an engineering prototype.
+This document defines how Scopecat classifies workflow and capability maturity
+as discovery work moves toward production behavior. It is not a strict
+project-wide phase gate: different workflows and capabilities may sit at
+different maturity levels at the same time.
+
+Use this model before promoting discovery work into implementation or before
+expanding an engineering prototype.
 
 The default rule is:
 
 ```text
 discovery evidence
   -> named workflow question
-  -> implementation candidate or engineering prototype
+  -> chosen validation method
+  -> engineering prototype when live route-local behavior is needed
   -> production vertical slice
   -> production readiness
   -> maintained product capability
 ```
 
-Candidate-summary parity is not promotion evidence unless it closes a named
-workflow step, workflow seam, or risk question in
-[`workflow-validation-map.md`](workflow-validation-map.md).
+Candidate-summary parity is not progress by itself. It becomes useful evidence
+when it closes a named workflow step, workflow seam, capability risk, or product
+risk in [`workflow-validation-map.md`](workflow-validation-map.md) or
+[`capability-register.md`](capability-register.md).
 
-## Phase Responsibilities
+## Product Objects
 
-| Phase | Purpose | Exit Criteria | Typical Deliverables |
+Track project progress by product object, not by the number of candidates,
+fixtures, or prototypes.
+
+| Object | Use For |
+| --- | --- |
+| Workflow | A user goal and the steps needed to complete it end to end. Workflows expose missing seams and next validation questions. |
+| Capability | A product ability that can support one or more workflows, such as Measurement Records, Handoff Packages, or Parameter State Review. Capabilities are the main owner for maturity and maintenance. |
+| Vertical slice | A scoped end-to-end product path that proves one workflow through one or more capabilities. |
+| Module | The code organization that implements part of a capability. Module boundaries can change as capabilities mature. |
+
+## Maturity States
+
+| Maturity | Purpose | Exit Criteria | Typical Deliverables |
 | --- | --- | --- | --- |
 | Discovery | Understand the problem, user job, workflow pressure, and evidence-backed boundaries. | The next question is specific enough to test with a candidate, prototype, or explicit deferral. | Problem briefs, route notes, validation plans/results, repository-safe fixtures, expected outputs. |
-| Implementation candidate | Explore a narrow implementation shape quickly, usually against discovery fixtures. | The candidate either answers the question and is ready for promotion, or remains historical evidence. | `implementation_candidates/`, spikes, candidate tests, expected summaries. |
 | Engineering prototype | Validate a production-shaped route-local behavior for one workflow step, workflow seam, or technical risk. | The prototype has a clear entrypoint, typed or explicit contracts, workflow/failure tests, and a documented boundary. | `src/scopecat/<route>/`, module README, route-local typed objects, workflow acceptance tests, local review artifacts. |
 | Production vertical slice | Deliver one end-to-end user workflow from entrypoint to durable state or output with defined failure behavior. | The slice can be used as a coherent product path and has acceptance tests, compatibility expectations, and documented user-visible behavior. | Owned module, acceptance/scenario tests, storage/output authority docs, route decision, compatibility and failure rules. |
 | Production readiness | Prepare a vertical slice for reliable use beyond prototype conditions. | Operational, compatibility, migration, diagnostics, documentation, and support risks are reviewed and either closed or explicitly accepted. | Readiness checklist, release criteria, compatibility notes, migration/upgrade notes, diagnostic expectations. |
 | Maintained product capability | Maintain a stable capability inside the Scopecat product. A capability may support multiple user workflows; it is not a separate product. | Changes are handled through normal product maintenance: compatibility, regression coverage, support expectations, and documented deprecation or migration when needed. | User docs, support policy, compatibility guarantees, migration/upgrade notes, operational diagnostics. |
+
+## Validation Methods
+
+Validation methods are tools for moving a workflow or capability forward. They
+are not project progress metrics by themselves.
+
+Common methods include:
+
+- discovery interview, workflow mapping, or problem brief;
+- fixture-based validation plan or result;
+- technical spike;
+- implementation candidate;
+- production-shaped engineering prototype;
+- scripted scenario or dogfood run;
+- acceptance/scenario/failure test;
+- production-readiness review.
+
+Choose the method that answers the current risk. Early discovery may prefer
+fixtures and candidates; production readiness prefers scenario tests,
+diagnostics, compatibility review, migration review, and user-facing docs.
 
 ## Promotion Rules
 
@@ -43,8 +80,8 @@ prototype boundary, update or reference:
 
 - [`workflow-validation-map.md`](workflow-validation-map.md), to name the user
   workflow, seam, or risk question;
-- [`vertical-slice-register.md`](vertical-slice-register.md), to name the
-  implementation owner, entrypoint, tests, fixtures, and scope boundary;
+- [`capability-register.md`](capability-register.md), to name the product
+  capability, maturity, implementation owner, evidence, and scope boundary;
 - the owning module README or prototype-boundary note, to define the accepted
   boundary and live API.
 
@@ -90,7 +127,7 @@ When an AI-assisted session proposes a new implementation slice, first classify
 the work:
 
 - new discovery evidence;
-- candidate parity or candidate cleanup;
+- validation method output, such as candidate parity or candidate cleanup;
 - engineering prototype for a named workflow/seam/risk;
 - production vertical slice;
 - production readiness;

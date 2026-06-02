@@ -8,16 +8,16 @@ Engineering governance navigation.
 
 This directory owns cross-route engineering process rules after discovery
 evidence starts moving toward implementation. It exists to prevent drift
-between discovery candidates, engineering prototypes, and production vertical
-slices.
+between product workflows, product capabilities, validation artifacts, and live
+implementation owners.
 
 Use these documents before adding or promoting live code:
 
 | Document | Use For |
 | --- | --- |
-| [`project-phase-model.md`](project-phase-model.md) | Classify work by phase and apply promotion, code, test, fixture, and drift-control rules. |
+| [`delivery-maturity-model.md`](delivery-maturity-model.md) | Classify workflow and capability maturity; choose validation methods without treating candidate/prototype counts as progress. |
 | [`workflow-validation-map.md`](workflow-validation-map.md) | Start from user workflow threads, validated steps, missing seams, and next validation questions. |
-| [`vertical-slice-register.md`](vertical-slice-register.md) | Find accepted implementation slices, owners, entrypoints, artifact boundaries, tests, and non-goals. |
+| [`capability-register.md`](capability-register.md) | Track product capabilities, maturity, supported workflows, evidence, implementation owners, and open advancement questions. |
 | [`prototype-boundaries/README.md`](prototype-boundaries/README.md) | Find current route-local engineering prototype boundaries and next decision gates. |
 | [`pr-documentation-drift-checklist.md`](pr-documentation-drift-checklist.md) | Lightweight PR checklist for avoiding documentation drift without freezing future decisions. |
 | [`archive/README.md`](archive/README.md) | Find historical prototype plans, readiness checkpoints, and retired engineering decisions. |

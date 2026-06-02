@@ -11,8 +11,8 @@ flat navigation map when you already know which owner you need.
 
 - Current workflow status and composition gaps:
   [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md)
-- Current live implementation owners:
-  [`engineering/vertical-slice-register.md`](engineering/vertical-slice-register.md)
+- Current capabilities, maturity, evidence, and implementation owners:
+  [`engineering/capability-register.md`](engineering/capability-register.md)
 - Current route-local prototype boundaries:
   [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md)
 - Active execution work should live in issues, PRs, or branch plans rather than
@@ -24,14 +24,14 @@ For product and implementation direction:
 
 1. [`product/direction.md`](product/direction.md) for product
    posture, long-term boundaries, and non-goals.
-2. [`engineering/README.md`](engineering/README.md) for phase, workflow, and
-   vertical-slice governance.
+2. [`engineering/README.md`](engineering/README.md) for maturity, workflow,
+   capability, and promotion governance.
 3. [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md)
    to find the user workflow thread, validated steps, missing seams, and next
    validation question.
-4. [`engineering/vertical-slice-register.md`](engineering/vertical-slice-register.md)
-   to find the accepted implementation owner, entrypoint, tests, fixture
-   boundary, and non-goals.
+4. [`engineering/capability-register.md`](engineering/capability-register.md)
+   to find product capabilities, maturity, supporting evidence,
+   implementation owners, and open advancement questions.
 5. [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) and the owning module
    README for live implementation boundaries and API details.
 

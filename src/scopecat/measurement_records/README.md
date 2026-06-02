@@ -7,12 +7,12 @@ Measurement Records.
 
 This module owns the live route-local APIs for creating, importing, reviewing,
 and reading local measurement records. It is not a final storage architecture,
-public SDK contract, production-supported workflow, or shared domain model.
+public SDK contract, maintained product capability, or shared domain model.
 
 For phase and slice ownership, start from
 [`../../../docs/engineering/workflow-validation-map.md`](../../../docs/engineering/workflow-validation-map.md)
 and
-[`../../../docs/engineering/vertical-slice-register.md`](../../../docs/engineering/vertical-slice-register.md).
+[`../../../docs/engineering/capability-register.md`](../../../docs/engineering/capability-register.md).
 For accepted prototype boundaries, use
 [`../../../docs/engineering/prototype-boundaries/measurement-records-creation-lifecycle.md`](../../../docs/engineering/prototype-boundaries/measurement-records-creation-lifecycle.md)
 and

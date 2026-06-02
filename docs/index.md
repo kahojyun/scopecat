@@ -10,8 +10,8 @@ the recommended top-down reading path.
 ```text
 docs/
   product/   product direction and boundaries
-  engineering/ project phase model, workflow validation map, slice register,
-               prototype boundaries, and engineering archive
+  engineering/ delivery maturity model, workflow validation map, capability
+               register, prototype boundaries, and engineering archive
   discovery/  problem briefs, policies, routes, validation slices, synthesis
   evidence/   evidence register, method, research, external baseline
 ```
@@ -21,10 +21,10 @@ docs/
 | [`README.md`](README.md) | Documentation purpose and editing rules. |
 | [`AGENTS.md`](AGENTS.md) | AI-session rules for work inside `docs/`. |
 | [`product/direction.md`](product/direction.md) | Current product direction, default ownership boundaries, and non-goals. |
-| [`engineering/README.md`](engineering/README.md) | Engineering governance navigation for phase, workflow, and vertical slice rules. |
-| [`engineering/project-phase-model.md`](engineering/project-phase-model.md) | Phase responsibilities, promotion rules, code/test/fixture ownership, and drift control. |
+| [`engineering/README.md`](engineering/README.md) | Engineering governance navigation for maturity, workflow, capability, and promotion rules. |
+| [`engineering/delivery-maturity-model.md`](engineering/delivery-maturity-model.md) | Product objects, maturity states, validation methods, promotion rules, and drift control. |
 | [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md) | User workflow threads, validated steps, missing seams, and next validation questions. |
-| [`engineering/vertical-slice-register.md`](engineering/vertical-slice-register.md) | Accepted implementation slices, owners, entrypoints, artifact boundaries, tests, and non-goals. |
+| [`engineering/capability-register.md`](engineering/capability-register.md) | Product capabilities, maturity, supported workflows, evidence, implementation owners, and open advancement questions. |
 | [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) | Current route-local engineering prototype boundaries promoted from discovery-backed implementation work. |
 | [`discovery/README.md`](discovery/README.md) | Discovery navigation for problem briefs, validation slices, synthesis, and deferrals. |
 | [`discovery/doc-types.md`](discovery/doc-types.md) | Discovery document type responsibilities and ownership rules. |

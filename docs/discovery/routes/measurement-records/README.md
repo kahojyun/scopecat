@@ -80,7 +80,7 @@ execution migration still require separate boundary work.
 This discovery route no longer owns active implementation sequencing. For live
 Measurement Records work, start from
 [`../../../engineering/workflow-validation-map.md`](../../../engineering/workflow-validation-map.md),
-[`../../../engineering/vertical-slice-register.md`](../../../engineering/vertical-slice-register.md),
+[`../../../engineering/capability-register.md`](../../../engineering/capability-register.md),
 the relevant prototype-boundary note, and the live
 [`src/scopecat/measurement_records/README.md`](../../../../src/scopecat/measurement_records/README.md).
 For live handoff work, start from the engineering handoff boundary notes and

@@ -61,7 +61,7 @@ The broader measurement-context support backlog remains candidate-only:
 
 Update this route index only when new discovery evidence changes any of these
 boundaries. Live engineering promotion should update the engineering workflow
-map, slice register, prototype-boundary note, and module README instead:
+map, capability register, prototype-boundary note, and module README instead:
 
 - resolved-link comparison API or finding semantics;
 - context-link construction, storage, or mutation behavior;

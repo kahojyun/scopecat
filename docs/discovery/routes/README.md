@@ -10,8 +10,8 @@ index is explicitly marked retired; use validation results for slice-local
 evidence. Once a route has live engineering ownership, use
 [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
 for workflow sequencing and
-[`../../engineering/vertical-slice-register.md`](../../engineering/vertical-slice-register.md)
-for implementation ownership.
+[`../../engineering/capability-register.md`](../../engineering/capability-register.md)
+for capability maturity and implementation ownership.
 
 ## Current Routes
 
@@ -19,7 +19,7 @@ for implementation ownership.
 | --- | --- |
 | [`adoption-routes.md`](adoption-routes.md) | Compare evidence-backed adoption routes by durable user workflow. |
 | [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md) | Current workflow sequencing after discovery evidence moves toward implementation. |
-| [`../../engineering/vertical-slice-register.md`](../../engineering/vertical-slice-register.md) | Current accepted implementation slice ownership. |
+| [`../../engineering/capability-register.md`](../../engineering/capability-register.md) | Current product capabilities, maturity, evidence, and implementation owners. |
 | [`measurement-records/README.md`](measurement-records/README.md) | Measurement records, import/source decisions, storage writing, selected handoff, package use, and source observation. |
 | [`measurement-records/import-source-decision.md`](measurement-records/import-source-decision.md) | Current import/source route decisions, deferred decisions, reopen triggers, and next-slice guidance. |
 | [`measurement-records/legacy-brownfield-adoption-decision.md`](measurement-records/legacy-brownfield-adoption-decision.md) | Current post-run-first legacy adoption route decisions, deferred decisions, reopen triggers, and stop rule. |
