@@ -824,7 +824,7 @@ def _html_review(summary: dict[str, Any]) -> str:
     </section>
     <h2>Measurements</h2>
     {_measurement_cards(measurement_review["measurements"])}
-    <h2>Recorded Context</h2>
+    <h2>Recorded References</h2>
     {_recorded_reference_sections(measurement_review["measurements"])}
     <h2>Primary Data Preview</h2>
     {_preview_sections(measurement_review["measurements"])}

@@ -225,7 +225,7 @@ class LegacyRunStorageGuiScenarioTest(unittest.TestCase):
         self.assertIn("Legacy LabVIEW Run 002", html)
         self.assertIn("Storage Diagnostics", html)
         self.assertIn("Record Artifacts", html)
-        self.assertIn("Recorded Context", html)
+        self.assertIn("Recorded References", html)
         self.assertIn("Legacy parameter file", html)
         self.assertIn("Legacy setup binding file", html)
         self.assertIn("Legacy acquisition code directory", html)
