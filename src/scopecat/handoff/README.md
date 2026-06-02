@@ -1,142 +1,132 @@
 # Handoff Prototype Module
 
-Engineering prototype module for Scopecat-authored handoff package use and the
-current durable Measurement Records handoff import route.
+## Status
 
-This module is route-local prototype code. It tests a production-shaped Python
-entrypoint over validated handoff discovery candidates without accepting final
-public SDK names, package format, broad storage import behavior, GUI
-architecture, plotting stack, or shared measurement-record domain model.
+Current engineering-prototype implementation owner for Scopecat-authored
+handoff package use and durable Measurement Records handoff import adaptation.
 
-The runtime API exposes route-local objects rather than discovery candidate
-summary dictionaries. `as_open_summary()` exists as a copy-safe prototype
-snapshot, not as a public contract.
+This module is route-local prototype code. It exposes production-shaped Python
+entrypoints over validated handoff discovery evidence without accepting final
+public SDK names, final package format, broad storage import behavior, GUI
+architecture, plotting stack, archive/trust semantics, or a shared
+measurement-record domain model.
 
-The prototype owns its handoff-specific manifest preview and contract helpers
-inside this module. Discovery implementation candidates remain historical
-validation inputs, not runtime dependencies for this route.
+For accepted boundaries, start from
+[`../../../docs/engineering/prototype-boundaries/handoff.md`](../../../docs/engineering/prototype-boundaries/handoff.md)
+and
+[`../../../docs/engineering/prototype-boundaries/handoff-durable-import-storage.md`](../../../docs/engineering/prototype-boundaries/handoff-durable-import-storage.md).
+
+## Current Surfaces
+
+Package writer and local package workflow:
+
+- `write_package(source, source_root=..., package_root=...)`
+- `run_package_workflow(source, source_root=..., package_root=...)`
+
+Read-only package use and local review:
+
+- `open_package(package_dir)`
+- `summarize_package_context_references(package)`
+- `build_inspection_html(...)`
+- `write_inspection_artifact(...)`
+
+Receiving-side read-only planning:
+
+- `observe_package_integrity(package_dir)`
+- `run_receiving_gate(source, package_dir=...)`
+- `run_import_plan(source, package_dir=...)`
+
+Durable Measurement Records import adaptation:
+
+- `run_handoff_durable_import(source, package_dir=..., storage_root=...)`
+- `run_handoff_durable_import_from_plan(request, import_plan=..., storage_root=...)`
+- `build_durable_import_request_from_handoff_plan(request, import_plan=...)`
+- `summarize_handoff_durable_import_receipt(receipt)`
+- `review_handoff_durable_import_retry(previous_summary, fresh_import_plan=...)`
+
+The top-level module also exports route projection objects such as
+`HandoffPackage`, `HandoffMeasurement`, `HandoffTable`, `HandoffPlotSeries`,
+receiving/import run objects, and durable-import receipt/retry summaries.
+Modules with leading underscores are route-private implementation modules.
+
+## Boundary Split
 
 Raw manifest dictionaries are validated at the package boundary. After that,
-manifest preview classification, review findings, opener internals, and
-package projections consume typed route-local manifest fragments.
-Raw workflow dictionaries are accepted only at public `run_*` edge adapters.
-Internal receiving/import/preflight/storage composition should pass typed
-route-local request and run objects rather than serializing prior workflow
-state back into nested dictionaries.
-`observe_package_integrity(...)` is a read-only receiving/import prerequisite:
-it compares package-local regular files with paired manifest-declared
-digest/size facts where available. It does not verify signatures,
-authenticity, trust, archive contents, import acceptance, or storage mutation.
-`run_receiving_gate(...)` adds explicit review approval and reviewed fact
-continuity over the opened package plus integrity report. It has no destination
-or storage-mutation fields.
-`run_import_plan(...)` composes read-only package open, optional local
-inspection artifact generation, the receiving gate, and a non-mutating
-measurement import plan. It names the package members that would be considered
-for a later acceptance mutation, but it accepts no destination path, performs
-no conflict detection, writes no storage records, and does not decide final
-storage schema or rollback policy.
-Linked context entries may carry a small `context_reference` object with a
-public-safe reference id, kind, family, and explicit reference-only
-materialization posture. This lets packages keep selected experiment-code,
-prepared-run, environment-operation, parameter, or setup context visible during
-open/import planning without packaging those payloads, resolving references,
-restoring environments, or importing linked context into durable Measurement
-Records storage.
-`summarize_package_context_references(...)` projects an opened package into a
-compact local review summary: context reference count, family counts, typed
-reference entries, and linked-context ids that have no managed reference
-metadata. It does not resolve references, import payloads, restore
-environments, materialize code, mutate storage, or produce a portable export.
-The `prepared_run` family is reserved for `prepared_run_context` references;
-the summary exposes those ids directly so receiving-side review can identify
-the selected manual run-preparation context without treating it as payload.
-Durable Measurement Records import is a separate boundary from candidate
-handoff storage acceptance. When a reviewed handoff package feeds durable
-storage, the accepted path is to adapt exactly one ready import-plan
-measurement into `MeasurementRecordImportSource` and
-`MeasurementRecordDurableImportRequest`, then use the Measurement Records
-durable import pipeline. The first handoff integration should not extend
-`measurement_record_directory_candidate_v0`, import linked-context payloads,
-or batch multiple package measurements in one durable import operation.
-`run_handoff_durable_import_from_plan(...)` implements that route for a ready
-single-measurement `HandoffImportPlanRun`; `run_handoff_durable_import(...)`
-is the raw edge that runs the import plan first and then delegates mutation to
-the durable Measurement Records import pipeline.
-The adapter does not treat the ready handoff import plan as sufficient write
-authority for bytes on disk: the delegated durable import pipeline re-opens the
-package member under the package directory and preflights digest, byte size,
-normalized CSV shape, and row count before any durable storage mutation.
-`summarize_handoff_durable_import_receipt(...)` reads the local adapter receipt
-back into a small continuation summary with package id, selected measurement,
-destination record, final state, next action, and durable import outcome. It
-does not authorize retry, reopen packages, reuse prior import-plan facts, or
-mutate storage.
-`review_handoff_durable_import_retry(...)` compares that local summary with a
-fresh ready import plan and reports whether retry is locally reasonable. It
-does not create a durable import request, recheck destination freshness,
-authorize mutation, or reuse the prior receipt as authority.
-The module CLI remains a local operator surface. `python -m scopecat.handoff
-<package-dir>` opens a package for read-only orientation; `python -m
-scopecat.handoff --receipt-summary <receipt.json>` summarizes either a local
-legacy candidate import workflow receipt or a local handoff durable-import receipt
-for continuation review. The CLI does not run package import, approve storage
-acceptance or durable import, or persist review state.
+manifest preview classification, opener internals, review findings, and
+package projections consume typed route-local manifest fragments. Raw workflow
+dictionaries are accepted only at public `run_*` edge adapters; internal
+composition should pass typed route-local request and run objects.
 
-The older candidate storage acceptance route remains only as historical
-engineering evidence in direct modules:
-`scopecat.handoff.acceptance_preflight`,
-`scopecat.handoff.storage_acceptance`, and
-`scopecat.handoff.import_workflow`. It proved reviewed destination continuity,
-no-overwrite checks, local operator decisions, rollback classification, receipt
-summary, and retry review for `measurement_record_directory_candidate_v0`.
-That route is no longer exported from the top-level `scopecat.handoff` API and
-should not be extended for durable Measurement Records import.
+`run_import_plan(...)` is a non-mutating plan. It names package members that
+could be considered for later acceptance, but accepts no destination path,
+performs no conflict detection, writes no storage records, and does not decide
+final storage schema or rollback policy.
 
-The route-local writer uses a caller-provided `source_root` plus declared
-relative source paths for already-normalized primary data. That source-root
-boundary deliberately avoids accepting final Scopecat storage architecture.
-The writer materializes the current directory-shaped package subset, preflights
-declared sha256/size facts, writes with no-overwrite behavior, and returns a
-local review receipt. It does not create archives, import packages, mutate the
-source root, or decide package acceptance.
-Raw write-request dictionaries are accepted only at `write_package(...)`; the
-writer validates and parses them into route-local write-source objects before
-filesystem preflight, manifest generation, package writes, or receipt
-serialization.
-`run_package_workflow(...)` composes the promoted writer, reader, and optional
-local inspection artifact into one route-local review workflow. It does not
-create archives, import or accept packages, verify package integrity, or decide
-final storage layout.
+Durable import is a separate boundary. When a reviewed handoff package feeds
+durable storage, this module adapts exactly one ready import-plan measurement
+into `MeasurementRecordImportSource` and
+`MeasurementRecordDurableImportRequest`, then delegates mutation to the
+Measurement Records durable import pipeline. The adapter does not treat the
+import plan as sufficient write authority for bytes on disk; the delegated
+pipeline reopens the package member and preflights digest, byte size,
+normalized CSV shape, and row count before any storage mutation.
 
-## API Surface
+## Artifact Boundaries
 
-Current user-facing prototype surface:
+The generated package directory and `package-manifest.json` are portable
+handoff artifacts. Package contents must use package-relative paths and
+validated managed references at the package/export boundary.
 
-- `open_package(package_dir)`;
-- `observe_package_integrity(package_dir)`;
-- `run_receiving_gate(source, package_dir=...)`;
-- `run_import_plan(source, package_dir=...)`;
-- `run_handoff_durable_import(source, package_dir=..., storage_root=...)`;
-- `run_handoff_durable_import_from_plan(request, import_plan=..., storage_root=...)`;
-- `build_durable_import_request_from_handoff_plan(request, import_plan=...)`;
-- `summarize_handoff_durable_import_receipt(receipt)`;
-- `review_handoff_durable_import_retry(previous_summary, fresh_import_plan=...)`;
-- `summarize_package_context_references(package)`;
-- `write_package(source, source_root=..., package_root=...)`;
-- `run_package_workflow(source, source_root=..., package_root=...)`;
-- `python -m scopecat.handoff <package-dir>`;
-- `write_inspection_artifact(...)` and `build_inspection_html(...)`;
-- route projection objects exported from `scopecat.handoff`.
+Local writer receipts, inspection HTML, function return values, import-plan
+objects, durable-import adapter receipts, retry reviews, and CLI summaries are
+local review surfaces unless a later slice explicitly promotes one as a
+portable/export artifact. Linked-context entries remain reference-only: the
+module can expose selected context references for review, but it does not
+package linked payloads, resolve references, restore environments, or import
+linked context into durable Measurement Records storage.
 
-The CLI entrypoint supports:
+## CLI
 
-- `python -m scopecat.handoff <package-dir>`;
-- `python -m scopecat.handoff <package-dir> --html-dir <output-dir>`;
-- `python -m scopecat.handoff --receipt-summary <receipt.json>`.
+The CLI remains a local operator surface:
 
-Modules with leading underscores are route-private implementation modules.
-They may be tested directly while the prototype hardens, but they are not
-public SDK or cross-route domain APIs.
-Legacy candidate storage modules remain direct-module historical coverage, not
-the current top-level handoff API.
+```sh
+python -m scopecat.handoff <package-dir>
+python -m scopecat.handoff <package-dir> --html-dir <output-dir>
+python -m scopecat.handoff --receipt-summary <receipt.json>
+```
+
+It opens a package for read-only orientation, optionally writes local
+inspection HTML, and summarizes local candidate or durable-import receipts for
+continuation review. It does not run package import, approve storage
+acceptance or durable import, persist review state, or become a public import
+API.
+
+## Historical Candidate Context
+
+Discovery implementation candidates remain historical validation inputs, not
+runtime dependencies. The older candidate storage acceptance route remains
+only as historical engineering evidence in direct modules:
+
+- `scopecat.handoff.acceptance_preflight`
+- `scopecat.handoff.storage_acceptance`
+- `scopecat.handoff.import_workflow`
+
+That route proved reviewed destination continuity, no-overwrite checks, local
+operator decisions, rollback classification, receipt summary, and retry review
+for `measurement_record_directory_candidate_v0`. It is no longer exported from
+the top-level `scopecat.handoff` API and should not be extended for durable
+Measurement Records import.
+
+## Active Non-Goals
+
+This module does not currently own:
+
+- final public SDK names or final package schema;
+- archive extraction, compression, signatures, authenticity, or trust policy;
+- batch import or broad package acceptance workflows;
+- linked-context payload packaging, restore, traversal, or import;
+- existing-record update, final storage schema, or broad conflict policy;
+- GUI components, production plotting, dataframe/numeric adapters, or notebook
+  ergonomics;
+- code/environment restore, runnable readiness, or workflow/DAG execution;
+- shared measurement-record, package, or cross-route domain model.
