@@ -60,5 +60,6 @@ Run:
 ```bash
 uv run python -m unittest tests.test_prepared_run_parameter_state_gate_fixture tests.test_prepared_run_parameter_state_gate_summary_candidate
 uv run python -m unittest discover -s tests
-uv run prek run --all-files
+uv run ruff check .
+uv run ruff format --check .
 ```
