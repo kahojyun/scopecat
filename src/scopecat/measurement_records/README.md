@@ -24,9 +24,13 @@ Historical slice-by-slice promotion notes live in [`HISTORY.md`](HISTORY.md).
 Durable record creation and primary-data pipeline:
 
 - `create_measurement_record(...)`
-- writer integration APIs
-- normalized primary table summary APIs
-- read-view, finalization, read-model projection, catalog, and refresh APIs
+- `write_created_record_primary_data(...)`
+- `summarize_normalized_primary_table(...)`
+- `read_created_record_primary_table(...)`
+- `finalize_measurement_record(...)`
+- `project_measurement_record_read_model(...)`
+- `catalog_measurement_record_read_models(...)`
+- `refresh_measurement_record_read_model(...)`
 - `import_measurement_record(...)`
 
 Legacy and brownfield storage review:
@@ -48,9 +52,15 @@ In-progress and existing-record local review:
 - `build_measurement_record_review_html(...)`
 - `write_measurement_record_review_artifact(...)`
 
-Dictionary/request adapter functions with `_from_request` suffix keep raw
-request parsing at the module boundary. Treat lower-level helpers and private
-modules as route-local implementation details, not shared APIs.
+Supporting projection helpers:
+
+- `summarize_running_measurement_inspection(...)`
+- `legacy_measurement_slug(...)`
+
+Dictionary/request adapter functions with `_from_request` suffix mirror the
+main mutation and review entrypoints where raw request parsing belongs at the
+module boundary. Treat lower-level helpers and private modules as route-local
+implementation details, not shared APIs.
 
 ## Artifact Boundaries
 
