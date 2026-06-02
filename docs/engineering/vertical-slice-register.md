@@ -9,7 +9,8 @@ Engineering slice register.
 This register records accepted implementation slices and their current owners.
 It complements [`workflow-validation-map.md`](workflow-validation-map.md):
 
-- the workflow map answers what user workflow has been validated;
+- the workflow map answers what user workflow has been validated and which
+  seams remain missing;
 - this register answers which implementation slice owns the code, tests,
   fixtures, artifacts, and non-goals.
 
@@ -37,20 +38,14 @@ candidate as accepted implementation.
 | Environment operation approved `uv` sync execution/review/probe | Engineering prototype | Approved `uv sync` intent becomes local environment-operation review evidence. | `UvSyncIntent.from_summary(...)`, `execute_uv_sync(...)`, `UvSyncResult.from_execution(...)`, `review_uv_sync_operation(...)`, runtime probe APIs, `run_uv_sync_operation(...)`. | Local review summaries and typed route-local result/review objects; no portable/export projection of local paths or output snippets. | Environment-operation tests and fixtures under `tests/fixtures/*environment*` and `tests/fixtures/prototypes/environment_operation/`. | [`src/scopecat/environment_operation/README.md`](../../src/scopecat/environment_operation/README.md), [`docs/engineering/prototype-boundaries/environment-operation.md`](prototype-boundaries/environment-operation.md) | Runtime readiness, package-state verification, selected-code execution, hardware readiness, multi-manager abstraction, general process executor. |
 | Parameter-state review, storage, read view, selection, and route-local pre-run consumption | Engineering prototype | Parameter state is reviewed, stored, read, and consumed for manual pre-run review. | Adapter import preview/review APIs, storage writer/read view, source-agnostic read projection, selection context, prepared-run consumption/gate/scope/review chain APIs. | Caller-rooted explicit parameter-state storage paths; manifest/receipt read views; local review summaries. | Parameter-state fixtures under `tests/fixtures/*parameter*` and matching unit tests. | [`src/scopecat/parameter_state/README.md`](../../src/scopecat/parameter_state/README.md), [`docs/engineering/prototype-boundaries/parameter-state.md`](prototype-boundaries/parameter-state.md) | Hardware apply, compatibility-file writing, live source-file write-back, catalog discovery, automatic run start, shared parameter/run-context schema. |
 
-## Composition Gaps
-
-| Gap | Existing Accepted Ends | Missing Slice | Why It Matters |
-| --- | --- | --- | --- |
-| Legacy measurement portable handoff | Legacy run can become Measurement Records storage; handoff package can be received, previewed, gated, and imported into another storage root. | Selected stored Measurement Record to single-measurement handoff package export. | This is the missing seam for a brownfield adoption workflow where a user records a legacy run, selects one measurement, exports it, previews it on another computer, and imports it into storage while preserving identity continuity. |
-
 ## Update Rule
 
 Update this register when live code:
 
 - adds or retires an accepted implementation slice;
 - changes a slice's entrypoint, artifact authority, tests, or non-goals;
-- promotes a composition gap into an engineering prototype or production
-  vertical slice;
+- promotes a workflow gap into an engineering prototype or production vertical
+  slice;
 - supersedes a historical candidate path.
 
 Do not copy validation-result tables here. Link to the owner and summarize only
