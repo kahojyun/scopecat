@@ -130,7 +130,6 @@ This module does not currently own:
 - batch import or broad package acceptance workflows;
 - linked-context payload packaging, restore, traversal, or import;
 - existing-record update, final storage schema, or broad conflict policy;
-- GUI components, production plotting, dataframe/numeric adapters, or notebook
-  ergonomics;
-- code/environment restore, runnable readiness, or workflow/DAG execution;
+- GUI components, production plotting, or dataframe/numeric adapters;
+- code/environment restore or runnable execution;
 - shared measurement-record, package, or cross-route domain model.

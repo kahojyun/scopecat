@@ -7,10 +7,10 @@ Evidence interpretation rules.
 ## Purpose
 
 Keep [`evidence-register.md`](evidence-register.md) focused on stable `EV-*`
-claims. This file defines how to read those claims: source posture, evidence
+claims. This file defines how to read those claims: source coverage, evidence
 classes, support strength, and update rules.
 
-## Source Posture
+## Source Coverage
 
 Treat source families separately:
 
@@ -40,7 +40,7 @@ Keep these judgments separate:
 | --- | --- | --- |
 | Observation | Directly observed in extracted notes or code-sample review. | Safe to cite with portability and redaction caveats. |
 | Evidence-backed inference | Reasoned conclusion supported by multiple observations. | Candidate for problem framing or narrow promotion. |
-| Latent pressure | Plausible pain hidden by the old workflow's limits. | Preserve source posture; validate before treating as demand. |
+| Latent pressure | Plausible pain hidden by the old workflow's limits. | Preserve source coverage; validate before treating as demand. |
 | Hypothesis | Plausible product shape, UX, ordering, or API. | Keep out of accepted scope until validation. |
 | Future pressure | Likely later capability pressure. | Preserve as background; do not implement from evidence alone. |
 | ADR-gated | Mutation, compatibility, storage, distributed, remote, safety, or AI-action risk. | Requires explicit decision before acceptance. |

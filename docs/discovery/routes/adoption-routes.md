@@ -11,10 +11,9 @@ current adoption model.
 
 ## Purpose
 
-Name the durable user-value paths that can connect multiple validation slices.
-An adoption route should be broad enough to describe a behavior change in the
-lab, but narrow enough to stay grounded in observed current-state pressure and
-validated discovery work.
+Preserve historical discovery framing for durable user-value paths that connect
+multiple validation slices. These routes explain why earlier validation work
+was grouped the way it was; they no longer own current adoption strategy.
 
 A route is different from a validation slice:
 
@@ -27,13 +26,13 @@ A route is different from a validation slice:
 
 | Owner | Use For |
 | --- | --- |
-| [`../evidence/evidence-register.md`](../../evidence/evidence-register.md) | Stable evidence claims and source posture. |
+| [`../../evidence/evidence-register.md`](../../evidence/evidence-register.md) | Stable evidence claims and source coverage. |
 | [`problem-briefs/README.md`](../problem-briefs/README.md) | Evidence-backed user-facing failure cases. |
 | [`README.md#validation-slices`](../README.md#validation-slices) | Current validation slices grouped under these routes. |
-| [`synthesis/cross-slice.md`](../synthesis/cross-slice.md) | Recurring candidate concepts across validated slices. |
-| [`synthesis/measurement-context-backlog.md`](../synthesis/measurement-context-backlog.md) | Shared discovery backlog for context-shaped validation work across routes. |
-| [`synthesis/shared-model-extraction-deferral.md`](../synthesis/shared-model-extraction-deferral.md) | Why shared domain models are still deferred. |
-| [`../product/direction.md`](../../product/direction.md) | Product direction, ownership assumptions, non-goals, and expansion posture. |
+| [`../synthesis/cross-slice.md`](../synthesis/cross-slice.md) | Recurring candidate concepts across validated slices. |
+| [`../synthesis/measurement-context-backlog.md`](../synthesis/measurement-context-backlog.md) | Shared discovery backlog for context-shaped validation work across routes. |
+| [`../synthesis/shared-model-extraction-deferral.md`](../synthesis/shared-model-extraction-deferral.md) | Why shared domain models are still deferred. |
+| [`../../product/direction.md`](../../product/direction.md) | Current product direction, ownership assumptions, non-goals, and expansion strategy. |
 | [`../../product/adoption-model.md`](../../product/adoption-model.md) | Current product adoption paths and brownfield migration boundaries. |
 
 ## Route Selection
@@ -46,9 +45,9 @@ might adopt part of it.
 Split routes when users adopt a different durable object, make a different
 workflow commitment, or cross a materially different authority boundary.
 
-## Routes
+## Historical Discovery Adoption Evidence
 
-| Adoption route | Durable object | Current-state pressure | Behavior change | Read Next |
+| Historical route | Durable object | Discovery pressure | Evidence-backed behavior change | Current owner / read next |
 | --- | --- | --- | --- | --- |
 | Use measurement records for selection, inspection, handoff, and traceability | Measurement record and linked context. | Data Vault-style IDs, session paths, primary data, partial rows, companion artifacts, selected IDs, handoff packages, local paths, derived arrays, figures, fits, reports, and missing-context warnings. | Users treat measurement records as the anchor for source data, recorded context, selection, preview, export/import, running inspection, and later analysis traceability instead of reconstructing folders and notebooks manually. | [`measurement-records/README.md`](measurement-records/README.md), [`../problem-briefs/selected-run-handoff.md`](../problem-briefs/selected-run-handoff.md), [`../problem-briefs/measurement-record-boundary.md`](../problem-briefs/measurement-record-boundary.md), [`../problem-briefs/running-measurement-inspection.md`](../problem-briefs/running-measurement-inspection.md). |
 | Manage parameter state and reviewed writes | Parameter state lineage, reviewed import, storage read/write, and reviewable change. | Active parameter files, run-adjacent snapshots, copied seeds, dated variants, bad states, trust/readiness gaps, direct JSON/XLSX-derived values, reset/diff pressure, and run-preparation links. | Users recover, compare, import through adapters, commit, store, read, and review calibrated parameter states without treating mutable files as the only authority or letting Scopecat silently decide hardware mutation. | [`parameter-state/README.md`](parameter-state/README.md), [`../../engineering/prototype-boundaries/parameter-state.md`](../../engineering/prototype-boundaries/parameter-state.md), [`../problem-briefs/parameter-state-management.md`](../problem-briefs/parameter-state-management.md). |

@@ -71,49 +71,27 @@ Existing experiment systems own low-level control and mutation by default:
 instrument communication, hardware state, acquisition timing, live parameter
 application, trusted scan execution, and emergency recovery.
 
-Even when Scopecat models device, driver, or scan paths, it should not own
-low-level communication protocols such as VISA, serial, TCP, EPICS, or vendor
-APIs as product primitives. Those protocols and timing-sensitive control loops
-remain backend responsibilities. Frameworks such as LabRAD are higher-level
-RPC or service layers: they may be integrated with, wrapped, or selectively
-replaced in a local migration path, but they should not be confused with the
-wire protocols or timing mechanisms underneath them. Scopecat's role is to help
-users structure, review, record, compare, and hand off the intent of
-communicating with devices, then connect that intent to explicit adapters or
-lab-owned bridges.
-
-Scopecat may validate a local sequential executor when it runs user-authored
-Python/helper steps and improves a concrete workflow such as calibration
-continuation. Inside an IPython or notebook-like local arbitrary-code
-environment, code execution itself is not the main product boundary. Remote
-execution, open-ended autonomy, concurrency, resource arbitration, automatic
-retry/mutation policy, and Scopecat-decided parameter write-back are separate
-decisions.
-
-If executor scope is later validated, its value should come from experiment
-semantics, not from being a general code runner. A possible future path is to
-wrap an existing runtime or workflow library while recording experiment intent
-links, lifecycle/review state, failure/continuation records, output
-registration, and links to runs, parameters, code references, selected
-references, and analysis handoff. Durable step contracts, authoring contracts,
-scheduler behavior, retry policy, and write-back behavior still require
-narrower validation and explicit decisions.
-
 Scopecat can own records and explanations around those systems: measurement
 records, context, lifecycle events, recorded code references, parameter
 snapshots, declared parameter-write records, generated artifacts, selected
 references, analysis choices, quality notes, annotations, and handoff packages.
 
-Scopecat may eventually manage experiment-code workspaces with Git-like
-versioning hidden behind lab-native actions such as save version, restore
-version, compare changes, mark useful, and use this version for a measurement.
-That future path should serve experiment workflow needs rather than teach users
-Git. It should start from run/step code context that defines point-in-time
-code snapshot records with explicit include policy and stripped notebook
-outputs, while keeping internal Git analysis, default
-record-all tracking, package management, sync, merge semantics, environment
-ownership, execution, and workflow/DAG contracts behind narrower validation and
-decision records.
+Scopecat can also support explicit adapters or bridges when they make a
+workflow easier to record, review, hand off, or migrate. Those adapters do not
+make the underlying hardware protocol, control loop, runtime, or replacement
+plan a product default. Capability-specific validation should decide when
+Scopecat moves closer to execution, driver/service migration, code workspace
+management, environment operation, or GUI monitoring.
+
+Use these owner documents for details:
+
+- [`adoption-model.md`](adoption-model.md) for brownfield adoption paths;
+- [`capability-map.md`](capability-map.md) for product capability maturity and
+  advancement questions;
+- [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
+  for current workflow seams and validation questions;
+- [`../discovery/policies/managed-experiment-code-posture.md`](../discovery/policies/managed-experiment-code-posture.md)
+  for historical discovery strategy around Git-like experiment-code versions.
 
 Cross-machine value should start from portable records, handoff packages,
 explicit export/import, existing shared-storage discovery or references, and
@@ -155,26 +133,13 @@ physical setup semantics, and framework-specific bridge behavior should enter
 through explicit adapter or policy surfaces. They should not silently become
 core product scope because one workflow needed them.
 
-Redaction should stay authority-aware and should not make the local tool less
-useful. Scopecat-managed references such as paths, source identities,
-package-relative references, relation targets, external-root displays, and
-materialization destinations need strict validation when a slice claims to own
-or transform them, especially when they appear in the slice-owned projection or
-contract for repository-safe fixtures or generated portable/export artifacts.
-Runtime redaction is required at declared or effective portable/export
-boundaries, not for every discovery fixture, expected output, review summary,
-or local Scopecat UI surface. Effective portable/export boundaries include
-artifacts exported outside the repository or local workspace, externally
-shared, published, materialized as portable handoff artifacts, or otherwise
-generated to be carried away; see
-`docs/discovery/policies/artifact-boundary-and-redaction.md`. User labels,
-display names, notes, and descriptions are free text unless a slice explicitly
-introduces a redaction policy surface or generates a portable/export artifact.
-Repository fixtures should still be reviewed for safe wording, but
-implementation candidates should not add broad runtime redaction or DLP-style
-scanning for free labels by default.
+Artifact classification and redaction are boundary-specific. Local review
+surfaces and repository-safe fixtures should remain useful and explicit;
+portable/export artifacts need stronger managed-reference validation and
+redaction behavior. The detailed policy owner is
+[`../discovery/policies/artifact-boundary-and-redaction.md`](../discovery/policies/artifact-boundary-and-redaction.md).
 
-## Expansion Posture
+## Expansion Strategy
 
 Early design should preserve future expansion paths without making them default
 adoption requirements. Scopecat can start at the experiment-semantics and

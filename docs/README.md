@@ -40,7 +40,7 @@ For product and implementation direction:
    to find the user workflow thread, validated steps, missing seams, and next
    validation question.
 6. [`engineering/implementation-register.md`](engineering/implementation-register.md)
-   to find live modules, entrypoints, tests, fixtures, and boundary notes.
+   to find live implementation owners and their module/boundary detail docs.
 7. [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) and the owning module
    README for live implementation boundaries and API details.
 
@@ -56,21 +56,6 @@ For new discovery work:
 
 ## Editing Rules
 
-- Update existing documents before creating new structure.
-- Do not create placeholder directories, sentinel files, or broad scaffolds.
-- Keep top-down orientation in this README and flat inventory in
-  [`index.md`](index.md); do not make every README repeat the full document
-  map.
-- Do not duplicate owner inventories across README files. When adding or
-  moving a document, update the nearest owner index and link to that index from
-  higher levels.
-- Create validation, decision, prototype-boundary, engineering governance, or
-  user docs only when there is a specific durable owner and content for them.
-- Keep active task queues, priorities, and implementation checklists in issues,
-  PRs, or branch plans rather than this stable landing page.
-- Mark hypotheses, accepted decisions, and open questions explicitly when the
-  distinction matters.
-- Keep public-facing documentation under `docs/user/` when it is introduced,
-  and treat it as redacted by default.
-- Docs-only wording or navigation changes may not need tests. If there are no
-  remaining executable tests for the changed area, say that explicitly.
+Keep this README focused on top-down reading. Authoring and AI-agent rules live
+in [`AGENTS.md`](AGENTS.md); the PR drift checklist lives in
+[`engineering/pr-documentation-drift-checklist.md`](engineering/pr-documentation-drift-checklist.md).

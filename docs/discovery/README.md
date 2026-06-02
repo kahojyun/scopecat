@@ -2,9 +2,9 @@
 
 ## Purpose
 
-Discovery owns problem framing, adoption-route evidence, validation artifacts,
-implementation-shaped exploration results before promotion, synthesis, and
-explicit deferrals.
+Discovery owns problem framing, historical adoption-route evidence, validation
+artifacts, implementation-shaped exploration results before promotion,
+synthesis, and explicit deferrals.
 
 These documents are not user documentation and are not accepted architecture
 unless a narrower document says so. Use them to decide the next validation or
@@ -68,8 +68,8 @@ declares otherwise.
 
 Validation result and plan documents may include slice-local recommendations
 for what their fixture earned or deferred. They should not be treated as the
-owner of active sequencing. Sequencing belongs in the implementation or PR
-plan, using these discovery docs as supporting context.
+owner of active sequencing. Current workflow sequencing belongs in
+[`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md).
 
 ## Route Pointers
 
@@ -80,18 +80,9 @@ prototype implementation.
 
 ## Promotion Discipline
 
-Do not promote a validation result directly into shared product or engineering
-boundaries.
-
-Before moving a concept into accepted schema, shared implementation, live route
-code, or `docs/engineering/prototype-boundaries/`, first classify the phase in
-[`../engineering/delivery-maturity-model.md`](../engineering/delivery-maturity-model.md)
-and attach the work to a named workflow step, seam, or risk question in
+Before moving discovery evidence into accepted schema, shared implementation,
+live route code, or `docs/engineering/prototype-boundaries/`, classify the work
+in [`../engineering/delivery-maturity-model.md`](../engineering/delivery-maturity-model.md)
+and attach it to a named workflow step, seam, or risk question in
 [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md).
-Then make sure there is:
-
-- pressure from more than one validated slice;
-- a concrete implementation need;
-- explicit tests or contracts that would otherwise be duplicated;
-- a narrower decision or ADR that names the ownership and what remains out of
-  scope.
+Do not promote validation-result wording by copy/paste.

@@ -17,8 +17,8 @@ Use these documents before adding or promoting live code:
 | --- | --- |
 | [`delivery-maturity-model.md`](delivery-maturity-model.md) | Classify workflow and capability maturity; choose validation methods without treating candidate/prototype counts as progress. |
 | [`workflow-validation-map.md`](workflow-validation-map.md) | Start from user workflow threads, validated steps, missing seams, and next validation questions. |
-| [`implementation-register.md`](implementation-register.md) | Track live modules, entrypoints, tests, fixtures, artifact boundaries, and prototype-boundary notes. |
-| [`../product/capability-map.md`](../product/capability-map.md) | Track product capabilities, maturity, supported workflows, evidence, and open advancement questions. |
+| [`implementation-register.md`](implementation-register.md) | Track live implementation owners and route readers to module and prototype-boundary detail. |
+| [`../product/capability-map.md`](../product/capability-map.md) | Track product capabilities, maturity, evidence owners, and open advancement questions. |
 | [`terminology.md`](terminology.md) | Use standard terms for workflows, capabilities, maturity, validation methods, decisions, evidence, artifact boundaries, and ownership. |
 | [`prototype-boundaries/README.md`](prototype-boundaries/README.md) | Find current route-local engineering prototype boundaries and next decision gates. |
 | [`pr-documentation-drift-checklist.md`](pr-documentation-drift-checklist.md) | Lightweight PR checklist for avoiding documentation drift without freezing future decisions. |

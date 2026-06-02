@@ -123,5 +123,5 @@ This module does not currently own:
   execution;
 - scientific validity decisions;
 - portable handoff package export from stored Measurement Records;
-- GUI state persistence or production UI workflow ownership;
+- GUI state persistence or production UI ownership;
 - shared measurement-record, run-context, or cross-route domain model.

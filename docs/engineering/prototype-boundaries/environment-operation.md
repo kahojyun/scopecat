@@ -82,8 +82,8 @@ runtime probe eligibility, and non-readiness claims.
 This decision does not promote:
 
 - the full environment-operation route;
-- public SDK names, package publishing metadata, CLI, GUI, or workflow/DAG
-  integration;
+- public SDK names, package publishing metadata, CLI, GUI, or general workflow
+  orchestration;
 - runtime readiness, run permission, run safety, reproducibility, or hardware
   readiness decisions;
 - installed package or virtual-environment state verification beyond the
