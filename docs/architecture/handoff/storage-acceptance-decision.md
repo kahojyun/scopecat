@@ -20,9 +20,6 @@ durable import route syntax in the handoff module README; keep the broader
 accepted handoff boundary in
 [`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md).
 
-Artifact posture: `internal_validation_summary`. This note creates no
-portable package output, public contract, public SDK, or new redaction rule.
-
 ## Decision
 
 Choose the first package receiving/import mutation implementation candidate as

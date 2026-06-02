@@ -13,12 +13,6 @@ legacy import acceptance flow, measurement storage model, hardware-control
 contract, notebook execution contract, parameter write-back contract, GUI
 design, or shared workflow model.
 
-Artifact posture: `internal_validation_summary`. This document is internal
-project memory. It creates no portable/export artifact and no new redaction
-rules. Use
-[`policies/artifact-boundary-and-redaction.md`](../../policies/artifact-boundary-and-redaction.md)
-for artifact-boundary classification.
-
 ## Accepted For Now
 
 The validated brownfield adoption route is **post-run first, during-run

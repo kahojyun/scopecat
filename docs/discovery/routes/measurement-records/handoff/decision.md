@@ -17,12 +17,6 @@ For current implementation boundaries, use
 [`durable-import-storage-decision.md`](../../../../architecture/handoff/durable-import-storage-decision.md),
 and [`src/scopecat/handoff/README.md`](../../../../../src/scopecat/handoff/README.md).
 
-Artifact posture: `internal_validation_summary`. This document is internal
-project memory. It creates no portable package output and no new redaction
-rules. Use
-[`policies/artifact-boundary-and-redaction.md`](../../../policies/artifact-boundary-and-redaction.md)
-for artifact-boundary classification.
-
 ## Accepted For Now
 
 The validated discovery handoff route was **open before import**:

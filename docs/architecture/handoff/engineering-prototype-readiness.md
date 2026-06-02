@@ -9,12 +9,6 @@ prototype line. Do not update it to mirror later API additions or mutation-slice
 decisions. Current accepted implementation boundaries live in
 [`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md).
 
-Artifact posture: `internal_validation_summary`. This note is internal project
-memory. It creates no portable package output, public contract, public SDK, or
-new redaction rule. Use
-[`discovery/policies/artifact-boundary-and-redaction.md`](../../discovery/policies/artifact-boundary-and-redaction.md)
-if any prototype output is promoted into a portable/export artifact.
-
 ## Readiness Judgment
 
 The handoff package engineering prototype is ready to stop broad prototype

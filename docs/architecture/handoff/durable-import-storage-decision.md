@@ -11,13 +11,6 @@ manifest replacement. It supersedes the waiting posture in
 [`storage-import-requirements-synthesis.md`](storage-import-requirements-synthesis.md)
 for the narrow question of what durable import can implement first.
 
-Artifact posture: `internal_validation_summary`. This note is internal project
-memory. It creates no portable package output, public contract, public SDK, or
-new redaction rule. If a future import artifact is exported or published,
-classify it under
-[`../../discovery/policies/artifact-boundary-and-redaction.md`](../../discovery/policies/artifact-boundary-and-redaction.md)
-before adding output fields.
-
 ## Decision
 
 Choose new-record durable import through the Measurement Records receipt and

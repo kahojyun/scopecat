@@ -13,9 +13,6 @@ For the current route decisions and next-work guidance after the import/source
 observation pass, read
 [`routes/measurement-records/import-source-decision.md`](../routes/measurement-records/import-source-decision.md).
 
-Artifact posture: `internal_validation_summary`. This document is internal
-project memory and creates no portable/export artifact.
-
 ## Rule
 
 Scopecat can record references to arbitrary legacy files, attachments, and

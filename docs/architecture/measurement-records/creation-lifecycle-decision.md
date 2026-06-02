@@ -12,12 +12,6 @@ policy, existing-record import, or stronger recovery behavior. Keep live API
 syntax in
 [`../../../src/scopecat/measurement_records/README.md`](../../../src/scopecat/measurement_records/README.md).
 
-Artifact posture: `internal_validation_summary`. This note is internal project
-memory. It creates no portable package output, public contract, public SDK, or
-new redaction rule. Use
-[`discovery/policies/artifact-boundary-and-redaction.md`](../../discovery/policies/artifact-boundary-and-redaction.md)
-if any future output is promoted into a portable/export artifact.
-
 ## Decision
 
 Start a narrow production-prototype slice for measurement-record creation.

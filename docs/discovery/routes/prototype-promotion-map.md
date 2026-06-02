@@ -21,10 +21,6 @@ boundary must update the affected rows here in the same change. If an
 implementation branch lands elsewhere first, rebase this matrix and update the
 affected rows instead of treating this file as authoritative forever.
 
-Artifact posture: `internal_validation_summary`. This is internal project
-memory and creates no portable/export output, public contract, public SDK, or
-new redaction rule.
-
 ## Status Vocabulary
 
 | Status | Meaning |

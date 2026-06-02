@@ -9,12 +9,6 @@ previewable data items while scan/data-shape work remains storage-independent.
 It does not define a final artifact schema, plotting API, dataframe API,
 array API, public report format, or storage backend.
 
-Artifact posture:
-
-- this document is a discovery note;
-- it is not a portable export/package artifact or public report;
-- it records product-boundary intent for future validation slices.
-
 ## Boundary
 
 Scopecat should not provide default visualization for arbitrary-shaped

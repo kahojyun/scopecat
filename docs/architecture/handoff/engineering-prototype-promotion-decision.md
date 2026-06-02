@@ -17,13 +17,6 @@ longer the active durable Measurement Records handoff import path. Current
 durable import ownership lives in
 [`durable-import-storage-decision.md`](durable-import-storage-decision.md).
 
-Artifact posture: `internal_validation_summary`. This note is internal project
-memory. It creates no portable package output, public contract, public SDK, or
-new redaction rule. Use
-[`discovery/policies/artifact-boundary-and-redaction.md`](../../discovery/policies/artifact-boundary-and-redaction.md)
-if any accepted implementation output is later promoted into a
-portable/export artifact.
-
 ## Decision
 
 Promote the handoff engineering prototype as the accepted baseline for the

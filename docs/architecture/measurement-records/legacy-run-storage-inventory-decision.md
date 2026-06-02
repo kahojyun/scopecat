@@ -9,10 +9,6 @@ Records: record declared information about an externally executed legacy run,
 then list what local storage contains. Live API details belong in
 [`../../../src/scopecat/measurement_records/README.md`](../../../src/scopecat/measurement_records/README.md).
 
-Artifact posture: `internal_validation_summary`. This note is internal project
-memory. It creates no portable package output, public contract, public SDK, or
-new redaction rule.
-
 ## Decision
 
 Accept a narrow post-run legacy storage workflow:

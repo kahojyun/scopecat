@@ -4,8 +4,6 @@ Status: accepted
 
 Date: 2026-06-01
 
-Posture: internal_validation_summary
-
 ## Decision
 
 Promote the accepted parameter-state discovery candidates into a route-local

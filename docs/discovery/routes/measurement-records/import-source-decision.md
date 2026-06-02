@@ -22,12 +22,6 @@ storage schema, full existing-record update behavior, reference repair,
 package format, GUI contract, dataframe API, schema-inference engine, or
 shared measurement-record domain model.
 
-Artifact posture: `internal_validation_summary`. This document is internal
-project memory. It creates no portable/export artifact and no new redaction
-rules. Use
-[`policies/artifact-boundary-and-redaction.md`](../../policies/artifact-boundary-and-redaction.md)
-for artifact-boundary classification.
-
 ## Accepted For Now
 
 The current route separates **legacy source**, **normalized primary data**,

@@ -10,13 +10,6 @@ boundary or next decision gate changes. Keep live API syntax in
 [`../../../src/scopecat/environment_operation/README.md`](../../../src/scopecat/environment_operation/README.md)
 and leave the prototype plan/readiness notes as frozen snapshots.
 
-Artifact posture: `internal_validation_summary`. This note is internal project
-memory. It creates no portable package output, public contract, public SDK, or
-new redaction rule. Use
-[`discovery/policies/artifact-boundary-and-redaction.md`](../../discovery/policies/artifact-boundary-and-redaction.md)
-if any accepted implementation output is later promoted into a
-portable/export artifact.
-
 ## Decision
 
 Promote the environment-operation engineering prototype as the accepted

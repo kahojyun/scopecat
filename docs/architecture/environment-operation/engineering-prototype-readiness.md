@@ -13,12 +13,6 @@ Keep routine API inventory in
 [`../../../src/scopecat/environment_operation/README.md`](../../../src/scopecat/environment_operation/README.md)
 and leave the prototype plan as a frozen scope snapshot.
 
-Artifact posture: `internal_validation_summary`. This note is internal project
-memory. It creates no portable package output, public contract, public SDK, or
-new redaction rule. Use
-[`discovery/policies/artifact-boundary-and-redaction.md`](../../discovery/policies/artifact-boundary-and-redaction.md)
-if any prototype output is promoted into a portable/export artifact.
-
 ## Readiness Judgment
 
 The environment-operation engineering prototype completed the first

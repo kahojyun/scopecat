@@ -9,6 +9,13 @@ name when deciding redaction and reference-validation responsibility. It keeps
 local review surfaces useful while making portable/export/package boundaries
 explicit.
 
+This policy applies to artifacts and outputs: fixtures, expected outputs,
+candidate summaries, review summaries, generated UI/review artifacts, packages,
+reports, public docs, and exported files. Ordinary internal governance,
+architecture, route-index, decision, and navigation Markdown documents do not
+need artifact posture labels unless they are themselves promoted to
+public/export documentation or define a generated artifact boundary.
+
 ## Rule
 
 Discovery work uses three positive artifact postures:

@@ -9,12 +9,6 @@ references, and resolved context-link comparison was withdrawn because it
 mechanically promoted side-effect-free summary projections instead of a
 workflow-shaped route boundary.
 
-Artifact posture: `internal_validation_summary`.
-
-This route note coordinates discovery evidence and future engineering posture. It
-is not public documentation, a shared context schema, a relation graph, a
-storage contract, a restore contract, or a GUI design.
-
 ## Candidate Boundaries
 
 The validated implementation candidates summarize explicit measurement

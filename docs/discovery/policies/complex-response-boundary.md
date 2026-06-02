@@ -10,12 +10,6 @@ type, native backend mapping, transform engine, plotting API, dataframe API,
 array API, trace complex response schema, matrix preview model, or public
 report format.
 
-Artifact posture:
-
-- this document is a discovery note;
-- it is not a portable export/package artifact or public report;
-- it records product-boundary intent for future validation slices.
-
 ## Boundary
 
 Scopecat should treat `complex64` and `complex128` as logical value types, not

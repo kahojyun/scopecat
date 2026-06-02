@@ -18,12 +18,6 @@ first durable import/storage boundary is recorded in
 Use that document for active import/storage guidance; keep this synthesis as
 historical evidence for the pre-durable-import decision pressure.
 
-Artifact posture: `internal_validation_summary`. This note is internal project
-memory. It creates no portable package output, public contract, public SDK, or
-new redaction rule. Use
-[`discovery/policies/artifact-boundary-and-redaction.md`](../../discovery/policies/artifact-boundary-and-redaction.md)
-if any future output is promoted into a portable/export artifact.
-
 ## Question
 
 After the accepted handoff route proved:

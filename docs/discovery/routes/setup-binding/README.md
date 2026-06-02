@@ -8,12 +8,6 @@ The previous route-local live owner was withdrawn because it mechanically
 promoted summary-shaped candidate behavior instead of a workflow-shaped
 setup-binding boundary.
 
-Artifact posture: `internal_validation_summary`.
-
-This route note coordinates discovery evidence and future engineering posture. It
-is not public documentation, a final station-registry schema, a hardware-control
-contract, or a shared run-context model.
-
 ## Candidate Boundary
 
 The validated implementation candidate summarizes explicit setup-binding facts:

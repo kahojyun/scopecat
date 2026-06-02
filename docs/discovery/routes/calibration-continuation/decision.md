@@ -11,12 +11,6 @@ final workflow schema, relation graph, GUI, runner, scheduler, fitting
 framework, hardware-control contract, storage architecture, or shared
 calibration/measurement/parameter-state domain model.
 
-Artifact posture: `internal_validation_summary`. This document is internal
-project memory. It creates no portable/export artifact and no new redaction
-rules. Use
-[`policies/artifact-boundary-and-redaction.md`](../../policies/artifact-boundary-and-redaction.md)
-for artifact-boundary classification.
-
 ## Accepted For Now
 
 The validated calibration continuation route is a **reviewable local workflow**

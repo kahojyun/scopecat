@@ -10,12 +10,6 @@ new promoted API. Current accepted implementation boundaries live in
 current exported API details live in
 [`../../../src/scopecat/handoff/README.md`](../../../src/scopecat/handoff/README.md).
 
-Artifact posture: `internal_validation_summary`. This plan is internal project
-memory. It creates no portable package output, public contract, or new
-redaction rule. Use
-[`discovery/policies/artifact-boundary-and-redaction.md`](../../discovery/policies/artifact-boundary-and-redaction.md)
-when a prototype output is promoted into a portable/export artifact.
-
 ## Objective
 
 Validate a production-shaped, route-local module boundary for read-only
