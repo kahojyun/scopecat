@@ -26,4 +26,5 @@ select = [
 ]
 
 [tool.uv]
+exclude-newer = "14d"
 package = false
