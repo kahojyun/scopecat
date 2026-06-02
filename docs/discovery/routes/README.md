@@ -5,7 +5,7 @@
 Discovery route navigation index.
 
 Routes group discovery work by durable user workflow and authority boundary.
-Use route indexes for discovery posture and validation sequencing unless an
+Use route indexes for discovery status and validation sequencing unless an
 index is explicitly marked retired; use validation results for slice-local
 evidence. Once a route has live engineering ownership, use
 [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)

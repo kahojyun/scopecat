@@ -2,7 +2,9 @@
 
 ## Status
 
-Archived navigation index, not an ADR.
+Archived navigation index.
+
+Decision status: retired.
 
 This document preserves a historical inventory of validated discovery slices
 and the maturity labels they had when this inventory was archived. Active

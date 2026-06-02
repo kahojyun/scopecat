@@ -2,7 +2,9 @@
 
 ## Status
 
-Discovery decision consolidation, not an ADR.
+Discovery route decision.
+
+Decision status: accepted for current discovery guidance.
 
 This note closes the current calibration continuation discovery pass as a
 coherent route backbone. It records what the validated slices now support and

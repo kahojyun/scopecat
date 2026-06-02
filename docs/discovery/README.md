@@ -16,7 +16,7 @@ workflow sequencing belongs in
 [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
 and implementation ownership belongs in
 [`../engineering/capability-register.md`](../engineering/capability-register.md).
-Discovery route and slice documents remain evidence and discovery posture, not
+Discovery route and slice documents remain evidence and discovery status, not
 the default owner for engineering-prototype expansion.
 
 ## Read First
@@ -28,7 +28,7 @@ the default owner for engineering-prototype expansion.
 | [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md) | Start from user workflow threads, validated steps, and missing seams before selecting the next prototype or vertical slice. |
 | [`routes/README.md`](routes/README.md) | Navigate discovery route owners, route decisions, and adoption routes by durable user workflow. |
 | [`../engineering/capability-register.md`](../engineering/capability-register.md) | Current product capabilities, maturity, evidence, and implementation owners; the old promotion coordination map is archived at [`archive/prototype-promotion-map.md`](archive/prototype-promotion-map.md). |
-| [`policies/README.md`](policies/README.md) | Navigate repeated boundary vocabulary and product posture documents. |
+| [`policies/README.md`](policies/README.md) | Navigate repeated boundary vocabulary, artifact classification, and product strategy documents. |
 | [`problem-briefs/README.md`](problem-briefs/README.md) | Start from evidence-backed problem framing before choosing a validation question. |
 | [`slices/README.md`](slices/README.md) | Use discovery slice results as evidence; the old flat inventory is archived at [`archive/slice-inventory.md`](archive/slice-inventory.md). |
 | [`synthesis/cross-slice.md`](synthesis/cross-slice.md) | See recurring candidate concepts, stable separations, and cross-route design pressure. |

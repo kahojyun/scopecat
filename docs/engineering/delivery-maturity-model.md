@@ -14,6 +14,10 @@ different maturity levels at the same time.
 Use this model before promoting discovery work into implementation or before
 expanding an engineering prototype.
 
+Use [`terminology.md`](terminology.md) when a change needs to distinguish
+workflow, capability, maturity, validation method, decision status, evidence,
+artifact boundary, and ownership.
+
 The default rule is:
 
 ```text
@@ -116,6 +120,12 @@ Artifact posture labels are required when repository safety, portability,
 publicness, or redaction behavior affects implementation or review. Ordinary
 internal governance, architecture, and route-navigation documents usually do
 not need those labels.
+
+Prefer the precise terms from [`terminology.md`](terminology.md). For example,
+call a candidate, spike, prototype, fixture validation, or dogfood run a
+validation method; call repository-safe, local/review, portable/export, or
+public output an artifact boundary; call proposed, accepted, superseded, or
+retired choices decision status.
 
 Shared models, shared relation schemas, and reusable platform abstractions need
 a separate decision. They should not be extracted from one accepted route just

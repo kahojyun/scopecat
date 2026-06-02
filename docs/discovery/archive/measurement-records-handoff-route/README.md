@@ -2,7 +2,9 @@
 
 ## Status
 
-Retired discovery consolidation note, not an ADR.
+Retired discovery route synthesis.
+
+Decision status: retired.
 
 This directory is historical discovery memory. It harvested handoff-package
 validation work into a route-level view before the handoff engineering
@@ -37,7 +39,7 @@ inspection artifacts, SDK/view objects, and GUI-oriented projections are local
 review surfaces around that artifact unless a future slice explicitly promotes
 one of them to portable output.
 
-## Current Track Map
+## Historical Validation Map
 
 | Track | Current slices | Earned responsibility |
 | --- | --- | --- |
@@ -174,7 +176,7 @@ primitive behavior:
   get declared plot records/arrays, and keep context visible without adding
   hard pandas/numpy dependencies or finalizing the public SDK.
 
-## Recommended Next Work
+## Historical Next Work
 
 The handoff discovery route is retired as current guidance. Use this directory
 only as historical route synthesis and link-preserving validation context.

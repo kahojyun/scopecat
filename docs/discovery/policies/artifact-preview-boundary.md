@@ -2,7 +2,9 @@
 
 ## Status
 
-Discovery boundary accepted for current validation slices.
+Discovery boundary.
+
+Decision status: accepted for current validation slices.
 
 This note defines how Scopecat should separate arbitrary artifacts from
 previewable data items while scan/data-shape work remains storage-independent.

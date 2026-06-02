@@ -2,7 +2,9 @@
 
 ## Status
 
-Discovery policy rule, not an ADR.
+Discovery policy rule.
+
+Decision status: no decision.
 
 This note defines the artifact surfaces that Scopecat discovery work should
 name when deciding redaction and reference-validation responsibility. It keeps
@@ -13,12 +15,12 @@ This policy applies to artifacts and outputs: fixtures, expected outputs,
 candidate summaries, review summaries, generated UI/review artifacts, packages,
 reports, public docs, and exported files. Ordinary internal governance,
 architecture, route-index, decision, and navigation Markdown documents do not
-need artifact posture labels unless they are themselves promoted to
+need artifact classification labels unless they are themselves promoted to
 public/export documentation or define a generated artifact boundary.
 
 ## Rule
 
-Discovery work uses three positive artifact postures:
+Discovery work uses three artifact classifications:
 
 - **local/review surface**: a Scopecat UI, review summary, local receipt, or
   discovery summary meant for the local user, developer, or reviewer;
@@ -79,10 +81,10 @@ artifacts that include free text should deliberately project reviewed fields,
 but they should not grow broad runtime DLP scanning merely because they carry
 labels or notes. Repository fixtures should still be reviewed for safe wording.
 
-## Discovery Summary Posture
+## Discovery Summary Classification
 
 A discovery `summary` is not automatically portable/public/export output. It
-should declare one of these postures in its README, validation result, or
+should declare one of these classifications in its README, validation result, or
 summary policy field:
 
 - **internal validation summary**: repository-safe fixture artifact, not a

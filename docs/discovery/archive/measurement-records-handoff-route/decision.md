@@ -2,7 +2,9 @@
 
 ## Status
 
-Retired discovery decision consolidation, not an ADR.
+Retired discovery route decision.
+
+Decision status: retired.
 
 This note closed the handoff-package discovery pass before the engineering
 prototype and durable Measurement Records import route became the live owners.
@@ -17,7 +19,7 @@ For current implementation boundaries, use
 [`handoff-durable-import-storage.md`](../../../engineering/prototype-boundaries/handoff-durable-import-storage.md),
 and [`src/scopecat/handoff/README.md`](../../../../src/scopecat/handoff/README.md).
 
-## Accepted For Now
+## Historical Decision
 
 The validated discovery handoff route was **open before import**:
 

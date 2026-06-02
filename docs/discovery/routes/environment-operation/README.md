@@ -2,7 +2,9 @@
 
 ## Status
 
-Discovery consolidation note, not an ADR.
+Discovery route synthesis.
+
+Decision status: no decision.
 
 This note harvests the current environment-operation validation work into one
 route-level view. It does not accept a final environment schema, shared
@@ -54,7 +56,7 @@ environment state the anchor record. Measurement records and prepared-run
 context still explain why this environment operation matters for a user
 workflow.
 
-## Current Track Map
+## Validation Map
 
 | Track | Current slices | Earned responsibility |
 | --- | --- | --- |
@@ -95,7 +97,7 @@ old validation result, the architecture note, or the module README.
 | Operation review bundle | Local `review_summary` | Aligns selected prior facts and aggregates review findings; does not become runtime readiness, run permission, or portable output. |
 | Handoff/package references | Future reference-only package entries unless separately validated | May reference code/environment records, but does not own code packaging, environment restoration, sync, or runnable readiness. |
 
-## Scopecat Owns
+## Scopecat Boundary
 
 These concepts have enough repeated pressure to carry forward inside this
 route:
@@ -205,7 +207,7 @@ contract:
 - keep repository fixtures small and repository-safe; local review summaries
   are not automatically portable/public/export artifacts.
 
-## Recommended Next Work
+## Next Validation Work
 
 The current route is ready to pause broad slice expansion. The implementation
 boundary and next decision gate are accepted in

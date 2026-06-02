@@ -2,7 +2,9 @@
 
 ## Status
 
-Discovery decision consolidation, not an ADR.
+Discovery route decision.
+
+Decision status: accepted for current discovery guidance.
 
 This note closes the current legacy brownfield adoption discovery pass inside
 the Measurement Records route. It records what the validated legacy sidecar,
@@ -13,7 +15,7 @@ legacy import acceptance flow, measurement storage model, hardware-control
 contract, notebook execution contract, parameter write-back contract, GUI
 design, or shared workflow model.
 
-## Accepted For Now
+## Current Decision
 
 The validated brownfield adoption route is **post-run first, during-run
 compatible**:
@@ -59,7 +61,7 @@ The same event vocabulary can support a future during-run event writer, but
 that would be a new authority boundary. This route does not make Scopecat a
 legacy runner adapter.
 
-## Current Track Map
+## Validation Map
 
 | Track | Current slices | Earned responsibility |
 | --- | --- | --- |

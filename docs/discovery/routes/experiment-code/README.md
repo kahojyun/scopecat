@@ -2,7 +2,9 @@
 
 ## Status
 
-Discovery consolidation note, not an ADR.
+Discovery route synthesis.
+
+Decision status: no decision.
 
 This note harvests experiment-code validation work into one discovery
 route-level view. It is not a live implementation owner and does not accept

@@ -2,7 +2,9 @@
 
 ## Status
 
-Discovery boundary note, not an ADR.
+Discovery boundary note.
+
+Decision status: no decision.
 
 This note separates three related ways Scopecat may help users analyze,
 share, or move experiment work. It does not accept a final package format,

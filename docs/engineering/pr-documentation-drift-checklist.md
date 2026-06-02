@@ -11,6 +11,10 @@ nearest owner and avoid turning candidates or future plans into current truth.
 
 ## Checklist
 
+- **Terms**: use standard terms from
+  [`terminology.md`](terminology.md). Distinguish workflow, capability,
+  maturity, validation method, decision status, evidence, artifact boundary,
+  and ownership.
 - **Maturity**: classify the affected workflow or capability maturity using
   the delivery maturity model. Treat candidates, spikes, prototypes, and
   scenarios as validation methods, not progress metrics by themselves.

@@ -2,7 +2,9 @@
 
 ## Status
 
-Route index and navigation aid, not an ADR.
+Discovery route index.
+
+Decision status: no decision.
 
 This document keeps Measurement Records discovery evidence, route decisions,
 deferred questions, and reopen triggers in one place so
@@ -39,7 +41,7 @@ useful historical context:
 
 ## Route Posture
 
-This route index records discovery posture around recorded experiment data:
+This route index records discovery status around recorded experiment data:
 selection, export, import, handoff package use, storage writing, source
 observation, and preview/read surfaces. It is evidence navigation, not the
 owner of live Measurement Records implementation.

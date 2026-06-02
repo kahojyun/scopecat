@@ -2,7 +2,9 @@
 
 ## Status
 
-Discovery boundary note, not an ADR.
+Discovery boundary note.
+
+Decision status: no decision.
 
 This note clarifies the current Measurement Records distinction between data
 Scopecat can preview and files Scopecat can only reference or observe. It does

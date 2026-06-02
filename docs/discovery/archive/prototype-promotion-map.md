@@ -2,10 +2,11 @@
 
 ## Status
 
-Archived coordination index, not an ADR, roadmap, or source of implementation
-truth.
+Archived coordination index.
 
-This document preserves a historical route-by-route promotion posture for
+Decision status: retired.
+
+This document preserves a historical route-by-route promotion status for
 Scopecat discovery and engineering-prototype work. Do not use it to find
 current live owners, coordinate new branches, broaden a route's scope, override
 an engineering boundary, infer final product sequencing, or decide whether a
@@ -55,7 +56,7 @@ to fix broken links, safety issues, or historical supersession notes.
 
 ## Archive Edit Rule
 
-When a branch changes current promotion posture:
+When a branch changes current promotion status:
 
 - update the active engineering workflow map, capability register, boundary
   note, or module README instead of this archived matrix;
