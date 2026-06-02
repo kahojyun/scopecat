@@ -2,13 +2,13 @@
 
 ## Status
 
-Discovery route index with an accepted narrow engineering prototype owner.
+Discovery route index; implementation candidate only.
 
 This route groups selected-reference comparison evidence and current
-implementation ownership. The selected-reference context and recorded-code
-comparison boundary is now promoted under
-[`../../../architecture/selected-reference/engineering-prototype-promotion-decision.md`](../../../architecture/selected-reference/engineering-prototype-promotion-decision.md)
-and [`../../../../scopecat/selected_reference/README.md`](../../../../scopecat/selected_reference/README.md).
+implementation posture. The previous selected-reference context and
+recorded-code comparison live module was withdrawn because it mechanically
+promoted candidate summaries instead of owning a workflow-shaped comparison
+step.
 
 The route still does not accept raw-data comparison, fit-quality comparison,
 setup truth, restore behavior, execution, cause attribution, GUI behavior, or a
@@ -34,12 +34,11 @@ local review projection:
 | --- | --- |
 | Problem framing and finding vocabulary. | [`../../problem-briefs/selected-reference-comparison.md`](../../problem-briefs/selected-reference-comparison.md) |
 | Basic context and recorded-code validation result. | [`../../slices/selected-reference/selected-reference-comparison-validation-result.md`](../../slices/selected-reference/selected-reference-comparison-validation-result.md) |
-| Promoted route-local implementation boundary. | [`../../../architecture/selected-reference/engineering-prototype-promotion-decision.md`](../../../architecture/selected-reference/engineering-prototype-promotion-decision.md) |
-| Live API. | [`../../../../scopecat/selected_reference/README.md`](../../../../scopecat/selected_reference/README.md) |
+| Historical implementation candidate. | [`../../../../implementation_candidates/selected_reference_comparison/README.md`](../../../../implementation_candidates/selected_reference_comparison/README.md) |
 
 ## Boundary
 
-The promoted route compares declared context facts only. It does not:
+The validated candidate compares declared context facts only. It does not:
 
 - read measurement payloads;
 - compare fit quality;

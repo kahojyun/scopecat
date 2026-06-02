@@ -2,25 +2,22 @@
 
 ## Status
 
-Partially promoted engineering prototype.
+Discovery route index; implementation candidates only.
 
-The current live owner covers explicit context-link construction, supporting
-evidence references, and resolved context-link comparison:
-
-- [`../../../../scopecat/measurement_context/README.md`](../../../../scopecat/measurement_context/README.md)
-- [`../../../architecture/measurement-context/context-link-construction-decision.md`](../../../architecture/measurement-context/context-link-construction-decision.md)
-- [`../../../architecture/measurement-context/supporting-evidence-reference-decision.md`](../../../architecture/measurement-context/supporting-evidence-reference-decision.md)
-- [`../../../architecture/measurement-context/resolved-context-link-comparison-decision.md`](../../../architecture/measurement-context/resolved-context-link-comparison-decision.md)
+The previous live owner for context-link construction, supporting evidence
+references, and resolved context-link comparison was withdrawn because it
+mechanically promoted side-effect-free summary projections instead of a
+workflow-shaped route boundary.
 
 Artifact posture: `internal_validation_summary`.
 
-This route note coordinates discovery evidence and live engineering posture. It
+This route note coordinates discovery evidence and future engineering posture. It
 is not public documentation, a shared context schema, a relation graph, a
 storage contract, a restore contract, or a GUI design.
 
-## Promoted Boundaries
+## Candidate Boundaries
 
-The first accepted engineering prototype summarizes explicit measurement
+The validated implementation candidates summarize explicit measurement
 records, family-owned context record summaries, and resolved or missing
 optional context links into local context-link review data.
 
@@ -44,7 +41,7 @@ measurement intent selectors, primary data, fit quality, context payloads,
 readiness, hardware runtime state, cause attribution, recursive relations,
 context import, write-back, restore behavior, execution, or GUI behavior.
 
-No promoted surface stores or mutates context links, imports evidence
+No candidate surface stores or mutates context links, imports evidence
 payloads, observes files, validates artifact provenance, defines a shared
 context or attachment schema, or accepts a relation graph.
 

@@ -2,16 +2,16 @@
 
 ## Status
 
-Implementation candidate validated; promoted as a narrow engineering prototype.
+Implementation candidate validated.
 
 This is not an ADR, run-start contract, hardware-control contract, dependency
 sync contract, parameter write-back contract, executor, managed-runner design,
 GUI design, or shared gate schema.
 
-Promotion note: the live engineering prototype boundary for this surface is
-[`../../../architecture/prepared-run/engineering-prototype-promotion-decision.md`](../../../architecture/prepared-run/engineering-prototype-promotion-decision.md)
-and `scopecat/prepared_run/`. The implementation candidate remains historical
-validation evidence, not the active owner for new review-gate behavior.
+Withdrawal note: the previous promoted prepared-run owner was deleted because
+it mechanically wrapped candidate summaries instead of owning a workflow-shaped
+route boundary. This result remains implementation-candidate evidence for
+future prepared-run work.
 
 ## Inputs
 
