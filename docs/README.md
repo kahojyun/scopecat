@@ -7,18 +7,16 @@ introduced.
 Start here for the top-down reading path. Use [`index.md`](index.md) only as a
 flat navigation map when you already know which owner you need.
 
-## Current State
+## Where To Find Current State
 
-- Scopecat is in engineering-prototype phase, not production-supported release.
-- Current live owners are Measurement Records, Handoff, Environment Operation,
-  and Parameter State route modules.
-- The main composition gap is legacy measurement portable handoff: recorded
-  legacy run -> selected stored measurement -> handoff package -> preview and
-  import on another computer.
-- Discovery docs are evidence and route posture; implementation ownership lives
-  in engineering registers, prototype-boundary notes, and module READMEs.
-- Production vertical slices should be promoted only from named workflow steps,
-  seams, or risk questions.
+- Current workflow status and composition gaps:
+  [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md)
+- Current live implementation owners:
+  [`engineering/vertical-slice-register.md`](engineering/vertical-slice-register.md)
+- Current route-local prototype boundaries:
+  [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md)
+- Active execution work should live in issues, PRs, or branch plans rather than
+  this landing page.
 
 ## Read Top Down
 
@@ -81,6 +79,8 @@ they should link back to discovery evidence instead of copying it wholesale.
 - Keep top-down orientation in this README and flat inventory in
   [`index.md`](index.md); do not make every README repeat the full document
   map.
+- Keep active task queues, priorities, and implementation checklists in issues,
+  PRs, or branch plans rather than this stable landing page.
 - Mark hypotheses, accepted decisions, and open questions explicitly when the
   distinction matters.
 - Keep public-facing documentation under `docs/user/` when it is introduced,
