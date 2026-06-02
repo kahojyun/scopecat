@@ -2,10 +2,11 @@
 
 ## Status
 
-Discovery consolidation note, not an ADR.
+Discovery route synthesis.
 
-This note harvests the current experiment-code validation work into one
-route-level view. It does not accept final managed workspace storage, a Git
+This note harvests experiment-code validation work into one discovery
+route-level view. It is not a live implementation owner and does not accept
+final managed workspace storage, a Git
 replacement, branch/merge/sync semantics, code loading, import, execution,
 workflow/DAG behavior, generated-artifact regeneration, environment
 restoration, hardware control, shared run-context schema, or GUI contract.
@@ -31,7 +32,7 @@ authority: selected reference context can seed a proposed manual rerun, but it
 does not prove reproducibility, cause, or readiness.
 
 This chain is not a mandatory workflow for every measurement. It records the
-order in which current slices have earned stronger local claims.
+order in which discovery slices earned stronger local claims.
 
 The broader experiment-start workflow is documented in
 [`run-preparation-workflow-boundary-validation-result.md`](../../slices/experiment-code/run-preparation-workflow-boundary-validation-result.md).
@@ -43,14 +44,14 @@ In the wider route model, measurement records remain the user-facing evidence
 or selection anchor. Experiment code is one linked context family for those
 measurements, runs, or steps: it records what code root, entrypoint, managed
 version, materialized workspace, or editable observation was associated with
-the work. Prepared run context is the current local composition surface that
+the work. Prepared run context is the validated local composition surface that
 joins selected code/workspace context with parameter, setup, station,
 measurement intent, declared environment context, and separately validated
 environment review findings for manual run preparation.
 
-## Current Track Map
+## Discovery Track Map
 
-| Track | Current slices | Earned responsibility |
+| Track | Validated slices | Earned responsibility |
 | --- | --- | --- |
 | Recording | Experiment code recording | Represent one external code root, entrypoint, explicit include policy, capture-state posture, and code snapshot record without scanning Git or executing code. |
 | Managed record | Managed code version | Promote a code snapshot record into a managed-version record with aligned inventory and integrity hints, without storage backend or restore semantics. |
@@ -74,10 +75,10 @@ environment review findings for manual run preparation.
 | Prepared run context | Local `review_summary` composition | Groups selected code/workspace and other run-start context; does not import, execute, or decide run readiness. |
 | Handoff/package references | Future reference-only package entries unless separately validated | May reference code context, managed version, workspace/materialization, or prepared run context records; does not own code packaging or restore. |
 
-## Scopecat Owns
+## Discovery Conclusions To Carry Forward
 
-These concepts have enough repeated pressure to carry forward inside this
-route:
+These concepts have enough repeated discovery pressure to carry forward if a
+future workflow-shaped engineering prototype reopens this route:
 
 - code snapshot records tied to run or step context;
 - explicit include policy and capture-state vocabulary, including
@@ -87,7 +88,7 @@ route:
 - no-overwrite workspace materialization under caller-provided roots;
 - read-only editable-folder observation against selected managed-version
   inventory;
-- prepared run context as the current composition point for selected code,
+- prepared run context as the validated composition point for selected code,
   workspace observation, parameter/setup/station context, measurement intent,
   optional unavailable declared environment context, and locally required
   missing-context findings.
@@ -123,9 +124,9 @@ duplicate the same behavior and boundary rules:
 - prepared-run context selected-record shape;
 - any shared helper extraction between code, environment, and handoff routes.
 
-## Existing Composition
+## Existing Discovery Composition
 
-The current route already has composition pressure through
+The discovery route already has composition pressure through
 `prepared_run_context`. That slice validates selected managed code version,
 editable workspace observation, parameter state, setup binding, station
 registry, measurement intent, optional unavailable declared environment
@@ -141,18 +142,18 @@ already covered by prepared run context or reference-based rerun preparation.
 
 Freezing the validation results does not mean every discovery candidate became
 a live engineering surface. Use this matrix when deciding whether to update an
-old validation result, the architecture note, or the module README.
+old validation result, an active engineering owner, or a module README.
 
-| Discovery slice group | Engineering coverage | Current owner |
+| Discovery slice group | Engineering coverage | Evidence owner |
 | --- | --- | --- |
 | Experiment-code recording, managed code version, workspace materialization intent, approved workspace materialization, editable-folder observation, reference-based rerun preparation | Implementation candidate only. The previous promoted module was withdrawn because candidate-summary parity was doing too much architectural work. | Historical implementation candidates and validation results. |
 | Prepared-run context over selected code/workspace context | Implementation candidate only. Future prepared-run work should promote a workflow-shaped boundary rather than reuse summary parity as the owner. | Historical prepared-run candidates and validation results. |
-| Declared environment inventory, environment comparison, environment file observation, environment review, and manager-operation slices | Owned by environment-operation or historical discovery docs; not promoted as experiment-code APIs. | [`environment-operation/README.md`](../environment-operation/README.md), [`environment-operation/engineering-prototype-promotion-decision.md`](../../../architecture/environment-operation/engineering-prototype-promotion-decision.md) |
+| Declared environment inventory, environment comparison, environment file observation, environment review, and manager-operation slices | Owned by environment-operation or historical discovery docs; not promoted as experiment-code APIs. | [`environment-operation/README.md`](../environment-operation/README.md), [`environment-operation.md`](../../../engineering/prototype-boundaries/environment-operation.md) |
 | Comparable code surface and selected-reference comparison | Retained as discovery evidence and route pressure. No semantic diff, Git diagnostics, or shared comparison API is promoted here. | Historical validation results and future narrower decisions if reopened. |
 
 ## Cross-Route Relationship
 
-Current cross-route coupling should stay reference-based:
+Discovery-backed cross-route coupling should stay reference-based:
 
 - measurement records or selected references anchor why a code context is
   selected, but they do not make the measurement route own code recording,
@@ -200,10 +201,10 @@ candidate contract:
 - keep repository fixtures small and repository-safe; local review summaries
   are not automatically portable/public/export artifacts.
 
-## Recommended Next Work
+## Future Reopen Questions
 
-The current route is ready to pause broad code-route expansion. The next work
-should depend on the product question being answered:
+Broad code-route expansion is paused. Future engineering work should reopen
+only around a named product question:
 
 1. **If handoff continuity is the priority**, validate reference-only
    experiment context package projection before packaging code artifacts.
@@ -214,7 +215,7 @@ should depend on the product question being answered:
 4. **If comparison is the priority**, add a managed-version inventory or
    capture-state edge fixture before designing semantic diff.
 
-Do not add another experiment-code slice merely to restate recording,
+Do not add another discovery experiment-code slice merely to restate recording,
 managed-version identity, materialization planning, editable-folder
-observation, or prepared-run context. Those are now route-level conclusions
+observation, or prepared-run context. Those are discovery route conclusions
 unless a new user workflow challenges them.

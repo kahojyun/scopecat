@@ -2,7 +2,7 @@
 
 ## Status
 
-Historical engineering requirements synthesis, not an ADR.
+Historical engineering requirements synthesis.
 
 This note records the requirements synthesis from before durable
 Measurement Records creation and durable import existed. It compares the
@@ -14,15 +14,9 @@ measurement-record domain model.
 
 Follow-up decisions: durable measurement-record creation now exists, and the
 first durable import/storage boundary is recorded in
-[`durable-import-storage-decision.md`](durable-import-storage-decision.md).
+[`handoff-durable-import-storage.md`](../prototype-boundaries/handoff-durable-import-storage.md).
 Use that document for active import/storage guidance; keep this synthesis as
 historical evidence for the pre-durable-import decision pressure.
-
-Artifact posture: `internal_validation_summary`. This note is internal project
-memory. It creates no portable package output, public contract, public SDK, or
-new redaction rule. Use
-[`discovery/policies/artifact-boundary-and-redaction.md`](../../discovery/policies/artifact-boundary-and-redaction.md)
-if any future output is promoted into a portable/export artifact.
 
 ## Question
 
@@ -44,7 +38,7 @@ durable creation lifecycle?
 
 At the time of this synthesis, the handoff implementation accepted one
 candidate storage mutation in
-[`storage-acceptance-decision.md`](storage-acceptance-decision.md). That slice
+[`handoff-candidate-storage-acceptance.md`](handoff-candidate-storage-acceptance.md). That slice
 requires explicit approval, exact destination fact continuity, no-overwrite
 creation, and best-effort synchronous rollback for
 `measurement_record_directory_candidate_v0`.
@@ -164,14 +158,14 @@ This synthesis originally named two possible gates:
 - Measurement-record creation lifecycle: define durable record identity,
   initial storage state, lifecycle/progress state, and creation failure
   semantics. The prototype-start decision is recorded in
-  [`../measurement-records/creation-lifecycle-decision.md`](../measurement-records/creation-lifecycle-decision.md).
+  [`measurement-records-creation-lifecycle.md`](../prototype-boundaries/measurement-records-creation-lifecycle.md).
 - Durable import/storage decision: after creation semantics exist, define how
   package acceptance creates or updates records, what conflict policy applies,
   and what recovery guarantees are required.
 
 The first gate is now implemented by the Measurement Records prototype line.
 The second gate is now decided by
-[`durable-import-storage-decision.md`](durable-import-storage-decision.md).
+[`handoff-durable-import-storage.md`](../prototype-boundaries/handoff-durable-import-storage.md).
 
 Do not implement broader handoff storage import as an incremental extension of
 `measurement_record_directory_candidate_v0`. Treat that layout as historical

@@ -2,16 +2,23 @@
 
 ## Status
 
-Discovery policy rule, not an ADR.
+Discovery policy rule.
 
 This note defines the artifact surfaces that Scopecat discovery work should
 name when deciding redaction and reference-validation responsibility. It keeps
 local review surfaces useful while making portable/export/package boundaries
 explicit.
 
+This policy applies to artifacts and outputs: fixtures, expected outputs,
+candidate summaries, review summaries, generated UI/review artifacts, packages,
+reports, public docs, and exported files. Ordinary internal governance,
+architecture, route-index, decision, and navigation Markdown documents do not
+need artifact classification labels unless they are themselves promoted to
+public/export documentation or define a generated artifact boundary.
+
 ## Rule
 
-Discovery work uses three positive artifact postures:
+Discovery work uses three top-level artifact boundary classifications:
 
 - **local/review surface**: a Scopecat UI, review summary, local receipt, or
   discovery summary meant for the local user, developer, or reviewer;
@@ -45,6 +52,10 @@ surface.
 
 ## Artifact Classes
 
+The detailed classes below preserve the same top-level model. `Internal
+validation output` is a repository-safe/internal validation subcase, not a
+fourth portable or review boundary.
+
 | Class | Meaning | Redaction responsibility |
 | --- | --- | --- |
 | Repository-safe fixture artifact | Test input, expected output, or discovery evidence committed to this repository. | Must not contain real secrets, real private paths, real hostnames, real lab/user/customer identifiers, tokens, or accidental local filesystem leaks. Synthetic sensitive-shaped examples may appear only when intentionally testing boundary behavior. Synthetic absolute paths that are not sensitive-shaped should be clearly fake and should not resemble a real user, lab, host, or customer environment. |
@@ -72,10 +83,10 @@ artifacts that include free text should deliberately project reviewed fields,
 but they should not grow broad runtime DLP scanning merely because they carry
 labels or notes. Repository fixtures should still be reviewed for safe wording.
 
-## Discovery Summary Posture
+## Discovery Summary Classification
 
 A discovery `summary` is not automatically portable/public/export output. It
-should declare one of these postures in its README, validation result, or
+should declare one of these classifications in its README, validation result, or
 summary policy field:
 
 - **internal validation summary**: repository-safe fixture artifact, not a

@@ -2,7 +2,7 @@
 
 ## Status
 
-Discovery consolidation note, not an ADR.
+Discovery route synthesis.
 
 This note harvests the current environment-operation validation work into one
 route-level view. It does not accept a final environment schema, shared
@@ -11,18 +11,18 @@ managed-runner contract, dependency resolver, package installer, workflow/DAG
 model, portable/export package projection, or GUI contract.
 
 Engineering-phase notes have been promoted under
-[`architecture/README.md`](../../../architecture/README.md). Keep validation
+[`engineering/prototype-boundaries/README.md`](../../../engineering/prototype-boundaries/README.md). Keep validation
 evidence and route discovery synthesis here; keep current
-implementation-boundary guidance in the architecture notes. This route note is
+implementation-boundary guidance in the engineering prototype-boundary notes. This route note is
 not a live API inventory.
 
 The engineering prototype line is recorded in
-[`engineering-prototype-plan.md`](../../../architecture/environment-operation/engineering-prototype-plan.md)
+[`prototype-plan.md`](../../../engineering/archive/environment-operation-prototype-plan.md)
 and assessed in
-[`engineering-prototype-readiness.md`](../../../architecture/environment-operation/engineering-prototype-readiness.md).
+[`prototype-readiness.md`](../../../engineering/archive/environment-operation-prototype-readiness.md).
 The plan and readiness note are frozen milestone snapshots. Current accepted
 implementation-boundary guidance lives in
-[`engineering-prototype-promotion-decision.md`](../../../architecture/environment-operation/engineering-prototype-promotion-decision.md).
+[`environment-operation.md`](../../../engineering/prototype-boundaries/environment-operation.md).
 
 ## Route Shape
 
@@ -54,7 +54,7 @@ environment state the anchor record. Measurement records and prepared-run
 context still explain why this environment operation matters for a user
 workflow.
 
-## Current Track Map
+## Validation Map
 
 | Track | Current slices | Earned responsibility |
 | --- | --- | --- |
@@ -75,7 +75,7 @@ old validation result, the architecture note, or the module README.
 
 | Discovery slice group | Engineering coverage | Current owner |
 | --- | --- | --- |
-| UV sync intent | Promoted as `UvSyncIntent.from_summary(...)` and the bounded argv/source-continuity contract for approved local execution. | [`src/scopecat/environment_operation/README.md`](../../../../src/scopecat/environment_operation/README.md), [`engineering-prototype-promotion-decision.md`](../../../architecture/environment-operation/engineering-prototype-promotion-decision.md) |
+| UV sync intent | Promoted as `UvSyncIntent.from_summary(...)` and the bounded argv/source-continuity contract for approved local execution. | [`src/scopecat/environment_operation/README.md`](../../../../src/scopecat/environment_operation/README.md), [`environment-operation.md`](../../../engineering/prototype-boundaries/environment-operation.md) |
 | UV sync result | Partially promoted. The live path records Scopecat-run typed execution results and projects them to review summaries; the old declared-external-result fixture remains historical evidence, not the main runtime boundary. | Module README and promotion decision; validation result stays historical. |
 | Environment operation review bundle | Partially promoted. Route-local operation review now aligns typed `UvSyncIntent`/`UvSyncResult` objects; the old bundle over prior summary dictionaries remains evidence for review composition and edge-case wording. | Module README and promotion decision; validation result stays historical. |
 | Modern manifest preflight | Historical only for the current engineering prototype. The live environment-operation module does not read `pyproject.toml`, parse manifests, parse lockfiles, or require manifest preflight before execution. | Historical validation result; future manifest/readiness decision if reopened. |
@@ -95,7 +95,7 @@ old validation result, the architecture note, or the module README.
 | Operation review bundle | Local `review_summary` | Aligns selected prior facts and aggregates review findings; does not become runtime readiness, run permission, or portable output. |
 | Handoff/package references | Future reference-only package entries unless separately validated | May reference code/environment records, but does not own code packaging, environment restoration, sync, or runnable readiness. |
 
-## Scopecat Owns
+## Scopecat Boundary
 
 These concepts have enough repeated pressure to carry forward inside this
 route:
@@ -205,11 +205,11 @@ contract:
 - keep repository fixtures small and repository-safe; local review summaries
   are not automatically portable/public/export artifacts.
 
-## Recommended Next Work
+## Next Validation Work
 
 The current route is ready to pause broad slice expansion. The implementation
 boundary and next decision gate are accepted in
-[`engineering-prototype-promotion-decision.md`](../../../architecture/environment-operation/engineering-prototype-promotion-decision.md).
+[`environment-operation.md`](../../../engineering/prototype-boundaries/environment-operation.md).
 Next work should depend on the product question being answered:
 
 1. **If execution review is the priority**, add optional manifest preflight or

@@ -2,19 +2,13 @@
 
 ## Status
 
-Frozen engineering prototype plan, not accepted architecture.
+Frozen engineering prototype plan.
 
 This document is a historical plan snapshot. Do not update it to mirror every
 new promoted API. Current accepted implementation boundaries live in
-[`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md);
+[`handoff.md`](../prototype-boundaries/handoff.md);
 current exported API details live in
 [`../../../src/scopecat/handoff/README.md`](../../../src/scopecat/handoff/README.md).
-
-Artifact posture: `internal_validation_summary`. This plan is internal project
-memory. It creates no portable package output, public contract, or new
-redaction rule. Use
-[`discovery/policies/artifact-boundary-and-redaction.md`](../../discovery/policies/artifact-boundary-and-redaction.md)
-when a prototype output is promoted into a portable/export artifact.
 
 ## Objective
 
@@ -47,9 +41,9 @@ packaging before proving read-only use.
 ## Discovery Evidence Reused
 
 The prototype starts from the route decisions in
-[`decision.md`](../../discovery/routes/measurement-records/handoff/decision.md)
+[`decision.md`](../../discovery/archive/measurement-records-handoff-route/decision.md)
 and the consolidation in
-[`README.md`](../../discovery/routes/measurement-records/handoff/README.md).
+[`README.md`](../../discovery/archive/measurement-records-handoff-route/README.md).
 The most relevant slice
 evidence is:
 
@@ -145,7 +139,7 @@ current accepted boundary in the promotion decision and the current exported
 surface in the module README.
 
 Promotion follow-up decisions resolved by
-[`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md):
+[`handoff.md`](../prototype-boundaries/handoff.md):
 
 - leading-underscore helper modules stay route-private;
 - static HTML remains the first local review surface;
@@ -246,9 +240,9 @@ failure semantics, reconsider shared model extraction with a narrower accepted
 decision or ADR.
 
 Current stop-criteria assessment is recorded in
-[`engineering-prototype-readiness.md`](engineering-prototype-readiness.md);
+[`handoff-prototype-readiness.md`](handoff-prototype-readiness.md);
 the promotion decision is recorded in
-[`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md).
+[`handoff.md`](../prototype-boundaries/handoff.md).
 
 ## Remaining Follow-Up Questions
 

@@ -2,17 +2,13 @@
 
 ## Status
 
-Discovery boundary note, not an ADR.
+Discovery boundary note.
 
 This note separates three related ways Scopecat may help users analyze,
 share, or move experiment work. It does not accept a final package format,
 storage backend, shared filesystem policy, migration workflow, restore
 contract, environment schema, execution runner, archive format, signature
 model, or GUI contract.
-
-Artifact posture: `internal_validation_summary`. This document is internal
-project memory. It creates no portable package output and no new redaction
-rules.
 
 ## Purpose Classes
 

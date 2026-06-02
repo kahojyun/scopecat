@@ -19,15 +19,19 @@
   generated to be carried away. When changing public output, sharing
   boundaries, fixtures, expected outputs, or generated artifacts, first
   classify the artifact boundary using
-  `docs/discovery/artifact-boundary-and-redaction-policy.md`; new or changed
+  `docs/discovery/policies/artifact-boundary-and-redaction.md`; new or changed
   discovery summaries/expected outputs should record their posture as
   `internal_validation_summary`, `review_summary`, or `export/package` in the
-  candidate README, validation result, or summary policy field. Then audit for
-  the classified boundary: repository-safety for fixtures, projection and
-  managed-reference validation for review summaries, and runtime redaction for
-  portable/export artifacts. Label auditing for repository fixtures is human
-  repository-safety review, not runtime DLP or schema validation, unless the
-  slice explicitly declares a redaction policy surface.
+  candidate README, validation result, or summary policy field. Ordinary
+  internal governance, architecture, route-index, decision, and navigation
+  Markdown documents do not need artifact classification labels unless they are
+  themselves promoted to public/export documentation or define a generated
+  artifact boundary. Then audit for the classified boundary:
+  repository-safety for fixtures, projection and managed-reference validation
+  for review summaries, and runtime redaction for portable/export artifacts.
+  Label auditing for repository fixtures is human repository-safety review, not
+  runtime DLP or schema validation, unless the slice explicitly declares a
+  redaction policy surface.
 - Keep redaction scope explicit. Strictly validate Scopecat-managed references
   such as paths, source identities, package-relative references, relation
   targets, external-root displays, and materialization destinations when a

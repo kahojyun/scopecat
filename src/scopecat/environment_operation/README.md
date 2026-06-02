@@ -1,60 +1,56 @@
 # Environment Operation Module
 
-Route-local module for approved local environment-manager operations.
+## Status
 
-This module is the accepted route-local implementation baseline for the first
-approved `uv` execution/review vertical. The promoted boundary is owned by
-[`../../docs/architecture/environment-operation/engineering-prototype-promotion-decision.md`](../../docs/architecture/environment-operation/engineering-prototype-promotion-decision.md).
-It still does not accept final manager abstraction, runtime readiness, code
-execution, hardware readiness, workflow/DAG behavior, or GUI architecture.
+Current engineering-prototype implementation owner for approved local
+environment-manager operations.
 
-The first milestone executes one bounded `uv sync` command from a previously
-approved intent summary. It validates the workspace root and relative command
-directory, runs the command through a subprocess runner, records bounded output
-summaries, and returns a review-oriented execution record.
+The promoted boundary is owned by
+[`../../../docs/engineering/prototype-boundaries/environment-operation.md`](../../../docs/engineering/prototype-boundaries/environment-operation.md).
+Implementation ownership is tracked in
+[`../../../docs/engineering/implementation-register.md`](../../../docs/engineering/implementation-register.md).
 
-Real subprocess execution requires either an injected runner or an explicit
-absolute `uv_executable`. The subprocess runner uses that executable path for
-the child process and passes an empty child environment. The approved intent
-shape still does not accept arbitrary environment-variable overrides.
+## Purpose
 
-Execution records can be promoted into a typed route-local `UvSyncResult` for
-later review composition. `UvSyncResult.to_summary()` projects that object into
-a local review snapshot carrying the selected intent reference, bounded command
-result, result findings, and explicit non-claims. The summary remains a local
-review surface, not a runtime-readiness result.
+Capture bounded environment-manager operation evidence for later review
+without deciding runtime readiness, importing experiment code, contacting
+hardware, or starting a run.
 
-Route-local operation reviews compose one selected `UvSyncIntent` with one
-selected `UvSyncResult`. They surface alignment mismatches and result findings
-as review items without deciding run permission or runtime readiness.
+The current route validates one approved `uv sync` operation plus an optional
+bounded interpreter fact probe. It records review-oriented facts that later
+workflows can consume as prior evidence.
 
-The typed `EnvironmentOperationReview` remains owned by this module. Prepared
-run can consume it as optional prior evidence through its local projection
-adapter, which adds a prepared-run context reference for gate continuity while
-leaving manager semantics, execution review, runtime probing, and readiness
-claims in this module's boundary.
+## Current Surfaces
 
-The route-level workflow entrypoint composes that validated vertical into one
-call: execute approved sync, project the typed result, review it, and run the
-bounded runtime probe only when the sync result is successful and review-clean.
-If sync fails, has findings, or the caller disables probing, the workflow
-returns a skipped probe state instead of inventing readiness.
+Approved sync execution:
 
-The runtime probe milestone builds a bounded `UvRuntimeProbeIntent` from one
-successful `UvSyncResult`, then runs `uv run --locked --no-sync python -c ...`
-to collect small interpreter facts. The probe records whether Python reported a
-virtual environment, but it does not repair the environment, inspect packages,
-import experiment code, or decide run readiness.
+- builds one `UvSyncIntent` from a previously approved summary;
+- validates the workspace root and relative command directory;
+- runs bounded `uv sync` through an injected runner or explicit absolute
+  `uv_executable`;
+- passes an empty child environment and does not accept arbitrary environment
+  overrides;
+- records bounded output summaries in an execution record.
 
-Runtime probe summaries may include local interpreter paths such as
-`sys.executable`, `sys.prefix`, `sys.base_prefix`, and the local execution cwd.
-Those path facts are local review facts only. If this output is later promoted
-to a portable/export artifact, that promotion needs a separate boundary and
-redaction decision.
+Operation review:
 
-It does not read or parse `pyproject.toml`, read or parse `uv.lock`, interpret
-dependency output, verify installed package state, import selected experiment
-code, execute notebooks, contact hardware, or decide that a run can start.
+- promotes execution records into typed route-local `UvSyncResult` objects;
+- projects local review summaries with selected intent reference, bounded
+  command result, result findings, and explicit non-claims;
+- composes one selected intent with one selected result in
+  `EnvironmentOperationReview`;
+- surfaces alignment mismatches and result findings without deciding run
+  permission or runtime readiness.
+
+Runtime probe:
+
+- builds `UvRuntimeProbeIntent` from one successful sync result;
+- runs `uv run --locked --no-sync python -c ...` through the same bounded
+  execution path;
+- records small interpreter facts, including whether Python reported a virtual
+  environment;
+- returns a skipped probe state when sync failed, review findings exist, or the
+  caller disables probing.
 
 ## API Surface
 
@@ -79,3 +75,28 @@ Current route-local surface:
 Modules with leading underscores are route-private implementation modules.
 They may be tested directly while the route-local implementation hardens, but
 they are not public SDK or cross-route domain APIs.
+
+## Artifact Boundaries
+
+Result, review, operation-run, and probe summaries are local review surfaces.
+They are not portable/export artifacts unless a later slice explicitly promotes
+one.
+
+Runtime probe summaries may include local interpreter paths such as
+`sys.executable`, `sys.prefix`, `sys.base_prefix`, and the local execution cwd.
+Those path facts are local review facts only. A portable/export promotion would
+need a separate artifact boundary and redaction decision.
+
+## Tests And Fixtures
+
+Module behavior is covered by prototype tests under
+[`../../../tests/prototypes/environment_operation/`](../../../tests/prototypes/environment_operation/).
+Repository-safe fixtures live under
+[`../../../tests/fixtures/prototypes/environment_operation/`](../../../tests/fixtures/prototypes/environment_operation/)
+and related environment fixture families under
+[`../../../tests/fixtures/`](../../../tests/fixtures/).
+
+## Boundary
+
+This README owns live API orientation. Detailed scope limits live in the
+prototype-boundary note linked above.

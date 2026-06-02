@@ -2,39 +2,59 @@
 
 ## Purpose
 
-Discovery owns current problem framing, adoption routes, validation
-artifacts, implementation-shaped exploration results, synthesis, and explicit
-deferrals.
+Discovery owns problem framing, historical adoption-route evidence, validation
+artifacts, implementation-shaped exploration results before promotion,
+synthesis, and explicit deferrals.
 
 These documents are not user documentation and are not accepted architecture
 unless a narrower document says so. Use them to decide the next validation or
 implementation slice without promoting slice-local vocabulary into shared
 product contracts too early.
 
+After discovery evidence starts moving into live route-local code, active
+workflow sequencing belongs in
+[`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md),
+product capability maturity belongs in
+[`../product/capability-map.md`](../product/capability-map.md), and
+implementation ownership belongs in
+[`../engineering/implementation-register.md`](../engineering/implementation-register.md).
+Discovery route and slice documents remain evidence and discovery status, not
+the default owner for engineering-prototype expansion.
+
 ## Read First
 
 | Document | Use For |
 | --- | --- |
 | [`doc-types.md`](doc-types.md) | Understand which discovery document type owns navigation, policies, route decisions, slice evidence, or synthesis. |
-| [`routes/README.md`](routes/README.md) | Navigate route owners, route decisions, and adoption routes by durable user workflow. |
-| [`routes/prototype-promotion-map.md`](routes/prototype-promotion-map.md) | Coordinate route-by-route discovery-to-engineering prototype promotion status. |
-| [`policies/README.md`](policies/README.md) | Navigate repeated boundary vocabulary and product posture documents. |
+| [`../product/adoption-model.md`](../product/adoption-model.md) | Current product adoption paths and brownfield migration boundaries. |
+| [`../product/capability-map.md`](../product/capability-map.md) | Current product capabilities, maturity, evidence, and open advancement questions. |
+| [`../engineering/delivery-maturity-model.md`](../engineering/delivery-maturity-model.md) | Classify workflow and capability maturity before promoting code; treat candidates, spikes, prototypes, and scenarios as validation methods. |
+| [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md) | Start from user workflow threads, validated steps, and missing seams before selecting the next prototype or vertical slice. |
+| [`routes/README.md`](routes/README.md) | Navigate discovery route owners, route decisions, and historical adoption-route evidence by durable user workflow. |
+| [`../engineering/implementation-register.md`](../engineering/implementation-register.md) | Current live implementation owners. |
+| [`policies/README.md`](policies/README.md) | Navigate repeated boundary vocabulary, artifact classification, and product strategy documents. |
 | [`problem-briefs/README.md`](problem-briefs/README.md) | Start from evidence-backed problem framing before choosing a validation question. |
-| [`slices/README.md`](slices/README.md) | Browse the current discovery slice inventory by route and maturity. |
+| [`slices/README.md`](slices/README.md) | Use discovery slice results as evidence. |
 | [`synthesis/cross-slice.md`](synthesis/cross-slice.md) | See recurring candidate concepts, stable separations, and cross-route design pressure. |
 | [`synthesis/shared-model-extraction-deferral.md`](synthesis/shared-model-extraction-deferral.md) | Understand why shared domain models are intentionally deferred. |
 | [`synthesis/measurement-context-backlog.md`](synthesis/measurement-context-backlog.md) | Shared discovery backlog for context records attached to or selected for measurements, without accepting a shared schema. |
 
+## Historical Reference
+
+Use [`archive/README.md`](archive/README.md) only when an active discovery owner
+points to historical inventories, retired route synthesis, or frozen
+coordination maps.
+
 ## Validation Slices
 
-Validation slices are grouped by adoption route. A route can contain several
+Validation slices are grouped by discovery route. A route can contain several
 slices at different maturity levels; a slice should stay narrow even when it
-tests part of a broader route.
+tests part of a broader workflow or adoption path.
 
-The detailed slice inventory now lives in
-[`slices/README.md`](slices/README.md). Keep this README focused on navigation
-and use route indexes or route consolidation docs for route-specific
-sequencing.
+Keep this README focused on navigation and use route indexes or route
+consolidation docs for discovery-specific sequencing. The old flat slice
+inventory remains in [`archive/slice-inventory.md`](archive/slice-inventory.md)
+for historical reference.
 
 Future slice candidates should each answer one primary validation question. Do
 not combine import/export, storage, GUI, execution, redaction, write-back,
@@ -53,34 +73,21 @@ declares otherwise.
 
 Validation result and plan documents may include slice-local recommendations
 for what their fixture earned or deferred. They should not be treated as the
-owner of active sequencing. Sequencing belongs in the implementation or PR
-plan, using these discovery docs as supporting context.
+owner of active sequencing. Current workflow sequencing belongs in
+[`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md).
 
 ## Route Pointers
 
-Use route owners for sequencing and detailed navigation. Keep this README as
-the discovery landing page rather than a duplicate route inventory.
-
-| Area | Owner |
-| --- | --- |
-| Measurement Records | [`routes/measurement-records/README.md`](routes/measurement-records/README.md) |
-| Handoff packages | Current implementation owners are [`engineering-prototype-promotion-decision.md`](../architecture/handoff/engineering-prototype-promotion-decision.md), [`durable-import-storage-decision.md`](../architecture/handoff/durable-import-storage-decision.md), and [`src/scopecat/handoff/README.md`](../../src/scopecat/handoff/README.md); retired discovery synthesis remains in [`routes/measurement-records/handoff/README.md`](routes/measurement-records/handoff/README.md). |
-| Import/source decisions | [`routes/measurement-records/import-source-decision.md`](routes/measurement-records/import-source-decision.md) |
-| Experiment code | [`routes/experiment-code/README.md`](routes/experiment-code/README.md) |
-| Environment operation | [`routes/environment-operation/README.md`](routes/environment-operation/README.md) |
-| Parameter state | Current implementation owners are [`routes/parameter-state/README.md`](routes/parameter-state/README.md), [`engineering-prototype-promotion-decision.md`](../architecture/parameter-state/engineering-prototype-promotion-decision.md), and [`src/scopecat/parameter_state/README.md`](../../src/scopecat/parameter_state/README.md). |
-| Measurement context backlog | [`synthesis/measurement-context-backlog.md`](synthesis/measurement-context-backlog.md) |
-| Setup binding, calibration, selected reference | [`slices/README.md`](slices/README.md) plus the relevant problem brief in [`problem-briefs/`](problem-briefs/) |
+Use [`routes/README.md`](routes/README.md) as the single discovery route
+inventory. This README should not repeat route owner tables; it only points to
+the route inventory and to engineering owners for work that has moved into live
+prototype implementation.
 
 ## Promotion Discipline
 
-Do not promote a validation result directly into shared architecture.
-
-Before moving a concept into accepted schema, shared implementation, or
-`docs/architecture/`, make sure there is:
-
-- pressure from more than one validated slice;
-- a concrete implementation need;
-- explicit tests or contracts that would otherwise be duplicated;
-- a narrower decision or ADR that names the ownership and what remains out of
-  scope.
+Before moving discovery evidence into accepted schema, shared implementation,
+live route code, or `docs/engineering/prototype-boundaries/`, classify the work
+in [`../engineering/delivery-maturity-model.md`](../engineering/delivery-maturity-model.md)
+and attach it to a named workflow step, seam, or risk question in
+[`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md).
+Do not promote validation-result wording by copy/paste.

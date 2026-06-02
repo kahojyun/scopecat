@@ -2,16 +2,24 @@
 
 ## Status
 
-Route index and navigation aid, not an ADR.
+Discovery route index.
 
-This document keeps Measurement Records discovery links and route ownership in
-one place so [`README.md`](../../README.md) can stay a short entrypoint. It does not
-replace validation result documents, route decision consolidations, or
-cross-slice synthesis.
+This document keeps Measurement Records discovery evidence, route decisions,
+deferred questions, and reopen triggers in one place so
+[`README.md`](../../README.md) can stay a short entrypoint. It does not replace
+validation result documents, route decision consolidations, cross-slice
+synthesis, or live engineering owners.
+
+Linked decision documents own accepted choices. This route index only points to
+them and preserves discovery context.
 
 ## Read First
 
-Use these documents before adding new Measurement Records behavior:
+For live implementation work, start from the engineering owner pointers below,
+not this discovery route index.
+
+Use these documents when interpreting prior Measurement Records discovery
+evidence or deciding whether a discovery route should reopen:
 
 | Document | Use For |
 | --- | --- |
@@ -28,80 +36,74 @@ useful historical context:
 
 | Document | Use For |
 | --- | --- |
-| [`routes/measurement-records/handoff/README.md`](handoff/README.md) | Retired handoff package route map and historical discovery synthesis; current handoff boundaries live in architecture and module docs. |
-| [`routes/measurement-records/handoff/decision.md`](handoff/decision.md) | Retired handoff route decision closeout; preserved for historical deferrals, reopen triggers, and stop-rule context. |
-| [`routes/measurement-records/handoff/contract-checklist.md`](handoff/contract-checklist.md) | Historical route-local field categories and review checks for handoff package discovery slices. |
+| [`archive/measurement-records-handoff-route/README.md`](../../archive/measurement-records-handoff-route/README.md) | Retired handoff package route map and historical discovery synthesis; current handoff boundaries live in engineering prototype-boundary and module docs. |
+| [`archive/measurement-records-handoff-route/decision.md`](../../archive/measurement-records-handoff-route/decision.md) | Retired handoff route decision closeout; preserved for historical deferrals, reopen triggers, and stop-rule context. |
+| [`archive/measurement-records-handoff-route/contract-checklist.md`](../../archive/measurement-records-handoff-route/contract-checklist.md) | Historical route-local field categories and review checks for handoff package discovery slices. |
 
-## Route Posture
+## Route Status
 
-Measurement Records currently owns evidence around recorded experiment data:
+This route index records discovery status around recorded experiment data:
 selection, export, import, handoff package use, storage writing, source
-observation, and preview/read surfaces. It does not own experiment-code
-recording, environment sync, runtime readiness, execution, hardware control,
-or final shared domain schemas.
+observation, and preview/read surfaces. It is evidence navigation, not the
+owner of live Measurement Records implementation.
 
-Import/source work is currently closed around these accepted-for-now
-separations:
+Prior import/source discovery closed around these accepted-for-now
+separations, unless a named engineering workflow reopens them:
 
 - legacy source references can be preserved for provenance and later
   file-level observation;
 - adapter-normalized primary data is the route's current path to preview,
   copy, storage, package, SDK/table access, and plotting;
-- normalized primary table reading is now a route-local engineering prototype
-  contract for already-provided bytes and created-record read-view validation,
-  but it does not observe files, infer schemas, build plot series, or define
-  dataframe behavior;
+- normalized primary table reading became a route-local engineering prototype
+  contract for already-provided bytes and created-record read-view validation;
+  current API ownership lives in
+  [`src/scopecat/measurement_records/README.md`](../../../../src/scopecat/measurement_records/README.md);
 - existing-record append receipt records append evidence under an existing
   record, but it does not replace manifests, merge primary data, refresh read
   models, define lock identity, or accept crash recovery.
 
-Legacy brownfield adoption is currently closed around a post-run-first route:
+Prior legacy brownfield discovery closed around a post-run-first route:
 external legacy execution can remain unchanged while Scopecat records declared
 sidecar facts, reviews flexible locators, optionally observes an explicit
 file-backed locator, and carries reviewed sidecar facts forward as
-review/debug evidence. The first live storage vertical now records declared
-legacy run facts into Measurement Records storage and lists those records in a
-read-only storage inventory. A follow-on live attach operation can add
-reviewed converted normalized primary data to the same legacy record without
-creating a second imported record. It still does not observe legacy files,
-execute legacy code, parse legacy formats, repair references, or own runners.
-During-run event capture remains future-compatible but not earned as runner
-ownership. See
+review/debug evidence. Live legacy storage behavior is now owned by engineering
+prototype-boundary and module docs. Discovery still does not prove legacy file
+observation, legacy code execution, legacy format parsing, reference repair, or
+runner ownership. During-run event capture remains future-compatible but not
+earned as runner ownership. See
 [`legacy-brownfield-adoption-decision.md`](legacy-brownfield-adoption-decision.md).
 
-Handoff package work has moved from discovery route ownership into the accepted
-handoff architecture and module docs. Use the retired discovery handoff docs
+Handoff package work moved from discovery route ownership into accepted
+handoff prototype-boundary and module docs. Use retired discovery handoff docs
 only for historical route synthesis. Shared lab references and offline
 execution migration still require separate boundary work.
 
-## Current Next Work
+## Engineering Owner Pointers
 
-Prefer one of these only when the named workflow exists:
+This discovery route no longer owns active implementation sequencing. For live
+Measurement Records work, start from
+[`../../../engineering/workflow-validation-map.md`](../../../engineering/workflow-validation-map.md),
+[`../../../product/capability-map.md`](../../../product/capability-map.md),
+[`../../../engineering/implementation-register.md`](../../../engineering/implementation-register.md),
+the relevant prototype-boundary note, and the live
+[`src/scopecat/measurement_records/README.md`](../../../../src/scopecat/measurement_records/README.md).
+For live handoff work, start from the engineering handoff boundary notes and
+[`src/scopecat/handoff/README.md`](../../../../src/scopecat/handoff/README.md),
+not the retired discovery handoff route.
 
-| Need | Next Boundary |
-| --- | --- |
-| Create durable measurement-record shells before writer/import integration | Start from [`architecture/measurement-records/creation-lifecycle-decision.md`](../../../architecture/measurement-records/creation-lifecycle-decision.md). |
-| Import reviewed normalized primary data into durable storage | Start from [`architecture/handoff/durable-import-storage-decision.md`](../../../architecture/handoff/durable-import-storage-decision.md) and the live [`src/scopecat/measurement_records/README.md`](../../../../src/scopecat/measurement_records/README.md): create a new measurement record through the existing receipt/read-model pipeline. |
-| Record a legacy measurement with converted primary data and selected references | Start from [`architecture/measurement-records/legacy-run-storage-inventory-decision.md`](../../../architecture/measurement-records/legacy-run-storage-inventory-decision.md), the live [`src/scopecat/measurement_records/README.md`](../../../../src/scopecat/measurement_records/README.md), and the `record_legacy_measurement(...)` workflow facade: accept user-facing legacy facts, attach reviewed converted normalized primary data to the same generated record, record selected parameter/setup/code/artifact references, then review it as one measurement. |
-| Read or preview stored/package-local normalized data through one contract | Start from the live [`src/scopecat/measurement_records/README.md`](../../../../src/scopecat/measurement_records/README.md) normalized primary table contract; package-local consumers still need their own concrete integration boundary. |
-| List what local Measurement Records storage contains | Start from the live storage inventory API in [`src/scopecat/measurement_records/README.md`](../../../../src/scopecat/measurement_records/README.md). It scans manifests, read models, and legacy receipts without repair, refresh, primary-data observation, or legacy payload import. |
-| Inspect a still-running durable record | Start from [`architecture/measurement-records/creation-lifecycle-decision.md`](../../../architecture/measurement-records/creation-lifecycle-decision.md): in-progress append receipts plus read-only running inspection. |
-| Add durable storage editing beyond existing append receipts and legacy primary attach | Choose a stronger boundary: generic existing-record import/update, stale-lock cleanup, crash recovery, conflict policy, manifest replacement, read-model refresh, or canonical append visibility. |
-| Accept adapter-produced input through a real workflow | Extend [`adapter-output-boundary-validation-result.md`](../../slices/measurement-records/adapter-output-boundary-validation-result.md) into a concrete transport, discovery, trust, and failure model. |
-| Recover moved reference-only records | Validate reference repair/review without automatic path discovery by default. |
-| Add lower-latency legacy adoption | Reopen [`legacy-brownfield-adoption-decision.md`](legacy-brownfield-adoption-decision.md): validate a narrow during-run event/supporting-evidence append boundary without runner control. |
-| Carry legacy calibration updates into managed state | Reopen [`legacy-brownfield-adoption-decision.md`](legacy-brownfield-adoption-decision.md): validate sidecar or calibration accepted-write handoff composition into parameter-state management. |
-| Continue handoff package behavior | Start from [`architecture/handoff/engineering-prototype-promotion-decision.md`](../../../architecture/handoff/engineering-prototype-promotion-decision.md), [`architecture/handoff/durable-import-storage-decision.md`](../../../architecture/handoff/durable-import-storage-decision.md), and [`src/scopecat/handoff/README.md`](../../../../src/scopecat/handoff/README.md), not the retired discovery route. |
+Use this route index only to find discovery evidence, route decisions, deferred
+questions, and reopen triggers.
 
-Do not add another import/source slice merely to restate that external source
-references are not previewable primary data, that file-level observation is not
-data-level observation, or that adapters own legacy parsing.
+Do not add another discovery import/source slice merely to restate that
+external source references are not previewable primary data, that file-level
+observation is not data-level observation, or that adapters own legacy parsing.
 
-Do not add another brownfield sidecar slice merely to restate post-run-first
-adoption, flexible legacy locators, optional context links, supporting evidence
-posture, file-level observation limits, review-evidence receipt readback, or
-no-runner/no-import/no-write-back boundaries. New legacy work should now prove
-a concrete storage, inventory, import, review, or continuation workflow.
+Do not add another discovery brownfield sidecar slice merely to restate
+post-run-first adoption, flexible legacy locators, optional context links,
+supporting evidence posture, file-level observation limits, review-evidence
+receipt readback, or no-runner/no-import/no-write-back boundaries. New legacy
+work should now attach to a named engineering workflow question before adding
+more discovery evidence.
 
 ## Route Documents
 
@@ -163,14 +165,14 @@ a concrete storage, inventory, import, review, or continuation workflow.
 
 These rows are historical discovery evidence. Current accepted implementation
 boundaries live in
-[`engineering-prototype-promotion-decision.md`](../../../architecture/handoff/engineering-prototype-promotion-decision.md)
+[`handoff.md`](../../../engineering/prototype-boundaries/handoff.md)
 and the historical first candidate storage mutation boundary lives in
-[`storage-acceptance-decision.md`](../../../architecture/handoff/storage-acceptance-decision.md).
+[`handoff-candidate-storage-acceptance.md`](../../../engineering/archive/handoff-candidate-storage-acceptance.md).
 The historical storage/import requirements synthesis from before durable
 measurement-record creation lives in
-[`storage-import-requirements-synthesis.md`](../../../architecture/handoff/storage-import-requirements-synthesis.md).
+[`handoff-storage-import-requirements-synthesis.md`](../../../engineering/archive/handoff-storage-import-requirements-synthesis.md).
 The active durable handoff import boundary lives in
-[`durable-import-storage-decision.md`](../../../architecture/handoff/durable-import-storage-decision.md).
+[`handoff-durable-import-storage.md`](../../../engineering/prototype-boundaries/handoff-durable-import-storage.md).
 
 | Document | Use For |
 | --- | --- |

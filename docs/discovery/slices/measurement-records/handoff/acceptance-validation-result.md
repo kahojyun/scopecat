@@ -7,9 +7,9 @@ Implementation candidate validated.
 Document role: historical discovery validation result. It records what this
 slice earned and what it did not establish. Later engineering implementation
 decisions are owned by
-[`storage-acceptance-decision.md`](../../../../architecture/handoff/storage-acceptance-decision.md)
+[`handoff-candidate-storage-acceptance.md`](../../../../engineering/archive/handoff-candidate-storage-acceptance.md)
 and the current durable handoff import route is owned by
-[`durable-import-storage-decision.md`](../../../../architecture/handoff/durable-import-storage-decision.md);
+[`handoff-durable-import-storage.md`](../../../../engineering/prototype-boundaries/handoff-durable-import-storage.md);
 do not update this result to mirror live API or receipt changes.
 
 This result validates the old first approved receiving-side candidate storage

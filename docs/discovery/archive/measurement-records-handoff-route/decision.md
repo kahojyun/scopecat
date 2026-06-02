@@ -2,7 +2,9 @@
 
 ## Status
 
-Retired discovery decision consolidation, not an ADR.
+Retired discovery route decision.
+
+Decision status: retired.
 
 This note closed the handoff-package discovery pass before the engineering
 prototype and durable Measurement Records import route became the live owners.
@@ -13,17 +15,11 @@ GUI framework, a package archive format, signatures, final storage import
 behavior, or a shared measurement-record domain model.
 
 For current implementation boundaries, use
-[`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md),
-[`durable-import-storage-decision.md`](../../../../architecture/handoff/durable-import-storage-decision.md),
-and [`src/scopecat/handoff/README.md`](../../../../../src/scopecat/handoff/README.md).
+[`handoff.md`](../../../engineering/prototype-boundaries/handoff.md),
+[`handoff-durable-import-storage.md`](../../../engineering/prototype-boundaries/handoff-durable-import-storage.md),
+and [`src/scopecat/handoff/README.md`](../../../../src/scopecat/handoff/README.md).
 
-Artifact posture: `internal_validation_summary`. This document is internal
-project memory. It creates no portable package output and no new redaction
-rules. Use
-[`policies/artifact-boundary-and-redaction.md`](../../../policies/artifact-boundary-and-redaction.md)
-for artifact-boundary classification.
-
-## Accepted For Now
+## Historical Decision
 
 The validated discovery handoff route was **open before import**:
 
@@ -51,7 +47,7 @@ semantics by accident.
 The current package purpose is analysis/review, not offline execution
 migration.
 Use
-[`policies/package-purpose-boundary.md`](../../../policies/package-purpose-boundary.md)
+[`policies/package-purpose-boundary.md`](../../policies/package-purpose-boundary.md)
 to distinguish current handoff packages from shared lab references such as NAS
 paths and future restorable execution-context artifacts or workflows.
 Offline execution migration should open a separate migration boundary or route.
@@ -69,7 +65,7 @@ importing the package into Scopecat storage. Dataframe-like tables, arrays,
 optional pandas/numpy adapters, hard dataframe dependencies, and final public
 SDK names remain deferred SDK/notebook pressure. Current implementation
 baseline details live in
-[`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md).
+[`handoff.md`](../../../engineering/prototype-boundaries/handoff.md).
 
 GUI/local review use is **plot-first when a plot is declared**. Experimental
 users commonly orient by the primary plot and structured context first, with
@@ -137,7 +133,7 @@ Do more handoff work only when one of these concrete triggers appears:
 - Users need durable/final local records beyond the implemented
   single-measurement new-record path:
   reopen from the accepted durable import path in
-  [`durable-import-storage-decision.md`](../../../../architecture/handoff/durable-import-storage-decision.md).
+  [`handoff-durable-import-storage.md`](../../../engineering/prototype-boundaries/handoff-durable-import-storage.md).
   The current trigger is satisfied for reviewed handoff package to
   single-measurement new durable record import, receipt summary, retry review,
   and CLI receipt summary. Existing-record update, batch import, conflict
@@ -145,7 +141,7 @@ Do more handoff work only when one of these concrete triggers appears:
   payload import, package trust/archive handling, public adapter transport, and
   GUI durable review state still need separate decisions. The older candidate
   mutation boundary is recorded in
-  [`storage-acceptance-decision.md`](../../../../architecture/handoff/storage-acceptance-decision.md).
+  [`handoff-candidate-storage-acceptance.md`](../../../engineering/archive/handoff-candidate-storage-acceptance.md).
 - Analysis or fit results need first-class display:
   validate a read-only analysis-result model before executing fits or
   accepting write-back.

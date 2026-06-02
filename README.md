@@ -2,23 +2,33 @@
 
 <p align="center"><img src="assets/branding/app-icon.svg" alt="Scopecat app icon" width="160"></p>
 
-Scopecat is an early greenfield project for scientific measurement workflows.
+Scopecat is an early brownfield-friendly project for scientific measurement
+workflows. It is designed to improve evidence, review, and handoff around
+existing lab systems while leaving room for deeper migration when a workflow
+proves the need.
 
-The product and architecture are still being shaped. See
-`docs/strategy/product-direction.md` for the current product direction and boundaries, and
-`docs/README.md` for the documentation workspace.
+Scopecat is in active development; current docs describe product direction,
+evidence, and implementation boundaries rather than finalized product
+commitments.
+
+See `docs/product/direction.md` for product direction and `docs/README.md` for
+the documentation workspace.
 
 ## Status
 
-New project workspace. Current docs describe evidence, hypotheses, and
-boundaries, not finalized product commitments.
+Current implementation phase: engineering prototype.
+
+The repository contains live route-local prototype owners, discovery evidence,
+and historical candidates. It is not a finalized product architecture or
+maintained product capability yet.
 
 ## Documentation
 
 Start with `docs/README.md`.
 
 The documentation workspace is the long-lived project memory for product
-analysis, research, architecture decisions, and future user documentation.
+analysis, research, engineering prototype boundaries, and user documentation
+when introduced.
 It should not be treated as a finalized product specification.
 
 ## Development

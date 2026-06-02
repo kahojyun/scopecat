@@ -7,7 +7,7 @@ Implementation candidate validated.
 Document role: historical discovery validation result. It records the old
 copy-into-new-record acceptance candidate for reviewed adapter-authored
 manifests. The current durable new-record import boundary is owned by
-[`durable-import-storage-decision.md`](../../../architecture/handoff/durable-import-storage-decision.md);
+[`handoff-durable-import-storage.md`](../../../engineering/prototype-boundaries/handoff-durable-import-storage.md);
 do not update this result to mirror live durable import API or receipt changes.
 
 This result validates an old narrow Measurement Records slice:

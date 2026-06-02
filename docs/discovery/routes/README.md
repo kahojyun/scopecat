@@ -2,18 +2,28 @@
 
 ## Status
 
-Navigation index, not an ADR.
+Discovery route navigation index.
 
 Routes group discovery work by durable user workflow and authority boundary.
-Use route indexes for current route posture and sequencing unless an index is
-explicitly marked retired; use validation results for slice-local evidence.
+Use route indexes for discovery status and validation sequencing unless an
+index is explicitly marked retired; use validation results for slice-local
+evidence. Once a route has live engineering ownership, use
+[`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
+for workflow sequencing and
+[`../../product/capability-map.md`](../../product/capability-map.md)
+for capability maturity. Use
+[`../../engineering/implementation-register.md`](../../engineering/implementation-register.md)
+for live implementation ownership.
 
 ## Current Routes
 
 | Route | Use For |
 | --- | --- |
-| [`adoption-routes.md`](adoption-routes.md) | Compare evidence-backed adoption routes by durable user workflow. |
-| [`prototype-promotion-map.md`](prototype-promotion-map.md) | Coordinate route-by-route discovery-to-engineering prototype promotion status. |
+| [`adoption-routes.md`](adoption-routes.md) | Historical discovery framing for evidence-backed adoption routes by durable user workflow. |
+| [`../../product/adoption-model.md`](../../product/adoption-model.md) | Current product adoption model and brownfield migration paths. |
+| [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md) | Current workflow sequencing after discovery evidence moves toward implementation. |
+| [`../../product/capability-map.md`](../../product/capability-map.md) | Current product capabilities, maturity, evidence, and advancement questions. |
+| [`../../engineering/implementation-register.md`](../../engineering/implementation-register.md) | Current live implementation owners. |
 | [`measurement-records/README.md`](measurement-records/README.md) | Measurement records, import/source decisions, storage writing, selected handoff, package use, and source observation. |
 | [`measurement-records/import-source-decision.md`](measurement-records/import-source-decision.md) | Current import/source route decisions, deferred decisions, reopen triggers, and next-slice guidance. |
 | [`measurement-records/legacy-brownfield-adoption-decision.md`](measurement-records/legacy-brownfield-adoption-decision.md) | Current post-run-first legacy adoption route decisions, deferred decisions, reopen triggers, and stop rule. |
@@ -30,14 +40,15 @@ explicitly marked retired; use validation results for slice-local evidence.
 
 | Route | Use For |
 | --- | --- |
-| [`measurement-records/handoff/README.md`](measurement-records/handoff/README.md) | Retired handoff package route map and historical discovery synthesis; current handoff boundaries live in architecture and module docs. |
-| [`measurement-records/handoff/decision.md`](measurement-records/handoff/decision.md) | Retired handoff route decision closeout; preserved for historical deferrals, reopen triggers, and stop-rule context. |
+| [`../archive/measurement-records-handoff-route/README.md`](../archive/measurement-records-handoff-route/README.md) | Retired handoff package route map and historical discovery synthesis; current handoff boundaries live in engineering prototype-boundary and module docs. |
+| [`../archive/measurement-records-handoff-route/decision.md`](../archive/measurement-records-handoff-route/decision.md) | Retired handoff route decision closeout; preserved for historical deferrals, reopen triggers, and stop-rule context. |
 
 ## Related Non-Route Owners
 
 | Owner | Use For |
 | --- | --- |
 | [`../problem-briefs/README.md`](../problem-briefs/README.md) | Evidence-backed problem framing before choosing a validation question. |
-| [`../slices/README.md`](../slices/README.md) | Current discovery slice inventory by route and maturity. |
+| [`../slices/README.md`](../slices/README.md) | How to use discovery slice results as evidence. |
+| [`../archive/slice-inventory.md`](../archive/slice-inventory.md) | Historical flat discovery slice inventory. |
 | [`../synthesis/measurement-context-backlog.md`](../synthesis/measurement-context-backlog.md) | Shared backlog for measurement-context-shaped validation work across routes. |
 | [`../problem-briefs/setup-binding.md`](../problem-briefs/setup-binding.md) and [`../slices/setup-binding/setup-binding-validation-result.md`](../slices/setup-binding/setup-binding-validation-result.md) | Historical setup-binding evidence. The active narrow route-local owner is [`setup-binding/README.md`](setup-binding/README.md). |

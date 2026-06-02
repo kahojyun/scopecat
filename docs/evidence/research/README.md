@@ -18,8 +18,8 @@ smallest owning document outside `research/`.
 - Raw notes may be messy, partial, and contradictory.
 - Extracted notes should summarize reusable claims and separate facts from
   interpretation.
-- Future sessions should read `research-index.md` and extracted notes before
-  raw notes.
+- Future sessions should read [`research-index.md`](research-index.md) and
+  extracted notes before raw notes.
 - Use normal Markdown links and indexes; do not rely on editor-specific
   backlink systems.
 - Do not store sensitive identity details or unredacted private material unless
@@ -55,10 +55,11 @@ pain evidence, adoption signals, and redaction notes when relevant.
 ## Promotion Targets
 
 - evidence claims -> [`../evidence-register.md`](../evidence-register.md)
-- evidence interpretation, source posture, and bias rules -> [`../method.md`](../method.md)
+- evidence interpretation, source coverage, and bias rules -> [`../method.md`](../method.md)
 - problem framing -> [`../../discovery/problem-briefs/`](../../discovery/problem-briefs)
-- adoption routes -> [`../../discovery/routes/adoption-routes.md`](../../discovery/routes/adoption-routes.md)
-- product direction and boundaries -> [`../../strategy/product-direction.md`](../../strategy/product-direction.md)
+- adoption model -> [`../../product/adoption-model.md`](../../product/adoption-model.md)
+- discovery adoption-route evidence -> [`../../discovery/routes/adoption-routes.md`](../../discovery/routes/adoption-routes.md)
+- product direction and boundaries -> [`../../product/direction.md`](../../product/direction.md)
 
 Create validation, decision, architecture, or user docs only when there is a
 specific durable owner and content for them.

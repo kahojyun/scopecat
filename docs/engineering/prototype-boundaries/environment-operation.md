@@ -1,26 +1,19 @@
-# Environment Operation Engineering Prototype Promotion Decision
+# Environment Operation Prototype Boundary
 
 ## Status
 
-Engineering promotion decision, not an ADR.
+Accepted engineering-prototype boundary.
 
-This is the canonical environment-operation implementation-boundary note for
-the first route-local execution vertical. Update this file when an accepted
-boundary or next decision gate changes. Keep live API syntax in
+This is the current live route-local boundary note for the
+environment-operation prototype's first local execution vertical. Keep live API
+syntax in
 [`../../../src/scopecat/environment_operation/README.md`](../../../src/scopecat/environment_operation/README.md)
 and leave the prototype plan/readiness notes as frozen snapshots.
 
-Artifact posture: `internal_validation_summary`. This note is internal project
-memory. It creates no portable package output, public contract, public SDK, or
-new redaction rule. Use
-[`discovery/policies/artifact-boundary-and-redaction.md`](../../discovery/policies/artifact-boundary-and-redaction.md)
-if any accepted implementation output is later promoted into a
-portable/export artifact.
+## Current Boundary
 
-## Decision
-
-Promote the environment-operation engineering prototype as the accepted
-baseline for the route's first local `uv` execution/review vertical:
+The accepted environment-operation prototype owns the route's first local `uv`
+execution/review vertical:
 
 ```text
 validated uv sync intent summary
@@ -34,16 +27,6 @@ validated uv sync intent summary
   -> route-local UvRuntimeProbeResult
   -> route-local UvSyncOperationRun workflow summary
 ```
-
-This promotion stops the current broad environment-operation prototype line.
-Further work on the same route should be either:
-
-- small maintenance on the accepted local `uv` execution/review vertical;
-- PR/release preparation for this accepted implementation phase;
-- a separately scoped route extension triggered by the next decision gate
-  below.
-
-It should not continue as broad prototype expansion.
 
 ## Accepted Baseline
 
@@ -84,13 +67,13 @@ integration does not change environment-operation ownership: this route still
 owns intent/result/review semantics, manager scope, process-execution records,
 runtime probe eligibility, and non-readiness claims.
 
-## Explicit Non-Promotions
+## Out Of Scope
 
-This decision does not promote:
+This boundary does not accept:
 
 - the full environment-operation route;
-- public SDK names, package publishing metadata, CLI, GUI, or workflow/DAG
-  integration;
+- public SDK names, package publishing metadata, CLI, GUI, or general workflow
+  orchestration;
 - runtime readiness, run permission, run safety, reproducibility, or hardware
   readiness decisions;
 - installed package or virtual-environment state verification beyond the
@@ -109,7 +92,7 @@ This decision does not promote:
 - a shared environment, prepared-run, experiment-code, or measurement-record
   domain model.
 
-## Discovery Candidate Posture
+## Historical Candidate Context
 
 Existing environment-operation implementation candidates remain historical
 discovery evidence. They validated intent construction, declared external

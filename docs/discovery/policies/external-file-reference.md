@@ -2,7 +2,7 @@
 
 ## Status
 
-Discovery policy sketch, not an ADR.
+Discovery policy sketch.
 
 This note records candidate vocabulary and unresolved policy questions for
 externally referenced files. It does not accept a final storage architecture,

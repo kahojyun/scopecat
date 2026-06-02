@@ -2,19 +2,15 @@
 
 ## Status
 
-Discovery boundary accepted for current scan/data-shape validation.
+Discovery boundary.
+
+Decision status: accepted for current scan/data-shape validation.
 
 This note defines complex-valued responses as logical value metadata over
 declared previewable data items. It does not define a primitive complex storage
 type, native backend mapping, transform engine, plotting API, dataframe API,
 array API, trace complex response schema, matrix preview model, or public
 report format.
-
-Artifact posture:
-
-- this document is a discovery note;
-- it is not a portable export/package artifact or public report;
-- it records product-boundary intent for future validation slices.
 
 ## Boundary
 

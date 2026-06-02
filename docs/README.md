@@ -1,40 +1,63 @@
 # Scopecat Docs
 
 `docs/` is Scopecat's durable project memory. It keeps product direction,
-research conclusions, problem framing, decisions, and future user documentation
-in plain Markdown.
+research conclusions, problem framing, decisions, and user documentation when
+introduced.
 
-Use [`index.md`](index.md) as the navigation map.
+Start here for the top-down reading path. Use [`index.md`](index.md) only as a
+flat navigation map when you already know which owner you need.
 
-## Current Model
+## Where To Find Current State
 
-Keep durable statements in the narrowest owner:
+- Current workflow status and composition gaps:
+  [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md)
+- Current product adoption paths:
+  [`product/adoption-model.md`](product/adoption-model.md)
+- Current product capabilities, maturity, evidence, and advancement questions:
+  [`product/capability-map.md`](product/capability-map.md)
+- Current maturity vocabulary:
+  [`engineering/delivery-maturity-model.md`](engineering/delivery-maturity-model.md)
+- Current live implementation owners:
+  [`engineering/implementation-register.md`](engineering/implementation-register.md)
+- Current route-local prototype boundaries:
+  [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md)
+- Active execution work should live in issues, PRs, or branch-specific working
+  notes when implementation starts rather than this landing page.
 
-- evidence claims: [`evidence/evidence-register.md`](evidence/evidence-register.md)
-- evidence interpretation: [`evidence/method.md`](evidence/method.md)
-- discovery navigation: [`discovery/README.md`](discovery/README.md)
-- architecture notes: [`architecture/README.md`](architecture/README.md)
-- problem framing: [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md)
-- adoption routes: [`discovery/routes/adoption-routes.md`](discovery/routes/adoption-routes.md)
-- discovery slices: [`discovery/slices/README.md`](discovery/slices/README.md)
-- cross-slice synthesis: [`discovery/synthesis/cross-slice.md`](discovery/synthesis/cross-slice.md)
-- discovery deferrals: [`discovery/synthesis/shared-model-extraction-deferral.md`](discovery/synthesis/shared-model-extraction-deferral.md)
-- product direction: [`strategy/product-direction.md`](strategy/product-direction.md)
-- research inputs: [`evidence/research/README.md`](evidence/research/README.md)
+## Read Top Down
 
-Create validation, decision, architecture, or user docs only when there is a
-specific durable owner and content for them. Architecture notes are for
-engineering-boundary ownership after discovery evidence starts turning into
-implementation work; they should link back to discovery evidence instead of
-copying it wholesale.
+For product and implementation direction:
+
+1. [`product/README.md`](product/README.md) for product docs, then
+   [`product/direction.md`](product/direction.md) for product direction,
+   long-term boundaries, and non-goals.
+2. [`product/adoption-model.md`](product/adoption-model.md) for brownfield
+   adoption paths and migration boundaries.
+3. [`product/capability-map.md`](product/capability-map.md) for product
+   capabilities, maturity, supporting evidence, and open advancement
+   questions.
+4. [`engineering/README.md`](engineering/README.md) for delivery maturity,
+   workflow validation, implementation ownership, and promotion governance.
+5. [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md)
+   to find the user workflow thread, validated steps, missing seams, and next
+   validation question.
+6. [`engineering/implementation-register.md`](engineering/implementation-register.md)
+   to find live implementation owners and their module/boundary detail docs.
+7. [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) and the owning module
+   README for live implementation boundaries and API details.
+
+For new discovery work:
+
+1. [`evidence/evidence-register.md`](evidence/evidence-register.md) and
+   [`evidence/method.md`](evidence/method.md) for stable evidence claims and
+   evidence rules.
+2. [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md)
+   for problem framing.
+3. [`discovery/README.md`](discovery/README.md) for discovery route, slice,
+   policy, and synthesis navigation.
 
 ## Editing Rules
 
-- Update existing documents before creating new structure.
-- Do not create placeholder directories, sentinel files, or broad scaffolds.
-- Mark hypotheses, accepted decisions, and open questions explicitly when the
-  distinction matters.
-- Keep public-facing documentation under `docs/user/` when it is introduced,
-  and treat it as redacted by default.
-- Docs-only wording or navigation changes may not need tests. If there are no
-  remaining executable tests for the changed area, say that explicitly.
+Keep this README focused on top-down reading. Authoring and AI-agent rules live
+in [`AGENTS.md`](AGENTS.md); the PR drift checklist lives in
+[`engineering/pr-documentation-drift-checklist.md`](engineering/pr-documentation-drift-checklist.md).

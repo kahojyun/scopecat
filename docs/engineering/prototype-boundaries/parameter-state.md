@@ -1,14 +1,16 @@
-# Parameter-State Engineering Prototype Promotion Decision
+# Parameter-State Prototype Boundary
 
-Status: accepted
+## Status
 
-Date: 2026-06-01
+Accepted engineering-prototype boundary.
 
-Posture: internal_validation_summary
+This is the current live route-local boundary note for the parameter-state
+prototype. Live API details belong in
+[`../../../src/scopecat/parameter_state/README.md`](../../../src/scopecat/parameter_state/README.md).
 
-## Decision
+## Current Boundary
 
-Promote the accepted parameter-state discovery candidates into a route-local
+The accepted parameter-state discovery candidates live as a route-local
 engineering prototype under `src/scopecat/parameter_state/`.
 
 The prototype owns these local review and storage surfaces:
@@ -57,7 +59,7 @@ classification when scope alignment finds partial target coverage; that is a
 parameter-state-local review state, not an execution permission or evidence
 that a live prepared-run route owner exists.
 
-Repository fixture and expected-output posture remains
+Repository fixture and expected-output artifact classification remains
 `internal_validation_summary`. Runtime redaction is not added because these
 fixtures are repository-safe validation artifacts, not portable/public/export
 artifacts.

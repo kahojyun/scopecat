@@ -2,7 +2,7 @@
 
 ## Status
 
-Discovery boundary note, not an ADR.
+Discovery boundary note.
 
 This note clarifies the current Measurement Records distinction between data
 Scopecat can preview and files Scopecat can only reference or observe. It does
@@ -12,9 +12,6 @@ legacy reader, artifact schema, or shared measurement-record domain model.
 For the current route decisions and next-work guidance after the import/source
 observation pass, read
 [`routes/measurement-records/import-source-decision.md`](../routes/measurement-records/import-source-decision.md).
-
-Artifact posture: `internal_validation_summary`. This document is internal
-project memory and creates no portable/export artifact.
 
 ## Rule
 

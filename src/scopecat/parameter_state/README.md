@@ -1,7 +1,12 @@
 # Parameter State Engineering Prototype
 
+## Status
+
 This route-local module promotes the accepted parameter-state discovery
 candidates into production-shaped prototype code.
+
+Implementation ownership is tracked in
+[`../../../docs/engineering/implementation-register.md`](../../../docs/engineering/implementation-register.md).
 
 The accepted boundary is intentionally narrow:
 
@@ -36,3 +41,55 @@ parameter-state route. The gate and scope alignment summaries classify review
 state for manual pre-run review only; a ready chain is not execution
 permission, does not imply a live prepared-run route owner, and carries no
 hardware-safety claim.
+
+## API Surface
+
+Current route-local surface is grouped by workflow stage.
+
+Adapter-authored intake and review:
+
+- `build_adapter_authored_parameter_state_import_preview_summary(...)`
+- `build_adapter_parameter_import_review_commit_summary(...)`
+
+Storage and read views:
+
+- `write_parameter_state_storage(...)`
+- `read_parameter_state_storage_view(...)`
+- `read_source_agnostic_parameter_state_view(...)`
+
+Selection and manual pre-run review:
+
+- `build_parameter_state_selection_summary(...)`
+- `build_prepared_run_source_agnostic_parameter_state_consumption_summary(...)`
+- `build_prepared_run_parameter_state_gate_summary(...)`
+- `build_prepared_run_scope_alignment_summary(...)`
+- `build_prepared_run_source_agnostic_parameter_state_review_chain_summary(...)`
+
+These functions are the top-level route-local exports. They accept and return
+route-local summary dictionaries for the current prototype boundary. They are
+not stable public SDK functions or shared schema contracts. Direct submodules
+are implementation details unless they are exported from `scopecat.parameter_state`.
+
+## Artifact Boundaries
+
+Parameter-state storage is caller-rooted and path-explicit. Current accepted
+storage artifacts are local manifests and receipts written under caller-owned
+storage roots.
+
+Current accepted review artifacts are read-view summaries, source-agnostic
+review projections, selection summaries, and prepared-run review-chain
+summaries. They are local review/storage surfaces, not portable handoff
+artifacts, package-shaped outputs, or public reports unless a later slice
+explicitly promotes them.
+
+Repository fixtures for this module need repository-safety review. Runtime
+redaction is required only if a future slice turns one of these summaries into
+a portable/export boundary.
+
+## Historical Candidate Context
+
+Discovery candidates remain validation evidence, not runtime dependencies for
+this module. The live route-local boundary is the top-level
+`scopecat.parameter_state` export surface listed above plus the accepted
+prototype boundary in
+[`../../../docs/engineering/prototype-boundaries/parameter-state.md`](../../../docs/engineering/prototype-boundaries/parameter-state.md).

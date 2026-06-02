@@ -2,14 +2,17 @@
 
 ## Purpose
 
-Navigation map for current Scopecat docs.
+Flat navigation map for current Scopecat docs. Use [`README.md`](README.md) for
+the recommended top-down reading path.
 
 ## Map
 
 ```text
 docs/
-  strategy/   product direction and boundaries
-  architecture/ engineering-boundary notes after discovery promotion
+  product/   product direction, adoption model, and capability map
+  engineering/ delivery maturity model, workflow validation map,
+               implementation register, prototype boundaries, and engineering
+               archive
   discovery/  problem briefs, policies, routes, validation slices, synthesis
   evidence/   evidence register, method, research, external baseline
 ```
@@ -18,12 +21,20 @@ docs/
 | --- | --- |
 | [`README.md`](README.md) | Documentation purpose and editing rules. |
 | [`AGENTS.md`](AGENTS.md) | AI-session rules for work inside `docs/`. |
-| [`strategy/product-direction.md`](strategy/product-direction.md) | Current product direction, default ownership boundaries, and non-goals. |
-| [`architecture/README.md`](architecture/README.md) | Engineering-boundary notes promoted from discovery-backed implementation work. |
+| [`product/README.md`](product/README.md) | Product documentation navigation. |
+| [`product/direction.md`](product/direction.md) | Current product direction, default ownership boundaries, and non-goals. |
+| [`product/adoption-model.md`](product/adoption-model.md) | Brownfield adoption paths, migration boundaries, and supporting capabilities. |
+| [`product/capability-map.md`](product/capability-map.md) | Product capabilities, maturity, evidence state, and open advancement questions. |
+| [`engineering/README.md`](engineering/README.md) | Engineering governance navigation for maturity, workflow, capability, and promotion rules. |
+| [`engineering/delivery-maturity-model.md`](engineering/delivery-maturity-model.md) | Product objects, maturity states, validation methods, promotion rules, and drift control. |
+| [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md) | User workflow threads, validated steps, missing seams, and next validation questions. |
+| [`engineering/implementation-register.md`](engineering/implementation-register.md) | Live implementation owners and primary module or boundary detail docs. |
+| [`engineering/terminology.md`](engineering/terminology.md) | Standard engineering terms for workflow, capability, maturity, validation method, decision, evidence, artifact boundary, and ownership. |
+| [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) | Current route-local engineering prototype boundaries promoted from discovery-backed implementation work. |
 | [`discovery/README.md`](discovery/README.md) | Discovery navigation for problem briefs, validation slices, synthesis, and deferrals. |
 | [`discovery/doc-types.md`](discovery/doc-types.md) | Discovery document type responsibilities and ownership rules. |
 | [`discovery/routes/adoption-routes.md`](discovery/routes/adoption-routes.md) | Evidence-backed adoption routes grouped by durable user workflow. |
-| [`discovery/slices/README.md`](discovery/slices/README.md) | Current discovery slice inventory. |
+| [`discovery/slices/README.md`](discovery/slices/README.md) | Discovery slice evidence entry and archived inventory pointer. |
 | [`discovery/synthesis/cross-slice.md`](discovery/synthesis/cross-slice.md) | Current synthesis across validated discovery slices. |
 | [`discovery/synthesis/shared-model-extraction-deferral.md`](discovery/synthesis/shared-model-extraction-deferral.md) | Current deferral of shared domain model extraction. |
 | [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md) | Evidence-backed problem briefs. |
@@ -32,9 +43,3 @@ docs/
 | [`evidence/external-baseline.md`](evidence/external-baseline.md) | External framework baseline. |
 | [`evidence/research/README.md`](evidence/research/README.md) | Research directory policy. |
 | [`evidence/research/research-index.md`](evidence/research/research-index.md) | Current research inputs and extracted notes. |
-
-## Future Areas
-
-Add only when there is durable content with a clear owner:
-
-- `user/` for public, redacted user documentation.

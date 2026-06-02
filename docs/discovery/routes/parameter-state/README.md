@@ -7,23 +7,26 @@ Route index with accepted engineering-prototype handoff.
 The live implementation boundary is owned by
 [`src/scopecat/parameter_state/README.md`](../../../../src/scopecat/parameter_state/README.md)
 and the promotion decision in
-[`docs/architecture/parameter-state/engineering-prototype-promotion-decision.md`](../../../architecture/parameter-state/engineering-prototype-promotion-decision.md).
+[`docs/engineering/prototype-boundaries/parameter-state.md`](../../../engineering/prototype-boundaries/parameter-state.md).
 Discovery validation results remain supporting evidence, not live API
 contracts.
 
-## Promotion Matrix
+## Discovery Evidence Summary
 
-| Slice Area | Promotion State | Current Owner |
-| --- | --- | --- |
-| Adapter-authored parameter import preview | Promoted as a route-local deterministic review summary. | `scopecat.parameter_state.import_preview` |
-| Adapter import review/commit | Promoted with explicit human acceptance and managed-state projection; no storage mutation. | `scopecat.parameter_state.import_review` |
-| Adapter-derived storage writer | Promoted as an approved no-overwrite writer under a caller-provided root and declared relative paths. | `scopecat.parameter_state.storage_writer` |
-| Adapter-derived storage read view | Promoted as an explicit manifest/receipt read view with checksum and continuity findings. | `scopecat.parameter_state.storage_read_view` |
-| Source-agnostic read view | Promoted for explicit adapter-derived and calibration-derived manifest/receipt references while preserving typed provenance payloads. | `scopecat.parameter_state.source_agnostic_read_view` |
-| Selection context | Promoted as side-effect-free context selection facts; intent labels are review semantics, not lifecycle states. | `scopecat.parameter_state.selection_context` |
-| Run-preparation consumption and review chain | Promoted as parameter-state-local manual pre-run review composition over prior read-view facts, gate facts, and scope alignment findings. This does not imply a live prepared-run route owner. | `scopecat.parameter_state.prepared_run_*` |
-| Compatibility-file writer | Not promoted. Requires a separate decision. | Discovery evidence only. |
-| Hardware apply and live external write-back | Not promoted. Explicitly out of scope. | No implementation owner. |
+Use the implementation register and module README for current live ownership.
+This table records discovery-to-prototype status only.
+
+| Slice Area | Discovery Status |
+| --- | --- |
+| Adapter-authored parameter import preview | Promoted as a route-local deterministic review summary. |
+| Adapter import review/commit | Promoted with explicit human acceptance and managed-state projection; no storage mutation. |
+| Adapter-derived storage writer | Promoted as an approved no-overwrite writer under a caller-provided root and declared relative paths. |
+| Adapter-derived storage read view | Promoted as an explicit manifest/receipt read view with checksum and continuity findings. |
+| Source-agnostic read view | Promoted for explicit adapter-derived and calibration-derived manifest/receipt references while preserving typed provenance payloads. |
+| Selection context | Promoted as side-effect-free context selection facts; intent labels are review semantics, not lifecycle states. |
+| Run-preparation consumption and review chain | Promoted as parameter-state-local manual pre-run review composition over prior read-view facts, gate facts, and scope alignment findings. This does not imply a live prepared-run route owner. |
+| Compatibility-file writer | Discovery evidence only; requires a separate decision. |
+| Hardware apply and live external write-back | Discovery evidence only; explicitly out of scope. |
 
 ## Route Boundary
 

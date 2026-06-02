@@ -7,11 +7,11 @@ Implementation candidate validated.
 Document role: historical discovery validation result. It records what this
 slice earned and what it did not establish. Current handoff implementation
 boundaries are owned by
-[`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md)
+[`handoff.md`](../../../../engineering/prototype-boundaries/handoff.md)
 and
-[`storage-acceptance-decision.md`](../../../../architecture/handoff/storage-acceptance-decision.md);
+[`handoff-candidate-storage-acceptance.md`](../../../../engineering/archive/handoff-candidate-storage-acceptance.md);
 the current durable handoff import route is owned by
-[`durable-import-storage-decision.md`](../../../../architecture/handoff/durable-import-storage-decision.md);
+[`handoff-durable-import-storage.md`](../../../../engineering/prototype-boundaries/handoff-durable-import-storage.md);
 do not update this result to mirror live API, storage, or receiving-workflow
 changes.
 

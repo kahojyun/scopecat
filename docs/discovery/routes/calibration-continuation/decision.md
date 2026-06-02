@@ -2,7 +2,9 @@
 
 ## Status
 
-Discovery decision consolidation, not an ADR.
+Discovery route decision.
+
+Decision status: accepted for current discovery guidance.
 
 This note closes the current calibration continuation discovery pass as a
 coherent route backbone. It records what the validated slices now support and
@@ -11,13 +13,7 @@ final workflow schema, relation graph, GUI, runner, scheduler, fitting
 framework, hardware-control contract, storage architecture, or shared
 calibration/measurement/parameter-state domain model.
 
-Artifact posture: `internal_validation_summary`. This document is internal
-project memory. It creates no portable/export artifact and no new redaction
-rules. Use
-[`policies/artifact-boundary-and-redaction.md`](../../policies/artifact-boundary-and-redaction.md)
-for artifact-boundary classification.
-
-## Accepted For Now
+## Discovery Closeout
 
 The validated calibration continuation route is a **reviewable local workflow**
 that can connect calibration evidence to later measurement context without
@@ -59,7 +55,7 @@ optional reference-only run-start context. Missing or mismatched measurement
 context is review evidence; it does not invalidate primary measurement data by
 default.
 
-The current notebook/CLI posture is summary-first and read-only. The route can
+The validated notebook/CLI posture is summary-first and read-only. The route can
 project review-state cards, backbone context, backbone findings, and
 labels-only action choices into local review data without defining a GUI,
 executing notebook cells, or executing actions.
@@ -69,9 +65,9 @@ surface. Recording a choice is audit/review intent only. It does not repair
 context, rerun fitting, write parameters, apply hardware state, start a run, or
 advance workflow state automatically.
 
-## Current Track Map
+## Discovery Track Map
 
-| Track | Current slices | Earned responsibility |
+| Track | Validated slices | Earned responsibility |
 | --- | --- | --- |
 | Continuation state | Calibration work continuation | Assemble planned steps, observed outputs, review gates, proposed writes, blocked steps, and interventions without scheduler or executor ownership. |
 | Step and observation continuity | Step intent resolution, step observation link | Freeze moving intent selectors into step records and link measurement records as observed outputs without payload reads or shared relation graph behavior. |

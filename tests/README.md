@@ -73,4 +73,4 @@ result.
 
 Existing tests do not need to move just to satisfy naming. When rewriting a
 test or adding coverage, choose the stage explicitly and prefer the stage
-layout described in `tests/fixtures/README.md`.
+layout described in `docs/testing/fixture-policy.md`.

@@ -7,7 +7,7 @@ Implementation candidate validated.
 Document role: historical discovery validation result. It records what this
 slice earned and what it did not establish. Current handoff implementation
 boundaries are owned by
-[`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md);
+[`handoff.md`](../../../../engineering/prototype-boundaries/handoff.md);
 do not update this result to mirror live API or route changes.
 
 This result validates the second receiving-side handoff step after manifest
@@ -86,5 +86,5 @@ Package-integrity or archive validation should stay separate unless a narrower
 question shows it is required before safe read-only opening.
 
 Future opener or package-route changes should use
-[`routes/measurement-records/handoff/contract-checklist.md`](../../../routes/measurement-records/handoff/contract-checklist.md)
+[`archive/measurement-records-handoff-route/contract-checklist.md`](../../../archive/measurement-records-handoff-route/contract-checklist.md)
 to classify emitted fields before adding validation or output shape.

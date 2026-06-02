@@ -2,7 +2,9 @@
 
 ## Status
 
-Discovery decision consolidation, not an ADR.
+Discovery route decision.
+
+Decision status: accepted for current discovery guidance.
 
 This note closes the current measurement import/source-reference discovery
 pass. It records the route decisions earned by the validated adapter-authored
@@ -14,7 +16,7 @@ source observation slices.
 Later durable Measurement Records import work supersedes the copy-acceptance
 slice for active new-record import. Keep this document as discovery route
 evidence for source/reference separation and historical copy acceptance; use
-[`durable-import-storage-decision.md`](../../../architecture/handoff/durable-import-storage-decision.md)
+[`handoff-durable-import-storage.md`](../../../engineering/prototype-boundaries/handoff-durable-import-storage.md)
 for the current durable new-record import boundary.
 
 It does not accept a stable import API, adapter API, legacy reader, final
@@ -22,13 +24,7 @@ storage schema, full existing-record update behavior, reference repair,
 package format, GUI contract, dataframe API, schema-inference engine, or
 shared measurement-record domain model.
 
-Artifact posture: `internal_validation_summary`. This document is internal
-project memory. It creates no portable/export artifact and no new redaction
-rules. Use
-[`policies/artifact-boundary-and-redaction.md`](../../policies/artifact-boundary-and-redaction.md)
-for artifact-boundary classification.
-
-## Accepted For Now
+## Current Decision
 
 The current route separates **legacy source**, **normalized primary data**,
 and **observed file facts**:
@@ -113,7 +109,7 @@ plus declared output file facts.
 | Data-level observation | A read using a declared supported data model, such as the current normalized CSV/table fixtures. | Automatic support for every CSV, HDF5, LabRAD, DataVault, Labber, ndarray, or future table shape. |
 | Linked context reference | A related parameter snapshot, artifact, note, or external object carried by relation facts. | Recursive traversal, payload import, or display semantics beyond the validated linked-context slice. |
 
-## Current Track Map
+## Validation Map
 
 | Track | Current slices | Earned responsibility |
 | --- | --- | --- |
@@ -187,7 +183,7 @@ appears:
   lifecycle and failure semantics:
   reconsider shared model extraction with an accepted decision.
 
-## Recommended Next Work
+## Next Validation Work
 
 The first adapter-produced input boundary is now validated in
 [`adapter-output-boundary-validation-result.md`](../../slices/measurement-records/adapter-output-boundary-validation-result.md).

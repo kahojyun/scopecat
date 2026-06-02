@@ -2,18 +2,12 @@
 
 ## Status
 
-Frozen engineering prototype readiness checkpoint, not an ADR.
+Frozen engineering prototype readiness checkpoint.
 
 This document records the stop/readiness assessment that justified ending the
 prototype line. Do not update it to mirror later API additions or mutation-slice
 decisions. Current accepted implementation boundaries live in
-[`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md).
-
-Artifact posture: `internal_validation_summary`. This note is internal project
-memory. It creates no portable package output, public contract, public SDK, or
-new redaction rule. Use
-[`discovery/policies/artifact-boundary-and-redaction.md`](../../discovery/policies/artifact-boundary-and-redaction.md)
-if any prototype output is promoted into a portable/export artifact.
+[`handoff.md`](../prototype-boundaries/handoff.md).
 
 ## Readiness Judgment
 
@@ -47,7 +41,7 @@ traversal, or a shared measurement-record domain model.
 | --- | --- | --- |
 | Usable local Python or CLI entrypoint | Met | `open_package(package_dir)`, `observe_package_integrity(package_dir)`, `run_receiving_gate(...)`, `write_package(...)`, `run_package_workflow(...)`, and `python -m scopecat.handoff <package-dir>` exist. |
 | Representative regression coverage | Met | Tests cover source-root writing, writer-to-reader round trip, local workflow composition, read-only integrity observation, read-only receiving gate, basic opener, richer route-pressure package, multi-plot, table-only, shared context, degraded preview, CLI, HTML artifact, symlink guardrails, and typed manifest/write boundaries. |
-| Documented contracts and non-claims | Met | The route plan, consolidation, decision note, and prototype README define directory-package subset scope, source-root writer scope, local workflow posture, artifact posture, dependency deferrals, and non-claims. |
+| Documented contracts and non-claims | Met | The route plan, consolidation, decision note, and prototype README define directory-package subset scope, source-root writer scope, local workflow classification, artifact classification, dependency deferrals, and non-claims. |
 | Green repository verification | Met | Current milestone verification uses `uv run python -m unittest discover -s tests`, `uv run ruff check .`, and `uv run ruff format --check .`. |
 | Written promotion decision path | Met by this note | The next step is a separate acceptance/import or storage-requirements decision, not additional broad handoff expansion. |
 
@@ -136,7 +130,7 @@ triggered by a named acceptance/import or storage-requirements decision, not by
 restating the same route-level conclusions.
 
 The promotion decision is recorded in
-[`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md).
+[`handoff.md`](../prototype-boundaries/handoff.md).
 
 ## Freeze Rule
 

@@ -16,7 +16,8 @@ Do not introduce a shared `core`, `domain`, `models`, record schema, relation
 schema, warning taxonomy, preview-metadata schema, workflow model, or reusable
 builder package from the current discovery work.
 
-This defers shared architecture. It does not reject the recurring concepts.
+This defers shared model and shared implementation ownership. It does not
+reject the recurring concepts.
 
 ## Context
 

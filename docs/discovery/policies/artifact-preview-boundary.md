@@ -2,18 +2,14 @@
 
 ## Status
 
-Discovery boundary accepted for current validation slices.
+Discovery boundary.
+
+Decision status: accepted for current validation slices.
 
 This note defines how Scopecat should separate arbitrary artifacts from
 previewable data items while scan/data-shape work remains storage-independent.
 It does not define a final artifact schema, plotting API, dataframe API,
 array API, public report format, or storage backend.
-
-Artifact posture:
-
-- this document is a discovery note;
-- it is not a portable export/package artifact or public report;
-- it records product-boundary intent for future validation slices.
 
 ## Boundary
 
