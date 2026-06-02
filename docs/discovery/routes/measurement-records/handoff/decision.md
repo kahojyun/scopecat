@@ -15,7 +15,7 @@ behavior, or a shared measurement-record domain model.
 For current implementation boundaries, use
 [`engineering-prototype-promotion-decision.md`](../../../../architecture/handoff/engineering-prototype-promotion-decision.md),
 [`durable-import-storage-decision.md`](../../../../architecture/handoff/durable-import-storage-decision.md),
-and [`scopecat/handoff/README.md`](../../../../../scopecat/handoff/README.md).
+and [`src/scopecat/handoff/README.md`](../../../../../src/scopecat/handoff/README.md).
 
 Artifact posture: `internal_validation_summary`. This document is internal
 project memory. It creates no portable package output and no new redaction

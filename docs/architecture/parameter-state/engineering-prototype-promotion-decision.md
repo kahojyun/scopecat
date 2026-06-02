@@ -9,7 +9,7 @@ Posture: internal_validation_summary
 ## Decision
 
 Promote the accepted parameter-state discovery candidates into a route-local
-engineering prototype under `scopecat/parameter_state/`.
+engineering prototype under `src/scopecat/parameter_state/`.
 
 The prototype owns these local review and storage surfaces:
 

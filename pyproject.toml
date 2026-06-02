@@ -11,6 +11,10 @@ dev = [
   "ruff",
 ]
 
+[build-system]
+requires = ["uv_build>=0.11.18,<0.12"]
+build-backend = "uv_build"
+
 [tool.ruff]
 force-exclude = true
 line-length = 100
@@ -27,4 +31,3 @@ select = [
 
 [tool.uv]
 exclude-newer = "14d"
-package = false

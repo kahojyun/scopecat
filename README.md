@@ -23,9 +23,10 @@ It should not be treated as a finalized product specification.
 
 ## Development
 
-This repository uses `uv` for local Python environment management. It is
-configured as a non-package project for now; the current code is research,
-fixtures, and implementation candidates rather than a final production package.
+This repository uses `uv` for local Python environment management and the
+`uv_build` backend for the local installable `src/scopecat` package. The
+repository still contains research documents, fixtures, and implementation
+candidates outside the package boundary.
 
 ```sh
 uv sync

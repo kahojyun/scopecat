@@ -1,8 +1,0 @@
-extend = "../pyproject.toml"
-
-[lint]
-extend-select = [
-  "B",
-  "RUF",
-  "UP",
-]

@@ -55,7 +55,7 @@ traversal, or a shared measurement-record domain model.
 
 These choices are strong enough to carry into the promotion pass:
 
-- route-local `scopecat/handoff/` module boundary;
+- route-local `src/scopecat/handoff/` module boundary;
 - source-root package writer API that does not imply final Scopecat storage
   architecture;
 - local writer -> reader -> optional inspection workflow composition;

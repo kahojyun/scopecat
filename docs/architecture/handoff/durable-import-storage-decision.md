@@ -159,7 +159,7 @@ stronger recovery semantics.
 ## Implementation Checkpoint
 
 The first durable new-record import slice is implemented in
-[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+[`../../../src/scopecat/measurement_records/`](../../../src/scopecat/measurement_records/).
 It exposes a raw-dictionary entrypoint, `import_measurement_record(...)`, and a
 typed request entrypoint, `import_measurement_record_from_request(...)`.
 

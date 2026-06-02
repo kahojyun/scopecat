@@ -8,7 +8,7 @@ This document is a historical plan snapshot. Do not update it to mirror every
 new promoted API. Current accepted implementation boundaries live in
 [`engineering-prototype-promotion-decision.md`](engineering-prototype-promotion-decision.md);
 current exported API details live in
-[`../../../scopecat/handoff/README.md`](../../../scopecat/handoff/README.md).
+[`../../../src/scopecat/handoff/README.md`](../../../src/scopecat/handoff/README.md).
 
 Artifact posture: `internal_validation_summary`. This plan is internal project
 memory. It creates no portable package output, public contract, or new
@@ -112,7 +112,7 @@ The prototype should organize code around the handoff route rather than a
 global domain layer. A plausible module split is:
 
 ```text
-scopecat/handoff/
+src/scopecat/handoff/
   __main__.py
   _contracts.py
   _manifest_preview.py
@@ -123,10 +123,9 @@ scopecat/handoff/
   tables.py
 ```
 
-The first implementation pass starts in `scopecat/handoff/` because the
-repository is currently configured as a non-package project. This tests the
-future module boundary without adding packaging metadata or a `src/` install
-step during the prototype.
+The implementation now lives in `src/scopecat/handoff/` as part of the local
+installable package. This keeps the route boundary explicit while leaving
+research fixtures and implementation candidates outside the package.
 
 Low-level helpers may be reused from existing implementation candidates only
 when their semantics already match the handoff route. New shared helpers should
@@ -136,7 +135,7 @@ the same behavior, failure semantics, and tests.
 ## Outcome
 
 The plan answered the intended engineering question: a route-local
-`scopecat/handoff/` boundary can carry the handoff package reader/review
+`src/scopecat/handoff/` boundary can carry the handoff package reader/review
 workflow without promoting a shared measurement-record domain model, final
 package/archive format, final storage schema, GUI architecture, dataframe
 dependency, or production plotting stack.
@@ -159,10 +158,11 @@ Discovery fixtures and expected outputs remain validation evidence. Prototype
 fixtures become engineering regression assets.
 
 The promoted writer fixtures live under
-`tests/fixtures/handoff_engineering_prototype_writer/` and use source-root
-terminology directly. The older discovery candidate writer fixtures remain
-under `tests/fixtures/handoff_package_writer/` as historical evidence for the
-candidate shape and are not translated in promoted writer tests.
+`tests/fixtures/prototypes/handoff/handoff_engineering_prototype_writer/` and
+use source-root terminology directly. The older discovery candidate writer
+fixtures remain under `tests/fixtures/handoff_package_writer/` as historical
+evidence for the candidate shape and are not translated in promoted writer
+tests.
 
 When existing fixtures do not match the prototype shape:
 
