@@ -27,8 +27,8 @@ production-supported workflow yet.
 Start with `docs/README.md`.
 
 The documentation workspace is the long-lived project memory for product
-analysis, research, engineering prototype boundaries, and future user
-documentation.
+analysis, research, engineering prototype boundaries, and user documentation
+when introduced.
 It should not be treated as a finalized product specification.
 
 ## Development
