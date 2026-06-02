@@ -6,17 +6,19 @@ Project engineering governance.
 
 ## Purpose
 
-This document defines what each project phase is allowed to prove and what
-artifacts it may own. Use it before promoting discovery work into implementation
-or before expanding an engineering prototype.
+This document defines the engineering maturity stages used when discovery work
+moves toward production code. Use it before promoting discovery work into
+implementation or before expanding an engineering prototype.
 
 The default rule is:
 
 ```text
 discovery evidence
   -> named workflow question
-  -> engineering prototype or vertical slice
-  -> accepted implementation owner
+  -> implementation candidate or engineering prototype
+  -> production vertical slice
+  -> production readiness
+  -> maintained product capability
 ```
 
 Candidate-summary parity is not promotion evidence unless it closes a named
@@ -25,13 +27,14 @@ workflow step, workflow seam, or risk question in
 
 ## Phase Responsibilities
 
-| Phase | Owns | Does Not Own | Typical Artifacts |
+| Phase | Purpose | Exit Criteria | Typical Deliverables |
 | --- | --- | --- | --- |
-| Discovery | Problem framing, user jobs, boundary pressure, candidate contracts, small explicit fixtures, and validation results. | Live architecture, production module ownership, public SDK shape, final schema, or production support promises. | Problem briefs, route notes, validation plans/results, repository-safe fixtures, expected outputs. |
-| Implementation candidate | Implementation-shaped exploration that proves a narrow candidate behavior against discovery fixtures. | Accepted route ownership, runtime dependency for live modules, public APIs, or broad shared abstractions. | `implementation_candidates/`, spikes, candidate tests, expected summaries. |
-| Engineering prototype | A production-shaped route-local boundary around one user workflow, workflow seam, or explicit risk question. | Final public API, shared domain model, full GUI, workflow/DAG engine, broad platform abstraction, or production support promise. | `src/scopecat/<route>/`, module README, route-local typed objects, workflow acceptance tests, local review artifacts. |
-| Production vertical slice | A scoped user workflow that closes from entrypoint to durable state or output with defined failure behavior. | Unvalidated adjacent workflows, broad product platform, generic shared model, or public/export behavior not explicitly accepted. | Owned module, acceptance/scenario tests, storage/output authority docs, route decision, compatibility and failure rules. |
-| Supported production workflow | A maintained workflow with support, diagnostics, compatibility, upgrade, and user-facing expectations where relevant. This is workflow-level support, not a claim that the whole product is finally released. | New discovery claims without evidence or unscoped cross-route expansion. | User docs, support policy, compatibility guarantees, migration/upgrade notes, operational diagnostics. |
+| Discovery | Understand the problem, user job, workflow pressure, and evidence-backed boundaries. | The next question is specific enough to test with a candidate, prototype, or explicit deferral. | Problem briefs, route notes, validation plans/results, repository-safe fixtures, expected outputs. |
+| Implementation candidate | Explore a narrow implementation shape quickly, usually against discovery fixtures. | The candidate either answers the question and is ready for promotion, or remains historical evidence. | `implementation_candidates/`, spikes, candidate tests, expected summaries. |
+| Engineering prototype | Validate a production-shaped route-local behavior for one workflow step, workflow seam, or technical risk. | The prototype has a clear entrypoint, typed or explicit contracts, workflow/failure tests, and a documented boundary. | `src/scopecat/<route>/`, module README, route-local typed objects, workflow acceptance tests, local review artifacts. |
+| Production vertical slice | Deliver one end-to-end user workflow from entrypoint to durable state or output with defined failure behavior. | The slice can be used as a coherent product path and has acceptance tests, compatibility expectations, and documented user-visible behavior. | Owned module, acceptance/scenario tests, storage/output authority docs, route decision, compatibility and failure rules. |
+| Production readiness | Prepare a vertical slice for reliable use beyond prototype conditions. | Operational, compatibility, migration, diagnostics, documentation, and support risks are reviewed and either closed or explicitly accepted. | Readiness checklist, release criteria, compatibility notes, migration/upgrade notes, diagnostic expectations. |
+| Maintained product capability | Maintain a stable capability inside the Scopecat product. A capability may support multiple user workflows; it is not a separate product. | Changes are handled through normal product maintenance: compatibility, regression coverage, support expectations, and documented deprecation or migration when needed. | User docs, support policy, compatibility guarantees, migration/upgrade notes, operational diagnostics. |
 
 ## Promotion Rules
 
@@ -41,12 +44,12 @@ prototype boundary, update or reference:
 - [`workflow-validation-map.md`](workflow-validation-map.md), to name the user
   workflow, seam, or risk question;
 - [`vertical-slice-register.md`](vertical-slice-register.md), to name the
-  implementation owner, entrypoint, tests, fixtures, and non-goals;
+  implementation owner, entrypoint, tests, fixtures, and scope boundary;
 - the owning module README or prototype-boundary note, to define the accepted
   boundary and live API.
 
-Promotion should stop broad prototype expansion. After a prototype boundary is
-accepted, future work on that route should be one of:
+Promotion changes the work item from exploration to managed scope. After a
+prototype boundary is accepted, future work on that route should be one of:
 
 - maintenance on the accepted boundary;
 - promotion toward a named production vertical slice;
@@ -72,10 +75,10 @@ Production vertical slices must define:
   portable/export/package artifacts when the slice creates or changes them;
 - the regression tests or scenario tests that prove the accepted workflow.
 
-Do not require artifact posture labels on ordinary internal governance,
-architecture, or route-navigation documents. Boundary classification is for
-artifacts whose repository safety, portability, publicness, or redaction
-behavior affects implementation or review.
+Artifact posture labels are required when repository safety, portability,
+publicness, or redaction behavior affects implementation or review. Ordinary
+internal governance, architecture, and route-navigation documents usually do
+not need those labels.
 
 Shared models, shared relation schemas, and reusable platform abstractions need
 a separate decision. They should not be extracted from one accepted route just
@@ -90,7 +93,8 @@ the work:
 - candidate parity or candidate cleanup;
 - engineering prototype for a named workflow/seam/risk;
 - production vertical slice;
-- maintenance on an accepted owner.
+- production readiness;
+- maintenance on a product capability.
 
-If the work cannot be classified, do not promote code. Update the workflow map
-or ask for a narrower validation question first.
+If the work cannot be classified, update the workflow map or narrow the
+validation question before promoting code.
