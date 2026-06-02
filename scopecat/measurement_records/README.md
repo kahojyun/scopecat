@@ -148,6 +148,78 @@ pipeline step fails synchronously after record creation, the import path
 best-effort removes the new record directory rather than leaving a partial
 new-record import.
 
+The first legacy-run storage slice is implemented through
+`record_legacy_measurement_run(...)` and
+`record_legacy_measurement_run_from_request(...)`. It records declared facts
+about an externally executed legacy run by creating a Measurement Records shell
+with `creation_source_kind: legacy_system` and writing one record-local
+`legacy-run-receipt.json`. The receipt preserves declared legacy system/run
+identity, optional timing labels, declared locators, optional context
+references, and operator notes. It does not import primary data, observe
+legacy files, parse old formats, execute legacy code, validate locator
+availability, refresh read models, finalize lifecycle state, or decide
+measurement validity.
+
+The first legacy primary-data attach slice is implemented through
+`attach_converted_primary_data_to_legacy_record(...)` and
+`attach_converted_primary_data_to_legacy_record_from_request(...)`. It consumes
+an approved request for an existing `legacy_system` record plus reviewed
+normalized primary-data facts whose `source_id` is that same legacy record id.
+It preflights the converted CSV digest, byte size, shape, and row count, then
+writes primary data through the existing writer/read/finalization/projection
+pipeline into the same record directory. It leaves the legacy receipt and
+creation manifest unchanged, rolls back newly written primary-data artifacts
+on synchronous pipeline failure, and does not create a second imported record.
+It does not observe legacy files, parse legacy formats, replace manifests,
+merge primary data, define adapter transport, define record-id generation, or
+define final storage schema.
+
+The first recorded-references slice is implemented through
+`record_measurement_record_references(...)` and
+`record_measurement_record_references_from_request(...)`. It consumes an approved
+request for an existing record and writes one no-overwrite record-local receipt
+under `recorded-references/`. The receipt carries explicit user-declared
+references for parameter files or snapshots, setup-binding files or snapshots,
+experiment-code files/directories or managed versions, derived artifacts such
+as preliminary analysis results, and supporting evidence. It is append-friendly:
+later requests can declare a previous recorded-reference receipt instead of
+rewriting the manifest or read model. It does not observe referenced files,
+import payloads, parse parameter/setup/code/artifact formats, execute code or
+analysis, verify target checksums, write parameters, replace manifests, refresh
+read models, or define final storage schema.
+
+`list_measurement_record_references(...)` reads those record-local
+receipts for local review. Operator review includes the resulting
+`recorded_references` projection so the local HTML artifact can show, for each
+measurement, which parameter, setup, code, derived artifact, and evidence
+references were recorded.
+These references are review facts only; they are not canonical storage
+authority, portable export contents, GUI state, or a shared reference schema.
+
+The first user-facing legacy measurement workflow is implemented through
+`record_legacy_measurement(...)` and
+`record_legacy_measurement_from_request(...)`. It composes the accepted
+legacy-run, converted-primary-data attach, recorded-reference, and primary
+preview primitives behind one request shaped around user facts: legacy system
+id, legacy run id, optional locators, converted primary CSV path, row count,
+and selected references. The workflow derives local Scopecat ids from legacy
+facts so callers do not provide receipt request ids, record ids, reference set
+ids, or read request ids. It is a prototype facade over existing receipts, not
+a final public SDK. If a prerequisite step blocks, the facade returns a
+review-needed run without executing later mutation or read steps. It does not
+observe legacy payloads, parse legacy formats, import referenced files, execute
+code or analysis, persist GUI state, define shared id policy, or replace
+lower-level receipt APIs.
+
+The first storage-inventory slice is implemented through
+`list_measurement_record_storage(...)` and
+`list_measurement_record_storage_from_request(...)`. It scans a caller-declared
+`records/` directory and lists visible record manifests, projected read models
+when present, and record-local legacy receipts when present. It reports missing
+or malformed manifests, read models, and legacy receipts as review findings.
+It is read-only: it does not repair storage, refresh read models, observe
+primary data, import legacy payloads, replace manifests, or persist GUI state.
+
 The first in-progress update slice is implemented through
 `append_in_progress_measurement_record(...)` and
 `append_in_progress_measurement_record_from_request(...)`. It consumes an
@@ -235,6 +307,23 @@ intent is not dropped. The CLI remains a smoke surface; it does not scan for
 update receipts or run import, refresh, finalization, repair, or GUI state
 persistence.
 
+The CLI can record declared legacy-run information and list local storage:
+
+```sh
+python -m scopecat.measurement_records record-legacy-run \
+  --storage-root ./storage \
+  --source ./legacy-run-source.json
+
+python -m scopecat.measurement_records storage-inventory \
+  --storage-root ./storage \
+  --request-id inventory-001
+```
+
+These commands are smoke surfaces. `record-legacy-run` writes only the record
+shell and record-local legacy receipt described by its source JSON.
+`storage-inventory` scans only the declared records directory and does not
+repair, refresh, import, observe legacy files, or infer primary-data shape.
+
 The first saved operator-review receipt boundary is implemented through
 `save_measurement_record_operator_review_receipt(...)` and
 `summarize_measurement_record_operator_review_receipt(...)`. It takes an
@@ -267,3 +356,22 @@ python -m scopecat.measurement_records operator-review-receipt-summary \
 This command reads one caller-declared receipt JSON and prints the compact
 continuation summary. It does not reopen records, re-run review, grant retry
 authority, approve refresh/import, mutate storage, or persist GUI state.
+
+The first local static review artifact is implemented through
+`build_measurement_record_review_html(...)` and
+`write_measurement_record_review_artifact(...)`. It renders an already
+computed operator-review projection into a local HTML file for inspection. The
+artifact is a review summary, not a durable storage member, public export,
+canonical GUI state, record repair, read-model refresh, import approval, or
+history/audit log. The writer rejects output directories inside the Measurement
+Records storage root so the artifact is not confused with record storage.
+
+The operator-review CLI can write the artifact:
+
+```sh
+python -m scopecat.measurement_records operator-review \
+  --storage-root ./storage \
+  --request-id operator-review-001 \
+  --selected-record-id run-001 \
+  --html-dir ./review
+```

@@ -10,6 +10,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 from scopecat.measurement_records import (
+    MEASUREMENT_RECORD_REVIEW_ARTIFACT_NAME,
     MeasurementRecordAppendChunk,
     MeasurementRecordCreationRequest,
     MeasurementRecordFinalizationRequest,
@@ -18,19 +19,24 @@ from scopecat.measurement_records import (
     MeasurementRecordOperatorReviewRequest,
     MeasurementRecordReadModelProjectionRequest,
     MeasurementRecordReadRequest,
+    MeasurementRecordReference,
+    MeasurementRecordReferenceRequest,
     MeasurementRecordRunningInspectionRequest,
     MeasurementRecordWriterChunk,
     MeasurementRecordWriterRequest,
     append_in_progress_measurement_record_from_request,
+    build_measurement_record_review_html,
     create_measurement_record_from_request,
     finalize_measurement_record_from_read_view,
     project_measurement_record_read_model_from_read_view,
     read_created_record_primary_table_from_request,
+    record_measurement_record_references_from_request,
     review_measurement_records,
     review_measurement_records_from_request,
     save_measurement_record_operator_review_receipt,
     summarize_measurement_record_operator_review_receipt,
     write_created_record_primary_data_from_request,
+    write_measurement_record_review_artifact,
 )
 from scopecat.measurement_records.__main__ import main as measurement_records_main
 from scopecat.measurement_records.operator_review import (
@@ -156,6 +162,36 @@ def _operator_request(**overrides: object) -> MeasurementRecordOperatorReviewReq
     }
     values.update(overrides)
     return MeasurementRecordOperatorReviewRequest(**values)
+
+
+def _recorded_reference_request(
+    record_id: str = "run-3101-rabi",
+) -> MeasurementRecordReferenceRequest:
+    return MeasurementRecordReferenceRequest(
+        request_id=f"record-references-{record_id}",
+        approval_state="approved",
+        record_id=record_id,
+        record_dir=_record_dir(record_id),
+        reference_set_id=f"references-{record_id}",
+        references=(
+            MeasurementRecordReference(
+                reference_id="param-file-001",
+                family="parameter_state",
+                role="parameter_file",
+                reference_kind="workspace_relative_path",
+                reference_value=f"legacy-system/params/{record_id}.json",
+                label="Legacy parameter file",
+            ),
+            MeasurementRecordReference(
+                reference_id="analysis-summary-001",
+                family="derived_artifact",
+                role="preliminary_analysis_result",
+                reference_kind="workspace_relative_path",
+                reference_value=f"analysis/{record_id}/summary.csv",
+                label="Initial analysis summary",
+            ),
+        ),
+    )
 
 
 def _operator_source(**overrides: object) -> dict:
@@ -339,9 +375,42 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
         self.assertEqual(payload["selected_record"]["source"], "catalog")
         self.assertEqual(payload["selected_record"]["record"]["lifecycle_state"], "complete")
         self.assertEqual(payload["next_action"], "review_selected_record_summary")
+        self.assertEqual(payload["recorded_references"]["entries"], [])
         self.assertEqual(payload["review_findings"], [])
         self.assertEqual(after, before)
         self.assertIn("storage_mutation", payload["workflow"]["does_not_claim"])
+
+    def test_operator_review_surfaces_recorded_references(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            _populate_projected_record(storage_root, content_root)
+            record_run = record_measurement_record_references_from_request(
+                _recorded_reference_request(),
+                storage_root=storage_root,
+            )
+
+            run = review_measurement_records_from_request(
+                _operator_request(),
+                storage_root=storage_root,
+            )
+            html = build_measurement_record_review_html(run)
+
+        payload = run.to_dict()
+        self.assertTrue(record_run.recorded)
+        self.assertEqual(
+            payload["recorded_references"]["entries"][0]["record_id"],
+            "run-3101-rabi",
+        )
+        self.assertEqual(
+            [item["role"] for item in payload["recorded_references"]["entries"][0]["references"]],
+            ["parameter_file", "preliminary_analysis_result"],
+        )
+        self.assertIn("Recorded References", html)
+        self.assertIn("Legacy parameter file", html)
+        self.assertIn("Initial analysis summary", html)
 
     def test_operator_review_can_surface_selected_running_inspection(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -542,6 +611,134 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
             "measurement_record_operator_review_ready",
         )
         self.assertEqual(payload["selected_record"]["source"], "catalog")
+
+    def test_operator_review_html_renders_catalog_and_selected_record(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            _populate_projected_record(storage_root, content_root)
+
+            run = review_measurement_records_from_request(
+                _operator_request(),
+                storage_root=storage_root,
+            )
+            html = build_measurement_record_review_html(run)
+
+        self.assertTrue(html.startswith("<!doctype html>"))
+        self.assertIn("Measurement Records Review", html)
+        self.assertIn("run-3101-rabi", html)
+        self.assertIn("measurement_record_operator_review_ready", html)
+        self.assertIn("review_selected_record_summary", run.to_dict()["next_action"])
+        self.assertNotIn("<script", html.lower())
+
+    def test_operator_review_html_escapes_free_text(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            _populate_projected_record(storage_root, content_root)
+
+            run = review_measurement_records_from_request(
+                _operator_request(),
+                storage_root=storage_root,
+            )
+            payload = run.to_dict()
+            payload["review_findings"].append(
+                {
+                    "code": "unsafe_label",
+                    "target": "records/run-3101-rabi",
+                    "message": "Review <unsafe> label.",
+                }
+            )
+            html = build_measurement_record_review_html(payload)
+
+        self.assertIn("Review &lt;unsafe&gt; label.", html)
+        self.assertNotIn("Review <unsafe> label.", html)
+
+    def test_write_operator_review_artifact_returns_local_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            output_dir = Path(temp_dir) / "review"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            _populate_projected_record(storage_root, content_root)
+
+            run = review_measurement_records_from_request(
+                _operator_request(),
+                storage_root=storage_root,
+            )
+            receipt = write_measurement_record_review_artifact(
+                run,
+                output_dir=output_dir,
+            )
+            artifact_path = Path(receipt["html_artifact"]["local_path"])
+            html = artifact_path.read_text(encoding="utf-8")
+
+        self.assertEqual(receipt["artifact_posture"], "review_summary")
+        self.assertEqual(
+            receipt["html_artifact"]["filename"],
+            MEASUREMENT_RECORD_REVIEW_ARTIFACT_NAME,
+        )
+        self.assertFalse(receipt["html_artifact"]["durable_storage_member"])
+        self.assertFalse(receipt["html_artifact"]["overwritten"])
+        self.assertEqual(receipt["operator_review"]["catalog_entry_count"], 1)
+        self.assertIn("run-3101-rabi", html)
+
+    def test_write_operator_review_artifact_rejects_storage_output_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            _populate_projected_record(storage_root, content_root)
+
+            run = review_measurement_records_from_request(
+                _operator_request(),
+                storage_root=storage_root,
+            )
+
+            with self.assertRaisesRegex(ValueError, "must not be in storage"):
+                write_measurement_record_review_artifact(
+                    run,
+                    output_dir=storage_root / "review",
+                )
+
+    def test_operator_review_cli_can_write_local_html_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root = Path(temp_dir) / "storage"
+            content_root = Path(temp_dir) / "content"
+            html_dir = Path(temp_dir) / "review"
+            storage_root.mkdir()
+            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            _populate_projected_record(storage_root, content_root)
+
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                exit_code = measurement_records_main(
+                    [
+                        "operator-review",
+                        "--storage-root",
+                        str(storage_root),
+                        "--request-id",
+                        "operator-review-cli",
+                        "--selected-record-id",
+                        "run-3101-rabi",
+                        "--html-dir",
+                        str(html_dir),
+                    ]
+                )
+            payload = json.loads(stdout.getvalue())
+            html_path = Path(payload["html_artifact"]["local_path"])
+            self.assertTrue(html_path.is_file())
+            html = html_path.read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["html_artifact"]["filename"], "measurement-record-review.html")
+        self.assertIn("run-3101-rabi", html)
 
     def test_operator_review_cli_accepts_raw_source_json_for_multiple_running_records(
         self,

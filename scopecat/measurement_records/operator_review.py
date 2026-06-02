@@ -31,6 +31,9 @@ from scopecat.measurement_records.read_model_catalog import (
     catalog_measurement_record_read_models_from_request,
 )
 from scopecat.measurement_records.read_model_shared import _json_bytes
+from scopecat.measurement_records.recorded_reference import (
+    list_measurement_record_references,
+)
 from scopecat.measurement_records.running_inspection import (
     MeasurementRecordRunningInspectionRequest,
     MeasurementRecordRunningInspectionRun,
@@ -47,10 +50,12 @@ OPERATOR_REVIEW_RECEIPT_DIR = "operator-reviews"
 OPERATOR_REVIEW_POLICY = {
     "catalog_authority": "record_local_projected_read_models",
     "running_inspection_authority": "caller_declared_running_inspection_requests",
+    "recorded_reference_authority": "record_local_recorded_reference_receipts",
     "selected_record_authority": "catalog_entry_or_running_inspection_summary",
     "storage_mutation": "not_performed",
     "record_discovery": "catalog_records_dir_only",
     "update_receipt_discovery": "not_performed",
+    "referenced_payload_import": "not_performed",
     "read_model_refresh": "not_performed",
     "manifest_replacement": "not_performed",
     "gui_state": "not_persisted",
@@ -74,6 +79,8 @@ DOES_NOT_CLAIM = [
     "lifecycle_finalization",
     "manifest_replacement",
     "storage_mutation",
+    "referenced_payload_import",
+    "recorded_reference_mutation",
     "gui_review_state",
     "public_export_schema",
 ]
@@ -189,6 +196,7 @@ class MeasurementRecordOperatorReviewRun:
     catalog_run: MeasurementRecordCatalogRun
     running_inspection_runs: tuple[MeasurementRecordRunningInspectionRun, ...] = ()
     running_inspection_failures: tuple[dict[str, str], ...] = ()
+    recorded_reference_review: dict[str, Any] | None = None
     review_findings: tuple[dict[str, str], ...] = ()
 
     @property
@@ -234,6 +242,15 @@ class MeasurementRecordOperatorReviewRun:
                 ],
             },
             "running_inspections": running_summaries,
+            "recorded_references": (
+                copy.deepcopy(self.recorded_reference_review)
+                if self.recorded_reference_review is not None
+                else {
+                    "artifact_posture": "local_measurement_record_recorded_reference_review",
+                    "entries": [],
+                    "review_findings": [],
+                }
+            ),
             "selected_record": selected_record,
             "review_findings": [copy.deepcopy(finding) for finding in self.review_findings],
             "next_action": _next_action(
@@ -388,12 +405,17 @@ def review_measurement_records_from_request(
         )
         for run in inspection_runs
     ]
+    recorded_reference_review = list_measurement_record_references(
+        storage_root=root,
+        records_dir=request.records_dir,
+    )
     findings = _aggregate_findings(
         request,
         catalog_run,
         inspection_runs,
         tuple(inspection_failures),
         running_summaries,
+        recorded_reference_review,
     )
     return MeasurementRecordOperatorReviewRun(
         request=request,
@@ -401,6 +423,7 @@ def review_measurement_records_from_request(
         catalog_run=catalog_run,
         running_inspection_runs=tuple(inspection_runs),
         running_inspection_failures=tuple(inspection_failures),
+        recorded_reference_review=recorded_reference_review,
         review_findings=tuple(findings),
     )
 
@@ -683,6 +706,7 @@ def _aggregate_findings(
     inspection_runs: list[MeasurementRecordRunningInspectionRun],
     inspection_failures: tuple[dict[str, str], ...],
     running_summaries: list[dict[str, Any]],
+    recorded_reference_review: dict[str, Any],
 ) -> list[dict[str, str]]:
     running_record_dirs = {
         _require_dict(summary, "record")["record_dir"] for summary in running_summaries
@@ -700,6 +724,10 @@ def _aggregate_findings(
             _child_finding("running_inspection", finding) for finding in run.review_findings
         )
     findings.extend(copy.deepcopy(finding) for finding in inspection_failures)
+    findings.extend(
+        _child_finding("recorded_reference", finding)
+        for finding in recorded_reference_review["review_findings"]
+    )
     if request.selected_record_id is not None:
         selected = _selected_record_summary(
             request.selected_record_id,

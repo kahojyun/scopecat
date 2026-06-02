@@ -33,6 +33,20 @@ from scopecat.measurement_records.in_progress_update import (
     append_in_progress_measurement_record,
     append_in_progress_measurement_record_from_request,
 )
+from scopecat.measurement_records.legacy_primary_import import (
+    LegacyPrimaryImportRequest,
+    LegacyPrimaryImportRun,
+    attach_converted_primary_data_to_legacy_record,
+    attach_converted_primary_data_to_legacy_record_from_request,
+)
+from scopecat.measurement_records.legacy_run import (
+    LegacyRunContextReference,
+    LegacyRunLocator,
+    LegacyRunRecordRequest,
+    LegacyRunRecordRun,
+    record_legacy_measurement_run,
+    record_legacy_measurement_run_from_request,
+)
 from scopecat.measurement_records.normalized_primary_table import (
     MeasurementRecordNormalizedPrimaryColumnDeclaration,
     MeasurementRecordNormalizedPrimaryTableRequest,
@@ -74,12 +88,41 @@ from scopecat.measurement_records.read_view import (
     read_created_record_primary_table,
     read_created_record_primary_table_from_request,
 )
+from scopecat.measurement_records.recorded_reference import (
+    MeasurementRecordReference,
+    MeasurementRecordReferenceRequest,
+    MeasurementRecordReferenceRun,
+    list_measurement_record_references,
+    record_measurement_record_references,
+    record_measurement_record_references_from_request,
+)
+from scopecat.measurement_records.review_artifact import (
+    MEASUREMENT_RECORD_REVIEW_ARTIFACT_NAME,
+    build_measurement_record_review_html,
+    write_measurement_record_review_artifact,
+)
 from scopecat.measurement_records.running_inspection import (
     MeasurementRecordRunningInspectionRequest,
     MeasurementRecordRunningInspectionRun,
     inspect_running_measurement_record,
     inspect_running_measurement_record_from_request,
     summarize_running_measurement_inspection,
+)
+from scopecat.measurement_records.storage_inventory import (
+    MeasurementRecordStorageInventoryRequest,
+    MeasurementRecordStorageInventoryRun,
+    list_measurement_record_storage,
+    list_measurement_record_storage_from_request,
+)
+from scopecat.measurement_records.user_workflow import (
+    ConvertedPrimaryData,
+    LegacyMeasurementRecordRequest,
+    LegacyMeasurementRecordRun,
+    LegacyMeasurementSource,
+    RecordedReferenceInput,
+    legacy_measurement_slug,
+    record_legacy_measurement,
+    record_legacy_measurement_from_request,
 )
 from scopecat.measurement_records.writer_integration import (
     MeasurementRecordWriterChunk,
@@ -90,6 +133,17 @@ from scopecat.measurement_records.writer_integration import (
 )
 
 __all__ = [
+    "MEASUREMENT_RECORD_REVIEW_ARTIFACT_NAME",
+    "ConvertedPrimaryData",
+    "LegacyMeasurementRecordRequest",
+    "LegacyMeasurementRecordRun",
+    "LegacyMeasurementSource",
+    "LegacyPrimaryImportRequest",
+    "LegacyPrimaryImportRun",
+    "LegacyRunContextReference",
+    "LegacyRunLocator",
+    "LegacyRunRecordRequest",
+    "LegacyRunRecordRun",
     "MeasurementRecordAppendChunk",
     "MeasurementRecordCatalogRequest",
     "MeasurementRecordCatalogRun",
@@ -118,15 +172,24 @@ __all__ = [
     "MeasurementRecordReadModelRefreshRun",
     "MeasurementRecordReadRequest",
     "MeasurementRecordReadRun",
+    "MeasurementRecordReference",
+    "MeasurementRecordReferenceRequest",
+    "MeasurementRecordReferenceRun",
     "MeasurementRecordRunningInspectionRequest",
     "MeasurementRecordRunningInspectionRun",
+    "MeasurementRecordStorageInventoryRequest",
+    "MeasurementRecordStorageInventoryRun",
     "MeasurementRecordWriterChunk",
     "MeasurementRecordWriterRequest",
     "MeasurementRecordWriterRun",
+    "RecordedReferenceInput",
     "append_existing_measurement_record",
     "append_existing_measurement_record_from_request",
     "append_in_progress_measurement_record",
     "append_in_progress_measurement_record_from_request",
+    "attach_converted_primary_data_to_legacy_record",
+    "attach_converted_primary_data_to_legacy_record_from_request",
+    "build_measurement_record_review_html",
     "catalog_measurement_record_read_models",
     "catalog_measurement_record_read_models_from_request",
     "create_measurement_record",
@@ -137,10 +200,20 @@ __all__ = [
     "import_measurement_record_from_request",
     "inspect_running_measurement_record",
     "inspect_running_measurement_record_from_request",
+    "legacy_measurement_slug",
+    "list_measurement_record_references",
+    "list_measurement_record_storage",
+    "list_measurement_record_storage_from_request",
     "project_measurement_record_read_model",
     "project_measurement_record_read_model_from_read_view",
     "read_created_record_primary_table",
     "read_created_record_primary_table_from_request",
+    "record_legacy_measurement",
+    "record_legacy_measurement_from_request",
+    "record_legacy_measurement_run",
+    "record_legacy_measurement_run_from_request",
+    "record_measurement_record_references",
+    "record_measurement_record_references_from_request",
     "refresh_measurement_record_read_model",
     "refresh_measurement_record_read_model_from_read_view",
     "review_measurement_records",
@@ -152,4 +225,5 @@ __all__ = [
     "summarize_running_measurement_inspection",
     "write_created_record_primary_data",
     "write_created_record_primary_data_from_request",
+    "write_measurement_record_review_artifact",
 ]

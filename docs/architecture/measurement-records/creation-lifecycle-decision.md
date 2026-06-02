@@ -83,8 +83,8 @@ The first manifest should be intentionally small. It may include:
 
 - schema name such as `measurement_record_creation_candidate_v0`;
 - record id;
-- creation source kind such as `manual`, `writer`, `import`, or `handoff`,
-  only as declared provenance, not as workflow authority;
+- creation source kind such as `manual`, `writer`, `import`, `handoff`, or
+  `legacy_system`, only as declared provenance, not as workflow authority;
 - initial lifecycle state;
 - created timestamp if supplied by the caller or injected clock;
 - optional label or experiment metadata as reviewed free text;
@@ -169,6 +169,14 @@ symlink-parent rejection, initial manifest writing, local receipt projection,
 and best-effort rollback when manifest writing fails. It keeps `record_id`
 caller-declared and public-safe; it does not generate UUIDs, allocate
 namespace ids, or parse record ids for meaning.
+
+`legacy_system` is accepted as a creation source kind only for the
+Measurement Records legacy-run storage workflow. That workflow now creates the
+legacy shell in `created` state so an explicit approved converted-primary
+attach operation can reuse the existing writer/read/finalization/projection
+pipeline against the same record. The creation manifest still does not import
+legacy payloads, observe source files, execute legacy code, or grant
+import/finalization authority by itself.
 
 ## Existing-Record Append Update Checkpoint
 
@@ -684,6 +692,41 @@ It does not accept automatic retune, scan-plan adjustment, parameter write-back,
 saved GUI state, or scientific fit validity as part of the current
 Measurement Records storage boundary.
 
+## Recorded References Checkpoint
+
+The first recorded-references slice is implemented in
+[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+It exposes raw-dictionary and typed entrypoints:
+`record_measurement_record_references(...)`,
+`record_measurement_record_references_from_request(...)`, and
+`list_measurement_record_references(...)`.
+
+This slice adds one explicit record-local mutation:
+
+```text
+existing measurement record
+  -> approved recorded reference request
+  -> record-local no-overwrite recorded reference receipt
+  -> read-only recorded reference review projection
+```
+
+The receipt can carry user-declared references for parameter files or
+snapshots, setup-binding files or snapshots, experiment-code files/directories
+or managed versions, derived artifacts such as preliminary analysis results,
+and supporting evidence. It is append-friendly: a later receipt can declare a
+previous recorded-reference receipt instead of replacing the creation manifest
+or derived read model.
+Operator review reads these receipts and exposes them as `recorded_references`
+so local HTML review can show the user what references were recorded for each
+measurement.
+
+This checkpoint deliberately keeps Measurement Records as the references
+visibility layer, not the payload owner. It does not observe referenced files,
+import referenced payloads, parse parameter/setup/code/artifact formats, execute
+code or analysis, verify target checksums, infer relation graphs, write
+parameters, replace manifests, refresh read models, define canonical GUI state,
+or define final storage schema.
+
 ## Operator Review Composition Checkpoint
 
 The first read-only operator-review composition slice is implemented in
@@ -692,12 +735,13 @@ It exposes raw-dictionary and typed entrypoints:
 `review_measurement_records(...)` and
 `review_measurement_records_from_request(...)`.
 
-This slice composes the existing read-model catalog with optional
-caller-declared running inspections:
+This slice composes the existing read-model catalog, record-local recorded
+reference receipts, and optional caller-declared running inspections:
 
 ```text
 records directory
   -> catalog projected read models
+  -> recorded reference receipt review
   -> optional caller-declared running inspection requests
   -> selected local record summary
   -> aggregated operator-review findings
@@ -705,8 +749,9 @@ records directory
 
 It deliberately remains read-only. It does not refresh read models, discover
 update receipts, replace manifests, finalize lifecycle state, repair storage,
-mutate records, define canonical storage authority, or persist GUI review
-state. Missing projected read models still surface through the catalog, but an
+mutate records, import referenced payloads, define canonical storage authority,
+or persist GUI review state. Missing projected read models still surface
+through the catalog, but an
 in-progress record that is explicitly supplied through a running inspection is
 not treated as a top-level operator-review problem merely because it lacks a
 derived read model. Catalog entries with embedded projected-read-model review
@@ -728,6 +773,32 @@ does not depend on silent precedence. Partial running-inspection flags without
 dropped. The CLI does not discover records beyond the catalog directory, scan
 update directories, mutate storage, or perform refresh, import, finalization,
 repair, or GUI-state persistence.
+
+## Operator Review Artifact Checkpoint
+
+The first local static operator-review artifact slice is implemented in
+[`../../../scopecat/measurement_records/`](../../../scopecat/measurement_records/).
+It exposes:
+`build_measurement_record_review_html(...)` and
+`write_measurement_record_review_artifact(...)`.
+
+This slice renders an already computed operator-review projection into a local
+HTML file for inspection:
+
+```text
+operator-review run
+  -> local static HTML review artifact
+  -> local artifact receipt
+```
+
+The artifact is a review summary, not a storage member. The writer rejects
+output directories inside the Measurement Records storage root so the HTML
+artifact cannot be confused with durable record storage. The CLI can write the
+artifact with `python -m scopecat.measurement_records operator-review
+--html-dir ./review`. The artifact does not persist GUI state, define a final
+GUI component model, approve import, approve refresh, mutate records, repair
+storage, replace manifests, define history/audit semantics, or create a public
+export.
 
 ## Operator Review Receipt Checkpoint
 
