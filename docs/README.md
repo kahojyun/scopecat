@@ -10,6 +10,10 @@ Use [`index.md`](index.md) as the navigation map.
 
 Keep durable statements in the narrowest owner:
 
+- engineering governance: [`engineering/README.md`](engineering/README.md)
+- engineering phase rules: [`engineering/project-phase-model.md`](engineering/project-phase-model.md)
+- workflow validation state: [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md)
+- accepted vertical slices: [`engineering/vertical-slice-register.md`](engineering/vertical-slice-register.md)
 - evidence claims: [`evidence/evidence-register.md`](evidence/evidence-register.md)
 - evidence interpretation: [`evidence/method.md`](evidence/method.md)
 - discovery navigation: [`discovery/README.md`](discovery/README.md)
@@ -22,11 +26,12 @@ Keep durable statements in the narrowest owner:
 - product direction: [`strategy/product-direction.md`](strategy/product-direction.md)
 - research inputs: [`evidence/research/README.md`](evidence/research/README.md)
 
-Create validation, decision, architecture, or user docs only when there is a
-specific durable owner and content for them. Architecture notes are for
-engineering-boundary ownership after discovery evidence starts turning into
-implementation work; they should link back to discovery evidence instead of
-copying it wholesale.
+Create validation, decision, architecture, engineering governance, or user docs
+only when there is a specific durable owner and content for them. Engineering
+governance docs define phase, workflow, and slice ownership rules across
+routes. Architecture notes are for engineering-boundary ownership after
+discovery evidence starts turning into implementation work; they should link
+back to discovery evidence instead of copying it wholesale.
 
 ## Editing Rules
 

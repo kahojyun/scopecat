@@ -8,7 +8,13 @@ This document tracks route-by-route promotion posture for Scopecat discovery
 and engineering-prototype work. Use it to coordinate parallel branches, find
 the current live owner where one exists, and see when this index must be
 updated. Do not use it to broaden a route's scope, override an architecture
-note, or infer final product sequencing.
+note, infer final product sequencing, or decide whether a user workflow is
+validated.
+
+Workflow validation is owned by
+[`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md).
+Implementation slice ownership is owned by
+[`../../engineering/vertical-slice-register.md`](../../engineering/vertical-slice-register.md).
 
 Implementation branches that promote, retire, or materially change a route
 boundary must update the affected rows here in the same change. If an

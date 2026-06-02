@@ -16,6 +16,8 @@ product contracts too early.
 | Document | Use For |
 | --- | --- |
 | [`doc-types.md`](doc-types.md) | Understand which discovery document type owns navigation, policies, route decisions, slice evidence, or synthesis. |
+| [`../engineering/project-phase-model.md`](../engineering/project-phase-model.md) | Classify whether work is discovery, candidate, engineering prototype, production vertical slice, or supported workflow before promoting code. |
+| [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md) | Start from user workflow threads, validated steps, and missing seams before selecting the next prototype or vertical slice. |
 | [`routes/README.md`](routes/README.md) | Navigate route owners, route decisions, and adoption routes by durable user workflow. |
 | [`routes/prototype-promotion-map.md`](routes/prototype-promotion-map.md) | Coordinate route-by-route discovery-to-engineering prototype promotion status. |
 | [`policies/README.md`](policies/README.md) | Navigate repeated boundary vocabulary and product posture documents. |
@@ -76,8 +78,12 @@ the discovery landing page rather than a duplicate route inventory.
 
 Do not promote a validation result directly into shared architecture.
 
-Before moving a concept into accepted schema, shared implementation, or
-`docs/architecture/`, make sure there is:
+Before moving a concept into accepted schema, shared implementation, live route
+code, or `docs/architecture/`, first classify the phase in
+[`../engineering/project-phase-model.md`](../engineering/project-phase-model.md)
+and attach the work to a named workflow step, seam, or risk question in
+[`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md).
+Then make sure there is:
 
 - pressure from more than one validated slice;
 - a concrete implementation need;

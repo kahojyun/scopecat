@@ -9,6 +9,7 @@ Navigation map for current Scopecat docs.
 ```text
 docs/
   strategy/   product direction and boundaries
+  engineering/ project phase model, workflow validation map, slice register
   architecture/ engineering-boundary notes after discovery promotion
   discovery/  problem briefs, policies, routes, validation slices, synthesis
   evidence/   evidence register, method, research, external baseline
@@ -19,6 +20,10 @@ docs/
 | [`README.md`](README.md) | Documentation purpose and editing rules. |
 | [`AGENTS.md`](AGENTS.md) | AI-session rules for work inside `docs/`. |
 | [`strategy/product-direction.md`](strategy/product-direction.md) | Current product direction, default ownership boundaries, and non-goals. |
+| [`engineering/README.md`](engineering/README.md) | Engineering governance navigation for phase, workflow, and vertical slice rules. |
+| [`engineering/project-phase-model.md`](engineering/project-phase-model.md) | Phase responsibilities, promotion rules, code/test/fixture ownership, and drift control. |
+| [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md) | User workflow threads, validated steps, missing seams, and next validation questions. |
+| [`engineering/vertical-slice-register.md`](engineering/vertical-slice-register.md) | Accepted implementation slices, owners, entrypoints, artifact boundaries, tests, and non-goals. |
 | [`architecture/README.md`](architecture/README.md) | Engineering-boundary notes promoted from discovery-backed implementation work. |
 | [`discovery/README.md`](discovery/README.md) | Discovery navigation for problem briefs, validation slices, synthesis, and deferrals. |
 | [`discovery/doc-types.md`](discovery/doc-types.md) | Discovery document type responsibilities and ownership rules. |
