@@ -1,8 +1,8 @@
 # Fixture Stages
 
-Fixtures should match the test stage they support. The current repository still
-contains many historical flat fixture directories; new fixture directories
-should use explicit stage posture.
+Fixtures should match the test stage they support. Prototype-owned fixtures
+live under `tests/fixtures/prototypes/<route>/`; many historical discovery and
+candidate fixture directories intentionally remain in the flat layout for now.
 
 ## Discovery Fixtures
 
@@ -51,6 +51,9 @@ tests/fixtures/prototypes/<route>/<workflow-step>/
 ```
 
 Not every directory needs every subdirectory. Keep fixtures small and explicit.
+If a prototype test still uses prior discovery evidence, leave that shared
+fixture in the discovery/candidate location until the candidate tests are
+retired or migrated together.
 
 ## Integration Fixtures
 

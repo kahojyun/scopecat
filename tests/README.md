@@ -1,7 +1,8 @@
 # Test Stages
 
-Tests are organized by behavior stage, even while older files still use the
-flat historical layout under `tests/`.
+Tests are organized by behavior stage. Promoted route-local prototype tests
+live under `tests/prototypes/<route>/`; older discovery and candidate tests
+still use the flat historical layout under `tests/`.
 
 ## Discovery Validation
 
@@ -34,6 +35,15 @@ Recommended names:
 
 - `test_<route>_<operation>_prototype.py`
 - `test_<route>_<workflow_step>_prototype.py`
+
+Current layout:
+
+```text
+tests/prototypes/environment_operation/
+tests/prototypes/handoff/
+tests/prototypes/measurement_records/
+tests/prototypes/parameter_state/
+```
 
 Good assertion targets:
 
