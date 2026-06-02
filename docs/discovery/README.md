@@ -69,21 +69,10 @@ plan, using these discovery docs as supporting context.
 
 ## Route Pointers
 
-Use route owners for discovery sequencing and detailed navigation. Use the
-engineering workflow map and vertical slice register once a route has live
-implementation ownership. Keep this README as the discovery landing page rather
-than a duplicate route inventory.
-
-| Area | Owner |
-| --- | --- |
-| Measurement Records | [`routes/measurement-records/README.md`](routes/measurement-records/README.md) |
-| Handoff packages | Current implementation owners are [`handoff.md`](../engineering/prototype-boundaries/handoff.md), [`handoff-durable-import-storage.md`](../engineering/prototype-boundaries/handoff-durable-import-storage.md), and [`src/scopecat/handoff/README.md`](../../src/scopecat/handoff/README.md); retired discovery synthesis remains in [`archive/measurement-records-handoff-route/README.md`](archive/measurement-records-handoff-route/README.md). |
-| Import/source decisions | [`routes/measurement-records/import-source-decision.md`](routes/measurement-records/import-source-decision.md) |
-| Experiment code | [`routes/experiment-code/README.md`](routes/experiment-code/README.md) |
-| Environment operation | [`routes/environment-operation/README.md`](routes/environment-operation/README.md) |
-| Parameter state | Current implementation owners are [`routes/parameter-state/README.md`](routes/parameter-state/README.md), [`parameter-state.md`](../engineering/prototype-boundaries/parameter-state.md), and [`src/scopecat/parameter_state/README.md`](../../src/scopecat/parameter_state/README.md). |
-| Measurement context backlog | [`synthesis/measurement-context-backlog.md`](synthesis/measurement-context-backlog.md) |
-| Setup binding, calibration, selected reference | Relevant route/problem brief plus archived slice evidence in [`archive/slice-inventory.md`](archive/slice-inventory.md) when needed. |
+Use [`routes/README.md`](routes/README.md) as the single discovery route
+inventory. This README should not repeat route owner tables; it only points to
+the route inventory and to engineering owners for work that has moved into live
+prototype implementation.
 
 ## Promotion Discipline
 

@@ -45,33 +45,6 @@ For new discovery work:
 3. [`discovery/README.md`](discovery/README.md) for discovery route, slice,
    policy, and synthesis navigation.
 
-## Current Model
-
-Keep durable statements in the narrowest owner:
-
-- engineering governance: [`engineering/README.md`](engineering/README.md)
-- engineering phase rules: [`engineering/project-phase-model.md`](engineering/project-phase-model.md)
-- workflow validation state: [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md)
-- accepted implementation slices: [`engineering/vertical-slice-register.md`](engineering/vertical-slice-register.md)
-- evidence claims: [`evidence/evidence-register.md`](evidence/evidence-register.md)
-- evidence interpretation: [`evidence/method.md`](evidence/method.md)
-- discovery navigation: [`discovery/README.md`](discovery/README.md)
-- prototype boundaries: [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md)
-- problem framing: [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md)
-- adoption routes: [`discovery/routes/adoption-routes.md`](discovery/routes/adoption-routes.md)
-- discovery slice evidence: [`discovery/slices/README.md`](discovery/slices/README.md)
-- cross-slice synthesis: [`discovery/synthesis/cross-slice.md`](discovery/synthesis/cross-slice.md)
-- discovery deferrals: [`discovery/synthesis/shared-model-extraction-deferral.md`](discovery/synthesis/shared-model-extraction-deferral.md)
-- product direction: [`product/direction.md`](product/direction.md)
-- research inputs: [`evidence/research/README.md`](evidence/research/README.md)
-
-Create validation, decision, prototype-boundary, engineering governance, or
-user docs only when there is a specific durable owner and content for them.
-Engineering governance docs define phase, workflow, and slice ownership rules
-across routes. Prototype-boundary notes are for route-local engineering
-ownership after discovery evidence starts turning into implementation work;
-they should link back to discovery evidence instead of copying it wholesale.
-
 ## Editing Rules
 
 - Update existing documents before creating new structure.
@@ -79,6 +52,11 @@ they should link back to discovery evidence instead of copying it wholesale.
 - Keep top-down orientation in this README and flat inventory in
   [`index.md`](index.md); do not make every README repeat the full document
   map.
+- Do not duplicate owner inventories across README files. When adding or
+  moving a document, update the nearest owner index and link to that index from
+  higher levels.
+- Create validation, decision, prototype-boundary, engineering governance, or
+  user docs only when there is a specific durable owner and content for them.
 - Keep active task queues, priorities, and implementation checklists in issues,
   PRs, or branch plans rather than this stable landing page.
 - Mark hypotheses, accepted decisions, and open questions explicitly when the
