@@ -22,8 +22,9 @@
 - Promote cross-option evidence interpretation, source-confidence rules, or
   prompt-method rules to `docs/evidence/method.md`; keep
   `docs/evidence/evidence-register.md` focused on rows and stable IDs.
-- Promote problem framing to `docs/discovery/problem-briefs/` and adoption
-  routes to `docs/discovery/routes/adoption-routes.md`.
+- Promote problem framing to `docs/discovery/problem-briefs/`, product
+  adoption changes to `docs/product/adoption-model.md`, and discovery-only
+  adoption-route evidence to `docs/discovery/routes/adoption-routes.md`.
 - After extraction or supersession, prefer deleting low-value research notes
   over keeping them indefinitely. Before deleting a source that supports active
   `EV`, decision, validation, or architecture work, leave a compact extracted

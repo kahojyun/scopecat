@@ -11,8 +11,12 @@ flat navigation map when you already know which owner you need.
 
 - Current workflow status and composition gaps:
   [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md)
-- Current capabilities, maturity, evidence, and implementation owners:
-  [`engineering/capability-register.md`](engineering/capability-register.md)
+- Current product adoption paths:
+  [`product/adoption-model.md`](product/adoption-model.md)
+- Current product capabilities, maturity, evidence, and advancement questions:
+  [`product/capability-map.md`](product/capability-map.md)
+- Current live implementation owners:
+  [`engineering/implementation-register.md`](engineering/implementation-register.md)
 - Current route-local prototype boundaries:
   [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md)
 - Active execution work should live in issues, PRs, or branch plans rather than
@@ -22,17 +26,22 @@ flat navigation map when you already know which owner you need.
 
 For product and implementation direction:
 
-1. [`product/direction.md`](product/direction.md) for product
-   posture, long-term boundaries, and non-goals.
-2. [`engineering/README.md`](engineering/README.md) for maturity, workflow,
-   capability, and promotion governance.
-3. [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md)
+1. [`product/README.md`](product/README.md) for product docs, then
+   [`product/direction.md`](product/direction.md) for product direction,
+   long-term boundaries, and non-goals.
+2. [`product/adoption-model.md`](product/adoption-model.md) for brownfield
+   adoption paths and migration boundaries.
+3. [`product/capability-map.md`](product/capability-map.md) for product
+   capabilities, maturity, supporting evidence, and open advancement
+   questions.
+4. [`engineering/README.md`](engineering/README.md) for delivery maturity,
+   workflow validation, implementation ownership, and promotion governance.
+5. [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md)
    to find the user workflow thread, validated steps, missing seams, and next
    validation question.
-4. [`engineering/capability-register.md`](engineering/capability-register.md)
-   to find product capabilities, maturity, supporting evidence,
-   implementation owners, and open advancement questions.
-5. [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) and the owning module
+6. [`engineering/implementation-register.md`](engineering/implementation-register.md)
+   to find live modules, entrypoints, tests, fixtures, and boundary notes.
+7. [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) and the owning module
    README for live implementation boundaries and API details.
 
 For new discovery work:

@@ -14,8 +14,8 @@ user workflow is validated.
 
 Workflow validation is owned by
 [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md).
-Implementation slice ownership is owned by
-[`../../engineering/capability-register.md`](../../engineering/capability-register.md).
+Implementation ownership is owned by
+[`../../engineering/implementation-register.md`](../../engineering/implementation-register.md).
 
 Do not update this matrix to mirror current implementation APIs. Edit it only
 to fix broken links, safety issues, or historical supersession notes.
@@ -58,8 +58,8 @@ to fix broken links, safety issues, or historical supersession notes.
 
 When a branch changes current promotion status:
 
-- update the active engineering workflow map, capability register, boundary
-  note, or module README instead of this archived matrix;
+- update the active workflow map, product capability map, implementation
+  register, boundary note, or module README instead of this archived matrix;
 - preserve this file as historical evidence;
 - edit this file only for broken links, safety issues, or explicit
   supersession clarification.

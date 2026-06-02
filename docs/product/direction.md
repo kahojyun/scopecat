@@ -22,7 +22,7 @@ prototype-boundary docs should own details when they are needed.
   export/import, and open-before-import review.
 - Deeper runtime, driver, scan, service, or migration ownership is possible but
   requires a narrower validated workflow and explicit decision.
-- Redaction and artifact posture are boundary-specific: portable/export
+- Redaction and artifact classification are boundary-specific: portable/export
   artifacts need stronger handling than local repository-safe fixtures or
   review surfaces.
 

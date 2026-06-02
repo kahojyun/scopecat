@@ -57,7 +57,8 @@ pain evidence, adoption signals, and redaction notes when relevant.
 - evidence claims -> [`../evidence-register.md`](../evidence-register.md)
 - evidence interpretation, source posture, and bias rules -> [`../method.md`](../method.md)
 - problem framing -> [`../../discovery/problem-briefs/`](../../discovery/problem-briefs)
-- adoption routes -> [`../../discovery/routes/adoption-routes.md`](../../discovery/routes/adoption-routes.md)
+- adoption model -> [`../../product/adoption-model.md`](../../product/adoption-model.md)
+- discovery adoption-route evidence -> [`../../discovery/routes/adoption-routes.md`](../../discovery/routes/adoption-routes.md)
 - product direction and boundaries -> [`../../product/direction.md`](../../product/direction.md)
 
 Create validation, decision, architecture, or user docs only when there is a

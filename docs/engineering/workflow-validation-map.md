@@ -10,9 +10,11 @@ This map organizes Scopecat progress by user workflow rather than by candidate
 file, fixture family, or code module. Use it to decide what the next prototype
 or vertical slice should validate.
 
-[`capability-register.md`](capability-register.md) records product
-capabilities, maturity, evidence, and implementation owners. This document
-records the user workflow thread and its validated or missing steps.
+[`../product/capability-map.md`](../product/capability-map.md) records product
+capabilities, maturity, evidence, and open advancement questions.
+[`implementation-register.md`](implementation-register.md) records live
+implementation owners. This document records the user workflow thread and its
+validated or missing steps.
 
 ## Current Workflow Focus
 
@@ -37,9 +39,11 @@ portable/export posture for that package boundary.
 - Rows marked `Implementation candidate` should not be copied into live code
   unless they close a named workflow step, seam, or risk question.
 - Use `Next Validation Question` to choose the next prototype.
-- Use [`capability-register.md`](capability-register.md) to find product
-  capabilities, maturity, supporting evidence, implementation owners, and open
-  advancement questions.
+- Use [`../product/capability-map.md`](../product/capability-map.md) to find
+  product capabilities, maturity, supporting evidence, and open advancement
+  questions.
+- Use [`implementation-register.md`](implementation-register.md) to find live
+  modules, entrypoints, tests, fixtures, and artifact boundaries.
 
 ## Status Vocabulary
 

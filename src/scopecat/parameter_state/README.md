@@ -5,6 +5,9 @@
 This route-local module promotes the accepted parameter-state discovery
 candidates into production-shaped prototype code.
 
+Implementation ownership is tracked in
+[`../../../docs/engineering/implementation-register.md`](../../../docs/engineering/implementation-register.md).
+
 The accepted boundary is intentionally narrow:
 
 ```text

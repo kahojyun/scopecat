@@ -2,10 +2,12 @@
 
 ## Status
 
-Provisional discovery owner.
+Discovery adoption evidence.
 
-This document names evidence-backed adoption routes. Routes are not accepted
-product scope, implementation order, architecture, or a validation backlog.
+This document preserves evidence-backed adoption-route framing from discovery.
+It is not the current product adoption owner. Use
+[`../../product/adoption-model.md`](../../product/adoption-model.md) for the
+current adoption model.
 
 ## Purpose
 
@@ -32,6 +34,7 @@ A route is different from a validation slice:
 | [`synthesis/measurement-context-backlog.md`](../synthesis/measurement-context-backlog.md) | Shared discovery backlog for context-shaped validation work across routes. |
 | [`synthesis/shared-model-extraction-deferral.md`](../synthesis/shared-model-extraction-deferral.md) | Why shared domain models are still deferred. |
 | [`../product/direction.md`](../../product/direction.md) | Product direction, ownership assumptions, non-goals, and expansion posture. |
+| [`../../product/adoption-model.md`](../../product/adoption-model.md) | Current product adoption paths and brownfield migration boundaries. |
 
 ## Route Selection
 

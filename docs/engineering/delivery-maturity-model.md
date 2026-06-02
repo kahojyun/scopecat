@@ -33,7 +33,7 @@ discovery evidence
 Candidate-summary parity is not progress by itself. It becomes useful evidence
 when it closes a named workflow step, workflow seam, capability risk, or product
 risk in [`workflow-validation-map.md`](workflow-validation-map.md) or
-[`capability-register.md`](capability-register.md).
+[`../product/capability-map.md`](../product/capability-map.md).
 
 ## Product Objects
 
@@ -84,8 +84,10 @@ prototype boundary, update or reference:
 
 - [`workflow-validation-map.md`](workflow-validation-map.md), to name the user
   workflow, seam, or risk question;
-- [`capability-register.md`](capability-register.md), to name the product
-  capability, maturity, implementation owner, evidence, and scope boundary;
+- [`../product/capability-map.md`](../product/capability-map.md), to name the
+  product capability, maturity, evidence, and advancement question;
+- [`implementation-register.md`](implementation-register.md), to name the live
+  module, entrypoint, tests, fixtures, and artifact boundary;
 - the owning module README or prototype-boundary note, to define the accepted
   boundary and live API.
 

@@ -11,6 +11,10 @@ public SDK names, final package format, broad storage import behavior, GUI
 architecture, plotting stack, archive/trust semantics, or a shared
 measurement-record domain model.
 
+For workflow and implementation ownership, start from
+[`../../../docs/engineering/workflow-validation-map.md`](../../../docs/engineering/workflow-validation-map.md)
+and
+[`../../../docs/engineering/implementation-register.md`](../../../docs/engineering/implementation-register.md).
 For accepted boundaries, start from
 [`../../../docs/engineering/prototype-boundaries/handoff.md`](../../../docs/engineering/prototype-boundaries/handoff.md)
 and

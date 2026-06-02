@@ -9,9 +9,10 @@ the recommended top-down reading path.
 
 ```text
 docs/
-  product/   product direction and boundaries
-  engineering/ delivery maturity model, workflow validation map, capability
-               register, prototype boundaries, and engineering archive
+  product/   product direction, adoption model, and capability map
+  engineering/ delivery maturity model, workflow validation map,
+               implementation register, prototype boundaries, and engineering
+               archive
   discovery/  problem briefs, policies, routes, validation slices, synthesis
   evidence/   evidence register, method, research, external baseline
 ```
@@ -20,11 +21,14 @@ docs/
 | --- | --- |
 | [`README.md`](README.md) | Documentation purpose and editing rules. |
 | [`AGENTS.md`](AGENTS.md) | AI-session rules for work inside `docs/`. |
+| [`product/README.md`](product/README.md) | Product documentation navigation. |
 | [`product/direction.md`](product/direction.md) | Current product direction, default ownership boundaries, and non-goals. |
+| [`product/adoption-model.md`](product/adoption-model.md) | Brownfield adoption paths, migration boundaries, and supporting capabilities. |
+| [`product/capability-map.md`](product/capability-map.md) | Product capabilities, maturity, supported workflows, evidence, and open advancement questions. |
 | [`engineering/README.md`](engineering/README.md) | Engineering governance navigation for maturity, workflow, capability, and promotion rules. |
 | [`engineering/delivery-maturity-model.md`](engineering/delivery-maturity-model.md) | Product objects, maturity states, validation methods, promotion rules, and drift control. |
 | [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md) | User workflow threads, validated steps, missing seams, and next validation questions. |
-| [`engineering/capability-register.md`](engineering/capability-register.md) | Product capabilities, maturity, supported workflows, evidence, implementation owners, and open advancement questions. |
+| [`engineering/implementation-register.md`](engineering/implementation-register.md) | Live modules, entrypoints, tests, fixtures, artifact boundaries, and prototype-boundary notes. |
 | [`engineering/terminology.md`](engineering/terminology.md) | Standard engineering terms for workflow, capability, maturity, validation method, decision, evidence, artifact boundary, and ownership. |
 | [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) | Current route-local engineering prototype boundaries promoted from discovery-backed implementation work. |
 | [`discovery/README.md`](discovery/README.md) | Discovery navigation for problem briefs, validation slices, synthesis, and deferrals. |

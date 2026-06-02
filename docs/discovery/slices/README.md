@@ -12,8 +12,10 @@ surface.
 
 Active workflow sequencing belongs in
 [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md).
-Capability maturity and implementation ownership belong in
-[`../../engineering/capability-register.md`](../../engineering/capability-register.md).
+Capability maturity belongs in
+[`../../product/capability-map.md`](../../product/capability-map.md).
+Implementation ownership belongs in
+[`../../engineering/implementation-register.md`](../../engineering/implementation-register.md).
 
 The old flat slice inventory has moved to
 [`../archive/slice-inventory.md`](../archive/slice-inventory.md). It remains
@@ -34,6 +36,6 @@ When starting new discovery:
 When promoting implementation:
 
 - do not promote a slice directly from this directory;
-- use the delivery maturity model and capability register;
+- use the delivery maturity model and capability map;
 - treat slice fixtures and expected outputs as evidence unless a promotion
   decision explicitly accepts them as active tests.

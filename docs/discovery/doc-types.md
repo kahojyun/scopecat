@@ -28,8 +28,10 @@ Use the narrowest document type that owns the statement being made.
   has live engineering ownership, prefer
   [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
   for workflow sequencing and
-  [`../engineering/capability-register.md`](../engineering/capability-register.md)
-  for capability maturity and implementation ownership.
+  [`../product/capability-map.md`](../product/capability-map.md)
+  for capability maturity. Use
+  [`../engineering/implementation-register.md`](../engineering/implementation-register.md)
+  for implementation ownership.
 - A route `README.md` may temporarily own consolidation and recommended next
   work when a route has not yet earned a separate decision document; split it
   once decisions, reopen triggers, or stop rules need a stable owner.

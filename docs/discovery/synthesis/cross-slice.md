@@ -31,7 +31,7 @@ recurring-concepts table below uses route and slice shorthand only.
 | [`../routes/environment-operation/README.md`](../routes/environment-operation/README.md) | Environment-operation review around manifest preflight, manager intent, declared external result, and local operation review. |
 | [`measurement-context-backlog.md`](measurement-context-backlog.md) | Shared backlog for context-shaped validation work across routes. |
 | [`shared-model-extraction-deferral.md`](shared-model-extraction-deferral.md) | Why shared model extraction remains deferred. |
-| [`../policies/README.md`](../policies/README.md) | Cross-route boundary vocabulary, artifact boundaries, and product posture. |
+| [`../policies/README.md`](../policies/README.md) | Cross-route boundary vocabulary, artifact boundaries, and product strategy. |
 
 ## Route Evidence Summary
 

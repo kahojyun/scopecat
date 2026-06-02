@@ -10,8 +10,8 @@ and retired candidate decisions.
 This directory preserves rationale and historical checkpoints that no longer
 own current implementation sequencing or API truth. Use
 [`../prototype-boundaries/`](../prototype-boundaries/) for current prototype
-boundaries and [`../capability-register.md`](../capability-register.md)
-for active ownership.
+boundaries and [`../implementation-register.md`](../implementation-register.md)
+for active implementation ownership.
 
 Do not update archived notes to mirror current APIs. Edit them only to fix
 broken links, remove unsafe content, or clarify supersession.

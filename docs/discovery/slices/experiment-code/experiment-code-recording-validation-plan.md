@@ -173,7 +173,7 @@ This plan does not earn:
 ## Slice Recommendation
 
 Create one fixture and expected output before writing any implementation
-candidate. The first goal is to validate the product posture: Scopecat can
+candidate. The first goal is to validate the product strategy: Scopecat can
 record point-in-time code context before asking users to curate authoritative
 selections or move into managed workspaces. Start with explicit include policy
 and stripped notebooks; defer internal Git analysis, record-all tracking,

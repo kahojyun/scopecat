@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Discovery owns problem framing, adoption routes, validation artifacts,
+Discovery owns problem framing, adoption-route evidence, validation artifacts,
 implementation-shaped exploration results before promotion, synthesis, and
 explicit deferrals.
 
@@ -14,8 +14,10 @@ product contracts too early.
 After discovery evidence starts moving into live route-local code, active
 workflow sequencing belongs in
 [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
-and implementation ownership belongs in
-[`../engineering/capability-register.md`](../engineering/capability-register.md).
+product capability maturity belongs in
+[`../product/capability-map.md`](../product/capability-map.md), and
+implementation ownership belongs in
+[`../engineering/implementation-register.md`](../engineering/implementation-register.md).
 Discovery route and slice documents remain evidence and discovery status, not
 the default owner for engineering-prototype expansion.
 
@@ -24,10 +26,12 @@ the default owner for engineering-prototype expansion.
 | Document | Use For |
 | --- | --- |
 | [`doc-types.md`](doc-types.md) | Understand which discovery document type owns navigation, policies, route decisions, slice evidence, or synthesis. |
+| [`../product/adoption-model.md`](../product/adoption-model.md) | Current product adoption paths and brownfield migration boundaries. |
+| [`../product/capability-map.md`](../product/capability-map.md) | Current product capabilities, maturity, evidence, and open advancement questions. |
 | [`../engineering/delivery-maturity-model.md`](../engineering/delivery-maturity-model.md) | Classify workflow and capability maturity before promoting code; treat candidates, spikes, prototypes, and scenarios as validation methods. |
 | [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md) | Start from user workflow threads, validated steps, and missing seams before selecting the next prototype or vertical slice. |
-| [`routes/README.md`](routes/README.md) | Navigate discovery route owners, route decisions, and adoption routes by durable user workflow. |
-| [`../engineering/capability-register.md`](../engineering/capability-register.md) | Current product capabilities, maturity, evidence, and implementation owners; the old promotion coordination map is archived at [`archive/prototype-promotion-map.md`](archive/prototype-promotion-map.md). |
+| [`routes/README.md`](routes/README.md) | Navigate discovery route owners, route decisions, and historical adoption-route evidence by durable user workflow. |
+| [`../engineering/implementation-register.md`](../engineering/implementation-register.md) | Current live implementation owners; the old promotion coordination map is archived at [`archive/prototype-promotion-map.md`](archive/prototype-promotion-map.md). |
 | [`policies/README.md`](policies/README.md) | Navigate repeated boundary vocabulary, artifact classification, and product strategy documents. |
 | [`problem-briefs/README.md`](problem-briefs/README.md) | Start from evidence-backed problem framing before choosing a validation question. |
 | [`slices/README.md`](slices/README.md) | Use discovery slice results as evidence; the old flat inventory is archived at [`archive/slice-inventory.md`](archive/slice-inventory.md). |
@@ -38,9 +42,9 @@ the default owner for engineering-prototype expansion.
 
 ## Validation Slices
 
-Validation slices are grouped by adoption route. A route can contain several
+Validation slices are grouped by discovery route. A route can contain several
 slices at different maturity levels; a slice should stay narrow even when it
-tests part of a broader route.
+tests part of a broader workflow or adoption path.
 
 The old flat slice inventory is archived at
 [`archive/slice-inventory.md`](archive/slice-inventory.md). Keep this README

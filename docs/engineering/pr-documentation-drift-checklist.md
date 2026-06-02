@@ -19,9 +19,9 @@ nearest owner and avoid turning candidates or future plans into current truth.
   the delivery maturity model. Treat candidates, spikes, prototypes, and
   scenarios as validation methods, not progress metrics by themselves.
 - **Owner**: update the nearest owner only: workflow map for workflow status,
-  capability register for product capability maturity and implementation
-  ownership, prototype-boundary notes for route boundaries, module READMEs for
-  API details, or discovery docs for evidence.
+  product capability map for capability maturity, implementation register for
+  live module ownership, prototype-boundary notes for route boundaries, module
+  READMEs for API details, or discovery docs for evidence.
 - **No duplicate state**: avoid copying the same current state, owner table,
   next work, or non-goal into multiple README files.
 - **Candidate promotion**: if discovery results or `implementation_candidates/`

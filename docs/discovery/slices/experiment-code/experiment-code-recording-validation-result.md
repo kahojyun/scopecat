@@ -61,7 +61,7 @@ code snapshot record associated with a run or step. That record should
 be comparable to parameter-state and setup-binding snapshots while still
 keeping code-specific storage, restore, and execution semantics separate.
 
-This validates the product posture in
+This validates the product strategy in
 [`policies/managed-experiment-code-posture.md`](../../policies/managed-experiment-code-posture.md):
 Scopecat may eventually provide Git-like managed experiment-code versions
 behind lab-native actions, but the first fixture is a recorded code context

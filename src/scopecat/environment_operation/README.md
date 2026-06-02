@@ -5,6 +5,8 @@ Route-local module for approved local environment-manager operations.
 This module is the accepted route-local implementation baseline for the first
 approved `uv` execution/review vertical. The promoted boundary is owned by
 [`../../docs/engineering/prototype-boundaries/environment-operation.md`](../../../docs/engineering/prototype-boundaries/environment-operation.md).
+Implementation ownership is tracked in
+[`../../../docs/engineering/implementation-register.md`](../../../docs/engineering/implementation-register.md).
 It still does not accept final manager abstraction, runtime readiness, code
 execution, hardware readiness, workflow/DAG behavior, or GUI architecture.
 

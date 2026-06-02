@@ -11,9 +11,11 @@ This directory records accepted live prototype boundaries: what can live under
 
 These notes are not final product architecture, public API commitments, or
 production vertical-slice acceptance. Start from
-[`../capability-register.md`](../capability-register.md) to find the
-active capability and implementation owner, then open the boundary note listed
-here and the owning module README for API details.
+[`../implementation-register.md`](../implementation-register.md) to find the
+active implementation owner, then open the boundary note listed here and the
+owning module README for API details. Use
+[`../../product/capability-map.md`](../../product/capability-map.md) for product
+capability maturity.
 
 ## Prototype Boundaries
 

@@ -15,7 +15,7 @@ slice remains listed here as historical validation evidence rather than current
 API surface. Active engineering workflow sequencing belongs in
 [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md),
 and accepted implementation ownership belongs in
-[`../../engineering/capability-register.md`](../../engineering/capability-register.md).
+[`../../engineering/implementation-register.md`](../../engineering/implementation-register.md).
 
 ## Historical Slice Inventory
 

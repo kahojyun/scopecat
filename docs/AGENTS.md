@@ -11,9 +11,11 @@
   hypotheses, and open questions easy to distinguish.
 - Preserve document-layer boundaries: `docs/evidence/` owns stable evidence
   claims and source posture, `docs/discovery/problem-briefs/` owns current
-  problem framing, `docs/discovery/routes/adoption-routes.md` owns route-level
-  adoption paths, and `docs/product/direction.md` owns product
-  direction and long-term boundary posture.
+  problem framing, `docs/product/adoption-model.md` owns current adoption
+  paths, `docs/product/capability-map.md` owns product capability maturity,
+  `docs/engineering/implementation-register.md` owns live implementation
+  ownership, and `docs/product/direction.md` owns product direction and
+  long-term boundary strategy.
 - Keep cross-references purposeful: use them for entry points, owner
   boundaries, required dependencies, or source evidence. Avoid repeated
   historical back-links when a README or index already owns the navigation.

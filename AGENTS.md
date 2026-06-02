@@ -24,7 +24,7 @@
   `internal_validation_summary`, `review_summary`, or `export/package` in the
   candidate README, validation result, or summary policy field. Ordinary
   internal governance, architecture, route-index, decision, and navigation
-  Markdown documents do not need artifact posture labels unless they are
+  Markdown documents do not need artifact classification labels unless they are
   themselves promoted to public/export documentation or define a generated
   artifact boundary. Then audit for the classified boundary:
   repository-safety for fixtures, projection and managed-reference validation
