@@ -3,15 +3,15 @@
 <p align="center"><img src="assets/branding/app-icon.svg" alt="Scopecat app icon" width="160"></p>
 
 Scopecat is an early greenfield project for scientific measurement workflows.
+It is in active development; current docs describe product direction, evidence,
+and implementation boundaries rather than finalized product commitments.
 
-The product and architecture are still being shaped. See
-`docs/product/direction.md` for the current product direction and boundaries, and
-`docs/README.md` for the documentation workspace.
+See `docs/product/direction.md` for product direction and `docs/README.md` for
+the documentation workspace.
 
 ## Status
 
-New project workspace. Current docs describe evidence, hypotheses, and
-boundaries, not finalized product commitments.
+New project workspace.
 
 ## Documentation
 
