@@ -38,9 +38,3 @@ docs/
 | [`evidence/external-baseline.md`](evidence/external-baseline.md) | External framework baseline. |
 | [`evidence/research/README.md`](evidence/research/README.md) | Research directory policy. |
 | [`evidence/research/research-index.md`](evidence/research/research-index.md) | Current research inputs and extracted notes. |
-
-## Future Areas
-
-Add only when there is durable content with a clear owner:
-
-- `user/` for public, redacted user documentation.
