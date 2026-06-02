@@ -38,8 +38,8 @@ vertical-slice pressure, then use
 module owners and boundary detail.
 
 Do not treat this map as an issue tracker. Active execution work belongs in
-issues, PRs, or [`branch-plans/`](branch-plans/). This map records workflow
-state and validation questions.
+issues, PRs, or branch-specific plans when implementation starts. This map
+records workflow state and validation questions.
 
 ## Status Vocabulary
 

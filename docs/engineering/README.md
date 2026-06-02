@@ -17,12 +17,25 @@ Use these documents before adding or promoting live code:
 | --- | --- |
 | [`delivery-maturity-model.md`](delivery-maturity-model.md) | Classify workflow and capability maturity; choose validation methods without treating candidate/prototype counts as progress. |
 | [`workflow-validation-map.md`](workflow-validation-map.md) | Start from user workflow threads, validated steps, missing seams, and next validation questions. |
-| [`branch-plans/README.md`](branch-plans/README.md) | Find active branch plans for scoped implementation work before accepted boundaries are updated. |
 | [`implementation-register.md`](implementation-register.md) | Track live implementation owners and route readers to module and prototype-boundary detail. |
 | [`../product/capability-map.md`](../product/capability-map.md) | Track product capabilities, maturity, evidence state, and open advancement questions. |
 | [`terminology.md`](terminology.md) | Use standard terms for workflows, capabilities, maturity, validation methods, decisions, evidence, artifact boundaries, and ownership. |
 | [`prototype-boundaries/README.md`](prototype-boundaries/README.md) | Find current route-local engineering prototype boundaries and next decision gates. |
 | [`pr-documentation-drift-checklist.md`](pr-documentation-drift-checklist.md) | Lightweight PR checklist for avoiding documentation drift without freezing future decisions. |
+
+## Planning Inputs
+
+Write issue, PR, or branch-specific plans only when work is actually starting.
+Those plans should gather facts from the existing owners instead of creating a
+new durable source of truth:
+
+- workflow map for the user workflow, validated steps, missing seam, and next
+  validation question;
+- capability map for product capability maturity and advancement pressure;
+- implementation register for live module ownership;
+- prototype-boundary notes and module READMEs for accepted contracts, API
+  orientation, tests, fixtures, and artifact boundaries;
+- discovery docs only as evidence, not as live implementation ownership.
 
 ## Historical Reference
 
