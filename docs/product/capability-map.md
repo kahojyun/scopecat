@@ -23,22 +23,21 @@ Use this document with:
 
 ## Capability Map
 
-| Capability | Maturity | Evidence State | Implementation Owner | Boundary / Evidence Docs | Open Advancement Questions |
-| --- | --- | --- | --- | --- | --- |
-| Measurement Records | Engineering prototype | Live prototype evidence | `scopecat.measurement_records` | [`implementation-register.md`](../engineering/implementation-register.md), [`measurement-records-creation-lifecycle.md`](../engineering/prototype-boundaries/measurement-records-creation-lifecycle.md), [`measurement-records-legacy-run-storage.md`](../engineering/prototype-boundaries/measurement-records-legacy-run-storage.md) | Decide whether selected stored measurement export, existing-record update/import, running measurement lifecycle, or storage schema readiness is the next vertical-slice pressure. |
-| Handoff Packages | Engineering prototype | Live prototype evidence | `scopecat.handoff` | [`implementation-register.md`](../engineering/implementation-register.md), [`handoff.md`](../engineering/prototype-boundaries/handoff.md), [`handoff-durable-import-storage.md`](../engineering/prototype-boundaries/handoff-durable-import-storage.md) | Validate selected stored Measurement Record to single-measurement handoff package export; decide later trust/authenticity, batch receiving, archive format, and linked-context payload import questions. |
-| Parameter State Review | Engineering prototype | Live prototype evidence | `scopecat.parameter_state` | [`implementation-register.md`](../engineering/implementation-register.md), [`parameter-state.md`](../engineering/prototype-boundaries/parameter-state.md) | Decide whether compatibility-file writing, hardware apply, catalog discovery, automatic run start, or a shared parameter/run-context schema is justified by a workflow. |
-| Environment Operation | Engineering prototype | Live prototype evidence | `scopecat.environment_operation` | [`implementation-register.md`](../engineering/implementation-register.md), [`environment-operation.md`](../engineering/prototype-boundaries/environment-operation.md) | Decide whether runtime readiness, manifest integration, manager expansion, execution hardening, or GUI/runtime monitoring is the next validated product need. |
-| Experiment Code Context | Discovery | Discovery and implementation-candidate evidence | No live implementation owner | [`experiment-code/README.md`](../discovery/routes/experiment-code/README.md), [`managed-experiment-code-posture.md`](../discovery/policies/managed-experiment-code-posture.md) | Decide which concrete user step merits promotion first: record, materialize, observe editable folder, prepare rerun, or GUI review. |
-| Running Measurement Monitor | Discovery | Evidence-backed validation question | No live implementation owner | [`workflow-validation-map.md`](../engineering/workflow-validation-map.md), [`evidence-register.md`](../evidence/evidence-register.md) | Validate whether Python measurement scripts can emit lifecycle/progress/partial-data events that a long-lived local GUI can monitor across multiple active measurements. |
-| Calibration Continuation Review | Discovery | Discovery and implementation-candidate evidence | No live implementation owner | [`decision.md`](../discovery/routes/calibration-continuation/decision.md), [`calibration-continuation/README.md`](../discovery/routes/calibration-continuation/README.md) | Promote only around explicit user actions, review state transitions, and route-native acceptance criteria. |
+| Capability | Maturity | Evidence State | Open Advancement Questions |
+| --- | --- | --- | --- |
+| Measurement Records | Engineering prototype | Live prototype evidence | Decide whether selected stored measurement export, existing-record update/import, running measurement lifecycle, or storage schema readiness is the next vertical-slice pressure. |
+| Handoff Packages | Engineering prototype | Live prototype evidence | Validate selected stored Measurement Record to single-measurement handoff package export; decide later trust/authenticity, batch receiving, archive format, and linked-context payload import questions. |
+| Parameter State Review | Engineering prototype | Live prototype evidence | Decide whether compatibility-file writing, hardware apply, catalog discovery, automatic run start, or a shared parameter/run-context schema is justified by a workflow. |
+| Environment Operation | Engineering prototype | Live prototype evidence | Decide whether runtime readiness, manifest integration, manager expansion, execution hardening, or GUI/runtime monitoring is the next validated product need. |
+| Experiment Code Context | Discovery | Discovery and implementation-candidate evidence | Decide which concrete user step merits promotion first: record, materialize, observe editable folder, prepare rerun, or GUI review. |
+| Running Measurement Monitor | Discovery | Evidence-backed validation question | Validate whether Python measurement scripts can emit lifecycle/progress/partial-data events that a long-lived local GUI can monitor across multiple active measurements. |
+| Calibration Continuation Review | Discovery | Discovery and implementation-candidate evidence | Promote only around explicit user actions, review state transitions, and route-native acceptance criteria. |
 
 ## Update Rule
 
 Update this map when a branch changes product capability maturity, product
-boundary, evidence state, implementation owner, boundary/evidence docs, or
-advancement questions.
+boundary, evidence state, or advancement questions.
 
 Do not use this file to list every implementation entrypoint or test. Use
 [`../engineering/implementation-register.md`](../engineering/implementation-register.md)
-for live implementation ownership.
+for live implementation ownership and boundary/module docs.

@@ -29,31 +29,17 @@ another storage root. The missing seam is selected stored Measurement Record to
 single-measurement handoff package export, including identity continuity and
 portable/export artifact-boundary behavior for that package.
 
-## Current Validation Tasks
+## Reading Rules
 
-| ID | Task | Workflow | Capabilities | Evidence / Owner Links |
-| --- | --- | --- | --- | --- |
-| `VT-001` | Validate selected stored Measurement Record to single-measurement handoff package export. | Legacy measurement portable handoff. | Measurement Records, Handoff Packages. | [`../product/capability-map.md`](../product/capability-map.md), [`implementation-register.md`](implementation-register.md), [`prototype-boundaries/measurement-records-creation-lifecycle.md`](prototype-boundaries/measurement-records-creation-lifecycle.md), [`prototype-boundaries/measurement-records-legacy-run-storage.md`](prototype-boundaries/measurement-records-legacy-run-storage.md), [`prototype-boundaries/handoff.md`](prototype-boundaries/handoff.md) |
+Start with rows marked `Composition gap`; those are the clearest workflow-seam
+candidates. Use `Next Validation Question` to choose the next prototype or
+vertical-slice pressure, then use
+[`implementation-register.md`](implementation-register.md) to find the live
+module owners and boundary detail.
 
-Keep this section short. Add a task only when it is the current or next
-validation target; use the workflow table below for broader background.
-
-## How To Read
-
-- Start with rows marked `Composition gap`; those are the clearest next
-  workflow-seam candidates.
-- Rows marked `Engineering prototype` have live route-local implementation
-  owners, but they are not production vertical slices or maintained product
-  capabilities.
-- Rows marked `Discovery evidence` with `Unpromoted route owner` should not be
-  copied into live code unless they close a named workflow step, seam, or risk
-  question.
-- Use `Next Validation Question` to choose the next prototype.
-- Use [`../product/capability-map.md`](../product/capability-map.md) to find
-  product capabilities, maturity, supporting evidence, and open advancement
-  questions.
-- Use [`implementation-register.md`](implementation-register.md) to find live
-  implementation owners and their detailed module/boundary docs.
+Do not treat this map as an issue tracker. Active execution work belongs in
+issues, PRs, or branch plans. This map records workflow state and validation
+questions.
 
 ## Status Vocabulary
 
