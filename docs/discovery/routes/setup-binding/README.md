@@ -1,8 +1,8 @@
-# Setup Binding Route
+# Setup Binding Discovery Track
 
 ## Status
 
-Discovery route index; implementation candidate only.
+Discovery track index; implementation candidate only.
 
 The previous route-local live owner was withdrawn because it mechanically
 promoted summary-shaped candidate behavior instead of a workflow-shaped

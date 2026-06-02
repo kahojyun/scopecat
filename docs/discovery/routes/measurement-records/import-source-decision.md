@@ -1,13 +1,13 @@
-# Measurement Import And Source Route Decision Consolidation
+# Measurement Import And Source Discovery Decision
 
 ## Status
 
-Discovery route decision.
+Discovery track decision.
 
 Decision status: accepted for current discovery guidance.
 
 This note closes the current measurement import/source-reference discovery
-pass. It records the route decisions earned by the validated adapter-authored
+pass. It records the discovery decisions earned by the validated adapter-authored
 legacy import, adapter output boundary, normalized primary table, legacy import
 acceptance, reference-only import, reference-only source observation,
 append-only storage writer, existing-record append receipt, and measurement
@@ -26,7 +26,7 @@ shared measurement-record domain model.
 
 ## Current Decision
 
-The current route separates **legacy source**, **normalized primary data**,
+The current discovery track separates **legacy source**, **normalized primary data**,
 and **observed file facts**:
 
 ```text

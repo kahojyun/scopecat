@@ -18,19 +18,20 @@ product capability maturity belongs in
 [`../product/capability-map.md`](../product/capability-map.md), and
 implementation ownership belongs in
 [`../engineering/implementation-register.md`](../engineering/implementation-register.md).
-Discovery route and slice documents remain evidence and discovery status, not
-the default owner for engineering-prototype expansion.
+Discovery track and slice documents remain evidence and discovery status, not
+the default owner for engineering-prototype expansion. The `routes/` directory
+is a legacy path for discovery tracks, not an active product route map.
 
 ## Read First
 
 | Document | Use For |
 | --- | --- |
-| [`doc-types.md`](doc-types.md) | Understand which discovery document type owns navigation, policies, route decisions, slice evidence, or synthesis. |
+| [`doc-types.md`](doc-types.md) | Understand which discovery document type owns navigation, policies, track decisions, slice evidence, or synthesis. |
 | [`../product/adoption-model.md`](../product/adoption-model.md) | Current product adoption paths and brownfield migration boundaries. |
 | [`../product/capability-map.md`](../product/capability-map.md) | Current product capabilities, maturity, evidence, and open advancement questions. |
 | [`../engineering/delivery-maturity-model.md`](../engineering/delivery-maturity-model.md) | Classify workflow and capability maturity before promoting code; treat candidates, spikes, prototypes, and scenarios as validation methods. |
 | [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md) | Start from user workflow threads, validated steps, and missing seams before selecting the next prototype or vertical slice. |
-| [`routes/README.md`](routes/README.md) | Navigate discovery route owners, route decisions, and historical adoption-route evidence by durable user workflow. |
+| [`routes/README.md`](routes/README.md) | Navigate discovery tracks, discovery decisions, and historical adoption-route evidence by durable user workflow. |
 | [`../engineering/implementation-register.md`](../engineering/implementation-register.md) | Current live implementation owners. |
 | [`policies/README.md`](policies/README.md) | Navigate repeated boundary vocabulary, artifact classification, and product strategy documents. |
 | [`problem-briefs/README.md`](problem-briefs/README.md) | Start from evidence-backed problem framing before choosing a validation question. |
@@ -47,11 +48,11 @@ coordination maps.
 
 ## Validation Slices
 
-Validation slices are grouped by discovery route. A route can contain several
+Validation slices are grouped by discovery track. A track can contain several
 slices at different maturity levels; a slice should stay narrow even when it
 tests part of a broader workflow or adoption path.
 
-Keep this README focused on navigation and use route indexes or route
+Keep this README focused on navigation and use discovery-track indexes or
 consolidation docs for discovery-specific sequencing. The old flat slice
 inventory remains in [`archive/slice-inventory.md`](archive/slice-inventory.md)
 for historical reference.
@@ -76,11 +77,11 @@ for what their fixture earned or deferred. They should not be treated as the
 owner of active sequencing. Current workflow sequencing belongs in
 [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md).
 
-## Route Pointers
+## Discovery Track Pointers
 
-Use [`routes/README.md`](routes/README.md) as the single discovery route
-inventory. This README should not repeat route owner tables; it only points to
-the route inventory and to engineering owners for work that has moved into live
+Use [`routes/README.md`](routes/README.md) as the single discovery-track
+inventory. This README should not repeat track tables; it only points to the
+track inventory and to engineering owners for work that has moved into live
 prototype implementation.
 
 ## Promotion Discipline

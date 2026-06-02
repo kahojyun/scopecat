@@ -1,13 +1,13 @@
-# Calibration Continuation Route Decision Consolidation
+# Calibration Continuation Discovery Decision
 
 ## Status
 
-Discovery route decision.
+Discovery track decision.
 
 Decision status: accepted for current discovery guidance.
 
 This note closes the current calibration continuation discovery pass as a
-coherent route backbone. It records what the validated slices now support and
+coherent track backbone. It records what the validated slices now support and
 where future work should wait for real workflow pressure. It does not accept a
 final workflow schema, relation graph, GUI, runner, scheduler, fitting
 framework, hardware-control contract, storage architecture, or shared
@@ -15,7 +15,7 @@ calibration/measurement/parameter-state domain model.
 
 ## Discovery Closeout
 
-The validated calibration continuation route is a **reviewable local workflow**
+The validated calibration continuation track is a **reviewable local workflow**
 that can connect calibration evidence to later measurement context without
 turning Scopecat into a calibration executor:
 

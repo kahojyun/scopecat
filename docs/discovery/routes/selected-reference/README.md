@@ -1,20 +1,20 @@
-# Selected Reference Route
+# Selected Reference Discovery Track
 
 ## Status
 
-Discovery route index; implementation candidate only.
+Discovery track index; implementation candidate only.
 
-This route groups selected-reference comparison evidence and current
+This track groups selected-reference comparison evidence and current
 implementation posture. The previous selected-reference context and
 recorded-code comparison live module was withdrawn because it mechanically
 promoted candidate summaries instead of owning a workflow-shaped comparison
 step.
 
-The route still does not accept raw-data comparison, fit-quality comparison,
+This track still does not accept raw-data comparison, fit-quality comparison,
 setup truth, restore behavior, execution, cause attribution, GUI behavior, or a
 shared context schema.
 
-## Route Posture
+## Discovery Status
 
 Selected-reference comparison is currently validated as a side-effect-free
 local review projection:

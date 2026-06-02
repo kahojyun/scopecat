@@ -1,17 +1,17 @@
-# Experiment Code Route Consolidation
+# Experiment Code Discovery Track
 
 ## Status
 
-Discovery route synthesis.
+Discovery track synthesis.
 
 This note harvests experiment-code validation work into one discovery
-route-level view. It is not a live implementation owner and does not accept
+track-level view. It is not a live implementation owner and does not accept
 final managed workspace storage, a Git
 replacement, branch/merge/sync semantics, code loading, import, execution,
 workflow/DAG behavior, generated-artifact regeneration, environment
 restoration, hardware control, shared run-context schema, or GUI contract.
 
-## Route Shape
+## Discovery Status
 
 The validated chain of adjacent experiment-code slice responsibilities is
 **record, promote, materialize, observe, prepare**:
@@ -126,7 +126,7 @@ duplicate the same behavior and boundary rules:
 
 ## Existing Discovery Composition
 
-The discovery route already has composition pressure through
+The discovery track already has composition pressure through
 `prepared_run_context`. That slice validates selected managed code version,
 editable workspace observation, parameter state, setup binding, station
 registry, measurement intent, optional unavailable declared environment
@@ -217,5 +217,5 @@ only around a named product question:
 
 Do not add another discovery experiment-code slice merely to restate recording,
 managed-version identity, materialization planning, editable-folder
-observation, or prepared-run context. Those are discovery route conclusions
+observation, or prepared-run context. Those are discovery track conclusions
 unless a new user workflow challenges them.

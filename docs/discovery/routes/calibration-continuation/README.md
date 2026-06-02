@@ -1,22 +1,22 @@
-# Calibration Continuation Route
+# Calibration Continuation Discovery Track
 
 ## Status
 
-Discovery route index; implementation candidate only for review surfaces.
+Discovery track index; implementation candidate only for review surfaces.
 
-This route groups the validated calibration continuation slices and names the
+This track groups the validated calibration continuation slices and names the
 current calibration-to-measurement backbone. The previous promoted
 review-surface and review-action recording module was withdrawn because it
 mechanically promoted candidate summaries instead of closing a route-native
 workflow step.
-The route still does not accept a final workflow schema, relation graph, GUI,
+This track still does not accept a final workflow schema, relation graph, GUI,
 runner, scheduler, fitting framework, hardware-control contract, or shared
 measurement/parameter-state model.
 
 Current route closeout:
 [`decision.md`](decision.md).
 
-## Route Posture
+## Discovery Status
 
 Calibration continuation is currently validated as a reviewable local workflow:
 
