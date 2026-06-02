@@ -4,14 +4,19 @@
 
 Route index and navigation aid, not an ADR.
 
-This document keeps Measurement Records discovery links and route ownership in
-one place so [`README.md`](../../README.md) can stay a short entrypoint. It does not
-replace validation result documents, route decision consolidations, or
-cross-slice synthesis.
+This document keeps Measurement Records discovery evidence, route decisions,
+deferred questions, and reopen triggers in one place so
+[`README.md`](../../README.md) can stay a short entrypoint. It does not replace
+validation result documents, route decision consolidations, cross-slice
+synthesis, or live engineering owners.
 
 ## Read First
 
-Use these documents before adding new Measurement Records behavior:
+For live implementation work, start from the engineering owner pointers below,
+not this discovery route index.
+
+Use these documents when interpreting prior Measurement Records discovery
+evidence or deciding whether a discovery route should reopen:
 
 | Document | Use For |
 | --- | --- |
@@ -34,43 +39,39 @@ useful historical context:
 
 ## Route Posture
 
-Measurement Records currently owns evidence around recorded experiment data:
+This route index records discovery posture around recorded experiment data:
 selection, export, import, handoff package use, storage writing, source
-observation, and preview/read surfaces. It does not own experiment-code
-recording, environment sync, runtime readiness, execution, hardware control,
-or final shared domain schemas.
+observation, and preview/read surfaces. It is evidence navigation, not the
+owner of live Measurement Records implementation.
 
-Import/source work is currently closed around these accepted-for-now
-separations:
+Prior import/source discovery closed around these accepted-for-now
+separations, unless a named engineering workflow reopens them:
 
 - legacy source references can be preserved for provenance and later
   file-level observation;
 - adapter-normalized primary data is the route's current path to preview,
   copy, storage, package, SDK/table access, and plotting;
-- normalized primary table reading is now a route-local engineering prototype
-  contract for already-provided bytes and created-record read-view validation,
-  but it does not observe files, infer schemas, build plot series, or define
-  dataframe behavior;
+- normalized primary table reading became a route-local engineering prototype
+  contract for already-provided bytes and created-record read-view validation;
+  current API ownership lives in
+  [`src/scopecat/measurement_records/README.md`](../../../../src/scopecat/measurement_records/README.md);
 - existing-record append receipt records append evidence under an existing
   record, but it does not replace manifests, merge primary data, refresh read
   models, define lock identity, or accept crash recovery.
 
-Legacy brownfield adoption is currently closed around a post-run-first route:
+Prior legacy brownfield discovery closed around a post-run-first route:
 external legacy execution can remain unchanged while Scopecat records declared
 sidecar facts, reviews flexible locators, optionally observes an explicit
 file-backed locator, and carries reviewed sidecar facts forward as
-review/debug evidence. The first live storage vertical now records declared
-legacy run facts into Measurement Records storage and lists those records in a
-read-only storage inventory. A follow-on live attach operation can add
-reviewed converted normalized primary data to the same legacy record without
-creating a second imported record. It still does not observe legacy files,
-execute legacy code, parse legacy formats, repair references, or own runners.
-During-run event capture remains future-compatible but not earned as runner
-ownership. See
+review/debug evidence. Live legacy storage behavior is now owned by engineering
+prototype-boundary and module docs. Discovery still does not prove legacy file
+observation, legacy code execution, legacy format parsing, reference repair, or
+runner ownership. During-run event capture remains future-compatible but not
+earned as runner ownership. See
 [`legacy-brownfield-adoption-decision.md`](legacy-brownfield-adoption-decision.md).
 
-Handoff package work has moved from discovery route ownership into the accepted
-handoff prototype-boundary and module docs. Use the retired discovery handoff docs
+Handoff package work moved from discovery route ownership into accepted
+handoff prototype-boundary and module docs. Use retired discovery handoff docs
 only for historical route synthesis. Shared lab references and offline
 execution migration still require separate boundary work.
 
@@ -89,15 +90,16 @@ not the retired discovery handoff route.
 Use this route index only to find discovery evidence, route decisions, deferred
 questions, and reopen triggers.
 
-Do not add another import/source slice merely to restate that external source
-references are not previewable primary data, that file-level observation is not
-data-level observation, or that adapters own legacy parsing.
+Do not add another discovery import/source slice merely to restate that
+external source references are not previewable primary data, that file-level
+observation is not data-level observation, or that adapters own legacy parsing.
 
-Do not add another brownfield sidecar slice merely to restate post-run-first
-adoption, flexible legacy locators, optional context links, supporting evidence
-posture, file-level observation limits, review-evidence receipt readback, or
-no-runner/no-import/no-write-back boundaries. New legacy work should now prove
-a concrete storage, inventory, import, review, or continuation workflow.
+Do not add another discovery brownfield sidecar slice merely to restate
+post-run-first adoption, flexible legacy locators, optional context links,
+supporting evidence posture, file-level observation limits, review-evidence
+receipt readback, or no-runner/no-import/no-write-back boundaries. New legacy
+work should now attach to a named engineering workflow question before adding
+more discovery evidence.
 
 ## Route Documents
 
