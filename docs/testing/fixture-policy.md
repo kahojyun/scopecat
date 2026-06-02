@@ -59,6 +59,11 @@ If a prototype test still uses prior discovery evidence, leave that shared
 fixture in the discovery/candidate location until the candidate tests are
 retired or migrated together.
 
+`expected-receipt.json` and `expected-review.json` normally assert local
+receipt or review-summary behavior; they remain repository-safe expected
+outputs, not portable/export/package artifacts, unless the route explicitly
+promotes that output boundary.
+
 ## Integration Fixtures
 
 Integration fixtures support cross-route or user-visible workflows. They should
