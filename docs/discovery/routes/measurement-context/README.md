@@ -1,8 +1,8 @@
-# Measurement Context Route
+# Measurement Context Discovery Track
 
 ## Status
 
-Discovery route index; implementation candidates only.
+Discovery track index; implementation candidates only.
 
 The previous live owner for context-link construction, supporting evidence
 references, and resolved context-link comparison was withdrawn because it
@@ -59,7 +59,7 @@ The broader measurement-context support backlog remains candidate-only:
 
 ## Reopen Triggers
 
-Update this route index only when new discovery evidence changes any of these
+Update this track index only when new discovery evidence changes any of these
 boundaries. Live engineering promotion should update the engineering workflow
 map, product capability map, implementation register, prototype-boundary note,
 and module README instead:

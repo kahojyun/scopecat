@@ -1,11 +1,11 @@
-# Environment Operation Route Consolidation
+# Environment Operation Discovery Track
 
 ## Status
 
-Discovery route synthesis.
+Discovery track synthesis.
 
 This note harvests the current environment-operation validation work into one
-route-level view. It does not accept a final environment schema, shared
+discovery-track view. It does not accept a final environment schema, shared
 environment-manager interface, general process executor, runtime readiness,
 managed-runner contract, dependency resolver, package installer, workflow/DAG
 model, portable/export package projection, or GUI contract.
@@ -24,7 +24,7 @@ The plan and readiness note are frozen milestone snapshots. Current accepted
 implementation-boundary guidance lives in
 [`environment-operation.md`](../../../engineering/prototype-boundaries/environment-operation.md).
 
-## Route Shape
+## Discovery Status
 
 The validated environment-operation posture is **approve intent, record
 result, review locally**:
@@ -76,10 +76,10 @@ old validation result, the architecture note, or the module README.
 | Discovery slice group | Engineering coverage | Current owner |
 | --- | --- | --- |
 | UV sync intent | Promoted as `UvSyncIntent.from_summary(...)` and the bounded argv/source-continuity contract for approved local execution. | [`src/scopecat/environment_operation/README.md`](../../../../src/scopecat/environment_operation/README.md), [`environment-operation.md`](../../../engineering/prototype-boundaries/environment-operation.md) |
-| UV sync result | Partially promoted. The live path records Scopecat-run typed execution results and projects them to review summaries; the old declared-external-result fixture remains historical evidence, not the main runtime boundary. | Module README and promotion decision; validation result stays historical. |
-| Environment operation review bundle | Partially promoted. Route-local operation review now aligns typed `UvSyncIntent`/`UvSyncResult` objects; the old bundle over prior summary dictionaries remains evidence for review composition and edge-case wording. | Module README and promotion decision; validation result stays historical. |
+| UV sync result | Partially promoted. The live path records Scopecat-run typed execution results and projects them to review summaries; the old declared-external-result fixture remains historical evidence, not the main runtime boundary. | Module README and prototype-boundary note; validation result stays historical. |
+| Environment operation review bundle | Partially promoted. Route-local operation review now aligns typed `UvSyncIntent`/`UvSyncResult` objects; the old bundle over prior summary dictionaries remains evidence for review composition and edge-case wording. | Module README and prototype-boundary note; validation result stays historical. |
 | Modern manifest preflight | Historical only for the current engineering prototype. The live environment-operation module does not read `pyproject.toml`, parse manifests, parse lockfiles, or require manifest preflight before execution. | Historical validation result; future manifest/readiness decision if reopened. |
-| Route-local execution, runtime probe, and workflow composition | New engineering coverage beyond the original discovery candidates. These are current implementation boundaries, not backfilled discovery slice claims. | Module README and promotion decision. |
+| Route-local execution, runtime probe, and workflow composition | New engineering coverage beyond the original discovery candidates. These are current implementation boundaries, not backfilled discovery slice claims. | Module README and prototype-boundary note. |
 
 ## Boundary Map
 

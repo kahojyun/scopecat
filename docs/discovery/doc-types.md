@@ -15,8 +15,8 @@ Use the narrowest document type that owns the statement being made.
 | Entry point | [`README.md`](README.md) | Short navigation, current document organization, and links to route/slice owners. |
 | Problem brief | [`problem-briefs/`](problem-briefs/) | Evidence-backed user problem framing before choosing a validation question. |
 | Policy or boundary | [`policies/`](policies/) | Cross-route vocabulary, artifact boundaries, artifact classification, or product-boundary vocabulary that multiple slices should reference. |
-| Route index | [`routes/`](routes/) | Discovery route navigation, discovery status, and route-specific validation pointers. |
-| Route decision | [`routes/`](routes/) | Accepted-for-now route decisions, deferred decisions, reopen triggers, and stop rules. |
+| Discovery track index | [`routes/`](routes/) | Discovery-track navigation, discovery status, and track-specific validation pointers. The directory name is a legacy path. |
+| Discovery track decision | [`routes/`](routes/) | Accepted-for-now discovery decisions, deferred decisions, reopen triggers, and stop rules. |
 | Slice plan | [`slices/`](slices/) | Pre-implementation validation intent for one narrow slice. |
 | Slice validation result | [`slices/`](slices/) | What one fixture or implementation candidate earned and explicitly did not earn. |
 | Slice evidence entry | [`slices/README.md`](slices/README.md) | How to use validation results as evidence without treating the old inventory as a roadmap. |
@@ -24,16 +24,16 @@ Use the narrowest document type that owns the statement being made.
 
 ## Ownership Rules
 
-- Prefer route decisions for discovery sequencing and stop rules. Once a route
-  has live engineering ownership, prefer
+- Prefer discovery-track decisions for discovery sequencing and stop rules.
+  Once a track has live engineering ownership, prefer
   [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
   for workflow sequencing and
   [`../product/capability-map.md`](../product/capability-map.md)
   for capability maturity. Use
   [`../engineering/implementation-register.md`](../engineering/implementation-register.md)
   for implementation ownership.
-- A route `README.md` may temporarily own consolidation and recommended next
-  work when a route has not yet earned a separate decision document; split it
+- A track `README.md` may temporarily own consolidation and recommended next
+  work when a track has not yet earned a separate decision document; split it
   once decisions, reopen triggers, or stop rules need a stable owner.
 - Prefer slice validation results for evidence about a specific fixture or
   implementation candidate.
@@ -42,5 +42,5 @@ Use the narrowest document type that owns the statement being made.
   architecture.
 - Do not promote slice-local vocabulary into shared product contracts merely
   because two documents use similar words.
-- Do not rewrite old validation results just because later route documents
-  supersede their sequencing guidance; link to the newer route owner instead.
+- Do not rewrite old validation results just because later track documents
+  supersede their sequencing guidance; link to the newer owner instead.

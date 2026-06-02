@@ -1,30 +1,30 @@
-# Measurement Records Route Index
+# Measurement Records Discovery Track
 
 ## Status
 
-Discovery route index.
+Discovery track index.
 
-This document keeps Measurement Records discovery evidence, route decisions,
+This document keeps Measurement Records discovery evidence, track decisions,
 deferred questions, and reopen triggers in one place so
 [`README.md`](../../README.md) can stay a short entrypoint. It does not replace
-validation result documents, route decision consolidations, cross-slice
+validation result documents, discovery decision documents, cross-slice
 synthesis, or live engineering owners.
 
-Linked decision documents own accepted choices. This route index only points to
+Linked decision documents own accepted choices. This track index only points to
 them and preserves discovery context.
 
 ## Read First
 
 For live implementation work, start from the engineering owner pointers below,
-not this discovery route index.
+not this discovery track index.
 
 Use these documents when interpreting prior Measurement Records discovery
-evidence or deciding whether a discovery route should reopen:
+evidence or deciding whether a discovery track should reopen:
 
 | Document | Use For |
 | --- | --- |
 | [`policies/measurement-data-reference-boundary.md`](../../policies/measurement-data-reference-boundary.md) | Distinguish normalized primary data from external source references, attachments/artifacts, and previewable data items. |
-| [`routes/measurement-records/import-source-decision.md`](import-source-decision.md) | Current import/source route decisions, deferred decisions, reopen triggers, and next-work guidance. |
+| [`routes/measurement-records/import-source-decision.md`](import-source-decision.md) | Current import/source discovery decisions, deferred decisions, reopen triggers, and next-work guidance. |
 | [`routes/measurement-records/legacy-brownfield-adoption-decision.md`](legacy-brownfield-adoption-decision.md) | Current post-run-first legacy adoption decisions, deferred decisions, reopen triggers, and stop rule. |
 | [`policies/package-purpose-boundary.md`](../../policies/package-purpose-boundary.md) | Boundary between analysis/review packages, shared lab references, and future offline execution migration. |
 | [`policies/artifact-preview-boundary.md`](../../policies/artifact-preview-boundary.md) | Boundary between arbitrary artifacts and declared previewable data items. |
@@ -40,9 +40,9 @@ useful historical context:
 | [`archive/measurement-records-handoff-route/decision.md`](../../archive/measurement-records-handoff-route/decision.md) | Retired handoff route decision closeout; preserved for historical deferrals, reopen triggers, and stop-rule context. |
 | [`archive/measurement-records-handoff-route/contract-checklist.md`](../../archive/measurement-records-handoff-route/contract-checklist.md) | Historical route-local field categories and review checks for handoff package discovery slices. |
 
-## Route Status
+## Discovery Status
 
-This route index records discovery status around recorded experiment data:
+This track index records discovery status around recorded experiment data:
 selection, export, import, handoff package use, storage writing, source
 observation, and preview/read surfaces. It is evidence navigation, not the
 owner of live Measurement Records implementation.
@@ -73,14 +73,14 @@ runner ownership. During-run event capture remains future-compatible but not
 earned as runner ownership. See
 [`legacy-brownfield-adoption-decision.md`](legacy-brownfield-adoption-decision.md).
 
-Handoff package work moved from discovery route ownership into accepted
+Handoff package work moved from discovery track ownership into accepted
 handoff prototype-boundary and module docs. Use retired discovery handoff docs
 only for historical route synthesis. Shared lab references and offline
 execution migration still require separate boundary work.
 
 ## Engineering Owner Pointers
 
-This discovery route no longer owns active implementation sequencing. For live
+This discovery track no longer owns active implementation sequencing. For live
 Measurement Records work, start from
 [`../../../engineering/workflow-validation-map.md`](../../../engineering/workflow-validation-map.md),
 [`../../../product/capability-map.md`](../../../product/capability-map.md),
@@ -91,7 +91,7 @@ For live handoff work, start from the engineering handoff boundary notes and
 [`src/scopecat/handoff/README.md`](../../../../src/scopecat/handoff/README.md),
 not the retired discovery handoff route.
 
-Use this route index only to find discovery evidence, route decisions, deferred
+Use this track index only to find discovery evidence, decisions, deferred
 questions, and reopen triggers.
 
 Do not add another discovery import/source slice merely to restate that

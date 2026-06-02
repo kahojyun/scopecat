@@ -1,12 +1,12 @@
-# Parameter-State Route
+# Parameter-State Discovery Track
 
 ## Status
 
-Route index with accepted engineering-prototype handoff.
+Discovery track index with accepted engineering-prototype handoff.
 
 The live implementation boundary is owned by
 [`src/scopecat/parameter_state/README.md`](../../../../src/scopecat/parameter_state/README.md)
-and the promotion decision in
+and the active prototype-boundary note in
 [`docs/engineering/prototype-boundaries/parameter-state.md`](../../../engineering/prototype-boundaries/parameter-state.md).
 Discovery validation results remain supporting evidence, not live API
 contracts.
