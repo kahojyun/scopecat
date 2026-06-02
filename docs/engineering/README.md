@@ -19,6 +19,7 @@ Use these documents before adding or promoting live code:
 | [`workflow-validation-map.md`](workflow-validation-map.md) | Start from user workflow threads, validated steps, missing seams, and next validation questions. |
 | [`vertical-slice-register.md`](vertical-slice-register.md) | Find accepted implementation slices, owners, entrypoints, artifact boundaries, tests, and non-goals. |
 | [`prototype-boundaries/README.md`](prototype-boundaries/README.md) | Find current route-local engineering prototype boundaries and next decision gates. |
+| [`pr-documentation-drift-checklist.md`](pr-documentation-drift-checklist.md) | Lightweight PR checklist for avoiding documentation drift without freezing future decisions. |
 | [`archive/README.md`](archive/README.md) | Find historical prototype plans, readiness checkpoints, and retired engineering decisions. |
 
 ## Boundary
