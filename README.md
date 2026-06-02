@@ -30,5 +30,6 @@ fixtures, and implementation candidates rather than a final production package.
 ```sh
 uv sync
 uv run python -m unittest discover -s tests
-uv run prek run --all-files
+uv run ruff check .
+uv run ruff format --check .
 ```

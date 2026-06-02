@@ -376,5 +376,6 @@ should be preserved with:
 
 ```text
 uv run python -m unittest discover -s tests
-uv run prek run --all-files
+uv run ruff check .
+uv run ruff format --check .
 ```

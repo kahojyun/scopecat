@@ -47,4 +47,6 @@
 - Use stdlib `unittest` for Python tests unless a narrower instruction says
   otherwise. Run tests with `uv run python -m unittest discover -s tests`; do
   not assume `pytest` is available.
-- Run repository hooks with `uv run prek run --all-files`.
+- Run repository lint and format checks with `uv run ruff check .` and
+  `uv run ruff format --check .`. Apply formatting with
+  `uv run ruff format .` when needed.

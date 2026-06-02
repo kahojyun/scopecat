@@ -11,6 +11,7 @@ repos:
     hooks:
       - id: tombi-format
         args: ["--offline"]
+        exclude: ^uv\.lock$
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: 0c7b6c989466a93942def1f84baf36ddfcd60c83  # frozen: v0.15.14
     hooks:
