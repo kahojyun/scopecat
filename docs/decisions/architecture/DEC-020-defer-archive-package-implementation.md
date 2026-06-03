@@ -43,13 +43,19 @@ DEC-010. Export, writer, open, receiving, import-plan, durable-import, CLI, and
 review surfaces must continue to state archive creation or extraction as
 `not_performed` or an equivalent explicit non-claim.
 
+If a later workflow accepts archive transport, archive bytes should initially
+be treated as a transport container only. The package artifact of record should
+remain the materialized DEC-010 directory manifest package after a future safe
+staging and extraction review. A later DEC-019 signature/trust decision may
+choose archive bytes as signed coverage, but that would be a separate
+artifact-authority decision.
+
 Any future archive implementation must first define:
 
 - archive format and extension;
-- whether archive bytes or the extracted directory are the portable/export
-  artifact of record;
-- inner member topology and whether the DEC-010 directory manifest remains the
-  canonical inner format;
+- archive bytes as transport-container authority, unless a later decision
+  changes package artifact authority;
+- DEC-010 directory manifest as the canonical inner package format;
 - safe extraction rules for absolute paths, parent traversal, duplicate names,
   hidden metadata, symlinks, permissions, and platform-specific path behavior;
 - staging directory, cleanup, overwrite, collision, and retry policy;
@@ -96,6 +102,14 @@ hardening unless a named workflow explicitly needs archive transport.
 The tradeoff is that directory packages are less convenient for transfer than a
 single file. Users who need single-file transfer still need external packaging
 outside Scopecat until an archive contract is accepted.
+
+The current implementation exposes
+`current_handoff_archive_materialization_contract()` and
+`review_handoff_archive_materialization_contract()` as local contract-review
+surfaces. They do not create archives, open archive inputs, extract bytes, or
+authorize durable import. They only classify future archive materialization
+contract candidates against the required staging, path-safety,
+resource-limit, review-state, and artifact-authority posture above.
 
 ## Alternatives Considered
 
@@ -145,3 +159,4 @@ Revisit this decision when:
 - [`../../engineering/prototype-boundaries/handoff-durable-import-storage.md`](../../engineering/prototype-boundaries/handoff-durable-import-storage.md)
 - [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
 - [`../../../src/scopecat/handoff/README.md`](../../../src/scopecat/handoff/README.md)
+- [`../../../src/scopecat/handoff/archive_materialization.py`](../../../src/scopecat/handoff/archive_materialization.py)
