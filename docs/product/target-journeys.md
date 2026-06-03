@@ -114,7 +114,9 @@ authenticity, sender trust, and scientific validity are not claimed. Batch
 receiving, linked-context payload import, and signature/trust implementation
 beyond DEC-011 remain separate validation questions. DEC-012 allows generic
 handoff writer inputs to package explicitly declared linked-context payloads
-for review, but selected stored-record export remains reference-only.
+for review, but selected stored-record export remains reference-only. DEC-013
+allows multi-measurement import planning, while durable import remains
+one-record-at-a-time.
 
 Source evidence:
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import subprocess
@@ -117,6 +118,31 @@ def _copy_package(temp_root: Path) -> Path:
 
 def _writer_source() -> dict:
     return json.loads((WRITER_FIXTURE / "package-writer-input.json").read_text(encoding="utf-8"))
+
+
+def _multi_measurement_writer_source() -> tuple[dict, bytes]:
+    source = _writer_source()
+    first_record = source["selected_measurements"][0]
+    second_record = json.loads(json.dumps(first_record))
+    second_content = b"drive_frequency,signal\n4.90,0.12\n4.95,0.44\n"
+    second_id = "legacy-rabi-002"
+    second_record["measurement_record_id"] = second_id
+    second_record["legacy_data_id"] = 1002
+    second_record["label"] = "Second Rabi calibration follow-up"
+    second_record["primary_data"]["source_path"] = f"records/{second_id}/primary.csv"
+    second_record["primary_data"]["expected_digest"] = (
+        f"sha256:{hashlib.sha256(second_content).hexdigest()}"
+    )
+    second_record["primary_data"]["expected_size_bytes"] = len(second_content)
+    second_record["primary_data"]["package_path"] = f"measurements/{second_id}/primary.csv"
+    second_record["declared_preview_metadata"]["plot_candidates"][0]["source"] = (
+        f"measurements/{second_id}/primary.csv"
+    )
+    second_record["default_bundle"][0]["item_id"] = f"{second_id}-primary"
+    second_record["default_bundle"][0]["package_path"] = f"measurements/{second_id}/primary.csv"
+    source["selected_measurements"].append(second_record)
+    source["linked_context"][0]["linked_measurement_record_ids"].append(second_id)
+    return source, second_content
 
 
 def _receiving_request() -> HandoffReceivingReviewRequest:
@@ -316,6 +342,36 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
             },
         )
         self.assertIn("linked_context_payload_import", summary["workflow"]["does_not_claim"])
+
+    def test_batch_import_plan_is_not_durable_batch_mutation_authority(self) -> None:
+        source, second_content = _multi_measurement_writer_source()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            source_root = temp_root / "source"
+            first_source = source_root / "records" / "legacy-rabi-001" / "primary.csv"
+            first_source.parent.mkdir(parents=True)
+            first_source.write_bytes(
+                (
+                    WRITER_FIXTURE / "source" / "records" / "legacy-rabi-001" / "primary.csv"
+                ).read_bytes()
+            )
+            second_source = source_root / "records" / "legacy-rabi-002" / "primary.csv"
+            second_source.parent.mkdir(parents=True)
+            second_source.write_bytes(second_content)
+            package_root = temp_root / "packages"
+            package_root.mkdir()
+            write_package(source, source_root=source_root, package_root=package_root)
+            package_dir = package_root / "handoff-package-legacy-rabi-001"
+            import_plan = _import_plan_run(package_dir)
+
+            with self.assertRaisesRegex(ValueError, "requires exactly one planned measurement"):
+                run_handoff_durable_import_from_plan(
+                    _request(),
+                    import_plan=import_plan,
+                    storage_root=temp_root / "storage",
+                )
+
+        self.assertIn("batch_durable_import", import_plan.to_dict()["workflow"]["does_not_claim"])
 
     def test_summarizes_successful_durable_import_receipt_for_continuation(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

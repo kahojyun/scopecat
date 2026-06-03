@@ -24,6 +24,8 @@ Read it with:
   for the current package trust/authenticity posture;
 - [`../../decisions/architecture/DEC-012-linked-context-payload-packaging.md`](../../decisions/architecture/DEC-012-linked-context-payload-packaging.md)
   for the current route-local linked-context payload boundary;
+- [`../../decisions/architecture/DEC-013-batch-receiving-import-planning.md`](../../decisions/architecture/DEC-013-batch-receiving-import-planning.md)
+  for the current batch receiving/import planning boundary;
 - [`../workflow-validation-map.md`](../workflow-validation-map.md) for the
   current cross-capability handoff workflow gap.
 
@@ -113,7 +115,8 @@ The receiving path:
 - observes manifest-declared package integrity read-only;
 - runs an approved receiving gate before import planning;
 - checks reviewed package id, preview classification, and integrity facts;
-- builds a non-mutating import plan over selected package measurements;
+- builds a non-mutating import plan over selected package measurements,
+  including multiple measurements when requested;
 - lists package-local primary data and linked-context reference handling for a
   later acceptance or durable-import decision;
 - records blocked plans without destination, storage mutation, conflict policy,
@@ -151,6 +154,10 @@ linked-context payload files may be packaged under `context/`, opened as
 still do not import linked-context payloads, and selected stored Measurement
 Record export remains reference-only.
 
+[`DEC-013`](../../decisions/architecture/DEC-013-batch-receiving-import-planning.md)
+allows non-mutating import plans to list multiple package measurements. Durable
+handoff import remains one planned measurement per storage mutation.
+
 ## Production Vertical-Slice Candidate
 
 JNY-001 single-measurement handoff is a production vertical-slice candidate when
@@ -186,15 +193,18 @@ Acceptance for that candidate is intentionally narrow:
 - selected stored Measurement Record export keeps linked context reference-only.
 
 This candidate is not production readiness for the whole handoff capability.
-Batch export/import, selected-record linked-context payload export, persistent
-GUI/review state, public SDK contracts, and final storage schemas remain
-separate decisions. Archive format is explicitly deferred by
+Batch durable import, selected-record batch export, selected-record
+linked-context payload export, persistent GUI/review state, public SDK
+contracts, and final storage schemas remain separate decisions. Archive format
+is explicitly deferred by
 [`DEC-010`](../../decisions/architecture/DEC-010-package-format-directory-manifest.md).
 Signature/authenticity implementation and trust policy beyond the unsigned
 local-review posture are explicitly deferred by
 [`DEC-011`](../../decisions/architecture/DEC-011-package-trust-authenticity-posture.md).
 Generic writer linked-context payload packaging without import is governed by
 [`DEC-012`](../../decisions/architecture/DEC-012-linked-context-payload-packaging.md).
+Batch import planning without batch durable mutation is governed by
+[`DEC-013`](../../decisions/architecture/DEC-013-batch-receiving-import-planning.md).
 
 ## Historical Context
 

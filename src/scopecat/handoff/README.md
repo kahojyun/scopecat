@@ -70,7 +70,9 @@ record-local read models, creation manifests, or writer receipts.
 `run_import_plan(...)` is a non-mutating plan. It names package members that
 could be considered for later acceptance, but accepts no destination path,
 performs no conflict detection, writes no storage records, and does not decide
-final storage schema or rollback policy.
+final storage schema or rollback policy. It may list one or more package
+measurements; durable handoff import remains one planned measurement per
+storage mutation.
 
 Durable import is a separate boundary. When a reviewed handoff package feeds
 durable storage, this module adapts exactly one ready import-plan measurement

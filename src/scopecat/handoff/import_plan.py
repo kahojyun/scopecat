@@ -182,6 +182,7 @@ class HandoffImportPlanRun:
                     "archive_extraction",
                     "signature_or_authenticity_validation",
                     "conflict_detection",
+                    "batch_durable_import",
                     "final_storage_schema",
                     "rollback_policy",
                 ],
