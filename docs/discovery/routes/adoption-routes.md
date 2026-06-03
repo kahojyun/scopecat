@@ -6,8 +6,8 @@ Discovery adoption evidence.
 
 This document preserves evidence-backed adoption-route framing from discovery.
 It is not the current product adoption owner. Use
-[`../../product/adoption-model.md`](../../product/adoption-model.md) for the
-current adoption model.
+[`../../product/adoption-strategy.md`](../../product/adoption-strategy.md) for the
+current product adoption strategy.
 
 ## Purpose
 
@@ -33,7 +33,8 @@ A route is different from a validation slice:
 | [`../synthesis/measurement-context-backlog.md`](../synthesis/measurement-context-backlog.md) | Shared discovery backlog for context-shaped validation work across routes. |
 | [`../synthesis/shared-model-extraction-deferral.md`](../synthesis/shared-model-extraction-deferral.md) | Why shared domain models are still deferred. |
 | [`../../product/direction.md`](../../product/direction.md) | Current product direction, ownership assumptions, non-goals, and expansion strategy. |
-| [`../../product/adoption-model.md`](../../product/adoption-model.md) | Current product adoption paths and brownfield migration boundaries. |
+| [`../../product/adoption-strategy.md`](../../product/adoption-strategy.md) | Current product adoption paths. |
+| [`../../brownfield/README.md`](../../brownfield/README.md) | Current-state, transition architecture, migration strategy, and migration roadmap for brownfield context. |
 
 ## Route Selection
 

@@ -83,7 +83,7 @@ execution migration still require separate boundary work.
 This discovery track no longer owns active implementation sequencing. For live
 Measurement Records work, start from
 [`../../../engineering/workflow-validation-map.md`](../../../engineering/workflow-validation-map.md),
-[`../../../product/capability-map.md`](../../../product/capability-map.md),
+[`../../../product/target-capabilities.md`](../../../product/target-capabilities.md),
 [`../../../engineering/implementation-register.md`](../../../engineering/implementation-register.md),
 the relevant prototype-boundary note, and the live
 [`src/scopecat/measurement_records/README.md`](../../../../src/scopecat/measurement_records/README.md).

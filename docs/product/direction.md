@@ -85,11 +85,18 @@ management, environment operation, or GUI monitoring.
 
 Use these owner documents for details:
 
-- [`adoption-model.md`](adoption-model.md) for brownfield adoption paths;
-- [`capability-map.md`](capability-map.md) for product capability maturity and
-  advancement questions;
+- [`target-journeys.md`](target-journeys.md) for target product user journeys,
+  primary workflows, and use cases to prove;
+- [`target-capabilities.md`](target-capabilities.md) for product capability
+  maturity and advancement questions;
+- [`adoption-strategy.md`](adoption-strategy.md) for product adoption paths;
+- [`../brownfield/transition-architecture.md`](../brownfield/transition-architecture.md)
+  for brownfield current/transition/target mapping and ownership posture;
+- [`../brownfield/migration-strategy.md`](../brownfield/migration-strategy.md)
+  for modernization patterns and authority-transfer rules;
 - [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
-  for current workflow seams and validation questions;
+  for use cases, scenarios, operations, seams, and
+  validation questions;
 - [`../discovery/policies/managed-experiment-code-posture.md`](../discovery/policies/managed-experiment-code-posture.md)
   for historical discovery strategy around Git-like experiment-code versions.
 

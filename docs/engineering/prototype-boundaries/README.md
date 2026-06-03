@@ -12,7 +12,7 @@ This directory records accepted live prototype boundaries: what can live under
 Start from [`../implementation-register.md`](../implementation-register.md) to
 find the active implementation owner, then open the boundary note listed here
 and the owning module README for API details. Use
-[`../../product/capability-map.md`](../../product/capability-map.md) for
+[`../../product/target-capabilities.md`](../../product/target-capabilities.md) for
 product capability maturity.
 
 ## Prototype Boundaries

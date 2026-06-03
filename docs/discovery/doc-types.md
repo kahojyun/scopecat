@@ -28,7 +28,7 @@ Use the narrowest document type that owns the statement being made.
   Once a track has live engineering ownership, prefer
   [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
   for workflow sequencing and
-  [`../product/capability-map.md`](../product/capability-map.md)
+  [`../product/target-capabilities.md`](../product/target-capabilities.md)
   for capability maturity. Use
   [`../engineering/implementation-register.md`](../engineering/implementation-register.md)
   for implementation ownership.

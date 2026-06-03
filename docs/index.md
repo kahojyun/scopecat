@@ -9,7 +9,11 @@ the recommended top-down reading path.
 
 ```text
 docs/
-  product/   product direction, adoption model, and capability map
+  product/   product direction, target journeys, target capabilities, and
+              adoption strategy
+  brownfield/ current-state assessment, transition architecture, migration
+              strategy, and migration roadmap
+  decisions/  decision register, decision taxonomy, and template
   engineering/ delivery maturity model, workflow validation map,
                implementation register, prototype boundaries, and engineering
                archive
@@ -21,13 +25,24 @@ docs/
 | --- | --- |
 | [`README.md`](README.md) | Documentation purpose and editing rules. |
 | [`AGENTS.md`](AGENTS.md) | AI-session rules for work inside `docs/`. |
+| [`traceability.md`](traceability.md) | Current-state pressure to target journey, capability, validation, and implementation traceability. |
 | [`product/README.md`](product/README.md) | Product documentation navigation. |
 | [`product/direction.md`](product/direction.md) | Current product direction, default ownership boundaries, and non-goals. |
-| [`product/adoption-model.md`](product/adoption-model.md) | Brownfield adoption paths, migration boundaries, and supporting capabilities. |
-| [`product/capability-map.md`](product/capability-map.md) | Product capabilities, maturity, evidence state, and open advancement questions. |
+| [`product/target-journeys.md`](product/target-journeys.md) | Target product user journeys, primary workflows, use cases to prove, and discovery-to-engineering orientation. |
+| [`product/target-capabilities.md`](product/target-capabilities.md) | Target product capabilities, maturity, evidence state, and open advancement questions. |
+| [`product/adoption-strategy.md`](product/adoption-strategy.md) | Product adoption paths and user-value entry points. |
+| [`brownfield/README.md`](brownfield/README.md) | Brownfield documentation navigation. |
+| [`brownfield/current-state-assessment.md`](brownfield/current-state-assessment.md) | As-is lab workflow and artifact patterns. |
+| [`brownfield/transition-architecture.md`](brownfield/transition-architecture.md) | Current/transition/target journey mapping and ownership posture. |
+| [`brownfield/migration-strategy.md`](brownfield/migration-strategy.md) | Brownfield modernization patterns and authority-transfer rules. |
+| [`brownfield/migration-roadmap.md`](brownfield/migration-roadmap.md) | Use-case-driven migration sequence and decision gates. |
+| [`brownfield/risk-register.md`](brownfield/risk-register.md) | Recurring brownfield risks, mitigation owners, and review triggers. |
+| [`decisions/README.md`](decisions/README.md) | Decision-record navigation and governance. |
+| [`decisions/register.md`](decisions/register.md) | Current product, architecture, engineering, discovery, and operational decision index. |
+| [`decisions/template.md`](decisions/template.md) | Template for new decision records. |
 | [`engineering/README.md`](engineering/README.md) | Engineering governance navigation for maturity, workflow, capability, and promotion rules. |
 | [`engineering/delivery-maturity-model.md`](engineering/delivery-maturity-model.md) | Product objects, maturity states, validation methods, promotion rules, and drift control. |
-| [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md) | User workflow threads, validated steps, missing seams, and next validation questions. |
+| [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md) | Use case validation state, evidence scopes, missing seams, and next validation questions. |
 | [`engineering/implementation-register.md`](engineering/implementation-register.md) | Live implementation owners and primary module or boundary detail docs. |
 | [`engineering/terminology.md`](engineering/terminology.md) | Standard engineering terms for workflow, capability, maturity, validation method, decision, evidence, artifact boundary, and ownership. |
 | [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) | Current route-local engineering prototype boundaries promoted from discovery-backed implementation work. |

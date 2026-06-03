@@ -1,0 +1,174 @@
+# Brownfield Migration Roadmap
+
+## Status
+
+Current use-case-driven migration roadmap.
+
+## Purpose
+
+Sequence brownfield migration by validated use cases implemented as thin
+slices. This is a roadmap for product and architecture sequencing, not an
+implementation task list, release plan, or issue tracker.
+
+## Sequencing Principles
+
+- Advance by named use cases, not by shared domain model extraction.
+- Prefer review, package, record, and bridge value before execution or hardware
+  authority.
+- Make every slice name a user-visible use case or workflow segment.
+- Keep legacy-specific parsing and target product concepts separate.
+- Promote shared domain concepts only after repeated slices need the same
+  stable contract.
+
+## Current Migration Sequence
+
+### 1. Close Portable Measurement Handoff
+
+Target journey: JNY-001.
+
+Target use case: UC-CAND-001.
+
+Related risks: BR-RISK-003, BR-RISK-004, BR-RISK-010.
+
+Related decisions: DEC-003, DEC-004.
+
+Next validation focus:
+
+- export one selected stored Measurement Record to a preview-ready
+  single-measurement handoff package.
+
+Already validated:
+
+- legacy-backed measurement record shell and storage visibility;
+- normalized primary-data durable import;
+- local package writing/opening from declared source-root data;
+- receiving-side read-only package review, import plan, and accepted durable
+  import.
+
+Decision gate:
+
+- package export from stored Measurement Records preserves identity,
+  primary-data references, missing context, and portable/export artifact
+  boundaries clearly enough to connect the two validated ends.
+
+### 2. Stabilize Pre-Run Context Review
+
+Target journey: JNY-002.
+
+Target use case: UC-CAND-002.
+
+Related risks: BR-RISK-001, BR-RISK-007, BR-RISK-008, BR-RISK-009.
+
+Related decisions: DEC-006.
+
+Next validation focus:
+
+- decide whether prepared-run context review becomes a live route owner or
+  remains discovery evidence.
+
+Already validated:
+
+- adapter-authored parameter-state intake;
+- parameter-state storage and read view;
+- source-agnostic parameter-state selection;
+- route-local pre-run parameter-state consumption;
+- bounded environment-operation evidence.
+
+Decision gate:
+
+- a user-facing prepared-run use case has explicit input, review,
+  acknowledgement or deferral, and no-run-start semantics.
+
+### 3. Promote One Experiment Code Context Step
+
+Target journey: JNY-005.
+
+Target use case: UC-CAND-003.
+
+Related risks: BR-RISK-005, BR-RISK-009.
+
+Related decisions: DEC-002, DEC-008.
+
+Next validation focus:
+
+- choose one concrete step: record, compare, materialize, observe editable
+  folder, prepare rerun, or GUI review.
+
+Already validated:
+
+- discovery and implementation-candidate evidence for code-context recording;
+- bounded environment-operation evidence for `uv sync` review;
+- candidate materialization and environment-readiness evidence.
+
+Decision gate:
+
+- the selected step has a user goal independent of generic Git replacement or
+  execution ownership.
+
+### 4. Validate Running Measurement Monitoring
+
+Target journey: JNY-004.
+
+Target use case: UC-CAND-004.
+
+Related risks: BR-RISK-001, BR-RISK-007.
+
+Related decisions: DEC-001.
+
+Next validation focus:
+
+- prove explicit lifecycle/progress/partial-data event recording from
+  Python-driven measurements.
+
+Already validated:
+
+- discovery evidence and related Measurement Records inspection pressure.
+
+Decision gate:
+
+- monitoring provides review value without becoming scan control, scheduling,
+  or automatic retune.
+
+### 5. Reassess Calibration Continuation
+
+Target journey: JNY-003.
+
+Target use case: UC-CAND-005.
+
+Related risks: BR-RISK-001, BR-RISK-005, BR-RISK-007.
+
+Related decisions: DEC-002, DEC-005.
+
+Next validation focus:
+
+- decide whether calibration continuation is a repeated product capability or
+  remains scenario evidence.
+
+Already validated:
+
+- reviewable fit, action, and continuation summaries;
+- accepted calibration write handoff pressure into parameter-state review.
+
+Decision gate:
+
+- repeated use cases require stable calibration review state, continuation
+  action recording, and support expectations beyond one scenario.
+
+## Deferred Cross-Cutting Work
+
+Defer until multiple validated use cases need the same contract:
+
+- shared measurement/context domain model extraction;
+- generalized artifact parser framework;
+- universal setup, sample, topology, or parameter ontology;
+- broad runtime readiness framework;
+- hardware apply and live write-back authority;
+- general driver, scan, service, or scheduling ownership.
+
+## Update Rule
+
+Update this roadmap when the next validation focus, sequencing principles, or
+decision gates change.
+
+Do not use this file to list tasks, owners, deadlines, test names, fixtures, or
+implementation modules.
