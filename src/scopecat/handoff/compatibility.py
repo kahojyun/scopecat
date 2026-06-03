@@ -6,6 +6,9 @@ import copy
 from typing import Any
 
 from scopecat.handoff.durable_import import (
+    DOES_NOT_CLAIM as _DURABLE_IMPORT_DOES_NOT_CLAIM,
+)
+from scopecat.handoff.durable_import import (
     HANDOFF_DURABLE_IMPORT_POLICY,
     HANDOFF_DURABLE_IMPORT_SCHEMA,
 )
@@ -50,6 +53,11 @@ def current_handoff_compatibility_contract() -> dict[str, Any]:
             "handoff_durable_import": copy.deepcopy(HANDOFF_DURABLE_IMPORT_POLICY),
         },
         "local_artifact_postures": [
+            "local_write_receipt",
+            "local_workflow_receipt",
+            "review_summary",
+            "local_review_summary",
+            "local_context_reference_summary",
             "local_selected_record_export_receipt",
             "local_selected_record_batch_export_receipt",
             "local_receiving_gate_receipt",
@@ -74,5 +82,6 @@ def current_handoff_compatibility_contract() -> dict[str, Any]:
             "batch_durable_import",
             "linked_context_payload_import",
             "persisted_gui_state",
+            *_DURABLE_IMPORT_DOES_NOT_CLAIM,
         ],
     }

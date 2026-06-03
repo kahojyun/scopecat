@@ -65,5 +65,5 @@ def promote_handoff_contract_error(exc: ValueError, *, operation: str) -> Handof
     """Return a handoff public error while preserving existing ValueError callers."""
 
     if isinstance(exc, HandoffError):
-        return exc
+        return HandoffContractError(str(exc), operation=operation)
     return HandoffContractError(str(exc), operation=operation)

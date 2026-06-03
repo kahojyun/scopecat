@@ -40,11 +40,25 @@ def _summary(package_dir: Path, *, html_dir: Path | None = None) -> dict[str, ob
 
 
 def _receipt_summary(receipt_path: Path) -> dict[str, object]:
-    with receipt_path.open("r", encoding="utf-8") as handle:
-        receipt = json.load(handle)
+    try:
+        with receipt_path.open("r", encoding="utf-8") as handle:
+            receipt = json.load(handle)
+    except json.JSONDecodeError as exc:
+        raise HandoffContractError(
+            "receipt summary input must be valid JSON",
+            operation="receipt_summary_cli",
+        ) from exc
+    if not isinstance(receipt, dict):
+        raise HandoffContractError(
+            "receipt summary input must be a JSON object",
+            operation="receipt_summary_cli",
+        )
     posture = receipt.get("artifact_posture")
     if posture == "local_import_workflow_receipt":
-        return summarize_import_workflow_receipt(receipt).to_dict()
+        try:
+            return summarize_import_workflow_receipt(receipt).to_dict()
+        except ValueError as exc:
+            raise HandoffContractError(str(exc), operation="receipt_summary_cli") from exc
     if posture == "local_handoff_durable_import_receipt":
         return summarize_handoff_durable_import_receipt(receipt).to_dict()
     raise HandoffContractError(

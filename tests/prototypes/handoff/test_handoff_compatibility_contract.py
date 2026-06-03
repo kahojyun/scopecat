@@ -107,9 +107,15 @@ class HandoffCompatibilityContractTest(unittest.TestCase):
             "local_handoff_error_diagnostic",
             contract["local_artifact_postures"],
         )
+        self.assertIn("local_write_receipt", contract["local_artifact_postures"])
+        self.assertIn("local_workflow_receipt", contract["local_artifact_postures"])
+        self.assertIn("review_summary", contract["local_artifact_postures"])
         self.assertTrue(contract["public_error_contract"]["value_error_compatible"])
         self.assertIn("public_sdk", contract["does_not_claim"])
         self.assertIn("final_package_format", contract["does_not_claim"])
+        self.assertIn("durable_schema_publication", contract["does_not_claim"])
+        self.assertIn("existing_record_update", contract["does_not_claim"])
+        self.assertIn("candidate_storage_acceptance_route", contract["does_not_claim"])
 
     def test_contract_returns_copy_safe_policy_snapshots(self) -> None:
         contract = current_handoff_compatibility_contract()

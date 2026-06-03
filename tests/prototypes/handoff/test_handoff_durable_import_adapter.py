@@ -839,6 +839,66 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
             "handoff durable import receipt policy is unsupported",
         )
 
+    def test_module_cli_reports_local_diagnostic_for_invalid_json_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            receipt_path = Path(temp_dir) / "invalid-receipt.json"
+            receipt_path.write_text("{not-json", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "scopecat.handoff",
+                    "--receipt-summary",
+                    str(receipt_path),
+                ],
+                check=False,
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+        diagnostic = json.loads(result.stderr)
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(
+            diagnostic["error"],
+            {
+                "code": "handoff_contract_error",
+                "operation": "receipt_summary_cli",
+                "message": "receipt summary input must be valid JSON",
+            },
+        )
+
+    def test_module_cli_reports_local_diagnostic_for_non_object_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            receipt_path = Path(temp_dir) / "list-receipt.json"
+            receipt_path.write_text("[]", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "scopecat.handoff",
+                    "--receipt-summary",
+                    str(receipt_path),
+                ],
+                check=False,
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+        diagnostic = json.loads(result.stderr)
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(
+            diagnostic["error"]["message"],
+            "receipt summary input must be a JSON object",
+        )
+
     def test_receipt_summary_rejects_inconsistent_imported_state(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
