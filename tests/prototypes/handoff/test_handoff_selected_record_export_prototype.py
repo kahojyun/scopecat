@@ -204,6 +204,16 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
             payload["package_write"]["package"]["classification"],
             "package_written_ready_for_transfer_review",
         )
+        self.assertEqual(
+            payload["export_review"],
+            {
+                "classification": "exported_selected_measurement_record",
+                "package_written": True,
+                "block_reason": None,
+                "next_action": "transfer_package_for_receiving_review",
+                "retry_requires": None,
+            },
+        )
 
     def test_raw_source_entrypoint_uses_explicit_export_policy(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -426,6 +436,16 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
 
         self.assertFalse(run.exported)
         self.assertIsNone(run.package_write)
+        self.assertEqual(
+            run.to_dict()["export_review"],
+            {
+                "classification": "blocked_before_export",
+                "package_written": False,
+                "block_reason": "request_not_approved",
+                "next_action": "approve_selected_record_export_request",
+                "retry_requires": "approved_selected_record_export_request",
+            },
+        )
 
     def test_export_requires_complete_read_model_before_package_write(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -447,6 +467,11 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
 
         self.assertEqual(run.classification, "blocked_before_export")
         self.assertIn("requires complete", run.export_error or "")
+        self.assertEqual(run.to_dict()["export_review"]["block_reason"], "record_not_complete")
+        self.assertEqual(
+            run.to_dict()["export_review"]["next_action"],
+            "review_record_evidence_before_export_retry",
+        )
 
     def test_export_rejects_primary_data_outside_selected_record_dir(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -471,6 +496,55 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
 
         self.assertEqual(run.classification, "blocked_before_export")
         self.assertIn("must stay under record_dir", run.export_error or "")
+        self.assertEqual(
+            run.to_dict()["export_review"]["block_reason"],
+            "record_path_scope_violation",
+        )
+
+    def test_export_review_summarizes_missing_evidence_block(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root, package_root = self._create_imported_record(Path(temp_dir))
+            (storage_root / "records" / "run-3101-rabi" / "writer-receipt.json").unlink()
+
+            run = export_selected_measurement_record_from_request(
+                _export_request(),
+                storage_root=storage_root,
+                package_root=package_root,
+            )
+
+        review = run.to_dict()["export_review"]
+        self.assertEqual(run.classification, "blocked_before_export")
+        self.assertEqual(review["block_reason"], "missing_record_evidence")
+        self.assertEqual(
+            review["retry_requires"],
+            "fresh_matching_record_read_model_manifest_and_writer_receipt",
+        )
+
+    def test_export_review_summarizes_package_collision_block(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root, package_root = self._create_imported_record(Path(temp_dir))
+            first = export_selected_measurement_record_from_request(
+                _export_request(),
+                storage_root=storage_root,
+                package_root=package_root,
+            )
+            second = export_selected_measurement_record_from_request(
+                _export_request(),
+                storage_root=storage_root,
+                package_root=package_root,
+            )
+
+        self.assertTrue(first.exported)
+        self.assertEqual(
+            second.to_dict()["export_review"],
+            {
+                "classification": "blocked_before_export",
+                "package_written": False,
+                "block_reason": "package_destination_collision",
+                "next_action": "choose_new_package_destination_before_retry",
+                "retry_requires": "fresh_package_destination_or_removed_collision",
+            },
+        )
 
 
 if __name__ == "__main__":

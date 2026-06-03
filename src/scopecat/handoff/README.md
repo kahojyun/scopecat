@@ -115,6 +115,11 @@ objects, durable-import adapter receipts, retry reviews, and CLI summaries are
 local review surfaces unless a later slice explicitly promotes one as a
 portable/export artifact.
 
+Selected-record export receipts include `export_review` guidance that
+classifies successful transfer review or blocked retry review. This is local
+review guidance only; it does not approve retry, mutate storage, or refresh
+read models.
+
 Receiving review state is currently a derived local projection over those
 receipts under DEC-018. This module does not persist GUI-owned review state.
 

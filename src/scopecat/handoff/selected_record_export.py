@@ -383,6 +383,12 @@ class SelectedMeasurementRecordExportRun:
             "request": self.request.to_dict(),
             "record": _record_ref(self.read_model, self.record_manifest, self.writer_receipt),
             "package_write": None if self.package_write is None else self.package_write.to_dict(),
+            "export_review": _export_review(
+                classification=self.classification,
+                approved=self.request.approved,
+                export_error=self.export_error,
+                package_written=self.package_write is not None,
+            ),
             "export": {
                 "performed": self.exported,
                 "storage_root": str(self.storage_root),
@@ -445,6 +451,12 @@ class SelectedMeasurementRecordBatchExportRun:
                 for record in self.records
             ],
             "package_write": None if self.package_write is None else self.package_write.to_dict(),
+            "export_review": _export_review(
+                classification=self.classification,
+                approved=self.request.approved,
+                export_error=self.export_error,
+                package_written=self.package_write is not None,
+            ),
             "export": {
                 "performed": self.exported,
                 "storage_root": str(self.storage_root),
@@ -881,6 +893,79 @@ def _writer_receipt_path(read_model: dict[str, Any]) -> str:
     sources = _require_dict(read_model, "sources")
     writer = _require_dict(sources, "writer_receipt")
     return _require_text(writer, "path")
+
+
+def _export_review(
+    *,
+    classification: str,
+    approved: bool,
+    export_error: str | None,
+    package_written: bool,
+) -> dict[str, Any]:
+    block_reason = _export_block_reason(approved=approved, export_error=export_error)
+    return {
+        "classification": classification,
+        "package_written": package_written,
+        "block_reason": block_reason,
+        "next_action": _export_next_action(
+            classification=classification,
+            block_reason=block_reason,
+        ),
+        "retry_requires": _export_retry_requirement(block_reason),
+    }
+
+
+def _export_block_reason(*, approved: bool, export_error: str | None) -> str | None:
+    if export_error is None:
+        return None if approved else "request_not_approved"
+    if "target already exists" in export_error:
+        return "package_destination_collision"
+    if "is required" in export_error:
+        return "missing_record_evidence"
+    if "must match writer receipt" in export_error or "must match request" in export_error:
+        return "record_evidence_mismatch"
+    if "requires complete read model lifecycle" in export_error:
+        return "record_not_complete"
+    if "must stay under record_dir" in export_error:
+        return "record_path_scope_violation"
+    return "export_validation_error"
+
+
+def _export_next_action(*, classification: str, block_reason: str | None) -> str:
+    if classification in {
+        "exported_selected_measurement_record",
+        "exported_selected_measurement_record_batch",
+    }:
+        return "transfer_package_for_receiving_review"
+    if block_reason == "request_not_approved":
+        return "approve_selected_record_export_request"
+    if block_reason == "package_destination_collision":
+        return "choose_new_package_destination_before_retry"
+    if block_reason in {
+        "missing_record_evidence",
+        "record_evidence_mismatch",
+        "record_not_complete",
+        "record_path_scope_violation",
+    }:
+        return "review_record_evidence_before_export_retry"
+    return "review_selected_record_export_error_before_retry"
+
+
+def _export_retry_requirement(block_reason: str | None) -> str | None:
+    if block_reason is None:
+        return None
+    if block_reason == "request_not_approved":
+        return "approved_selected_record_export_request"
+    if block_reason == "package_destination_collision":
+        return "fresh_package_destination_or_removed_collision"
+    if block_reason in {
+        "missing_record_evidence",
+        "record_evidence_mismatch",
+        "record_not_complete",
+        "record_path_scope_violation",
+    }:
+        return "fresh_matching_record_read_model_manifest_and_writer_receipt"
+    return "reviewed_export_input_correction"
 
 
 def _record_ref(

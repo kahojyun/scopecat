@@ -112,6 +112,12 @@ The selected stored-record export adapter:
   references as payload authority;
 - does not mutate Measurement Records storage or refresh read models.
 
+Selected-record export receipts include local `export_review` guidance for
+successful transfer review or blocked retry review. That guidance classifies
+request approval gaps, package destination collisions, missing record evidence,
+record evidence mismatches, incomplete records, and record path scope
+violations. It does not authorize retry or mutate storage.
+
 For JNY-001 product handoff, this storage-backed selected-record export path is
 the production vertical-slice candidate. Direct package-writer input remains an
 adapter or engineering route for already-reviewed normalized data, not a
@@ -236,6 +242,8 @@ Acceptance for that candidate is intentionally narrow:
 - stale or missing source-side record evidence blocks export before producing a
   new package;
 - existing package destinations use no-overwrite behavior;
+- blocked selected-record exports summarize a reviewable next action without
+  authorizing retry;
 - corrupted package bytes block receiving/import through integrity review;
 - declared digest integrity remains separate from signature validation,
   authenticity, sender trust, and scientific validity;
