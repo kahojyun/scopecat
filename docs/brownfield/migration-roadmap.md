@@ -10,12 +10,6 @@ Sequence brownfield migration by validated vertical slices. This is a roadmap
 for product and architecture sequencing, not an implementation task list,
 release plan, or issue tracker.
 
-Use this document to decide which user-visible migration slice should be proved
-next. Use [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
-for detailed validation state and
-[`../engineering/implementation-register.md`](../engineering/implementation-register.md)
-for live implementation ownership.
-
 ## Sequencing Principles
 
 - Advance by vertical slice, not by shared domain model extraction.

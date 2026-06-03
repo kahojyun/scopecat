@@ -18,11 +18,6 @@ Use this document to answer:
 - what product journeys and capabilities the path exercises;
 - what adoption risk remains.
 
-Use [`../brownfield/transition-architecture.md`](../brownfield/transition-architecture.md)
-for current/transition/target brownfield journeys and ownership posture. Use
-[`target-journeys.md`](target-journeys.md) for target product journeys and
-[`target-capabilities.md`](target-capabilities.md) for product capabilities.
-
 ## Adoption Principles
 
 - Start with useful review, selection, handoff, and diagnostic value before

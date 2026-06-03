@@ -11,21 +11,6 @@ from discovery evidence into workflows and use cases. This is a product
 planning document, not a brownfield migration document, implementation
 register, scenario inventory, or engineering task plan.
 
-Use this document with:
-
-- [`adoption-strategy.md`](adoption-strategy.md), for how users start adopting
-  Scopecat;
-- [`../brownfield/transition-architecture.md`](../brownfield/transition-architecture.md),
-  for current/transition/target brownfield journey mapping and ownership
-  posture;
-- [`target-capabilities.md`](target-capabilities.md), for product
-  capabilities and candidate feature areas;
-- [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md),
-  for validation state of use cases, workflow segments, scenarios, operations,
-  and seams;
-- [`../engineering/implementation-register.md`](../engineering/implementation-register.md),
-  for live implementation ownership.
-
 ## Reading Rules
 
 Start here before promoting discovery evidence into `src/`. A discovery slice
@@ -341,5 +326,4 @@ Update this map when discovery or implementation changes:
 - changes which journey an engineering prototype supports.
 
 Keep validation state, evidence posture, brownfield migration state, and
-implementation ownership in the engineering validation map, discovery docs,
-brownfield docs, and implementation register.
+implementation ownership in their narrower owner documents.

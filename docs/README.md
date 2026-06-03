@@ -9,36 +9,18 @@ flat navigation map when you already know which owner you need.
 
 ## Where To Find Current State
 
-- Current product direction:
-  [`product/direction.md`](product/direction.md)
-- Current target product journeys and use cases to prove:
-  [`product/target-journeys.md`](product/target-journeys.md)
-- Current target product capabilities, maturity, evidence, and advancement
-  questions:
-  [`product/target-capabilities.md`](product/target-capabilities.md)
-- Current product adoption strategy:
-  [`product/adoption-strategy.md`](product/adoption-strategy.md)
-- Current brownfield as-is assessment:
-  [`brownfield/current-state-assessment.md`](brownfield/current-state-assessment.md)
-- Current brownfield transition architecture:
-  [`brownfield/transition-architecture.md`](brownfield/transition-architecture.md)
-- Current brownfield migration strategy and roadmap:
-  [`brownfield/migration-strategy.md`](brownfield/migration-strategy.md) and
-  [`brownfield/migration-roadmap.md`](brownfield/migration-roadmap.md)
-- Current brownfield risk register:
-  [`brownfield/risk-register.md`](brownfield/risk-register.md)
-- Current decision register:
-  [`decisions/register.md`](decisions/register.md)
-- Current cross-document traceability map:
+- Product direction, target journeys, capabilities, and adoption strategy:
+  [`product/README.md`](product/README.md)
+- Brownfield current state, transition, migration, and risks:
+  [`brownfield/README.md`](brownfield/README.md)
+- Decision index and decision-record rules:
+  [`decisions/README.md`](decisions/README.md)
+- Cross-document current-state to implementation traceability:
   [`traceability.md`](traceability.md)
-- Current use case validation state, evidence scopes, and composition gaps:
-  [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md)
-- Current maturity vocabulary:
-  [`engineering/delivery-maturity-model.md`](engineering/delivery-maturity-model.md)
-- Current live implementation owners:
-  [`engineering/implementation-register.md`](engineering/implementation-register.md)
-- Current route-local prototype boundaries:
-  [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md)
+- Engineering maturity, validation, and implementation ownership:
+  [`engineering/README.md`](engineering/README.md)
+- Discovery evidence and problem framing:
+  [`discovery/README.md`](discovery/README.md)
 - Active execution work should live in issues, PRs, or branch-specific working
   notes when implementation starts rather than this landing page.
 

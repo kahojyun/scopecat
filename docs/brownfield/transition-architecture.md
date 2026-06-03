@@ -18,11 +18,6 @@ Use this document to separate:
 - ownership posture: what authority has moved from legacy systems to Scopecat;
 - deferred authority: what remains outside Scopecat.
 
-Use [`current-state-assessment.md`](current-state-assessment.md) for as-is
-patterns, [`migration-strategy.md`](migration-strategy.md) for modernization
-patterns, and [`../product/target-journeys.md`](../product/target-journeys.md)
-for target journey ownership.
-
 ## Ownership Posture Vocabulary
 
 Ownership posture is separate from delivery maturity. It records what authority

@@ -11,15 +11,6 @@ APIs, artifact boundaries, scope boundaries, tests, and fixtures. This is an
 engineering owner index, not a target capability map, adoption strategy,
 brownfield migration document, test inventory, or second module README.
 
-Use this document with:
-
-- [`../product/target-capabilities.md`](../product/target-capabilities.md) for product
-  capability maturity;
-- [`workflow-validation-map.md`](workflow-validation-map.md) for use cases,
-  scenarios, operations, seams, and validation questions;
-- [`prototype-boundaries/README.md`](prototype-boundaries/README.md) for
-  route-local engineering prototype boundaries.
-
 ## Implementation Owners
 
 | Implementation Owner | Product Capability | Owns | Primary Detail Owner |
@@ -40,7 +31,5 @@ Update this register when live code:
   route-local code;
 - supersedes a historical candidate path.
 
-Do not copy product capability strategy here. Link to
-[`../product/target-capabilities.md`](../product/target-capabilities.md) instead.
-Keep detailed test and fixture orientation in module READMEs unless ownership
-changes.
+Do not copy product capability strategy here. Keep detailed test and fixture
+orientation in module READMEs unless ownership changes.

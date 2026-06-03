@@ -11,16 +11,6 @@ scenario evidence, and operation evidence rather than by candidate file,
 fixture family, or code module. Use it to decide what the next prototype or
 vertical slice should validate.
 
-[`../product/target-journeys.md`](../product/target-journeys.md) owns product user
-journeys and their first workflow/use-case decomposition.
-[`../product/target-capabilities.md`](../product/target-capabilities.md) records product
-capabilities, maturity, evidence, and open advancement questions.
-[`../brownfield/transition-architecture.md`](../brownfield/transition-architecture.md)
-records current/transition/target brownfield journeys and ownership posture.
-[`implementation-register.md`](implementation-register.md) records live
-implementation owners. This document records validation state for use cases,
-workflow segments, scenarios, operations, and seams.
-
 ## Current Focus
 
 The main composition gap is the Portable Measurement Handoff vertical slice:
@@ -36,15 +26,9 @@ portable/export artifact-boundary behavior for that package.
 
 ## Reading Rules
 
-Start with [`../product/target-journeys.md`](../product/target-journeys.md) for the
-product journey and its target workflows/use cases. Use `Use Cases And Workflow
-Segments` here for promotable vertical-slice pressure. Use `Scenarios And
-Operations` only for route-local validation, review, or technical-risk evidence.
-Use [`../brownfield/transition-architecture.md`](../brownfield/transition-architecture.md)
-when a row depends on legacy behavior, migration state, or ownership posture.
-Then use
-[`implementation-register.md`](implementation-register.md) to find the live
-module owners and boundary detail.
+Use `Use Cases And Workflow Segments` for promotable vertical-slice pressure.
+Use `Scenarios And Operations` only for route-local validation, review, or
+technical-risk evidence.
 
 Do not treat this map as an issue tracker. Active execution work belongs in
 issues, PRs, or branch-specific plans when implementation starts. This map
