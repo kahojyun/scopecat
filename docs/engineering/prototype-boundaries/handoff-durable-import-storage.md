@@ -170,8 +170,6 @@ uv run ruff format --check .
 Advance this boundary only when a named workflow requires a broader behavior.
 Likely separate decisions include:
 
-- selected stored Measurement Record to single-measurement handoff package
-  export;
 - batch package receiving/import and partial-success policy;
 - package archive format, trust, authenticity, or signature handling;
 - linked-context payload import;

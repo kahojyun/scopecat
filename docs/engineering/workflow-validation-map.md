@@ -19,16 +19,16 @@ to sequence, but not yet validated enough to join the `UC-*` table.
 
 ## Current Focus
 
-The main composition gap is the Portable Measurement Handoff use case:
-record or import an externally produced measurement into Scopecat storage,
-select one stored measurement, export a handoff package, preview it on another
-computer, and import it into that computer's storage.
+The Portable Measurement Handoff composition now has engineering-prototype
+coverage across the core sequence: record or import an externally produced
+measurement into Scopecat storage, select one stored measurement, export a
+single-measurement handoff package, preview it on another computer, and import
+it into that computer's storage.
 
-The validated ends already exist: Measurement Records can store legacy-backed
-records and Handoff can preview/gate/import one ready package measurement into
-another storage root. The missing seam is selected stored Measurement Record to
-single-measurement handoff package export, including identity continuity and
-portable/export artifact-boundary behavior for that package.
+The next validation pressure should be chosen explicitly. Likely follow-up
+questions are production-readiness hardening for the single-measurement
+handoff vertical slice, linked-context payload packaging, archive/trust
+behavior, batch receiving/import, or a different journey's first live route.
 
 ## Reading Rules
 
@@ -68,7 +68,6 @@ visible in traceability or roadmap planning but not yet mature enough to become
 
 | ID | Candidate Use Case | Supports Journey | Capability Areas | Candidate Source | Promotion Question |
 | --- | --- | --- | --- | --- | --- |
-| UC-CAND-001 | Export one selected stored Measurement Record to a preview-ready single-measurement handoff package | JNY-001 | CAP-001, CAP-002 | Main composition gap in the current focus. | Can package export from stored records preserve identity, primary-data references, missing context, and portable/export boundaries across the validated handoff ends? |
 | UC-CAND-002 | Prepared-run context review and acknowledgement | JNY-002 | CAP-003, CAP-005, CAP-004, CAP-001 | Prepared-run scenario evidence. | Does the user-facing use case have explicit input, review, acknowledgement or deferral, and no-run-start semantics? |
 | UC-CAND-003 | First promoted experiment-code context step | JNY-005 | CAP-005, CAP-004 | Experiment-code discovery and implementation-candidate evidence. | Which one step has an independently useful user goal: record, compare, materialize, observe editable folder, prepare rerun, or GUI review? |
 | UC-CAND-004 | Lifecycle, progress, and partial-data event recording for running measurement inspection | JNY-004 | CAP-006, CAP-001 | Running measurement monitoring discovery evidence. | Can Python-driven measurements emit reviewable lifecycle, progress, and partial-data events without granting scan control? |
@@ -81,9 +80,10 @@ visible in traceability or roadmap planning but not yet mature enough to become
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | UC-001 | Legacy external run becomes visible in local storage | JNY-001 | Engineering prototype | CAP-001 | Create a `legacy_system` Measurement Records shell; write `legacy-run-receipt.json`; optionally attach reviewed converted normalized primary data to the same record; optionally record parameter, setup, code, artifact, and evidence references; list/review visible storage. | Legacy file observation, legacy parsing, adapter discovery, legacy code execution, reference repair, GUI state persistence, and scientific validity remain unvalidated. | Maintenance only unless a new brownfield use case is named. |
 | UC-002 | Normalized primary data becomes a durable Measurement Record | JNY-001 | Engineering prototype | CAP-001 | Import reviewed normalized primary CSV into durable local Measurement Records storage; create record shell; write primary data; validate normalized table shape; finalize; project read model; catalog/refresh read model; durable import rolls back synchronous partial new-record failures. | Final storage schema, existing-record merge import, manifest replacement, conflict resolution beyond accepted no-overwrite paths, and shared domain model remain unvalidated. | Decide separately if existing-record import/update becomes a production vertical slice. |
-| UC-003 | Source-root data becomes a local handoff package for review | JNY-001 | Engineering prototype | CAP-002 | Package one or more declared normalized primary data files from a caller-provided source root for local review; validate write request; copy declared primary CSV files after digest/size preflight; write directory-shaped package subset; reopen package; optionally write local inspection HTML. | Archive format, signatures/authenticity, package import, final package format, linked-context payload packaging, and GUI architecture remain unvalidated. | Maintenance only unless the package export source changes to stored Measurement Records. |
+| UC-003 | Source-root data becomes a local handoff package for review | JNY-001 | Engineering prototype | CAP-002 | Package one or more declared normalized primary data files from a caller-provided source root for local review; validate write request; copy declared primary CSV files after digest/size preflight; write directory-shaped package subset; reopen package; optionally write local inspection HTML. | Archive format, signatures/authenticity, package import, final package format, linked-context payload packaging, and GUI architecture remain unvalidated. | Maintenance only unless source-root package writing needs hardening independent of stored-record export. |
 | UC-004 | Handoff package is received and imported into local storage | JNY-001 | Engineering prototype | CAP-002, CAP-001 | Review a handoff package on a receiving side and import one selected measurement into local storage; open package read-only; observe manifest-declared integrity; run receiving gate; create non-mutating import plan; adapt one ready measurement into Measurement Records durable import; summarize import receipt and retry reasonableness. | Batch import, archive extraction/trust, signatures/authenticity, linked-context payload import, conflict resolution beyond delegated durable import rules, and persistent receiving review state remain unvalidated. | Decide separately if batch receiving or trust/authenticity is the next user risk. |
 | UC-005 | Parameter state review before manual run preparation | JNY-002 | Engineering prototype | CAP-003 | Let an operator review adapter or calibration parameter-state facts before a run without applying hardware changes; adapter-authored import preview; explicit review/commit; no-overwrite storage writer; manifest/receipt read view; source-agnostic projection; selection context; parameter-state-local run-preparation consumption, gate, scope alignment, and review chain. | Hardware apply, current instrument-state claims, external compatibility-file writing, live write-back, catalog discovery, setup-binding mutation, automatic run start, and shared run-context schema remain unvalidated. | Decide separately whether prepared-run becomes its own live route owner. |
+| UC-006 | Selected stored Measurement Record becomes a handoff package | JNY-001 | Engineering prototype | CAP-001, CAP-002 | Export one complete stored Measurement Record through the handoff package writer; read the record-local read model, creation manifest, and writer receipt; preserve record identity, label, experiment type, primary-data digest/size/path continuity, and package-relative primary-data topology; require explicit preview metadata; keep linked context reference-only; produce an openable single-measurement package without mutating record storage. | Production package format, archives, signatures/authenticity, linked-context payload packaging, batch export, read-model refresh, existing-record export/update policy, GUI state, and shared domain schema remain unvalidated. | Decide whether to harden the JNY-001 single-measurement handoff as a production vertical slice or validate a separate handoff extension. |
 
 ## Scenarios And Operations
 

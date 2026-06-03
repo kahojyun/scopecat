@@ -103,11 +103,12 @@ Supporting capabilities:
 - Parameter State Review later.
 
 Validation orientation: primary active journey. Existing evidence currently
-comes from legacy-backed measurement records, but the target journey is portable
-measurement handoff, not legacy migration itself. Evidence covers local record
-preparation, package writing/opening, receiving review/import plan, and durable
-import adaptation. The main missing use case is selected stored Measurement
-Record to single-measurement package export.
+comes from legacy-backed and imported measurement records, but the target
+journey is portable measurement handoff, not legacy migration itself. Evidence
+covers local record preparation, selected stored-record package export, package
+writing/opening, receiving review/import plan, and durable import adaptation.
+Production readiness, trust/authenticity, batch receiving, archive format, and
+linked-context payload import remain separate validation questions.
 
 Source evidence:
 
