@@ -167,7 +167,10 @@ Receiving review state is currently a derived local projection over those
 receipts under DEC-018. `project_handoff_receiving_review_state()` composes
 typed receiving-gate, import-plan, durable-import summary, retry-review, and
 error diagnostic evidence into a `local_receiving_review_state_projection`.
-This module does not persist GUI-owned review state.
+DEC-023 allows `write_handoff_receiving_review_state_receipt()` to persist that
+projection as a no-overwrite local JSON receipt for review continuity. This
+module still does not create GUI-owned review state, package acceptance, retry
+authorization, or mutation authority.
 
 Package signature/trust implementation is deferred under DEC-019. DEC-022
 defines the future signed scope as the DEC-010 directory-manifest package of
