@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 
 from scopecat.handoff.durable_import import summarize_handoff_durable_import_receipt
+from scopecat.handoff.errors import HandoffContractError, HandoffError
 from scopecat.handoff.import_workflow import summarize_import_workflow_receipt
 from scopecat.handoff.inspect import write_inspection_artifact
 from scopecat.handoff.package import summarize_package_context_references
@@ -38,14 +40,31 @@ def _summary(package_dir: Path, *, html_dir: Path | None = None) -> dict[str, ob
 
 
 def _receipt_summary(receipt_path: Path) -> dict[str, object]:
-    with receipt_path.open("r", encoding="utf-8") as handle:
-        receipt = json.load(handle)
+    try:
+        with receipt_path.open("r", encoding="utf-8") as handle:
+            receipt = json.load(handle)
+    except json.JSONDecodeError as exc:
+        raise HandoffContractError(
+            "receipt summary input must be valid JSON",
+            operation="receipt_summary_cli",
+        ) from exc
+    if not isinstance(receipt, dict):
+        raise HandoffContractError(
+            "receipt summary input must be a JSON object",
+            operation="receipt_summary_cli",
+        )
     posture = receipt.get("artifact_posture")
     if posture == "local_import_workflow_receipt":
-        return summarize_import_workflow_receipt(receipt).to_dict()
+        try:
+            return summarize_import_workflow_receipt(receipt).to_dict()
+        except ValueError as exc:
+            raise HandoffContractError(str(exc), operation="receipt_summary_cli") from exc
     if posture == "local_handoff_durable_import_receipt":
         return summarize_handoff_durable_import_receipt(receipt).to_dict()
-    raise ValueError("receipt artifact_posture is unsupported")
+    raise HandoffContractError(
+        "receipt artifact_posture is unsupported",
+        operation="receipt_summary_cli",
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -73,7 +92,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             parser.error("package_dir is not accepted with --receipt-summary")
         if args.html_dir is not None:
             parser.error("--html-dir is not accepted with --receipt-summary")
-        payload = _receipt_summary(args.receipt_summary)
+        try:
+            payload = _receipt_summary(args.receipt_summary)
+        except HandoffError as exc:
+            print(
+                json.dumps(exc.to_diagnostic().to_dict(), indent=2, sort_keys=True),
+                file=sys.stderr,
+            )
+            return 2
     else:
         if args.package_dir is None:
             parser.error("package_dir is required unless --receipt-summary is provided")

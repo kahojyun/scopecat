@@ -28,6 +28,7 @@ Package writer and local package workflow:
 - `export_selected_measurement_record(source, storage_root=..., package_root=...)`
 - `export_selected_measurement_record_batch_from_request(request, storage_root=..., package_root=...)`
 - `export_selected_measurement_record_batch(source, storage_root=..., package_root=...)`
+- `current_handoff_compatibility_contract()`
 
 Read-only package use and local review:
 
@@ -52,8 +53,9 @@ Durable Measurement Records import adaptation:
 
 The top-level module also exports route projection objects such as
 `HandoffPackage`, `HandoffMeasurement`, `HandoffTable`, `HandoffPlotSeries`,
-receiving/import run objects, and durable-import receipt/retry summaries.
-Modules with leading underscores are route-private implementation modules.
+receiving/import run objects, durable-import receipt/retry summaries, and
+`HandoffError` / `HandoffContractError` diagnostics. Modules with leading
+underscores are route-private implementation modules.
 
 ## Boundary Split
 
@@ -89,6 +91,20 @@ Durable-import receipts and summaries include local `durable_import_review`
 guidance, plus summary `block_reason` and `retry_requires` fields. This is
 local review guidance only; it does not approve retry, reuse stale plans, skip
 destination checks, or bypass package revalidation.
+
+Public receiving, import-planning, and durable-import API functions promote
+route contract failures to `HandoffContractError`, which remains
+`ValueError`-compatible for existing callers. `to_diagnostic()` returns a
+local operator error diagnostic with operation, code, and message. That
+diagnostic is not a portable/export artifact, retry authorization, package
+acceptance, or public error schema.
+
+`current_handoff_compatibility_contract()` returns a read-only local snapshot
+of the current route schemas, policy fields, local artifact postures, and
+explicit non-claims for this production vertical slice. The snapshot is a
+review contract for the current route-local behavior; it does not publish a
+public SDK, final package format, archive contract, signature/trust policy, or
+portable error schema.
 
 ## Artifact Boundaries
 
@@ -166,6 +182,11 @@ inspection HTML, and summarizes local candidate or durable-import receipts for
 continuation review. It does not run package import, approve storage
 acceptance or durable import, persist review state, or become a public import
 API.
+
+When `--receipt-summary` sees a handoff contract error, the CLI writes the
+local `HandoffErrorDiagnostic` JSON to stderr and exits nonzero. This is local
+operator guidance for review; it is not a portable/export artifact or public
+CLI error contract.
 
 ## Historical Candidate Context
 

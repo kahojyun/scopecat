@@ -694,6 +694,54 @@ class HandoffEngineeringPrototypeImportWorkflowTest(unittest.TestCase):
             "Ask the sender to confirm the linked context.",
         )
 
+    def test_module_cli_reports_local_diagnostic_for_malformed_import_workflow_receipt(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            receipt_path = Path(temp_dir) / "malformed-import-workflow-receipt.json"
+            receipt_path.write_text(
+                json.dumps(
+                    {
+                        "artifact_posture": "local_import_workflow_receipt",
+                        "import_workflow_policy": {},
+                        "workflow": {},
+                        "request": {},
+                        "package": {},
+                        "operator_decision": {},
+                        "acceptance_preflight": None,
+                        "storage_acceptance": None,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "scopecat.handoff",
+                    "--receipt-summary",
+                    str(receipt_path),
+                ],
+                check=False,
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+        diagnostic = json.loads(result.stderr)
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(
+            diagnostic["error"],
+            {
+                "code": "handoff_contract_error",
+                "operation": "receipt_summary_cli",
+                "message": "handoff import workflow receipt fields are unsupported",
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from scopecat.handoff._contracts import validate_public_identifier
+from scopecat.handoff.errors import promote_handoff_contract_error
 from scopecat.handoff.inspect import write_inspection_artifact
 from scopecat.handoff.package import HandoffLinkedContext, HandoffMeasurement, HandoffPackage
 from scopecat.handoff.receiving import HandoffReceivingGateRun, run_receiving_gate
@@ -230,20 +231,23 @@ def run_import_plan(
 ) -> HandoffImportPlanRun:
     """Build a non-mutating import plan for a reviewed handoff package."""
 
-    request, receiving_gate_source = _parse_source(source)
-    receiving_gate = run_receiving_gate(receiving_gate_source, package_dir=package_dir)
-    inspection_receipt = None
-    if inspection_output_dir is not None and receiving_gate.acceptance_allowed:
-        inspection_receipt = write_inspection_artifact(
-            receiving_gate.package,
-            output_dir=Path(inspection_output_dir),
-            overwrite=overwrite_inspection,
+    try:
+        request, receiving_gate_source = _parse_source(source)
+        receiving_gate = run_receiving_gate(receiving_gate_source, package_dir=package_dir)
+        inspection_receipt = None
+        if inspection_output_dir is not None and receiving_gate.acceptance_allowed:
+            inspection_receipt = write_inspection_artifact(
+                receiving_gate.package,
+                output_dir=Path(inspection_output_dir),
+                overwrite=overwrite_inspection,
+            )
+        return _build_import_plan_run(
+            request,
+            receiving_gate=receiving_gate,
+            inspection_receipt=inspection_receipt,
         )
-    return _build_import_plan_run(
-        request,
-        receiving_gate=receiving_gate,
-        inspection_receipt=inspection_receipt,
-    )
+    except ValueError as exc:
+        raise promote_handoff_contract_error(exc, operation="run_import_plan") from exc
 
 
 def build_import_plan(
@@ -253,7 +257,10 @@ def build_import_plan(
 ) -> HandoffImportPlanRun:
     """Build an import plan from typed route-local prior workflow state."""
 
-    return _build_import_plan_run(request, receiving_gate=receiving_gate)
+    try:
+        return _build_import_plan_run(request, receiving_gate=receiving_gate)
+    except ValueError as exc:
+        raise promote_handoff_contract_error(exc, operation="build_import_plan") from exc
 
 
 def _build_import_plan_run(
