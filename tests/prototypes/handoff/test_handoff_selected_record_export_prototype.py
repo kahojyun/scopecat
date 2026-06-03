@@ -233,6 +233,36 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
             },
         )
 
+    def test_selected_record_export_leaves_source_record_artifacts_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root, package_root = self._create_imported_record(Path(temp_dir))
+            record_dir = storage_root / "records" / "run-3101-rabi"
+            before = {
+                path.relative_to(record_dir).as_posix(): _digest(path)
+                for path in record_dir.rglob("*")
+                if path.is_file()
+            }
+
+            run = export_selected_measurement_record_from_request(
+                _export_request(),
+                storage_root=storage_root,
+                package_root=package_root,
+            )
+
+            after = {
+                path.relative_to(record_dir).as_posix(): _digest(path)
+                for path in record_dir.rglob("*")
+                if path.is_file()
+            }
+
+        self.assertTrue(run.exported)
+        self.assertEqual(after, before)
+        self.assertEqual(
+            run.to_dict()["selected_record_export_policy"]["record_storage_mutation"],
+            "not_performed",
+        )
+        self.assertIn("existing_record_update", run.to_dict()["workflow"]["does_not_claim"])
+
     def test_raw_source_entrypoint_uses_explicit_export_policy(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root, package_root = self._create_imported_record(Path(temp_dir))

@@ -27,7 +27,9 @@ Read it with:
   for the receiving review state projection boundary;
 - [`../../decisions/architecture/DEC-020-defer-archive-package-implementation.md`](../../decisions/architecture/DEC-020-defer-archive-package-implementation.md)
   for the current archive-backed durable import and archive-authority
-  deferral.
+  deferral;
+- [`../../decisions/architecture/DEC-025-defer-existing-record-update-and-final-storage-schema.md`](../../decisions/architecture/DEC-025-defer-existing-record-update-and-final-storage-schema.md)
+  for the current new-record-only durable import and storage-schema deferral.
 
 ## Current Boundary
 
@@ -87,6 +89,10 @@ DEC-017 keeps multi-measurement package plans as review and coordination
 evidence only. They do not authorize one durable batch mutation until a
 separate destination, conflict, partial-success, rollback, and retry contract
 exists.
+
+DEC-025 keeps handoff durable import new-record-only. The adapter does not
+import into existing records, attach to pre-created shells, replace manifests,
+merge primary data, or publish a final storage schema for Measurement Records.
 
 The import plan is not write authority. Before mutation, the delegated
 Measurement Records pipeline reopens the package member through the package
@@ -222,6 +228,6 @@ Likely separate decisions include:
 - batch package receiving/import and partial-success policy beyond DEC-017;
 - package archive format beyond DEC-020;
 - linked-context payload import beyond DEC-016;
-- existing-record update/import conflict behavior;
+- existing-record update/import conflict behavior beyond DEC-025;
 - persisted receiving review state or GUI durable review workflow beyond DEC-018;
 - stronger recovery, locking, or concurrent storage behavior.

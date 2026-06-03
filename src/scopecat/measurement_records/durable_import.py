@@ -688,7 +688,22 @@ def _created_paths(creation_run: MeasurementRecordCreationRun | None) -> tuple[s
 
 
 def _classification_error(owner: str, run: _DurableImportPipelineRun) -> str:
+    detail = _run_error(run)
+    if detail is not None:
+        return f"durable import {owner} step did not complete: {run.classification}: {detail}"
     return f"durable import {owner} step did not complete: {run.classification}"
+
+
+def _run_error(run: _DurableImportPipelineRun) -> str | None:
+    if isinstance(run, MeasurementRecordCreationRun):
+        return run.creation_error
+    if isinstance(run, MeasurementRecordWriterRun):
+        return run.write_error
+    if isinstance(run, MeasurementRecordFinalizationRun):
+        return run.finalization_error
+    if isinstance(run, MeasurementRecordReadModelProjectionRun):
+        return run.projection_error
+    return None
 
 
 class _DurableImportFailure(RuntimeError):

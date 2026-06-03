@@ -86,6 +86,9 @@ Measurement Records durable import pipeline. The adapter does not treat the
 import plan as sufficient write authority for bytes on disk; the delegated
 pipeline reopens the package member and preflights digest, byte size,
 normalized CSV shape, and row count before any storage mutation.
+Under DEC-025 this path creates a new Measurement Record only; it does not
+update existing records, merge primary data, replace manifests, or publish a
+final storage schema.
 
 Durable-import receipts and summaries include local `durable_import_review`
 guidance, plus summary `block_reason` and `retry_requires` fields. This is
@@ -117,7 +120,9 @@ Measurement Records read model and record-local receipts. It reads one complete
 stored record, requires explicit preview metadata, delegates package writing to
 the package writer, may package explicitly declared record-local linked-context
 payloads under `context/`, and does not mutate Measurement Records storage,
-refresh read models, infer schema, create archives, or accept/import packages.
+repair source records, infer schema, create archives, or accept/import
+packages. The preflight composition may delegate read-model refresh, but export
+itself remains source-storage-read-only under DEC-025.
 Recorded linked references remain review references; they are not file-copy
 authority by themselves.
 
