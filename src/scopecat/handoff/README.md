@@ -52,8 +52,9 @@ Durable Measurement Records import adaptation:
 
 The top-level module also exports route projection objects such as
 `HandoffPackage`, `HandoffMeasurement`, `HandoffTable`, `HandoffPlotSeries`,
-receiving/import run objects, and durable-import receipt/retry summaries.
-Modules with leading underscores are route-private implementation modules.
+receiving/import run objects, durable-import receipt/retry summaries, and
+`HandoffError` / `HandoffContractError` diagnostics. Modules with leading
+underscores are route-private implementation modules.
 
 ## Boundary Split
 
@@ -89,6 +90,13 @@ Durable-import receipts and summaries include local `durable_import_review`
 guidance, plus summary `block_reason` and `retry_requires` fields. This is
 local review guidance only; it does not approve retry, reuse stale plans, skip
 destination checks, or bypass package revalidation.
+
+Public receiving, import-planning, and durable-import API functions promote
+route contract failures to `HandoffContractError`, which remains
+`ValueError`-compatible for existing callers. `to_diagnostic()` returns a
+local operator error diagnostic with operation, code, and message. That
+diagnostic is not a portable/export artifact, retry authorization, package
+acceptance, or public error schema.
 
 ## Artifact Boundaries
 

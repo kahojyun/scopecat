@@ -71,6 +71,12 @@ blocks, rollback, and partial-commit cases. That guidance exposes stable
 `block_reason`, `next_action`, and `retry_requires` fields without authorizing
 retry, reusing stale plans, or bypassing destination/package rechecks.
 
+Public durable-import API functions promote route contract failures to
+`HandoffContractError`, which remains `ValueError`-compatible. The
+`to_diagnostic()` output is local operator error guidance only; it is not a
+portable/export artifact, retry authorization, storage mutation authority, or
+public error schema.
+
 DEC-017 keeps multi-measurement package plans as review and coordination
 evidence only. They do not authorize one durable batch mutation until a
 separate destination, conflict, partial-success, rollback, and retry contract

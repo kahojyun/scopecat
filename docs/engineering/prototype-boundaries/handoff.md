@@ -154,6 +154,13 @@ integrity-review blocks and receiving-gate readiness before durable import is
 considered. It does not authorize retry, package acceptance, or storage
 mutation.
 
+Public receiving and import-planning API functions promote route contract
+failures to `HandoffContractError`, which remains `ValueError`-compatible.
+`to_diagnostic()` exposes a local operator diagnostic with operation, code, and
+message. That diagnostic is a local review surface only; it is not a
+portable/export artifact, retry authorization, package acceptance, storage
+mutation authority, or public error schema.
+
 Receiving review state is a local projection over package-open, integrity,
 receiving-gate, import-plan, optional inspection, durable-import receipt, and
 retry-summary facts. DEC-018 defines that projection boundary without accepting

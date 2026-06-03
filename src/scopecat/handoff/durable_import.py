@@ -14,6 +14,7 @@ from scopecat.handoff._contracts import (
     validate_relative_path,
     validate_strict_child_path,
 )
+from scopecat.handoff.errors import promote_handoff_contract_error
 from scopecat.handoff.import_plan import HandoffImportPlanRun, run_import_plan
 from scopecat.handoff.package import HandoffMeasurement
 from scopecat.measurement_records.durable_import import (
@@ -401,13 +402,19 @@ def run_handoff_durable_import(
 ) -> HandoffDurableImportRun:
     """Run the full handoff package to durable measurement-record import route."""
 
-    request, import_plan_source = _parse_source(source)
-    import_plan = run_import_plan(import_plan_source, package_dir=package_dir)
-    return run_handoff_durable_import_from_plan(
-        request,
-        import_plan=import_plan,
-        storage_root=storage_root,
-    )
+    try:
+        request, import_plan_source = _parse_source(source)
+        import_plan = run_import_plan(import_plan_source, package_dir=package_dir)
+        return _run_handoff_durable_import_from_plan(
+            request,
+            import_plan=import_plan,
+            storage_root=storage_root,
+        )
+    except ValueError as exc:
+        raise promote_handoff_contract_error(
+            exc,
+            operation="run_handoff_durable_import",
+        ) from exc
 
 
 def run_handoff_durable_import_from_plan(
@@ -418,7 +425,26 @@ def run_handoff_durable_import_from_plan(
 ) -> HandoffDurableImportRun:
     """Import one ready handoff-plan measurement through durable record storage."""
 
-    durable_request = build_durable_import_request_from_handoff_plan(
+    try:
+        return _run_handoff_durable_import_from_plan(
+            request,
+            import_plan=import_plan,
+            storage_root=storage_root,
+        )
+    except ValueError as exc:
+        raise promote_handoff_contract_error(
+            exc,
+            operation="run_handoff_durable_import_from_plan",
+        ) from exc
+
+
+def _run_handoff_durable_import_from_plan(
+    request: HandoffDurableImportRequest,
+    *,
+    import_plan: HandoffImportPlanRun,
+    storage_root: str | Path,
+) -> HandoffDurableImportRun:
+    durable_request = _build_durable_import_request_from_handoff_plan(
         request,
         import_plan=import_plan,
     )
@@ -445,10 +471,16 @@ def review_handoff_durable_import_retry(
 ) -> HandoffDurableImportRetryReview:
     """Review a durable-import retry against a fresh import plan without mutation."""
 
-    return HandoffDurableImportRetryReview(
-        previous_summary=previous_summary,
-        import_plan=fresh_import_plan,
-    )
+    try:
+        return HandoffDurableImportRetryReview(
+            previous_summary=previous_summary,
+            import_plan=fresh_import_plan,
+        )
+    except ValueError as exc:
+        raise promote_handoff_contract_error(
+            exc,
+            operation="review_handoff_durable_import_retry",
+        ) from exc
 
 
 def summarize_handoff_durable_import_receipt(
@@ -456,6 +488,18 @@ def summarize_handoff_durable_import_receipt(
 ) -> HandoffDurableImportReceiptSummary:
     """Summarize a local handoff durable-import receipt without authorizing retry."""
 
+    try:
+        return _summarize_handoff_durable_import_receipt(receipt)
+    except ValueError as exc:
+        raise promote_handoff_contract_error(
+            exc,
+            operation="summarize_handoff_durable_import_receipt",
+        ) from exc
+
+
+def _summarize_handoff_durable_import_receipt(
+    receipt: dict[str, Any],
+) -> HandoffDurableImportReceiptSummary:
     receipt = _require_mapping(receipt, "handoff durable import receipt")
     _require_keys(
         receipt,
@@ -751,6 +795,23 @@ def build_durable_import_request_from_handoff_plan(
 ) -> MeasurementRecordDurableImportRequest | None:
     """Map a ready single-measurement handoff import plan into durable import."""
 
+    try:
+        return _build_durable_import_request_from_handoff_plan(
+            request,
+            import_plan=import_plan,
+        )
+    except ValueError as exc:
+        raise promote_handoff_contract_error(
+            exc,
+            operation="build_durable_import_request_from_handoff_plan",
+        ) from exc
+
+
+def _build_durable_import_request_from_handoff_plan(
+    request: HandoffDurableImportRequest,
+    *,
+    import_plan: HandoffImportPlanRun,
+) -> MeasurementRecordDurableImportRequest | None:
     if request.requested_package_id != import_plan.package.package_id:
         raise ValueError("handoff durable import package id must match import plan package")
     if not request.approved or not import_plan.import_plan_allowed:

@@ -12,6 +12,7 @@ from scopecat.handoff.durable_import import (
     run_handoff_durable_import_from_plan,
     summarize_handoff_durable_import_receipt,
 )
+from scopecat.handoff.errors import HandoffContractError, HandoffError, HandoffErrorDiagnostic
 from scopecat.handoff.import_plan import (
     HandoffImportPlanRequest,
     HandoffImportPlanRun,
@@ -65,11 +66,14 @@ __all__ = [
     "HANDOFF_INSPECTION_ARTIFACT_NAME",
     "SELECTED_RECORD_EXPORT_POLICY",
     "HandoffContextReferenceSummary",
+    "HandoffContractError",
     "HandoffDurableImportDestination",
     "HandoffDurableImportReceiptSummary",
     "HandoffDurableImportRequest",
     "HandoffDurableImportRetryReview",
     "HandoffDurableImportRun",
+    "HandoffError",
+    "HandoffErrorDiagnostic",
     "HandoffFinding",
     "HandoffImportPlanRequest",
     "HandoffImportPlanRun",

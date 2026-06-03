@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from scopecat.handoff._contracts import validate_public_identifier
+from scopecat.handoff.errors import promote_handoff_contract_error
 from scopecat.handoff.integrity import HandoffPackageIntegrityReport, observe_package_integrity
 from scopecat.handoff.package import HandoffPackage
 from scopecat.handoff.read_only import open_package
@@ -138,8 +139,11 @@ def run_receiving_gate(
 ) -> HandoffReceivingGateRun:
     """Open, integrity-observe, and gate a reviewed package without mutation."""
 
-    request = _parse_request(source)
-    return run_receiving_gate_from_request(request, package_dir=package_dir)
+    try:
+        request = _parse_request(source)
+        return _run_receiving_gate_from_request(request, package_dir=package_dir)
+    except ValueError as exc:
+        raise promote_handoff_contract_error(exc, operation="run_receiving_gate") from exc
 
 
 def run_receiving_gate_from_request(
@@ -149,6 +153,20 @@ def run_receiving_gate_from_request(
 ) -> HandoffReceivingGateRun:
     """Run the receiving gate from an already parsed route-local request."""
 
+    try:
+        return _run_receiving_gate_from_request(request, package_dir=package_dir)
+    except ValueError as exc:
+        raise promote_handoff_contract_error(
+            exc,
+            operation="run_receiving_gate_from_request",
+        ) from exc
+
+
+def _run_receiving_gate_from_request(
+    request: HandoffReceivingReviewRequest,
+    *,
+    package_dir: str | Path,
+) -> HandoffReceivingGateRun:
     integrity_report = observe_package_integrity(package_dir)
     try:
         package = open_package(package_dir)
