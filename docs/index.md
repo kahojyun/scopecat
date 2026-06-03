@@ -25,6 +25,7 @@ docs/
 | --- | --- |
 | [`README.md`](README.md) | Documentation purpose and editing rules. |
 | [`AGENTS.md`](AGENTS.md) | AI-session rules for work inside `docs/`. |
+| [`traceability.md`](traceability.md) | Current-state pressure to target journey, capability, validation, and implementation traceability. |
 | [`product/README.md`](product/README.md) | Product documentation navigation. |
 | [`product/direction.md`](product/direction.md) | Current product direction, default ownership boundaries, and non-goals. |
 | [`product/target-journeys.md`](product/target-journeys.md) | Target product user journeys, primary workflows, use cases to prove, and discovery-to-engineering orientation. |
@@ -35,6 +36,7 @@ docs/
 | [`brownfield/transition-architecture.md`](brownfield/transition-architecture.md) | Current/transition/target journey mapping and ownership posture. |
 | [`brownfield/migration-strategy.md`](brownfield/migration-strategy.md) | Brownfield modernization patterns and authority-transfer rules. |
 | [`brownfield/migration-roadmap.md`](brownfield/migration-roadmap.md) | Vertical-slice migration sequence and decision gates. |
+| [`brownfield/risk-register.md`](brownfield/risk-register.md) | Recurring brownfield risks, mitigation owners, and review triggers. |
 | [`decisions/README.md`](decisions/README.md) | Decision-record navigation and governance. |
 | [`decisions/register.md`](decisions/register.md) | Current product, architecture, engineering, discovery, and operational decision index. |
 | [`decisions/template.md`](decisions/template.md) | Template for new decision records. |
