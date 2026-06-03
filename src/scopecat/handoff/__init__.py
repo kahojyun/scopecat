@@ -1,5 +1,9 @@
 """Current handoff package engineering prototype API."""
 
+from scopecat.handoff.compatibility import (
+    HANDOFF_COMPATIBILITY_CONTRACT_VERSION,
+    current_handoff_compatibility_contract,
+)
 from scopecat.handoff.durable_import import (
     HandoffDurableImportDestination,
     HandoffDurableImportReceiptSummary,
@@ -63,6 +67,7 @@ from scopecat.handoff.workflow import HandoffPackageWorkflowRun, run_package_wor
 from scopecat.handoff.writer import HandoffPackageWriteReceipt, write_package
 
 __all__ = [
+    "HANDOFF_COMPATIBILITY_CONTRACT_VERSION",
     "HANDOFF_INSPECTION_ARTIFACT_NAME",
     "SELECTED_RECORD_EXPORT_POLICY",
     "HandoffContextReferenceSummary",
@@ -99,6 +104,7 @@ __all__ = [
     "SelectedMeasurementRecordExportRun",
     "build_durable_import_request_from_handoff_plan",
     "build_inspection_html",
+    "current_handoff_compatibility_contract",
     "export_selected_measurement_record",
     "export_selected_measurement_record_batch",
     "export_selected_measurement_record_batch_from_request",

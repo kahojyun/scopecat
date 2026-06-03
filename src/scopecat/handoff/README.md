@@ -28,6 +28,7 @@ Package writer and local package workflow:
 - `export_selected_measurement_record(source, storage_root=..., package_root=...)`
 - `export_selected_measurement_record_batch_from_request(request, storage_root=..., package_root=...)`
 - `export_selected_measurement_record_batch(source, storage_root=..., package_root=...)`
+- `current_handoff_compatibility_contract()`
 
 Read-only package use and local review:
 
@@ -97,6 +98,13 @@ route contract failures to `HandoffContractError`, which remains
 local operator error diagnostic with operation, code, and message. That
 diagnostic is not a portable/export artifact, retry authorization, package
 acceptance, or public error schema.
+
+`current_handoff_compatibility_contract()` returns a read-only local snapshot
+of the current route schemas, policy fields, local artifact postures, and
+explicit non-claims for this production vertical slice. The snapshot is a
+review contract for the current route-local behavior; it does not publish a
+public SDK, final package format, archive contract, signature/trust policy, or
+portable error schema.
 
 ## Artifact Boundaries
 

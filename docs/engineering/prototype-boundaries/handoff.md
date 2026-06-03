@@ -161,6 +161,13 @@ message. That diagnostic is a local review surface only; it is not a
 portable/export artifact, retry authorization, package acceptance, storage
 mutation authority, or public error schema.
 
+`current_handoff_compatibility_contract()` exposes a copy-safe local snapshot
+of current route schemas, policy fields, local artifact postures, error
+diagnostic posture, and explicit non-claims. It is a route-local compatibility
+review surface for this production vertical slice only. It does not define a
+public SDK, final package format, archive contract, signature/trust policy, or
+portable error schema.
+
 Receiving review state is a local projection over package-open, integrity,
 receiving-gate, import-plan, optional inspection, durable-import receipt, and
 retry-summary facts. DEC-018 defines that projection boundary without accepting
