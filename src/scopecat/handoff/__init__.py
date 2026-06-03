@@ -3,7 +3,11 @@
 from scopecat.handoff.archive_materialization import (
     ArchiveMaterializationContractReview,
     ArchiveMaterializationMemberReview,
+    HandoffArchiveMaterializationRequest,
+    HandoffArchiveMaterializationRun,
     current_handoff_archive_materialization_contract,
+    materialize_handoff_archive_package,
+    materialize_handoff_archive_package_from_request,
     review_handoff_archive_materialization_contract,
 )
 from scopecat.handoff.compatibility import (
@@ -89,6 +93,8 @@ __all__ = [
     "SELECTED_RECORD_EXPORT_POLICY",
     "ArchiveMaterializationContractReview",
     "ArchiveMaterializationMemberReview",
+    "HandoffArchiveMaterializationRequest",
+    "HandoffArchiveMaterializationRun",
     "HandoffContextReferenceSummary",
     "HandoffContractError",
     "HandoffDurableImportDestination",
@@ -134,6 +140,8 @@ __all__ = [
     "export_selected_measurement_record_batch_from_request",
     "export_selected_measurement_record_from_request",
     "export_selected_measurement_record_with_preflight_refresh",
+    "materialize_handoff_archive_package",
+    "materialize_handoff_archive_package_from_request",
     "observe_package_integrity",
     "open_package",
     "project_handoff_receiving_review_state",

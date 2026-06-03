@@ -177,12 +177,18 @@ signature-gated import policy.
 `review_handoff_signature_trust_contract()` expose local contract review for
 that future work without performing signature verification.
 
-Archive package implementation is deferred under DEC-020. This module writes
-and opens directory manifest packages; it does not create archives, accept
-archive inputs, extract packages, or treat archive bytes as package authority.
+Archive package creation and archive-backed import remain deferred under
+DEC-020, while DEC-021 accepts safe zip archive materialization into a DEC-010
+directory package of record. This module writes and opens directory manifest
+packages and can materialize a zip transport archive into a staging directory;
+it still does not create archives, verify signatures/trust, import directly
+from archive bytes, or treat archive bytes as package authority.
 `current_handoff_archive_materialization_contract()` and
 `review_handoff_archive_materialization_contract()` expose local contract
-review for that future work without performing archive materialization.
+review for archive materialization posture. `materialize_handoff_archive_package()`
+and `materialize_handoff_archive_package_from_request()` materialize zip
+transport archives after path, member, manifest, collision, and package-open
+checks.
 
 The generic package writer can package explicitly declared linked-context
 payload files under `context/` after source digest and size preflight. Opened
