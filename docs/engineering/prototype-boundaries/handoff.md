@@ -43,6 +43,9 @@ Read it with:
   for the current safe archive materialization boundary;
 - [`../../decisions/architecture/DEC-024-accept-safe-archive-creation.md`](../../decisions/architecture/DEC-024-accept-safe-archive-creation.md)
   for the current safe archive creation boundary;
+- [`../../decisions/architecture/DEC-025-defer-existing-record-update-and-final-storage-schema.md`](../../decisions/architecture/DEC-025-defer-existing-record-update-and-final-storage-schema.md)
+  for the current source-storage-read-only export and new-record-only durable
+  import boundary;
 - [`../workflow-validation-map.md`](../workflow-validation-map.md) for the
   current cross-capability handoff workflow gap.
 
@@ -281,6 +284,12 @@ frontend, durable GUI store, or mutation authority.
 allows that projection to be materialized as a local no-overwrite review-state
 receipt for workflow continuity without making the receipt a GUI-owned store.
 
+[`DEC-025`](../../decisions/architecture/DEC-025-defer-existing-record-update-and-final-storage-schema.md)
+keeps selected stored-record export source-storage-read-only and receiving
+durable import new-record-only. Existing-record update, merge import, manifest
+replacement, primary-data compaction, and final storage schema publication
+remain outside the current JNY-001 production-readiness boundary.
+
 ## Production Vertical Slice Candidate
 
 JNY-001 single-measurement handoff is a production vertical slice candidate when
@@ -326,7 +335,10 @@ Acceptance for that candidate is intentionally narrow:
 - local receipts remain review surfaces, not portable package artifacts;
 - selected stored Measurement Record export may package explicitly declared
   record-local linked-context payloads, while durable import keeps linked
-  context reference-only.
+  context reference-only;
+- source-side selected-record export remains read-only over Measurement Records
+  storage, and receiving durable import creates a new record rather than
+  updating an existing one.
 
 This candidate is not production readiness for the whole handoff capability.
 Persisted GUI/review state, public SDK contracts, and final storage schemas
@@ -357,6 +369,9 @@ Safe zip archive materialization is governed by
 [`DEC-021`](../../decisions/architecture/DEC-021-accept-safe-archive-materialization.md).
 Safe zip archive creation is governed by
 [`DEC-024`](../../decisions/architecture/DEC-024-accept-safe-archive-creation.md).
+Existing-record update and final storage schema deferral for this handoff slice
+are governed by
+[`DEC-025`](../../decisions/architecture/DEC-025-defer-existing-record-update-and-final-storage-schema.md).
 
 ## Historical Context
 
@@ -386,9 +401,9 @@ This boundary does not accept:
 - archive-backed durable import or compressed package format beyond DEC-021 and
   DEC-024;
 - external authenticity validation or trusted-source policy;
-- durable import, package acceptance, existing-record update, durable
-  multi-measurement batch import beyond DEC-017, rollback policy, or storage
-  conflict policy;
+- package acceptance, existing-record update or merge import beyond DEC-025,
+  durable multi-measurement batch import beyond DEC-017, rollback policy, or
+  storage conflict policy;
 - recursive traversal or linked-context payload import beyond DEC-016;
 - analysis/fit result model, fit execution, uncertainty, write-back, or result
   import;
@@ -417,6 +432,7 @@ Advance this boundary only when a named workflow requires broader package-use
 behavior. Current likely separate decisions include:
 
 - production readiness hardening for selected stored Measurement Record export;
+- existing-record update/import or final storage schema beyond DEC-025;
 - GUI-owned persisted review beyond the DEC-018 projection and DEC-023 local
   receipt boundary;
 - archive-backed durable import or broader archive semantics beyond DEC-021 and

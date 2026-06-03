@@ -127,7 +127,10 @@ DEC-016 keeps linked-context payload import deferred until Measurement Records
 has an accepted context artifact storage contract. DEC-017 keeps batch durable
 import deferred until a destination and partial-success contract exists.
 DEC-018 defines receiving review state as a derived local projection without
-accepting a persisted GUI state store.
+accepting a persisted GUI state store. DEC-025 keeps the JNY-001 handoff
+vertical slice source-storage-read-only on export and new-record-only on
+durable import; existing-record update, merge import, manifest replacement,
+and final storage schema publication remain separate validation questions.
 
 Source evidence:
 
