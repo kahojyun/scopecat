@@ -17,9 +17,9 @@ candidate: source-side durable Measurement Record, selected stored-record
 export, read-only package open, receiving gate, import plan, and durable import
 into a second storage root.
 
-The next architecture pressure is whether that candidate should introduce an
-archive file as the portable package format, or continue to use the current
-directory-shaped package with `package-manifest.json`.
+This decision resolves whether that candidate should introduce an archive file
+as the portable package format, or continue to use the current directory-shaped
+package with `package-manifest.json`.
 
 The slice still needs visible, inspectable artifacts while package manifest
 shape, trust/authenticity, linked-context payload packaging, batch import, and
@@ -100,7 +100,8 @@ Revisit this decision when:
 
 - handoff packages need to cross a transport boundary where directories are not
   acceptable;
-- signed package or trusted-source policy work beyond DEC-019 starts;
+- signature verification or trusted-source policy work beyond DEC-019 and the
+  DEC-022 signed scope starts;
 - linked-context payload packaging needs atomic package transfer;
 - batch export/import needs a stable bundle format;
 - package publication, SDK, or GUI workflows require an archive artifact beyond

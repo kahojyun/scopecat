@@ -20,10 +20,9 @@ validity.
 
 The selected stored-record export, receiving gate, import plan, durable-import
 adapter, and receiving review state projection now form a production
-vertical-slice candidate. That makes signature and trust pressure visible
-again: the product could either start implementing a signature surface now, or
-explicitly keep signature/trust outside the slice until the signed-artifact
-contract is defined.
+vertical-slice candidate. This decision resolves whether to start implementing
+a signature surface now, or explicitly keep signature/trust outside the slice
+until the signed-artifact contract is defined.
 
 A partial implementation would be misleading. Signature support needs more than
 a manifest field: it must define what bytes are signed, how those bytes are
@@ -43,11 +42,11 @@ non-claims. Package ids, source export ids, labels, display names, context
 references, package-relative paths, and receiving review facts remain reviewed
 package facts; they are not authenticated identity or trusted-source proof.
 
-Any future signature/trust implementation must first define:
+DEC-022 later accepts the signed content scope as the DEC-010 package of
+record: the manifest plus every manifest-declared package member. Any future
+signature/trust implementation must still define:
 
-- signed content scope: manifest only, manifest plus package members, archive
-  bytes, or another canonical artifact;
-- canonicalization rules for directory packages and any future archive format;
+- canonicalization rules for the DEC-010 package of record;
 - signer identity, signer metadata, and key material representation;
 - trust-root configuration, rotation, revocation, and timestamp expectations;
 - verification timing for package open, receiving review, import planning, and
@@ -59,15 +58,15 @@ Any future signature/trust implementation must first define:
 - user-facing review language that keeps integrity, authenticity, sender trust,
   and scientific validity separate;
 - relationship to [`DEC-010`](DEC-010-package-format-directory-manifest.md)
-  directory packages and any later archive package decision.
+  directory packages and DEC-021 archive materialization.
 
 The current implementation exposes
 `current_handoff_signature_trust_contract()` and
 `review_handoff_signature_trust_contract()` as local contract-review surfaces.
 They do not verify signatures, accept trusted sources, manage keys, configure
 trust roots, or gate durable import. They only classify future signature/trust
-contract candidates against the required signed scope, canonical artifact,
-canonicalization, signer identity, trust-root, verification-timing,
+contract candidates against the DEC-022 signed scope and the required canonical
+artifact, canonicalization, signer identity, trust-root, verification-timing,
 failure-classification, unsigned-handling, and durable-import gate posture.
 
 ## Scope
@@ -107,7 +106,7 @@ trusted.
 ## Alternatives Considered
 
 - Option: add an optional signature field to the current manifest. Rejected
-  because it would create schema pressure before canonicalization, coverage,
+  because it would constrain the schema before canonicalization, coverage,
   signer identity, and trust-root semantics exist.
 - Option: verify a detached digest file as a lightweight signature. Rejected
   because digest agreement still does not establish signer identity or trusted
@@ -117,7 +116,7 @@ trusted.
   not an authenticated sender workflow.
 - Option: implement signatures only for single-measurement directory packages.
   Rejected because archive format and multi-measurement packaging are already
-  visible pressures, and a narrow signature format could become incompatible
+  visible requirements, and a narrow signature format could become incompatible
   with the next package-format decision.
 
 ## Supersession
@@ -136,6 +135,7 @@ Revisit this decision when:
 
 - package exchange must cross a collaborator, organization, publication, or
   adversarial trust boundary;
+- DEC-022 signed scope must change;
 - archive package creation or extraction is accepted;
 - GUI receiving review needs trusted, untrusted, unsigned, and unverifiable
   package states;
@@ -146,6 +146,7 @@ Revisit this decision when:
 
 - [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
 - [`DEC-020-defer-archive-package-implementation.md`](DEC-020-defer-archive-package-implementation.md)
+- [`DEC-022-define-signed-package-trust-scope.md`](DEC-022-define-signed-package-trust-scope.md)
 - [`DEC-011-package-trust-authenticity-posture.md`](DEC-011-package-trust-authenticity-posture.md)
 - [`DEC-018-define-receiving-review-state-contract.md`](DEC-018-define-receiving-review-state-contract.md)
 - [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)

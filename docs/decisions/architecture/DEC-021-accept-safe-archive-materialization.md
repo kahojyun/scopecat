@@ -9,9 +9,9 @@ Accepted
 DEC-020 deferred archive package implementation until archive artifact authority,
 safe staging, and materialization review contracts existed. JNY-001 now has a
 directory-manifest package of record, receiving review, import planning, durable
-import, signature/trust deferral, and selected-record export hardening. The
-remaining practical transfer gap is moving a package between machines as one
-archive file without treating archive bytes as the package of record.
+import, signature/trust deferral, and selected-record export hardening. Moving
+a package between machines as one archive file must not treat archive bytes as
+the package of record.
 
 ## Decision
 
@@ -46,9 +46,10 @@ This decision does not implement:
 
 Receiving workflows may now stage a zip transport archive into a DEC-010 package
 directory before package open and integrity review. Existing directory package
-flows remain valid. DEC-019 still governs signature/trust deferral, and durable
-import still operates on reviewed package/import-plan evidence rather than
-archive bytes.
+flows remain valid. DEC-019 still governs signature/trust implementation
+deferral, DEC-022 keeps future signature scope on the DEC-010 package of
+record rather than archive bytes, and durable import still operates on reviewed
+package/import-plan evidence rather than archive bytes.
 
 ## Alternatives Considered
 
@@ -65,3 +66,4 @@ archive bytes.
 - [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
 - [`DEC-019-defer-package-signature-trust-implementation.md`](DEC-019-defer-package-signature-trust-implementation.md)
 - [`DEC-020-defer-archive-package-implementation.md`](DEC-020-defer-archive-package-implementation.md)
+- [`DEC-022-define-signed-package-trust-scope.md`](DEC-022-define-signed-package-trust-scope.md)

@@ -14,9 +14,9 @@ Owner: [`../../engineering/prototype-boundaries/handoff-durable-import-storage.m
 
 DEC-013 allows receiving/import planning to list multiple package measurements
 without storage mutation. DEC-015 allows selected stored-record export to
-produce multi-measurement handoff packages. The remaining receiving-side
-pressure is whether a reviewed multi-measurement import plan should authorize
-one durable batch mutation.
+produce multi-measurement handoff packages. This decision resolves whether a
+reviewed multi-measurement import plan should authorize one durable batch
+mutation.
 
 The current handoff durable-import adapter is intentionally one planned
 measurement per operation. It delegates mutation to Measurement Records durable
@@ -69,12 +69,6 @@ This decision does not apply to:
 Users can review and plan multi-measurement packages, but durable storage
 mutation stays conservative and auditable. Existing single-record import
 rollback and retry behavior remains the only accepted durable mutation path.
-
-The next receiving-side product pressure shifts to production-readiness
-hardening, archive packaging/extraction beyond DEC-020, signed package policy
-beyond DEC-019, or a future explicit batch import contract with destination and
-partial-success semantics. GUI receiving state projection is governed by
-DEC-018.
 
 ## Alternatives Considered
 

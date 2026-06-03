@@ -17,11 +17,11 @@ references. That kept selected stored Measurement Record export narrow while
 the package writer, opener, receiving gate, and import plan settled their basic
 contracts.
 
-The next package pressure is whether linked context can be present as package
-payload when a caller explicitly declares one source file. This is useful for
-reviewing a small context artifact alongside the selected measurement, but it
-must not silently turn into recursive context capture, reference resolution, or
-durable linked-context import.
+This decision resolves whether linked context can be present as package payload
+when a caller explicitly declares one source file. This is useful for reviewing
+a small context artifact alongside the selected measurement, but it must not
+silently turn into recursive context capture, reference resolution, or durable
+linked-context import.
 
 ## Decision
 

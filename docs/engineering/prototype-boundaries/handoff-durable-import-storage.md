@@ -178,7 +178,8 @@ This boundary does not accept:
 - manifest replacement or canonical-current-state manifest updates;
 - linked-context payload materialization beyond DEC-016;
 - archive extraction beyond DEC-020;
-- signatures, authenticity, or package trust policy beyond DEC-019;
+- signatures, authenticity, or package trust policy beyond DEC-019 and the
+  DEC-022 signed scope;
 - adapter discovery, drop-folder protocol, service API, or stable public
   adapter API;
 - conflict policy beyond new-record no-overwrite behavior;
@@ -222,7 +223,8 @@ Likely separate decisions include:
 
 - batch package receiving/import and partial-success policy beyond DEC-017;
 - package archive format beyond DEC-020;
-- trust, authenticity, or signature handling beyond DEC-019;
+- trust, authenticity, or signature handling beyond DEC-019 and the DEC-022
+  signed scope;
 - linked-context payload import beyond DEC-016;
 - existing-record update/import conflict behavior;
 - persisted receiving review state or GUI durable review workflow beyond DEC-018;

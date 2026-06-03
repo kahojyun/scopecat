@@ -14,9 +14,9 @@ Owner: [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/p
 
 [`DEC-010`](DEC-010-package-format-directory-manifest.md) keeps the JNY-001
 single-measurement production vertical slice candidate on a directory manifest
-package format. The next architecture pressure is whether that package should
-claim authenticity or trust, or whether the current slice should remain limited
-to local integrity observation.
+package format. This decision resolves whether that package should claim
+authenticity or trust, or whether the current slice should remain limited to
+local integrity observation.
 
 The current handoff path can prove useful facts without signatures: package
 members are package-relative, declared primary data bytes can be checksummed,
@@ -46,8 +46,10 @@ separation with explicit `not_performed` policy fields or `does_not_claim`
 entries.
 
 [`DEC-019`](DEC-019-defer-package-signature-trust-implementation.md) keeps
-signature/trust implementation deferred until a signed-artifact, canonicalized
-coverage, signer identity, and trust-root contract exists.
+signature/trust implementation deferred until canonicalization, signer
+identity, trust roots, verification timing, failure handling, and import policy
+exist. [`DEC-022`](DEC-022-define-signed-package-trust-scope.md) defines the
+future signed scope as the DEC-010 package of record.
 The current signature/trust contract-review helper records that separation as
 local review evidence only; it does not perform signature verification,
 trusted-source acceptance, or signature-gated durable import.
@@ -88,7 +90,7 @@ how those facts appear in receiving review as required by DEC-019.
   a matching digest only compares package bytes to manifest declarations; it
   does not prove who authored the package or whether the signer is trusted.
 - Option: add a placeholder signature field now. Rejected because placeholder
-  signature metadata would create schema pressure without a validated trust
+  signature metadata would constrain the schema without a validated trust
   root, signer model, or coverage rule.
 - Option: block all import from unsigned packages. Rejected for this slice
   because the current workflow is a local review/import path and has not yet

@@ -111,9 +111,10 @@ The DEC-010 directory manifest package format is accepted for the current
 production vertical slice candidate. DEC-011 keeps that package unsigned local-review
 evidence: declared digest integrity is observed, but signature validation,
 authenticity, sender trust, and scientific validity are not claimed. DEC-019
-keeps signature/trust implementation deferred until a signed-artifact and
-trust-root contract exists. DEC-020 keeps archive implementation deferred until
-archive artifact authority, extraction safety, and materialization review
+keeps signature/trust implementation deferred, while DEC-022 defines the
+future signed scope as the DEC-010 package of record. DEC-020 keeps archive
+implementation deferred until archive artifact authority, extraction safety,
+and materialization review
 contracts exist. Batch durable import remains a separate validation question.
 DEC-012 allows generic
 handoff writer inputs to package explicitly declared linked-context payloads

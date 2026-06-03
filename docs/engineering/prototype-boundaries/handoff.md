@@ -227,8 +227,13 @@ may gate receiving/import planning, but signature validation, authenticity,
 sender trust, and scientific validity remain unclaimed.
 
 [`DEC-019`](../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md)
-keeps signature/trust implementation deferred until a signed-artifact,
-canonicalized coverage, signer identity, and trust-root contract exists.
+keeps signature/trust implementation deferred until canonicalization, signer
+identity, trust roots, verification timing, failure handling, and import
+mutation policy exist.
+[`DEC-022`](../../decisions/architecture/DEC-022-define-signed-package-trust-scope.md)
+accepts the future signed scope as the DEC-010 directory-manifest package of
+record: the manifest plus every manifest-declared package member, not
+digest-only, manifest-only, or archive-byte evidence.
 `current_handoff_signature_trust_contract()` records the current unsigned
 local-review posture and the required future trust boundary without verifying
 signatures, accepting trusted sources, or gating durable import.
@@ -376,8 +381,8 @@ This boundary does not accept:
   inference, trace opening, or array API;
 - archive creation, archive-backed durable import, or compressed package format
   beyond DEC-021;
-- signature validation,
-  authenticity validation, or trusted-source policy beyond DEC-019;
+- signature validation, authenticity validation, or trusted-source policy
+  beyond DEC-019 and the DEC-022 signed scope;
 - durable import, package acceptance, existing-record update, durable
   multi-measurement batch import beyond DEC-017, rollback policy, or storage
   conflict policy;
@@ -412,7 +417,8 @@ behavior. Current likely separate decisions include:
 - persisted GUI review beyond the DEC-018 local projection boundary;
 - archive package creation, archive-backed durable import, or broader archive
   semantics beyond DEC-021;
-- signed package and trusted-source policy beyond DEC-019;
+- signature verification and trusted-source policy beyond DEC-019 and the
+  DEC-022 signed scope;
 - durable linked-context payload import beyond DEC-016 or batch durable import
   beyond DEC-017;
 - analysis or fit results as first-class package display facts;

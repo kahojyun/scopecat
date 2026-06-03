@@ -23,7 +23,7 @@ JNY-001 receiving now has a complete backend review chain:
   import.
 
 These steps return local receipts, but there is no live GUI route and no
-cross-session GUI review store. The next pressure is whether GUI receiving
+cross-session GUI review store. This decision resolves whether GUI receiving
 state should become a durable model now, or whether the current backend
 receipts should remain the source for any future UI projection.
 
