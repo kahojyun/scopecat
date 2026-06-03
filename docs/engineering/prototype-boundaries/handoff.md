@@ -138,6 +138,13 @@ Acceptance for that candidate is intentionally narrow:
 - primary CSV bytes, digest, size, label, experiment type, and record identity
   remain continuous through export and receiving;
 - preview metadata is explicit and package-manifest authored;
+- stale or missing source-side record evidence blocks export before producing a
+  new package;
+- existing package destinations use no-overwrite behavior;
+- corrupted package bytes block receiving/import through integrity review;
+- receiving review facts must match the opened package and observed integrity;
+- blocked durable imports summarize the next action without authorizing mutation
+  and require a fresh import plan for retry review;
 - receiving review and import planning remain non-mutating;
 - durable storage mutation remains delegated to Measurement Records import;
 - local receipts remain review surfaces, not portable package artifacts;
