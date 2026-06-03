@@ -22,10 +22,11 @@ nearest owner and avoid turning candidates or future plans into current truth.
   owners by themselves.
 - **Owner**: update every affected owner, but keep each fact in one durable
   place: workflow and use case map for user journey, use case, scenario, operation,
-  and validation status; product capability map for capability maturity;
-  implementation register for live module ownership; prototype-boundary notes
-  for route boundaries; module READMEs for API details; or discovery docs for
-  evidence.
+  and validation status; target capability map for capability maturity;
+  brownfield docs for current-state, transition-state, migration, and
+  authority-transfer state; implementation register for live module ownership;
+  prototype-boundary notes for route boundaries; module READMEs for API
+  details; or discovery docs for evidence.
 - **No duplicate state**: avoid copying the same current state, owner table,
   next work, or non-goal into multiple README files.
 - **Candidate promotion**: if discovery results or `implementation_candidates/`

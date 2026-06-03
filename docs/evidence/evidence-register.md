@@ -18,7 +18,10 @@ Use neighboring documents for other layers:
 - interpretation rules and source hygiene: [`method.md`](method.md)
 - problem framing: [`../discovery/problem-briefs/`](../discovery/problem-briefs)
 - product direction: [`../product/direction.md`](../product/direction.md)
-- adoption model: [`../product/adoption-model.md`](../product/adoption-model.md)
+- product adoption strategy:
+  [`../product/adoption-strategy.md`](../product/adoption-strategy.md)
+- brownfield current-state and migration context:
+  [`../brownfield/README.md`](../brownfield/README.md)
 - discovery adoption-route evidence: [`../discovery/routes/adoption-routes.md`](../discovery/routes/adoption-routes.md)
 - external system baseline: [`external-baseline.md`](external-baseline.md)
 

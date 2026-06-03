@@ -11,20 +11,22 @@ scenario evidence, and operation evidence rather than by candidate file,
 fixture family, or code module. Use it to decide what the next prototype or
 vertical slice should validate.
 
-[`../product/journey-map.md`](../product/journey-map.md) owns product user
+[`../product/target-journeys.md`](../product/target-journeys.md) owns product user
 journeys and their first workflow/use-case decomposition.
-[`../product/capability-map.md`](../product/capability-map.md) records product
+[`../product/target-capabilities.md`](../product/target-capabilities.md) records product
 capabilities, maturity, evidence, and open advancement questions.
+[`../brownfield/transition-architecture.md`](../brownfield/transition-architecture.md)
+records current/transition/target brownfield journeys and ownership posture.
 [`implementation-register.md`](implementation-register.md) records live
 implementation owners. This document records validation state for use cases,
 workflow segments, scenarios, operations, and seams.
 
 ## Current Focus
 
-The main composition gap is the legacy portable handoff user journey: import or
-record a legacy-backed measurement into Scopecat storage, select one stored
-measurement, export a handoff package, preview it on another computer, and
-import it into that computer's storage.
+The main composition gap is the Portable Measurement Handoff vertical slice:
+record or import an externally produced measurement into Scopecat storage,
+select one stored measurement, export a handoff package, preview it on another
+computer, and import it into that computer's storage.
 
 The validated ends already exist: Measurement Records can store legacy-backed
 records and Handoff can preview/gate/import one ready package measurement into
@@ -34,10 +36,12 @@ portable/export artifact-boundary behavior for that package.
 
 ## Reading Rules
 
-Start with [`../product/journey-map.md`](../product/journey-map.md) for the
+Start with [`../product/target-journeys.md`](../product/target-journeys.md) for the
 product journey and its target workflows/use cases. Use `Use Cases And Workflow
 Segments` here for promotable vertical-slice pressure. Use `Scenarios And
 Operations` only for route-local validation, review, or technical-risk evidence.
+Use [`../brownfield/transition-architecture.md`](../brownfield/transition-architecture.md)
+when a row depends on legacy behavior, migration state, or ownership posture.
 Then use
 [`implementation-register.md`](implementation-register.md) to find the live
 module owners and boundary detail.
@@ -66,10 +70,10 @@ or `Maintained product capability`.
 
 | Use Case Or Workflow Segment | Supports Journey | Maturity | Capability Areas | Supported Behavior | Missing Behavior | Next Validation Question |
 | --- | --- | --- | --- | --- | --- | --- |
-| Legacy external run becomes visible in local storage | Legacy measurement portable handoff | Engineering prototype | Measurement Records | Create a `legacy_system` Measurement Records shell; write `legacy-run-receipt.json`; optionally attach reviewed converted normalized primary data to the same record; optionally record parameter, setup, code, artifact, and evidence references; list/review visible storage. | Legacy file observation, legacy parsing, adapter discovery, legacy code execution, reference repair, GUI state persistence, and scientific validity remain unvalidated. | Maintenance only unless a new brownfield use case is named. |
-| Normalized primary data becomes a durable Measurement Record | Legacy measurement portable handoff | Engineering prototype | Measurement Records | Import reviewed normalized primary CSV into durable local Measurement Records storage; create record shell; write primary data; validate normalized table shape; finalize; project read model; catalog/refresh read model; durable import rolls back synchronous partial new-record failures. | Final storage schema, existing-record merge import, manifest replacement, conflict resolution beyond accepted no-overwrite paths, and shared domain model remain unvalidated. | Decide separately if existing-record import/update becomes a production vertical slice. |
-| Source-root data becomes a local handoff package for review | Legacy measurement portable handoff | Engineering prototype | Handoff Packages | Package one or more declared normalized primary data files from a caller-provided source root for local review; validate write request; copy declared primary CSV files after digest/size preflight; write directory-shaped package subset; reopen package; optionally write local inspection HTML. | Archive format, signatures/authenticity, package import, final package format, linked-context payload packaging, and GUI architecture remain unvalidated. | Maintenance only unless the package export source changes to stored Measurement Records. |
-| Handoff package is received and imported into local storage | Legacy measurement portable handoff | Engineering prototype | Handoff Packages, Measurement Records | Review a handoff package on a receiving side and import one selected measurement into local storage; open package read-only; observe manifest-declared integrity; run receiving gate; create non-mutating import plan; adapt one ready measurement into Measurement Records durable import; summarize import receipt and retry reasonableness. | Batch import, archive extraction/trust, signatures/authenticity, linked-context payload import, conflict resolution beyond delegated durable import rules, and persistent receiving review state remain unvalidated. | Decide separately if batch receiving or trust/authenticity is the next user risk. |
+| Legacy external run becomes visible in local storage | Portable Measurement Handoff | Engineering prototype | Measurement Records | Create a `legacy_system` Measurement Records shell; write `legacy-run-receipt.json`; optionally attach reviewed converted normalized primary data to the same record; optionally record parameter, setup, code, artifact, and evidence references; list/review visible storage. | Legacy file observation, legacy parsing, adapter discovery, legacy code execution, reference repair, GUI state persistence, and scientific validity remain unvalidated. | Maintenance only unless a new brownfield use case is named. |
+| Normalized primary data becomes a durable Measurement Record | Portable Measurement Handoff | Engineering prototype | Measurement Records | Import reviewed normalized primary CSV into durable local Measurement Records storage; create record shell; write primary data; validate normalized table shape; finalize; project read model; catalog/refresh read model; durable import rolls back synchronous partial new-record failures. | Final storage schema, existing-record merge import, manifest replacement, conflict resolution beyond accepted no-overwrite paths, and shared domain model remain unvalidated. | Decide separately if existing-record import/update becomes a production vertical slice. |
+| Source-root data becomes a local handoff package for review | Portable Measurement Handoff | Engineering prototype | Handoff Packages | Package one or more declared normalized primary data files from a caller-provided source root for local review; validate write request; copy declared primary CSV files after digest/size preflight; write directory-shaped package subset; reopen package; optionally write local inspection HTML. | Archive format, signatures/authenticity, package import, final package format, linked-context payload packaging, and GUI architecture remain unvalidated. | Maintenance only unless the package export source changes to stored Measurement Records. |
+| Handoff package is received and imported into local storage | Portable Measurement Handoff | Engineering prototype | Handoff Packages, Measurement Records | Review a handoff package on a receiving side and import one selected measurement into local storage; open package read-only; observe manifest-declared integrity; run receiving gate; create non-mutating import plan; adapt one ready measurement into Measurement Records durable import; summarize import receipt and retry reasonableness. | Batch import, archive extraction/trust, signatures/authenticity, linked-context payload import, conflict resolution beyond delegated durable import rules, and persistent receiving review state remain unvalidated. | Decide separately if batch receiving or trust/authenticity is the next user risk. |
 | Parameter state review before manual run preparation | Manual pre-run context review and approval | Engineering prototype | Parameter State Review | Let an operator review adapter or calibration parameter-state facts before a run without applying hardware changes; adapter-authored import preview; explicit review/commit; no-overwrite storage writer; manifest/receipt read view; source-agnostic projection; selection context; parameter-state-local run-preparation consumption, gate, scope alignment, and review chain. | Hardware apply, current instrument-state claims, external compatibility-file writing, live write-back, catalog discovery, setup-binding mutation, automatic run start, and shared run-context schema remain unvalidated. | Decide separately whether prepared-run becomes its own live route owner. |
 
 ## Scenarios And Operations
@@ -95,4 +99,6 @@ Update this map when a branch:
 Keep detailed API and code ownership in module READMEs and prototype-boundary
 notes.
 Keep this map focused on use cases, workflow segments, scenarios, and
-operations. Update the product journey map when a user journey changes.
+operations. Update the target journey map when a target user journey changes
+and the brownfield transition architecture when migration state or ownership
+posture changes.

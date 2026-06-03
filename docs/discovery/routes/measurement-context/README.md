@@ -61,8 +61,9 @@ The broader measurement-context support backlog remains candidate-only:
 
 Update this track index only when new discovery evidence changes any of these
 boundaries. Live engineering promotion should update the engineering workflow
-map, product capability map, implementation register, prototype-boundary note,
-and module README instead:
+map, target capability map, brownfield transition architecture when ownership
+posture changes, implementation register, prototype-boundary note, and module
+README instead:
 
 - resolved-link comparison API or finding semantics;
 - context-link construction, storage, or mutation behavior;

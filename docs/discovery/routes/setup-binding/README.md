@@ -32,7 +32,8 @@ validity, start runs, or define a shared input-snapshot schema.
 
 ## Reopen Triggers
 
-Update the active workflow map, capability map, implementation register,
+Update the active workflow map, target capability map, brownfield transition
+architecture when ownership posture changes, implementation register,
 prototype-boundary note, and module README when a branch promotes or changes
 any of these boundaries:
 

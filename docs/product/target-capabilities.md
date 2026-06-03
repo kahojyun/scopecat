@@ -1,25 +1,26 @@
-# Product Capability Map
+# Target Capability Map
 
 ## Status
 
-Current product capability map with candidate feature areas separated from
-accepted product capabilities.
+Current target product capability map with candidate feature areas separated
+from accepted product capabilities.
 
 ## Purpose
 
 Track Scopecat product capabilities and their maturity. This is a product
-planning document, not an implementation inventory, feature list, or scenario
-catalog. A capability may support multiple workflows and may be implemented by
-one or more modules.
+planning document, not an implementation inventory, feature list, brownfield
+system inventory, or scenario catalog. A capability may support multiple
+journeys and may be implemented by one or more modules.
 
 Use this document with:
 
-- [`adoption-model.md`](adoption-model.md) for user adoption paths and
-  brownfield boundaries;
+- [`adoption-strategy.md`](adoption-strategy.md) for user adoption paths;
+- [`../brownfield/transition-architecture.md`](../brownfield/transition-architecture.md)
+  for brownfield ownership posture and migration boundaries;
 - [`../engineering/delivery-maturity-model.md`](../engineering/delivery-maturity-model.md)
   for maturity vocabulary;
 - [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
-  for user journeys, use cases, scenarios, operations, seams, and next
+  for use cases, workflow segments, scenarios, operations, seams, and next
   validation questions;
 - [`../engineering/implementation-register.md`](../engineering/implementation-register.md)
   for live implementation owners and their detailed module/boundary docs.
@@ -51,6 +52,7 @@ Update this map when a branch changes product capability maturity, product
 boundary, evidence state, advancement questions, or promotes a candidate
 feature area into a product capability.
 
-Do not use this file to list every implementation entrypoint or test. Use
+Do not use this file to list every implementation entrypoint, brownfield
+artifact family, legacy system component, test, or fixture. Use
 [`../engineering/implementation-register.md`](../engineering/implementation-register.md)
 for live implementation ownership and boundary/module docs.

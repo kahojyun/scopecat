@@ -9,7 +9,10 @@ the recommended top-down reading path.
 
 ```text
 docs/
-  product/   product direction, adoption model, journey map, and capability map
+  product/   product direction, target journeys, target capabilities, and
+              adoption strategy
+  brownfield/ current-state assessment, transition architecture, migration
+              strategy, and migration roadmap
   engineering/ delivery maturity model, workflow validation map,
                implementation register, prototype boundaries, and engineering
                archive
@@ -23,9 +26,14 @@ docs/
 | [`AGENTS.md`](AGENTS.md) | AI-session rules for work inside `docs/`. |
 | [`product/README.md`](product/README.md) | Product documentation navigation. |
 | [`product/direction.md`](product/direction.md) | Current product direction, default ownership boundaries, and non-goals. |
-| [`product/adoption-model.md`](product/adoption-model.md) | Brownfield adoption paths, migration boundaries, and supporting capabilities. |
-| [`product/journey-map.md`](product/journey-map.md) | Product user journeys, primary workflows, use cases to prove, and discovery-to-engineering orientation. |
-| [`product/capability-map.md`](product/capability-map.md) | Product capabilities, maturity, evidence state, and open advancement questions. |
+| [`product/target-journeys.md`](product/target-journeys.md) | Target product user journeys, primary workflows, use cases to prove, and discovery-to-engineering orientation. |
+| [`product/target-capabilities.md`](product/target-capabilities.md) | Target product capabilities, maturity, evidence state, and open advancement questions. |
+| [`product/adoption-strategy.md`](product/adoption-strategy.md) | Product adoption paths and user-value entry points. |
+| [`brownfield/README.md`](brownfield/README.md) | Brownfield documentation navigation. |
+| [`brownfield/current-state-assessment.md`](brownfield/current-state-assessment.md) | As-is lab workflow and artifact patterns. |
+| [`brownfield/transition-architecture.md`](brownfield/transition-architecture.md) | Current/transition/target journey mapping and ownership posture. |
+| [`brownfield/migration-strategy.md`](brownfield/migration-strategy.md) | Brownfield modernization patterns and authority-transfer rules. |
+| [`brownfield/migration-roadmap.md`](brownfield/migration-roadmap.md) | Vertical-slice migration sequence and decision gates. |
 | [`engineering/README.md`](engineering/README.md) | Engineering governance navigation for maturity, workflow, capability, and promotion rules. |
 | [`engineering/delivery-maturity-model.md`](engineering/delivery-maturity-model.md) | Product objects, maturity states, validation methods, promotion rules, and drift control. |
 | [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md) | Use case validation state, evidence scopes, missing seams, and next validation questions. |

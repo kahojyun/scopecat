@@ -11,11 +11,11 @@ not active product routes, implementation owners, or workflow plans.
 Use track indexes for discovery status and validation sequencing unless an
 index is explicitly marked retired; use validation results for slice-local
 evidence. Once a track has live engineering ownership, use
-[`../../product/journey-map.md`](../../product/journey-map.md) for product
+[`../../product/target-journeys.md`](../../product/target-journeys.md) for product
 journey framing,
 [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
 for use case validation sequencing, and
-[`../../product/capability-map.md`](../../product/capability-map.md)
+[`../../product/target-capabilities.md`](../../product/target-capabilities.md)
 for capability maturity. Use
 [`../../engineering/implementation-register.md`](../../engineering/implementation-register.md)
 for live implementation ownership.
@@ -24,10 +24,11 @@ for live implementation ownership.
 
 | Owner | Use For |
 | --- | --- |
-| [`../../product/adoption-model.md`](../../product/adoption-model.md) | Current product adoption model and brownfield migration paths. |
-| [`../../product/journey-map.md`](../../product/journey-map.md) | Current product journeys, primary workflows, and use cases to prove. |
+| [`../../product/adoption-strategy.md`](../../product/adoption-strategy.md) | Current product adoption paths. |
+| [`../../product/target-journeys.md`](../../product/target-journeys.md) | Current target product journeys, primary workflows, and use cases to prove. |
 | [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md) | Current use case validation sequencing after discovery evidence moves toward implementation. |
-| [`../../product/capability-map.md`](../../product/capability-map.md) | Current product capabilities, maturity, evidence, and advancement questions. |
+| [`../../product/target-capabilities.md`](../../product/target-capabilities.md) | Current target product capabilities, maturity, evidence, and advancement questions. |
+| [`../../brownfield/README.md`](../../brownfield/README.md) | Current-state, transition architecture, migration strategy, and migration roadmap for brownfield context. |
 | [`../../engineering/implementation-register.md`](../../engineering/implementation-register.md) | Current live implementation owners. |
 
 ## Discovery Tracks

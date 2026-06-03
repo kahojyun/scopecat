@@ -8,15 +8,15 @@ Current implementation ownership register.
 
 Track live implementation owners and point to the nearest detailed owner for
 APIs, artifact boundaries, scope boundaries, tests, and fixtures. This is an
-engineering owner index, not a product capability map, adoption model, test
-inventory, or second module README.
+engineering owner index, not a target capability map, adoption strategy,
+brownfield migration document, test inventory, or second module README.
 
 Use this document with:
 
-- [`../product/capability-map.md`](../product/capability-map.md) for product
+- [`../product/target-capabilities.md`](../product/target-capabilities.md) for product
   capability maturity;
-- [`workflow-validation-map.md`](workflow-validation-map.md) for user journeys,
-  use cases, scenarios, operations, seams, and validation questions;
+- [`workflow-validation-map.md`](workflow-validation-map.md) for use cases,
+  scenarios, operations, seams, and validation questions;
 - [`prototype-boundaries/README.md`](prototype-boundaries/README.md) for
   route-local engineering prototype boundaries.
 
@@ -41,6 +41,6 @@ Update this register when live code:
 - supersedes a historical candidate path.
 
 Do not copy product capability strategy here. Link to
-[`../product/capability-map.md`](../product/capability-map.md) instead.
+[`../product/target-capabilities.md`](../product/target-capabilities.md) instead.
 Keep detailed test and fixture orientation in module READMEs unless ownership
 changes.
