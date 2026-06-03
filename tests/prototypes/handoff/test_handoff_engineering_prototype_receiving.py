@@ -30,7 +30,7 @@ def _receiving_gate_source() -> dict:
             "storage_mutation": "not_performed",
             "import_acceptance": "not_performed",
             "archive_handling": "not_performed",
-            "signature_validation": "not_performed",
+            "external_authenticity_validation": "not_performed",
             "package_root_concurrency": "not_supported",
             "schema_inference": "not_performed",
             "dataframe_adapter": "not_defined",

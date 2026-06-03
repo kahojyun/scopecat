@@ -32,7 +32,7 @@ caller-provided source root
 
 This does not promote final SDK names, package archive format, storage import,
 package acceptance, GUI architecture, dataframe dependency, plotting
-dependency, signature/authenticity verification, linked-context payload
+dependency, external authenticity verification, linked-context payload
 traversal, or a shared measurement-record domain model.
 
 ## Stop Criteria Check
@@ -85,7 +85,7 @@ These are not blockers for the accepted local handoff vertical:
 - live GUI components or routing;
 - numeric dtype conversion, schema inference, unit conversion, scan-shape
   inference, trace opening, or array APIs;
-- archive extraction, compressed package format, signatures, authenticity, or
+- archive extraction, compressed package format, external authenticity, or
   trust policy;
 - package receiving, import, acceptance, conflict handling, storage writes, or
   existing-record update;

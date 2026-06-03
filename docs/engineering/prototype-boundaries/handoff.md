@@ -36,8 +36,6 @@ Read it with:
   for the current batch durable import deferral;
 - [`../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md`](../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md)
   for the current receiving review state projection boundary;
-- [`../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md`](../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md)
-  for the current package signature/trust implementation deferral;
 - [`../../decisions/architecture/DEC-020-defer-archive-package-implementation.md`](../../decisions/architecture/DEC-020-defer-archive-package-implementation.md)
   for the current archive-backed durable import and archive-authority
   deferral;
@@ -188,7 +186,7 @@ mutation authority, or public error schema.
 of current route schemas, policy fields, local artifact postures, error
 diagnostic posture, and explicit non-claims. It is a route-local compatibility
 review surface for this production vertical slice only. It does not define a
-public SDK, final package format, archive contract, signature/trust policy, or
+public SDK, final package format, archive contract, authenticity/trust policy, or
 portable error schema.
 
 The CLI may print `HandoffErrorDiagnostic` JSON to stderr for handoff
@@ -233,21 +231,9 @@ archives from openable DEC-010 packages under no-overwrite. Signature/trust
 validation and archive-backed durable import remain out of scope.
 
 [`DEC-011`](../../decisions/architecture/DEC-011-package-trust-authenticity-posture.md)
-keeps this package unsigned local-review evidence. Declared digest integrity
-may gate receiving/import planning, but signature validation, authenticity,
-sender trust, and scientific validity remain unclaimed.
-
-[`DEC-019`](../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md)
-keeps signature/trust implementation deferred until canonicalization, signer
-identity, trust roots, verification timing, failure handling, and import
-mutation policy exist.
-[`DEC-022`](../../decisions/architecture/DEC-022-define-signed-package-trust-scope.md)
-accepts the future signed scope as the DEC-010 directory-manifest package of
-record: the manifest plus every manifest-declared package member, not
-digest-only, manifest-only, or archive-byte evidence.
-`current_handoff_signature_trust_contract()` records the current unsigned
-local-review posture and the required future trust boundary without verifying
-signatures, accepting trusted sources, or gating durable import.
+keeps this package as declared-integrity local-review evidence. Declared digest
+integrity may gate receiving/import planning, but external authenticity, sender
+trust, and scientific validity remain unclaimed.
 
 Local writer receipts, workflow receipts, inspection HTML, receiving-gate
 results, import-plan objects, CLI summaries, and retry reviews are local review
@@ -326,8 +312,8 @@ Acceptance for that candidate is intentionally narrow:
 - corrupted package bytes block receiving/import through integrity review;
 - blocked receiving and import planning summarize reviewable next actions
   without authorizing retry;
-- declared digest integrity remains separate from signature validation,
-  authenticity, sender trust, and scientific validity;
+- declared digest integrity remains separate from external authenticity, sender
+  trust, and scientific validity;
 - receiving review facts must match the opened package and observed integrity;
 - blocked durable imports summarize the next action without authorizing mutation
   and require a fresh import plan for retry review;
@@ -351,9 +337,6 @@ while archive creation is governed by
 [`DEC-024`](../../decisions/architecture/DEC-024-accept-safe-archive-creation.md).
 Archive-backed durable import and broader archive semantics remain outside this
 boundary.
-Signature/authenticity implementation and trust policy beyond the unsigned
-local-review posture are explicitly deferred by
-[`DEC-019`](../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md).
 Generic writer linked-context payload packaging without import is governed by
 [`DEC-012`](../../decisions/architecture/DEC-012-linked-context-payload-packaging.md).
 Batch import planning without batch durable mutation is governed by
@@ -368,8 +351,6 @@ Batch durable import deferral is governed by
 [`DEC-017`](../../decisions/architecture/DEC-017-defer-batch-durable-import.md).
 Receiving review state projection is governed by
 [`DEC-018`](../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md).
-Package signature/trust implementation deferral is governed by
-[`DEC-019`](../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md).
 Archive-backed durable import and archive-authority deferral are governed by
 [`DEC-020`](../../decisions/architecture/DEC-020-defer-archive-package-implementation.md).
 Safe zip archive materialization is governed by
@@ -404,8 +385,7 @@ This boundary does not accept:
   inference, trace opening, or array API;
 - archive-backed durable import or compressed package format beyond DEC-021 and
   DEC-024;
-- signature validation, authenticity validation, or trusted-source policy
-  beyond DEC-019 and the DEC-022 signed scope;
+- external authenticity validation or trusted-source policy;
 - durable import, package acceptance, existing-record update, durable
   multi-measurement batch import beyond DEC-017, rollback policy, or storage
   conflict policy;
@@ -441,8 +421,6 @@ behavior. Current likely separate decisions include:
   receipt boundary;
 - archive-backed durable import or broader archive semantics beyond DEC-021 and
   DEC-024;
-- signature verification and trusted-source policy beyond DEC-019 and the
-  DEC-022 signed scope;
 - durable linked-context payload import beyond DEC-016 or batch durable import
   beyond DEC-017;
 - analysis or fit results as first-class package display facts;

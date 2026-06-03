@@ -23,6 +23,6 @@ flow:
 - keep linked context reference-only.
 
 The candidate is read-only. It does not mutate storage, accept or import the
-package, extract archives, validate package integrity or signatures, infer
-schemas, recursively traverse relations, define a GUI, or define a stable SDK
-object model.
+package, extract archives, validate package integrity or external authenticity,
+infer schemas, recursively traverse relations, define a GUI, or define a stable
+SDK object model.

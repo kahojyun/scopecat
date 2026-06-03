@@ -292,7 +292,7 @@ def _attention() -> list[dict[str, str]]:
         {
             "code": "package_integrity_not_verified",
             "severity": "review",
-            "basis": "The acceptance copy records the observed copied bytes but does not validate package-declared checksum or signature facts.",
+            "basis": "The acceptance copy records the observed copied bytes but does not validate package-declared checksum or external authenticity facts.",
             "does_not_claim": "package_integrity_verified",
         },
     ]

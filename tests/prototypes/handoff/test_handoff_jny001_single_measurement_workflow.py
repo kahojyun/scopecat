@@ -359,7 +359,7 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
             import_plan_summary["workflow"]["does_not_claim"],
         )
 
-    def test_workflow_treats_package_integrity_as_unsigned_local_review_evidence(self) -> None:
+    def test_workflow_treats_package_integrity_as_external_authenticity_agnostic(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             workflow = self._prepare_ready_handoff(Path(temp_dir))
             package = workflow["package"]
@@ -380,31 +380,31 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
             }
 
         self.assertEqual(
-            integrity_summary["integrity_observation_policy"]["signature_validation"],
+            integrity_summary["integrity_observation_policy"]["external_authenticity_validation"],
             "not_performed",
         )
         self.assertEqual(
-            receiving_summary["receiving_gate_policy"]["signature_validation"],
+            receiving_summary["receiving_gate_policy"]["external_authenticity_validation"],
             "not_performed",
         )
         self.assertEqual(
-            import_plan_summary["import_plan_policy"]["signature_validation"],
+            import_plan_summary["import_plan_policy"]["external_authenticity_validation"],
             "not_performed",
         )
         self.assertIn(
-            "signature_or_authenticity_validation",
+            "external_authenticity_or_trust_validation",
             export_summary["workflow"]["does_not_claim"],
         )
         self.assertIn(
-            "signature_or_authenticity_validation",
+            "external_authenticity_or_trust_validation",
             receiving_summary["does_not_claim"],
         )
         self.assertIn(
-            "signature_or_authenticity_validation",
+            "external_authenticity_or_trust_validation",
             import_plan_summary["workflow"]["does_not_claim"],
         )
         self.assertIn(
-            "signature_authenticity_or_trust_validation",
+            "external_authenticity_or_trust_validation",
             integrity_non_claims,
         )
         self.assertIn(

@@ -26,7 +26,7 @@ HANDOFF_ARCHIVE_MATERIALIZATION_POLICY = {
     "package_artifact_of_record": "dec010_directory_manifest_package",
     "canonical_inner_format": "dec010_directory_manifest_package",
     "materialization_authority": "future_safe_staging_review_required",
-    "signature_validation": "not_performed",
+    "external_authenticity_validation": "not_performed",
 }
 HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA = "scopecat.handoff_archive_materialization.v0"
 HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY = {
@@ -39,7 +39,7 @@ HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY = {
     "package_artifact_of_record": "dec010_directory_manifest_package",
     "canonical_inner_format": "dec010_directory_manifest_package",
     "materialization_authority": "approved_archive_materialization_request",
-    "signature_validation": "not_performed",
+    "external_authenticity_validation": "not_performed",
     "collision_policy": "no_overwrite",
     "failure_cleanup": "remove_partial_materialization",
 }
@@ -55,7 +55,7 @@ HANDOFF_ARCHIVE_PACKAGE_CREATION_POLICY = {
     "package_artifact_of_record": "dec010_directory_manifest_package",
     "canonical_inner_format": "dec010_directory_manifest_package",
     "creation_authority": "approved_archive_creation_request",
-    "signature_validation": "not_performed",
+    "external_authenticity_validation": "not_performed",
     "collision_policy": "no_overwrite",
 }
 REQUIRED_RESOURCE_LIMITS = [
@@ -71,7 +71,7 @@ DOES_NOT_CLAIM = [
     "archive_input_opening",
     "archive_backed_durable_import",
     "archive_bytes_as_package_artifact_of_record",
-    "signature_or_authenticity_validation",
+    "external_authenticity_or_trust_validation",
     "safe_to_extract_archive",
     "package_acceptance",
     "storage_mutation",
@@ -267,7 +267,7 @@ class HandoffArchiveCreationRun:
                     "archive_bytes_as_package_artifact_of_record",
                     "archive_extraction",
                     "archive_backed_durable_import",
-                    "signature_or_authenticity_validation",
+                    "external_authenticity_or_trust_validation",
                     "package_acceptance",
                     "storage_mutation",
                 ],
@@ -343,7 +343,7 @@ class HandoffArchiveMaterializationRun:
                 "does_not_claim": [
                     "archive_creation",
                     "archive_bytes_as_package_artifact_of_record",
-                    "signature_or_authenticity_validation",
+                    "external_authenticity_or_trust_validation",
                     "package_acceptance",
                     "durable_import",
                     "storage_mutation",

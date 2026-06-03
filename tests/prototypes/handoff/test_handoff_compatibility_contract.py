@@ -26,7 +26,7 @@ def _receiving_gate_source() -> dict:
             "storage_mutation": "not_performed",
             "import_acceptance": "not_performed",
             "archive_handling": "not_performed",
-            "signature_validation": "not_performed",
+            "external_authenticity_validation": "not_performed",
             "package_root_concurrency": "not_supported",
             "schema_inference": "not_performed",
             "dataframe_adapter": "not_defined",
@@ -57,7 +57,7 @@ def _import_plan_source() -> dict:
             "storage_mutation": "not_performed",
             "import_acceptance": "not_performed",
             "archive_handling": "not_performed",
-            "signature_validation": "not_performed",
+            "external_authenticity_validation": "not_performed",
             "conflict_detection": "not_performed",
             "final_storage_schema": "not_defined",
             "rollback": "not_defined",
@@ -93,7 +93,6 @@ class HandoffCompatibilityContractTest(unittest.TestCase):
                     "scopecat.handoff_archive_materialization_review.v0"
                 ),
                 "archive_materialization": "scopecat.handoff_archive_materialization.v0",
-                "signature_trust_review": "scopecat.handoff_signature_trust_review.v0",
             },
         )
         self.assertEqual(
@@ -120,10 +119,6 @@ class HandoffCompatibilityContractTest(unittest.TestCase):
             contract["policies"]["archive_package_creation"]["archive_creation"],
             "performed_from_dec010_directory_manifest_package",
         )
-        self.assertEqual(
-            contract["policies"]["signature_trust"]["signature_verification"],
-            "not_performed",
-        )
         self.assertIn(
             "local_handoff_error_diagnostic",
             contract["local_artifact_postures"],
@@ -146,10 +141,6 @@ class HandoffCompatibilityContractTest(unittest.TestCase):
         )
         self.assertIn(
             "local_archive_materialization_receipt",
-            contract["local_artifact_postures"],
-        )
-        self.assertIn(
-            "local_signature_trust_contract_review",
             contract["local_artifact_postures"],
         )
         self.assertIn("local_write_receipt", contract["local_artifact_postures"])

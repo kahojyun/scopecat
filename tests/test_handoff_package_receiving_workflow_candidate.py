@@ -33,7 +33,7 @@ def _receiving_source() -> dict:
             "acceptance_authority": "delegate_to_handoff_package_acceptance",
             "storage_mutation": "acceptance_candidate_only_after_gate",
             "archive_handling": "not_performed",
-            "signature_validation": "not_performed",
+            "external_authenticity_validation": "not_performed",
             "package_root_concurrency": "not_supported",
             "schema_inference": "not_performed",
             "dataframe_adapter": "not_defined",

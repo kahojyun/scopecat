@@ -39,7 +39,7 @@ _EXPECTED_POLICY = {
     "conflict_resolution": "not_performed",
     "final_storage_schema": "not_defined",
     "archive_handling": "not_performed",
-    "signature_validation": "not_performed",
+    "external_authenticity_validation": "not_performed",
     "linked_context_payload_import": "not_performed",
 }
 _DECISIONS = {
@@ -247,7 +247,7 @@ class HandoffImportWorkflowRun:
                     "conflict_resolution",
                     "crash_recovery",
                     "archive_extraction",
-                    "signature_or_authenticity_validation",
+                    "external_authenticity_or_trust_validation",
                     "linked_context_payload_import",
                 ],
             },

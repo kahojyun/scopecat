@@ -1,8 +1,8 @@
 # Handoff Package Receiving Workflow Candidate
 
 This package is an implementation candidate, not accepted Scopecat
-architecture, a final import API, GUI workflow, archive format, signature
-scheme, dataframe adapter, or storage schema.
+architecture, a final import API, GUI workflow, archive format, external
+authenticity workflow, dataframe adapter, or storage schema.
 
 It composes existing receiving-side handoff package candidates into one local
 workflow:
@@ -19,8 +19,8 @@ workflow:
   existing acceptance candidate.
 
 The slice intentionally stays as composition. It does not add new package
-parsing, write linked-context payloads, extract archives, validate signatures,
-define GUI state, define dataframe behavior, update existing records, or
-promote a final storage or measurement-record schema.
+parsing, write linked-context payloads, extract archives, validate external
+authenticity, define GUI state, define dataframe behavior, update existing
+records, or promote a final storage or measurement-record schema.
 It also assumes the package root is not concurrently modified between
 inspection, integrity observation, and acceptance.

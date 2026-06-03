@@ -21,7 +21,7 @@ does not bind to an inspection receipt.
 
 The slice intentionally keeps the acceptance boundary narrow. It does not
 extract archives, recursively import linked context, validate package checksums
-or signatures, infer schemas or scalar types, add dataframe behavior, define a
-GUI workflow, accept existing-record updates, or promote a final storage
-schema. It also assumes the package root is not concurrently modified while
-acceptance is running.
+or external authenticity, infer schemas or scalar types, add dataframe
+behavior, define a GUI workflow, accept existing-record updates, or promote a
+final storage schema. It also assumes the package root is not concurrently
+modified while acceptance is running.

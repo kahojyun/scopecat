@@ -23,9 +23,9 @@ This decision resolves whether that candidate should introduce an archive file
 as the portable package format, or continue to use the current directory-shaped
 package with `package-manifest.json`.
 
-The slice still needs visible, inspectable artifacts while trust/authenticity,
-linked-context payload import, batch durable import, and final storage schema
-remain unsettled. Later DEC-021 and DEC-024 accepted narrow zip transport
+The slice still needs visible, inspectable artifacts while linked-context
+payload import, batch durable import, and final storage schema remain unsettled.
+Later DEC-021 and DEC-024 accepted narrow zip transport
 materialization and creation, but they keep the DEC-010 directory manifest
 package as the package of record rather than making archive bytes authoritative.
 
@@ -60,8 +60,7 @@ This decision applies to:
 This decision does not apply to:
 
 - final public package format for all handoff use cases;
-- archive bytes as package authority, signatures, authenticity, or trust
-  policy;
+- archive bytes as package authority, external authenticity, or trust policy;
 - linked-context payload packaging;
 - batch export/import package shape;
 - offline execution migration packages;
@@ -75,16 +74,15 @@ directory remains the reviewed package of record. It keeps checksum and
 integrity behavior focused on declared package members.
 
 It also means any future archive expansion must define whether archive bytes
-become authoritative, how durable import is gated from archive-backed flows,
-and how signature/trust policy composes with the DEC-010 package of record, as
-required by DEC-020.
+become authoritative and how durable import is gated from archive-backed flows,
+as required by DEC-020. Any external signing or authenticity mechanism remains
+outside Scopecat's package format.
 
 ## Alternatives Considered
 
 - Option: make a `.zip` or similar archive the package artifact of record.
-  Rejected because trust, signature, and archive-backed durable-import
-  semantics are not accepted, and archive authority would obscure the current
-  package boundary.
+  Rejected because archive-backed durable-import semantics are not accepted,
+  and archive authority would obscure the current package boundary.
 - Option: support archive bytes and directory packages as equal package inputs.
   Rejected because dual authority would broaden test and error-contract scope
   before one production vertical slice package contract is stable.
@@ -109,8 +107,6 @@ Revisit this decision when:
 
 - handoff packages need archive bytes to become package authority rather than
   transport containers;
-- signature verification or trusted-source policy work beyond DEC-019 and the
-  DEC-022 signed scope starts;
 - linked-context payload packaging needs atomic package transfer;
 - batch export/import needs a stable bundle format;
 - package publication, SDK, or GUI workflows require an archive artifact beyond

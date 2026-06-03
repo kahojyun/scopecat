@@ -22,7 +22,7 @@ _EXPECTED_POLICY = {
     "storage_mutation": "not_performed",
     "import_acceptance": "not_performed",
     "archive_handling": "not_performed",
-    "signature_validation": "not_performed",
+    "external_authenticity_validation": "not_performed",
     "package_root_concurrency": "not_supported",
     "schema_inference": "not_performed",
     "dataframe_adapter": "not_defined",
@@ -126,7 +126,7 @@ class HandoffReceivingGateRun:
                 "storage_mutation",
                 "package_import_or_acceptance",
                 "archive_extraction",
-                "signature_or_authenticity_validation",
+                "external_authenticity_or_trust_validation",
                 "final_storage_schema",
             ],
         }

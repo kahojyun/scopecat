@@ -37,7 +37,7 @@ _EXPECTED_POLICY = {
     "acceptance_authority": "delegate_to_handoff_package_acceptance",
     "storage_mutation": "acceptance_candidate_only_after_gate",
     "archive_handling": "not_performed",
-    "signature_validation": "not_performed",
+    "external_authenticity_validation": "not_performed",
     "package_root_concurrency": "not_supported",
     "schema_inference": "not_performed",
     "dataframe_adapter": "not_defined",
@@ -195,8 +195,8 @@ def _attention(accepted: bool) -> list[dict[str, str]]:
             {
                 "code": "composition_does_not_verify_authenticity",
                 "severity": "review",
-                "basis": "Integrity observation compares local bytes to manifest facts only; signatures and provenance trust remain outside this workflow.",
-                "does_not_claim": "signature_or_authenticity_validation",
+                "basis": "Integrity observation compares local bytes to manifest facts only; external provenance trust remains outside this workflow.",
+                "does_not_claim": "external_authenticity_or_trust_validation",
             },
         ]
     return [

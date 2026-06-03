@@ -2,8 +2,8 @@
 
 This candidate compares package-local files to manifest-declared size and
 digest facts where present. It deliberately does not accept/import packages,
-mutate storage, extract archives, validate signatures, infer schemas, or claim
-authenticity.
+mutate storage, extract archives, validate external authenticity, infer
+schemas, or claim trust.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ _EXPECTED_POLICY = {
     "checksum_algorithm": "sha256",
     "size_observation": "byte_count",
     "archive_extraction": "not_performed",
-    "signature_validation": "not_performed",
+    "external_authenticity_validation": "not_performed",
     "storage_mutation": "not_performed",
     "import_acceptance": "not_performed",
     "schema_inference": "not_performed",
@@ -317,7 +317,7 @@ def _findings(member_observations: list[dict[str, Any]]) -> list[dict[str, Any]]
                     "finding": "declared_integrity_mismatch",
                     "basis": "Observed package-local bytes do not match declared digest or size.",
                     "mismatches": list(member["mismatches"]),
-                    "does_not_claim": "authenticity_or_signature_failure",
+                    "does_not_claim": "authenticity_or_external_validation_failure",
                 }
             )
             continue
@@ -372,7 +372,7 @@ def _attention() -> list[dict[str, str]]:
             "code": "checksum_comparison_is_local_observation",
             "severity": "review",
             "basis": "Digest and size comparison checks observed bytes against manifest facts only.",
-            "does_not_claim": "authenticity_signature_or_provenance_trust",
+            "does_not_claim": "external_authenticity_or_provenance_trust",
         },
         {
             "code": "archive_not_extracted",

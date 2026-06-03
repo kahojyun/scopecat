@@ -91,7 +91,7 @@ The prototype does not accept:
 - final public SDK names or stable module layout;
 - hard pandas/numpy dependency;
 - production plotting library or GUI framework;
-- archive extraction, signatures, authenticity, or trust policy;
+- archive extraction, external authenticity, or trust policy;
 - linked-context payload packaging, opening, recursive traversal, or import;
 - storage import, acceptance, conflict policy, or existing-record update
   behavior;

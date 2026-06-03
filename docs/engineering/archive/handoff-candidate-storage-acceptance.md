@@ -122,7 +122,7 @@ This decision does not accept:
 - overwrite, rename, dedupe, or conflict-resolution behavior;
 - lock files, stale-lock cleanup, crash recovery, or concurrent storage-root
   mutation semantics;
-- package archive extraction, signatures, authenticity, trust policy, or
+- package archive extraction, external authenticity, trust policy, or
   adversarial package-root handling;
 - linked-context payload materialization;
 - dataframe/numeric adapters, schema inference, or scan-shape inference;
