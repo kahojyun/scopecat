@@ -224,6 +224,14 @@ continuation review. It does not run package import, approve storage
 acceptance or durable import, persist review state, or become a public import
 API.
 
+`summarize_jny001_operator_smoke()` provides a compact read-only operator
+summary over the current JNY-001 vertical slice receipts: selected stored-record
+export, zip transport creation, zip materialization, receiving review, import
+planning, receiving review-state receipt materialization, and durable new-record
+import. It is a local smoke summary only; it does not execute the workflow,
+grant mutation authority, create a portable artifact, or define a public SDK
+contract.
+
 When `--receipt-summary` sees a handoff contract error, the CLI writes the
 local `HandoffErrorDiagnostic` JSON to stderr and exits nonzero. This is local
 operator guidance for review; it is not a portable/export artifact or public

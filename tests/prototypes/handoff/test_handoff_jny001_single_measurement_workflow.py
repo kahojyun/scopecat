@@ -24,6 +24,7 @@ from scopecat.handoff import (
     review_handoff_durable_import_retry,
     run_handoff_durable_import_from_plan,
     summarize_handoff_durable_import_receipt,
+    summarize_jny001_operator_smoke,
     write_handoff_receiving_review_state_receipt,
 )
 from scopecat.handoff.import_plan import build_import_plan
@@ -297,6 +298,91 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
         self.assertEqual(received_read_model["record"]["lifecycle_state"], "complete")
         self.assertEqual(received_read_model["record"]["record_id"], "received-run-3101-rabi")
         self.assertEqual(received_read_model["primary_data"]["observed_row_count"], 3)
+
+    def test_operator_smoke_summary_covers_complete_jny001_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workflow = self._prepare_ready_handoff(Path(temp_dir))
+            package = workflow["package"]
+            durable_import = run_handoff_durable_import_from_plan(
+                _durable_import_request(package.package_id),
+                import_plan=workflow["import_plan"],
+                storage_root=workflow["receiving_storage"],
+            )
+            smoke_summary = summarize_jny001_operator_smoke(
+                selected_export=workflow["export_run"],
+                archive_creation=workflow["archive_creation"],
+                archive_materialization=workflow["archive_materialization"],
+                receiving_gate=workflow["receiving_gate"],
+                import_plan=workflow["import_plan"],
+                receiving_review_state_receipt=workflow["receiving_review_state_receipt"],
+                durable_import=durable_import,
+            ).to_dict()
+
+        self.assertEqual(
+            smoke_summary,
+            {
+                "artifact_posture": "local_jny001_operator_smoke_summary",
+                "summary_policy": {
+                    "source": "local_jny001_vertical_slice_receipts",
+                    "authority": "read_only_operator_smoke_summary",
+                    "workflow_mutation": "not_performed",
+                    "storage_mutation": "not_performed",
+                    "package_mutation": "not_performed",
+                    "portable_export": "not_produced",
+                },
+                "journey_id": "JNY-001",
+                "use_case_id": "UC-006",
+                "classification": "completed_jny001_operator_smoke",
+                "package_id": "handoff-package-run-3101-rabi",
+                "source_record_id": "run-3101-rabi",
+                "destination_record_id": "received-run-3101-rabi",
+                "stage_sequence": [
+                    "selected_record_export",
+                    "archive_creation",
+                    "archive_materialization",
+                    "receiving_review",
+                    "import_plan",
+                    "receiving_review_state_receipt",
+                    "durable_import",
+                ],
+                "stages": {
+                    "selected_record_export": "exported_selected_measurement_record",
+                    "archive_creation": "created_zip_transport_archive",
+                    "archive_materialization": "materialized_dec010_package_from_archive",
+                    "receiving_review": "ready_for_acceptance_mutation",
+                    "import_plan": "ready_for_import_acceptance_decision",
+                    "receiving_review_state_receipt": "ready_for_import_acceptance_decision",
+                    "durable_import": "imported_handoff_measurement_record",
+                },
+                "operator_result": {
+                    "final_state": "imported_handoff_measurement_record",
+                    "next_action": "use_durable_measurement_record",
+                    "retry_requires": None,
+                    "durable_import_performed": True,
+                },
+                "boundary": {
+                    "source_record_storage_mutation": "not_performed",
+                    "archive_bytes": "transport_container_only",
+                    "package_of_record": "materialized_dec010_directory_manifest_package",
+                    "durable_record_creation": "create_new_measurement_record",
+                    "existing_record_update": "not_performed",
+                },
+                "does_not_claim": [
+                    "workflow_execution",
+                    "mutation_authority",
+                    "portable_export",
+                    "public_api_contract",
+                    "gui_state_store",
+                    "archive_backed_durable_import",
+                    "archive_bytes_as_package_artifact_of_record",
+                    "existing_record_update",
+                    "batch_durable_import",
+                    "linked_context_payload_import",
+                    "external_authenticity_or_trust_validation",
+                    "scientific_validity",
+                ],
+            },
+        )
 
     def test_workflow_uses_zip_transport_without_making_archive_bytes_authoritative(
         self,

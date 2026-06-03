@@ -143,6 +143,10 @@ class HandoffCompatibilityContractTest(unittest.TestCase):
             "local_archive_materialization_receipt",
             contract["local_artifact_postures"],
         )
+        self.assertIn(
+            "local_jny001_operator_smoke_summary",
+            contract["local_artifact_postures"],
+        )
         self.assertIn("local_write_receipt", contract["local_artifact_postures"])
         self.assertIn("local_workflow_receipt", contract["local_artifact_postures"])
         self.assertIn("review_summary", contract["local_artifact_postures"])
