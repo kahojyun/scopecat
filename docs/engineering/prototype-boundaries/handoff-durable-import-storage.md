@@ -141,10 +141,11 @@ adapter may consume declared digest integrity from the reviewed package path,
 but it does not verify signer identity, trusted source, package authenticity,
 or signature-gated mutation policy.
 
-DEC-020 keeps archive creation and extraction deferred. The durable-import
-adapter consumes an already-opened directory manifest package; it does not
-extract archives, treat archive bytes as durable-import authority, or own
-archive materialization cleanup.
+DEC-021 and DEC-024 accept zip archive materialization and creation as transport
+steps around the DEC-010 package of record. The durable-import adapter consumes
+an already-opened directory manifest package; it does not extract archives,
+treat archive bytes as durable-import authority, or own archive materialization
+cleanup.
 
 ## Current Failure Shape
 

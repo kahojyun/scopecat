@@ -9,6 +9,7 @@ from scopecat.handoff.archive_materialization import (
     HANDOFF_ARCHIVE_MATERIALIZATION_POLICY,
     HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA,
     HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA,
+    HANDOFF_ARCHIVE_PACKAGE_CREATION_POLICY,
     HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY,
 )
 from scopecat.handoff.durable_import import (
@@ -68,6 +69,7 @@ def current_handoff_compatibility_contract() -> dict[str, Any]:
             "archive_package_materialization": copy.deepcopy(
                 HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY
             ),
+            "archive_package_creation": copy.deepcopy(HANDOFF_ARCHIVE_PACKAGE_CREATION_POLICY),
             "signature_trust": copy.deepcopy(HANDOFF_SIGNATURE_TRUST_POLICY),
         },
         "local_artifact_postures": [
@@ -87,6 +89,7 @@ def current_handoff_compatibility_contract() -> dict[str, Any]:
             "local_receiving_review_state_receipt",
             "local_archive_materialization_contract",
             "local_archive_materialization_contract_review",
+            "local_archive_creation_receipt",
             "local_archive_materialization_receipt",
             "local_signature_trust_contract",
             "local_signature_trust_contract_review",
@@ -101,7 +104,6 @@ def current_handoff_compatibility_contract() -> dict[str, Any]:
         "does_not_claim": [
             "public_sdk",
             "final_package_format",
-            "archive_creation",
             "archive_backed_durable_import",
             "signature_or_authenticity_validation",
             "trusted_source_policy",

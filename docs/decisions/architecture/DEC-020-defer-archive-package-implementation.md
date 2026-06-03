@@ -13,8 +13,11 @@ Owner: [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/p
 Superseded in part by
 [`DEC-021-accept-safe-archive-materialization.md`](DEC-021-accept-safe-archive-materialization.md),
 which accepts safe zip transport materialization into the DEC-010 directory
-package of record. Archive creation, archive-backed durable import, and
-signature/trust coverage remain outside DEC-021.
+package of record, and by
+[`DEC-024-accept-safe-archive-creation.md`](DEC-024-accept-safe-archive-creation.md),
+which accepts safe zip transport creation from the DEC-010 directory package of
+record. Archive-backed durable import and signature/trust coverage remain
+outside DEC-021 and DEC-024.
 
 ## Context
 
@@ -40,21 +43,22 @@ production vertical slice candidate.
 
 ## Decision
 
-Do not implement archive creation, archive extraction, archive input opening,
-archive-to-directory materialization, or archive-backed durable import in the
-current JNY-001 production vertical slice candidate.
+Do not implement archive-backed durable import, archive bytes as package
+authority, or broader archive semantics in the current JNY-001 production
+vertical slice candidate beyond the DEC-021 materialization and DEC-024
+creation boundaries.
 
 The current portable package remains the directory manifest package accepted by
 DEC-010. Export, writer, open, receiving, import-plan, durable-import, CLI, and
-review surfaces must continue to state archive creation or extraction as
-`not_performed` or an equivalent explicit non-claim.
+review surfaces must continue to state archive-backed durable import and archive
+bytes as package authority as `not_performed` or equivalent explicit
+non-claims.
 
-If a later workflow accepts archive transport, archive bytes should initially
-be treated as a transport container only. The package artifact of record should
-remain the materialized DEC-010 directory manifest package after a future safe
-staging and extraction review. A later DEC-019 signature/trust decision may
-choose archive bytes as signed coverage, but that would be a separate
-artifact-authority decision.
+DEC-021 and DEC-024 later accept archive transport while keeping archive bytes
+as a transport container only. The package artifact of record remains the
+materialized DEC-010 directory manifest package. A later signature/trust
+decision could choose archive bytes as signed coverage, but that would be a
+separate artifact-authority decision.
 
 Any future archive implementation must first define:
 
@@ -137,7 +141,10 @@ Supersedes:
 
 Superseded by:
 
-- none.
+- [`DEC-021-accept-safe-archive-materialization.md`](DEC-021-accept-safe-archive-materialization.md)
+  for safe zip materialization into the DEC-010 package of record.
+- [`DEC-024-accept-safe-archive-creation.md`](DEC-024-accept-safe-archive-creation.md)
+  for safe zip creation from the DEC-010 package of record.
 
 ## Review Triggers
 
@@ -156,6 +163,8 @@ Revisit this decision when:
 
 - [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
 - [`DEC-019-defer-package-signature-trust-implementation.md`](DEC-019-defer-package-signature-trust-implementation.md)
+- [`DEC-021-accept-safe-archive-materialization.md`](DEC-021-accept-safe-archive-materialization.md)
+- [`DEC-024-accept-safe-archive-creation.md`](DEC-024-accept-safe-archive-creation.md)
 - [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
 - [`../../engineering/prototype-boundaries/handoff-durable-import-storage.md`](../../engineering/prototype-boundaries/handoff-durable-import-storage.md)
 - [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)

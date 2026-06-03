@@ -43,6 +43,21 @@ HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY = {
     "collision_policy": "no_overwrite",
     "failure_cleanup": "remove_partial_materialization",
 }
+HANDOFF_ARCHIVE_CREATION_SCHEMA = "scopecat.handoff_archive_creation.v0"
+HANDOFF_ARCHIVE_PACKAGE_CREATION_POLICY = {
+    "archive_implementation": "zip_creation_candidate",
+    "archive_creation": "performed_from_dec010_directory_manifest_package",
+    "archive_output": "zip_transport_container",
+    "archive_extraction": "not_performed",
+    "archive_input_opening": "not_performed",
+    "archive_backed_durable_import": "not_performed",
+    "archive_bytes_authority": "transport_container_only",
+    "package_artifact_of_record": "dec010_directory_manifest_package",
+    "canonical_inner_format": "dec010_directory_manifest_package",
+    "creation_authority": "approved_archive_creation_request",
+    "signature_validation": "not_performed",
+    "collision_policy": "no_overwrite",
+}
 REQUIRED_RESOURCE_LIMITS = [
     "archive_size_bytes",
     "extracted_size_bytes",
@@ -171,6 +186,113 @@ class HandoffArchiveMaterializationRequest:
             "archive_path": self.archive_path,
             "package_dir": self.package_dir,
             "collision_policy": self.collision_policy,
+        }
+
+
+@dataclass(frozen=True)
+class HandoffArchiveCreationRequest:
+    """Approved request to create a zip archive transport from a DEC-010 package."""
+
+    request_id: str
+    approval_state: str
+    package_dir: str
+    archive_path: str
+    collision_policy: str = "no_overwrite"
+
+    def __post_init__(self) -> None:
+        validate_public_identifier(self.request_id, "archive creation request_id")
+        if self.approval_state not in {"approved", "rejected", "needs_review"}:
+            raise ValueError("archive creation approval_state is unsupported")
+        validate_public_identifier(self.package_dir, "archive creation package_dir")
+        validate_relative_path(self.archive_path, "archive creation archive_path")
+        if not self.archive_path.endswith(".zip"):
+            raise ValueError("archive creation archive_path must end with .zip")
+        if self.collision_policy != "no_overwrite":
+            raise ValueError("archive creation collision_policy must be no_overwrite")
+
+    @property
+    def approved(self) -> bool:
+        return self.approval_state == "approved"
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "request_id": self.request_id,
+            "approval_state": self.approval_state,
+            "package_dir": self.package_dir,
+            "archive_path": self.archive_path,
+            "collision_policy": self.collision_policy,
+        }
+
+
+@dataclass(frozen=True)
+class HandoffArchiveCreationRun:
+    """Local receipt for creating an archive transport from a package directory."""
+
+    request: HandoffArchiveCreationRequest
+    package_root: Path
+    archive_root: Path
+    archive_path: Path | None = None
+    archived_files: tuple[str, ...] = ()
+    creation_error: str | None = None
+
+    @property
+    def created(self) -> bool:
+        return self.classification == "created_zip_transport_archive"
+
+    @property
+    def classification(self) -> str:
+        if self.creation_error is not None:
+            return "blocked_before_archive_creation"
+        if not self.request.approved:
+            return "blocked_before_archive_creation"
+        return "created_zip_transport_archive"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "artifact_posture": "local_archive_creation_receipt",
+            "archive_creation_schema": HANDOFF_ARCHIVE_CREATION_SCHEMA,
+            "archive_creation_policy": copy.deepcopy(HANDOFF_ARCHIVE_PACKAGE_CREATION_POLICY),
+            "workflow": {
+                "classification": self.classification,
+                "steps": [
+                    "validate_archive_creation_request",
+                    *([] if not self.request.approved else ["open_dec010_package"]),
+                    *(
+                        []
+                        if not self.created
+                        else ["review_package_members", "create_zip_transport_archive"]
+                    ),
+                ],
+                "does_not_claim": [
+                    "archive_bytes_as_package_artifact_of_record",
+                    "archive_extraction",
+                    "archive_backed_durable_import",
+                    "signature_or_authenticity_validation",
+                    "package_acceptance",
+                    "storage_mutation",
+                ],
+            },
+            "request": self.request.to_dict(),
+            "package": {
+                "package_root": str(self.package_root),
+                "package_dir": self.request.package_dir,
+            },
+            "archive": {
+                "created": self.created,
+                "archive_root": str(self.archive_root),
+                "archive_path": None if self.archive_path is None else str(self.archive_path),
+                "archived_files": list(self.archived_files),
+                "creation_error": self.creation_error,
+            },
+            "creation_review": {
+                "block_reason": _creation_block_reason(self),
+                "next_action": _creation_next_action(self),
+                "retry_requires": _creation_retry_requirement(self),
+            },
+            "artifact_authority": {
+                "archive_bytes": "transport_container_only",
+                "package_of_record": "dec010_directory_manifest_package",
+            },
         }
 
 
@@ -398,6 +520,65 @@ def materialize_handoff_archive_package(
     )
 
 
+def create_handoff_archive_package_from_request(
+    request: HandoffArchiveCreationRequest,
+    *,
+    package_root: str | Path,
+    archive_root: str | Path,
+) -> HandoffArchiveCreationRun:
+    """Create a zip transport archive from a DEC-010 package directory."""
+
+    package_base = _existing_directory_root(Path(package_root), "archive creation package root")
+    archive_base = _existing_directory_root(Path(archive_root), "archive creation archive root")
+    if not request.approved:
+        return HandoffArchiveCreationRun(
+            request=request,
+            package_root=package_base,
+            archive_root=archive_base,
+        )
+    package_path = package_base / request.package_dir
+    archive_path = _path_under(archive_base, request.archive_path, "archive creation archive_path")
+    try:
+        if archive_path.exists() or archive_path.is_symlink():
+            raise ValueError("archive creation archive target already exists")
+        package = open_package(package_path)
+        package_members = _collect_package_files(package_path, package.package_id)
+        _write_zip_archive(archive_path, package_members)
+    except (OSError, RuntimeError, ValueError, zipfile.BadZipFile) as exc:
+        _cleanup_partial_archive(archive_path)
+        return HandoffArchiveCreationRun(
+            request=request,
+            package_root=package_base,
+            archive_root=archive_base,
+            archive_path=archive_path,
+            creation_error=str(exc),
+        )
+
+    return HandoffArchiveCreationRun(
+        request=request,
+        package_root=package_base,
+        archive_root=archive_base,
+        archive_path=archive_path,
+        archived_files=tuple(relative_path for relative_path, _ in package_members),
+    )
+
+
+def create_handoff_archive_package(
+    source: dict[str, Any],
+    *,
+    package_root: str | Path,
+    archive_root: str | Path,
+) -> HandoffArchiveCreationRun:
+    """Create a zip archive package from a raw route-local source."""
+
+    request = _parse_creation_source(source)
+    return create_handoff_archive_package_from_request(
+        request,
+        package_root=package_root,
+        archive_root=archive_root,
+    )
+
+
 def _review_handoff_archive_materialization_contract(
     source: dict[str, Any],
 ) -> ArchiveMaterializationContractReview:
@@ -433,6 +614,38 @@ def _review_handoff_archive_materialization_contract(
         staging_policy=staging_policy,
         resource_limits=resource_limits,
         member_reviews=members,
+    )
+
+
+def _parse_creation_source(source: dict[str, Any]) -> HandoffArchiveCreationRequest:
+    source = _require_mapping(source, "archive creation source")
+    _require_keys(
+        source,
+        {
+            "archive_creation_schema",
+            "archive_creation_policy",
+            "archive_creation_request",
+        },
+        "archive creation source",
+    )
+    if source["archive_creation_schema"] != HANDOFF_ARCHIVE_CREATION_SCHEMA:
+        raise ValueError("archive_creation_schema is unsupported")
+    if source["archive_creation_policy"] != HANDOFF_ARCHIVE_PACKAGE_CREATION_POLICY:
+        raise ValueError("archive_creation_policy is unsupported")
+    request = _require_mapping(
+        source["archive_creation_request"],
+        "archive_creation_request",
+    )
+    return HandoffArchiveCreationRequest(
+        request_id=_read_text(request, "request_id", "archive creation request_id"),
+        approval_state=_read_text(request, "approval_state", "archive creation approval_state"),
+        package_dir=_read_text(request, "package_dir", "archive creation package_dir"),
+        archive_path=_read_text(request, "archive_path", "archive creation archive_path"),
+        collision_policy=_read_text(
+            request,
+            "collision_policy",
+            "archive creation collision_policy",
+        ),
     )
 
 
@@ -519,6 +732,43 @@ def _validate_zip_members_for_materialization(
         raise ValueError("archive materialization package-manifest.json is required")
 
 
+def _collect_package_files(package_path: Path, package_id: str) -> list[tuple[str, Path]]:
+    package_root = package_path.resolve()
+    members: list[tuple[str, Path]] = []
+    for path in sorted(package_root.rglob("*")):
+        if path.is_symlink():
+            raise ValueError("archive creation package member must not be a symlink")
+        if path.is_dir():
+            continue
+        if not path.is_file():
+            raise ValueError("archive creation package member must be a regular file")
+        relative = path.relative_to(package_root).as_posix()
+        archive_member = f"{package_id}/{relative}"
+        normalized, reasons = _normalize_archive_member_path(archive_member)
+        if normalized is None or reasons:
+            raise ValueError("archive creation package member path is unsafe")
+        if _metadata_path_blockers(normalized):
+            raise ValueError("archive creation package member metadata path is not allowed")
+        members.append((normalized, path))
+    if not members:
+        raise ValueError("archive creation package must contain package members")
+    member_paths = [relative_path for relative_path, _ in members]
+    if len(set(member_paths)) != len(member_paths):
+        raise ValueError("archive creation duplicate archive member path")
+    if f"{package_id}/package-manifest.json" not in member_paths:
+        raise ValueError("archive creation package-manifest.json is required")
+    return members
+
+
+def _write_zip_archive(archive_path: Path, members: list[tuple[str, Path]]) -> None:
+    archive_path.parent.mkdir(parents=True, exist_ok=True)
+    if archive_path.parent.is_symlink():
+        raise ValueError("archive creation archive parent must not be a symlink")
+    with zipfile.ZipFile(archive_path, "x", compression=zipfile.ZIP_DEFLATED) as archive:
+        for relative_path, source_path in members:
+            archive.write(source_path, arcname=relative_path)
+
+
 def _materialize_zip_members(
     archive: zipfile.ZipFile,
     members: list[zipfile.ZipInfo],
@@ -577,6 +827,63 @@ def _cleanup_partial_package(package_path: Path) -> bool:
         raise ValueError("archive materialization cleanup target must not be a symlink")
     shutil.rmtree(package_path)
     return True
+
+
+def _cleanup_partial_archive(archive_path: Path) -> bool:
+    if not archive_path.exists() and not archive_path.is_symlink():
+        return False
+    if archive_path.is_symlink():
+        return False
+    if archive_path.is_file():
+        archive_path.unlink()
+        return True
+    return False
+
+
+def _creation_block_reason(run: HandoffArchiveCreationRun) -> str | None:
+    if run.created:
+        return None
+    if not run.request.approved:
+        return "request_not_approved"
+    if run.creation_error is not None:
+        if "target already exists" in run.creation_error:
+            return "archive_destination_collision"
+        if "symlink" in run.creation_error:
+            return "archive_creation_symlink_blocked"
+        if "metadata path" in run.creation_error:
+            return "archive_creation_metadata_member_blocked"
+        if "package-manifest.json" in run.creation_error:
+            return "missing_package_manifest"
+        return "archive_creation_error"
+    return "archive_creation_not_performed"
+
+
+def _creation_next_action(run: HandoffArchiveCreationRun) -> str:
+    block_reason = _creation_block_reason(run)
+    if block_reason is None:
+        return "transfer_zip_archive_to_receiving_side"
+    if block_reason == "request_not_approved":
+        return "approve_archive_creation_request"
+    if block_reason == "archive_destination_collision":
+        return "choose_unused_archive_path_before_retry"
+    if block_reason in {
+        "archive_creation_symlink_blocked",
+        "archive_creation_metadata_member_blocked",
+        "missing_package_manifest",
+    }:
+        return "provide_openable_dec010_package_before_retry"
+    return "review_archive_creation_error_before_retry"
+
+
+def _creation_retry_requirement(run: HandoffArchiveCreationRun) -> str | None:
+    block_reason = _creation_block_reason(run)
+    if block_reason is None:
+        return None
+    if block_reason == "request_not_approved":
+        return "approved_archive_creation_request"
+    if block_reason == "archive_destination_collision":
+        return "unused_archive_destination"
+    return "openable_dec010_package_and_reviewed_archive_creation_request"
 
 
 def _materialization_block_reason(run: HandoffArchiveMaterializationRun) -> str | None:

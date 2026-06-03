@@ -222,8 +222,11 @@ accepts a narrow zip materialization candidate. `materialize_handoff_archive_pac
 and `materialize_handoff_archive_package_from_request()` materialize a zip
 transport archive into a DEC-010 directory-manifest package after path,
 duplicate-member, symlink, metadata-member, manifest, collision, cleanup, and
-package-open checks. Archive creation, signature/trust validation, and
-archive-backed durable import remain out of scope.
+package-open checks. [`DEC-024`](../../decisions/architecture/DEC-024-accept-safe-archive-creation.md)
+accepts `create_handoff_archive_package()` and
+`create_handoff_archive_package_from_request()` for creating zip transport
+archives from openable DEC-010 packages under no-overwrite. Signature/trust
+validation and archive-backed durable import remain out of scope.
 
 [`DEC-011`](../../decisions/architecture/DEC-011-package-trust-authenticity-posture.md)
 keeps this package unsigned local-review evidence. Declared digest integrity
@@ -335,8 +338,10 @@ Persisted GUI/review state, public SDK contracts, and final storage schemas
 remain separate decisions. Zip transport archive materialization into the
 DEC-010 directory package of record is governed by
 [`DEC-021`](../../decisions/architecture/DEC-021-accept-safe-archive-materialization.md),
-while archive creation, archive-backed durable import, and broader archive
-semantics remain outside this boundary.
+while archive creation is governed by
+[`DEC-024`](../../decisions/architecture/DEC-024-accept-safe-archive-creation.md).
+Archive-backed durable import and broader archive semantics remain outside this
+boundary.
 Signature/authenticity implementation and trust policy beyond the unsigned
 local-review posture are explicitly deferred by
 [`DEC-019`](../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md).
@@ -360,6 +365,8 @@ Archive package implementation deferral is governed by
 [`DEC-020`](../../decisions/architecture/DEC-020-defer-archive-package-implementation.md).
 Safe zip archive materialization is governed by
 [`DEC-021`](../../decisions/architecture/DEC-021-accept-safe-archive-materialization.md).
+Safe zip archive creation is governed by
+[`DEC-024`](../../decisions/architecture/DEC-024-accept-safe-archive-creation.md).
 
 ## Historical Context
 
@@ -386,8 +393,8 @@ This boundary does not accept:
   review state beyond DEC-018 and DEC-023;
 - numeric dtype conversion, unit conversion, schema inference, scan-shape
   inference, trace opening, or array API;
-- archive creation, archive-backed durable import, or compressed package format
-  beyond DEC-021;
+- archive-backed durable import or compressed package format beyond DEC-021 and
+  DEC-024;
 - signature validation, authenticity validation, or trusted-source policy
   beyond DEC-019 and the DEC-022 signed scope;
 - durable import, package acceptance, existing-record update, durable
@@ -423,8 +430,8 @@ behavior. Current likely separate decisions include:
 - production readiness hardening for selected stored Measurement Record export;
 - GUI-owned persisted review beyond the DEC-018 projection and DEC-023 local
   receipt boundary;
-- archive package creation, archive-backed durable import, or broader archive
-  semantics beyond DEC-021;
+- archive-backed durable import or broader archive semantics beyond DEC-021 and
+  DEC-024;
 - signature verification and trusted-source policy beyond DEC-019 and the
   DEC-022 signed scope;
 - durable linked-context payload import beyond DEC-016 or batch durable import

@@ -112,10 +112,11 @@ production vertical slice candidate. DEC-011 keeps that package unsigned local-r
 evidence: declared digest integrity is observed, but signature validation,
 authenticity, sender trust, and scientific validity are not claimed. DEC-019
 keeps signature/trust implementation deferred, while DEC-022 defines the
-future signed scope as the DEC-010 package of record. DEC-020 keeps archive
-implementation deferred until archive artifact authority, extraction safety,
-and materialization review
-contracts exist. Batch durable import remains a separate validation question.
+future signed scope as the DEC-010 package of record. DEC-021 accepts safe zip
+materialization into the DEC-010 package of record, and DEC-024 accepts safe zip
+creation from the DEC-010 package of record. Archive-backed durable import
+remains a separate validation question.
+Batch durable import remains a separate validation question.
 DEC-012 allows generic
 handoff writer inputs to package explicitly declared linked-context payloads
 for review. DEC-014 allows selected stored-record export to package explicitly
