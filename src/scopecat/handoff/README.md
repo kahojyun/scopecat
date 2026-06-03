@@ -120,6 +120,11 @@ classifies successful transfer review or blocked retry review. This is local
 review guidance only; it does not approve retry, mutate storage, or refresh
 read models.
 
+Receiving gate and import-plan receipts include `receiving_review` and
+`import_plan_review` guidance that classifies successful continuation or
+blocked retry review. This is local review guidance only; it does not approve
+retry, accept packages, or mutate storage.
+
 Receiving review state is currently a derived local projection over those
 receipts under DEC-018. This module does not persist GUI-owned review state.
 

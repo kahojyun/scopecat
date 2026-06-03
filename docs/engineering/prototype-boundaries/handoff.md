@@ -148,6 +148,12 @@ The receiving path:
 - records blocked plans without destination, storage mutation, conflict policy,
   or rollback behavior.
 
+Receiving gate and import-plan receipts include local review guidance for
+successful continuation or blocked retry review. That guidance classifies
+integrity-review blocks and receiving-gate readiness before durable import is
+considered. It does not authorize retry, package acceptance, or storage
+mutation.
+
 Receiving review state is a local projection over package-open, integrity,
 receiving-gate, import-plan, optional inspection, durable-import receipt, and
 retry-summary facts. DEC-018 defines that projection boundary without accepting
@@ -245,6 +251,8 @@ Acceptance for that candidate is intentionally narrow:
 - blocked selected-record exports summarize a reviewable next action without
   authorizing retry;
 - corrupted package bytes block receiving/import through integrity review;
+- blocked receiving and import planning summarize reviewable next actions
+  without authorizing retry;
 - declared digest integrity remains separate from signature validation,
   authenticity, sender trust, and scientific validity;
 - receiving review facts must match the opened package and observed integrity;

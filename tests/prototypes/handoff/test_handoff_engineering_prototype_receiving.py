@@ -73,6 +73,16 @@ class HandoffEngineeringPrototypeReceivingTest(unittest.TestCase):
             "declared_integrity_verified",
         )
         self.assertTrue(summary["acceptance_gate"]["allowed"])
+        self.assertEqual(
+            summary["receiving_review"],
+            {
+                "classification": "ready_for_acceptance_mutation",
+                "acceptance_allowed": True,
+                "block_reason": None,
+                "next_action": "build_import_plan_for_reviewed_package",
+                "retry_requires": None,
+            },
+        )
         self.assertIn("storage_mutation", summary["does_not_claim"])
         self.assertFalse(records_exist)
 
@@ -100,6 +110,16 @@ class HandoffEngineeringPrototypeReceivingTest(unittest.TestCase):
             "integrity_review_required",
         )
         self.assertFalse(summary["acceptance_gate"]["allowed"])
+        self.assertEqual(
+            summary["receiving_review"],
+            {
+                "classification": "blocked_before_acceptance",
+                "acceptance_allowed": False,
+                "block_reason": "package_integrity_review_required",
+                "next_action": "review_package_integrity_before_import_planning",
+                "retry_requires": "fresh_matching_package_open_and_integrity_observation",
+            },
+        )
         self.assertFalse(records_exist)
 
     def test_rejects_unapproved_request_before_open_or_integrity_observation(self) -> None:

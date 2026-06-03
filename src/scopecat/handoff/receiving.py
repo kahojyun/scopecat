@@ -111,6 +111,11 @@ class HandoffReceivingGateRun:
                     else "Integrity observation must be reviewed before acceptance mutation."
                 ),
             },
+            "receiving_review": _receiving_review(
+                classification=self.classification,
+                acceptance_allowed=self.acceptance_allowed,
+                integrity_classification=self.integrity_report.classification,
+            ),
             "does_not_claim": [
                 "storage_mutation",
                 "package_import_or_acceptance",
@@ -228,3 +233,58 @@ def _validate_reviewed_facts(
         raise ValueError("integrity package id must match opened package")
     if request.reviewed_integrity_classification != integrity_report.classification:
         raise ValueError("reviewed integrity classification must match observed integrity")
+
+
+def _receiving_review(
+    *,
+    classification: str,
+    acceptance_allowed: bool,
+    integrity_classification: str,
+) -> dict[str, str | None | bool]:
+    block_reason = _receiving_block_reason(
+        acceptance_allowed=acceptance_allowed,
+        integrity_classification=integrity_classification,
+    )
+    return {
+        "classification": classification,
+        "acceptance_allowed": acceptance_allowed,
+        "block_reason": block_reason,
+        "next_action": _receiving_next_action(block_reason),
+        "retry_requires": _receiving_retry_requirement(block_reason),
+    }
+
+
+def _receiving_block_reason(
+    *,
+    acceptance_allowed: bool,
+    integrity_classification: str,
+) -> str | None:
+    if acceptance_allowed:
+        return None
+    if integrity_classification == "integrity_review_required":
+        return "package_integrity_review_required"
+    if integrity_classification == "integrity_observed_with_undeclared_members":
+        return "undeclared_package_members_review_required"
+    return "receiving_gate_not_ready"
+
+
+def _receiving_next_action(block_reason: str | None) -> str:
+    if block_reason is None:
+        return "build_import_plan_for_reviewed_package"
+    if block_reason in {
+        "package_integrity_review_required",
+        "undeclared_package_members_review_required",
+    }:
+        return "review_package_integrity_before_import_planning"
+    return "review_receiving_gate_before_import_planning"
+
+
+def _receiving_retry_requirement(block_reason: str | None) -> str | None:
+    if block_reason is None:
+        return None
+    if block_reason in {
+        "package_integrity_review_required",
+        "undeclared_package_members_review_required",
+    }:
+        return "fresh_matching_package_open_and_integrity_observation"
+    return "fresh_receiving_review_request"

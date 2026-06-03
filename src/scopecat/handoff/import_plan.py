@@ -209,6 +209,14 @@ class HandoffImportPlanRun:
                     else "resolve_receiving_gate_before_import_acceptance"
                 ),
             },
+            "import_plan_review": _import_plan_review(
+                classification=self.classification,
+                import_plan_allowed=self.import_plan_allowed,
+                receiving_gate_classification=self.receiving_gate.classification,
+                receiving_block_reason=(
+                    self.receiving_gate.to_dict()["receiving_review"]["block_reason"]
+                ),
+            ),
             "inspection_receipt": copy.deepcopy(self.inspection_receipt),
         }
 
@@ -297,6 +305,66 @@ def _validate_inspection_receipt(receipt: dict[str, Any], *, package_id: str) ->
         raise ValueError("inspection receipt html_artifact must be an object")
     if html_artifact.get("portable_package_member") is not False:
         raise ValueError("inspection receipt must stay local to review")
+
+
+def _import_plan_review(
+    *,
+    classification: str,
+    import_plan_allowed: bool,
+    receiving_gate_classification: str,
+    receiving_block_reason: str | None,
+) -> dict[str, str | None | bool]:
+    block_reason = _import_plan_block_reason(
+        import_plan_allowed=import_plan_allowed,
+        receiving_gate_classification=receiving_gate_classification,
+        receiving_block_reason=receiving_block_reason,
+    )
+    return {
+        "classification": classification,
+        "import_plan_allowed": import_plan_allowed,
+        "block_reason": block_reason,
+        "next_action": _import_plan_next_action(block_reason),
+        "retry_requires": _import_plan_retry_requirement(block_reason),
+    }
+
+
+def _import_plan_block_reason(
+    *,
+    import_plan_allowed: bool,
+    receiving_gate_classification: str,
+    receiving_block_reason: str | None,
+) -> str | None:
+    if import_plan_allowed:
+        return None
+    if receiving_block_reason is not None:
+        return receiving_block_reason
+    if receiving_gate_classification != "ready_for_acceptance_mutation":
+        return "receiving_gate_not_ready"
+    return "import_plan_not_ready"
+
+
+def _import_plan_next_action(block_reason: str | None) -> str:
+    if block_reason is None:
+        return "review_storage_acceptance_destination_before_durable_import"
+    if block_reason in {
+        "package_integrity_review_required",
+        "undeclared_package_members_review_required",
+        "receiving_gate_not_ready",
+    }:
+        return "resolve_receiving_gate_before_import_acceptance"
+    return "review_import_plan_block_before_retry"
+
+
+def _import_plan_retry_requirement(block_reason: str | None) -> str | None:
+    if block_reason is None:
+        return None
+    if block_reason in {
+        "package_integrity_review_required",
+        "undeclared_package_members_review_required",
+        "receiving_gate_not_ready",
+    }:
+        return "fresh_ready_receiving_gate"
+    return "reviewed_import_plan_request"
 
 
 def _require_mapping(value: Any, owner: str) -> dict[str, Any]:
