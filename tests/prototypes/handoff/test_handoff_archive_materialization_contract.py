@@ -8,8 +8,11 @@ import zipfile
 from pathlib import Path
 
 from scopecat.handoff import (
+    HandoffArchiveCreationRequest,
     HandoffArchiveMaterializationRequest,
     HandoffContractError,
+    create_handoff_archive_package,
+    create_handoff_archive_package_from_request,
     current_handoff_archive_materialization_contract,
     materialize_handoff_archive_package,
     materialize_handoff_archive_package_from_request,
@@ -20,6 +23,7 @@ from scopecat.handoff.archive_materialization import (
     HANDOFF_ARCHIVE_MATERIALIZATION_POLICY,
     HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA,
     HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA,
+    HANDOFF_ARCHIVE_PACKAGE_CREATION_POLICY,
     HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY,
 )
 
@@ -79,11 +83,30 @@ def _request(**overrides: object) -> HandoffArchiveMaterializationRequest:
     return HandoffArchiveMaterializationRequest(**values)
 
 
+def _creation_request(**overrides: object) -> HandoffArchiveCreationRequest:
+    values = {
+        "request_id": "create-archive-001",
+        "approval_state": "approved",
+        "package_dir": "handoff-package-legacy-rabi-001",
+        "archive_path": "handoff-package-legacy-rabi-001.zip",
+    }
+    values.update(overrides)
+    return HandoffArchiveCreationRequest(**values)
+
+
 def _raw_source(**overrides: object) -> dict:
     return {
         "archive_materialization_schema": HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA,
         "archive_materialization_policy": HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY,
         "archive_materialization_request": _request(**overrides).to_dict(),
+    }
+
+
+def _raw_creation_source(**overrides: object) -> dict:
+    return {
+        "archive_creation_schema": "scopecat.handoff_archive_creation.v0",
+        "archive_creation_policy": HANDOFF_ARCHIVE_PACKAGE_CREATION_POLICY,
+        "archive_creation_request": _creation_request(**overrides).to_dict(),
     }
 
 
@@ -250,6 +273,142 @@ class HandoffArchiveMaterializationContractTest(unittest.TestCase):
                 "operation": "review_handoff_archive_materialization_contract",
                 "message": "archive_materialization_policy is unsupported",
             },
+        )
+
+    def test_creates_zip_transport_archive_and_round_trips_to_materialized_package(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_root = temp_root / "packages"
+            archive_root = temp_root / "archives"
+            materialization_root = temp_root / "materialized"
+            package_root.mkdir()
+            archive_root.mkdir()
+            materialization_root.mkdir()
+            shutil.copytree(PACKAGE_FIXTURE, package_root / PACKAGE_FIXTURE.name)
+
+            creation = create_handoff_archive_package_from_request(
+                _creation_request(),
+                package_root=package_root,
+                archive_root=archive_root,
+            )
+            materialized = materialize_handoff_archive_package_from_request(
+                _request(),
+                archive_root=archive_root,
+                materialization_root=materialization_root,
+            )
+            package = open_package(materialization_root / "handoff-package-legacy-rabi-001")
+
+        creation_payload = creation.to_dict()
+        self.assertTrue(creation.created)
+        self.assertTrue(materialized.materialized)
+        self.assertEqual(package.measurement_ids, ("legacy-rabi-001",))
+        self.assertEqual(
+            creation_payload["artifact_authority"]["archive_bytes"],
+            "transport_container_only",
+        )
+        self.assertEqual(
+            creation_payload["artifact_authority"]["package_of_record"],
+            "dec010_directory_manifest_package",
+        )
+        self.assertIn(
+            "handoff-package-legacy-rabi-001/package-manifest.json",
+            creation_payload["archive"]["archived_files"],
+        )
+        self.assertEqual(creation_payload["creation_review"]["block_reason"], None)
+
+    def test_raw_source_archive_creation_uses_explicit_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_root = temp_root / "packages"
+            archive_root = temp_root / "archives"
+            package_root.mkdir()
+            archive_root.mkdir()
+            shutil.copytree(PACKAGE_FIXTURE, package_root / PACKAGE_FIXTURE.name)
+
+            creation = create_handoff_archive_package(
+                _raw_creation_source(),
+                package_root=package_root,
+                archive_root=archive_root,
+            )
+
+        self.assertTrue(creation.created)
+
+    def test_archive_creation_blocks_existing_archive_collision(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_root = temp_root / "packages"
+            archive_root = temp_root / "archives"
+            package_root.mkdir()
+            archive_root.mkdir()
+            shutil.copytree(PACKAGE_FIXTURE, package_root / PACKAGE_FIXTURE.name)
+            (archive_root / "handoff-package-legacy-rabi-001.zip").write_text(
+                "existing",
+                encoding="utf-8",
+            )
+
+            creation = create_handoff_archive_package_from_request(
+                _creation_request(),
+                package_root=package_root,
+                archive_root=archive_root,
+            )
+
+        self.assertFalse(creation.created)
+        self.assertEqual(
+            creation.to_dict()["creation_review"]["block_reason"],
+            "archive_destination_collision",
+        )
+
+    def test_archive_creation_blocks_symlink_archive_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_root = temp_root / "packages"
+            archive_root = temp_root / "archives"
+            package_root.mkdir()
+            archive_root.mkdir()
+            shutil.copytree(PACKAGE_FIXTURE, package_root / PACKAGE_FIXTURE.name)
+            (archive_root / "existing.zip").write_text("existing", encoding="utf-8")
+            (archive_root / "handoff-package-legacy-rabi-001.zip").symlink_to(
+                "existing.zip",
+            )
+
+            creation = create_handoff_archive_package_from_request(
+                _creation_request(),
+                package_root=package_root,
+                archive_root=archive_root,
+            )
+
+        self.assertFalse(creation.created)
+        self.assertEqual(
+            creation.to_dict()["creation_review"]["block_reason"],
+            "archive_destination_collision",
+        )
+
+    def test_archive_creation_blocks_symlink_package_member(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_root = temp_root / "packages"
+            archive_root = temp_root / "archives"
+            package_root.mkdir()
+            archive_root.mkdir()
+            shutil.copytree(PACKAGE_FIXTURE, package_root / PACKAGE_FIXTURE.name)
+            (
+                package_root
+                / PACKAGE_FIXTURE.name
+                / "measurements"
+                / "legacy-rabi-001"
+                / "linked-primary.csv"
+            ).symlink_to("primary.csv")
+
+            creation = create_handoff_archive_package_from_request(
+                _creation_request(),
+                package_root=package_root,
+                archive_root=archive_root,
+            )
+
+        self.assertFalse(creation.created)
+        self.assertEqual(
+            creation.to_dict()["creation_review"]["block_reason"],
+            "archive_creation_symlink_blocked",
         )
 
     def test_materializes_zip_transport_into_openable_directory_package(self) -> None:

@@ -117,6 +117,10 @@ class HandoffCompatibilityContractTest(unittest.TestCase):
             "performed_into_staging_directory",
         )
         self.assertEqual(
+            contract["policies"]["archive_package_creation"]["archive_creation"],
+            "performed_from_dec010_directory_manifest_package",
+        )
+        self.assertEqual(
             contract["policies"]["signature_trust"]["signature_verification"],
             "not_performed",
         )
@@ -137,6 +141,10 @@ class HandoffCompatibilityContractTest(unittest.TestCase):
             contract["local_artifact_postures"],
         )
         self.assertIn(
+            "local_archive_creation_receipt",
+            contract["local_artifact_postures"],
+        )
+        self.assertIn(
             "local_archive_materialization_receipt",
             contract["local_artifact_postures"],
         )
@@ -150,7 +158,6 @@ class HandoffCompatibilityContractTest(unittest.TestCase):
         self.assertTrue(contract["public_error_contract"]["value_error_compatible"])
         self.assertIn("public_sdk", contract["does_not_claim"])
         self.assertIn("final_package_format", contract["does_not_claim"])
-        self.assertIn("archive_creation", contract["does_not_claim"])
         self.assertIn("archive_backed_durable_import", contract["does_not_claim"])
         self.assertIn("durable_schema_publication", contract["does_not_claim"])
         self.assertIn("existing_record_update", contract["does_not_claim"])
