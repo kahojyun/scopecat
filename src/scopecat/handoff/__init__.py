@@ -49,6 +49,10 @@ from scopecat.handoff.receiving import (
     HandoffReceivingReviewRequest,
     run_receiving_gate,
 )
+from scopecat.handoff.review_state import (
+    HandoffReceivingReviewStateProjection,
+    project_handoff_receiving_review_state,
+)
 from scopecat.handoff.selected_record_export import (
     SELECTED_RECORD_EXPORT_POLICY,
     SelectedMeasurementRecordBatchExportRecord,
@@ -95,6 +99,7 @@ __all__ = [
     "HandoffPlotSeries",
     "HandoffReceivingGateRun",
     "HandoffReceivingReviewRequest",
+    "HandoffReceivingReviewStateProjection",
     "HandoffTable",
     "SelectedMeasurementRecordBatchExportRecord",
     "SelectedMeasurementRecordBatchExportRequest",
@@ -111,6 +116,7 @@ __all__ = [
     "export_selected_measurement_record_from_request",
     "observe_package_integrity",
     "open_package",
+    "project_handoff_receiving_review_state",
     "review_handoff_durable_import_retry",
     "run_handoff_durable_import",
     "run_handoff_durable_import_from_plan",

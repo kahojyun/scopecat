@@ -175,8 +175,10 @@ acceptance, or public CLI error contract.
 
 Receiving review state is a local projection over package-open, integrity,
 receiving-gate, import-plan, optional inspection, durable-import receipt, and
-retry-summary facts. DEC-018 defines that projection boundary without accepting
-a persisted GUI-owned state store.
+retry-summary facts. `project_handoff_receiving_review_state()` implements
+that DEC-018 projection as a read-only local summary over typed receipts and
+diagnostics. It validates supplied receipt continuity and keeps persisted
+GUI-owned state deferred.
 
 ## Artifact Authority
 
@@ -241,7 +243,8 @@ and planned together, but durable import remains one planned measurement per
 storage mutation.
 
 [`DEC-018`](../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md)
-defines receiving review state as a derived local projection. It does not add a
+defines receiving review state as a derived local projection. The current
+projection implementation is local review evidence only; it does not add a
 frontend, durable GUI store, or mutation authority.
 
 ## Production Vertical Slice Candidate

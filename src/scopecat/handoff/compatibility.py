@@ -65,6 +65,7 @@ def current_handoff_compatibility_contract() -> dict[str, Any]:
             "local_handoff_durable_import_receipt",
             "local_handoff_durable_import_receipt_summary",
             "local_handoff_durable_import_retry_review",
+            "local_receiving_review_state_projection",
             "local_handoff_error_diagnostic",
         ],
         "public_error_contract": {

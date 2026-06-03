@@ -107,6 +107,10 @@ class HandoffCompatibilityContractTest(unittest.TestCase):
             "local_handoff_error_diagnostic",
             contract["local_artifact_postures"],
         )
+        self.assertIn(
+            "local_receiving_review_state_projection",
+            contract["local_artifact_postures"],
+        )
         self.assertIn("local_write_receipt", contract["local_artifact_postures"])
         self.assertIn("local_workflow_receipt", contract["local_artifact_postures"])
         self.assertIn("review_summary", contract["local_artifact_postures"])
