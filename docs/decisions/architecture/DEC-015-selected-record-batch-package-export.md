@@ -36,9 +36,9 @@ integrity to the existing handoff package writer and reader.
 
 The batch export request is package-level write authority. It may include
 multiple record selections, but it does not authorize durable batch import.
-Receiving and durable import remain governed by DEC-013: import plans may list
-multiple measurements, while durable handoff import still mutates exactly one
-planned measurement per operation.
+Receiving and durable import remain governed by DEC-013 and DEC-017: import
+plans may list multiple measurements, while durable handoff import still
+mutates exactly one planned measurement per operation.
 
 ## Scope
 
@@ -51,7 +51,7 @@ This decision applies to:
 
 This decision does not apply to:
 
-- durable batch Measurement Records import;
+- durable batch Measurement Records import beyond DEC-017;
 - per-record destination assignment on receiving;
 - batch conflict resolution, partial success, rollback, or retry policy;
 - recursive linked-context traversal;
@@ -66,9 +66,9 @@ receiving side still stays conservative: a multi-measurement package can be
 opened and planned as a batch, but durable storage mutation remains
 one-record-at-a-time.
 
-Future work must still decide whether batch durable import is worth the
-additional destination, conflict, partial-success, rollback, and retry
-contracts.
+Future work beyond DEC-017 must still decide whether batch durable import is
+worth the additional destination, conflict, partial-success, rollback, and
+retry contracts.
 
 ## Alternatives Considered
 
@@ -95,7 +95,7 @@ Superseded by:
 
 Revisit this decision when:
 
-- durable import needs multi-record mutation;
+- durable import needs multi-record mutation beyond DEC-017;
 - receiving review needs persistent batch destination assignment;
 - selected batch export needs package-level context topology;
 - linked-context payload import is revisited beyond DEC-016;
@@ -107,6 +107,7 @@ Revisit this decision when:
 - [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
 - [`DEC-013-batch-receiving-import-planning.md`](DEC-013-batch-receiving-import-planning.md)
 - [`DEC-016-defer-linked-context-payload-import.md`](DEC-016-defer-linked-context-payload-import.md)
+- [`DEC-017-defer-batch-durable-import.md`](DEC-017-defer-batch-durable-import.md)
 - [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
 - [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
 - [`../../../tests/prototypes/handoff/test_handoff_selected_record_export_prototype.py`](../../../tests/prototypes/handoff/test_handoff_selected_record_export_prototype.py)

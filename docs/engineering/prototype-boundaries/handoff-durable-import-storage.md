@@ -20,7 +20,9 @@ Read it with:
 - [`../../../src/scopecat/handoff/README.md`](../../../src/scopecat/handoff/README.md)
   for the live handoff API surface;
 - [`../../decisions/architecture/DEC-016-defer-linked-context-payload-import.md`](../../decisions/architecture/DEC-016-defer-linked-context-payload-import.md)
-  for the current linked-context payload import deferral.
+  for the current linked-context payload import deferral;
+- [`../../decisions/architecture/DEC-017-defer-batch-durable-import.md`](../../decisions/architecture/DEC-017-defer-batch-durable-import.md)
+  for the current batch durable import deferral.
 
 ## Current Boundary
 
@@ -56,6 +58,11 @@ The current adapter:
 - returns a local handoff durable-import receipt that records package,
   selected measurement, destination, durable-import classification, and
   explicit non-claims.
+
+DEC-017 keeps multi-measurement package plans as review and coordination
+evidence only. They do not authorize one durable batch mutation until a
+separate destination, conflict, partial-success, rollback, and retry contract
+exists.
 
 The import plan is not write authority. Before mutation, the delegated
 Measurement Records pipeline reopens the package member through the package
@@ -124,7 +131,7 @@ protection.
 
 This boundary does not accept:
 
-- importing multiple measurements in one durable operation;
+- importing multiple measurements in one durable operation beyond DEC-017;
 - importing into an existing record or attaching to a pre-created shell;
 - using the older `measurement_record_directory_candidate_v0` storage layout;
 - primary-data merge, compaction, or append visibility as canonical import
@@ -173,7 +180,7 @@ uv run ruff format --check .
 Advance this boundary only when a named workflow requires a broader behavior.
 Likely separate decisions include:
 
-- batch package receiving/import and partial-success policy;
+- batch package receiving/import and partial-success policy beyond DEC-017;
 - package archive format, trust, authenticity, or signature handling;
 - linked-context payload import beyond DEC-016;
 - existing-record update/import conflict behavior;

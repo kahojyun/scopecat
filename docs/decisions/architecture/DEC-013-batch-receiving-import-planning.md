@@ -31,10 +31,10 @@ for multiple package measurements. `all_measurements` may expand to all opened
 package measurement ids, and `selected_measurements` may name more than one
 measurement id.
 
-The durable handoff import adapter remains single-measurement only. A ready
-multi-measurement import plan is review evidence and planning output, not
-durable batch mutation authority. Durable import must continue to require
-exactly one planned measurement before building a
+The durable handoff import adapter remains single-measurement only. DEC-017
+keeps a ready multi-measurement import plan as review evidence and planning
+output, not durable batch mutation authority. Durable import must continue to
+require exactly one planned measurement before building a
 `MeasurementRecordDurableImportRequest`.
 
 ## Scope
@@ -47,7 +47,7 @@ This decision applies to:
 
 This decision does not apply to:
 
-- batch durable Measurement Records mutation;
+- batch durable Measurement Records mutation beyond DEC-017;
 - per-record destination assignment for batches;
 - batch conflict resolution, rollback, retry, or partial-success policy;
 - selected stored Measurement Record batch export authority;
@@ -59,9 +59,9 @@ Receiving users can review and plan multiple package measurements together
 without implying a batch write. Durable import stays conservative and
 per-record, preserving the already validated no-overwrite and retry behavior.
 
-Future batch durable import work must define per-measurement destinations,
-conflict handling, partial-success reporting, rollback expectations, and retry
-semantics before allowing multi-record mutation.
+Future batch durable import work beyond DEC-017 must define per-measurement
+destinations, conflict handling, partial-success reporting, rollback
+expectations, and retry semantics before allowing multi-record mutation.
 
 ## Alternatives Considered
 
@@ -97,6 +97,7 @@ Revisit this decision when:
 ## Related Evidence And Owners
 
 - [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
+- [`DEC-017-defer-batch-durable-import.md`](DEC-017-defer-batch-durable-import.md)
 - [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
 - [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
 - [`../../../tests/prototypes/handoff/test_handoff_engineering_prototype_import_plan.py`](../../../tests/prototypes/handoff/test_handoff_engineering_prototype_import_plan.py)

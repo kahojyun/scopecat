@@ -120,7 +120,8 @@ references as file-copy authority. DEC-013 allows multi-measurement import
 planning, while durable import remains one-record-at-a-time. DEC-015 allows
 selected stored-record batch package export without adding batch durable import.
 DEC-016 keeps linked-context payload import deferred until Measurement Records
-has an accepted context artifact storage contract.
+has an accepted context artifact storage contract. DEC-017 keeps batch durable
+import deferred until a destination and partial-success contract exists.
 
 Source evidence:
 
