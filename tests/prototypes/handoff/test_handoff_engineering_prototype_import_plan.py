@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import copy
+import hashlib
+import json
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
-from scopecat.handoff import HANDOFF_INSPECTION_ARTIFACT_NAME, run_import_plan
+from scopecat.handoff import HANDOFF_INSPECTION_ARTIFACT_NAME, run_import_plan, write_package
 from scopecat.handoff.import_plan import HandoffImportPlanRequest
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -18,6 +21,19 @@ PACKAGE = (
     / "package"
     / "handoff-package-legacy-rabi-001"
 )
+WRITER_FIXTURE = (
+    ROOT
+    / "tests"
+    / "fixtures"
+    / "prototypes"
+    / "handoff"
+    / "handoff_engineering_prototype_writer"
+    / "basic_package"
+)
+
+
+def _sha256_digest(content: bytes) -> str:
+    return f"sha256:{hashlib.sha256(content).hexdigest()}"
 
 
 def _receiving_gate_source() -> dict:
@@ -85,6 +101,42 @@ def _copy_package(temp_root: Path) -> Path:
     return package_dir
 
 
+def _multi_measurement_package(temp_root: Path) -> Path:
+    source = json.loads((WRITER_FIXTURE / "package-writer-input.json").read_text(encoding="utf-8"))
+    first_record = source["selected_measurements"][0]
+    second_record = copy.deepcopy(first_record)
+    second_content = b"drive_frequency,signal\n4.90,0.12\n4.95,0.44\n"
+    second_id = "legacy-rabi-002"
+    second_record["measurement_record_id"] = second_id
+    second_record["legacy_data_id"] = 1002
+    second_record["label"] = "Second Rabi calibration follow-up"
+    second_record["primary_data"]["source_path"] = f"records/{second_id}/primary.csv"
+    second_record["primary_data"]["expected_digest"] = _sha256_digest(second_content)
+    second_record["primary_data"]["expected_size_bytes"] = len(second_content)
+    second_record["primary_data"]["package_path"] = f"measurements/{second_id}/primary.csv"
+    second_record["declared_preview_metadata"]["plot_candidates"][0]["source"] = (
+        f"measurements/{second_id}/primary.csv"
+    )
+    second_record["default_bundle"][0]["item_id"] = f"{second_id}-primary"
+    second_record["default_bundle"][0]["package_path"] = f"measurements/{second_id}/primary.csv"
+    source["selected_measurements"].append(second_record)
+    source["linked_context"][0]["linked_measurement_record_ids"].append(second_id)
+
+    source_root = temp_root / "source"
+    first_source = source_root / "records" / "legacy-rabi-001" / "primary.csv"
+    first_source.parent.mkdir(parents=True)
+    first_source.write_bytes(
+        (WRITER_FIXTURE / "source" / "records" / "legacy-rabi-001" / "primary.csv").read_bytes()
+    )
+    second_source = source_root / "records" / second_id / "primary.csv"
+    second_source.parent.mkdir(parents=True)
+    second_source.write_bytes(second_content)
+    package_root = temp_root / "packages"
+    package_root.mkdir()
+    write_package(source, source_root=source_root, package_root=package_root)
+    return package_root / "handoff-package-legacy-rabi-001"
+
+
 class HandoffEngineeringPrototypeImportPlanTest(unittest.TestCase):
     def test_import_plan_is_ready_after_reviewed_verified_receiving_gate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -111,6 +163,16 @@ class HandoffEngineeringPrototypeImportPlanTest(unittest.TestCase):
             "choose_storage_acceptance_conflict_and_rollback_policy",
         )
         self.assertEqual(
+            summary["import_plan_review"],
+            {
+                "classification": "ready_for_import_acceptance_decision",
+                "import_plan_allowed": True,
+                "block_reason": None,
+                "next_action": "review_storage_acceptance_destination_before_durable_import",
+                "retry_requires": None,
+            },
+        )
+        self.assertEqual(
             summary["import_plan"]["planned_measurement_imports"][0]["source"]["package_path"],
             "measurements/legacy-rabi-001/primary.csv",
         )
@@ -124,6 +186,28 @@ class HandoffEngineeringPrototypeImportPlanTest(unittest.TestCase):
         )
         self.assertIn("storage_mutation", summary["workflow"]["does_not_claim"])
         self.assertFalse(records_exist)
+
+    def test_import_plan_can_list_multiple_measurements_without_batch_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            package_dir = _multi_measurement_package(Path(temp_dir))
+
+            run = run_import_plan(_import_plan_source(), package_dir=package_dir)
+            summary = run.to_dict()
+
+        self.assertTrue(run.import_plan_allowed)
+        self.assertEqual(
+            [
+                item["measurement_record_id"]
+                for item in summary["import_plan"]["planned_measurement_imports"]
+            ],
+            ["legacy-rabi-001", "legacy-rabi-002"],
+        )
+        self.assertEqual(
+            summary["package"]["measurement_ids"],
+            ["legacy-rabi-001", "legacy-rabi-002"],
+        )
+        self.assertIn("storage_mutation", summary["workflow"]["does_not_claim"])
+        self.assertIn("batch_durable_import", summary["workflow"]["does_not_claim"])
 
     def test_import_plan_can_write_local_inspection_artifact_outside_package(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -177,6 +261,16 @@ class HandoffEngineeringPrototypeImportPlanTest(unittest.TestCase):
         self.assertEqual(
             summary["import_plan"]["next_required_decision"],
             "resolve_receiving_gate_before_import_acceptance",
+        )
+        self.assertEqual(
+            summary["import_plan_review"],
+            {
+                "classification": "blocked_before_import_acceptance",
+                "import_plan_allowed": False,
+                "block_reason": "package_integrity_review_required",
+                "next_action": "resolve_receiving_gate_before_import_acceptance",
+                "retry_requires": "fresh_ready_receiving_gate",
+            },
         )
 
     def test_rejects_import_plan_destination_fields(self) -> None:

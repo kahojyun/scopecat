@@ -7,7 +7,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scopecat.handoff import open_package, write_package
+from scopecat.handoff import (
+    HandoffImportPlanRequest,
+    HandoffReceivingReviewRequest,
+    observe_package_integrity,
+    open_package,
+    write_package,
+)
+from scopecat.handoff.import_plan import build_import_plan
+from scopecat.handoff.receiving import run_receiving_gate_from_request
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURE = (
@@ -240,6 +248,100 @@ class HandoffEngineeringPrototypeWriterTest(unittest.TestCase):
             },
         )
         self.assertEqual(context["materialization"], "reference_only")
+
+    def test_packaged_linked_context_payload_is_copied_and_excluded_from_import(self) -> None:
+        source = _load_input()
+        context_content = b'{"attenuation_db":"12"}\n'
+        context_digest = _sha256_digest(context_content)
+        source["linked_context"][0].update(
+            {
+                "package_path": "context/package-legacy-001-parameter-snapshot.json",
+                "include_status": "included_by_user",
+                "package_state": "packaged",
+                "reason": None,
+                "source_path": "context/parameter-snapshot.json",
+                "expected_digest": context_digest,
+                "expected_size_bytes": len(context_content),
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            source_root = temp_root / "source"
+            primary_target = source_root / "records" / "legacy-rabi-001" / "primary.csv"
+            primary_target.parent.mkdir(parents=True)
+            primary_target.write_bytes(
+                (SOURCE_ROOT / "records" / "legacy-rabi-001" / "primary.csv").read_bytes()
+            )
+            context_target = source_root / "context" / "parameter-snapshot.json"
+            context_target.parent.mkdir()
+            context_target.write_bytes(context_content)
+            package_root = temp_root / "packages"
+            package_root.mkdir()
+
+            receipt = write_package(
+                source,
+                source_root=source_root,
+                package_root=package_root,
+            )
+            package_dir = package_root / "handoff-package-legacy-rabi-001"
+            package = open_package(package_dir)
+            integrity_report = observe_package_integrity(package_dir)
+            receiving_gate = run_receiving_gate_from_request(
+                HandoffReceivingReviewRequest(
+                    request_id="receive-package-legacy-rabi-001",
+                    reviewed_package_id=package.package_id,
+                    reviewed_preview_classification=package.preview_classification,
+                    reviewed_integrity_classification=integrity_report.classification,
+                ),
+                package_dir=package_dir,
+            )
+            import_plan = build_import_plan(
+                HandoffImportPlanRequest(
+                    request_id="plan-package-legacy-rabi-001",
+                    requested_package_id=package.package_id,
+                    measurement_selection="selected_measurements",
+                    requested_measurement_ids=("legacy-rabi-001",),
+                ),
+                receiving_gate=receiving_gate,
+            )
+            package_tree = _package_tree(package_dir)
+
+        context = package.linked_context[0].to_dict()
+        context_plan = import_plan.to_dict()["import_plan"]["linked_context"][0]
+        observations = {
+            member.package_path: member.to_dict() for member in integrity_report.member_observations
+        }
+        receipt_summary = receipt.to_dict()
+
+        self.assertIn("context/package-legacy-001-parameter-snapshot.json", package_tree)
+        self.assertEqual(context["package_state"], "packaged")
+        self.assertEqual(context["materialization"], "packaged_payload")
+        self.assertEqual(
+            context["package_path"],
+            "context/package-legacy-001-parameter-snapshot.json",
+        )
+        self.assertEqual(context["declared_digest"], context_digest)
+        self.assertEqual(context["declared_size_bytes"], len(context_content))
+        self.assertEqual(integrity_report.classification, "declared_integrity_verified")
+        self.assertEqual(
+            observations["context/package-legacy-001-parameter-snapshot.json"]["comparison"],
+            "verified",
+        )
+        self.assertEqual(context_plan["action"], "keep_reference_only")
+        self.assertEqual(context_plan["materialization"], "packaged_payload")
+        self.assertEqual(context_plan["does_not_claim"], "linked_context_payload_import")
+        self.assertIn(
+            {
+                "path": "handoff-package-legacy-rabi-001/context/package-legacy-001-parameter-snapshot.json",
+                "kind": "linked_context",
+                "result": "written",
+                "bytes_written": len(context_content),
+                "digest": context_digest,
+                "does_not_claim": "linked_context_payload_import_or_reference_resolution",
+            },
+            receipt_summary["write_results"],
+        )
 
     def test_linked_context_reference_metadata_cannot_claim_payload_import(self) -> None:
         source = _load_input()

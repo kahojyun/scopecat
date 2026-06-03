@@ -46,10 +46,15 @@ from scopecat.handoff.receiving import (
 )
 from scopecat.handoff.selected_record_export import (
     SELECTED_RECORD_EXPORT_POLICY,
+    SelectedMeasurementRecordBatchExportRecord,
+    SelectedMeasurementRecordBatchExportRequest,
+    SelectedMeasurementRecordBatchExportRun,
     SelectedMeasurementRecordExportLinkedContext,
     SelectedMeasurementRecordExportRequest,
     SelectedMeasurementRecordExportRun,
     export_selected_measurement_record,
+    export_selected_measurement_record_batch,
+    export_selected_measurement_record_batch_from_request,
     export_selected_measurement_record_from_request,
 )
 from scopecat.handoff.tables import HandoffPlotSeries, HandoffTable
@@ -82,12 +87,17 @@ __all__ = [
     "HandoffReceivingGateRun",
     "HandoffReceivingReviewRequest",
     "HandoffTable",
+    "SelectedMeasurementRecordBatchExportRecord",
+    "SelectedMeasurementRecordBatchExportRequest",
+    "SelectedMeasurementRecordBatchExportRun",
     "SelectedMeasurementRecordExportLinkedContext",
     "SelectedMeasurementRecordExportRequest",
     "SelectedMeasurementRecordExportRun",
     "build_durable_import_request_from_handoff_plan",
     "build_inspection_html",
     "export_selected_measurement_record",
+    "export_selected_measurement_record_batch",
+    "export_selected_measurement_record_batch_from_request",
     "export_selected_measurement_record_from_request",
     "observe_package_integrity",
     "open_package",

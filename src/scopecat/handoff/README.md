@@ -26,6 +26,8 @@ Package writer and local package workflow:
 - `run_package_workflow(source, source_root=..., package_root=...)`
 - `export_selected_measurement_record_from_request(request, storage_root=..., package_root=...)`
 - `export_selected_measurement_record(source, storage_root=..., package_root=...)`
+- `export_selected_measurement_record_batch_from_request(request, storage_root=..., package_root=...)`
+- `export_selected_measurement_record_batch(source, storage_root=..., package_root=...)`
 
 Read-only package use and local review:
 
@@ -61,10 +63,18 @@ package projections consume typed route-local manifest fragments. Raw workflow
 dictionaries are accepted only at public `run_*` edge adapters; internal
 composition should pass typed route-local request and run objects.
 
+`write_package(...)` is the route-local writer primitive. It accepts explicit
+caller-declared package ids, measurement ids, source paths, digests, sizes, and
+linked-context facts. Those identifiers are reviewed package-input facts only;
+they are not durable Scopecat Measurement Record identity and do not replace
+record-local read models, creation manifests, or writer receipts.
+
 `run_import_plan(...)` is a non-mutating plan. It names package members that
 could be considered for later acceptance, but accepts no destination path,
 performs no conflict detection, writes no storage records, and does not decide
-final storage schema or rollback policy.
+final storage schema or rollback policy. It may list one or more package
+measurements; durable handoff import remains one planned measurement per
+storage mutation.
 
 Durable import is a separate boundary. When a reviewed handoff package feeds
 durable storage, this module adapts exactly one ready import-plan measurement
@@ -75,6 +85,11 @@ import plan as sufficient write authority for bytes on disk; the delegated
 pipeline reopens the package member and preflights digest, byte size,
 normalized CSV shape, and row count before any storage mutation.
 
+Durable-import receipts and summaries include local `durable_import_review`
+guidance, plus summary `block_reason` and `retry_requires` fields. This is
+local review guidance only; it does not approve retry, reuse stale plans, skip
+destination checks, or bypass package revalidation.
+
 ## Artifact Boundaries
 
 The generated package directory and `package-manifest.json` are portable
@@ -84,17 +99,57 @@ validated managed references at the package/export boundary.
 Selected stored-record export is a route-local adapter over the existing
 Measurement Records read model and record-local receipts. It reads one complete
 stored record, requires explicit preview metadata, delegates package writing to
-the package writer, keeps linked context reference-only, and does not mutate
-Measurement Records storage, refresh read models, infer schema, create
-archives, or accept/import packages.
+the package writer, may package explicitly declared record-local linked-context
+payloads under `context/`, and does not mutate Measurement Records storage,
+refresh read models, infer schema, create archives, or accept/import packages.
+Recorded linked references remain review references; they are not file-copy
+authority by themselves.
+
+Selected stored-record batch export uses the same storage-backed authority for
+each selected record and writes one multi-measurement package. Batch export is
+source-side package creation only; durable handoff import remains one planned
+measurement per storage mutation under DEC-017.
+
+For the normal JNY-001 product handoff path, selected stored-record export is
+the storage-backed entrypoint. Direct package-writer input remains an adapter or
+engineering route for already-reviewed normalized data, not a user-facing
+shortcut around Measurement Records storage.
 
 Local writer receipts, inspection HTML, function return values, import-plan
 objects, durable-import adapter receipts, retry reviews, and CLI summaries are
 local review surfaces unless a later slice explicitly promotes one as a
-portable/export artifact. Linked-context entries remain reference-only: the
-module can expose selected context references for review, but it does not
-package linked payloads, resolve references, restore environments, or import
-linked context into durable Measurement Records storage.
+portable/export artifact.
+
+Selected-record export receipts include `export_review` guidance that
+classifies successful transfer review or blocked retry review. This is local
+review guidance only; it does not approve retry, mutate storage, or refresh
+read models.
+
+Receiving gate and import-plan receipts include `receiving_review` and
+`import_plan_review` guidance that classifies successful continuation or
+blocked retry review. This is local review guidance only; it does not approve
+retry, accept packages, or mutate storage.
+
+Receiving review state is currently a derived local projection over those
+receipts under DEC-018. This module does not persist GUI-owned review state.
+
+Package signature/trust implementation is deferred under DEC-019. This module
+observes declared digest integrity and emits explicit non-claims, but it does
+not verify signer identity, package authenticity, trusted source, or
+signature-gated import policy.
+
+Archive package implementation is deferred under DEC-020. This module writes
+and opens directory manifest packages; it does not create archives, accept
+archive inputs, extract packages, or treat archive bytes as package authority.
+
+The generic package writer can package explicitly declared linked-context
+payload files under `context/` after source digest and size preflight. Opened
+packages expose those entries as `packaged_payload`, and integrity observation
+checks them as declared package members. Import planning and durable import
+still do not import linked-context payloads under DEC-016. Selected
+stored-record export uses the same package-member path only when its export
+request declares a source path under the selected record directory, a
+`context/` package path, digest, and byte size.
 
 ## CLI
 

@@ -4,14 +4,20 @@ import hashlib
 import shutil
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from scopecat.handoff import (
     SELECTED_RECORD_EXPORT_POLICY,
+    SelectedMeasurementRecordBatchExportRecord,
+    SelectedMeasurementRecordBatchExportRequest,
     SelectedMeasurementRecordExportLinkedContext,
     SelectedMeasurementRecordExportRequest,
     export_selected_measurement_record,
+    export_selected_measurement_record_batch,
+    export_selected_measurement_record_batch_from_request,
     export_selected_measurement_record_from_request,
+    observe_package_integrity,
     open_package,
 )
 from scopecat.measurement_records import (
@@ -28,21 +34,27 @@ def _digest(path: Path) -> str:
     return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
 
 
-def _import_request() -> MeasurementRecordDurableImportRequest:
+def _import_request(
+    *,
+    record_id: str = "run-3101-rabi",
+    record_dir: str = "records/run-3101-rabi",
+    legacy_data_id: int = 3101,
+    target_label: str = "Imported Rabi run",
+) -> MeasurementRecordDurableImportRequest:
     source_path = CHUNK_FIXTURE / "chunks" / "chunk-1.csv"
     return MeasurementRecordDurableImportRequest(
-        request_id="import-rabi-3101",
+        request_id=f"import-{record_id}",
         approval_state="approved",
-        record_id="run-3101-rabi",
-        record_dir="records/run-3101-rabi",
-        primary_data_path="records/run-3101-rabi/primary.csv",
-        writer_receipt_path="records/run-3101-rabi/writer-receipt.json",
-        finalization_receipt_path="records/run-3101-rabi/finalization-receipt.json",
-        read_model_path="records/run-3101-rabi/record-read-model.json",
+        record_id=record_id,
+        record_dir=record_dir,
+        primary_data_path=f"{record_dir}/primary.csv",
+        writer_receipt_path=f"{record_dir}/writer-receipt.json",
+        finalization_receipt_path=f"{record_dir}/finalization-receipt.json",
+        read_model_path=f"{record_dir}/record-read-model.json",
         import_source=MeasurementRecordImportSource(
             source_kind="adapter_normalized_primary_data",
-            source_id="adapter-output-3101",
-            source_item_id="primary-3101-rabi",
+            source_id=f"adapter-output-{legacy_data_id}",
+            source_item_id=f"primary-{record_id}",
             content_ref="chunks/chunk-1.csv",
             declared_digest=_digest(source_path),
             size_bytes=source_path.stat().st_size,
@@ -50,12 +62,13 @@ def _import_request() -> MeasurementRecordDurableImportRequest:
             primary_data_format="csv_table",
         ),
         creation_source_kind="import",
-        label="Imported Rabi run",
+        label=target_label,
         experiment_type="rabi",
     )
 
 
-def _preview_metadata() -> dict:
+def _preview_metadata(*, record_id: str = "run-3101-rabi") -> dict:
+    primary_path = f"measurements/{record_id}/primary.csv"
     return {
         "status": "preview_ready",
         "metadata_authority": "scopecat_export_manifest",
@@ -81,7 +94,7 @@ def _preview_metadata() -> dict:
             {
                 "x": "drive_amplitude",
                 "y": "excited_state_probability",
-                "source": "measurements/run-3101-rabi/primary.csv",
+                "source": primary_path,
             }
         ],
     }
@@ -100,7 +113,7 @@ def _export_request() -> SelectedMeasurementRecordExportRequest:
         read_model_path="records/run-3101-rabi/record-read-model.json",
         legacy_data_id=3101,
         target="qA",
-        declared_preview_metadata=_preview_metadata(),
+        declared_preview_metadata=_preview_metadata(record_id="run-3101-rabi"),
         linked_context=(
             SelectedMeasurementRecordExportLinkedContext(
                 link_id="run-3101-parameter-state",
@@ -109,7 +122,7 @@ def _export_request() -> SelectedMeasurementRecordExportRequest:
                 relation="run_start_context",
                 reason=(
                     "The selected record exposes this context as reference-only; "
-                    "payload packaging is outside this export slice."
+                    "payload packaging was not requested for this package."
                 ),
                 context_reference={
                     "reference_id": "parameter-state-run-3101",
@@ -134,6 +147,22 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
 
         import_run = import_measurement_record_from_request(
             _import_request(),
+            content_root=content_root,
+            storage_root=storage_root,
+        )
+        self.assertTrue(import_run.imported)
+        return storage_root, package_root
+
+    def _create_two_imported_records(self, temp_root: Path) -> tuple[Path, Path]:
+        storage_root, package_root = self._create_imported_record(temp_root)
+        content_root = temp_root / "content"
+        import_run = import_measurement_record_from_request(
+            _import_request(
+                record_id="run-3102-rabi",
+                record_dir="records/run-3102-rabi",
+                legacy_data_id=3102,
+                target_label="Imported Rabi repeat",
+            ),
             content_root=content_root,
             storage_root=storage_root,
         )
@@ -175,6 +204,16 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
             payload["package_write"]["package"]["classification"],
             "package_written_ready_for_transfer_review",
         )
+        self.assertEqual(
+            payload["export_review"],
+            {
+                "classification": "exported_selected_measurement_record",
+                "package_written": True,
+                "block_reason": None,
+                "next_action": "transfer_package_for_receiving_review",
+                "retry_requires": None,
+            },
+        )
 
     def test_raw_source_entrypoint_uses_explicit_export_policy(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -192,12 +231,200 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
 
         self.assertTrue(run.exported)
 
+    def test_exports_selected_stored_record_batch_to_one_openable_package(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root, package_root = self._create_two_imported_records(Path(temp_dir))
+            request = SelectedMeasurementRecordBatchExportRequest(
+                request_id="export-rabi-batch-3101-3102",
+                approval_state="approved",
+                package_id="handoff-package-rabi-batch-3101-3102",
+                display_name="Rabi batch selected measurement handoff",
+                source_export_summary_id="export-summary-rabi-batch-3101-3102",
+                display_path="HANDOFF_PACKAGE:/redacted/rabi-batch-3101-3102",
+                records=(
+                    _export_request().to_batch_record(),
+                    SelectedMeasurementRecordBatchExportRecord(
+                        record_id="run-3102-rabi",
+                        record_dir="records/run-3102-rabi",
+                        read_model_path="records/run-3102-rabi/record-read-model.json",
+                        legacy_data_id=3102,
+                        target="qA",
+                        declared_preview_metadata=_preview_metadata(record_id="run-3102-rabi"),
+                    ),
+                ),
+            )
+
+            run = export_selected_measurement_record_batch_from_request(
+                request,
+                storage_root=storage_root,
+                package_root=package_root,
+            )
+            package = open_package(package_root / "handoff-package-rabi-batch-3101-3102")
+
+        summary = run.to_dict()
+
+        self.assertTrue(run.exported)
+        self.assertEqual(run.classification, "exported_selected_measurement_record_batch")
+        self.assertEqual(package.measurement_ids, ("run-3101-rabi", "run-3102-rabi"))
+        self.assertEqual(package.measurement("run-3102-rabi").label, "Imported Rabi repeat")
+        self.assertEqual(package.measurement("run-3102-rabi").primary_table.row_count, 3)
+        self.assertIn("batch_durable_import", summary["workflow"]["does_not_claim"])
+        self.assertEqual(len(summary["records"]), 2)
+        self.assertEqual(
+            [
+                item["measurement_record_id"]
+                for item in summary["package_write"]["selected_measurements"]
+            ],
+            ["run-3101-rabi", "run-3102-rabi"],
+        )
+
+    def test_raw_batch_source_entrypoint_uses_explicit_export_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root, package_root = self._create_two_imported_records(Path(temp_dir))
+            request = SelectedMeasurementRecordBatchExportRequest(
+                request_id="export-rabi-batch-raw-3101-3102",
+                approval_state="approved",
+                package_id="handoff-package-rabi-batch-raw-3101-3102",
+                display_name="Raw Rabi batch selected measurement handoff",
+                source_export_summary_id="export-summary-rabi-batch-raw-3101-3102",
+                display_path="HANDOFF_PACKAGE:/redacted/rabi-batch-raw-3101-3102",
+                records=(
+                    _export_request().to_batch_record(),
+                    SelectedMeasurementRecordBatchExportRecord(
+                        record_id="run-3102-rabi",
+                        record_dir="records/run-3102-rabi",
+                        read_model_path="records/run-3102-rabi/record-read-model.json",
+                        legacy_data_id=3102,
+                        target="qA",
+                        declared_preview_metadata=_preview_metadata(record_id="run-3102-rabi"),
+                    ),
+                ),
+            )
+            source = {
+                "selected_record_export_policy": SELECTED_RECORD_EXPORT_POLICY,
+                "selected_record_batch_export_request": request.to_dict(),
+            }
+
+            run = export_selected_measurement_record_batch(
+                source,
+                storage_root=storage_root,
+                package_root=package_root,
+            )
+
+        self.assertTrue(run.exported)
+
+    def test_batch_export_rejects_duplicate_selected_record_ids(self) -> None:
+        duplicate_record = _export_request().to_batch_record()
+        with self.assertRaisesRegex(ValueError, "duplicate selected record batch export record_id"):
+            SelectedMeasurementRecordBatchExportRequest(
+                request_id="export-rabi-batch-duplicate",
+                approval_state="approved",
+                package_id="handoff-package-rabi-batch-duplicate",
+                display_name="Duplicate Rabi batch handoff",
+                source_export_summary_id="export-summary-rabi-batch-duplicate",
+                display_path="HANDOFF_PACKAGE:/redacted/rabi-batch-duplicate",
+                records=(duplicate_record, duplicate_record),
+            )
+
+    def test_exports_declared_record_local_linked_context_payload(self) -> None:
+        context_content = b'{"attenuation_db":"12"}\n'
+        context_digest = f"sha256:{hashlib.sha256(context_content).hexdigest()}"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root, package_root = self._create_imported_record(Path(temp_dir))
+            context_path = storage_root / "records" / "run-3101-rabi" / "parameter-state.json"
+            context_path.write_bytes(context_content)
+            request = replace(
+                _export_request(),
+                linked_context=(
+                    SelectedMeasurementRecordExportLinkedContext(
+                        link_id="run-3101-parameter-state",
+                        kind="parameter_state",
+                        label="Reviewed parameter state",
+                        relation="run_start_context",
+                        reason="Packaged from explicit record-local linked payload.",
+                        source_path="records/run-3101-rabi/parameter-state.json",
+                        package_path="context/run-3101-parameter-state.json",
+                        expected_digest=context_digest,
+                        expected_size_bytes=len(context_content),
+                        context_reference={
+                            "reference_id": "parameter-state-run-3101",
+                            "reference_kind": "parameter_state",
+                            "reference_family": "parameter_state",
+                            "materialization": "reference_only",
+                            "payload_import": "not_performed",
+                        },
+                    ),
+                ),
+            )
+
+            run = export_selected_measurement_record_from_request(
+                request,
+                storage_root=storage_root,
+                package_root=package_root,
+            )
+            package_dir = package_root / "handoff-package-run-3101-rabi"
+            package = open_package(package_dir)
+            integrity_report = observe_package_integrity(package_dir)
+
+        context = package.linked_context[0].to_dict()
+        observations = {
+            member.package_path: member.to_dict() for member in integrity_report.member_observations
+        }
+        receipt_summary = run.to_dict()
+
+        self.assertTrue(run.exported)
+        self.assertEqual(context["materialization"], "packaged_payload")
+        self.assertEqual(context["package_path"], "context/run-3101-parameter-state.json")
+        self.assertEqual(context["declared_digest"], context_digest)
+        self.assertEqual(context["declared_size_bytes"], len(context_content))
+        self.assertEqual(integrity_report.classification, "declared_integrity_verified")
+        self.assertEqual(
+            observations["context/run-3101-parameter-state.json"]["comparison"],
+            "verified",
+        )
+        self.assertIn(
+            {
+                "path": "handoff-package-run-3101-rabi/context/run-3101-parameter-state.json",
+                "kind": "linked_context",
+                "result": "written",
+                "bytes_written": len(context_content),
+                "digest": context_digest,
+                "does_not_claim": "linked_context_payload_import_or_reference_resolution",
+            },
+            receipt_summary["package_write"]["write_results"],
+        )
+
+    def test_export_rejects_linked_context_payload_outside_selected_record_dir(self) -> None:
+        context_content = b'{"attenuation_db":"12"}\n'
+        context_digest = f"sha256:{hashlib.sha256(context_content).hexdigest()}"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root, package_root = self._create_imported_record(Path(temp_dir))
+            outside_path = storage_root / "records" / "other-run" / "parameter-state.json"
+            outside_path.parent.mkdir()
+            outside_path.write_bytes(context_content)
+
+            with self.assertRaisesRegex(ValueError, "must stay under record_dir"):
+                replace(
+                    _export_request(),
+                    linked_context=(
+                        SelectedMeasurementRecordExportLinkedContext(
+                            link_id="run-3101-parameter-state",
+                            kind="parameter_state",
+                            label="Reviewed parameter state",
+                            relation="run_start_context",
+                            reason="Attempt to package an out-of-record payload.",
+                            source_path="records/other-run/parameter-state.json",
+                            package_path="context/run-3101-parameter-state.json",
+                            expected_digest=context_digest,
+                            expected_size_bytes=len(context_content),
+                        ),
+                    ),
+                )
+
     def test_unapproved_export_does_not_write_package(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root, package_root = self._create_imported_record(Path(temp_dir))
-            request = SelectedMeasurementRecordExportRequest(
-                **{**_export_request().to_dict(), "approval_state": "needs_review"}
-            )
+            request = replace(_export_request(), approval_state="needs_review")
 
             run = export_selected_measurement_record_from_request(
                 request,
@@ -209,6 +436,16 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
 
         self.assertFalse(run.exported)
         self.assertIsNone(run.package_write)
+        self.assertEqual(
+            run.to_dict()["export_review"],
+            {
+                "classification": "blocked_before_export",
+                "package_written": False,
+                "block_reason": "request_not_approved",
+                "next_action": "approve_selected_record_export_request",
+                "retry_requires": "approved_selected_record_export_request",
+            },
+        )
 
     def test_export_requires_complete_read_model_before_package_write(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -230,6 +467,11 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
 
         self.assertEqual(run.classification, "blocked_before_export")
         self.assertIn("requires complete", run.export_error or "")
+        self.assertEqual(run.to_dict()["export_review"]["block_reason"], "record_not_complete")
+        self.assertEqual(
+            run.to_dict()["export_review"]["next_action"],
+            "review_record_evidence_before_export_retry",
+        )
 
     def test_export_rejects_primary_data_outside_selected_record_dir(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -254,6 +496,55 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
 
         self.assertEqual(run.classification, "blocked_before_export")
         self.assertIn("must stay under record_dir", run.export_error or "")
+        self.assertEqual(
+            run.to_dict()["export_review"]["block_reason"],
+            "record_path_scope_violation",
+        )
+
+    def test_export_review_summarizes_missing_evidence_block(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root, package_root = self._create_imported_record(Path(temp_dir))
+            (storage_root / "records" / "run-3101-rabi" / "writer-receipt.json").unlink()
+
+            run = export_selected_measurement_record_from_request(
+                _export_request(),
+                storage_root=storage_root,
+                package_root=package_root,
+            )
+
+        review = run.to_dict()["export_review"]
+        self.assertEqual(run.classification, "blocked_before_export")
+        self.assertEqual(review["block_reason"], "missing_record_evidence")
+        self.assertEqual(
+            review["retry_requires"],
+            "fresh_matching_record_read_model_manifest_and_writer_receipt",
+        )
+
+    def test_export_review_summarizes_package_collision_block(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root, package_root = self._create_imported_record(Path(temp_dir))
+            first = export_selected_measurement_record_from_request(
+                _export_request(),
+                storage_root=storage_root,
+                package_root=package_root,
+            )
+            second = export_selected_measurement_record_from_request(
+                _export_request(),
+                storage_root=storage_root,
+                package_root=package_root,
+            )
+
+        self.assertTrue(first.exported)
+        self.assertEqual(
+            second.to_dict()["export_review"],
+            {
+                "classification": "blocked_before_export",
+                "package_written": False,
+                "block_reason": "package_destination_collision",
+                "next_action": "choose_new_package_destination_before_retry",
+                "retry_requires": "fresh_package_destination_or_removed_collision",
+            },
+        )
 
 
 if __name__ == "__main__":

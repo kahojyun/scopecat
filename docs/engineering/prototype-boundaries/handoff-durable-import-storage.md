@@ -18,7 +18,17 @@ Read it with:
   for durable Measurement Records creation, writing, finalization, projection,
   import, and storage authority;
 - [`../../../src/scopecat/handoff/README.md`](../../../src/scopecat/handoff/README.md)
-  for the live handoff API surface.
+  for the live handoff API surface;
+- [`../../decisions/architecture/DEC-016-defer-linked-context-payload-import.md`](../../decisions/architecture/DEC-016-defer-linked-context-payload-import.md)
+  for the current linked-context payload import deferral;
+- [`../../decisions/architecture/DEC-017-defer-batch-durable-import.md`](../../decisions/architecture/DEC-017-defer-batch-durable-import.md)
+  for the current batch durable import deferral;
+- [`../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md`](../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md)
+  for the receiving review state projection boundary;
+- [`../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md`](../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md)
+  for the current package signature/trust implementation deferral;
+- [`../../decisions/architecture/DEC-020-defer-archive-package-implementation.md`](../../decisions/architecture/DEC-020-defer-archive-package-implementation.md)
+  for the current archive package implementation deferral.
 
 ## Current Boundary
 
@@ -55,6 +65,17 @@ The current adapter:
   selected measurement, destination, durable-import classification, and
   explicit non-claims.
 
+Durable-import receipts and summaries include local review guidance for
+successful import, blocked import-plan handoff, durable source-preflight
+blocks, rollback, and partial-commit cases. That guidance exposes stable
+`block_reason`, `next_action`, and `retry_requires` fields without authorizing
+retry, reusing stale plans, or bypassing destination/package rechecks.
+
+DEC-017 keeps multi-measurement package plans as review and coordination
+evidence only. They do not authorize one durable batch mutation until a
+separate destination, conflict, partial-success, rollback, and retry contract
+exists.
+
 The import plan is not write authority. Before mutation, the delegated
 Measurement Records pipeline reopens the package member through the package
 directory content root and validates digest, byte size, normalized CSV shape,
@@ -80,8 +101,9 @@ package and ready import-plan path:
 
 Linked context remains review context. Optional managed context-reference
 metadata may be preserved in local package, import-plan, and handoff
-durable-import review surfaces, but linked-context payloads are not imported
-into Measurement Records storage.
+durable-import review surfaces. DEC-016 keeps packaged linked-context payloads
+out of Measurement Records storage until a separate context artifact import
+contract exists.
 
 ## Artifact And Storage Authority
 
@@ -97,6 +119,19 @@ Local handoff durable-import receipts, receipt summaries, retry reviews, and
 CLI summaries are local review surfaces. They are not portable handoff
 artifacts, retry approval, persistent GUI state, destination freshness proof,
 or storage mutation authority.
+
+DEC-018 allows future GUI receiving surfaces to project these local review
+facts, but does not make the durable-import adapter own persisted GUI state.
+
+DEC-019 keeps signature/trust implementation deferred. The durable-import
+adapter may consume declared digest integrity from the reviewed package path,
+but it does not verify signer identity, trusted source, package authenticity,
+or signature-gated mutation policy.
+
+DEC-020 keeps archive creation and extraction deferred. The durable-import
+adapter consumes an already-opened directory manifest package; it does not
+extract archives, treat archive bytes as durable-import authority, or own
+archive materialization cleanup.
 
 ## Current Failure Shape
 
@@ -121,22 +156,23 @@ protection.
 
 This boundary does not accept:
 
-- importing multiple measurements in one durable operation;
+- importing multiple measurements in one durable operation beyond DEC-017;
 - importing into an existing record or attaching to a pre-created shell;
 - using the older `measurement_record_directory_candidate_v0` storage layout;
 - primary-data merge, compaction, or append visibility as canonical import
   behavior;
 - final record-id generation policy;
 - manifest replacement or canonical-current-state manifest updates;
-- linked-context payload materialization;
-- archive extraction, signatures, authenticity, or package trust policy;
+- linked-context payload materialization beyond DEC-016;
+- archive extraction beyond DEC-020;
+- signatures, authenticity, or package trust policy beyond DEC-019;
 - adapter discovery, drop-folder protocol, service API, or stable public
   adapter API;
 - conflict policy beyond new-record no-overwrite behavior;
 - lock identity, stale-lock cleanup, crash recovery, or concurrent writer
   behavior;
 - public storage schema, export schema, database index, or GUI import review
-  state.
+  state beyond DEC-018.
 
 ## Tests And Fixtures
 
@@ -155,7 +191,8 @@ Relevant regression expectations:
 - package-id and selected-measurement mismatches block before mutation;
 - stale package bytes are revalidated by the delegated durable-import pipeline;
 - linked context remains reference-only review context;
-- receipt summaries and retry reviews do not authorize mutation.
+- receipt summaries and retry reviews expose stable local review guidance but
+  do not authorize mutation.
 
 Run repository checks with:
 
@@ -170,9 +207,10 @@ uv run ruff format --check .
 Advance this boundary only when a named workflow requires a broader behavior.
 Likely separate decisions include:
 
-- batch package receiving/import and partial-success policy;
-- package archive format, trust, authenticity, or signature handling;
-- linked-context payload import;
+- batch package receiving/import and partial-success policy beyond DEC-017;
+- package archive format beyond DEC-020;
+- trust, authenticity, or signature handling beyond DEC-019;
+- linked-context payload import beyond DEC-016;
 - existing-record update/import conflict behavior;
-- persistent receiving review state or GUI durable review workflow;
+- persisted receiving review state or GUI durable review workflow beyond DEC-018;
 - stronger recovery, locking, or concurrent storage behavior.

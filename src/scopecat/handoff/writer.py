@@ -18,6 +18,7 @@ from scopecat.handoff._contracts import (
     validate_handoff_package_identity,
     validate_handoff_preview_ready_metadata,
     validate_non_negative_integer,
+    validate_package_item_shape,
     validate_package_primary_data_path,
     validate_positive_integer,
     validate_public_identifier,
@@ -37,7 +38,7 @@ _EXPECTED_POLICY = {
     "overwrite_behavior": "no_overwrite",
     "checksum_algorithm": "sha256",
     "primary_data_materialization": "copy_declared_primary_data",
-    "linked_context_materialization": "reference_only",
+    "linked_context_materialization": "declared_reference_or_payload",
     "archive_creation": "not_performed",
     "package_acceptance": "not_performed",
     "source_mutation": "not_performed",
@@ -138,7 +139,12 @@ _LINKED_CONTEXT_KEYS = {
     "reason",
     "linked_measurement_record_ids",
 }
-_OPTIONAL_LINKED_CONTEXT_KEYS = {"context_reference"}
+_OPTIONAL_LINKED_CONTEXT_KEYS = {
+    "context_reference",
+    "source_path",
+    "expected_digest",
+    "expected_size_bytes",
+}
 _CONTEXT_REFERENCE_KEYS = {
     "reference_id",
     "reference_kind",
@@ -361,11 +367,14 @@ class _LinkedContext:
     relation: str
     authority: str
     package_state: str
-    reason: str
+    reason: str | None
     linked_measurement_record_ids: tuple[str, ...]
+    source_path: str | None = None
+    expected_digest: str | None = None
+    expected_size_bytes: int | None = None
     context_reference: dict[str, str] | None = None
 
-    def to_manifest(self) -> dict[str, Any]:
+    def to_manifest(self, *, digest: str | None = None, size: int | None = None) -> dict[str, Any]:
         result = {
             "link_id": self.link_id,
             "kind": self.kind,
@@ -378,6 +387,11 @@ class _LinkedContext:
             "reason": self.reason,
             "linked_measurement_record_ids": list(self.linked_measurement_record_ids),
         }
+        if self.package_state == "packaged":
+            if digest is None or size is None:
+                raise ValueError("packaged linked context requires digest and size")
+            result["digest"] = digest
+            result["size_bytes"] = size
         if self.context_reference is not None:
             result["context_reference"] = dict(self.context_reference)
         return result
@@ -395,6 +409,18 @@ class _PackageWriteSource:
 class _CopiedSource:
     record: _SelectedMeasurement
     content: bytes
+
+
+@dataclass(frozen=True)
+class _CopiedLinkedContext:
+    context: _LinkedContext
+    content: bytes
+
+
+def _linked_context_package_path(context: _LinkedContext) -> str:
+    if context.package_path is None:
+        raise ValueError("packaged linked context requires package_path")
+    return context.package_path
 
 
 def write_package(
@@ -415,8 +441,9 @@ def write_package(
     )
 
     copied_sources = _preflight_sources(write_source, source_root_resolved)
+    copied_contexts = _preflight_linked_context(write_source, source_root_resolved)
     _ensure_new_targets(write_source, package_root_resolved)
-    manifest_content = _manifest_bytes(write_source, copied_sources)
+    manifest_content = _manifest_bytes(write_source, copied_sources, copied_contexts)
 
     files = [
         (
@@ -425,10 +452,17 @@ def write_package(
         )
         for copied in copied_sources
     ]
+    files.extend(
+        (
+            write_source.request.actual_package_path(_linked_context_package_path(copied.context)),
+            copied.content,
+        )
+        for copied in copied_contexts
+    )
     files.append((write_source.request.manifest_path, manifest_content))
     _write_new_files_transaction(package_root_resolved, files, label="handoff package")
 
-    return _write_receipt(write_source, copied_sources, manifest_content)
+    return _write_receipt(write_source, copied_sources, copied_contexts, manifest_content)
 
 
 def _validate_policy(source: dict[str, Any]) -> None:
@@ -652,17 +686,33 @@ def _validate_linked_context(source: dict[str, Any]) -> None:
         validate_public_identifier(item["kind"], f"linked context {link_id} kind")
         validate_text(item["label"], f"linked context {link_id} label")
         validate_public_identifier(item["relation"], f"linked context {link_id} relation")
-        if item["package_path"] is not None:
-            raise ValueError("handoff package writer keeps linked context reference-only")
-        if item["include_status"] != "visible_excluded":
-            raise ValueError(
-                "handoff package linked context include_status must stay visible_excluded"
-            )
+        validate_package_item_shape(item, f"linked context {link_id}")
         if item["authority"] != MANIFEST_AUTHORITY:
             raise ValueError("handoff package linked context authority must stay manifest declared")
-        if item["package_state"] != "not_packaged_visible_reference":
-            raise ValueError("handoff package writer keeps linked context reference-only")
-        validate_text(item["reason"], "handoff package linked context reason")
+        if item["package_state"] == "packaged":
+            validate_strict_child_path(
+                item["package_path"],
+                "context",
+                f"handoff package linked context {link_id} package_path",
+            )
+            validate_relative_path(
+                item.get("source_path"),
+                f"handoff package linked context {link_id} source_path",
+            )
+            validate_sha256_digest(
+                item.get("expected_digest"),
+                f"handoff package linked context {link_id} expected_digest",
+            )
+            validate_positive_integer(
+                item.get("expected_size_bytes"),
+                f"handoff package linked context {link_id} expected_size_bytes",
+            )
+        else:
+            for field in ("source_path", "expected_digest", "expected_size_bytes"):
+                if field in item:
+                    raise ValueError(
+                        "handoff package non-packaged linked context must not carry source payload fields"
+                    )
         validate_unique_reference_targets(
             item["linked_measurement_record_ids"],
             selected_ids=selected_ids,
@@ -700,6 +750,11 @@ def _validate_destination_topology(source: dict[str, Any]) -> None:
     output_paths.extend(
         _actual_package_path(source, record["primary_data"]["package_path"])
         for record in source["selected_measurements"]
+    )
+    output_paths.extend(
+        _actual_package_path(source, item["package_path"])
+        for item in source["linked_context"]
+        if item["package_path"] is not None
     )
     for index, path in enumerate(output_paths):
         for other in output_paths[index + 1 :]:
@@ -821,6 +876,9 @@ def _parse_linked_context(item: dict[str, Any]) -> _LinkedContext:
         package_state=item["package_state"],
         reason=item["reason"],
         linked_measurement_record_ids=tuple(item["linked_measurement_record_ids"]),
+        source_path=item.get("source_path"),
+        expected_digest=item.get("expected_digest"),
+        expected_size_bytes=item.get("expected_size_bytes"),
         context_reference=dict(context_reference) if context_reference is not None else None,
     )
 
@@ -936,10 +994,63 @@ def _read_source_file(source_root: Path, record: _SelectedMeasurement) -> bytes:
     return content
 
 
+def _read_linked_context_file(source_root: Path, context: _LinkedContext) -> bytes:
+    source_path = context.source_path
+    if (
+        context.package_state != "packaged"
+        or source_path is None
+        or context.expected_digest is None
+        or context.expected_size_bytes is None
+    ):
+        raise ValueError("packaged linked context requires declared source payload facts")
+    _ensure_no_symlink_parents(source_root, source_path, "linked context source")
+    try:
+        parent_fd, _created_dirs = _open_parent_dir_fd(source_root, source_path, create=False)
+    except OSError as exc:
+        raise ValueError("handoff package linked context source file is unavailable") from exc
+    try:
+        try:
+            file_fd = os.open(
+                relative_path_parts(source_path)[-1],
+                os.O_RDONLY | _NOFOLLOW,
+                dir_fd=parent_fd,
+            )
+        except OSError as exc:
+            raise ValueError("handoff package linked context source file is unavailable") from exc
+        with os.fdopen(file_fd, "rb") as handle:
+            source_stat = os.fstat(handle.fileno())
+            if not stat.S_ISREG(source_stat.st_mode):
+                raise ValueError("handoff package linked context source file is unavailable")
+            if source_stat.st_size != context.expected_size_bytes:
+                raise ValueError("handoff package linked context source size does not match")
+            content = handle.read()
+    finally:
+        os.close(parent_fd)
+    digest = _sha256(content)
+    if digest != context.expected_digest:
+        raise ValueError("handoff package linked context source digest does not match")
+    if len(content) != context.expected_size_bytes:
+        raise ValueError("handoff package linked context source size does not match")
+    return content
+
+
 def _preflight_sources(source: _PackageWriteSource, source_root: Path) -> list[_CopiedSource]:
     return [
         _CopiedSource(record=record, content=_read_source_file(source_root, record))
         for record in source.selected_measurements
+    ]
+
+
+def _preflight_linked_context(
+    source: _PackageWriteSource, source_root: Path
+) -> list[_CopiedLinkedContext]:
+    return [
+        _CopiedLinkedContext(
+            context=context,
+            content=_read_linked_context_file(source_root, context),
+        )
+        for context in source.linked_context
+        if context.package_state == "packaged"
     ]
 
 
@@ -964,6 +1075,11 @@ def _ensure_new_targets(source: _PackageWriteSource, package_root: Path) -> None
         + [
             request.actual_package_path(record.primary_data.package_path)
             for record in source.selected_measurements
+        ]
+        + [
+            request.actual_package_path(item.package_path)
+            for item in source.linked_context
+            if item.package_path is not None
         ],
         "handoff package",
     )
@@ -1037,6 +1153,7 @@ def _write_new_files_transaction(
 def _manifest_bytes(
     source: _PackageWriteSource,
     copied_sources: list[_CopiedSource],
+    copied_contexts: list[_CopiedLinkedContext],
 ) -> bytes:
     digest_by_id = {
         copied.record.measurement_record_id: _sha256(copied.content) for copied in copied_sources
@@ -1044,6 +1161,10 @@ def _manifest_bytes(
     size_by_id = {
         copied.record.measurement_record_id: len(copied.content) for copied in copied_sources
     }
+    context_digest_by_id = {
+        copied.context.link_id: _sha256(copied.content) for copied in copied_contexts
+    }
+    context_size_by_id = {copied.context.link_id: len(copied.content) for copied in copied_contexts}
     manifest = {
         "package_preview_policy": copy.deepcopy(_PACKAGE_PREVIEW_POLICY),
         "package_identity": source.identity.to_manifest(),
@@ -1054,7 +1175,13 @@ def _manifest_bytes(
             )
             for record in source.selected_measurements
         ],
-        "linked_context": [item.to_manifest() for item in source.linked_context],
+        "linked_context": [
+            item.to_manifest(
+                digest=context_digest_by_id.get(item.link_id),
+                size=context_size_by_id.get(item.link_id),
+            )
+            for item in source.linked_context
+        ],
     }
     preview_handoff_manifest(manifest)
     return json.dumps(manifest, indent=2, sort_keys=True).encode("utf-8") + b"\n"
@@ -1101,12 +1228,14 @@ def _package_contents(source: _PackageWriteSource) -> list[dict[str, Any]]:
 def _write_receipt(
     source: _PackageWriteSource,
     copied_sources: list[_CopiedSource],
+    copied_contexts: list[_CopiedLinkedContext],
     manifest_content: bytes,
 ) -> HandoffPackageWriteReceipt:
     request = source.request
     copied_by_id = {
         copied.record.measurement_record_id: copied.content for copied in copied_sources
     }
+    copied_context_by_id = {copied.context.link_id: copied.content for copied in copied_contexts}
     write_results = [
         {
             "path": request.actual_package_path(record.primary_data.package_path),
@@ -1118,6 +1247,18 @@ def _write_receipt(
         }
         for record in source.selected_measurements
     ]
+    write_results.extend(
+        {
+            "path": request.actual_package_path(_linked_context_package_path(context)),
+            "kind": "linked_context",
+            "result": "written",
+            "bytes_written": len(copied_context_by_id[context.link_id]),
+            "digest": _sha256(copied_context_by_id[context.link_id]),
+            "does_not_claim": "linked_context_payload_import_or_reference_resolution",
+        }
+        for context in source.linked_context
+        if context.package_state == "packaged"
+    )
     write_results.append(
         {
             "path": request.manifest_path,
@@ -1175,10 +1316,10 @@ def _attention() -> list[dict[str, str]]:
             "does_not_claim": "schema_or_scientific_validity",
         },
         {
-            "code": "linked_context_reference_only",
+            "code": "linked_context_materialization_declared",
             "severity": "review",
-            "basis": "Linked context remains visible reference-only; payloads are not packaged.",
-            "does_not_claim": "recursive_relation_traversal_or_context_capture",
+            "basis": "Linked context may be visible reference-only or explicitly packaged from declared source files.",
+            "does_not_claim": "recursive_relation_traversal_or_payload_import",
         },
         {
             "code": "archive_creation_not_performed",

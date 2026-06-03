@@ -72,10 +72,14 @@ class HandoffReceivingGateRun:
     package: HandoffPackage
     integrity_report: HandoffPackageIntegrityReport
     package_dir: str
+    package_open_error: str | None = None
 
     @property
     def acceptance_allowed(self) -> bool:
-        return self.integrity_report.classification == "declared_integrity_verified"
+        return (
+            self.package_open_error is None
+            and self.integrity_report.classification == "declared_integrity_verified"
+        )
 
     @property
     def classification(self) -> str:
@@ -95,6 +99,7 @@ class HandoffReceivingGateRun:
                 "preview_classification": self.package.preview_classification,
                 "integrity_classification": self.integrity_report.classification,
                 "measurement_ids": list(self.package.measurement_ids),
+                "open_error": self.package_open_error,
             },
             "integrity_observation": {
                 "performed": True,
@@ -111,6 +116,11 @@ class HandoffReceivingGateRun:
                     else "Integrity observation must be reviewed before acceptance mutation."
                 ),
             },
+            "receiving_review": _receiving_review(
+                classification=self.classification,
+                acceptance_allowed=self.acceptance_allowed,
+                integrity_classification=self.integrity_report.classification,
+            ),
             "does_not_claim": [
                 "storage_mutation",
                 "package_import_or_acceptance",
@@ -139,8 +149,15 @@ def run_receiving_gate_from_request(
 ) -> HandoffReceivingGateRun:
     """Run the receiving gate from an already parsed route-local request."""
 
-    package = open_package(package_dir)
     integrity_report = observe_package_integrity(package_dir)
+    try:
+        package = open_package(package_dir)
+        package_open_error = None
+    except ValueError as exc:
+        if integrity_report.classification == "declared_integrity_verified":
+            raise
+        package = _review_only_package(integrity_report)
+        package_open_error = str(exc)
     resolved_package_dir = str(Path(package_dir).resolve())
     _validate_reviewed_facts(
         request=request,
@@ -152,6 +169,21 @@ def run_receiving_gate_from_request(
         package=package,
         integrity_report=integrity_report,
         package_dir=resolved_package_dir,
+        package_open_error=package_open_error,
+    )
+
+
+def _review_only_package(integrity_report: HandoffPackageIntegrityReport) -> HandoffPackage:
+    return HandoffPackage(
+        package_id=integrity_report.package_id,
+        display_name=integrity_report.display_name,
+        created_by="unavailable_until_package_open",
+        source_export_summary_id="unavailable_until_package_open",
+        preview_classification=integrity_report.preview_classification,
+        measurements=(),
+        linked_context=(),
+        findings=(),
+        classification="blocked_before_declared_preview_open",
     )
 
 
@@ -228,3 +260,58 @@ def _validate_reviewed_facts(
         raise ValueError("integrity package id must match opened package")
     if request.reviewed_integrity_classification != integrity_report.classification:
         raise ValueError("reviewed integrity classification must match observed integrity")
+
+
+def _receiving_review(
+    *,
+    classification: str,
+    acceptance_allowed: bool,
+    integrity_classification: str,
+) -> dict[str, str | None | bool]:
+    block_reason = _receiving_block_reason(
+        acceptance_allowed=acceptance_allowed,
+        integrity_classification=integrity_classification,
+    )
+    return {
+        "classification": classification,
+        "acceptance_allowed": acceptance_allowed,
+        "block_reason": block_reason,
+        "next_action": _receiving_next_action(block_reason),
+        "retry_requires": _receiving_retry_requirement(block_reason),
+    }
+
+
+def _receiving_block_reason(
+    *,
+    acceptance_allowed: bool,
+    integrity_classification: str,
+) -> str | None:
+    if acceptance_allowed:
+        return None
+    if integrity_classification == "integrity_review_required":
+        return "package_integrity_review_required"
+    if integrity_classification == "integrity_observed_with_undeclared_members":
+        return "undeclared_package_members_review_required"
+    return "receiving_gate_not_ready"
+
+
+def _receiving_next_action(block_reason: str | None) -> str:
+    if block_reason is None:
+        return "build_import_plan_for_reviewed_package"
+    if block_reason in {
+        "package_integrity_review_required",
+        "undeclared_package_members_review_required",
+    }:
+        return "review_package_integrity_before_import_planning"
+    return "review_receiving_gate_before_import_planning"
+
+
+def _receiving_retry_requirement(block_reason: str | None) -> str | None:
+    if block_reason is None:
+        return None
+    if block_reason in {
+        "package_integrity_review_required",
+        "undeclared_package_members_review_required",
+    }:
+        return "fresh_matching_package_open_and_integrity_observation"
+    return "fresh_receiving_review_request"
