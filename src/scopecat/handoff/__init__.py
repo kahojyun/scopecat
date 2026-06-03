@@ -67,10 +67,12 @@ from scopecat.handoff.selected_record_export import (
     SelectedMeasurementRecordExportLinkedContext,
     SelectedMeasurementRecordExportRequest,
     SelectedMeasurementRecordExportRun,
+    SelectedMeasurementRecordPreflightExportRun,
     export_selected_measurement_record,
     export_selected_measurement_record_batch,
     export_selected_measurement_record_batch_from_request,
     export_selected_measurement_record_from_request,
+    export_selected_measurement_record_with_preflight_refresh,
 )
 from scopecat.handoff.signature_trust import (
     SignatureTrustContractReview,
@@ -120,6 +122,7 @@ __all__ = [
     "SelectedMeasurementRecordExportLinkedContext",
     "SelectedMeasurementRecordExportRequest",
     "SelectedMeasurementRecordExportRun",
+    "SelectedMeasurementRecordPreflightExportRun",
     "SignatureTrustContractReview",
     "build_durable_import_request_from_handoff_plan",
     "build_inspection_html",
@@ -130,6 +133,7 @@ __all__ = [
     "export_selected_measurement_record_batch",
     "export_selected_measurement_record_batch_from_request",
     "export_selected_measurement_record_from_request",
+    "export_selected_measurement_record_with_preflight_refresh",
     "observe_package_integrity",
     "open_package",
     "project_handoff_receiving_review_state",

@@ -18,6 +18,7 @@ from scopecat.handoff import (
     export_selected_measurement_record_batch,
     export_selected_measurement_record_batch_from_request,
     export_selected_measurement_record_from_request,
+    export_selected_measurement_record_with_preflight_refresh,
     observe_package_integrity,
     open_package,
 )
@@ -247,6 +248,115 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
             )
 
         self.assertTrue(run.exported)
+
+    def test_preflight_export_uses_existing_fresh_read_model_without_refresh(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root, package_root = self._create_imported_record(Path(temp_dir))
+
+            run = export_selected_measurement_record_with_preflight_refresh(
+                _export_request(),
+                storage_root=storage_root,
+                package_root=package_root,
+            )
+
+        payload = run.to_dict()
+        self.assertTrue(run.exported)
+        self.assertIsNone(run.refresh_run)
+        self.assertEqual(
+            payload["workflow"]["steps"],
+            ["run_initial_selected_record_export_preflight"],
+        )
+        self.assertEqual(payload["preflight_review"]["refresh_performed"], False)
+        self.assertEqual(payload["preflight_review"]["block_reason"], None)
+
+    def test_preflight_export_refreshes_missing_read_model_then_exports(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root, package_root = self._create_imported_record(Path(temp_dir))
+            read_model_path = storage_root / "records" / "run-3101-rabi" / "record-read-model.json"
+            read_model_path.unlink()
+
+            run = export_selected_measurement_record_with_preflight_refresh(
+                _export_request(),
+                storage_root=storage_root,
+                package_root=package_root,
+            )
+            package = open_package(package_root / "handoff-package-run-3101-rabi")
+
+        payload = run.to_dict()
+        self.assertTrue(run.exported)
+        self.assertEqual(package.measurement_ids, ("run-3101-rabi",))
+        self.assertEqual(
+            payload["initial_export"]["read_model_freshness_review"]["classification"],
+            "missing_read_model_requires_projection",
+        )
+        self.assertEqual(payload["refresh"]["workflow"]["classification"], "refreshed_read_model")
+        self.assertEqual(payload["refresh"]["request"]["expected_target_condition"], "missing")
+        self.assertEqual(payload["final_export"]["export"]["performed"], True)
+        self.assertEqual(payload["preflight_review"]["refresh_performed"], True)
+        self.assertEqual(payload["preflight_review"]["block_reason"], None)
+
+    def test_preflight_export_refreshes_stale_read_model_then_exports(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root, package_root = self._create_imported_record(Path(temp_dir))
+            read_model_path = storage_root / "records" / "run-3101-rabi" / "record-read-model.json"
+            previous_digest = _digest(read_model_path)
+            read_model = json.loads(read_model_path.read_text(encoding="utf-8"))
+            read_model["primary_data"]["digest"] = (
+                "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            )
+            read_model_path.write_text(json.dumps(read_model, indent=2), encoding="utf-8")
+            stale_digest = _digest(read_model_path)
+
+            run = export_selected_measurement_record_with_preflight_refresh(
+                _export_request(),
+                storage_root=storage_root,
+                package_root=package_root,
+            )
+
+        payload = run.to_dict()
+        self.assertTrue(run.exported)
+        self.assertNotEqual(stale_digest, previous_digest)
+        self.assertEqual(
+            payload["initial_export"]["read_model_freshness_review"]["classification"],
+            "stale_read_model_requires_refresh",
+        )
+        self.assertEqual(
+            payload["refresh"]["request"]["expected_current_read_model_digest"],
+            stale_digest,
+        )
+        self.assertEqual(
+            payload["refresh"]["request"]["expected_target_condition"], "replace_existing"
+        )
+        self.assertEqual(payload["final_export"]["export"]["performed"], True)
+
+    def test_preflight_export_blocks_when_refresh_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root, package_root = self._create_imported_record(Path(temp_dir))
+            (storage_root / "records" / "run-3101-rabi" / "record-read-model.json").unlink()
+            (storage_root / "records" / "run-3101-rabi" / "finalization-receipt.json").unlink()
+
+            run = export_selected_measurement_record_with_preflight_refresh(
+                _export_request(),
+                storage_root=storage_root,
+                package_root=package_root,
+            )
+
+            self.assertFalse((package_root / "handoff-package-run-3101-rabi").exists())
+
+        payload = run.to_dict()
+        self.assertFalse(run.exported)
+        self.assertEqual(run.classification, "blocked_before_export_refresh_failed")
+        self.assertEqual(payload["refresh"], None)
+        self.assertEqual(payload["final_export"], None)
+        self.assertEqual(payload["preflight_review"]["block_reason"], "read_model_refresh_failed")
+        self.assertIn(
+            "finalization receipt is required",
+            payload["preflight_review"]["preflight_error"],
+        )
+        self.assertEqual(
+            payload["preflight_review"]["retry_requires"],
+            "successful_read_model_refresh_then_export_retry",
+        )
 
     def test_exports_selected_stored_record_batch_to_one_openable_package(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
