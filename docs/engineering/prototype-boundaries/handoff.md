@@ -207,6 +207,9 @@ sender trust, and scientific validity remain unclaimed.
 [`DEC-019`](../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md)
 keeps signature/trust implementation deferred until a signed-artifact,
 canonicalized coverage, signer identity, and trust-root contract exists.
+`current_handoff_signature_trust_contract()` records the current unsigned
+local-review posture and the required future trust boundary without verifying
+signatures, accepting trusted sources, or gating durable import.
 
 Local writer receipts, workflow receipts, inspection HTML, receiving-gate
 results, import-plan objects, CLI summaries, and retry reviews are local review

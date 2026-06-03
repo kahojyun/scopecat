@@ -29,6 +29,10 @@ from scopecat.handoff.receiving import (
     _EXPECTED_SCHEMA as _RECEIVING_GATE_SCHEMA,
 )
 from scopecat.handoff.selected_record_export import SELECTED_RECORD_EXPORT_POLICY
+from scopecat.handoff.signature_trust import (
+    HANDOFF_SIGNATURE_TRUST_POLICY,
+    HANDOFF_SIGNATURE_TRUST_REVIEW_SCHEMA,
+)
 
 HANDOFF_COMPATIBILITY_CONTRACT_VERSION = "scopecat.handoff.compatibility.v0"
 
@@ -50,6 +54,7 @@ def current_handoff_compatibility_contract() -> dict[str, Any]:
             "import_plan": _IMPORT_PLAN_SCHEMA,
             "handoff_durable_import": HANDOFF_DURABLE_IMPORT_SCHEMA,
             "archive_materialization_review": (HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA),
+            "signature_trust_review": HANDOFF_SIGNATURE_TRUST_REVIEW_SCHEMA,
         },
         "policies": {
             "selected_record_export": copy.deepcopy(SELECTED_RECORD_EXPORT_POLICY),
@@ -57,6 +62,7 @@ def current_handoff_compatibility_contract() -> dict[str, Any]:
             "import_plan": copy.deepcopy(_IMPORT_PLAN_POLICY),
             "handoff_durable_import": copy.deepcopy(HANDOFF_DURABLE_IMPORT_POLICY),
             "archive_materialization": copy.deepcopy(HANDOFF_ARCHIVE_MATERIALIZATION_POLICY),
+            "signature_trust": copy.deepcopy(HANDOFF_SIGNATURE_TRUST_POLICY),
         },
         "local_artifact_postures": [
             "local_write_receipt",
@@ -74,6 +80,8 @@ def current_handoff_compatibility_contract() -> dict[str, Any]:
             "local_receiving_review_state_projection",
             "local_archive_materialization_contract",
             "local_archive_materialization_contract_review",
+            "local_signature_trust_contract",
+            "local_signature_trust_contract_review",
             "local_handoff_error_diagnostic",
         ],
         "public_error_contract": {

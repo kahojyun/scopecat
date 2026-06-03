@@ -156,6 +156,9 @@ Package signature/trust implementation is deferred under DEC-019. This module
 observes declared digest integrity and emits explicit non-claims, but it does
 not verify signer identity, package authenticity, trusted source, or
 signature-gated import policy.
+`current_handoff_signature_trust_contract()` and
+`review_handoff_signature_trust_contract()` expose local contract review for
+that future work without performing signature verification.
 
 Archive package implementation is deferred under DEC-020. This module writes
 and opens directory manifest packages; it does not create archives, accept

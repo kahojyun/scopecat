@@ -92,6 +92,7 @@ class HandoffCompatibilityContractTest(unittest.TestCase):
                 "archive_materialization_review": (
                     "scopecat.handoff_archive_materialization_review.v0"
                 ),
+                "signature_trust_review": "scopecat.handoff_signature_trust_review.v0",
             },
         )
         self.assertEqual(
@@ -110,6 +111,10 @@ class HandoffCompatibilityContractTest(unittest.TestCase):
             contract["policies"]["archive_materialization"]["archive_extraction"],
             "not_performed",
         )
+        self.assertEqual(
+            contract["policies"]["signature_trust"]["signature_verification"],
+            "not_performed",
+        )
         self.assertIn(
             "local_handoff_error_diagnostic",
             contract["local_artifact_postures"],
@@ -120,6 +125,10 @@ class HandoffCompatibilityContractTest(unittest.TestCase):
         )
         self.assertIn(
             "local_archive_materialization_contract_review",
+            contract["local_artifact_postures"],
+        )
+        self.assertIn(
+            "local_signature_trust_contract_review",
             contract["local_artifact_postures"],
         )
         self.assertIn("local_write_receipt", contract["local_artifact_postures"])
