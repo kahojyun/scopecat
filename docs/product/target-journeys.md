@@ -117,7 +117,8 @@ handoff writer inputs to package explicitly declared linked-context payloads
 for review. DEC-014 allows selected stored-record export to package explicitly
 declared record-local linked-context payloads without treating recorded
 references as file-copy authority. DEC-013 allows multi-measurement import
-planning, while durable import remains one-record-at-a-time.
+planning, while durable import remains one-record-at-a-time. DEC-015 allows
+selected stored-record batch package export without adding batch durable import.
 
 Source evidence:
 

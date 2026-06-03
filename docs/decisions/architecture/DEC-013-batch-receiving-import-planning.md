@@ -50,7 +50,7 @@ This decision does not apply to:
 - batch durable Measurement Records mutation;
 - per-record destination assignment for batches;
 - batch conflict resolution, rollback, retry, or partial-success policy;
-- selected stored Measurement Record batch export;
+- selected stored Measurement Record batch export authority;
 - GUI batch review state.
 
 ## Consequences
@@ -91,7 +91,7 @@ Revisit this decision when:
 - receiving review needs batch destination assignment;
 - durable import needs per-record partial-success summaries;
 - GUI review needs persistent multi-measurement selection state;
-- selected stored Measurement Record export needs batch package creation;
+- selected stored Measurement Record export needs broader batch package topology;
 - retry review needs to coordinate more than one failed measurement.
 
 ## Related Evidence And Owners

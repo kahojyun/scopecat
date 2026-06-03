@@ -1,4 +1,4 @@
-"""Export one stored Measurement Record to a handoff package."""
+"""Export selected stored Measurement Records to handoff packages."""
 
 from __future__ import annotations
 
@@ -162,15 +162,9 @@ class SelectedMeasurementRecordExportLinkedContext:
 
 
 @dataclass(frozen=True)
-class SelectedMeasurementRecordExportRequest:
-    """Approved request to export one stored record through the handoff writer."""
+class SelectedMeasurementRecordBatchExportRecord:
+    """One stored Measurement Record selected for a batch handoff export."""
 
-    request_id: str
-    approval_state: str
-    package_id: str
-    display_name: str
-    source_export_summary_id: str
-    display_path: str
     record_id: str
     record_dir: str
     read_model_path: str
@@ -180,18 +174,6 @@ class SelectedMeasurementRecordExportRequest:
     linked_context: tuple[SelectedMeasurementRecordExportLinkedContext, ...] = ()
 
     def __post_init__(self) -> None:
-        validate_public_identifier(self.request_id, "selected record export request_id")
-        if self.approval_state not in APPROVAL_STATES:
-            raise ValueError("selected record export approval_state is unsupported")
-        identity = {
-            "package_id": self.package_id,
-            "display_name": self.display_name,
-            "created_by": HANDOFF_PACKAGE_CREATED_BY,
-            "source_export_summary_id": self.source_export_summary_id,
-            "display_path": self.display_path,
-            "local_path_redacted": True,
-        }
-        validate_handoff_package_identity(identity, display_path="required")
         validate_public_identifier(self.record_id, "selected record export record_id")
         validate_relative_path(self.record_dir, "selected record export record_dir")
         validate_relative_path(self.read_model_path, "selected record export read_model_path")
@@ -216,6 +198,62 @@ class SelectedMeasurementRecordExportRequest:
                     self.record_dir,
                     "selected record export linked context source_path",
                 )
+
+    @property
+    def package_primary_path(self) -> str:
+        return f"measurements/{self.record_id}/primary.csv"
+
+    def to_record_dict(self) -> dict[str, Any]:
+        return {
+            "record_id": self.record_id,
+            "record_dir": self.record_dir,
+            "read_model_path": self.read_model_path,
+            "legacy_data_id": self.legacy_data_id,
+            "target": self.target,
+            "declared_preview_metadata": copy.deepcopy(self.declared_preview_metadata),
+            "linked_context": [item.to_request_item() for item in self.linked_context],
+        }
+
+
+@dataclass(frozen=True)
+class SelectedMeasurementRecordExportRequest:
+    """Approved request to export one stored record through the handoff writer."""
+
+    request_id: str
+    approval_state: str
+    package_id: str
+    display_name: str
+    source_export_summary_id: str
+    display_path: str
+    record_id: str
+    record_dir: str
+    read_model_path: str
+    legacy_data_id: int
+    target: str
+    declared_preview_metadata: dict[str, Any]
+    linked_context: tuple[SelectedMeasurementRecordExportLinkedContext, ...] = ()
+
+    def __post_init__(self) -> None:
+        _validate_selected_export_identity(
+            request_id=self.request_id,
+            approval_state=self.approval_state,
+            package_id=self.package_id,
+            display_name=self.display_name,
+            source_export_summary_id=self.source_export_summary_id,
+            display_path=self.display_path,
+        )
+        self.to_batch_record()
+
+    def to_batch_record(self) -> SelectedMeasurementRecordBatchExportRecord:
+        return SelectedMeasurementRecordBatchExportRecord(
+            record_id=self.record_id,
+            record_dir=self.record_dir,
+            read_model_path=self.read_model_path,
+            legacy_data_id=self.legacy_data_id,
+            target=self.target,
+            declared_preview_metadata=copy.deepcopy(self.declared_preview_metadata),
+            linked_context=self.linked_context,
+        )
 
     @property
     def approved(self) -> bool:
@@ -244,6 +282,61 @@ class SelectedMeasurementRecordExportRequest:
             "target": self.target,
             "declared_preview_metadata": copy.deepcopy(self.declared_preview_metadata),
             "linked_context": [item.to_request_item() for item in self.linked_context],
+        }
+
+
+@dataclass(frozen=True)
+class SelectedMeasurementRecordBatchExportRequest:
+    """Approved request to export selected stored records into one package."""
+
+    request_id: str
+    approval_state: str
+    package_id: str
+    display_name: str
+    source_export_summary_id: str
+    display_path: str
+    records: tuple[SelectedMeasurementRecordBatchExportRecord, ...]
+
+    def __post_init__(self) -> None:
+        _validate_selected_export_identity(
+            request_id=self.request_id,
+            approval_state=self.approval_state,
+            package_id=self.package_id,
+            display_name=self.display_name,
+            source_export_summary_id=self.source_export_summary_id,
+            display_path=self.display_path,
+        )
+        if not self.records:
+            raise ValueError("selected record batch export requires records")
+        seen_ids: set[str] = set()
+        for record in self.records:
+            if record.record_id in seen_ids:
+                raise ValueError(
+                    f"duplicate selected record batch export record_id: {record.record_id}"
+                )
+            seen_ids.add(record.record_id)
+
+    @property
+    def approved(self) -> bool:
+        return self.approval_state == "approved"
+
+    @property
+    def package_dir(self) -> str:
+        return self.package_id
+
+    @property
+    def manifest_path(self) -> str:
+        return f"{self.package_dir}/package-manifest.json"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "request_id": self.request_id,
+            "approval_state": self.approval_state,
+            "package_id": self.package_id,
+            "display_name": self.display_name,
+            "source_export_summary_id": self.source_export_summary_id,
+            "display_path": self.display_path,
+            "records": [record.to_record_dict() for record in self.records],
         }
 
 
@@ -289,6 +382,68 @@ class SelectedMeasurementRecordExportRun:
             },
             "request": self.request.to_dict(),
             "record": _record_ref(self.read_model, self.record_manifest, self.writer_receipt),
+            "package_write": None if self.package_write is None else self.package_write.to_dict(),
+            "export": {
+                "performed": self.exported,
+                "storage_root": str(self.storage_root),
+                "package_root": str(self.package_root),
+                "package_dir": self.request.package_dir if self.exported else None,
+                "export_error": self.export_error,
+            },
+        }
+
+
+@dataclass(frozen=True)
+class _SelectedRecordExportEvidence:
+    record: SelectedMeasurementRecordBatchExportRecord
+    read_model: dict[str, Any]
+    record_manifest: dict[str, Any]
+    writer_receipt: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class SelectedMeasurementRecordBatchExportRun:
+    """Local review run for selected-record batch package export."""
+
+    request: SelectedMeasurementRecordBatchExportRequest
+    storage_root: Path
+    package_root: Path
+    records: tuple[_SelectedRecordExportEvidence, ...] = ()
+    package_write: HandoffPackageWriteReceipt | None = None
+    export_error: str | None = None
+
+    @property
+    def exported(self) -> bool:
+        return self.classification == "exported_selected_measurement_record_batch"
+
+    @property
+    def classification(self) -> str:
+        if self.export_error is not None:
+            return "blocked_before_export"
+        if not self.request.approved:
+            return "blocked_before_export"
+        return "exported_selected_measurement_record_batch"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "artifact_posture": "local_selected_record_batch_export_receipt",
+            "selected_record_export_policy": copy.deepcopy(SELECTED_RECORD_EXPORT_POLICY),
+            "workflow": {
+                "classification": self.classification,
+                "steps": [
+                    "validate_selected_record_batch_export_request",
+                    *([] if not self.request.approved else ["read_record_read_models"]),
+                    *([] if not self.records else ["read_record_creation_manifests"]),
+                    *([] if not self.records else ["read_record_writer_receipts"]),
+                    *([] if self.package_write is None else ["write_handoff_package"]),
+                ],
+                "does_not_claim": [*DOES_NOT_CLAIM, "batch_durable_import"],
+            },
+            "request": self.request.to_dict(),
+            "records": [
+                _record_ref(record.read_model, record.record_manifest, record.writer_receipt)
+                for record in self.records
+            ],
             "package_write": None if self.package_write is None else self.package_write.to_dict(),
             "export": {
                 "performed": self.exported,
@@ -361,6 +516,60 @@ def export_selected_measurement_record_from_request(
     )
 
 
+def export_selected_measurement_record_batch(
+    source: dict[str, Any],
+    *,
+    storage_root: str | Path,
+    package_root: str | Path,
+) -> SelectedMeasurementRecordBatchExportRun:
+    """Export selected stored Measurement Records from a raw route-local source."""
+
+    request = _parse_batch_source(source)
+    return export_selected_measurement_record_batch_from_request(
+        request,
+        storage_root=storage_root,
+        package_root=package_root,
+    )
+
+
+def export_selected_measurement_record_batch_from_request(
+    request: SelectedMeasurementRecordBatchExportRequest,
+    *,
+    storage_root: str | Path,
+    package_root: str | Path,
+) -> SelectedMeasurementRecordBatchExportRun:
+    """Export selected stored Measurement Records using the package writer."""
+
+    storage = _existing_directory_root(Path(storage_root), "selected record export storage root")
+    packages = _existing_directory_root(Path(package_root), "selected record export package root")
+    if not request.approved:
+        return SelectedMeasurementRecordBatchExportRun(
+            request=request,
+            storage_root=storage,
+            package_root=packages,
+        )
+
+    try:
+        records = tuple(_read_record_export_evidence(storage, record) for record in request.records)
+        writer_source = _batch_writer_source(request, records)
+        package_write = write_package(writer_source, source_root=storage, package_root=packages)
+    except ValueError as exc:
+        return SelectedMeasurementRecordBatchExportRun(
+            request=request,
+            storage_root=storage,
+            package_root=packages,
+            export_error=str(exc),
+        )
+
+    return SelectedMeasurementRecordBatchExportRun(
+        request=request,
+        storage_root=storage,
+        package_root=packages,
+        records=records,
+        package_write=package_write,
+    )
+
+
 def _parse_source(source: dict[str, Any]) -> SelectedMeasurementRecordExportRequest:
     if source.get("selected_record_export_policy") != SELECTED_RECORD_EXPORT_POLICY:
         raise ValueError("selected record export policy is unsupported")
@@ -382,6 +591,63 @@ def _parse_source(source: dict[str, Any]) -> SelectedMeasurementRecordExportRequ
         legacy_data_id=_require_int(request, "legacy_data_id"),
         target=_require_text(request, "target"),
         declared_preview_metadata=_require_dict(request, "declared_preview_metadata"),
+        linked_context=linked_context,
+    )
+
+
+def _validate_selected_export_identity(
+    *,
+    request_id: str,
+    approval_state: str,
+    package_id: str,
+    display_name: str,
+    source_export_summary_id: str,
+    display_path: str,
+) -> None:
+    validate_public_identifier(request_id, "selected record export request_id")
+    if approval_state not in APPROVAL_STATES:
+        raise ValueError("selected record export approval_state is unsupported")
+    identity = {
+        "package_id": package_id,
+        "display_name": display_name,
+        "created_by": HANDOFF_PACKAGE_CREATED_BY,
+        "source_export_summary_id": source_export_summary_id,
+        "display_path": display_path,
+        "local_path_redacted": True,
+    }
+    validate_handoff_package_identity(identity, display_path="required")
+
+
+def _parse_batch_source(source: dict[str, Any]) -> SelectedMeasurementRecordBatchExportRequest:
+    if source.get("selected_record_export_policy") != SELECTED_RECORD_EXPORT_POLICY:
+        raise ValueError("selected record batch export policy is unsupported")
+    request = _require_dict(source, "selected_record_batch_export_request")
+    return SelectedMeasurementRecordBatchExportRequest(
+        request_id=_require_text(request, "request_id"),
+        approval_state=_require_text(request, "approval_state"),
+        package_id=_require_text(request, "package_id"),
+        display_name=_require_text(request, "display_name"),
+        source_export_summary_id=_require_text(request, "source_export_summary_id"),
+        display_path=_require_text(request, "display_path"),
+        records=tuple(
+            _parse_batch_record(item) for item in _optional_list(request, "records", default=[])
+        ),
+    )
+
+
+def _parse_batch_record(item: Any) -> SelectedMeasurementRecordBatchExportRecord:
+    item = _require_mapping(item, "selected record batch export record")
+    linked_context = tuple(
+        _parse_linked_context(context)
+        for context in _optional_list(item, "linked_context", default=[])
+    )
+    return SelectedMeasurementRecordBatchExportRecord(
+        record_id=_require_text(item, "record_id"),
+        record_dir=_require_text(item, "record_dir"),
+        read_model_path=_require_text(item, "read_model_path"),
+        legacy_data_id=_require_int(item, "legacy_data_id"),
+        target=_require_text(item, "target"),
+        declared_preview_metadata=_require_dict(item, "declared_preview_metadata"),
         linked_context=linked_context,
     )
 
@@ -408,29 +674,90 @@ def _parse_linked_context(item: Any) -> SelectedMeasurementRecordExportLinkedCon
     )
 
 
-def _writer_source(
-    request: SelectedMeasurementRecordExportRequest,
-    read_model: dict[str, Any],
-    manifest: dict[str, Any],
-    writer_receipt: dict[str, Any],
+def _read_record_export_evidence(
+    storage: Path,
+    record: SelectedMeasurementRecordBatchExportRecord,
+) -> _SelectedRecordExportEvidence:
+    read_model = _read_read_model(storage, record)
+    manifest = _read_json(storage, f"{record.record_dir}/record-manifest.json", "record manifest")
+    writer_receipt_path = _writer_receipt_path(read_model)
+    writer_receipt = _read_json(storage, writer_receipt_path, "writer receipt")
+    return _SelectedRecordExportEvidence(
+        record=record,
+        read_model=read_model,
+        record_manifest=manifest,
+        writer_receipt=writer_receipt,
+    )
+
+
+def _package_write_policy() -> dict[str, str]:
+    return {
+        "write_authority": "approved_handoff_package_write_request",
+        "source_authority": "caller_provided_source_root_plus_declared_relative_paths",
+        "destination_authority": "caller_provided_package_root_plus_declared_package_paths",
+        "package_format": "directory_manifest",
+        "overwrite_behavior": "no_overwrite",
+        "checksum_algorithm": "sha256",
+        "primary_data_materialization": "copy_declared_primary_data",
+        "linked_context_materialization": "declared_reference_or_payload",
+        "archive_creation": "not_performed",
+        "package_acceptance": "not_performed",
+        "source_mutation": "not_performed",
+        "schema_inference": "not_performed",
+        "recursive_relation_traversal": "not_performed",
+        "gui_workflow": "not_defined",
+        "shared_measurement_schema": "not_defined",
+    }
+
+
+def _package_write_identity(
+    request: SelectedMeasurementRecordExportRequest | SelectedMeasurementRecordBatchExportRequest,
 ) -> dict[str, Any]:
-    record = _require_dict(manifest, "record")
-    primary_data = _require_dict(read_model, "primary_data")
+    return {
+        "package_id": request.package_id,
+        "display_name": request.display_name,
+        "created_by": HANDOFF_PACKAGE_CREATED_BY,
+        "source_export_summary_id": request.source_export_summary_id,
+        "display_path": request.display_path,
+        "local_path_redacted": True,
+    }
+
+
+def _package_write_request(
+    request: SelectedMeasurementRecordExportRequest | SelectedMeasurementRecordBatchExportRequest,
+) -> dict[str, str]:
+    return {
+        "request_id": request.request_id,
+        "approval_state": "approved",
+        "package_dir": request.package_dir,
+        "manifest_path": request.manifest_path,
+        "collision_policy": "no_overwrite",
+    }
+
+
+def _measurement_writer_item(evidence: _SelectedRecordExportEvidence) -> dict[str, Any]:
+    record = _require_dict(evidence.record_manifest, "record")
+    primary_data = _require_dict(evidence.read_model, "primary_data")
     primary_path = _require_text(primary_data, "path")
     validate_relative_path(primary_path, "selected record export primary data path")
     _validate_strict_child_path(
         primary_path,
-        request.record_dir,
+        evidence.record.record_dir,
         "selected record export primary data path",
     )
     digest = _require_text(primary_data, "digest")
     size_bytes = _require_int(primary_data, "size_bytes")
-    label = record.get("label") or request.record_id
+    label = record.get("label") or evidence.record.record_id
     experiment_type = record.get("experiment_type") or "unspecified"
     validate_public_identifier(experiment_type, "selected record export experiment_type")
-    _validate_record_continuity(request, read_model, manifest, writer_receipt)
+    _validate_record_continuity(
+        evidence.record,
+        evidence.read_model,
+        evidence.record_manifest,
+        evidence.writer_receipt,
+    )
 
-    package_primary_path = f"measurements/{request.record_id}/primary.csv"
+    package_primary_path = evidence.record.package_primary_path
     primary = {
         "kind": "primary_data",
         "label": "Stored primary data",
@@ -446,71 +773,72 @@ def _writer_source(
         "reason": None,
     }
     return {
-        "package_write_policy": {
-            "write_authority": "approved_handoff_package_write_request",
-            "source_authority": "caller_provided_source_root_plus_declared_relative_paths",
-            "destination_authority": "caller_provided_package_root_plus_declared_package_paths",
-            "package_format": "directory_manifest",
-            "overwrite_behavior": "no_overwrite",
-            "checksum_algorithm": "sha256",
-            "primary_data_materialization": "copy_declared_primary_data",
-            "linked_context_materialization": "declared_reference_or_payload",
-            "archive_creation": "not_performed",
-            "package_acceptance": "not_performed",
-            "source_mutation": "not_performed",
-            "schema_inference": "not_performed",
-            "recursive_relation_traversal": "not_performed",
-            "gui_workflow": "not_defined",
-            "shared_measurement_schema": "not_defined",
-        },
-        "package_write_request": {
-            "request_id": request.request_id,
-            "approval_state": "approved",
-            "package_dir": request.package_dir,
-            "manifest_path": request.manifest_path,
-            "collision_policy": "no_overwrite",
-        },
-        "package_identity": {
-            "package_id": request.package_id,
-            "display_name": request.display_name,
-            "created_by": HANDOFF_PACKAGE_CREATED_BY,
-            "source_export_summary_id": request.source_export_summary_id,
-            "display_path": request.display_path,
-            "local_path_redacted": True,
-        },
-        "selected_measurements": [
+        "measurement_record_id": evidence.record.record_id,
+        "legacy_data_id": evidence.record.legacy_data_id,
+        "label": label,
+        "experiment_type": experiment_type,
+        "target": evidence.record.target,
+        "primary_data": primary,
+        "declared_preview_metadata": copy.deepcopy(evidence.record.declared_preview_metadata),
+        "default_bundle": [
             {
-                "measurement_record_id": request.record_id,
-                "legacy_data_id": request.legacy_data_id,
-                "label": label,
-                "experiment_type": experiment_type,
-                "target": request.target,
-                "primary_data": primary,
-                "declared_preview_metadata": copy.deepcopy(request.declared_preview_metadata),
-                "default_bundle": [
-                    {
-                        "item_id": f"{request.record_id}-primary",
-                        "kind": "primary_data",
-                        "label": primary["label"],
-                        "package_path": package_primary_path,
-                        "include_status": "included_by_default",
-                        "relation": "selected_measurement_source",
-                        "authority": MANIFEST_AUTHORITY,
-                        "package_state": "packaged",
-                        "reason": None,
-                    }
-                ],
+                "item_id": f"{evidence.record.record_id}-primary",
+                "kind": "primary_data",
+                "label": primary["label"],
+                "package_path": package_primary_path,
+                "include_status": "included_by_default",
+                "relation": "selected_measurement_source",
+                "authority": MANIFEST_AUTHORITY,
+                "package_state": "packaged",
+                "reason": None,
             }
         ],
+    }
+
+
+def _batch_writer_source(
+    request: SelectedMeasurementRecordBatchExportRequest,
+    records: tuple[_SelectedRecordExportEvidence, ...],
+) -> dict[str, Any]:
+    return {
+        "package_write_policy": _package_write_policy(),
+        "package_write_request": _package_write_request(request),
+        "package_identity": _package_write_identity(request),
+        "selected_measurements": [_measurement_writer_item(record) for record in records],
         "linked_context": [
-            item.to_writer_item(measurement_record_id=request.record_id)
-            for item in request.linked_context
+            item.to_writer_item(measurement_record_id=record.record.record_id)
+            for record in records
+            for item in record.record.linked_context
+        ],
+    }
+
+
+def _writer_source(
+    request: SelectedMeasurementRecordExportRequest,
+    read_model: dict[str, Any],
+    manifest: dict[str, Any],
+    writer_receipt: dict[str, Any],
+) -> dict[str, Any]:
+    evidence = _SelectedRecordExportEvidence(
+        record=request.to_batch_record(),
+        read_model=read_model,
+        record_manifest=manifest,
+        writer_receipt=writer_receipt,
+    )
+    return {
+        "package_write_policy": _package_write_policy(),
+        "package_write_request": _package_write_request(request),
+        "package_identity": _package_write_identity(request),
+        "selected_measurements": [_measurement_writer_item(evidence)],
+        "linked_context": [
+            item.to_writer_item(measurement_record_id=evidence.record.record_id)
+            for item in evidence.record.linked_context
         ],
     }
 
 
 def _validate_record_continuity(
-    request: SelectedMeasurementRecordExportRequest,
+    request: SelectedMeasurementRecordBatchExportRecord,
     read_model: dict[str, Any],
     manifest: dict[str, Any],
     writer_receipt: dict[str, Any],
@@ -540,7 +868,9 @@ def _validate_record_continuity(
         raise ValueError("selected record export primary data size must match writer receipt")
 
 
-def _read_read_model(root: Path, request: SelectedMeasurementRecordExportRequest) -> dict[str, Any]:
+def _read_read_model(
+    root: Path, request: SelectedMeasurementRecordBatchExportRecord
+) -> dict[str, Any]:
     read_model = _read_json(root, request.read_model_path, "record read model")
     if read_model.get("schema") != READ_MODEL_SCHEMA:
         raise ValueError("selected record export read model schema is unsupported")

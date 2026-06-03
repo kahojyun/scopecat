@@ -26,6 +26,8 @@ Package writer and local package workflow:
 - `run_package_workflow(source, source_root=..., package_root=...)`
 - `export_selected_measurement_record_from_request(request, storage_root=..., package_root=...)`
 - `export_selected_measurement_record(source, storage_root=..., package_root=...)`
+- `export_selected_measurement_record_batch_from_request(request, storage_root=..., package_root=...)`
+- `export_selected_measurement_record_batch(source, storage_root=..., package_root=...)`
 
 Read-only package use and local review:
 
@@ -97,6 +99,11 @@ payloads under `context/`, and does not mutate Measurement Records storage,
 refresh read models, infer schema, create archives, or accept/import packages.
 Recorded linked references remain review references; they are not file-copy
 authority by themselves.
+
+Selected stored-record batch export uses the same storage-backed authority for
+each selected record and writes one multi-measurement package. Batch export is
+source-side package creation only; durable handoff import remains one planned
+measurement per storage mutation.
 
 For the normal JNY-001 product handoff path, selected stored-record export is
 the storage-backed entrypoint. Direct package-writer input remains an adapter or

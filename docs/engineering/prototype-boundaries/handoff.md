@@ -28,6 +28,8 @@ Read it with:
   for the current batch receiving/import planning boundary;
 - [`../../decisions/architecture/DEC-014-selected-record-linked-context-payload-export.md`](../../decisions/architecture/DEC-014-selected-record-linked-context-payload-export.md)
   for the current selected-record linked-context payload export boundary;
+- [`../../decisions/architecture/DEC-015-selected-record-batch-package-export.md`](../../decisions/architecture/DEC-015-selected-record-batch-package-export.md)
+  for the current selected-record batch export boundary;
 - [`../workflow-validation-map.md`](../workflow-validation-map.md) for the
   current cross-capability handoff workflow gap.
 
@@ -93,7 +95,9 @@ The selected stored-record export adapter:
   headers;
 - can package explicitly declared record-local linked-context payloads under
   `context/` after digest and size preflight;
-- writes a single-measurement package through the package writer;
+- writes one package through the package writer: single-measurement for a
+  single export request, or multi-measurement for a batch export request that
+  selects multiple complete stored records;
 - keeps non-declared linked context reference-only and does not treat recorded
   references as payload authority;
 - does not mutate Measurement Records storage or refresh read models.
@@ -207,9 +211,9 @@ Acceptance for that candidate is intentionally narrow:
   context reference-only.
 
 This candidate is not production readiness for the whole handoff capability.
-Batch durable import, selected-record batch export, linked-context payload
-import, persistent GUI/review state, public SDK contracts, and final storage
-schemas remain separate decisions. Archive format is explicitly deferred by
+Batch durable import, linked-context payload import, persistent GUI/review
+state, public SDK contracts, and final storage schemas remain separate
+decisions. Archive format is explicitly deferred by
 [`DEC-010`](../../decisions/architecture/DEC-010-package-format-directory-manifest.md).
 Signature/authenticity implementation and trust policy beyond the unsigned
 local-review posture are explicitly deferred by
@@ -220,6 +224,8 @@ Batch import planning without batch durable mutation is governed by
 [`DEC-013`](../../decisions/architecture/DEC-013-batch-receiving-import-planning.md).
 Selected-record linked-context payload export is governed by
 [`DEC-014`](../../decisions/architecture/DEC-014-selected-record-linked-context-payload-export.md).
+Selected-record batch export without batch durable import is governed by
+[`DEC-015`](../../decisions/architecture/DEC-015-selected-record-batch-package-export.md).
 
 ## Historical Context
 
@@ -279,7 +285,7 @@ behavior. Current likely separate decisions include:
 - production-readiness hardening for selected stored Measurement Record export;
 - GUI review beyond local static HTML;
 - signature implementation or trusted-source policy beyond DEC-011;
-- selected-record batch export or durable linked-context payload import;
+- durable linked-context payload import or batch durable import;
 - analysis or fit results as first-class package display facts;
 - shared lifecycle or domain model extraction justified by more than one
   accepted route.

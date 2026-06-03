@@ -59,7 +59,7 @@ This decision does not apply to:
 - recursive linked-reference traversal;
 - treating recorded references as payload authority;
 - durable linked-context import;
-- selected-record batch export;
+- selected-record batch export topology;
 - context-kind schemas or shared domain schemas;
 - GUI review state.
 
@@ -71,7 +71,7 @@ The authority remains explicit: the export request names the record-local file
 and expected bytes, while the package writer owns package-member validation.
 
 Future work must still decide whether linked-context payloads can be imported,
-whether selected-record batch export needs package-level context topology, and
+whether selected-record batch export needs richer package-level context topology, and
 whether context kinds need stable schemas.
 
 ## Alternatives Considered
