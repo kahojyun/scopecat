@@ -263,14 +263,7 @@ class HandoffDurableImportReceiptSummary:
     rollback_performed: bool
     partial_commit: bool
     import_error: str | None
-
-    @property
-    def block_reason(self) -> str | None:
-        return _summary_block_reason(
-            final_state=self.final_state,
-            durable_import_classification=self.durable_import_classification,
-            partial_commit=self.partial_commit,
-        )
+    block_reason: str | None
 
     @property
     def retry_requires(self) -> str | None:
@@ -602,6 +595,52 @@ def summarize_handoff_durable_import_receipt(
     elif durable_import_performed:
         raise ValueError("blocked handoff durable receipt must not report performed import")
 
+    durable_import_review = _require_mapping(
+        receipt["durable_import_review"],
+        "handoff durable import receipt.durable_import_review",
+    )
+    _require_keys(
+        durable_import_review,
+        {
+            "classification",
+            "durable_import_performed",
+            "block_reason",
+            "next_action",
+            "retry_requires",
+        },
+        "handoff durable import receipt.durable_import_review",
+    )
+    if (
+        _read_public_id(
+            durable_import_review,
+            "classification",
+            "durable_import_review.classification",
+        )
+        != final_state
+    ):
+        raise ValueError("handoff durable import review classification is inconsistent")
+    if (
+        _read_bool(
+            durable_import_review,
+            "durable_import_performed",
+            "durable_import_review.durable_import_performed",
+        )
+        != durable_import_performed
+    ):
+        raise ValueError("handoff durable import review performed state is inconsistent")
+    block_reason = _read_optional_text(
+        durable_import_review,
+        "block_reason",
+        "durable_import_review.block_reason",
+    )
+    retry_requires = _read_optional_text(
+        durable_import_review,
+        "retry_requires",
+        "durable_import_review.retry_requires",
+    )
+    if retry_requires != _summary_retry_requirement(block_reason):
+        raise ValueError("handoff durable import review retry requirement is inconsistent")
+
     return HandoffDurableImportReceiptSummary(
         package_id=package_id,
         measurement_record_id=measurement_record_id,
@@ -618,6 +657,7 @@ def summarize_handoff_durable_import_receipt(
         rollback_performed=rollback_performed,
         partial_commit=partial_commit,
         import_error=import_error,
+        block_reason=block_reason,
     )
 
 
@@ -678,25 +718,6 @@ def _durable_import_block_reason(
         return "durable_import_blocked_before_import"
     if final_state == "ready_for_handoff_durable_import":
         return "durable_import_not_run"
-    return "handoff_durable_import_blocked"
-
-
-def _summary_block_reason(
-    *,
-    final_state: str,
-    durable_import_classification: str | None,
-    partial_commit: bool,
-) -> str | None:
-    if final_state == "imported_handoff_measurement_record":
-        return None
-    if partial_commit or durable_import_classification == "import_failed_after_partial_commit":
-        return "durable_import_partial_commit"
-    if durable_import_classification == "rolled_back_after_import_failure":
-        return "durable_import_rolled_back"
-    if durable_import_classification == "blocked_before_import":
-        return "durable_import_blocked_before_import"
-    if durable_import_classification is None:
-        return "import_plan_not_ready"
     return "handoff_durable_import_blocked"
 
 

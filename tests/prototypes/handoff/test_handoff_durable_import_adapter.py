@@ -532,10 +532,35 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
 
         self.assertEqual(summary["final_state"], "blocked_before_handoff_durable_import")
         self.assertEqual(summary["next_action"], "resolve_import_plan_before_durable_import")
-        self.assertEqual(summary["block_reason"], "import_plan_not_ready")
+        self.assertEqual(summary["block_reason"], "package_integrity_review_required")
         self.assertEqual(summary["retry_requires"], "fresh_ready_import_plan")
         self.assertFalse(summary["durable_import_performed"])
         self.assertIsNone(summary["durable_import_classification"])
+
+    def test_summarizes_unapproved_request_without_collapsing_to_import_plan_block(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            storage_root.mkdir()
+
+            run = run_handoff_durable_import_from_plan(
+                _request(approval_state="needs_review"),
+                import_plan=_import_plan_run(package_dir),
+                storage_root=storage_root,
+            )
+            summary = summarize_handoff_durable_import_receipt(run.to_dict()).to_dict()
+
+        self.assertEqual(summary["final_state"], "blocked_before_handoff_durable_import")
+        self.assertEqual(
+            summary["next_action"], "complete_handoff_durable_import_review_before_mutation"
+        )
+        self.assertEqual(summary["block_reason"], "request_not_approved")
+        self.assertEqual(
+            summary["retry_requires"],
+            "approved_handoff_durable_import_request",
+        )
+        self.assertFalse(summary["durable_import_performed"])
 
     def test_retry_review_allows_fresh_ready_plan_after_blocked_plan(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -572,7 +597,10 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
         self.assertEqual(retry_review.classification, "fresh_import_plan_ready_for_retry")
         self.assertTrue(retry_review.retry_allowed)
         self.assertEqual(retry_summary["measurement_record_id"], "legacy-rabi-001")
-        self.assertEqual(retry_summary["previous"]["block_reason"], "import_plan_not_ready")
+        self.assertEqual(
+            retry_summary["previous"]["block_reason"],
+            "package_integrity_review_required",
+        )
         self.assertEqual(retry_summary["previous"]["retry_requires"], "fresh_ready_import_plan")
         self.assertEqual(
             retry_summary["retry_review_policy"]["prior_receipt_reuse"],
@@ -615,6 +643,7 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
                 rollback_performed=False,
                 partial_commit=True,
                 import_error="simulated partial commit",
+                block_reason="durable_import_partial_commit",
             )
 
             retry_review = review_handoff_durable_import_retry(
@@ -642,6 +671,7 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
                 rollback_performed=False,
                 partial_commit=False,
                 import_error="simulated block",
+                block_reason="durable_import_blocked_before_import",
             )
             fresh_plan = _import_plan_run(package_dir)
             multi_measurement_plan = replace(
@@ -677,6 +707,7 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
                 rollback_performed=False,
                 partial_commit=False,
                 import_error="simulated block",
+                block_reason="durable_import_blocked_before_import",
             )
 
             with self.assertRaisesRegex(ValueError, "measurement id"):

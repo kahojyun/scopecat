@@ -72,10 +72,14 @@ class HandoffReceivingGateRun:
     package: HandoffPackage
     integrity_report: HandoffPackageIntegrityReport
     package_dir: str
+    package_open_error: str | None = None
 
     @property
     def acceptance_allowed(self) -> bool:
-        return self.integrity_report.classification == "declared_integrity_verified"
+        return (
+            self.package_open_error is None
+            and self.integrity_report.classification == "declared_integrity_verified"
+        )
 
     @property
     def classification(self) -> str:
@@ -95,6 +99,7 @@ class HandoffReceivingGateRun:
                 "preview_classification": self.package.preview_classification,
                 "integrity_classification": self.integrity_report.classification,
                 "measurement_ids": list(self.package.measurement_ids),
+                "open_error": self.package_open_error,
             },
             "integrity_observation": {
                 "performed": True,
@@ -144,8 +149,15 @@ def run_receiving_gate_from_request(
 ) -> HandoffReceivingGateRun:
     """Run the receiving gate from an already parsed route-local request."""
 
-    package = open_package(package_dir)
     integrity_report = observe_package_integrity(package_dir)
+    try:
+        package = open_package(package_dir)
+        package_open_error = None
+    except ValueError as exc:
+        if integrity_report.classification == "declared_integrity_verified":
+            raise
+        package = _review_only_package(integrity_report)
+        package_open_error = str(exc)
     resolved_package_dir = str(Path(package_dir).resolve())
     _validate_reviewed_facts(
         request=request,
@@ -157,6 +169,21 @@ def run_receiving_gate_from_request(
         package=package,
         integrity_report=integrity_report,
         package_dir=resolved_package_dir,
+        package_open_error=package_open_error,
+    )
+
+
+def _review_only_package(integrity_report: HandoffPackageIntegrityReport) -> HandoffPackage:
+    return HandoffPackage(
+        package_id=integrity_report.package_id,
+        display_name=integrity_report.display_name,
+        created_by="unavailable_until_package_open",
+        source_export_summary_id="unavailable_until_package_open",
+        preview_classification=integrity_report.preview_classification,
+        measurements=(),
+        linked_context=(),
+        findings=(),
+        classification="blocked_before_declared_preview_open",
     )
 
 

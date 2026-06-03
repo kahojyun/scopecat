@@ -233,7 +233,7 @@ def run_import_plan(
     request, receiving_gate_source = _parse_source(source)
     receiving_gate = run_receiving_gate(receiving_gate_source, package_dir=package_dir)
     inspection_receipt = None
-    if inspection_output_dir is not None:
+    if inspection_output_dir is not None and receiving_gate.acceptance_allowed:
         inspection_receipt = write_inspection_artifact(
             receiving_gate.package,
             output_dir=Path(inspection_output_dir),
@@ -267,10 +267,10 @@ def _build_import_plan_run(
     package = receiving_gate.package
     if inspection_receipt is not None:
         _validate_inspection_receipt(inspection_receipt, package_id=package.package_id)
-    selected_measurement_ids = request.measurement_ids_for(package)
     measurement_plans: tuple[HandoffMeasurementImportPlan, ...] = ()
     linked_context_plans: tuple[HandoffLinkedContextImportPlan, ...] = ()
     if receiving_gate.acceptance_allowed:
+        selected_measurement_ids = request.measurement_ids_for(package)
         selected_measurements = tuple(
             package.measurement(item) for item in selected_measurement_ids
         )

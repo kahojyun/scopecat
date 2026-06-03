@@ -122,6 +122,36 @@ class HandoffEngineeringPrototypeReceivingTest(unittest.TestCase):
         )
         self.assertFalse(records_exist)
 
+    def test_receiving_gate_returns_blocked_review_when_declared_primary_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            (package_dir / "measurements" / "legacy-rabi-001" / "primary.csv").unlink()
+            source = _receiving_gate_source()
+            source["receiving_review_request"]["review"]["reviewed_integrity_classification"] = (
+                "integrity_review_required"
+            )
+
+            run = run_receiving_gate(source, package_dir=package_dir)
+            summary = run.to_dict()
+            records_exist = (temp_root / "records").exists()
+
+        self.assertEqual(run.classification, "blocked_before_acceptance")
+        self.assertFalse(run.acceptance_allowed)
+        self.assertEqual(
+            summary["integrity_observation"]["classification"],
+            "integrity_review_required",
+        )
+        self.assertEqual(
+            summary["package"]["open_error"],
+            "handoff package primary data is unavailable",
+        )
+        self.assertEqual(
+            summary["receiving_review"]["block_reason"],
+            "package_integrity_review_required",
+        )
+        self.assertFalse(records_exist)
+
     def test_rejects_unapproved_request_before_open_or_integrity_observation(self) -> None:
         source = _receiving_gate_source()
         source["receiving_review_request"]["review"]["approval_state"] = "needs_review"
