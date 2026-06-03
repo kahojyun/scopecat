@@ -147,7 +147,10 @@ blocked retry review. This is local review guidance only; it does not approve
 retry, accept packages, or mutate storage.
 
 Receiving review state is currently a derived local projection over those
-receipts under DEC-018. This module does not persist GUI-owned review state.
+receipts under DEC-018. `project_handoff_receiving_review_state()` composes
+typed receiving-gate, import-plan, durable-import summary, retry-review, and
+error diagnostic evidence into a `local_receiving_review_state_projection`.
+This module does not persist GUI-owned review state.
 
 Package signature/trust implementation is deferred under DEC-019. This module
 observes declared digest integrity and emits explicit non-claims, but it does
