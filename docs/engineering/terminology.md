@@ -65,6 +65,17 @@ prefer ID-only references when the column name and owner document make the
 object type clear. Do not copy canonical names, definitions, maturity, status,
 scope, or rationale into non-owner documents.
 
+Lifecycle rules:
+
+- Rename: keep the existing ID and update the canonical title in the owner
+  document.
+- Split: create new IDs for the split owners and mark the old ID retired or
+  superseded when the owner document supports status.
+- Merge: keep the primary surviving ID and retire or supersede the absorbed IDs.
+- Reject or abandon: mark the ID retired, rejected, or no longer active in the
+  owner document when that status exists; otherwise leave a short note.
+- Delete from active use: do not reuse the ID.
+
 Do not assign stable IDs to scenarios, operations, fixtures, modules, roadmap
 steps, or discovery files unless they are promoted into one of the owner types
 above.
