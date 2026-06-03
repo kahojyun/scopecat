@@ -58,6 +58,12 @@ Titles may change, but IDs should not be reused.
 | `BR-RISK-*` | [`../brownfield/risk-register.md`](../brownfield/risk-register.md) | Brownfield risks that need ongoing management. |
 | `EV-*` | [`../evidence/evidence-register.md`](../evidence/evidence-register.md) | Stable evidence claims. |
 
+Cross-document references may include `ID + short label` in headings or first
+mentions when the label helps readers orient themselves. In compact tables,
+prefer ID-only references when the column name and owner document make the
+object type clear. Do not copy canonical names, definitions, maturity, status,
+scope, or rationale into non-owner documents.
+
 Do not assign stable IDs to scenarios, operations, fixtures, modules, roadmap
 steps, or discovery files unless they are promoted into one of the owner types
 above.
