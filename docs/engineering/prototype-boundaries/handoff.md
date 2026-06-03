@@ -26,6 +26,8 @@ Read it with:
   for the current route-local linked-context payload boundary;
 - [`../../decisions/architecture/DEC-013-batch-receiving-import-planning.md`](../../decisions/architecture/DEC-013-batch-receiving-import-planning.md)
   for the current batch receiving/import planning boundary;
+- [`../../decisions/architecture/DEC-014-selected-record-linked-context-payload-export.md`](../../decisions/architecture/DEC-014-selected-record-linked-context-payload-export.md)
+  for the current selected-record linked-context payload export boundary;
 - [`../workflow-validation-map.md`](../workflow-validation-map.md) for the
   current cross-capability handoff workflow gap.
 
@@ -69,7 +71,8 @@ The current package writer:
 - writes the current directory-shaped package subset and deterministic
   `package-manifest.json`;
 - uses no-overwrite collision behavior;
-- keeps linked context reference-only;
+- can package explicitly declared linked-context payloads under `context/` or
+  keep linked context reference-only;
 - returns a local write receipt;
 - proves generated packages open through the read-only opener.
 
@@ -88,8 +91,11 @@ The selected stored-record export adapter:
   and experiment type into the package writer request;
 - requires explicit preview metadata and does not infer plot semantics from CSV
   headers;
+- can package explicitly declared record-local linked-context payloads under
+  `context/` after digest and size preflight;
 - writes a single-measurement package through the package writer;
-- keeps linked context reference-only;
+- keeps non-declared linked context reference-only and does not treat recorded
+  references as payload authority;
 - does not mutate Measurement Records storage or refresh read models.
 
 For JNY-001 product handoff, this storage-backed selected-record export path is
@@ -142,17 +148,23 @@ results, import-plan objects, CLI summaries, and retry reviews are local review
 surfaces unless a later slice explicitly promotes one as a portable/export
 artifact.
 
-Selected stored Measurement Record export keeps linked context reference-only.
-The package-use route may expose linked-context references for review, but it
-does not recursively traverse references, restore environments, or import
-linked context into durable Measurement Records storage.
+Selected stored Measurement Record export may package request-declared
+record-local linked-context payloads under `context/`. The package-use route
+may expose linked-context references for review, but it does not recursively
+traverse references, restore environments, or import linked context into
+durable Measurement Records storage.
 
 [`DEC-012`](../../decisions/architecture/DEC-012-linked-context-payload-packaging.md)
 narrows that posture for the generic package writer: explicitly declared
 linked-context payload files may be packaged under `context/`, opened as
 `packaged_payload`, and integrity-observed. Import planning and durable import
-still do not import linked-context payloads, and selected stored Measurement
-Record export remains reference-only.
+still do not import linked-context payloads.
+
+[`DEC-014`](../../decisions/architecture/DEC-014-selected-record-linked-context-payload-export.md)
+extends that posture to selected stored Measurement Record export only when the
+export request explicitly declares a record-local source path, `context/`
+package path, digest, and byte size. Recorded linked references remain
+reference-only review facts unless the request carries that payload authority.
 
 [`DEC-013`](../../decisions/architecture/DEC-013-batch-receiving-import-planning.md)
 allows non-mutating import plans to list multiple package measurements. Durable
@@ -190,13 +202,14 @@ Acceptance for that candidate is intentionally narrow:
 - receiving review and import planning remain non-mutating;
 - durable storage mutation remains delegated to Measurement Records import;
 - local receipts remain review surfaces, not portable package artifacts;
-- selected stored Measurement Record export keeps linked context reference-only.
+- selected stored Measurement Record export may package explicitly declared
+  record-local linked-context payloads, while durable import keeps linked
+  context reference-only.
 
 This candidate is not production readiness for the whole handoff capability.
-Batch durable import, selected-record batch export, selected-record
-linked-context payload export, persistent GUI/review state, public SDK
-contracts, and final storage schemas remain separate decisions. Archive format
-is explicitly deferred by
+Batch durable import, selected-record batch export, linked-context payload
+import, persistent GUI/review state, public SDK contracts, and final storage
+schemas remain separate decisions. Archive format is explicitly deferred by
 [`DEC-010`](../../decisions/architecture/DEC-010-package-format-directory-manifest.md).
 Signature/authenticity implementation and trust policy beyond the unsigned
 local-review posture are explicitly deferred by
@@ -205,6 +218,8 @@ Generic writer linked-context payload packaging without import is governed by
 [`DEC-012`](../../decisions/architecture/DEC-012-linked-context-payload-packaging.md).
 Batch import planning without batch durable mutation is governed by
 [`DEC-013`](../../decisions/architecture/DEC-013-batch-receiving-import-planning.md).
+Selected-record linked-context payload export is governed by
+[`DEC-014`](../../decisions/architecture/DEC-014-selected-record-linked-context-payload-export.md).
 
 ## Historical Context
 
@@ -234,8 +249,7 @@ This boundary does not accept:
   authenticity validation, or trusted-source policy;
 - durable import, package acceptance, existing-record update, durable
   multi-measurement batch import, rollback policy, or storage conflict policy;
-- selected-record linked-context payload export, recursive traversal, or
-  linked-context payload import;
+- recursive traversal or linked-context payload import;
 - analysis/fit result model, fit execution, uncertainty, write-back, or result
   import;
 - shared measurement-record domain model or cross-route object lifecycle.
@@ -265,8 +279,7 @@ behavior. Current likely separate decisions include:
 - production-readiness hardening for selected stored Measurement Record export;
 - GUI review beyond local static HTML;
 - signature implementation or trusted-source policy beyond DEC-011;
-- selected-record linked-context payload export or durable linked-context
-  payload import;
+- selected-record batch export or durable linked-context payload import;
 - analysis or fit results as first-class package display facts;
 - shared lifecycle or domain model extraction justified by more than one
   accepted route.

@@ -92,9 +92,11 @@ validated managed references at the package/export boundary.
 Selected stored-record export is a route-local adapter over the existing
 Measurement Records read model and record-local receipts. It reads one complete
 stored record, requires explicit preview metadata, delegates package writing to
-the package writer, keeps linked context reference-only, and does not mutate
-Measurement Records storage, refresh read models, infer schema, create
-archives, or accept/import packages.
+the package writer, may package explicitly declared record-local linked-context
+payloads under `context/`, and does not mutate Measurement Records storage,
+refresh read models, infer schema, create archives, or accept/import packages.
+Recorded linked references remain review references; they are not file-copy
+authority by themselves.
 
 For the normal JNY-001 product handoff path, selected stored-record export is
 the storage-backed entrypoint. Direct package-writer input remains an adapter or
@@ -110,9 +112,10 @@ The generic package writer can package explicitly declared linked-context
 payload files under `context/` after source digest and size preflight. Opened
 packages expose those entries as `packaged_payload`, and integrity observation
 checks them as declared package members. Import planning and durable import
-still do not import linked-context payloads. Selected stored-record export
-keeps linked context reference-only until a later slice defines how stored
-records declare eligible linked payload sources.
+still do not import linked-context payloads. Selected stored-record export uses
+the same package-member path only when its export request declares a source
+path under the selected record directory, a `context/` package path, digest, and
+byte size.
 
 ## CLI
 

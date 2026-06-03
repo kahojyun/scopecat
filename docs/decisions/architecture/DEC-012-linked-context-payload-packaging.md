@@ -47,8 +47,9 @@ Import planning and durable import do not import linked-context payloads. They
 continue to expose linked context for review and keep the action
 `keep_reference_only` with a `linked_context_payload_import` non-claim.
 
-Selected stored Measurement Record export remains reference-only until a later
-slice defines how stored records declare eligible linked payload sources.
+Selected stored Measurement Record export remains a separate authority boundary.
+DEC-014 narrows that path to request-declared record-local linked payloads
+without treating recorded references as file-copy authority.
 
 ## Scope
 
@@ -71,14 +72,14 @@ This decision does not apply to:
 
 ## Consequences
 
-This gives the package writer a narrow linked-payload path without changing the
-selected-record production slice. It also makes the import boundary explicit:
-packaged linked context can be inspected and integrity-observed, but it does not
-become durable storage content.
+This gives the package writer a narrow linked-payload path and lets selected
+stored-record export reuse it only through a later accepted authority boundary.
+It also makes the import boundary explicit: packaged linked context can be
+inspected and integrity-observed, but it does not become durable storage
+content.
 
-Future work must still decide whether selected stored records can export linked
-payloads, how different context kinds are typed, and whether any durable import
-route should accept linked-context payloads.
+Future work must still decide how different context kinds are typed and whether
+any durable import route should accept linked-context payloads.
 
 ## Alternatives Considered
 
@@ -105,7 +106,7 @@ Superseded by:
 
 Revisit this decision when:
 
-- selected stored Measurement Record export needs linked-payload packaging;
+- selected stored Measurement Record export needs broader linked-payload discovery;
 - durable import needs to store linked-context payloads;
 - context kind schemas become product contracts;
 - batch export/import needs package-level context topology;

@@ -13,8 +13,11 @@ from scopecat.handoff._contracts import (
     MANIFEST_AUTHORITY,
     validate_handoff_package_identity,
     validate_handoff_preview_ready_metadata,
+    validate_positive_integer,
     validate_public_identifier,
     validate_relative_path,
+    validate_sha256_digest,
+    validate_strict_child_path,
     validate_text,
 )
 from scopecat.handoff.writer import HandoffPackageWriteReceipt, write_package
@@ -36,8 +39,8 @@ SELECTED_RECORD_EXPORT_POLICY = {
     "source_authority": "caller_provided_storage_root_plus_record_local_paths",
     "package_authority": "delegated_handoff_package_writer",
     "primary_data_materialization": "copy_record_local_primary_data",
-    "linked_context_materialization": "reference_only",
-    "portable_export_boundary": "handoff_package_manifest_and_primary_data",
+    "linked_context_materialization": "declared_reference_or_payload",
+    "portable_export_boundary": "handoff_package_manifest_primary_data_and_declared_context",
     "record_storage_mutation": "not_performed",
     "read_model_refresh": "not_performed",
     "schema_inference": "not_performed",
@@ -48,7 +51,7 @@ DOES_NOT_CLAIM = [
     "shared_measurement_schema",
     "read_model_refresh",
     "existing_record_update",
-    "linked_context_payload_packaging",
+    "linked_context_payload_import",
     "reference_resolution",
     "schema_inference",
     "scientific_validity",
@@ -61,7 +64,7 @@ APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 
 @dataclass(frozen=True)
 class SelectedMeasurementRecordExportLinkedContext:
-    """Reference-only context to expose in the handoff manifest."""
+    """Selected-record linked context to expose in the handoff manifest."""
 
     link_id: str
     kind: str
@@ -69,6 +72,10 @@ class SelectedMeasurementRecordExportLinkedContext:
     relation: str
     reason: str
     context_reference: dict[str, str] | None = None
+    source_path: str | None = None
+    package_path: str | None = None
+    expected_digest: str | None = None
+    expected_size_bytes: int | None = None
 
     def __post_init__(self) -> None:
         validate_public_identifier(self.link_id, "selected record export linked context link_id")
@@ -78,20 +85,77 @@ class SelectedMeasurementRecordExportLinkedContext:
         validate_text(self.reason, "selected record export linked context reason")
         if self.context_reference is not None and not isinstance(self.context_reference, dict):
             raise ValueError("selected record export context_reference must be an object")
+        payload_fields = (
+            self.source_path,
+            self.package_path,
+            self.expected_digest,
+            self.expected_size_bytes,
+        )
+        has_payload = any(value is not None for value in payload_fields)
+        if has_payload and not all(value is not None for value in payload_fields):
+            raise ValueError("selected record export linked context payload fields are paired")
+        if self.source_path is not None:
+            validate_relative_path(
+                self.source_path,
+                "selected record export linked context source_path",
+            )
+        if self.package_path is not None:
+            validate_strict_child_path(
+                self.package_path,
+                "context",
+                "selected record export linked context package_path",
+            )
+        if self.expected_digest is not None:
+            validate_sha256_digest(
+                self.expected_digest,
+                "selected record export linked context expected_digest",
+            )
+        if self.expected_size_bytes is not None:
+            validate_positive_integer(
+                self.expected_size_bytes,
+                "selected record export linked context expected_size_bytes",
+            )
+
+    @property
+    def packages_payload(self) -> bool:
+        return self.source_path is not None
+
+    def to_request_item(self) -> dict[str, Any]:
+        item: dict[str, Any] = {
+            "link_id": self.link_id,
+            "kind": self.kind,
+            "label": self.label,
+            "relation": self.relation,
+            "reason": self.reason,
+        }
+        if self.context_reference is not None:
+            item["context_reference"] = copy.deepcopy(self.context_reference)
+        if self.packages_payload:
+            item["source_path"] = self.source_path
+            item["package_path"] = self.package_path
+            item["expected_digest"] = self.expected_digest
+            item["expected_size_bytes"] = self.expected_size_bytes
+        return item
 
     def to_writer_item(self, *, measurement_record_id: str) -> dict[str, Any]:
         item = {
             "link_id": self.link_id,
             "kind": self.kind,
             "label": self.label,
-            "package_path": None,
-            "include_status": "visible_excluded",
+            "package_path": self.package_path,
+            "include_status": "included_by_user" if self.packages_payload else "visible_excluded",
             "relation": self.relation,
             "authority": MANIFEST_AUTHORITY,
-            "package_state": "not_packaged_visible_reference",
-            "reason": self.reason,
+            "package_state": "packaged"
+            if self.packages_payload
+            else "not_packaged_visible_reference",
+            "reason": None if self.packages_payload else self.reason,
             "linked_measurement_record_ids": [measurement_record_id],
         }
+        if self.packages_payload:
+            item["source_path"] = self.source_path
+            item["expected_digest"] = self.expected_digest
+            item["expected_size_bytes"] = self.expected_size_bytes
         if self.context_reference is not None:
             item["context_reference"] = copy.deepcopy(self.context_reference)
         return item
@@ -145,6 +209,13 @@ class SelectedMeasurementRecordExportRequest:
             primary_path=f"measurements/{self.record_id}/primary.csv",
             owner="selected record export preview",
         )
+        for item in self.linked_context:
+            if item.source_path is not None:
+                _validate_strict_child_path(
+                    item.source_path,
+                    self.record_dir,
+                    "selected record export linked context source_path",
+                )
 
     @property
     def approved(self) -> bool:
@@ -172,10 +243,7 @@ class SelectedMeasurementRecordExportRequest:
             "legacy_data_id": self.legacy_data_id,
             "target": self.target,
             "declared_preview_metadata": copy.deepcopy(self.declared_preview_metadata),
-            "linked_context": [
-                item.to_writer_item(measurement_record_id=self.record_id)
-                for item in self.linked_context
-            ],
+            "linked_context": [item.to_request_item() for item in self.linked_context],
         }
 
 
@@ -333,6 +401,10 @@ def _parse_linked_context(item: Any) -> SelectedMeasurementRecordExportLinkedCon
         relation=_require_text(item, "relation"),
         reason=_require_text(item, "reason"),
         context_reference=copy.deepcopy(context_reference),
+        source_path=_optional_text(item, "source_path"),
+        package_path=_optional_text(item, "package_path"),
+        expected_digest=_optional_text(item, "expected_digest"),
+        expected_size_bytes=_optional_int(item, "expected_size_bytes"),
     )
 
 
@@ -546,8 +618,24 @@ def _require_text(source: dict[str, Any], key: str) -> str:
     return validate_text(source.get(key), key)
 
 
+def _optional_text(source: dict[str, Any], key: str) -> str | None:
+    value = source.get(key)
+    if value is None:
+        return None
+    return validate_text(value, key)
+
+
 def _require_int(source: dict[str, Any], key: str) -> int:
     value = source.get(key)
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"{key} must be an integer")
+    return value
+
+
+def _optional_int(source: dict[str, Any], key: str) -> int | None:
+    value = source.get(key)
+    if value is None:
+        return None
     if not isinstance(value, int) or isinstance(value, bool):
         raise ValueError(f"{key} must be an integer")
     return value

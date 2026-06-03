@@ -4,6 +4,7 @@ import hashlib
 import shutil
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from scopecat.handoff import (
@@ -12,6 +13,7 @@ from scopecat.handoff import (
     SelectedMeasurementRecordExportRequest,
     export_selected_measurement_record,
     export_selected_measurement_record_from_request,
+    observe_package_integrity,
     open_package,
 )
 from scopecat.measurement_records import (
@@ -109,7 +111,7 @@ def _export_request() -> SelectedMeasurementRecordExportRequest:
                 relation="run_start_context",
                 reason=(
                     "The selected record exposes this context as reference-only; "
-                    "payload packaging is outside this export slice."
+                    "payload packaging was not requested for this package."
                 ),
                 context_reference={
                     "reference_id": "parameter-state-run-3101",
@@ -192,12 +194,105 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
 
         self.assertTrue(run.exported)
 
+    def test_exports_declared_record_local_linked_context_payload(self) -> None:
+        context_content = b'{"attenuation_db":"12"}\n'
+        context_digest = f"sha256:{hashlib.sha256(context_content).hexdigest()}"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root, package_root = self._create_imported_record(Path(temp_dir))
+            context_path = storage_root / "records" / "run-3101-rabi" / "parameter-state.json"
+            context_path.write_bytes(context_content)
+            request = replace(
+                _export_request(),
+                linked_context=(
+                    SelectedMeasurementRecordExportLinkedContext(
+                        link_id="run-3101-parameter-state",
+                        kind="parameter_state",
+                        label="Reviewed parameter state",
+                        relation="run_start_context",
+                        reason="Packaged from explicit record-local linked payload.",
+                        source_path="records/run-3101-rabi/parameter-state.json",
+                        package_path="context/run-3101-parameter-state.json",
+                        expected_digest=context_digest,
+                        expected_size_bytes=len(context_content),
+                        context_reference={
+                            "reference_id": "parameter-state-run-3101",
+                            "reference_kind": "parameter_state",
+                            "reference_family": "parameter_state",
+                            "materialization": "reference_only",
+                            "payload_import": "not_performed",
+                        },
+                    ),
+                ),
+            )
+
+            run = export_selected_measurement_record_from_request(
+                request,
+                storage_root=storage_root,
+                package_root=package_root,
+            )
+            package_dir = package_root / "handoff-package-run-3101-rabi"
+            package = open_package(package_dir)
+            integrity_report = observe_package_integrity(package_dir)
+
+        context = package.linked_context[0].to_dict()
+        observations = {
+            member.package_path: member.to_dict() for member in integrity_report.member_observations
+        }
+        receipt_summary = run.to_dict()
+
+        self.assertTrue(run.exported)
+        self.assertEqual(context["materialization"], "packaged_payload")
+        self.assertEqual(context["package_path"], "context/run-3101-parameter-state.json")
+        self.assertEqual(context["declared_digest"], context_digest)
+        self.assertEqual(context["declared_size_bytes"], len(context_content))
+        self.assertEqual(integrity_report.classification, "declared_integrity_verified")
+        self.assertEqual(
+            observations["context/run-3101-parameter-state.json"]["comparison"],
+            "verified",
+        )
+        self.assertIn(
+            {
+                "path": "handoff-package-run-3101-rabi/context/run-3101-parameter-state.json",
+                "kind": "linked_context",
+                "result": "written",
+                "bytes_written": len(context_content),
+                "digest": context_digest,
+                "does_not_claim": "linked_context_payload_import_or_reference_resolution",
+            },
+            receipt_summary["package_write"]["write_results"],
+        )
+
+    def test_export_rejects_linked_context_payload_outside_selected_record_dir(self) -> None:
+        context_content = b'{"attenuation_db":"12"}\n'
+        context_digest = f"sha256:{hashlib.sha256(context_content).hexdigest()}"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root, package_root = self._create_imported_record(Path(temp_dir))
+            outside_path = storage_root / "records" / "other-run" / "parameter-state.json"
+            outside_path.parent.mkdir()
+            outside_path.write_bytes(context_content)
+
+            with self.assertRaisesRegex(ValueError, "must stay under record_dir"):
+                replace(
+                    _export_request(),
+                    linked_context=(
+                        SelectedMeasurementRecordExportLinkedContext(
+                            link_id="run-3101-parameter-state",
+                            kind="parameter_state",
+                            label="Reviewed parameter state",
+                            relation="run_start_context",
+                            reason="Attempt to package an out-of-record payload.",
+                            source_path="records/other-run/parameter-state.json",
+                            package_path="context/run-3101-parameter-state.json",
+                            expected_digest=context_digest,
+                            expected_size_bytes=len(context_content),
+                        ),
+                    ),
+                )
+
     def test_unapproved_export_does_not_write_package(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root, package_root = self._create_imported_record(Path(temp_dir))
-            request = SelectedMeasurementRecordExportRequest(
-                **{**_export_request().to_dict(), "approval_state": "needs_review"}
-            )
+            request = replace(_export_request(), approval_state="needs_review")
 
             run = export_selected_measurement_record_from_request(
                 request,
