@@ -508,6 +508,48 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
             ["validate_durable_import_request", "preflight_normalized_source"],
         )
 
+    def test_existing_destination_record_blocks_handoff_durable_import(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            package_dir = _copy_package(temp_root)
+            storage_root = temp_root / "storage"
+            existing_record_dir = storage_root / "records" / "imported-legacy-rabi-001"
+            existing_record_dir.mkdir(parents=True)
+            sentinel = existing_record_dir / "existing-note.txt"
+            sentinel.write_text("existing record must not be touched\n", encoding="utf-8")
+            import_plan = _import_plan_run(package_dir)
+
+            run = run_handoff_durable_import_from_plan(
+                _request(),
+                import_plan=import_plan,
+                storage_root=storage_root,
+            )
+            summary = run.to_dict()
+            sentinel_content = sentinel.read_text(encoding="utf-8")
+            manifest_exists = (existing_record_dir / "record-manifest.json").exists()
+
+        self.assertEqual(run.classification, "blocked_before_handoff_durable_import")
+        self.assertFalse(run.imported)
+        self.assertEqual(sentinel_content, "existing record must not be touched\n")
+        self.assertFalse(manifest_exists)
+        self.assertEqual(
+            run.durable_import_run.classification if run.durable_import_run else None,
+            "blocked_before_import",
+        )
+        self.assertIn(
+            "already exists",
+            run.durable_import_run.import_error if run.durable_import_run else "",
+        )
+        self.assertIn("existing_record_update", summary["workflow"]["does_not_claim"])
+        self.assertEqual(
+            summary["durable_import_result"]["durable_import_policy"]["record_creation"],
+            "create_new_measurement_record",
+        )
+        self.assertIn(
+            "existing_record_import_or_update",
+            summary["durable_import_result"]["workflow"]["does_not_claim"],
+        )
+
     def test_summarizes_blocked_plan_without_authorizing_retry(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
