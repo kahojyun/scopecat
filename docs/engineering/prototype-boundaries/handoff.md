@@ -118,6 +118,36 @@ expose linked-context references for review, but it does not package linked
 payloads, recursively traverse references, restore environments, or import
 linked context into durable Measurement Records storage.
 
+## Production Vertical-Slice Candidate
+
+JNY-001 single-measurement handoff is a production vertical-slice candidate when
+one workflow-level regression proves this full path:
+
+```text
+source-side durable Measurement Record
+  -> selected stored-record package export
+  -> read-only package open
+  -> receiving gate
+  -> non-mutating import plan
+  -> durable import into a second storage root
+```
+
+Acceptance for that candidate is intentionally narrow:
+
+- exactly one selected, complete Measurement Record is exported;
+- primary CSV bytes, digest, size, label, experiment type, and record identity
+  remain continuous through export and receiving;
+- preview metadata is explicit and package-manifest authored;
+- receiving review and import planning remain non-mutating;
+- durable storage mutation remains delegated to Measurement Records import;
+- local receipts remain review surfaces, not portable package artifacts;
+- linked context remains reference-only.
+
+This candidate is not production readiness for the whole handoff capability.
+Archive format, signatures/authenticity, trust policy, batch export/import,
+linked-context payload packaging, persistent GUI/review state, public SDK
+contracts, and final package or storage schemas remain separate decisions.
+
 ## Historical Context
 
 Discovery candidates and the older
