@@ -24,7 +24,7 @@ release plan, or issue tracker.
 
 ### 1. Close Portable Measurement Handoff
 
-Target journey: Portable Measurement Handoff.
+Target journey: JNY-001 Portable Measurement Handoff.
 
 Next vertical-slice pressure:
 
@@ -47,7 +47,7 @@ Decision gate:
 
 ### 2. Stabilize Pre-Run Context Review
 
-Target journey: Pre-Run Context Review.
+Target journey: JNY-002 Pre-Run Context Review.
 
 Next vertical-slice pressure:
 
@@ -69,7 +69,7 @@ Decision gate:
 
 ### 3. Promote One Experiment Code Context Step
 
-Target journey: Experiment Code Context Recovery And Reuse.
+Target journey: JNY-005 Experiment Code Context Recovery And Reuse.
 
 Next vertical-slice pressure:
 
@@ -89,7 +89,7 @@ Decision gate:
 
 ### 4. Validate Running Measurement Monitoring
 
-Target journey: Running Measurement Monitoring And Inspection.
+Target journey: JNY-004 Running Measurement Monitoring And Inspection.
 
 Next vertical-slice pressure:
 
@@ -107,7 +107,7 @@ Decision gate:
 
 ### 5. Reassess Calibration Continuation
 
-Target journey: Calibration Work Continuation.
+Target journey: JNY-003 Calibration Work Continuation.
 
 Next vertical-slice pressure:
 

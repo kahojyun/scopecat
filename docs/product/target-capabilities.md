@@ -12,16 +12,19 @@ planning document, not an implementation inventory, feature list, brownfield
 system inventory, or scenario catalog. A capability may support multiple
 journeys and may be implemented by one or more modules.
 
+Use stable `CAP-*` IDs when referencing product capabilities from journey,
+validation, traceability, implementation, decision, or risk documents.
+
 ## Product Capabilities
 
-| Capability | Maturity | Evidence State | Open Advancement Questions |
-| --- | --- | --- | --- |
-| Measurement Records | Engineering prototype | Live prototype evidence | Decide whether selected stored measurement export, existing-record update/import, running measurement lifecycle, or storage schema readiness is the next vertical-slice pressure. |
-| Handoff Packages | Engineering prototype | Live prototype evidence | Validate selected stored Measurement Record to single-measurement handoff package export; decide later trust/authenticity, batch receiving, archive format, and linked-context payload import questions. |
-| Parameter State Review | Engineering prototype | Live prototype evidence | Decide whether compatibility-file writing, hardware apply, catalog discovery, automatic run start, or a shared parameter/run-context schema is justified by a workflow. |
-| Environment Operation | Engineering prototype | Live prototype evidence | Decide whether runtime readiness, manifest integration, manager expansion, execution hardening, or GUI/runtime monitoring is the next validated product need. |
-| Experiment Code Context | Discovery | Discovery and implementation-candidate evidence | Decide which concrete user step merits promotion first: record, materialize, observe editable folder, prepare rerun, or GUI review. |
-| Running Measurement Monitor | Discovery | Evidence-backed validation question | Validate whether Python measurement scripts can emit lifecycle/progress/partial-data events that a long-lived local GUI can monitor across multiple active measurements. |
+| ID | Capability | Maturity | Evidence State | Open Advancement Questions |
+| --- | --- | --- | --- | --- |
+| CAP-001 | Measurement Records | Engineering prototype | Live prototype evidence | Decide whether selected stored measurement export, existing-record update/import, running measurement lifecycle, or storage schema readiness is the next vertical-slice pressure. |
+| CAP-002 | Handoff Packages | Engineering prototype | Live prototype evidence | Validate selected stored Measurement Record to single-measurement handoff package export; decide later trust/authenticity, batch receiving, archive format, and linked-context payload import questions. |
+| CAP-003 | Parameter State Review | Engineering prototype | Live prototype evidence | Decide whether compatibility-file writing, hardware apply, catalog discovery, automatic run start, or a shared parameter/run-context schema is justified by a workflow. |
+| CAP-004 | Environment Operation | Engineering prototype | Live prototype evidence | Decide whether runtime readiness, manifest integration, manager expansion, execution hardening, or GUI/runtime monitoring is the next validated product need. |
+| CAP-005 | Experiment Code Context | Discovery | Discovery and implementation-candidate evidence | Decide which concrete user step merits promotion first: record, materialize, observe editable folder, prepare rerun, or GUI review. |
+| CAP-006 | Running Measurement Monitor | Discovery | Evidence-backed validation question | Validate whether Python measurement scripts can emit lifecycle/progress/partial-data events that a long-lived local GUI can monitor across multiple active measurements. |
 
 ## Candidate Feature Areas
 
@@ -29,9 +32,9 @@ Candidate feature areas are not product capabilities yet. Keep them here only
 when discovery evidence suggests a reusable product area may emerge, but the
 validated scope is still scenario-shaped.
 
-| Feature Area | Current Level | Evidence State | Promotion Question |
-| --- | --- | --- | --- |
-| Calibration Continuation Review | Scenario | Discovery and implementation-candidate evidence | Promote to a product capability only if repeated use cases require stable review state, continuation actions, and support expectations beyond one calibration scenario. |
+| ID | Feature Area | Current Level | Evidence State | Promotion Question |
+| --- | --- | --- | --- | --- |
+| CAND-001 | Calibration Continuation Review | Scenario | Discovery and implementation-candidate evidence | Promote to a product capability only if repeated use cases require stable review state, continuation actions, and support expectations beyond one calibration scenario. |
 
 ## Update Rule
 

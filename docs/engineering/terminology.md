@@ -43,6 +43,25 @@ include an explicit `Level` column using the standard terms above. Do not invent
 new taxonomy names when `user journey`, `workflow`, `use case`, `scenario`,
 `operation`, or `step` is accurate enough.
 
+## Stable IDs
+
+Use stable IDs only for cross-document owners that need durable references.
+Titles may change, but IDs should not be reused.
+
+| Prefix | Owner | Use For |
+| --- | --- | --- |
+| `JNY-*` | [`../product/target-journeys.md`](../product/target-journeys.md) | Target user journeys. |
+| `UC-*` | [`workflow-validation-map.md`](workflow-validation-map.md) | Use cases and workflow segments that can drive vertical-slice validation. |
+| `CAP-*` | [`../product/target-capabilities.md`](../product/target-capabilities.md) | Accepted product capabilities. |
+| `CAND-*` | [`../product/target-capabilities.md`](../product/target-capabilities.md) | Candidate feature areas that are not product capabilities yet. |
+| `DEC-*` | [`../decisions/register.md`](../decisions/register.md) | Durable product, architecture, engineering, discovery, or operational decisions. |
+| `BR-RISK-*` | [`../brownfield/risk-register.md`](../brownfield/risk-register.md) | Brownfield risks that need ongoing management. |
+| `EV-*` | [`../evidence/evidence-register.md`](../evidence/evidence-register.md) | Stable evidence claims. |
+
+Do not assign stable IDs to scenarios, operations, fixtures, modules, roadmap
+steps, or discovery files unless they are promoted into one of the owner types
+above.
+
 ## Decision Status
 
 Use decision status only for documents that actually make or preserve a

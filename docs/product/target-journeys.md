@@ -23,6 +23,10 @@ product intent; implementation owners remain in the implementation register.
 Do not use legacy system names as target journey names. Legacy behavior belongs
 in the brownfield current-state and transition documents.
 
+Use stable `JNY-*` IDs when referencing target journeys from brownfield,
+engineering, traceability, decision, or risk documents. Journey names may change
+as product language improves; IDs should not be reused.
+
 ## Experiment Lifecycle Composition
 
 Real experiment work usually crosses several target journeys:
@@ -55,12 +59,12 @@ Why deferred:
 
 Current slices:
 
-- Pre-Run Context Review;
-- Experiment Code Context Recovery And Reuse;
-- Running Measurement Monitoring And Inspection;
-- Calibration Work Continuation;
-- Portable Measurement Handoff;
-- Selected Reference Comparison.
+- JNY-002 Pre-Run Context Review;
+- JNY-005 Experiment Code Context Recovery And Reuse;
+- JNY-004 Running Measurement Monitoring And Inspection;
+- JNY-003 Calibration Work Continuation;
+- JNY-001 Portable Measurement Handoff;
+- JNY-006 Selected Reference Comparison.
 
 Promotion condition: promote only after a narrow vertical slice proves manual
 review, explicit run-start authority, execution boundary, monitoring, result
@@ -69,6 +73,8 @@ recording, and recovery expectations together.
 ## Journey Catalog
 
 ### Portable Measurement Handoff
+
+ID: JNY-001.
 
 Goal: move one selected measurement, with enough context to understand it, to
 another computer or collaborator where it can be previewed and imported.
@@ -109,6 +115,8 @@ Source evidence:
 - [`measurement-record-boundary.md`](../discovery/problem-briefs/measurement-record-boundary.md).
 
 ### Pre-Run Context Review
+
+ID: JNY-002.
 
 Goal: review selected parameter, code, environment, and setup context before a
 manual run without giving Scopecat execution or hardware-control authority.
@@ -153,6 +161,8 @@ Source evidence:
 
 ### Calibration Work Continuation
 
+ID: JNY-003.
+
 Goal: recover or continue multi-step calibration work using reviewable fit,
 evidence, action, and continuation state instead of scattered notebook state.
 
@@ -190,6 +200,8 @@ Source evidence:
 
 ### Running Measurement Monitoring And Inspection
 
+ID: JNY-004.
+
 Goal: inspect progress and already-recorded useful data from long-running
 measurements before the full run finishes.
 
@@ -223,6 +235,8 @@ Source evidence:
 - [`running-measurement-inspection.md`](../discovery/problem-briefs/running-measurement-inspection.md).
 
 ### Experiment Code Context Recovery And Reuse
+
+ID: JNY-005.
 
 Goal: know which code context was associated with a run, calibration step,
 handoff, or comparison so it can later be reviewed, compared, restored, or
@@ -262,6 +276,8 @@ Source evidence:
 - [`experiment-code-recording.md`](../discovery/problem-briefs/experiment-code-recording.md).
 
 ### Selected Reference Comparison
+
+ID: JNY-006.
 
 Goal: compare a current measurement or context bundle against a user-selected
 reference and surface objective findings without claiming user/domain judgment.

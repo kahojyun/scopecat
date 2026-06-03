@@ -46,7 +46,7 @@ Use the narrowest posture that matches the accepted behavior:
 
 ## Journey Transitions
 
-### Portable Measurement Handoff
+### JNY-001 Portable Measurement Handoff
 
 Current journey:
 
@@ -91,7 +91,7 @@ Deferred authority:
 - selected stored Measurement Record to single-measurement package export is
   the next posture change to validate.
 
-### Pre-Run Context Review
+### JNY-002 Pre-Run Context Review
 
 Current journey:
 
@@ -128,7 +128,7 @@ Deferred authority:
 - hardware apply, live write-back, current instrument-state truth, automatic
   run start, and shared run-context authority remain outside Scopecat.
 
-### Calibration Work Continuation
+### JNY-003 Calibration Work Continuation
 
 Current journey:
 
@@ -161,7 +161,7 @@ Deferred authority:
 - Scopecat-decided retry, mutation, write-back, and hardware control remain
   outside Scopecat.
 
-### Running Measurement Monitoring And Inspection
+### JNY-004 Running Measurement Monitoring And Inspection
 
 Current journey:
 
@@ -191,7 +191,7 @@ Deferred authority:
 - experiment execution, scan-plan changes, automatic retune, and scheduling
   remain outside Scopecat.
 
-### Experiment Code Context Recovery And Reuse
+### JNY-005 Experiment Code Context Recovery And Reuse
 
 Current journey:
 
@@ -228,7 +228,7 @@ Deferred authority:
 - dependency closure, code execution, managed deployment, remote execution, and
   experiment-code runtime ownership remain outside Scopecat.
 
-### Selected Reference Comparison
+### JNY-006 Selected Reference Comparison
 
 Current journey:
 
