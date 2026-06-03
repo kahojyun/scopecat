@@ -14,7 +14,7 @@ For workflow and implementation ownership, start from
 and
 [`../../../docs/engineering/implementation-register.md`](../../../docs/engineering/implementation-register.md).
 For product capability maturity, use
-[`../../../docs/product/capability-map.md`](../../../docs/product/capability-map.md).
+[`../../../docs/product/target-capabilities.md`](../../../docs/product/target-capabilities.md).
 For accepted prototype boundaries, use
 [`../../../docs/engineering/prototype-boundaries/measurement-records-creation-lifecycle.md`](../../../docs/engineering/prototype-boundaries/measurement-records-creation-lifecycle.md)
 and
