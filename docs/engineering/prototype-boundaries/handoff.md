@@ -18,6 +18,8 @@ Read it with:
   for live API and CLI orientation;
 - [`handoff-durable-import-storage.md`](handoff-durable-import-storage.md) for
   the separate durable Measurement Records import adapter boundary;
+- [`../../decisions/architecture/DEC-010-package-format-directory-manifest.md`](../../decisions/architecture/DEC-010-package-format-directory-manifest.md)
+  for the current package format decision;
 - [`../workflow-validation-map.md`](../workflow-validation-map.md) for the
   current cross-capability handoff workflow gap.
 
@@ -108,6 +110,10 @@ The package directory and `package-manifest.json` are portable handoff
 artifacts. Package contents must use package-relative paths and validated
 managed references at the package/export boundary.
 
+[`DEC-010`](../../decisions/architecture/DEC-010-package-format-directory-manifest.md) keeps this
+directory manifest package as the current JNY-001 production-slice package
+format. Archive creation and extraction remain deferred for a later decision.
+
 Local writer receipts, workflow receipts, inspection HTML, receiving-gate
 results, import-plan objects, CLI summaries, and retry reviews are local review
 surfaces unless a later slice explicitly promotes one as a portable/export
@@ -151,9 +157,11 @@ Acceptance for that candidate is intentionally narrow:
 - linked context remains reference-only.
 
 This candidate is not production readiness for the whole handoff capability.
-Archive format, signatures/authenticity, trust policy, batch export/import,
-linked-context payload packaging, persistent GUI/review state, public SDK
-contracts, and final package or storage schemas remain separate decisions.
+Signatures/authenticity, trust policy, batch export/import, linked-context
+payload packaging, persistent GUI/review state, public SDK contracts, and final
+storage schemas remain separate decisions. Archive format is explicitly
+deferred by
+[`DEC-010`](../../decisions/architecture/DEC-010-package-format-directory-manifest.md).
 
 ## Historical Context
 
@@ -212,7 +220,7 @@ behavior. Current likely separate decisions include:
 
 - production-readiness hardening for selected stored Measurement Record export;
 - GUI review beyond local static HTML;
-- archive, signature, authenticity, or trust behavior;
+- signature, authenticity, or trust behavior;
 - linked-context payload packaging or review;
 - analysis or fit results as first-class package display facts;
 - shared lifecycle or domain model extraction justified by more than one

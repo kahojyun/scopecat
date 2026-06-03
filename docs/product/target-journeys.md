@@ -107,7 +107,8 @@ comes from legacy-backed and imported measurement records, but the target
 journey is portable measurement handoff, not legacy migration itself. Evidence
 covers local record preparation, selected stored-record package export, package
 writing/opening, receiving review/import plan, and durable import adaptation.
-Production readiness, trust/authenticity, batch receiving, archive format, and
+The DEC-010 directory manifest package format is accepted for the current
+production-slice candidate. Trust/authenticity, batch receiving, and
 linked-context payload import remain separate validation questions.
 
 Source evidence:

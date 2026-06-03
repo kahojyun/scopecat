@@ -226,6 +226,34 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
         self.assertEqual(received_read_model["record"]["record_id"], "received-run-3101-rabi")
         self.assertEqual(received_read_model["primary_data"]["observed_row_count"], 3)
 
+    def test_workflow_uses_directory_manifest_package_without_archive_handling(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workflow = self._prepare_ready_handoff(Path(temp_dir))
+            package_root = workflow["package_root"]
+            package_dir = workflow["package_dir"]
+            export_summary = workflow["export_run"].to_dict()
+            receiving_summary = workflow["receiving_gate"].to_dict()
+            import_plan_summary = workflow["import_plan"].to_dict()
+            package_root_entries = sorted(path.name for path in package_root.iterdir())
+
+            self.assertTrue(package_dir.is_dir())
+            self.assertTrue((package_dir / "package-manifest.json").is_file())
+
+        self.assertEqual(package_root_entries, ["handoff-package-run-3101-rabi"])
+        self.assertEqual(
+            export_summary["package_write"]["package_write_policy"]["package_format"],
+            "directory_manifest",
+        )
+        self.assertEqual(
+            export_summary["package_write"]["package_write_policy"]["archive_creation"],
+            "not_performed",
+        )
+        self.assertIn("archive_extraction", receiving_summary["does_not_claim"])
+        self.assertIn(
+            "archive_extraction",
+            import_plan_summary["workflow"]["does_not_claim"],
+        )
+
     def test_export_collision_blocks_without_rewriting_existing_package(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             workflow = self._prepare_ready_handoff(Path(temp_dir))
