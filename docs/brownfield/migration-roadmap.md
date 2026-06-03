@@ -26,6 +26,12 @@ release plan, or issue tracker.
 
 Target journey: JNY-001.
 
+Target use case: UC-CAND-001.
+
+Related risks: BR-RISK-003, BR-RISK-004, BR-RISK-010.
+
+Related decisions: DEC-003, DEC-004.
+
 Next vertical-slice pressure:
 
 - export one selected stored Measurement Record to a preview-ready
@@ -49,6 +55,12 @@ Decision gate:
 
 Target journey: JNY-002.
 
+Target use case: UC-CAND-002.
+
+Related risks: BR-RISK-001, BR-RISK-007, BR-RISK-008, BR-RISK-009.
+
+Related decisions: DEC-006.
+
 Next vertical-slice pressure:
 
 - decide whether prepared-run context review becomes a live route owner or
@@ -71,6 +83,12 @@ Decision gate:
 
 Target journey: JNY-005.
 
+Target use case: UC-CAND-003.
+
+Related risks: BR-RISK-005, BR-RISK-009.
+
+Related decisions: DEC-002, DEC-008.
+
 Next vertical-slice pressure:
 
 - choose one concrete step: record, compare, materialize, observe editable
@@ -91,6 +109,12 @@ Decision gate:
 
 Target journey: JNY-004.
 
+Target use case: UC-CAND-004.
+
+Related risks: BR-RISK-001, BR-RISK-007.
+
+Related decisions: DEC-001.
+
 Next vertical-slice pressure:
 
 - prove explicit lifecycle/progress/partial-data event recording from
@@ -108,6 +132,12 @@ Decision gate:
 ### 5. Reassess Calibration Continuation
 
 Target journey: JNY-003.
+
+Target use case: UC-CAND-005.
+
+Related risks: BR-RISK-001, BR-RISK-005, BR-RISK-007.
+
+Related decisions: DEC-002, DEC-005.
 
 Next vertical-slice pressure:
 

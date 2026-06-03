@@ -14,6 +14,8 @@ vertical slice should validate.
 Use stable `UC-*` IDs for use cases and workflow segments that can drive
 vertical-slice validation. Do not assign stable IDs to scenarios or operations
 unless they are promoted into named use cases.
+Use `UC-CAND-*` IDs for missing or candidate use cases that are visible enough
+to sequence, but not yet validated enough to join the `UC-*` table.
 
 ## Current Focus
 
@@ -38,6 +40,10 @@ Do not treat this map as an issue tracker. Active execution work belongs in
 issues, PRs, or branch-specific plans when implementation starts. This map
 records product-scope state and validation questions.
 
+Promote `UC-CAND-*` to `UC-*` only when the use case has acceptance criteria,
+owned validation evidence, and a clear maturity state. Retire candidate IDs
+instead of reusing them if the candidate is merged, split, or rejected.
+
 ## Scope Vocabulary
 
 Use common scope terms:
@@ -53,6 +59,20 @@ Use common maturity terms from
 [`delivery-maturity-model.md`](delivery-maturity-model.md): `Discovery`,
 `Engineering prototype`, `Production vertical slice`, `Production readiness`,
 or `Maintained product capability`.
+
+## Candidate Use Cases
+
+Candidate use cases are the named queue for vertical slices that are visible in
+traceability or roadmap planning but not yet mature enough to become `UC-*`.
+
+| ID | Candidate Use Case | Supports Journey | Capability Areas | Candidate Source | Promotion Question |
+| --- | --- | --- | --- | --- | --- |
+| UC-CAND-001 | Export one selected stored Measurement Record to a preview-ready single-measurement handoff package | JNY-001 | CAP-001, CAP-002 | Main composition gap in the current focus. | Can package export from stored records preserve identity, primary-data references, missing context, and portable/export boundaries across the validated handoff ends? |
+| UC-CAND-002 | Prepared-run context review and acknowledgement | JNY-002 | CAP-003, CAP-005, CAP-004, CAP-001 | Prepared-run scenario evidence. | Does the user-facing use case have explicit input, review, acknowledgement or deferral, and no-run-start semantics? |
+| UC-CAND-003 | First promoted experiment-code context step | JNY-005 | CAP-005, CAP-004 | Experiment-code discovery and implementation-candidate evidence. | Which one step has an independently useful user goal: record, compare, materialize, observe editable folder, prepare rerun, or GUI review? |
+| UC-CAND-004 | Lifecycle, progress, and partial-data event recording for running measurement inspection | JNY-004 | CAP-006, CAP-001 | Running measurement monitoring discovery evidence. | Can Python-driven measurements emit reviewable lifecycle, progress, and partial-data events without granting scan control? |
+| UC-CAND-005 | Calibration continuation use case with stable review state and action recording | JNY-003 | CAND-001, CAP-003, CAP-001 | Calibration continuation scenario evidence. | Do repeated calibration continuation cases require stable review state, continuation actions, and support expectations beyond one scenario? |
+| UC-CAND-006 | Declared context comparison against a selected reference | JNY-006 | CAP-001, CAP-005, CAP-003 | Selected-reference comparison discovery evidence. | Can Scopecat compare declared context facts and selected code context without claiming setup truth or domain judgment? |
 
 ## Use Cases And Workflow Segments
 
@@ -77,7 +97,7 @@ or `Maintained product capability`.
 Update this map when a branch:
 
 - adds, promotes, supersedes, or retires a workflow segment, use case,
-  scenario, operation, or step;
+  candidate use case, scenario, operation, or step;
 - validates a seam between two accepted routes;
 - changes generated artifact, portable/export, or redaction behavior for one of
   the scoped rows above;

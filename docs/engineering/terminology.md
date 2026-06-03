@@ -52,6 +52,7 @@ Titles may change, but IDs should not be reused.
 | --- | --- | --- |
 | `JNY-*` | [`../product/target-journeys.md`](../product/target-journeys.md) | Target user journeys. |
 | `UC-*` | [`workflow-validation-map.md`](workflow-validation-map.md) | Use cases and workflow segments that can drive vertical-slice validation. |
+| `UC-CAND-*` | [`workflow-validation-map.md`](workflow-validation-map.md) | Candidate use cases that may become `UC-*` after validation. |
 | `CAP-*` | [`../product/target-capabilities.md`](../product/target-capabilities.md) | Accepted product capabilities. |
 | `CAND-*` | [`../product/target-capabilities.md`](../product/target-capabilities.md) | Candidate feature areas that are not product capabilities yet. |
 | `DEC-*` | [`../decisions/register.md`](../decisions/register.md) | Durable product, architecture, engineering, discovery, or operational decisions. |
