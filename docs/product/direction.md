@@ -89,7 +89,8 @@ Use these owner documents for details:
 - [`capability-map.md`](capability-map.md) for product capability maturity and
   advancement questions;
 - [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
-  for current workflow seams and validation questions;
+  for current user journeys, use cases, scenarios, operations, seams, and
+  validation questions;
 - [`../discovery/policies/managed-experiment-code-posture.md`](../discovery/policies/managed-experiment-code-posture.md)
   for historical discovery strategy around Git-like experiment-code versions.
 

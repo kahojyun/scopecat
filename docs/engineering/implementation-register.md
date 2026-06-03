@@ -15,8 +15,8 @@ Use this document with:
 
 - [`../product/capability-map.md`](../product/capability-map.md) for product
   capability maturity;
-- [`workflow-validation-map.md`](workflow-validation-map.md) for workflow seams
-  and validation questions;
+- [`workflow-validation-map.md`](workflow-validation-map.md) for user journeys,
+  use cases, scenarios, operations, seams, and validation questions;
 - [`prototype-boundaries/README.md`](prototype-boundaries/README.md) for
   route-local engineering prototype boundaries.
 
@@ -36,7 +36,8 @@ Update this register when live code:
 - adds or retires an implementation owner;
 - changes which module owns an API family, artifact authority, test/fixture
   orientation, or boundary note;
-- promotes a workflow gap into live route-local code;
+- promotes a use case, scenario, operation, workflow step, or seam into live
+  route-local code;
 - supersedes a historical candidate path.
 
 Do not copy product capability strategy here. Link to

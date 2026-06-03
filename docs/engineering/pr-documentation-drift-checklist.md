@@ -19,15 +19,17 @@ nearest owner and avoid turning candidates or future plans into current truth.
   the delivery maturity model. Treat candidates, spikes, prototypes, and
   scenarios as validation methods, not progress metrics by themselves.
 - **Owner**: update every affected owner, but keep each fact in one durable
-  place: workflow map for workflow status, product capability map for
-  capability maturity, implementation register for live module ownership,
-  prototype-boundary notes for route boundaries, module READMEs for API
-  details, or discovery docs for evidence.
+  place: workflow and use case map for user journey, use case, scenario, operation,
+  and validation status; product capability map for capability maturity;
+  implementation register for live module ownership; prototype-boundary notes
+  for route boundaries; module READMEs for API details; or discovery docs for
+  evidence.
 - **No duplicate state**: avoid copying the same current state, owner table,
   next work, or non-goal into multiple README files.
 - **Candidate promotion**: if discovery results or `implementation_candidates/`
   shaped the work, say whether they remain evidence or were promoted because
-  they close a named workflow step, seam, or risk question.
+  they close a named use case, scenario, operation, workflow step, seam, or
+  risk question.
 - **Artifact boundary**: classify new or changed fixtures, expected outputs,
   receipts, review artifacts, packages, or exports as repository-safe fixture,
   local/review surface, or portable/export artifact.

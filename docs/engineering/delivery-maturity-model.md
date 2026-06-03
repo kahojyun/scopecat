@@ -22,7 +22,7 @@ The default rule is:
 
 ```text
 discovery evidence
-  -> named workflow question
+  -> named use case, scenario, operation, or workflow question
   -> chosen validation method
   -> engineering prototype when live route-local behavior is needed
   -> production vertical slice
@@ -31,8 +31,8 @@ discovery evidence
 ```
 
 Candidate-summary parity is not progress by itself. It becomes useful evidence
-when it closes a named workflow step, workflow seam, capability risk, or product
-risk in [`workflow-validation-map.md`](workflow-validation-map.md) or
+when it closes a named use case, scenario, operation, workflow seam, capability
+risk, or product risk in [`workflow-validation-map.md`](workflow-validation-map.md) or
 [`../product/capability-map.md`](../product/capability-map.md).
 
 ## Product Objects
@@ -42,7 +42,11 @@ fixtures, or prototypes.
 
 | Object | Use For |
 | --- | --- |
-| Workflow | A user goal and the steps needed to complete it end to end. Workflows expose missing seams and next validation questions. |
+| User journey | A broad end-to-end user path across one or more capabilities. |
+| Workflow | A user-visible sequence of activities that completes a goal. Workflows expose missing seams and next validation questions. |
+| Use case | A scoped user goal or workflow segment that can be validated independently. |
+| Scenario | A concrete validation situation, review situation, or acceptance-test situation. |
+| Operation | A single approved action, command, mutation, or read/projection run. |
 | Capability | A product ability that can support one or more workflows, such as Measurement Records, Handoff Packages, or Parameter State Review. Capabilities are the main owner for maturity and maintenance. |
 | Vertical slice | A scoped end-to-end product path that proves one workflow through one or more capabilities. |
 | Module | The code organization that implements part of a capability. Module boundaries can change as capabilities mature. |
@@ -52,7 +56,7 @@ fixtures, or prototypes.
 | Maturity | Purpose | Exit Criteria | Typical Deliverables |
 | --- | --- | --- | --- |
 | Discovery | Understand the problem, user job, workflow pressure, and evidence-backed boundaries. | The next question is specific enough to test with a candidate, prototype, or explicit deferral. | Problem briefs, route notes, validation plans/results, repository-safe fixtures, expected outputs. |
-| Engineering prototype | Validate a production-shaped route-local behavior for one workflow step, workflow seam, or technical risk. | The prototype has a clear entrypoint, typed or explicit contracts, workflow/failure tests, and a documented boundary. | `src/scopecat/<route>/`, module README, route-local typed objects, workflow acceptance tests, local review artifacts. |
+| Engineering prototype | Validate a production-shaped route-local behavior for one use case, workflow step, workflow seam, operation, scenario, or technical risk. | The prototype has a clear entrypoint, typed or explicit contracts, workflow/failure tests, and a documented boundary. | `src/scopecat/<route>/`, module README, route-local typed objects, acceptance/failure tests, local review artifacts. |
 | Production vertical slice | Deliver one end-to-end user workflow from entrypoint to durable state or output with defined failure behavior. | The slice can be used as a coherent product path and has acceptance tests, compatibility expectations, and documented user-visible behavior. | Owned module, acceptance/scenario tests, storage/output authority docs, route decision, compatibility and failure rules. |
 | Production readiness | Prepare a vertical slice for reliable use beyond prototype conditions. | Operational, compatibility, migration, diagnostics, documentation, and support risks are reviewed and either closed or explicitly accepted. | Readiness checklist, release criteria, compatibility notes, migration/upgrade notes, diagnostic expectations. |
 | Maintained product capability | Maintain a stable capability inside the Scopecat product. A capability may support multiple user workflows; it is not a separate product. | Changes are handled through normal product maintenance: compatibility, regression coverage, support expectations, and documented deprecation or migration when needed. | User docs, support policy, compatibility guarantees, migration/upgrade notes, operational diagnostics. |

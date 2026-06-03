@@ -8,13 +8,15 @@ Engineering terminology guide.
 
 Use standard software-engineering terms where possible. Scopecat-specific terms
 should name a concrete project concept, not merge planning, evidence,
-architecture, artifact policy, and code ownership into one word.
+architecture, artifact policy, and code ownership into one word. Prefer common
+product and software-delivery vocabulary over project-local category names.
 
 ## Preferred Terms
 
 | Concept | Preferred Term | Use For | Avoid Using For |
 | --- | --- | --- | --- |
-| User path | Workflow | A user's end-to-end goal and the steps needed to complete it. | Code modules, fixture families, or implementation-candidate counts. |
+| Broad user path | User journey | A user's end-to-end path across one or more workflows or capabilities. | Code modules, fixture families, or implementation-candidate counts. |
+| Ordered user process | Workflow | A user-visible sequence of activities that completes a goal. | A single operation, route-local receipt, code module, or capability. |
 | Product ability | Capability | A product ability that may support one or more workflows. | A separate product, a route-local module name, or a validation method. |
 | Delivery maturity | Maturity | Discovery, engineering prototype, production vertical slice, production readiness, or maintained product capability. | Project-wide phase gates or validation method counts. |
 | Validation technique | Validation method | Candidate, spike, prototype, scenario, dogfood run, fixture validation, or readiness review. | Product progress unless it advances a named workflow or capability. |
@@ -22,6 +24,24 @@ architecture, artifact policy, and code ownership into one word.
 | Formal choice | Decision | A committed engineering or product choice with owner, scope, and supersession path. | Discovery evidence, validation result, or navigation note. |
 | Evidence strength | Evidence | Research result, validation result, test, fixture, scenario, or dogfood run supporting a claim. | Decision status or implementation ownership. |
 | Artifact classification | Artifact boundary | Repository-safe fixture, local/review artifact, portable/export artifact, or public documentation. | Product strategy, workflow maturity, or route status. |
+
+## Product Scope Terms
+
+Use these terms from largest to smallest scope:
+
+| Term | Use For | Do Not Mix With |
+| --- | --- | --- |
+| User journey | A broad end-to-end user path across one or more product capabilities, such as moving selected measurement data between computers. | A single API call, storage mutation, or route-local receipt. |
+| Workflow | A user-visible sequence of activities that completes a goal. Use this only when order, state, and handoff between steps matter. | Code modules, implementation candidates, or evidence counts. |
+| Use case | A scoped user goal or workflow segment that can be validated independently. | Product capability ownership. |
+| Scenario | A concrete situation used for validation, review, or acceptance testing. | A stable product capability or broad user journey. |
+| Operation | A single approved action, command, mutation, or read/projection run. | User workflow or capability maturity. |
+| Step | One activity inside a workflow or use case. | A standalone product object. |
+
+When a map must mention multiple scopes together, separate them by section or
+include an explicit `Level` column using the standard terms above. Do not invent
+new taxonomy names when `user journey`, `workflow`, `use case`, `scenario`,
+`operation`, or `step` is accurate enough.
 
 ## Decision Status
 
