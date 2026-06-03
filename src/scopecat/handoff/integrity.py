@@ -32,7 +32,7 @@ _EXPECTED_POLICY = {
     "checksum_algorithm": "sha256",
     "size_observation": "byte_count",
     "archive_extraction": "not_performed",
-    "signature_validation": "not_performed",
+    "external_authenticity_validation": "not_performed",
     "storage_mutation": "not_performed",
     "import_acceptance": "not_performed",
     "schema_inference": "not_performed",
@@ -436,7 +436,7 @@ def _findings(
                     "finding": "declared_integrity_mismatch",
                     "basis": "Observed package-local bytes do not match declared digest or size.",
                     "mismatches": list(member.mismatches),
-                    "does_not_claim": "authenticity_or_signature_failure",
+                    "does_not_claim": "authenticity_or_external_validation_failure",
                 }
             )
             continue
@@ -485,7 +485,7 @@ def _attention(classification: str) -> list[dict[str, str]]:
             "code": "package_integrity_observed",
             "severity": "info" if classification == "declared_integrity_verified" else "review",
             "basis": "Package-local files were compared to paired manifest-declared digest and size facts where available.",
-            "does_not_claim": "signature_authenticity_or_trust_validation",
+            "does_not_claim": "external_authenticity_or_trust_validation",
         },
         {
             "code": "receiving_acceptance_not_performed",

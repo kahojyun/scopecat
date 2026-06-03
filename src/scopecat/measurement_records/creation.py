@@ -41,7 +41,7 @@ DOES_NOT_CLAIM = [
     "crash_recovery",
     "concurrent_storage_root_mutation",
     "archive_extraction",
-    "signature_or_authenticity_validation",
+    "external_authenticity_or_trust_validation",
     "linked_context_payload_import",
     "scientific_validity",
 ]

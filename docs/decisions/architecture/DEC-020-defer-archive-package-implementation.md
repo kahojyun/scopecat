@@ -16,8 +16,7 @@ which accepts safe zip transport materialization into the DEC-010 directory
 package of record, and by
 [`DEC-024-accept-safe-archive-creation.md`](DEC-024-accept-safe-archive-creation.md),
 which accepts safe zip transport creation from the DEC-010 directory package of
-record. Archive-backed durable import and signature/trust coverage remain
-outside DEC-021 and DEC-024.
+record. Archive-backed durable import remains outside DEC-021 and DEC-024.
 
 ## Context
 
@@ -33,8 +32,7 @@ distribution, or GUI download/upload flows. But archive support is not a small
 format toggle. It introduces archive-member topology, extraction authority,
 staging directories, overwrite policy, path traversal protection, duplicate
 member handling, symlink behavior, compression/resource limits, integrity
-timing, receiving review state, and interaction with any future signature or
-trust contract.
+timing, and receiving review state.
 
 The current package directory remains useful as inspectable local-review
 evidence. Implementing archive support before those contracts exist would add
@@ -56,9 +54,8 @@ non-claims.
 
 DEC-021 and DEC-024 later accept archive transport while keeping archive bytes
 as a transport container only. The package artifact of record remains the
-materialized DEC-010 directory manifest package. A later signature/trust
-decision could choose archive bytes as signed coverage, but that would be a
-separate artifact-authority decision.
+materialized DEC-010 directory manifest package. External authenticity or
+signing mechanisms remain outside Scopecat's archive contract.
 
 Any future archive implementation must first define:
 
@@ -75,7 +72,6 @@ Any future archive implementation must first define:
   observed before package open;
 - receiving review state for archive received, extracted, blocked, retried,
   and opened states;
-- relationship to DEC-019 signed package and trust-root policy;
 - durable-import gating rules after archive materialization.
 
 ## Scope
@@ -94,8 +90,7 @@ This decision does not apply to:
 - a future accepted archive format;
 - public package publication or SDK download/upload workflows;
 - external transport security;
-- future package signing, signer identity, or trusted-source policy beyond
-  DEC-019;
+- external authenticity or trusted-source policy;
 - GUI file-picker, drag/drop, or upload interaction design.
 
 ## Consequences
@@ -126,9 +121,8 @@ resource-limit, review-state, and artifact-authority posture above.
   because extraction safety, staging cleanup, overwrite, and retry behavior
   would become implicit.
 - Option: make archive bytes the canonical package and treat the directory as
-  build output. Rejected because signature/trust and archive-byte integrity are
-  deferred, and the current readable directory package is the accepted package
-  contract.
+  build output. Rejected because archive-byte authority is not accepted, and
+  the current readable directory package is the accepted package contract.
 - Option: implement archive support only for single-measurement packages.
   Rejected because linked-context payloads and multi-measurement package export
   already affect member topology and future extraction review.
@@ -154,7 +148,7 @@ Revisit this decision when:
   SDK workflows;
 - a receiving UI needs upload/download semantics rather than a local directory
   path;
-- DEC-022 signed scope must change to make archive bytes the signed artifact;
+- archive bytes need to become authoritative package evidence;
 - linked-context payload or multi-measurement package transfer requires atomic
   bundle semantics;
 - package publication requires transport-ready artifacts.
@@ -162,7 +156,6 @@ Revisit this decision when:
 ## Related Evidence And Owners
 
 - [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
-- [`DEC-019-defer-package-signature-trust-implementation.md`](DEC-019-defer-package-signature-trust-implementation.md)
 - [`DEC-021-accept-safe-archive-materialization.md`](DEC-021-accept-safe-archive-materialization.md)
 - [`DEC-024-accept-safe-archive-creation.md`](DEC-024-accept-safe-archive-creation.md)
 - [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)

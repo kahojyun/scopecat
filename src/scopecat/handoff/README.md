@@ -103,7 +103,7 @@ acceptance, or public error schema.
 of the current route schemas, policy fields, local artifact postures, and
 explicit non-claims for this production vertical slice. The snapshot is a
 review contract for the current route-local behavior; it does not publish a
-public SDK, final package format, archive contract, signature/trust policy, or
+public SDK, final package format, archive contract, authenticity/trust policy, or
 portable error schema.
 
 ## Artifact Boundaries
@@ -172,15 +172,9 @@ projection as a no-overwrite local JSON receipt for review continuity. This
 module still does not create GUI-owned review state, package acceptance, retry
 authorization, or mutation authority.
 
-Package signature/trust implementation is deferred under DEC-019. DEC-022
-defines the future signed scope as the DEC-010 directory-manifest package of
-record: the manifest plus every manifest-declared package member. This module
-observes declared digest integrity and emits explicit non-claims, but it does
-not verify signer identity, package authenticity, trusted source, or
-signature-gated import policy.
-`current_handoff_signature_trust_contract()` and
-`review_handoff_signature_trust_contract()` expose local contract review for
-that future work without performing signature verification.
+This module observes declared digest integrity and emits explicit non-claims,
+but it does not verify external authenticity, package provenance, trusted
+source, or trust-gated import policy.
 
 Archive-backed durable import, archive bytes as package authority, and broader
 archive semantics remain deferred under DEC-020, while DEC-021 accepts safe zip
@@ -188,8 +182,8 @@ archive materialization into a DEC-010 directory package of record and DEC-024
 accepts safe zip archive creation from an openable DEC-010 directory package.
 This module writes and opens directory manifest packages, can create a zip
 transport archive from one, and can materialize a zip transport archive into a
-staging directory; it still does not verify signatures/trust, import directly
-from archive bytes, or treat archive bytes as package authority.
+staging directory; it still does not verify authenticity or trust, import
+directly from archive bytes, or treat archive bytes as package authority.
 `current_handoff_archive_materialization_contract()` and
 `review_handoff_archive_materialization_contract()` expose local contract
 review for archive materialization posture. `materialize_handoff_archive_package()`

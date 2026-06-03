@@ -50,7 +50,7 @@ This decision does not apply to:
 
 - archive bytes as the package artifact of record;
 - archive-backed durable import;
-- archive signing or signature validation;
+- external authenticity or trust validation;
 - package acceptance;
 - storage mutation;
 - public SDK or final package format;
@@ -67,15 +67,14 @@ The implementation exposes `create_handoff_archive_package()` and
 `create_handoff_archive_package_from_request()` as local receipt-producing
 helpers. The receipt records archive creation as transport-only evidence and
 keeps package acceptance, durable import, storage mutation, archive-backed
-import, and signature/authenticity validation unclaimed.
+import, and external authenticity/trust validation unclaimed.
 
 ## Alternatives Considered
 
 - Continue requiring external zip tools. Rejected because it leaves a practical
   transfer step outside the validated JNY-001 workflow.
 - Treat the zip file as the package artifact of record. Rejected because that
-  would require archive-byte authority and signing/canonicalization decisions
-  not accepted here.
+  would require archive-byte authority not accepted here.
 - Create archives without opening the package first. Rejected because archive
   creation must start from an openable DEC-010 package, not arbitrary folders.
 
@@ -93,18 +92,16 @@ Superseded by:
 
 Revisit this decision when:
 
-- archive bytes need to become the signed artifact or package of record;
+- archive bytes need to become the package of record;
 - archive-backed durable import is proposed;
 - public SDK or GUI download behavior needs a stable archive contract;
 - resource limits for archive creation must become explicit policy;
-- archive signing, compression policy, or deterministic archive bytes are
-  required.
+- compression policy or deterministic archive bytes are required.
 
 ## Related Evidence And Owners
 
 - [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
 - [`DEC-021-accept-safe-archive-materialization.md`](DEC-021-accept-safe-archive-materialization.md)
-- [`DEC-022-define-signed-package-trust-scope.md`](DEC-022-define-signed-package-trust-scope.md)
 - [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
 - [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
 - [`../../../src/scopecat/handoff/archive_materialization.py`](../../../src/scopecat/handoff/archive_materialization.py)

@@ -64,7 +64,7 @@ DOES_NOT_CLAIM = [
     "schema_inference",
     "scientific_validity",
     "archive_creation",
-    "signature_or_authenticity_validation",
+    "external_authenticity_or_trust_validation",
     "package_import_acceptance",
 ]
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
@@ -476,7 +476,7 @@ class SelectedMeasurementRecordPreflightExportRun:
                     "manifest_replacement",
                     "receipt_mutation",
                     "package_import_acceptance",
-                    "signature_or_authenticity_validation",
+                    "external_authenticity_or_trust_validation",
                     "gui_review_state",
                 ],
             },

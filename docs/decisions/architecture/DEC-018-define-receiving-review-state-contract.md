@@ -45,12 +45,12 @@ A future GUI receiving surface should be able to project, at minimum:
 - per-measurement import-plan readiness and blocked reasons;
 - linked-context review handling, including DEC-016 `keep_reference_only`;
 - durable-import result or retry summary for one selected measurement;
-- explicit non-claims for signature/authenticity, archive extraction, batch
+- explicit non-claims for external authenticity/trust, archive extraction, batch
   durable import, linked-context payload import, and storage mutation before
   durable import.
 
 The state projection is local review state. It is not a portable package
-artifact, package acceptance, durable storage mutation authority, signature
+artifact, package acceptance, durable storage mutation authority, external
 trust evidence, or GUI-owned state store. DEC-023 later accepts a narrow local
 receipt materialization boundary for cross-session review continuity.
 
@@ -68,7 +68,7 @@ This decision does not apply to:
 - implementing a frontend;
 - persistent GUI storage;
 - collaborative review state;
-- package signing or trust policy;
+- external authenticity or trust policy;
 - archive extraction;
 - batch durable import beyond DEC-017;
 - linked-context payload import beyond DEC-016.
@@ -122,7 +122,7 @@ Revisit this decision when:
 - users need to resume package review after package bytes or integrity facts
   change;
 - import retry review needs GUI-owned acknowledgement;
-- signature/trust review adds new package authenticity states;
+- a separately accepted authenticity/trust policy adds package review states;
 - archive extraction adds package materialization state before opening.
 
 ## Related Evidence And Owners
@@ -132,7 +132,6 @@ Revisit this decision when:
 - [`DEC-013-batch-receiving-import-planning.md`](DEC-013-batch-receiving-import-planning.md)
 - [`DEC-016-defer-linked-context-payload-import.md`](DEC-016-defer-linked-context-payload-import.md)
 - [`DEC-017-defer-batch-durable-import.md`](DEC-017-defer-batch-durable-import.md)
-- [`DEC-019-defer-package-signature-trust-implementation.md`](DEC-019-defer-package-signature-trust-implementation.md)
 - [`DEC-020-defer-archive-package-implementation.md`](DEC-020-defer-archive-package-implementation.md)
 - [`DEC-023-accept-local-receiving-review-state-receipts.md`](DEC-023-accept-local-receiving-review-state-receipts.md)
 - [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)

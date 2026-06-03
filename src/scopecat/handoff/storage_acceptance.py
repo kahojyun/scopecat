@@ -42,7 +42,7 @@ _EXPECTED_POLICY = {
     "rollback": "best_effort_synchronous_cleanup",
     "storage_root_concurrency": "not_supported",
     "archive_handling": "not_performed",
-    "signature_validation": "not_performed",
+    "external_authenticity_validation": "not_performed",
     "linked_context_payload_import": "not_performed",
     "final_storage_schema": "not_defined",
 }
@@ -128,7 +128,7 @@ class HandoffStorageAcceptanceRun:
                     "crash_recovery",
                     "concurrent_storage_root_mutation",
                     "archive_extraction",
-                    "signature_or_authenticity_validation",
+                    "external_authenticity_or_trust_validation",
                     "linked_context_payload_import",
                     "schema_inference",
                     "scientific_validity",

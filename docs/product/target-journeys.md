@@ -108,11 +108,10 @@ journey is portable measurement handoff, not legacy migration itself. Evidence
 covers local record preparation, selected stored-record package export, package
 writing/opening, receiving review/import plan, and durable import adaptation.
 The DEC-010 directory manifest package format is accepted for the current
-production vertical slice candidate. DEC-011 keeps that package unsigned local-review
-evidence: declared digest integrity is observed, but signature validation,
-authenticity, sender trust, and scientific validity are not claimed. DEC-019
-keeps signature/trust implementation deferred, while DEC-022 defines the
-future signed scope as the DEC-010 package of record. DEC-021 accepts safe zip
+production vertical slice candidate. DEC-011 keeps that package as local
+declared-integrity evidence: digest integrity is observed, but external
+authenticity, sender trust, and scientific validity are not claimed.
+DEC-021 accepts safe zip
 materialization into the DEC-010 package of record, and DEC-024 accepts safe zip
 creation from the DEC-010 package of record. Archive-backed durable import
 remains a separate validation question.

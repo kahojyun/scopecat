@@ -9,9 +9,8 @@ Accepted
 DEC-020 deferred archive package implementation until archive artifact authority,
 safe staging, and materialization review contracts existed. JNY-001 now has a
 directory-manifest package of record, receiving review, import planning, durable
-import, signature/trust deferral, and selected-record export hardening. Moving
-a package between machines as one archive file must not treat archive bytes as
-the package of record.
+import, and selected-record export hardening. Moving a package between machines
+as one archive file must not treat archive bytes as the package of record.
 
 DEC-024 later accepts safe zip archive creation from an openable DEC-010
 directory package. This decision remains the receiving-side materialization
@@ -40,7 +39,7 @@ Accept a narrow archive materialization implementation candidate:
 This decision does not implement:
 
 - archive creation, which is accepted separately by DEC-024;
-- signature, authenticity, signer identity, or trusted-source validation;
+- external authenticity or trusted-source validation;
 - archive-backed durable import;
 - package acceptance;
 - final public SDK or final package format;
@@ -50,17 +49,15 @@ This decision does not implement:
 
 Receiving workflows may now stage a zip transport archive into a DEC-010 package
 directory before package open and integrity review. Existing directory package
-flows remain valid. DEC-019 still governs signature/trust implementation
-deferral, DEC-022 keeps future signature scope on the DEC-010 package of
-record rather than archive bytes, and durable import still operates on reviewed
-package/import-plan evidence rather than archive bytes.
+flows remain valid. Durable import still operates on reviewed package/import-plan
+evidence rather than archive bytes.
 
 ## Alternatives Considered
 
 - Continue deferring archive materialization entirely. Rejected because it
   leaves the JNY-001 transfer workflow dependent on directory copies.
 - Treat the archive file as the package artifact of record. Rejected because it
-  would require a signed archive/canonical byte contract not accepted here.
+  would require archive-byte authority not accepted here.
 - Extract archives directly into durable Measurement Records storage. Rejected
   because archive materialization must precede package open, review, and import
   planning.
@@ -68,7 +65,5 @@ package/import-plan evidence rather than archive bytes.
 ## Related
 
 - [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
-- [`DEC-019-defer-package-signature-trust-implementation.md`](DEC-019-defer-package-signature-trust-implementation.md)
 - [`DEC-020-defer-archive-package-implementation.md`](DEC-020-defer-archive-package-implementation.md)
-- [`DEC-022-define-signed-package-trust-scope.md`](DEC-022-define-signed-package-trust-scope.md)
 - [`DEC-024-accept-safe-archive-creation.md`](DEC-024-accept-safe-archive-creation.md)

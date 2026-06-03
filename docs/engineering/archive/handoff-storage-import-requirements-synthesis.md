@@ -107,7 +107,7 @@ This synthesis did not justify implementing these in handoff storage import:
 - conflict policy beyond no-overwrite blocking;
 - stale-lock cleanup, lock identity, concurrent writer behavior, crash
   recovery, or transactional durability;
-- archive extraction, signatures, authenticity, trust policy, or adversarial
+- archive extraction, external authenticity, trust policy, or adversarial
   package-root handling;
 - linked-context payload import or recursive relation traversal;
 - GUI-owned import review state or durable cross-session review persistence;

@@ -25,8 +25,6 @@ Read it with:
   for the current batch durable import deferral;
 - [`../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md`](../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md)
   for the receiving review state projection boundary;
-- [`../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md`](../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md)
-  for the current package signature/trust implementation deferral;
 - [`../../decisions/architecture/DEC-020-defer-archive-package-implementation.md`](../../decisions/architecture/DEC-020-defer-archive-package-implementation.md)
   for the current archive-backed durable import and archive-authority
   deferral.
@@ -82,7 +80,7 @@ The current durable-import schema, policy, local receipt postures, and
 non-claims are included in `current_handoff_compatibility_contract()` as a
 route-local compatibility review surface. That snapshot preserves the current
 production vertical slice expectations without accepting final storage schema,
-public SDK, archive-backed durable import, signature/trust, batch durable
+public SDK, archive-backed durable import, authenticity/trust, batch durable
 import, or linked-context payload import contracts.
 
 DEC-017 keeps multi-measurement package plans as review and coordination
@@ -137,10 +135,9 @@ or storage mutation authority.
 DEC-018 allows future GUI receiving surfaces to project these local review
 facts, but does not make the durable-import adapter own persisted GUI state.
 
-DEC-019 keeps signature/trust implementation deferred. The durable-import
-adapter may consume declared digest integrity from the reviewed package path,
-but it does not verify signer identity, trusted source, package authenticity,
-or signature-gated mutation policy.
+The durable-import adapter may consume declared digest integrity from the
+reviewed package path, but it does not verify external authenticity, trusted
+source, package provenance, or trust-gated mutation policy.
 
 DEC-021 and DEC-024 accept zip archive materialization and creation as transport
 steps around the DEC-010 package of record. The durable-import adapter consumes
@@ -180,8 +177,7 @@ This boundary does not accept:
 - manifest replacement or canonical-current-state manifest updates;
 - linked-context payload materialization beyond DEC-016;
 - archive extraction beyond DEC-020;
-- signatures, authenticity, or package trust policy beyond DEC-019 and the
-  DEC-022 signed scope;
+- external authenticity or package trust policy;
 - adapter discovery, drop-folder protocol, service API, or stable public
   adapter API;
 - conflict policy beyond new-record no-overwrite behavior;
@@ -225,8 +221,6 @@ Likely separate decisions include:
 
 - batch package receiving/import and partial-success policy beyond DEC-017;
 - package archive format beyond DEC-020;
-- trust, authenticity, or signature handling beyond DEC-019 and the DEC-022
-  signed scope;
 - linked-context payload import beyond DEC-016;
 - existing-record update/import conflict behavior;
 - persisted receiving review state or GUI durable review workflow beyond DEC-018;

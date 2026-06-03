@@ -15,5 +15,5 @@ serve as one natural inspection workflow:
 
 The workflow is local/review-only. It does not accept or import the package
 into Scopecat storage, mutate measurement storage, create or extract archives,
-claim checksum/signature verification, infer schemas, choose a production GUI
-framework, define dataframe behavior, or promote final SDK names.
+claim checksum or external authenticity verification, infer schemas, choose a
+production GUI framework, define dataframe behavior, or promote final SDK names.

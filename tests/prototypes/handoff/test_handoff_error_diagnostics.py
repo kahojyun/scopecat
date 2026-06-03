@@ -74,7 +74,7 @@ class HandoffErrorDiagnosticsTest(unittest.TestCase):
                         "storage_mutation": "not_performed",
                         "import_acceptance": "not_performed",
                         "archive_handling": "not_performed",
-                        "signature_validation": "not_performed",
+                        "external_authenticity_validation": "not_performed",
                         "conflict_detection": "not_performed",
                         "final_storage_schema": "not_defined",
                         "rollback": "not_defined",

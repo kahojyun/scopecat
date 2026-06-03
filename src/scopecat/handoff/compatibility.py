@@ -32,10 +32,6 @@ from scopecat.handoff.receiving import (
     _EXPECTED_SCHEMA as _RECEIVING_GATE_SCHEMA,
 )
 from scopecat.handoff.selected_record_export import SELECTED_RECORD_EXPORT_POLICY
-from scopecat.handoff.signature_trust import (
-    HANDOFF_SIGNATURE_TRUST_POLICY,
-    HANDOFF_SIGNATURE_TRUST_REVIEW_SCHEMA,
-)
 
 HANDOFF_COMPATIBILITY_CONTRACT_VERSION = "scopecat.handoff.compatibility.v0"
 
@@ -58,7 +54,6 @@ def current_handoff_compatibility_contract() -> dict[str, Any]:
             "handoff_durable_import": HANDOFF_DURABLE_IMPORT_SCHEMA,
             "archive_materialization_review": (HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA),
             "archive_materialization": HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA,
-            "signature_trust_review": HANDOFF_SIGNATURE_TRUST_REVIEW_SCHEMA,
         },
         "policies": {
             "selected_record_export": copy.deepcopy(SELECTED_RECORD_EXPORT_POLICY),
@@ -70,7 +65,6 @@ def current_handoff_compatibility_contract() -> dict[str, Any]:
                 HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY
             ),
             "archive_package_creation": copy.deepcopy(HANDOFF_ARCHIVE_PACKAGE_CREATION_POLICY),
-            "signature_trust": copy.deepcopy(HANDOFF_SIGNATURE_TRUST_POLICY),
         },
         "local_artifact_postures": [
             "local_write_receipt",
@@ -91,8 +85,6 @@ def current_handoff_compatibility_contract() -> dict[str, Any]:
             "local_archive_materialization_contract_review",
             "local_archive_creation_receipt",
             "local_archive_materialization_receipt",
-            "local_signature_trust_contract",
-            "local_signature_trust_contract_review",
             "local_handoff_error_diagnostic",
         ],
         "public_error_contract": {
@@ -105,7 +97,7 @@ def current_handoff_compatibility_contract() -> dict[str, Any]:
             "public_sdk",
             "final_package_format",
             "archive_backed_durable_import",
-            "signature_or_authenticity_validation",
+            "external_authenticity_or_trust_validation",
             "trusted_source_policy",
             "batch_durable_import",
             "linked_context_payload_import",
