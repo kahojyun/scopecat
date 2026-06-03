@@ -260,6 +260,8 @@ Acceptance for that candidate is intentionally narrow:
   and require a fresh import plan for retry review;
 - receiving review and import planning remain non-mutating;
 - durable storage mutation remains delegated to Measurement Records import;
+- durable import receipts and summaries expose reviewable block reasons,
+  next actions, and retry requirements without authorizing retry;
 - local receipts remain review surfaces, not portable package artifacts;
 - selected stored Measurement Record export may package explicitly declared
   record-local linked-context payloads, while durable import keeps linked

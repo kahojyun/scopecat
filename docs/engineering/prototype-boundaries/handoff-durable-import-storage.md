@@ -65,6 +65,12 @@ The current adapter:
   selected measurement, destination, durable-import classification, and
   explicit non-claims.
 
+Durable-import receipts and summaries include local review guidance for
+successful import, blocked import-plan handoff, durable source-preflight
+blocks, rollback, and partial-commit cases. That guidance exposes stable
+`block_reason`, `next_action`, and `retry_requires` fields without authorizing
+retry, reusing stale plans, or bypassing destination/package rechecks.
+
 DEC-017 keeps multi-measurement package plans as review and coordination
 evidence only. They do not authorize one durable batch mutation until a
 separate destination, conflict, partial-success, rollback, and retry contract
@@ -185,7 +191,8 @@ Relevant regression expectations:
 - package-id and selected-measurement mismatches block before mutation;
 - stale package bytes are revalidated by the delegated durable-import pipeline;
 - linked context remains reference-only review context;
-- receipt summaries and retry reviews do not authorize mutation.
+- receipt summaries and retry reviews expose stable local review guidance but
+  do not authorize mutation.
 
 Run repository checks with:
 

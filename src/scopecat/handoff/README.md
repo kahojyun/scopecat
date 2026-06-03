@@ -85,6 +85,11 @@ import plan as sufficient write authority for bytes on disk; the delegated
 pipeline reopens the package member and preflights digest, byte size,
 normalized CSV shape, and row count before any storage mutation.
 
+Durable-import receipts and summaries include local `durable_import_review`
+guidance, plus summary `block_reason` and `retry_requires` fields. This is
+local review guidance only; it does not approve retry, reuse stale plans, skip
+destination checks, or bypass package revalidation.
+
 ## Artifact Boundaries
 
 The generated package directory and `package-manifest.json` are portable

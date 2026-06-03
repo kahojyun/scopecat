@@ -223,6 +223,29 @@ class HandoffDurableImportRun:
             "durable_import_result": (
                 None if self.durable_import_run is None else self.durable_import_run.to_dict()
             ),
+            "durable_import_review": _durable_import_review(
+                final_state=self.classification,
+                approval_state=self.request.approval_state,
+                import_plan_allowed=self.import_plan.import_plan_allowed,
+                import_plan_block_reason=(
+                    self.import_plan.to_dict()["import_plan_review"]["block_reason"]
+                ),
+                durable_import_classification=(
+                    None
+                    if self.durable_import_run is None
+                    else self.durable_import_run.classification
+                ),
+                rollback_performed=(
+                    False
+                    if self.durable_import_run is None
+                    else self.durable_import_run.rollback_performed
+                ),
+                partial_commit=(
+                    False
+                    if self.durable_import_run is None
+                    else self.durable_import_run.partial_commit
+                ),
+            ),
         }
 
 
@@ -241,6 +264,18 @@ class HandoffDurableImportReceiptSummary:
     partial_commit: bool
     import_error: str | None
 
+    @property
+    def block_reason(self) -> str | None:
+        return _summary_block_reason(
+            final_state=self.final_state,
+            durable_import_classification=self.durable_import_classification,
+            partial_commit=self.partial_commit,
+        )
+
+    @property
+    def retry_requires(self) -> str | None:
+        return _summary_retry_requirement(self.block_reason)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_handoff_durable_import_receipt_summary",
@@ -256,6 +291,8 @@ class HandoffDurableImportReceiptSummary:
             "destination_record_id": self.destination_record_id,
             "final_state": self.final_state,
             "next_action": self.next_action,
+            "block_reason": self.block_reason,
+            "retry_requires": self.retry_requires,
             "durable_import_performed": self.durable_import_performed,
             "durable_import_classification": self.durable_import_classification,
             "rollback_performed": self.rollback_performed,
@@ -330,6 +367,8 @@ class HandoffDurableImportRetryReview:
             "previous": {
                 "final_state": self.previous_summary.final_state,
                 "next_action": self.previous_summary.next_action,
+                "block_reason": self.previous_summary.block_reason,
+                "retry_requires": self.previous_summary.retry_requires,
                 "durable_import_classification": (
                     self.previous_summary.durable_import_classification
                 ),
@@ -435,6 +474,7 @@ def summarize_handoff_durable_import_receipt(
             "import_plan",
             "durable_import_request",
             "durable_import_result",
+            "durable_import_review",
         },
         "handoff durable import receipt",
     )
@@ -579,6 +619,108 @@ def summarize_handoff_durable_import_receipt(
         partial_commit=partial_commit,
         import_error=import_error,
     )
+
+
+def _durable_import_review(
+    *,
+    final_state: str,
+    approval_state: str,
+    import_plan_allowed: bool,
+    import_plan_block_reason: str | None,
+    durable_import_classification: str | None,
+    rollback_performed: bool,
+    partial_commit: bool,
+) -> dict[str, str | None | bool]:
+    block_reason = _durable_import_block_reason(
+        final_state=final_state,
+        approval_state=approval_state,
+        import_plan_allowed=import_plan_allowed,
+        import_plan_block_reason=import_plan_block_reason,
+        durable_import_classification=durable_import_classification,
+        rollback_performed=rollback_performed,
+        partial_commit=partial_commit,
+    )
+    return {
+        "classification": final_state,
+        "durable_import_performed": final_state == "imported_handoff_measurement_record",
+        "block_reason": block_reason,
+        "next_action": _next_summary_action(
+            final_state=final_state,
+            approval_state=approval_state,
+            import_plan_allowed=import_plan_allowed,
+            durable_import_classification=durable_import_classification,
+        ),
+        "retry_requires": _summary_retry_requirement(block_reason),
+    }
+
+
+def _durable_import_block_reason(
+    *,
+    final_state: str,
+    approval_state: str,
+    import_plan_allowed: bool,
+    import_plan_block_reason: str | None,
+    durable_import_classification: str | None,
+    rollback_performed: bool,
+    partial_commit: bool,
+) -> str | None:
+    if final_state == "imported_handoff_measurement_record":
+        return None
+    if approval_state != "approved":
+        return "request_not_approved"
+    if not import_plan_allowed:
+        return import_plan_block_reason or "import_plan_not_ready"
+    if durable_import_classification == "rolled_back_after_import_failure" or rollback_performed:
+        return "durable_import_rolled_back"
+    if durable_import_classification == "import_failed_after_partial_commit" or partial_commit:
+        return "durable_import_partial_commit"
+    if durable_import_classification == "blocked_before_import":
+        return "durable_import_blocked_before_import"
+    if final_state == "ready_for_handoff_durable_import":
+        return "durable_import_not_run"
+    return "handoff_durable_import_blocked"
+
+
+def _summary_block_reason(
+    *,
+    final_state: str,
+    durable_import_classification: str | None,
+    partial_commit: bool,
+) -> str | None:
+    if final_state == "imported_handoff_measurement_record":
+        return None
+    if partial_commit or durable_import_classification == "import_failed_after_partial_commit":
+        return "durable_import_partial_commit"
+    if durable_import_classification == "rolled_back_after_import_failure":
+        return "durable_import_rolled_back"
+    if durable_import_classification == "blocked_before_import":
+        return "durable_import_blocked_before_import"
+    if durable_import_classification is None:
+        return "import_plan_not_ready"
+    return "handoff_durable_import_blocked"
+
+
+def _summary_retry_requirement(block_reason: str | None) -> str | None:
+    if block_reason is None:
+        return None
+    if block_reason == "request_not_approved":
+        return "approved_handoff_durable_import_request"
+    if block_reason in {
+        "import_plan_not_ready",
+        "package_integrity_review_required",
+        "undeclared_package_members_review_required",
+        "receiving_gate_not_ready",
+    }:
+        return "fresh_ready_import_plan"
+    if block_reason in {
+        "durable_import_blocked_before_import",
+        "durable_import_rolled_back",
+        "durable_import_not_run",
+    }:
+        return "fresh_import_plan_and_destination_recheck"
+    if block_reason == "durable_import_partial_commit":
+        return "manual_partial_commit_review_before_retry"
+    return "reviewed_handoff_durable_import_correction"
 
 
 def build_durable_import_request_from_handoff_plan(

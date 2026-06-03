@@ -323,6 +323,16 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
 
         self.assertEqual(run.classification, "imported_handoff_measurement_record")
         self.assertTrue(run.imported)
+        self.assertEqual(
+            summary["durable_import_review"],
+            {
+                "classification": "imported_handoff_measurement_record",
+                "durable_import_performed": True,
+                "block_reason": None,
+                "next_action": "use_durable_measurement_record",
+                "retry_requires": None,
+            },
+        )
         self.assertEqual(manifest["creation"]["source_kind"], "handoff")
         self.assertEqual(manifest["record"]["label"], "Rabi calibration follow-up")
         self.assertEqual(read_model["primary_data"]["observed_row_count"], 5)
@@ -396,6 +406,8 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
         self.assertEqual(summary["destination_record_id"], "imported-legacy-rabi-001")
         self.assertEqual(summary["final_state"], "imported_handoff_measurement_record")
         self.assertEqual(summary["next_action"], "use_durable_measurement_record")
+        self.assertIsNone(summary["block_reason"])
+        self.assertIsNone(summary["retry_requires"])
         self.assertTrue(summary["durable_import_performed"])
         self.assertEqual(summary["durable_import_classification"], "imported_new_record")
         self.assertIn("continuation_authorization", summary["does_not_claim"])
@@ -482,6 +494,16 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
             "delegated_to_measurement_record_durable_import",
         )
         self.assertEqual(
+            summary["durable_import_review"],
+            {
+                "classification": "blocked_before_handoff_durable_import",
+                "durable_import_performed": False,
+                "block_reason": "durable_import_blocked_before_import",
+                "next_action": "review_durable_import_block_before_retry",
+                "retry_requires": "fresh_import_plan_and_destination_recheck",
+            },
+        )
+        self.assertEqual(
             summary["durable_import_result"]["workflow"]["steps"],
             ["validate_durable_import_request", "preflight_normalized_source"],
         )
@@ -510,6 +532,8 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
 
         self.assertEqual(summary["final_state"], "blocked_before_handoff_durable_import")
         self.assertEqual(summary["next_action"], "resolve_import_plan_before_durable_import")
+        self.assertEqual(summary["block_reason"], "import_plan_not_ready")
+        self.assertEqual(summary["retry_requires"], "fresh_ready_import_plan")
         self.assertFalse(summary["durable_import_performed"])
         self.assertIsNone(summary["durable_import_classification"])
 
@@ -548,6 +572,8 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
         self.assertEqual(retry_review.classification, "fresh_import_plan_ready_for_retry")
         self.assertTrue(retry_review.retry_allowed)
         self.assertEqual(retry_summary["measurement_record_id"], "legacy-rabi-001")
+        self.assertEqual(retry_summary["previous"]["block_reason"], "import_plan_not_ready")
+        self.assertEqual(retry_summary["previous"]["retry_requires"], "fresh_ready_import_plan")
         self.assertEqual(
             retry_summary["retry_review_policy"]["prior_receipt_reuse"],
             "not_allowed",
