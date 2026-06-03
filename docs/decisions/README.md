@@ -55,6 +55,28 @@ track, prototype boundary, or product map, keep the decision in that owner and
 register it here. Create a new standalone decision record when multiple owners
 need the decision or when supersession history matters.
 
+## Granularity Rule
+
+Create or promote a `DEC-*` entry only when a branch accepts, rejects,
+supersedes, or defers a durable product, architecture, engineering, discovery,
+or operational boundary that future work must obey.
+
+Prefer updating the active owner instead of creating a new decision when the
+change only records:
+
+- implementation sequencing, PR scope, or current milestone planning;
+- validation status, next validation questions, or open advancement options;
+- hardening checklists, review findings, or retry/error case inventory;
+- wording clarification that does not change the accepted contract;
+- route-local implementation detail already owned by a prototype-boundary or
+  module README.
+
+Roadmap and "what next" content belongs in the workflow validation map, product
+capability map, prototype-boundary advancement questions, issues, PRs, or
+branch-specific plans. Decision records should keep stable context, accepted
+contract, scope, non-goals, consequences, alternatives, supersession, review
+triggers, and related owners.
+
 ## Update Rule
 
 Update the register when a branch creates, supersedes, retires, or materially

@@ -57,3 +57,10 @@ Update this register when a branch creates, supersedes, retires, reclassifies,
 or materially changes a durable decision. If an artifact is only recommendation
 or discovery evidence, list it under unregistered decision-like artifacts
 instead of promoting it implicitly.
+
+Do not add a new `DEC-*` entry for implementation sequencing, PR scope,
+hardening inventory, review findings, validation status, next validation
+questions, or wording-only cleanup. Keep those in the active workflow map,
+product capability map, prototype-boundary advancement questions, issue, PR, or
+branch plan unless they accept, reject, supersede, or defer a durable boundary
+that future work must obey.
