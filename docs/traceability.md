@@ -51,6 +51,6 @@ same user problem.
 
 ## Update Rule
 
-Update this map when a branch changes a target journey, vertical-slice seam,
+Update this map when a branch changes a target journey, use-case seam,
 capability owner, validation owner, or live implementation owner in a way that
 would make an existing trace misleading.

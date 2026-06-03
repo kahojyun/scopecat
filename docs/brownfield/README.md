@@ -22,7 +22,7 @@ queues.
 | [`current-state-assessment.md`](current-state-assessment.md) | As-is lab workflow and artifact patterns observed from the local sample corpus and discovery evidence. |
 | [`transition-architecture.md`](transition-architecture.md) | Current/transition/target journey mapping and ownership posture by target journey. |
 | [`migration-strategy.md`](migration-strategy.md) | Brownfield modernization approach, migration patterns, and authority-transfer rules. |
-| [`migration-roadmap.md`](migration-roadmap.md) | Vertical-slice migration sequence and decision gates. |
+| [`migration-roadmap.md`](migration-roadmap.md) | Use-case-driven migration sequence and decision gates. |
 | [`risk-register.md`](risk-register.md) | Recurring brownfield risks, mitigation owners, and review triggers. |
 
 ## Reading Rules

@@ -8,18 +8,18 @@ Use-case and workflow validation owner.
 
 This map organizes Scopecat validation progress by use case, workflow segment,
 scenario evidence, and operation evidence rather than by candidate file,
-fixture family, or code module. Use it to decide what the next prototype or
-vertical slice should validate.
+fixture family, or code module. Use it to decide what the next use-case-centered
+prototype should validate.
 
 Use stable `UC-*` IDs for use cases and workflow segments that can drive
-vertical-slice validation. Do not assign stable IDs to scenarios or operations
-unless they are promoted into named use cases.
+use-case-centered validation. Do not assign stable IDs to scenarios or
+operations unless they are promoted into named use cases.
 Use `UC-CAND-*` IDs for missing or candidate use cases that are visible enough
 to sequence, but not yet validated enough to join the `UC-*` table.
 
 ## Current Focus
 
-The main composition gap is the Portable Measurement Handoff vertical slice:
+The main composition gap is the Portable Measurement Handoff use case:
 record or import an externally produced measurement into Scopecat storage,
 select one stored measurement, export a handoff package, preview it on another
 computer, and import it into that computer's storage.
@@ -32,7 +32,7 @@ portable/export artifact-boundary behavior for that package.
 
 ## Reading Rules
 
-Use `Use Cases And Workflow Segments` for promotable vertical-slice pressure.
+Use `Use Cases And Workflow Segments` for promotable validation focus.
 Use `Scenarios And Operations` only for route-local validation, review, or
 technical-risk evidence.
 
@@ -62,8 +62,9 @@ or `Maintained product capability`.
 
 ## Candidate Use Cases
 
-Candidate use cases are the named queue for vertical slices that are visible in
-traceability or roadmap planning but not yet mature enough to become `UC-*`.
+Candidate use cases are the named queue for thin implementation slices that are
+visible in traceability or roadmap planning but not yet mature enough to become
+`UC-*`.
 
 | ID | Candidate Use Case | Supports Journey | Capability Areas | Candidate Source | Promotion Question |
 | --- | --- | --- | --- | --- | --- |

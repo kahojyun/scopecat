@@ -2,17 +2,17 @@
 
 ## Status
 
-Current vertical-slice migration roadmap.
+Current use-case-driven migration roadmap.
 
 ## Purpose
 
-Sequence brownfield migration by validated vertical slices. This is a roadmap
-for product and architecture sequencing, not an implementation task list,
-release plan, or issue tracker.
+Sequence brownfield migration by validated use cases implemented as thin
+slices. This is a roadmap for product and architecture sequencing, not an
+implementation task list, release plan, or issue tracker.
 
 ## Sequencing Principles
 
-- Advance by vertical slice, not by shared domain model extraction.
+- Advance by named use cases, not by shared domain model extraction.
 - Prefer review, package, record, and bridge value before execution or hardware
   authority.
 - Make every slice name a user-visible use case or workflow segment.
@@ -32,7 +32,7 @@ Related risks: BR-RISK-003, BR-RISK-004, BR-RISK-010.
 
 Related decisions: DEC-003, DEC-004.
 
-Next vertical-slice pressure:
+Next validation focus:
 
 - export one selected stored Measurement Record to a preview-ready
   single-measurement handoff package.
@@ -61,7 +61,7 @@ Related risks: BR-RISK-001, BR-RISK-007, BR-RISK-008, BR-RISK-009.
 
 Related decisions: DEC-006.
 
-Next vertical-slice pressure:
+Next validation focus:
 
 - decide whether prepared-run context review becomes a live route owner or
   remains discovery evidence.
@@ -89,7 +89,7 @@ Related risks: BR-RISK-005, BR-RISK-009.
 
 Related decisions: DEC-002, DEC-008.
 
-Next vertical-slice pressure:
+Next validation focus:
 
 - choose one concrete step: record, compare, materialize, observe editable
   folder, prepare rerun, or GUI review.
@@ -115,7 +115,7 @@ Related risks: BR-RISK-001, BR-RISK-007.
 
 Related decisions: DEC-001.
 
-Next vertical-slice pressure:
+Next validation focus:
 
 - prove explicit lifecycle/progress/partial-data event recording from
   Python-driven measurements.
@@ -139,7 +139,7 @@ Related risks: BR-RISK-001, BR-RISK-005, BR-RISK-007.
 
 Related decisions: DEC-002, DEC-005.
 
-Next vertical-slice pressure:
+Next validation focus:
 
 - decide whether calibration continuation is a repeated product capability or
   remains scenario evidence.
@@ -156,7 +156,7 @@ Decision gate:
 
 ## Deferred Cross-Cutting Work
 
-Defer until multiple vertical slices need the same contract:
+Defer until multiple validated use cases need the same contract:
 
 - shared measurement/context domain model extraction;
 - generalized artifact parser framework;
@@ -167,8 +167,8 @@ Defer until multiple vertical slices need the same contract:
 
 ## Update Rule
 
-Update this roadmap when the next vertical-slice pressure, sequencing
-principles, or decision gates change.
+Update this roadmap when the next validation focus, sequencing principles, or
+decision gates change.
 
 Do not use this file to list tasks, owners, deadlines, test names, fixtures, or
 implementation modules.

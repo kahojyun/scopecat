@@ -45,5 +45,5 @@ nearest owner and avoid turning candidates or future plans into current truth.
 - **Future flexibility**: do not describe an unvalidated future owner, request
   shape, schema, GUI, storage model, SDK, or redaction policy as accepted.
 - **Reader test**: a context-free reader should be able to answer which user
-  journey, workflow, use case, vertical slice, or capability changed, what
+  journey, workflow, use case, implementation slice, or capability changed, what
   maturity changed, who owns it, and what remains unaccepted.

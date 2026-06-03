@@ -24,7 +24,7 @@ The default approach is:
 2. create a narrow Scopecat-owned boundary;
 3. bridge legacy artifacts into that boundary explicitly;
 4. let users review before mutation;
-5. promote one vertical slice when the user workflow is clear;
+5. promote one named use case when the user workflow is clear;
 6. replace or retire a legacy path only after an explicit decision.
 
 ## Migration Patterns

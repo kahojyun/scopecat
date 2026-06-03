@@ -35,7 +35,7 @@ docs/
 | [`brownfield/current-state-assessment.md`](brownfield/current-state-assessment.md) | As-is lab workflow and artifact patterns. |
 | [`brownfield/transition-architecture.md`](brownfield/transition-architecture.md) | Current/transition/target journey mapping and ownership posture. |
 | [`brownfield/migration-strategy.md`](brownfield/migration-strategy.md) | Brownfield modernization patterns and authority-transfer rules. |
-| [`brownfield/migration-roadmap.md`](brownfield/migration-roadmap.md) | Vertical-slice migration sequence and decision gates. |
+| [`brownfield/migration-roadmap.md`](brownfield/migration-roadmap.md) | Use-case-driven migration sequence and decision gates. |
 | [`brownfield/risk-register.md`](brownfield/risk-register.md) | Recurring brownfield risks, mitigation owners, and review triggers. |
 | [`decisions/README.md`](decisions/README.md) | Decision-record navigation and governance. |
 | [`decisions/register.md`](decisions/register.md) | Current product, architecture, engineering, discovery, and operational decision index. |
