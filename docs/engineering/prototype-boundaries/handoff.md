@@ -39,9 +39,12 @@ Read it with:
 - [`../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md`](../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md)
   for the current package signature/trust implementation deferral;
 - [`../../decisions/architecture/DEC-020-defer-archive-package-implementation.md`](../../decisions/architecture/DEC-020-defer-archive-package-implementation.md)
-  for the current archive package implementation deferral;
+  for the current archive-backed durable import and archive-authority
+  deferral;
 - [`../../decisions/architecture/DEC-021-accept-safe-archive-materialization.md`](../../decisions/architecture/DEC-021-accept-safe-archive-materialization.md)
   for the current safe archive materialization boundary;
+- [`../../decisions/architecture/DEC-024-accept-safe-archive-creation.md`](../../decisions/architecture/DEC-024-accept-safe-archive-creation.md)
+  for the current safe archive creation boundary;
 - [`../workflow-validation-map.md`](../workflow-validation-map.md) for the
   current cross-capability handoff workflow gap.
 
@@ -67,6 +70,7 @@ complete Measurement Record read model and record-local receipts
   -> selected-record export request with explicit preview metadata
   -> package writer request
   -> directory-shaped selected-measurement package
+  -> optional zip transport creation and materialization
   -> read-only package open
 ```
 
@@ -299,9 +303,12 @@ one workflow-level regression proves this full path:
 ```text
 source-side durable Measurement Record
   -> selected stored-record package export
-  -> read-only package open
+  -> safe zip archive creation from the DEC-010 package of record
+  -> safe zip archive materialization back into the DEC-010 package of record
+  -> read-only receiving package open
   -> receiving gate
   -> non-mutating import plan
+  -> local receiving review-state receipt materialization
   -> durable import into a second storage root
 ```
 
@@ -325,6 +332,8 @@ Acceptance for that candidate is intentionally narrow:
 - blocked durable imports summarize the next action without authorizing mutation
   and require a fresh import plan for retry review;
 - receiving review and import planning remain non-mutating;
+- local receiving review-state receipts may be materialized for review
+  continuity without becoming GUI-owned state;
 - durable storage mutation remains delegated to Measurement Records import;
 - durable import receipts and summaries expose reviewable block reasons,
   next actions, and retry requirements without authorizing retry;
@@ -361,7 +370,7 @@ Receiving review state projection is governed by
 [`DEC-018`](../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md).
 Package signature/trust implementation deferral is governed by
 [`DEC-019`](../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md).
-Archive package implementation deferral is governed by
+Archive-backed durable import and archive-authority deferral are governed by
 [`DEC-020`](../../decisions/architecture/DEC-020-defer-archive-package-implementation.md).
 Safe zip archive materialization is governed by
 [`DEC-021`](../../decisions/architecture/DEC-021-accept-safe-archive-materialization.md).

@@ -8,16 +8,23 @@ import unittest
 from pathlib import Path
 
 from scopecat.handoff import (
+    HandoffArchiveCreationRequest,
+    HandoffArchiveMaterializationRequest,
     HandoffDurableImportDestination,
     HandoffDurableImportRequest,
     HandoffImportPlanRequest,
     HandoffReceivingReviewRequest,
+    HandoffReceivingReviewStateReceiptRequest,
     SelectedMeasurementRecordExportRequest,
+    create_handoff_archive_package_from_request,
     export_selected_measurement_record_from_request,
+    materialize_handoff_archive_package_from_request,
     open_package,
+    project_handoff_receiving_review_state,
     review_handoff_durable_import_retry,
     run_handoff_durable_import_from_plan,
     summarize_handoff_durable_import_receipt,
+    write_handoff_receiving_review_state_receipt,
 )
 from scopecat.handoff.import_plan import build_import_plan
 from scopecat.handoff.receiving import run_receiving_gate_from_request
@@ -111,6 +118,24 @@ def _export_request() -> SelectedMeasurementRecordExportRequest:
     )
 
 
+def _archive_creation_request() -> HandoffArchiveCreationRequest:
+    return HandoffArchiveCreationRequest(
+        request_id="create-archive-run-3101-rabi",
+        approval_state="approved",
+        package_dir="handoff-package-run-3101-rabi",
+        archive_path="handoff-package-run-3101-rabi.zip",
+    )
+
+
+def _archive_materialization_request() -> HandoffArchiveMaterializationRequest:
+    return HandoffArchiveMaterializationRequest(
+        request_id="materialize-archive-run-3101-rabi",
+        approval_state="approved",
+        archive_path="handoff-package-run-3101-rabi.zip",
+        package_dir="handoff-package-run-3101-rabi",
+    )
+
+
 def _receiving_request(
     package_id: str, preview_classification: str
 ) -> HandoffReceivingReviewRequest:
@@ -148,6 +173,13 @@ def _durable_import_request(package_id: str) -> HandoffDurableImportRequest:
     )
 
 
+def _review_state_receipt_request() -> HandoffReceivingReviewStateReceiptRequest:
+    return HandoffReceivingReviewStateReceiptRequest(
+        request_id="persist-receiving-review-state-run-3101-rabi",
+        receipt_path="receiving-review-state-run-3101-rabi.json",
+    )
+
+
 class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
     """Integration/workflow coverage for the JNY-001 single-measurement path."""
 
@@ -155,10 +187,16 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
         source_storage = temp_root / "source-storage"
         source_content = temp_root / "source-content"
         package_root = temp_root / "packages"
+        archive_root = temp_root / "archives"
+        materialization_root = temp_root / "materialized-packages"
         receiving_storage = temp_root / "receiving-storage"
+        receiving_state_root = temp_root / "receiving-state"
         source_storage.mkdir()
         package_root.mkdir()
+        archive_root.mkdir()
+        materialization_root.mkdir()
         receiving_storage.mkdir()
+        receiving_state_root.mkdir()
         shutil.copytree(CHUNK_FIXTURE / "chunks", source_content / "chunks")
 
         source_import = import_measurement_record_from_request(
@@ -171,7 +209,17 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
             storage_root=source_storage,
             package_root=package_root,
         )
-        package_dir = package_root / "handoff-package-run-3101-rabi"
+        archive_creation = create_handoff_archive_package_from_request(
+            _archive_creation_request(),
+            package_root=package_root,
+            archive_root=archive_root,
+        )
+        archive_materialization = materialize_handoff_archive_package_from_request(
+            _archive_materialization_request(),
+            archive_root=archive_root,
+            materialization_root=materialization_root,
+        )
+        package_dir = materialization_root / "handoff-package-run-3101-rabi"
         package = open_package(package_dir)
         receiving_gate = run_receiving_gate_from_request(
             _receiving_request(
@@ -184,15 +232,32 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
             _import_plan_request(package.package_id),
             receiving_gate=receiving_gate,
         )
+        receiving_review_state = project_handoff_receiving_review_state(
+            receiving_gate=receiving_gate,
+            import_plan=import_plan,
+        )
+        receiving_review_state_receipt = write_handoff_receiving_review_state_receipt(
+            _review_state_receipt_request(),
+            projection=receiving_review_state,
+            state_root=receiving_state_root,
+        )
         return {
             "source_import": source_import,
             "export_run": export_run,
+            "archive_creation": archive_creation,
+            "archive_materialization": archive_materialization,
             "source_storage": source_storage,
             "package_root": package_root,
+            "source_package_dir": package_root / "handoff-package-run-3101-rabi",
+            "archive_root": archive_root,
+            "materialization_root": materialization_root,
             "package_dir": package_dir,
             "package": package,
             "receiving_gate": receiving_gate,
             "import_plan": import_plan,
+            "receiving_review_state": receiving_review_state,
+            "receiving_review_state_receipt": receiving_review_state_receipt,
+            "receiving_state_root": receiving_state_root,
             "receiving_storage": receiving_storage,
         }
 
@@ -218,26 +283,46 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
 
         self.assertTrue(workflow["source_import"].imported)
         self.assertTrue(workflow["export_run"].exported)
+        self.assertTrue(workflow["archive_creation"].created)
+        self.assertTrue(workflow["archive_materialization"].materialized)
         self.assertEqual(package.measurement_ids, ("run-3101-rabi",))
         self.assertTrue(workflow["receiving_gate"].acceptance_allowed)
         self.assertTrue(import_plan.import_plan_allowed)
+        self.assertEqual(
+            workflow["receiving_review_state"].classification,
+            "ready_for_import_acceptance_decision",
+        )
+        self.assertTrue(workflow["receiving_review_state_receipt"].written)
         self.assertEqual(durable_import.classification, "imported_handoff_measurement_record")
         self.assertEqual(received_read_model["record"]["lifecycle_state"], "complete")
         self.assertEqual(received_read_model["record"]["record_id"], "received-run-3101-rabi")
         self.assertEqual(received_read_model["primary_data"]["observed_row_count"], 3)
 
-    def test_workflow_uses_directory_manifest_package_without_archive_handling(self) -> None:
+    def test_workflow_uses_zip_transport_without_making_archive_bytes_authoritative(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             workflow = self._prepare_ready_handoff(Path(temp_dir))
+            source_package_dir = workflow["source_package_dir"]
             package_root = workflow["package_root"]
             package_dir = workflow["package_dir"]
+            archive_root = workflow["archive_root"]
+            materialization_root = workflow["materialization_root"]
             export_summary = workflow["export_run"].to_dict()
+            creation_summary = workflow["archive_creation"].to_dict()
+            materialization_summary = workflow["archive_materialization"].to_dict()
             receiving_summary = workflow["receiving_gate"].to_dict()
             import_plan_summary = workflow["import_plan"].to_dict()
             package_root_entries = sorted(path.name for path in package_root.iterdir())
 
+            self.assertTrue(source_package_dir.is_dir())
             self.assertTrue(package_dir.is_dir())
             self.assertTrue((package_dir / "package-manifest.json").is_file())
+            self.assertTrue((archive_root / "handoff-package-run-3101-rabi.zip").is_file())
+            self.assertEqual(
+                sorted(path.name for path in materialization_root.iterdir()),
+                ["handoff-package-run-3101-rabi"],
+            )
 
         self.assertEqual(package_root_entries, ["handoff-package-run-3101-rabi"])
         self.assertEqual(
@@ -247,6 +332,26 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
         self.assertEqual(
             export_summary["package_write"]["package_write_policy"]["archive_creation"],
             "not_performed",
+        )
+        self.assertEqual(
+            creation_summary["artifact_authority"]["archive_bytes"],
+            "transport_container_only",
+        )
+        self.assertEqual(
+            creation_summary["artifact_authority"]["package_of_record"],
+            "dec010_directory_manifest_package",
+        )
+        self.assertEqual(
+            materialization_summary["artifact_authority"]["package_of_record"],
+            "materialized_dec010_directory_manifest_package",
+        )
+        self.assertIn(
+            "archive_bytes_as_package_artifact_of_record",
+            creation_summary["workflow"]["does_not_claim"],
+        )
+        self.assertIn(
+            "archive_bytes_as_package_artifact_of_record",
+            materialization_summary["workflow"]["does_not_claim"],
         )
         self.assertIn("archive_extraction", receiving_summary["does_not_claim"])
         self.assertIn(
