@@ -21,4 +21,5 @@ grouping.
 | --- | --- |
 | [`direction.md`](direction.md) | Product direction, default ownership assumptions, expansion strategy, and non-goals. |
 | [`adoption-model.md`](adoption-model.md) | Brownfield adoption paths, migration boundaries, and supporting capabilities. |
+| [`journey-map.md`](journey-map.md) | Product user journeys, primary workflows, use cases to prove, and discovery-to-engineering orientation. |
 | [`capability-map.md`](capability-map.md) | Product capabilities, candidate feature areas, maturity, evidence state, and open advancement questions. |

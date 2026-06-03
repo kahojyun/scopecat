@@ -7,14 +7,14 @@ Current product adoption model.
 ## Purpose
 
 Describe how users can adopt Scopecat around existing lab systems. This is a
-product strategy document, not a workflow validation map, implementation
-register, or migration project plan.
+product strategy document, not a journey map, workflow validation map,
+implementation register, or migration project plan.
 
 Use this document to separate:
 
 - adoption path: how a user starts using Scopecat;
 - brownfield boundary: what existing system behavior remains outside Scopecat;
-- workflow: what user job the adoption path supports;
+- user journey or use case: what product path the adoption model supports;
 - capability: what Scopecat product ability must mature to support the path.
 
 ## Adoption Principles
@@ -47,7 +47,9 @@ Use this document to separate:
 Update this model when a branch changes how users are expected to start using
 Scopecat, changes brownfield boundaries, or validates a new adoption path.
 
-Do not use this file to track implementation entrypoints, tests, fixtures, or
-module ownership. Use [`../engineering/implementation-register.md`](../engineering/implementation-register.md)
-for live implementation ownership and [`capability-map.md`](capability-map.md)
+Do not use this file to track implementation entrypoints, tests, fixtures, user
+journey decomposition, or module ownership. Use [`journey-map.md`](journey-map.md)
+for product journeys and use cases,
+[`../engineering/implementation-register.md`](../engineering/implementation-register.md)
+for live implementation ownership, and [`capability-map.md`](capability-map.md)
 for product capability maturity.

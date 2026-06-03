@@ -9,10 +9,12 @@ flat navigation map when you already know which owner you need.
 
 ## Where To Find Current State
 
-- Current workflow status and composition gaps:
-  [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md)
 - Current product adoption paths:
   [`product/adoption-model.md`](product/adoption-model.md)
+- Current product user journeys and use cases to prove:
+  [`product/journey-map.md`](product/journey-map.md)
+- Current use case validation state, evidence scopes, and composition gaps:
+  [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md)
 - Current product capabilities, maturity, evidence, and advancement questions:
   [`product/capability-map.md`](product/capability-map.md)
 - Current maturity vocabulary:
@@ -33,17 +35,19 @@ For product and implementation direction:
    long-term boundaries, and non-goals.
 2. [`product/adoption-model.md`](product/adoption-model.md) for brownfield
    adoption paths and migration boundaries.
-3. [`product/capability-map.md`](product/capability-map.md) for product
+3. [`product/journey-map.md`](product/journey-map.md) for user journeys,
+   workflows, and use cases to prove.
+4. [`product/capability-map.md`](product/capability-map.md) for product
    capabilities, maturity, supporting evidence, and open advancement
    questions.
-4. [`engineering/README.md`](engineering/README.md) for delivery maturity,
+5. [`engineering/README.md`](engineering/README.md) for delivery maturity,
    workflow validation, implementation ownership, and promotion governance.
-5. [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md)
-   to find the user workflow thread, validated steps, missing seams, and next
-   validation question.
-6. [`engineering/implementation-register.md`](engineering/implementation-register.md)
+6. [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md)
+   to find use case validation state, evidence scopes, missing seams, and next
+   validation questions.
+7. [`engineering/implementation-register.md`](engineering/implementation-register.md)
    to find live implementation owners and their module/boundary detail docs.
-7. [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) and the owning module
+8. [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) and the owning module
    README for live implementation boundaries and API details.
 
 For new discovery work:

@@ -11,8 +11,10 @@ not active product routes, implementation owners, or workflow plans.
 Use track indexes for discovery status and validation sequencing unless an
 index is explicitly marked retired; use validation results for slice-local
 evidence. Once a track has live engineering ownership, use
+[`../../product/journey-map.md`](../../product/journey-map.md) for product
+journey framing,
 [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
-for workflow sequencing and
+for use case validation sequencing, and
 [`../../product/capability-map.md`](../../product/capability-map.md)
 for capability maturity. Use
 [`../../engineering/implementation-register.md`](../../engineering/implementation-register.md)
@@ -23,7 +25,8 @@ for live implementation ownership.
 | Owner | Use For |
 | --- | --- |
 | [`../../product/adoption-model.md`](../../product/adoption-model.md) | Current product adoption model and brownfield migration paths. |
-| [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md) | Current workflow sequencing after discovery evidence moves toward implementation. |
+| [`../../product/journey-map.md`](../../product/journey-map.md) | Current product journeys, primary workflows, and use cases to prove. |
+| [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md) | Current use case validation sequencing after discovery evidence moves toward implementation. |
 | [`../../product/capability-map.md`](../../product/capability-map.md) | Current product capabilities, maturity, evidence, and advancement questions. |
 | [`../../engineering/implementation-register.md`](../../engineering/implementation-register.md) | Current live implementation owners. |
 

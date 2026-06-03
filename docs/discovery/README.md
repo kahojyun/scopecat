@@ -11,8 +11,9 @@ unless a narrower document says so. Use them to decide the next validation or
 implementation slice without promoting slice-local vocabulary into shared
 product contracts too early.
 
-After discovery evidence starts moving into live route-local code, active
-workflow sequencing belongs in
+After discovery evidence starts moving into live route-local code, product
+journey framing belongs in [`../product/journey-map.md`](../product/journey-map.md),
+use case validation sequencing belongs in
 [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md),
 product capability maturity belongs in
 [`../product/capability-map.md`](../product/capability-map.md), and
@@ -28,9 +29,10 @@ is a legacy path for discovery tracks, not an active product route map.
 | --- | --- |
 | [`doc-types.md`](doc-types.md) | Understand which discovery document type owns navigation, policies, track decisions, slice evidence, or synthesis. |
 | [`../product/adoption-model.md`](../product/adoption-model.md) | Current product adoption paths and brownfield migration boundaries. |
+| [`../product/journey-map.md`](../product/journey-map.md) | Current product user journeys, primary workflows, and use cases to prove before promotion. |
 | [`../product/capability-map.md`](../product/capability-map.md) | Current product capabilities, maturity, evidence, and open advancement questions. |
-| [`../engineering/delivery-maturity-model.md`](../engineering/delivery-maturity-model.md) | Classify workflow and capability maturity before promoting code; treat candidates, spikes, prototypes, and scenarios as validation methods. |
-| [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md) | Start from user workflow threads, validated steps, and missing seams before selecting the next prototype or vertical slice. |
+| [`../engineering/delivery-maturity-model.md`](../engineering/delivery-maturity-model.md) | Classify maturity owners before promoting code; treat candidates, spikes, prototypes, scenarios, and operations as evidence or validation methods. |
+| [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md) | Start from use case validation state, evidence scopes, and missing seams before selecting the next prototype or vertical slice. |
 | [`routes/README.md`](routes/README.md) | Navigate discovery tracks, discovery decisions, and historical adoption-route evidence by durable user workflow. |
 | [`../engineering/implementation-register.md`](../engineering/implementation-register.md) | Current live implementation owners. |
 | [`policies/README.md`](policies/README.md) | Navigate repeated boundary vocabulary, artifact classification, and product strategy documents. |
@@ -74,7 +76,9 @@ declares otherwise.
 
 Validation result and plan documents may include slice-local recommendations
 for what their fixture earned or deferred. They should not be treated as the
-owner of active sequencing. Current workflow sequencing belongs in
+owner of active sequencing. Current journey framing belongs in
+[`../product/journey-map.md`](../product/journey-map.md), and current use case
+validation sequencing belongs in
 [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md).
 
 ## Discovery Track Pointers
@@ -89,6 +93,8 @@ prototype implementation.
 Before moving discovery evidence into accepted schema, shared implementation,
 live route code, or `docs/engineering/prototype-boundaries/`, classify the work
 in [`../engineering/delivery-maturity-model.md`](../engineering/delivery-maturity-model.md)
-and attach it to a named workflow step, seam, or risk question in
+and attach it to a named journey in
+[`../product/journey-map.md`](../product/journey-map.md), plus a use case,
+workflow seam, evidence scope, or risk question in
 [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md).
 Do not promote validation-result wording by copy/paste.

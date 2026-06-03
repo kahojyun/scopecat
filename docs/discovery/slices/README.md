@@ -10,7 +10,9 @@ Discovery slice results record what one validation question earned and what it
 did not earn. Use them as evidence, not as the active engineering planning
 surface.
 
-Active workflow sequencing belongs in
+Product journey framing belongs in
+[`../../product/journey-map.md`](../../product/journey-map.md).
+Use case validation sequencing belongs in
 [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md).
 Capability maturity belongs in
 [`../../product/capability-map.md`](../../product/capability-map.md).
@@ -27,11 +29,13 @@ live code.
 
 When starting new discovery:
 
-- start from the relevant problem brief or workflow map gap;
+- start from the relevant problem brief, journey map gap, or workflow/use-case
+  validation map gap;
 - create one narrow validation plan only when a new question needs it;
 - write the validation result beside the route it informs;
-- update the workflow map only if the result changes a named workflow step,
-  seam, or risk question.
+- update the journey map only if the result changes a user journey, workflow,
+  or use case; update the workflow validation map only if the result changes a
+  named use case, workflow seam, evidence scope, or risk question.
 
 When promoting implementation:
 

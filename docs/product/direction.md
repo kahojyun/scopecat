@@ -86,6 +86,8 @@ management, environment operation, or GUI monitoring.
 Use these owner documents for details:
 
 - [`adoption-model.md`](adoption-model.md) for brownfield adoption paths;
+- [`journey-map.md`](journey-map.md) for product user journeys, primary
+  workflows, and use cases to prove;
 - [`capability-map.md`](capability-map.md) for product capability maturity and
   advancement questions;
 - [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)

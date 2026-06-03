@@ -9,7 +9,7 @@ the recommended top-down reading path.
 
 ```text
 docs/
-  product/   product direction, adoption model, and capability map
+  product/   product direction, adoption model, journey map, and capability map
   engineering/ delivery maturity model, workflow validation map,
                implementation register, prototype boundaries, and engineering
                archive
@@ -24,10 +24,11 @@ docs/
 | [`product/README.md`](product/README.md) | Product documentation navigation. |
 | [`product/direction.md`](product/direction.md) | Current product direction, default ownership boundaries, and non-goals. |
 | [`product/adoption-model.md`](product/adoption-model.md) | Brownfield adoption paths, migration boundaries, and supporting capabilities. |
+| [`product/journey-map.md`](product/journey-map.md) | Product user journeys, primary workflows, use cases to prove, and discovery-to-engineering orientation. |
 | [`product/capability-map.md`](product/capability-map.md) | Product capabilities, maturity, evidence state, and open advancement questions. |
 | [`engineering/README.md`](engineering/README.md) | Engineering governance navigation for maturity, workflow, capability, and promotion rules. |
 | [`engineering/delivery-maturity-model.md`](engineering/delivery-maturity-model.md) | Product objects, maturity states, validation methods, promotion rules, and drift control. |
-| [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md) | User workflow threads, validated steps, missing seams, and next validation questions. |
+| [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md) | Use case validation state, evidence scopes, missing seams, and next validation questions. |
 | [`engineering/implementation-register.md`](engineering/implementation-register.md) | Live implementation owners and primary module or boundary detail docs. |
 | [`engineering/terminology.md`](engineering/terminology.md) | Standard engineering terms for workflow, capability, maturity, validation method, decision, evidence, artifact boundary, and ownership. |
 | [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) | Current route-local engineering prototype boundaries promoted from discovery-backed implementation work. |
