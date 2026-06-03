@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import copy
 import posixpath
+import shutil
+import stat
+import zipfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
-from scopecat.handoff._contracts import validate_public_identifier
+from scopecat.handoff._contracts import validate_public_identifier, validate_relative_path
 from scopecat.handoff.errors import promote_handoff_contract_error
+from scopecat.handoff.read_only import open_package
 
 HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA = "scopecat.handoff_archive_materialization_review.v0"
 HANDOFF_ARCHIVE_MATERIALIZATION_POLICY = {
@@ -22,6 +27,21 @@ HANDOFF_ARCHIVE_MATERIALIZATION_POLICY = {
     "canonical_inner_format": "dec010_directory_manifest_package",
     "materialization_authority": "future_safe_staging_review_required",
     "signature_validation": "not_performed",
+}
+HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA = "scopecat.handoff_archive_materialization.v0"
+HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY = {
+    "archive_implementation": "zip_materialization_candidate",
+    "archive_creation": "not_performed",
+    "archive_extraction": "performed_into_staging_directory",
+    "archive_input_opening": "zipfile_read_only",
+    "archive_backed_durable_import": "not_performed",
+    "archive_bytes_authority": "transport_container_only",
+    "package_artifact_of_record": "dec010_directory_manifest_package",
+    "canonical_inner_format": "dec010_directory_manifest_package",
+    "materialization_authority": "approved_archive_materialization_request",
+    "signature_validation": "not_performed",
+    "collision_policy": "no_overwrite",
+    "failure_cleanup": "remove_partial_materialization",
 }
 REQUIRED_RESOURCE_LIMITS = [
     "archive_size_bytes",
@@ -121,6 +141,118 @@ class ArchiveMaterializationContractReview:
         }
 
 
+@dataclass(frozen=True)
+class HandoffArchiveMaterializationRequest:
+    """Approved request to materialize a zip archive into a DEC-010 package directory."""
+
+    request_id: str
+    approval_state: str
+    archive_path: str
+    package_dir: str
+    collision_policy: str = "no_overwrite"
+
+    def __post_init__(self) -> None:
+        validate_public_identifier(self.request_id, "archive materialization request_id")
+        if self.approval_state not in {"approved", "rejected", "needs_review"}:
+            raise ValueError("archive materialization approval_state is unsupported")
+        validate_relative_path(self.archive_path, "archive materialization archive_path")
+        validate_public_identifier(self.package_dir, "archive materialization package_dir")
+        if self.collision_policy != "no_overwrite":
+            raise ValueError("archive materialization collision_policy must be no_overwrite")
+
+    @property
+    def approved(self) -> bool:
+        return self.approval_state == "approved"
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "request_id": self.request_id,
+            "approval_state": self.approval_state,
+            "archive_path": self.archive_path,
+            "package_dir": self.package_dir,
+            "collision_policy": self.collision_policy,
+        }
+
+
+@dataclass(frozen=True)
+class HandoffArchiveMaterializationRun:
+    """Local receipt for materializing archive transport into a package directory."""
+
+    request: HandoffArchiveMaterializationRequest
+    archive_root: Path
+    materialization_root: Path
+    member_reviews: tuple[ArchiveMaterializationMemberReview, ...] = ()
+    package_path: Path | None = None
+    materialized_files: tuple[str, ...] = ()
+    cleanup_performed: bool = False
+    materialization_error: str | None = None
+
+    @property
+    def materialized(self) -> bool:
+        return self.classification == "materialized_dec010_package_from_archive"
+
+    @property
+    def classification(self) -> str:
+        if self.materialization_error is not None:
+            return "blocked_before_archive_materialization"
+        if not self.request.approved:
+            return "blocked_before_archive_materialization"
+        return "materialized_dec010_package_from_archive"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "artifact_posture": "local_archive_materialization_receipt",
+            "archive_materialization_schema": HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA,
+            "archive_materialization_policy": copy.deepcopy(
+                HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY
+            ),
+            "workflow": {
+                "classification": self.classification,
+                "steps": [
+                    "validate_archive_materialization_request",
+                    *([] if not self.request.approved else ["open_zip_archive"]),
+                    *([] if not self.member_reviews else ["review_archive_members"]),
+                    *(
+                        []
+                        if not self.materialized
+                        else ["materialize_archive_members", "open_materialized_package"]
+                    ),
+                ],
+                "does_not_claim": [
+                    "archive_creation",
+                    "archive_bytes_as_package_artifact_of_record",
+                    "signature_or_authenticity_validation",
+                    "package_acceptance",
+                    "durable_import",
+                    "storage_mutation",
+                ],
+            },
+            "request": self.request.to_dict(),
+            "archive": {
+                "archive_root": str(self.archive_root),
+                "archive_path": self.request.archive_path,
+            },
+            "materialization": {
+                "performed": self.materialized,
+                "materialization_root": str(self.materialization_root),
+                "package_path": None if self.package_path is None else str(self.package_path),
+                "materialized_files": list(self.materialized_files),
+                "cleanup_performed": self.cleanup_performed,
+                "materialization_error": self.materialization_error,
+            },
+            "member_reviews": [member.to_dict() for member in self.member_reviews],
+            "materialization_review": {
+                "block_reason": _materialization_block_reason(self),
+                "next_action": _materialization_next_action(self),
+                "retry_requires": _materialization_retry_requirement(self),
+            },
+            "artifact_authority": {
+                "archive_bytes": "transport_container_only",
+                "package_of_record": "materialized_dec010_directory_manifest_package",
+            },
+        }
+
+
 def current_handoff_archive_materialization_contract() -> dict[str, Any]:
     """Return the current DEC-020 archive materialization contract posture."""
 
@@ -175,6 +307,97 @@ def review_handoff_archive_materialization_contract(
         ) from exc
 
 
+def materialize_handoff_archive_package_from_request(
+    request: HandoffArchiveMaterializationRequest,
+    *,
+    archive_root: str | Path,
+    materialization_root: str | Path,
+) -> HandoffArchiveMaterializationRun:
+    """Materialize a zip archive transport into a DEC-010 package directory."""
+
+    archive_base = _existing_directory_root(
+        Path(archive_root),
+        "archive materialization archive root",
+    )
+    materialization_base = _existing_directory_root(
+        Path(materialization_root),
+        "archive materialization root",
+    )
+    if not request.approved:
+        return HandoffArchiveMaterializationRun(
+            request=request,
+            archive_root=archive_base,
+            materialization_root=materialization_base,
+        )
+    archive_path = _path_under(
+        archive_base,
+        request.archive_path,
+        "archive materialization archive_path",
+    )
+    package_path = materialization_base / request.package_dir
+    member_reviews: tuple[ArchiveMaterializationMemberReview, ...] = ()
+    try:
+        _validate_archive_file(archive_path)
+        _validate_materialization_target(package_path)
+        with zipfile.ZipFile(archive_path) as archive:
+            members = archive.infolist()
+            member_reviews = tuple(_review_zip_member(member) for member in members)
+            _validate_zip_members_for_materialization(
+                request,
+                member_reviews,
+                members,
+            )
+            materialized_files = _materialize_zip_members(
+                archive,
+                members,
+                materialization_base,
+            )
+        open_package(package_path)
+    except (
+        KeyError,
+        NotImplementedError,
+        OSError,
+        RuntimeError,
+        ValueError,
+        zipfile.BadZipFile,
+    ) as exc:
+        cleanup_performed = _cleanup_partial_package(package_path)
+        return HandoffArchiveMaterializationRun(
+            request=request,
+            archive_root=archive_base,
+            materialization_root=materialization_base,
+            member_reviews=member_reviews,
+            package_path=package_path,
+            cleanup_performed=cleanup_performed,
+            materialization_error=str(exc),
+        )
+
+    return HandoffArchiveMaterializationRun(
+        request=request,
+        archive_root=archive_base,
+        materialization_root=materialization_base,
+        member_reviews=member_reviews,
+        package_path=package_path,
+        materialized_files=tuple(materialized_files),
+    )
+
+
+def materialize_handoff_archive_package(
+    source: dict[str, Any],
+    *,
+    archive_root: str | Path,
+    materialization_root: str | Path,
+) -> HandoffArchiveMaterializationRun:
+    """Materialize a zip archive package from a raw route-local source."""
+
+    request = _parse_materialization_source(source)
+    return materialize_handoff_archive_package_from_request(
+        request,
+        archive_root=archive_root,
+        materialization_root=materialization_root,
+    )
+
+
 def _review_handoff_archive_materialization_contract(
     source: dict[str, Any],
 ) -> ArchiveMaterializationContractReview:
@@ -211,6 +434,221 @@ def _review_handoff_archive_materialization_contract(
         resource_limits=resource_limits,
         member_reviews=members,
     )
+
+
+def _parse_materialization_source(source: dict[str, Any]) -> HandoffArchiveMaterializationRequest:
+    source = _require_mapping(source, "archive materialization source")
+    _require_keys(
+        source,
+        {
+            "archive_materialization_schema",
+            "archive_materialization_policy",
+            "archive_materialization_request",
+        },
+        "archive materialization source",
+    )
+    if source["archive_materialization_schema"] != HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA:
+        raise ValueError("archive_materialization_schema is unsupported")
+    if source["archive_materialization_policy"] != HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY:
+        raise ValueError("archive_materialization_policy is unsupported")
+    request = _require_mapping(
+        source["archive_materialization_request"],
+        "archive_materialization_request",
+    )
+    return HandoffArchiveMaterializationRequest(
+        request_id=_read_text(request, "request_id", "archive materialization request_id"),
+        approval_state=_read_text(
+            request,
+            "approval_state",
+            "archive materialization approval_state",
+        ),
+        archive_path=_read_text(request, "archive_path", "archive materialization archive_path"),
+        package_dir=_read_text(request, "package_dir", "archive materialization package_dir"),
+        collision_policy=_read_text(
+            request,
+            "collision_policy",
+            "archive materialization collision_policy",
+        ),
+    )
+
+
+def _review_zip_member(member: zipfile.ZipInfo) -> ArchiveMaterializationMemberReview:
+    member_type = _zip_member_type(member)
+    normalized_path, path_reasons = _normalize_archive_member_path(member.filename)
+    metadata_reasons = _metadata_path_blockers(normalized_path)
+    type_reasons = _member_type_blockers(member_type)
+    return ArchiveMaterializationMemberReview(
+        path=member.filename,
+        member_type=member_type,
+        normalized_path=normalized_path,
+        blocked_reasons=tuple([*path_reasons, *metadata_reasons, *type_reasons]),
+    )
+
+
+def _zip_member_type(member: zipfile.ZipInfo) -> str:
+    mode = member.external_attr >> 16
+    if stat.S_ISLNK(mode):
+        return "symlink"
+    if member.is_dir():
+        return "directory"
+    return "regular_file"
+
+
+def _validate_zip_members_for_materialization(
+    request: HandoffArchiveMaterializationRequest,
+    reviews: tuple[ArchiveMaterializationMemberReview, ...],
+    members: list[zipfile.ZipInfo],
+) -> None:
+    if not members:
+        raise ValueError("archive materialization archive must contain package members")
+    blocked_reasons = [reason for review in reviews for reason in review.blocked_reasons]
+    if blocked_reasons:
+        raise ValueError(
+            "archive materialization member review blocked: "
+            + ", ".join(tuple(dict.fromkeys(blocked_reasons)))
+        )
+    normalized_paths = [
+        review.normalized_path for review in reviews if review.normalized_path is not None
+    ]
+    if len(set(normalized_paths)) != len(normalized_paths):
+        raise ValueError("archive materialization duplicate archive member path")
+    package_prefix = f"{request.package_dir}/"
+    if any(path is None or not path.startswith(package_prefix) for path in normalized_paths):
+        raise ValueError("archive materialization members must stay under package_dir")
+    if f"{request.package_dir}/package-manifest.json" not in normalized_paths:
+        raise ValueError("archive materialization package-manifest.json is required")
+
+
+def _materialize_zip_members(
+    archive: zipfile.ZipFile,
+    members: list[zipfile.ZipInfo],
+    materialization_root: Path,
+) -> list[str]:
+    materialized_files: list[str] = []
+    for member in members:
+        normalized, reasons = _normalize_archive_member_path(member.filename)
+        if normalized is None or reasons:
+            raise ValueError("archive materialization member path is unsafe")
+        target = _path_under(materialization_root, normalized, "archive materialization member")
+        _ensure_materialization_parent(materialization_root, normalized)
+        if target.exists():
+            raise ValueError("archive materialization member target already exists")
+        with archive.open(member, "r") as source, target.open("xb") as destination:
+            shutil.copyfileobj(source, destination)
+        materialized_files.append(normalized)
+    return materialized_files
+
+
+def _validate_archive_file(path: Path) -> None:
+    if path.is_symlink():
+        raise ValueError("archive materialization archive_path must not be a symlink")
+    if not path.is_file():
+        raise ValueError("archive materialization archive_path must be an existing file")
+    if not zipfile.is_zipfile(path):
+        raise ValueError("archive materialization archive_path must be a zip archive")
+
+
+def _validate_materialization_target(package_path: Path) -> None:
+    if package_path.is_symlink():
+        raise ValueError("archive materialization package target must not be a symlink")
+    if package_path.exists():
+        raise ValueError("archive materialization package target already exists")
+
+
+def _ensure_materialization_parent(root: Path, relative_path: str) -> None:
+    parts = relative_path.replace("\\", "/").split("/")[:-1]
+    current = root
+    for part in parts:
+        current = current / part
+        if current.is_symlink():
+            raise ValueError("archive materialization member parent must not be a symlink")
+        if current.exists() and not current.is_dir():
+            raise ValueError("archive materialization member parent must be a directory")
+    parent = root.joinpath(*parts)
+    if parent.exists() and not parent.is_dir():
+        raise ValueError("archive materialization member parent must be a directory")
+    parent.mkdir(parents=True, exist_ok=True)
+
+
+def _cleanup_partial_package(package_path: Path) -> bool:
+    if not package_path.exists():
+        return False
+    if package_path.is_symlink():
+        raise ValueError("archive materialization cleanup target must not be a symlink")
+    shutil.rmtree(package_path)
+    return True
+
+
+def _materialization_block_reason(run: HandoffArchiveMaterializationRun) -> str | None:
+    if run.materialized:
+        return None
+    if not run.request.approved:
+        return "request_not_approved"
+    if run.materialization_error is not None:
+        if "target already exists" in run.materialization_error:
+            return "package_destination_collision"
+        if "member review blocked" in run.materialization_error:
+            return "archive_member_review_blocked"
+        if "package-manifest.json is required" in run.materialization_error:
+            return "missing_package_manifest"
+        if "must stay under package_dir" in run.materialization_error:
+            return "archive_member_scope_violation"
+        if "zip archive" in run.materialization_error:
+            return "unsupported_archive_input"
+        return "archive_materialization_error"
+    return "archive_materialization_not_performed"
+
+
+def _materialization_next_action(run: HandoffArchiveMaterializationRun) -> str:
+    block_reason = _materialization_block_reason(run)
+    if block_reason is None:
+        return "open_materialized_package_for_receiving_review"
+    if block_reason == "request_not_approved":
+        return "approve_archive_materialization_request"
+    if block_reason == "package_destination_collision":
+        return "choose_empty_materialization_destination_before_retry"
+    if block_reason in {
+        "archive_member_review_blocked",
+        "archive_member_scope_violation",
+        "missing_package_manifest",
+        "unsupported_archive_input",
+    }:
+        return "provide_safe_dec010_archive_before_retry"
+    return "review_archive_materialization_error_before_retry"
+
+
+def _materialization_retry_requirement(run: HandoffArchiveMaterializationRun) -> str | None:
+    block_reason = _materialization_block_reason(run)
+    if block_reason is None:
+        return None
+    if block_reason == "request_not_approved":
+        return "approved_archive_materialization_request"
+    if block_reason == "package_destination_collision":
+        return "fresh_empty_materialization_destination"
+    if block_reason in {
+        "archive_member_review_blocked",
+        "archive_member_scope_violation",
+        "missing_package_manifest",
+        "unsupported_archive_input",
+    }:
+        return "safe_zip_archive_with_dec010_package_members"
+    return "reviewed_archive_materialization_input_correction"
+
+
+def _existing_directory_root(path: Path, label: str) -> Path:
+    if path.is_symlink():
+        raise ValueError(f"{label} must not be a symlink")
+    if not path.is_dir():
+        raise ValueError(f"{label} must be an existing directory")
+    return path.resolve()
+
+
+def _path_under(root: Path, relative_path: str, label: str) -> Path:
+    validate_relative_path(relative_path, label)
+    candidate = root.joinpath(*relative_path.replace("\\", "/").split("/")).resolve()
+    if candidate != root and root not in candidate.parents:
+        raise ValueError(f"{label} must stay under root")
+    return candidate
 
 
 def _parse_members(value: Any) -> tuple[ArchiveMaterializationMemberReview, ...]:

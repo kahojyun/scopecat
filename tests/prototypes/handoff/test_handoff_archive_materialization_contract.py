@@ -1,16 +1,37 @@
 from __future__ import annotations
 
 import copy
+import shutil
+import tempfile
 import unittest
+import zipfile
+from pathlib import Path
 
 from scopecat.handoff import (
+    HandoffArchiveMaterializationRequest,
     HandoffContractError,
     current_handoff_archive_materialization_contract,
+    materialize_handoff_archive_package,
+    materialize_handoff_archive_package_from_request,
+    open_package,
     review_handoff_archive_materialization_contract,
 )
 from scopecat.handoff.archive_materialization import (
     HANDOFF_ARCHIVE_MATERIALIZATION_POLICY,
     HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA,
+    HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA,
+    HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY,
+)
+
+ROOT = Path(__file__).resolve().parents[3]
+PACKAGE_FIXTURE = (
+    ROOT
+    / "tests"
+    / "fixtures"
+    / "handoff_package_opener"
+    / "basic_package"
+    / "package"
+    / "handoff-package-legacy-rabi-001"
 )
 
 
@@ -45,6 +66,41 @@ def _source(**overrides: object) -> dict:
     }
     source.update(overrides)
     return source
+
+
+def _request(**overrides: object) -> HandoffArchiveMaterializationRequest:
+    values = {
+        "request_id": "materialize-archive-001",
+        "approval_state": "approved",
+        "archive_path": "handoff-package-legacy-rabi-001.zip",
+        "package_dir": "handoff-package-legacy-rabi-001",
+    }
+    values.update(overrides)
+    return HandoffArchiveMaterializationRequest(**values)
+
+
+def _raw_source(**overrides: object) -> dict:
+    return {
+        "archive_materialization_schema": HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA,
+        "archive_materialization_policy": HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY,
+        "archive_materialization_request": _request(**overrides).to_dict(),
+    }
+
+
+def _write_package_zip(archive_path: Path) -> None:
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        for path in sorted(PACKAGE_FIXTURE.rglob("*")):
+            if path.is_file():
+                archive.write(
+                    path,
+                    arcname=f"{PACKAGE_FIXTURE.name}/{path.relative_to(PACKAGE_FIXTURE)}",
+                )
+
+
+def _write_zip(archive_path: Path, members: dict[str, str]) -> None:
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
 
 
 class HandoffArchiveMaterializationContractTest(unittest.TestCase):
@@ -195,6 +251,157 @@ class HandoffArchiveMaterializationContractTest(unittest.TestCase):
                 "message": "archive_materialization_policy is unsupported",
             },
         )
+
+    def test_materializes_zip_transport_into_openable_directory_package(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            archive_root = temp_root / "archives"
+            materialization_root = temp_root / "materialized"
+            archive_root.mkdir()
+            materialization_root.mkdir()
+            _write_package_zip(archive_root / "handoff-package-legacy-rabi-001.zip")
+
+            run = materialize_handoff_archive_package_from_request(
+                _request(),
+                archive_root=archive_root,
+                materialization_root=materialization_root,
+            )
+            package = open_package(materialization_root / "handoff-package-legacy-rabi-001")
+
+        payload = run.to_dict()
+        self.assertTrue(run.materialized)
+        self.assertEqual(package.measurement_ids, ("legacy-rabi-001",))
+        self.assertEqual(
+            payload["artifact_authority"]["archive_bytes"],
+            "transport_container_only",
+        )
+        self.assertEqual(
+            payload["artifact_authority"]["package_of_record"],
+            "materialized_dec010_directory_manifest_package",
+        )
+        self.assertIn(
+            "handoff-package-legacy-rabi-001/package-manifest.json",
+            payload["materialization"]["materialized_files"],
+        )
+        self.assertEqual(payload["materialization_review"]["block_reason"], None)
+
+    def test_raw_source_materialization_uses_explicit_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            archive_root = temp_root / "archives"
+            materialization_root = temp_root / "materialized"
+            archive_root.mkdir()
+            materialization_root.mkdir()
+            _write_package_zip(archive_root / "handoff-package-legacy-rabi-001.zip")
+
+            run = materialize_handoff_archive_package(
+                _raw_source(),
+                archive_root=archive_root,
+                materialization_root=materialization_root,
+            )
+
+        self.assertTrue(run.materialized)
+
+    def test_materialization_blocks_parent_traversal_before_writing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            archive_root = temp_root / "archives"
+            materialization_root = temp_root / "materialized"
+            archive_root.mkdir()
+            materialization_root.mkdir()
+            _write_zip(
+                archive_root / "handoff-package-legacy-rabi-001.zip",
+                {
+                    "../outside.txt": "outside",
+                    "handoff-package-legacy-rabi-001/package-manifest.json": "{}",
+                },
+            )
+
+            run = materialize_handoff_archive_package_from_request(
+                _request(),
+                archive_root=archive_root,
+                materialization_root=materialization_root,
+            )
+
+        payload = run.to_dict()
+        self.assertFalse(run.materialized)
+        self.assertIn(
+            "parent_traversal_archive_member_path",
+            payload["materialization"]["materialization_error"],
+        )
+        self.assertFalse((materialization_root / "handoff-package-legacy-rabi-001").exists())
+
+    def test_materialization_blocks_symlink_member_before_writing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            archive_root = temp_root / "archives"
+            materialization_root = temp_root / "materialized"
+            archive_root.mkdir()
+            materialization_root.mkdir()
+            archive_path = archive_root / "handoff-package-legacy-rabi-001.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                info = zipfile.ZipInfo("handoff-package-legacy-rabi-001/link")
+                info.external_attr = 0o120777 << 16
+                archive.writestr(info, "package-manifest.json")
+                archive.writestr("handoff-package-legacy-rabi-001/package-manifest.json", "{}")
+
+            run = materialize_handoff_archive_package_from_request(
+                _request(),
+                archive_root=archive_root,
+                materialization_root=materialization_root,
+            )
+
+        self.assertFalse(run.materialized)
+        self.assertIn(
+            "symlink_archive_member_not_allowed",
+            run.to_dict()["materialization"]["materialization_error"],
+        )
+
+    def test_materialization_blocks_existing_package_collision(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            archive_root = temp_root / "archives"
+            materialization_root = temp_root / "materialized"
+            archive_root.mkdir()
+            materialization_root.mkdir()
+            _write_package_zip(archive_root / "handoff-package-legacy-rabi-001.zip")
+            shutil.copytree(
+                PACKAGE_FIXTURE,
+                materialization_root / "handoff-package-legacy-rabi-001",
+            )
+
+            run = materialize_handoff_archive_package_from_request(
+                _request(),
+                archive_root=archive_root,
+                materialization_root=materialization_root,
+            )
+
+        self.assertFalse(run.materialized)
+        self.assertIn("target already exists", run.materialization_error or "")
+
+    def test_materialization_cleans_partial_package_when_open_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            archive_root = temp_root / "archives"
+            materialization_root = temp_root / "materialized"
+            archive_root.mkdir()
+            materialization_root.mkdir()
+            _write_zip(
+                archive_root / "handoff-package-legacy-rabi-001.zip",
+                {"handoff-package-legacy-rabi-001/package-manifest.json": "{}"},
+            )
+
+            run = materialize_handoff_archive_package_from_request(
+                _request(),
+                archive_root=archive_root,
+                materialization_root=materialization_root,
+            )
+
+            self.assertFalse((materialization_root / "handoff-package-legacy-rabi-001").exists())
+
+        self.assertFalse(run.materialized)
+        self.assertTrue(run.cleanup_performed)
+        self.assertIn("package_preview_policy", run.materialization_error or "")
 
 
 if __name__ == "__main__":

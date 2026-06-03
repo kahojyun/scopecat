@@ -10,6 +10,12 @@ Date: 2026-06-03.
 
 Owner: [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md).
 
+Superseded in part by
+[`DEC-021-accept-safe-archive-materialization.md`](DEC-021-accept-safe-archive-materialization.md),
+which accepts safe zip transport materialization into the DEC-010 directory
+package of record. Archive creation, archive-backed durable import, and
+signature/trust coverage remain outside DEC-021.
+
 ## Context
 
 [`DEC-010`](DEC-010-package-format-directory-manifest.md) keeps the JNY-001

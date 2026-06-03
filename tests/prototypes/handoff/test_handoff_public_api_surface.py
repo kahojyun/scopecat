@@ -42,6 +42,12 @@ class HandoffPublicApiSurfaceTest(unittest.TestCase):
         self.assertIn("summarize_package_context_references", handoff.__all__)
         self.assertTrue(hasattr(handoff, "summarize_package_context_references"))
 
+    def test_archive_materialization_is_top_level_export(self) -> None:
+        self.assertIn("HandoffArchiveMaterializationRequest", handoff.__all__)
+        self.assertIn("HandoffArchiveMaterializationRun", handoff.__all__)
+        self.assertIn("materialize_handoff_archive_package_from_request", handoff.__all__)
+        self.assertTrue(hasattr(handoff, "materialize_handoff_archive_package_from_request"))
+
     def test_selected_record_preflight_export_is_top_level_export(self) -> None:
         self.assertIn("SelectedMeasurementRecordPreflightExportRun", handoff.__all__)
         self.assertIn("export_selected_measurement_record_with_preflight_refresh", handoff.__all__)

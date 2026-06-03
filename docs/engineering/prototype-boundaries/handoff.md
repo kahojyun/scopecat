@@ -40,6 +40,8 @@ Read it with:
   for the current package signature/trust implementation deferral;
 - [`../../decisions/architecture/DEC-020-defer-archive-package-implementation.md`](../../decisions/architecture/DEC-020-defer-archive-package-implementation.md)
   for the current archive package implementation deferral;
+- [`../../decisions/architecture/DEC-021-accept-safe-archive-materialization.md`](../../decisions/architecture/DEC-021-accept-safe-archive-materialization.md)
+  for the current safe archive materialization boundary;
 - [`../workflow-validation-map.md`](../workflow-validation-map.md) for the
   current cross-capability handoff workflow gap.
 
@@ -205,16 +207,19 @@ managed references at the package/export boundary.
 
 [`DEC-010`](../../decisions/architecture/DEC-010-package-format-directory-manifest.md) keeps this
 directory manifest package as the current JNY-001 production vertical slice package
-format. Archive creation and extraction remain deferred for a later decision.
+format. Archive bytes are transport containers; the materialized directory
+package remains the package of record.
 
 [`DEC-020`](../../decisions/architecture/DEC-020-defer-archive-package-implementation.md)
-keeps archive creation, extraction, archive input opening, and archive-backed
-durable import deferred until archive artifact authority, extraction safety,
-staging, and materialization review contracts exist.
-`current_handoff_archive_materialization_contract()` records the current
-transport-only archive posture: archive bytes are not the package artifact of
-record, and any future archive materialization must stage into a DEC-010
-directory manifest package before package open and integrity review.
+kept archive implementation deferred until archive artifact authority,
+extraction safety, staging, and materialization review contracts existed.
+[`DEC-021`](../../decisions/architecture/DEC-021-accept-safe-archive-materialization.md)
+accepts a narrow zip materialization candidate. `materialize_handoff_archive_package()`
+and `materialize_handoff_archive_package_from_request()` materialize a zip
+transport archive into a DEC-010 directory-manifest package after path,
+duplicate-member, symlink, metadata-member, manifest, collision, cleanup, and
+package-open checks. Archive creation, signature/trust validation, and
+archive-backed durable import remain out of scope.
 
 [`DEC-011`](../../decisions/architecture/DEC-011-package-trust-authenticity-posture.md)
 keeps this package unsigned local-review evidence. Declared digest integrity
@@ -315,9 +320,11 @@ Acceptance for that candidate is intentionally narrow:
 
 This candidate is not production readiness for the whole handoff capability.
 Persisted GUI/review state, public SDK contracts, and final storage schemas
-remain separate decisions. Archive implementation beyond the DEC-010 directory
-manifest package format is explicitly deferred by
-[`DEC-020`](../../decisions/architecture/DEC-020-defer-archive-package-implementation.md).
+remain separate decisions. Zip transport archive materialization into the
+DEC-010 directory package of record is governed by
+[`DEC-021`](../../decisions/architecture/DEC-021-accept-safe-archive-materialization.md),
+while archive creation, archive-backed durable import, and broader archive
+semantics remain outside this boundary.
 Signature/authenticity implementation and trust policy beyond the unsigned
 local-review posture are explicitly deferred by
 [`DEC-019`](../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md).
@@ -339,6 +346,8 @@ Package signature/trust implementation deferral is governed by
 [`DEC-019`](../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md).
 Archive package implementation deferral is governed by
 [`DEC-020`](../../decisions/architecture/DEC-020-defer-archive-package-implementation.md).
+Safe zip archive materialization is governed by
+[`DEC-021`](../../decisions/architecture/DEC-021-accept-safe-archive-materialization.md).
 
 ## Historical Context
 
@@ -365,7 +374,8 @@ This boundary does not accept:
   state beyond DEC-018;
 - numeric dtype conversion, unit conversion, schema inference, scan-shape
   inference, trace opening, or array API;
-- archive extraction or compressed package format beyond DEC-020;
+- archive creation, archive-backed durable import, or compressed package format
+  beyond DEC-021;
 - signature validation,
   authenticity validation, or trusted-source policy beyond DEC-019;
 - durable import, package acceptance, existing-record update, durable
@@ -400,7 +410,8 @@ behavior. Current likely separate decisions include:
 
 - production readiness hardening for selected stored Measurement Record export;
 - persisted GUI review beyond the DEC-018 local projection boundary;
-- archive package creation or extraction beyond DEC-020;
+- archive package creation, archive-backed durable import, or broader archive
+  semantics beyond DEC-021;
 - signed package and trusted-source policy beyond DEC-019;
 - durable linked-context payload import beyond DEC-016 or batch durable import
   beyond DEC-017;
