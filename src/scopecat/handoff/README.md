@@ -148,6 +148,16 @@ out-of-scope, or was not checked before approval. The export path reports the
 required retry evidence but does not project, refresh, repair, or mutate
 Measurement Records storage.
 
+`export_selected_measurement_record_with_preflight_refresh()` composes that
+lower-level export check with the Measurement Records read-model refresh route.
+It first runs selected export as a freshness preflight; when the read model is
+missing, invalid, or stale, it delegates an approved read-model refresh and then
+retries export if refresh succeeds. The composed receipt records the initial
+export review, refresh receipt or refresh contract error, final export, and
+preflight review. This is the product-shaped path for a user-transparent cache
+refresh; it still does not repair primary data, replace record manifests, mutate
+writer/finalization receipts, or import/accept packages.
+
 Receiving gate and import-plan receipts include `receiving_review` and
 `import_plan_review` guidance that classifies successful continuation or
 blocked retry review. This is local review guidance only; it does not approve

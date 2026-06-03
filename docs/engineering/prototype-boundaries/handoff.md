@@ -126,6 +126,15 @@ out-of-scope read-model evidence blocks export and reports the required retry
 input, but selected export does not project, refresh, repair, or otherwise
 mutate Measurement Records storage.
 
+The preflight selected-record export composition makes read-model refresh
+user-transparent while keeping ownership explicit. It runs selected export as a
+freshness preflight, delegates missing, invalid, or stale read-model recovery to
+the Measurement Records read-model refresh route, and retries export only after
+successful refresh. Its receipt records the initial export review, refresh
+receipt or refresh contract error, final export, and preflight review. The
+composition does not repair primary data, replace record manifests, mutate
+writer/finalization receipts, or accept/import packages.
+
 For JNY-001 product handoff, this storage-backed selected-record export path is
 the production vertical slice candidate. Direct package-writer input remains an
 adapter or engineering route for already-reviewed normalized data, not a

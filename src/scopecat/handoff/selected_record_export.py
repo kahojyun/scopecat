@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,7 +32,14 @@ from scopecat.measurement_records._storage import path_under as _path_under
 from scopecat.measurement_records._storage import (
     validate_strict_child_path as _validate_strict_child_path,
 )
+from scopecat.measurement_records.read_model_refresh import (
+    READ_MODEL_REFRESH_POLICY,
+    READ_MODEL_REFRESH_SCHEMA,
+    MeasurementRecordReadModelRefreshRun,
+    refresh_measurement_record_read_model,
+)
 from scopecat.measurement_records.read_model_shared import READ_MODEL_SCHEMA
+from scopecat.measurement_records.read_view import READ_VIEW_POLICY, READ_VIEW_SCHEMA
 
 SELECTED_RECORD_EXPORT_POLICY = {
     "workflow_authority": "approved_selected_measurement_record_export_request",
@@ -60,6 +68,18 @@ DOES_NOT_CLAIM = [
     "package_import_acceptance",
 ]
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
+
+PRE_EXPORT_READ_MODEL_REFRESH_POLICY = {
+    "workflow_authority": "approved_selected_measurement_record_export_request",
+    "freshness_authority": "selected_record_export_read_model_freshness_review",
+    "refresh_authority": "delegated_measurement_record_read_model_refresh",
+    "export_authority": "selected_measurement_record_export",
+    "user_visible_refresh": "transparent_pre_export_projection_refresh",
+    "refresh_scope": "missing_invalid_or_stale_read_model_only",
+    "record_storage_mutation": "delegated_read_model_atomic_replace_only",
+    "package_write": "after_fresh_read_model_evidence",
+    "package_import_acceptance": "not_performed",
+}
 
 
 @dataclass(frozen=True)
@@ -406,6 +426,84 @@ class SelectedMeasurementRecordExportRun:
 
 
 @dataclass(frozen=True)
+class SelectedMeasurementRecordPreflightExportRun:
+    """Transparent pre-export read-model refresh followed by selected export."""
+
+    request: SelectedMeasurementRecordExportRequest
+    storage_root: Path
+    package_root: Path
+    initial_export: SelectedMeasurementRecordExportRun
+    refresh_run: MeasurementRecordReadModelRefreshRun | None = None
+    final_export: SelectedMeasurementRecordExportRun | None = None
+    preflight_error: str | None = None
+
+    @property
+    def export_run(self) -> SelectedMeasurementRecordExportRun:
+        return self.final_export or self.initial_export
+
+    @property
+    def exported(self) -> bool:
+        return self.export_run.exported
+
+    @property
+    def classification(self) -> str:
+        if self.exported:
+            return "exported_selected_measurement_record_after_preflight"
+        if self.preflight_error is not None:
+            return "blocked_before_export_refresh_failed"
+        if self.refresh_run is not None and not self.refresh_run.refreshed:
+            return "blocked_before_export_refresh_failed"
+        if self.refresh_run is None:
+            return "blocked_or_exported_without_preflight_refresh"
+        return "blocked_before_export_after_preflight_refresh"
+
+    def to_dict(self) -> dict[str, Any]:
+        refresh_performed = self.refresh_run is not None and self.refresh_run.refreshed
+        return {
+            "artifact_posture": "local_selected_record_preflight_export_receipt",
+            "pre_export_read_model_refresh_policy": copy.deepcopy(
+                PRE_EXPORT_READ_MODEL_REFRESH_POLICY
+            ),
+            "workflow": {
+                "classification": self.classification,
+                "steps": [
+                    "run_initial_selected_record_export_preflight",
+                    *([] if self.refresh_run is None else ["run_read_model_refresh"]),
+                    *([] if self.final_export is None else ["retry_selected_record_export"]),
+                ],
+                "does_not_claim": [
+                    "primary_data_repair",
+                    "manifest_replacement",
+                    "receipt_mutation",
+                    "package_import_acceptance",
+                    "signature_or_authenticity_validation",
+                    "gui_review_state",
+                ],
+            },
+            "request": self.request.to_dict(),
+            "initial_export": self.initial_export.to_dict(),
+            "refresh": None if self.refresh_run is None else self.refresh_run.to_dict(),
+            "final_export": None if self.final_export is None else self.final_export.to_dict(),
+            "preflight_review": {
+                "classification": self.classification,
+                "refresh_performed": refresh_performed,
+                "package_written": self.exported,
+                "block_reason": _preflight_block_reason(self),
+                "next_action": _preflight_next_action(self),
+                "retry_requires": _preflight_retry_requirement(self),
+                "preflight_error": self.preflight_error,
+            },
+            "export": {
+                "performed": self.exported,
+                "storage_root": str(self.storage_root),
+                "package_root": str(self.package_root),
+                "package_dir": self.request.package_dir if self.exported else None,
+                "export_error": self.export_run.export_error,
+            },
+        }
+
+
+@dataclass(frozen=True)
 class _SelectedRecordExportEvidence:
     record: SelectedMeasurementRecordBatchExportRecord
     read_model: dict[str, Any]
@@ -537,6 +635,72 @@ def export_selected_measurement_record_from_request(
         record_manifest=manifest,
         writer_receipt=writer_receipt,
         package_write=package_write,
+    )
+
+
+def export_selected_measurement_record_with_preflight_refresh(
+    request: SelectedMeasurementRecordExportRequest,
+    *,
+    storage_root: str | Path,
+    package_root: str | Path,
+) -> SelectedMeasurementRecordPreflightExportRun:
+    """Export a selected record, transparently refreshing stale read-model evidence."""
+
+    storage = _existing_directory_root(
+        Path(storage_root),
+        "selected record preflight export storage root",
+    )
+    packages = _existing_directory_root(
+        Path(package_root),
+        "selected record preflight export package root",
+    )
+    initial_export = export_selected_measurement_record_from_request(
+        request,
+        storage_root=storage,
+        package_root=packages,
+    )
+    if initial_export.exported or not _should_refresh_before_export(initial_export):
+        return SelectedMeasurementRecordPreflightExportRun(
+            request=request,
+            storage_root=storage,
+            package_root=packages,
+            initial_export=initial_export,
+        )
+
+    try:
+        refresh_run = refresh_measurement_record_read_model(
+            _pre_export_refresh_source(request, storage),
+            storage_root=storage,
+        )
+    except ValueError as exc:
+        return SelectedMeasurementRecordPreflightExportRun(
+            request=request,
+            storage_root=storage,
+            package_root=packages,
+            initial_export=initial_export,
+            preflight_error=str(exc),
+        )
+    if not refresh_run.refreshed:
+        return SelectedMeasurementRecordPreflightExportRun(
+            request=request,
+            storage_root=storage,
+            package_root=packages,
+            initial_export=initial_export,
+            refresh_run=refresh_run,
+        )
+
+    final_export = export_selected_measurement_record_from_request(
+        request,
+        storage_root=storage,
+        package_root=packages,
+    )
+    return SelectedMeasurementRecordPreflightExportRun(
+        request=request,
+        storage_root=storage,
+        package_root=packages,
+        initial_export=initial_export,
+        refresh_run=refresh_run,
+        final_export=final_export,
     )
 
 
@@ -1124,6 +1288,96 @@ def _read_model_freshness_retry_requirement(block_reason: str | None) -> str | N
     }:
         return "fresh_matching_record_read_model_manifest_and_writer_receipt"
     return "reviewed_export_input_correction"
+
+
+def _should_refresh_before_export(run: SelectedMeasurementRecordExportRun) -> bool:
+    review = run.to_dict()["read_model_freshness_review"]
+    return review["block_reason"] in {
+        "missing_read_model",
+        "invalid_read_model",
+        "stale_read_model",
+    }
+
+
+def _pre_export_refresh_source(
+    request: SelectedMeasurementRecordExportRequest,
+    storage: Path,
+) -> dict[str, Any]:
+    expected_target_condition = "missing"
+    expected_digest = None
+    read_model_path = _path_under(
+        storage,
+        request.read_model_path,
+        "selected record preflight read model",
+    )
+    if read_model_path.exists():
+        expected_target_condition = "replace_existing"
+        expected_digest = _file_digest(read_model_path)
+
+    refresh_request = {
+        "request_id": f"pre-export-refresh-{request.record_id}",
+        "approval_state": "approved",
+        "record_id": request.record_id,
+        "record_dir": request.record_dir,
+        "writer_receipt_path": f"{request.record_dir}/writer-receipt.json",
+        "finalization_receipt_path": f"{request.record_dir}/finalization-receipt.json",
+        "read_model_path": request.read_model_path,
+        "expected_target_condition": expected_target_condition,
+    }
+    if expected_digest is not None:
+        refresh_request["expected_current_read_model_digest"] = expected_digest
+    return {
+        "read_model_refresh_schema": READ_MODEL_REFRESH_SCHEMA,
+        "read_model_refresh_policy": READ_MODEL_REFRESH_POLICY,
+        "refresh_request": refresh_request,
+        "read_view_source": {
+            "read_view_schema": READ_VIEW_SCHEMA,
+            "read_view_policy": READ_VIEW_POLICY,
+            "read_request": {
+                "request_id": f"pre-export-read-{request.record_id}",
+                "record_id": request.record_id,
+                "record_dir": request.record_dir,
+                "writer_receipt_path": f"{request.record_dir}/writer-receipt.json",
+                "preview_row_limit": 2,
+            },
+        },
+    }
+
+
+def _file_digest(path: Path) -> str:
+    return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
+
+
+def _preflight_block_reason(run: SelectedMeasurementRecordPreflightExportRun) -> str | None:
+    if run.exported:
+        return None
+    if run.preflight_error is not None:
+        return "read_model_refresh_failed"
+    if run.refresh_run is not None and not run.refresh_run.refreshed:
+        return "read_model_refresh_failed"
+    return run.export_run.to_dict()["export_review"]["block_reason"]
+
+
+def _preflight_next_action(run: SelectedMeasurementRecordPreflightExportRun) -> str:
+    if run.exported:
+        return "transfer_package_for_receiving_review"
+    if run.preflight_error is not None:
+        return "review_read_model_refresh_error_before_export_retry"
+    if run.refresh_run is not None and not run.refresh_run.refreshed:
+        return "review_read_model_refresh_error_before_export_retry"
+    return run.export_run.to_dict()["export_review"]["next_action"]
+
+
+def _preflight_retry_requirement(
+    run: SelectedMeasurementRecordPreflightExportRun,
+) -> str | None:
+    if run.exported:
+        return None
+    if run.preflight_error is not None:
+        return "successful_read_model_refresh_then_export_retry"
+    if run.refresh_run is not None and not run.refresh_run.refreshed:
+        return "successful_read_model_refresh_then_export_retry"
+    return run.export_run.to_dict()["export_review"]["retry_requires"]
 
 
 def _record_ref(
