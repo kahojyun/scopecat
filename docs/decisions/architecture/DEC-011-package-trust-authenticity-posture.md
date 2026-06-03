@@ -48,6 +48,9 @@ entries.
 [`DEC-019`](DEC-019-defer-package-signature-trust-implementation.md) keeps
 signature/trust implementation deferred until a signed-artifact, canonicalized
 coverage, signer identity, and trust-root contract exists.
+The current signature/trust contract-review helper records that separation as
+local review evidence only; it does not perform signature verification,
+trusted-source acceptance, or signature-gated durable import.
 
 ## Scope
 

@@ -61,6 +61,15 @@ Any future signature/trust implementation must first define:
 - relationship to [`DEC-010`](DEC-010-package-format-directory-manifest.md)
   directory packages and any later archive package decision.
 
+The current implementation exposes
+`current_handoff_signature_trust_contract()` and
+`review_handoff_signature_trust_contract()` as local contract-review surfaces.
+They do not verify signatures, accept trusted sources, manage keys, configure
+trust roots, or gate durable import. They only classify future signature/trust
+contract candidates against the required signed scope, canonical artifact,
+canonicalization, signer identity, trust-root, verification-timing,
+failure-classification, unsigned-handling, and durable-import gate posture.
+
 ## Scope
 
 This decision applies to:
@@ -142,3 +151,4 @@ Revisit this decision when:
 - [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
 - [`../../engineering/prototype-boundaries/handoff-durable-import-storage.md`](../../engineering/prototype-boundaries/handoff-durable-import-storage.md)
 - [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
+- [`../../../src/scopecat/handoff/signature_trust.py`](../../../src/scopecat/handoff/signature_trust.py)
