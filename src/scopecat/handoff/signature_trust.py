@@ -20,6 +20,7 @@ HANDOFF_SIGNATURE_TRUST_POLICY = {
     "signature_gated_durable_import": "not_performed",
     "current_integrity_authority": "declared_digest_local_review_only",
     "package_artifact_of_record": "dec010_directory_manifest_package",
+    "signed_scope_decision": "DEC-022",
 }
 REQUIRED_VERIFICATION_TIMING = [
     "package_open",
@@ -115,7 +116,7 @@ class SignatureTrustContractReview:
 
 
 def current_handoff_signature_trust_contract() -> dict[str, Any]:
-    """Return the current DEC-019 signature/trust contract posture."""
+    """Return the current DEC-019/DEC-022 signature/trust contract posture."""
 
     return {
         "artifact_posture": "local_signature_trust_contract",
@@ -129,6 +130,7 @@ def current_handoff_signature_trust_contract() -> dict[str, Any]:
             "durable_import_gate": "local_review_and_approval_not_signature_trust",
         },
         "future_contract_requirements": {
+            "scope_decision": "DEC-022",
             "signed_content_scope": [
                 "manifest_and_declared_members",
                 "dec010_directory_manifest_package",

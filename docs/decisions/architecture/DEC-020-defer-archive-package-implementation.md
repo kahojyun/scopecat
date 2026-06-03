@@ -101,10 +101,6 @@ one receiving path. Directory packages remain easy to inspect, test, and debug
 while the receiving/import contract is still moving toward production
 readiness.
 
-Archive work remains visible but no longer acts as the default next
-implementation step. The next handoff pressure should be production readiness
-hardening unless a named workflow explicitly needs archive transport.
-
 The tradeoff is that directory packages are less convenient for transfer than a
 single file. Users who need single-file transfer still need external packaging
 outside Scopecat until an archive contract is accepted.
@@ -151,8 +147,7 @@ Revisit this decision when:
   SDK workflows;
 - a receiving UI needs upload/download semantics rather than a local directory
   path;
-- signed package policy beyond DEC-019 chooses archive bytes as the signed
-  artifact;
+- DEC-022 signed scope must change to make archive bytes the signed artifact;
 - linked-context payload or multi-measurement package transfer requires atomic
   bundle semantics;
 - package publication requires transport-ready artifacts.

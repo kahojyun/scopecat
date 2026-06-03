@@ -16,10 +16,10 @@ Handoff packages can contain more than one selected measurement. The package
 writer and opener already validate and project multiple measurements, and the
 receiving/import-plan path can review a whole package without storage mutation.
 
-The next boundary pressure is whether selecting multiple package measurements
-should authorize durable batch import. Durable Measurement Records import still
-owns one new record at a time, with per-record destination identity,
-no-overwrite behavior, rollback classification, and retry review. Turning a
+This decision resolves whether selecting multiple package measurements should
+authorize durable batch import. Durable Measurement Records import still owns
+one new record at a time, with per-record destination identity, no-overwrite
+behavior, rollback classification, and retry review. Turning a
 multi-measurement import plan into one batch mutation would require a separate
 contract for partial success, per-record retry, destination conflicts, rollback
 scope, and user review state.

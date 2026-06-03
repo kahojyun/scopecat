@@ -16,12 +16,12 @@ The route-local package writer can already write packages containing multiple
 selected measurements. DEC-013 allows receiving/import planning over multiple
 package measurements without turning that plan into batch durable mutation.
 
-The remaining source-side pressure is whether the JNY-001 storage-backed
-selected-record export path may select more than one complete Measurement
-Record into one handoff package. This needs to preserve the same durable
-record evidence as single-record export: each selected record must be complete,
-record-local, and continuous across read model, creation manifest, writer
-receipt, primary bytes, digest, and size.
+This decision resolves whether the JNY-001 storage-backed selected-record
+export path may select more than one complete Measurement Record into one
+handoff package. This needs to preserve the same durable record evidence as
+single-record export: each selected record must be complete, record-local, and
+continuous across read model, creation manifest, writer receipt, primary bytes,
+digest, and size.
 
 ## Decision
 

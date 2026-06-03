@@ -169,7 +169,9 @@ typed receiving-gate, import-plan, durable-import summary, retry-review, and
 error diagnostic evidence into a `local_receiving_review_state_projection`.
 This module does not persist GUI-owned review state.
 
-Package signature/trust implementation is deferred under DEC-019. This module
+Package signature/trust implementation is deferred under DEC-019. DEC-022
+defines the future signed scope as the DEC-010 directory-manifest package of
+record: the manifest plus every manifest-declared package member. This module
 observes declared digest integrity and emits explicit non-claims, but it does
 not verify signer identity, package authenticity, trusted source, or
 signature-gated import policy.

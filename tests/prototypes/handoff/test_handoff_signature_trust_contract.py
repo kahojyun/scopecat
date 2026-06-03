@@ -58,6 +58,11 @@ class HandoffSignatureTrustContractTest(unittest.TestCase):
         self.assertIn(
             "unknown_signer", contract["future_contract_requirements"]["failure_classifications"]
         )
+        self.assertEqual(contract["future_contract_requirements"]["scope_decision"], "DEC-022")
+        self.assertEqual(
+            contract["signature_trust_policy"]["signed_scope_decision"],
+            "DEC-022",
+        )
         self.assertIn("signature_verification", contract["does_not_claim"])
 
     def test_review_clean_candidate_still_does_not_verify_or_accept_trust(self) -> None:
