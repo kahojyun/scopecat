@@ -123,6 +123,10 @@ observes declared digest integrity and emits explicit non-claims, but it does
 not verify signer identity, package authenticity, trusted source, or
 signature-gated import policy.
 
+Archive package implementation is deferred under DEC-020. This module writes
+and opens directory manifest packages; it does not create archives, accept
+archive inputs, extract packages, or treat archive bytes as package authority.
+
 The generic package writer can package explicitly declared linked-context
 payload files under `context/` after source digest and size preflight. Opened
 packages expose those entries as `packaged_payload`, and integrity observation

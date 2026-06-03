@@ -26,7 +26,9 @@ Read it with:
 - [`../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md`](../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md)
   for the receiving review state projection boundary;
 - [`../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md`](../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md)
-  for the current package signature/trust implementation deferral.
+  for the current package signature/trust implementation deferral;
+- [`../../decisions/architecture/DEC-020-defer-archive-package-implementation.md`](../../decisions/architecture/DEC-020-defer-archive-package-implementation.md)
+  for the current archive package implementation deferral.
 
 ## Current Boundary
 
@@ -120,6 +122,11 @@ adapter may consume declared digest integrity from the reviewed package path,
 but it does not verify signer identity, trusted source, package authenticity,
 or signature-gated mutation policy.
 
+DEC-020 keeps archive creation and extraction deferred. The durable-import
+adapter consumes an already-opened directory manifest package; it does not
+extract archives, treat archive bytes as durable-import authority, or own
+archive materialization cleanup.
+
 ## Current Failure Shape
 
 The durable import pipeline reports storage outcomes. Handoff preserves those
@@ -151,8 +158,8 @@ This boundary does not accept:
 - final record-id generation policy;
 - manifest replacement or canonical-current-state manifest updates;
 - linked-context payload materialization beyond DEC-016;
-- archive extraction, signatures, authenticity, or package trust policy beyond
-  DEC-019;
+- archive extraction beyond DEC-020;
+- signatures, authenticity, or package trust policy beyond DEC-019;
 - adapter discovery, drop-folder protocol, service API, or stable public
   adapter API;
 - conflict policy beyond new-record no-overwrite behavior;
@@ -194,8 +201,8 @@ Advance this boundary only when a named workflow requires a broader behavior.
 Likely separate decisions include:
 
 - batch package receiving/import and partial-success policy beyond DEC-017;
-- package archive format, trust, authenticity, or signature handling beyond
-  DEC-019;
+- package archive format beyond DEC-020;
+- trust, authenticity, or signature handling beyond DEC-019;
 - linked-context payload import beyond DEC-016;
 - existing-record update/import conflict behavior;
 - persisted receiving review state or GUI durable review workflow beyond DEC-018;

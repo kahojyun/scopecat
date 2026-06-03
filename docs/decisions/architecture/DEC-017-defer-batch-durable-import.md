@@ -70,10 +70,11 @@ Users can review and plan multi-measurement packages, but durable storage
 mutation stays conservative and auditable. Existing single-record import
 rollback and retry behavior remains the only accepted durable mutation path.
 
-The next receiving-side product pressure shifts to archive
-packaging/extraction, signed package policy beyond DEC-019, or a future
-explicit batch import contract with destination and partial-success semantics.
-GUI receiving state projection is governed by DEC-018.
+The next receiving-side product pressure shifts to production-readiness
+hardening, archive packaging/extraction beyond DEC-020, signed package policy
+beyond DEC-019, or a future explicit batch import contract with destination and
+partial-success semantics. GUI receiving state projection is governed by
+DEC-018.
 
 ## Alternatives Considered
 

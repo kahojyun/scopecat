@@ -38,6 +38,11 @@ Archive creation and archive extraction remain out of scope. Current package
 writer, opener, receiving, import-plan, and durable-import paths must continue
 to state archive handling as `not_performed`.
 
+[`DEC-020`](DEC-020-defer-archive-package-implementation.md) keeps archive
+creation, archive extraction, archive input opening, and archive-backed durable
+import deferred until archive artifact authority, extraction safety, staging,
+and materialization review contracts exist.
+
 ## Scope
 
 This decision applies to:
@@ -64,7 +69,8 @@ keeps checksum and integrity behavior focused on declared package members.
 
 It also means a future archive decision must define archive member topology,
 path traversal protections, extraction/staging semantics, signature or trust
-scope, and whether the directory manifest remains the canonical inner format.
+scope, and whether the directory manifest remains the canonical inner format,
+as required by DEC-020.
 
 ## Alternatives Considered
 
@@ -97,10 +103,12 @@ Revisit this decision when:
 - signed package or trusted-source policy work beyond DEC-019 starts;
 - linked-context payload packaging needs atomic package transfer;
 - batch export/import needs a stable bundle format;
-- package publication, SDK, or GUI workflows require an archive artifact.
+- package publication, SDK, or GUI workflows require an archive artifact beyond
+  DEC-020.
 
 ## Related Evidence And Owners
 
 - [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
 - [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
 - [`../../../src/scopecat/handoff/README.md`](../../../src/scopecat/handoff/README.md)
+- [`DEC-020-defer-archive-package-implementation.md`](DEC-020-defer-archive-package-implementation.md)

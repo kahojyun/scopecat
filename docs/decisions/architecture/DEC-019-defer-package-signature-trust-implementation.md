@@ -136,6 +136,7 @@ Revisit this decision when:
 ## Related Evidence And Owners
 
 - [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
+- [`DEC-020-defer-archive-package-implementation.md`](DEC-020-defer-archive-package-implementation.md)
 - [`DEC-011-package-trust-authenticity-posture.md`](DEC-011-package-trust-authenticity-posture.md)
 - [`DEC-018-define-receiving-review-state-contract.md`](DEC-018-define-receiving-review-state-contract.md)
 - [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)

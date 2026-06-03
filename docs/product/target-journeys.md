@@ -112,8 +112,10 @@ production-slice candidate. DEC-011 keeps that package unsigned local-review
 evidence: declared digest integrity is observed, but signature validation,
 authenticity, sender trust, and scientific validity are not claimed. DEC-019
 keeps signature/trust implementation deferred until a signed-artifact and
-trust-root contract exists. Batch durable import remains a separate validation
-question. DEC-012 allows generic
+trust-root contract exists. DEC-020 keeps archive implementation deferred until
+archive artifact authority, extraction safety, and materialization review
+contracts exist. Batch durable import remains a separate validation question.
+DEC-012 allows generic
 handoff writer inputs to package explicitly declared linked-context payloads
 for review. DEC-014 allows selected stored-record export to package explicitly
 declared record-local linked-context payloads without treating recorded

@@ -20,7 +20,7 @@ validation, traceability, implementation, decision, or risk documents.
 | ID | Capability | Maturity | Evidence State | Open Advancement Questions |
 | --- | --- | --- | --- | --- |
 | CAP-001 | Measurement Records | Engineering prototype | Live prototype evidence | Decide whether production readiness for selected stored measurement export, existing-record update/import, running measurement lifecycle, or storage schema readiness is the next validation focus. |
-| CAP-002 | Handoff Packages | Engineering prototype | Live prototype evidence | Decide whether to validate archive packaging/extraction, production-readiness hardening, signed package policy beyond DEC-019, or a future persisted GUI/batch/context contract next. |
+| CAP-002 | Handoff Packages | Engineering prototype | Live prototype evidence | Decide whether to validate production-readiness hardening, archive packaging/extraction beyond DEC-020, signed package policy beyond DEC-019, or a future persisted GUI/batch/context contract next. |
 | CAP-003 | Parameter State Review | Engineering prototype | Live prototype evidence | Decide whether compatibility-file writing, hardware apply, catalog discovery, automatic run start, or a shared parameter/run-context schema is justified by a workflow. |
 | CAP-004 | Environment Operation | Engineering prototype | Live prototype evidence | Decide whether runtime readiness, manifest integration, manager expansion, execution hardening, or GUI/runtime monitoring is the next validated product need. |
 | CAP-005 | Experiment Code Context | Discovery | Discovery and implementation-candidate evidence | Decide which concrete user step merits promotion first: record, materialize, observe editable folder, prepare rerun, or GUI review. |
