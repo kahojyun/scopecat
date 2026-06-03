@@ -108,8 +108,11 @@ journey is portable measurement handoff, not legacy migration itself. Evidence
 covers local record preparation, selected stored-record package export, package
 writing/opening, receiving review/import plan, and durable import adaptation.
 The DEC-010 directory manifest package format is accepted for the current
-production-slice candidate. Trust/authenticity, batch receiving, and
-linked-context payload import remain separate validation questions.
+production-slice candidate. DEC-011 keeps that package unsigned local-review
+evidence: declared digest integrity is observed, but signature validation,
+authenticity, sender trust, and scientific validity are not claimed. Batch
+receiving, linked-context payload import, and signature/trust implementation
+beyond DEC-011 remain separate validation questions.
 
 Source evidence:
 

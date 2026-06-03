@@ -20,6 +20,8 @@ Read it with:
   the separate durable Measurement Records import adapter boundary;
 - [`../../decisions/architecture/DEC-010-package-format-directory-manifest.md`](../../decisions/architecture/DEC-010-package-format-directory-manifest.md)
   for the current package format decision;
+- [`../../decisions/architecture/DEC-011-package-trust-authenticity-posture.md`](../../decisions/architecture/DEC-011-package-trust-authenticity-posture.md)
+  for the current package trust/authenticity posture;
 - [`../workflow-validation-map.md`](../workflow-validation-map.md) for the
   current cross-capability handoff workflow gap.
 
@@ -114,6 +116,11 @@ managed references at the package/export boundary.
 directory manifest package as the current JNY-001 production-slice package
 format. Archive creation and extraction remain deferred for a later decision.
 
+[`DEC-011`](../../decisions/architecture/DEC-011-package-trust-authenticity-posture.md)
+keeps this package unsigned local-review evidence. Declared digest integrity
+may gate receiving/import planning, but signature validation, authenticity,
+sender trust, and scientific validity remain unclaimed.
+
 Local writer receipts, workflow receipts, inspection HTML, receiving-gate
 results, import-plan objects, CLI summaries, and retry reviews are local review
 surfaces unless a later slice explicitly promotes one as a portable/export
@@ -148,6 +155,8 @@ Acceptance for that candidate is intentionally narrow:
   new package;
 - existing package destinations use no-overwrite behavior;
 - corrupted package bytes block receiving/import through integrity review;
+- declared digest integrity remains separate from signature validation,
+  authenticity, sender trust, and scientific validity;
 - receiving review facts must match the opened package and observed integrity;
 - blocked durable imports summarize the next action without authorizing mutation
   and require a fresh import plan for retry review;
@@ -157,11 +166,13 @@ Acceptance for that candidate is intentionally narrow:
 - linked context remains reference-only.
 
 This candidate is not production readiness for the whole handoff capability.
-Signatures/authenticity, trust policy, batch export/import, linked-context
-payload packaging, persistent GUI/review state, public SDK contracts, and final
-storage schemas remain separate decisions. Archive format is explicitly
-deferred by
+Batch export/import, linked-context payload packaging, persistent GUI/review
+state, public SDK contracts, and final storage schemas remain separate
+decisions. Archive format is explicitly deferred by
 [`DEC-010`](../../decisions/architecture/DEC-010-package-format-directory-manifest.md).
+Signature/authenticity implementation and trust policy beyond the unsigned
+local-review posture are explicitly deferred by
+[`DEC-011`](../../decisions/architecture/DEC-011-package-trust-authenticity-posture.md).
 
 ## Historical Context
 
@@ -187,8 +198,8 @@ This boundary does not accept:
 - live GUI components, routing, or interaction model;
 - numeric dtype conversion, unit conversion, schema inference, scan-shape
   inference, trace opening, or array API;
-- archive extraction, compressed package format, signatures, authenticity, or
-  trust policy;
+- archive extraction, compressed package format, signature validation,
+  authenticity validation, or trusted-source policy;
 - durable import, package acceptance, existing-record update, durable
   multi-measurement batch import, rollback policy, or storage conflict policy;
 - linked-context payload packaging, opening, recursive traversal, or import;
@@ -220,7 +231,7 @@ behavior. Current likely separate decisions include:
 
 - production-readiness hardening for selected stored Measurement Record export;
 - GUI review beyond local static HTML;
-- signature, authenticity, or trust behavior;
+- signature implementation or trusted-source policy beyond DEC-011;
 - linked-context payload packaging or review;
 - analysis or fit results as first-class package display facts;
 - shared lifecycle or domain model extraction justified by more than one

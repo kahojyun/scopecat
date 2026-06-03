@@ -254,6 +254,59 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
             import_plan_summary["workflow"]["does_not_claim"],
         )
 
+    def test_workflow_treats_package_integrity_as_unsigned_local_review_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workflow = self._prepare_ready_handoff(Path(temp_dir))
+            package = workflow["package"]
+            import_plan = workflow["import_plan"]
+            receiving_storage = workflow["receiving_storage"]
+            durable_import = run_handoff_durable_import_from_plan(
+                _durable_import_request(package.package_id),
+                import_plan=import_plan,
+                storage_root=receiving_storage,
+            )
+            export_summary = workflow["export_run"].to_dict()
+            integrity_summary = workflow["receiving_gate"].integrity_report.to_dict()
+            receiving_summary = workflow["receiving_gate"].to_dict()
+            import_plan_summary = import_plan.to_dict()
+            durable_import_summary = durable_import.to_dict()
+            integrity_non_claims = {
+                item["does_not_claim"] for item in integrity_summary["attention"]
+            }
+
+        self.assertEqual(
+            integrity_summary["integrity_observation_policy"]["signature_validation"],
+            "not_performed",
+        )
+        self.assertEqual(
+            receiving_summary["receiving_gate_policy"]["signature_validation"],
+            "not_performed",
+        )
+        self.assertEqual(
+            import_plan_summary["import_plan_policy"]["signature_validation"],
+            "not_performed",
+        )
+        self.assertIn(
+            "signature_or_authenticity_validation",
+            export_summary["workflow"]["does_not_claim"],
+        )
+        self.assertIn(
+            "signature_or_authenticity_validation",
+            receiving_summary["does_not_claim"],
+        )
+        self.assertIn(
+            "signature_or_authenticity_validation",
+            import_plan_summary["workflow"]["does_not_claim"],
+        )
+        self.assertIn(
+            "signature_authenticity_or_trust_validation",
+            integrity_non_claims,
+        )
+        self.assertIn(
+            "package_authenticity_or_trust",
+            durable_import_summary["workflow"]["does_not_claim"],
+        )
+
     def test_export_collision_blocks_without_rewriting_existing_package(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             workflow = self._prepare_ready_handoff(Path(temp_dir))
