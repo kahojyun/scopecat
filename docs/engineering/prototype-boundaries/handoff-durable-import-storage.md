@@ -28,7 +28,8 @@ Read it with:
 - [`../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md`](../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md)
   for the current package signature/trust implementation deferral;
 - [`../../decisions/architecture/DEC-020-defer-archive-package-implementation.md`](../../decisions/architecture/DEC-020-defer-archive-package-implementation.md)
-  for the current archive package implementation deferral.
+  for the current archive-backed durable import and archive-authority
+  deferral.
 
 ## Current Boundary
 
@@ -81,8 +82,8 @@ The current durable-import schema, policy, local receipt postures, and
 non-claims are included in `current_handoff_compatibility_contract()` as a
 route-local compatibility review surface. That snapshot preserves the current
 production vertical slice expectations without accepting final storage schema,
-public SDK, archive, signature/trust, batch durable import, or linked-context
-payload import contracts.
+public SDK, archive-backed durable import, signature/trust, batch durable
+import, or linked-context payload import contracts.
 
 DEC-017 keeps multi-measurement package plans as review and coordination
 evidence only. They do not authorize one durable batch mutation until a

@@ -14,18 +14,20 @@ Owner: [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/p
 
 JNY-001 now has a single-measurement handoff production vertical slice
 candidate: source-side durable Measurement Record, selected stored-record
-export, read-only package open, receiving gate, import plan, and durable import
+export, zip transport creation, zip transport materialization back into the
+directory package of record, read-only package open, receiving gate, import
+plan, local receiving review-state receipt materialization, and durable import
 into a second storage root.
 
 This decision resolves whether that candidate should introduce an archive file
 as the portable package format, or continue to use the current directory-shaped
 package with `package-manifest.json`.
 
-The slice still needs visible, inspectable artifacts while package manifest
-shape, trust/authenticity, linked-context payload packaging, batch import, and
-final storage schema remain unsettled. Introducing an archive now would add
-archive creation, extraction, temporary directory, path traversal, signature,
-and retry surface before those contracts are ready.
+The slice still needs visible, inspectable artifacts while trust/authenticity,
+linked-context payload import, batch durable import, and final storage schema
+remain unsettled. Later DEC-021 and DEC-024 accepted narrow zip transport
+materialization and creation, but they keep the DEC-010 directory manifest
+package as the package of record rather than making archive bytes authoritative.
 
 ## Decision
 
@@ -34,14 +36,17 @@ portable handoff package remains a directory-shaped package rooted at
 `{package_id}/` with `package-manifest.json` at the package root and
 package-relative primary data under `measurements/{measurement_record_id}/`.
 
-Archive creation and archive extraction remain out of scope. Current package
-writer, opener, receiving, import-plan, and durable-import paths must continue
-to state archive handling as `not_performed`.
+Archive bytes remain transport-only. Current package writer, opener,
+receiving, import-plan, and durable-import paths must continue to treat the
+DEC-010 directory manifest package as the package artifact of record. Archive
+creation and materialization are governed separately by DEC-024 and DEC-021;
+archive-backed durable import and archive bytes as package authority remain
+out of scope.
 
-[`DEC-020`](DEC-020-defer-archive-package-implementation.md) keeps archive
-creation, archive extraction, archive input opening, and archive-backed durable
-import deferred until archive artifact authority, extraction safety, staging,
-and materialization review contracts exist.
+[`DEC-020`](DEC-020-defer-archive-package-implementation.md) keeps
+archive-backed durable import, archive bytes as package authority, and broader
+archive semantics deferred beyond the DEC-021 materialization and DEC-024
+creation boundaries.
 
 ## Scope
 
@@ -55,7 +60,8 @@ This decision applies to:
 This decision does not apply to:
 
 - final public package format for all handoff use cases;
-- compressed archive format, signatures, authenticity, or trust policy;
+- archive bytes as package authority, signatures, authenticity, or trust
+  policy;
 - linked-context payload packaging;
 - batch export/import package shape;
 - offline execution migration packages;
@@ -63,26 +69,29 @@ This decision does not apply to:
 
 ## Consequences
 
-This makes the current production vertical slice candidate easier to inspect, test,
-debug, and review without archive extraction or temporary materialization. It
-keeps checksum and integrity behavior focused on declared package members.
+This makes the current production vertical slice candidate easier to inspect,
+test, debug, and review after archive transport because the materialized
+directory remains the reviewed package of record. It keeps checksum and
+integrity behavior focused on declared package members.
 
-It also means a future archive decision must define archive member topology,
-path traversal protections, extraction/staging semantics, signature or trust
-scope, and whether the directory manifest remains the canonical inner format,
-as required by DEC-020.
+It also means any future archive expansion must define whether archive bytes
+become authoritative, how durable import is gated from archive-backed flows,
+and how signature/trust policy composes with the DEC-010 package of record, as
+required by DEC-020.
 
 ## Alternatives Considered
 
-- Option: create a `.zip` or similar archive now. Rejected for this slice
-  because archive extraction, trust, and signature semantics are not yet
-  validated and would obscure the current package boundary.
-- Option: support both directory and archive inputs now. Rejected because dual
-  format support would broaden test and error-contract scope before one
-  production vertical slice package contract is stable.
+- Option: make a `.zip` or similar archive the package artifact of record.
+  Rejected because trust, signature, and archive-backed durable-import
+  semantics are not accepted, and archive authority would obscure the current
+  package boundary.
+- Option: support archive bytes and directory packages as equal package inputs.
+  Rejected because dual authority would broaden test and error-contract scope
+  before one production vertical slice package contract is stable.
 - Option: make archive mandatory for receiving. Rejected because the current
   receiving/import path already validates package-local integrity from a
-  directory package and does not yet need offline archive transport semantics.
+  materialized directory package and does not need archive bytes as package
+  authority.
 
 ## Supersession
 
@@ -98,8 +107,8 @@ Superseded by:
 
 Revisit this decision when:
 
-- handoff packages need to cross a transport boundary where directories are not
-  acceptable;
+- handoff packages need archive bytes to become package authority rather than
+  transport containers;
 - signature verification or trusted-source policy work beyond DEC-019 and the
   DEC-022 signed scope starts;
 - linked-context payload packaging needs atomic package transfer;
