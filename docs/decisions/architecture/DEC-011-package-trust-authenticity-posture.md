@@ -13,7 +13,7 @@ Owner: [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/p
 ## Context
 
 [`DEC-010`](DEC-010-package-format-directory-manifest.md) keeps the JNY-001
-single-measurement production vertical-slice candidate on a directory manifest
+single-measurement production vertical slice candidate on a directory manifest
 package format. The next architecture pressure is whether that package should
 claim authenticity or trust, or whether the current slice should remain limited
 to local integrity observation.
@@ -32,7 +32,7 @@ contracts should not be implied by digest verification alone.
 
 ## Decision
 
-For the JNY-001 single-measurement production vertical-slice candidate,
+For the JNY-001 single-measurement production vertical slice candidate,
 directory manifest handoff packages remain unsigned local-review evidence.
 
 Scopecat may observe declared package-member integrity with SHA-256 digests and
@@ -53,7 +53,7 @@ coverage, signer identity, and trust-root contract exists.
 
 This decision applies to:
 
-- JNY-001 single-measurement handoff production vertical-slice candidate;
+- JNY-001 single-measurement handoff production vertical slice candidate;
 - DEC-010 directory manifest packages;
 - handoff package writer/open/integrity/receiving/import-plan/durable-import
   local receipts;
@@ -70,7 +70,7 @@ This decision does not apply to:
 
 ## Consequences
 
-This keeps the production-slice candidate honest: digest verification can block
+This keeps the production vertical slice candidate honest: digest verification can block
 corrupted package bytes, while authenticity and trust remain separate future
 work. It also keeps receiving/import behavior reviewable without adding a
 partial or misleading security model.

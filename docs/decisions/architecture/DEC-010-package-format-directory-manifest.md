@@ -1,4 +1,4 @@
-# DEC-010: Use Directory Manifest Packages For JNY-001 Production-Slice Candidate
+# DEC-010: Use Directory Manifest Packages For JNY-001 Production Vertical Slice Candidate
 
 ## Status
 
@@ -12,7 +12,7 @@ Owner: [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/p
 
 ## Context
 
-JNY-001 now has a single-measurement handoff production vertical-slice
+JNY-001 now has a single-measurement handoff production vertical slice
 candidate: source-side durable Measurement Record, selected stored-record
 export, read-only package open, receiving gate, import plan, and durable import
 into a second storage root.
@@ -29,7 +29,7 @@ and retry surface before those contracts are ready.
 
 ## Decision
 
-For the JNY-001 single-measurement production vertical-slice candidate, the
+For the JNY-001 single-measurement production vertical slice candidate, the
 portable handoff package remains a directory-shaped package rooted at
 `{package_id}/` with `package-manifest.json` at the package root and
 package-relative primary data under `measurements/{measurement_record_id}/`.
@@ -47,7 +47,7 @@ and materialization review contracts exist.
 
 This decision applies to:
 
-- JNY-001 single-measurement handoff production vertical-slice candidate;
+- JNY-001 single-measurement handoff production vertical slice candidate;
 - `scopecat.handoff` package writing/opening/receiving/import-plan behavior;
 - selected stored Measurement Record export into handoff packages;
 - workflow-level tests that validate package format posture.
@@ -63,7 +63,7 @@ This decision does not apply to:
 
 ## Consequences
 
-This makes the current production-slice candidate easier to inspect, test,
+This makes the current production vertical slice candidate easier to inspect, test,
 debug, and review without archive extraction or temporary materialization. It
 keeps checksum and integrity behavior focused on declared package members.
 
@@ -79,7 +79,7 @@ as required by DEC-020.
   validated and would obscure the current package boundary.
 - Option: support both directory and archive inputs now. Rejected because dual
   format support would broaden test and error-contract scope before one
-  production-slice package contract is stable.
+  production vertical slice package contract is stable.
 - Option: make archive mandatory for receiving. Rejected because the current
   receiving/import path already validates package-local integrity from a
   directory package and does not yet need offline archive transport semantics.

@@ -119,7 +119,7 @@ record evidence mismatches, incomplete records, and record path scope
 violations. It does not authorize retry or mutate storage.
 
 For JNY-001 product handoff, this storage-backed selected-record export path is
-the production vertical-slice candidate. Direct package-writer input remains an
+the production vertical slice candidate. Direct package-writer input remains an
 adapter or engineering route for already-reviewed normalized data, not a
 user-facing bypass around Measurement Records storage.
 
@@ -166,7 +166,7 @@ artifacts. Package contents must use package-relative paths and validated
 managed references at the package/export boundary.
 
 [`DEC-010`](../../decisions/architecture/DEC-010-package-format-directory-manifest.md) keeps this
-directory manifest package as the current JNY-001 production-slice package
+directory manifest package as the current JNY-001 production vertical slice package
 format. Archive creation and extraction remain deferred for a later decision.
 
 [`DEC-020`](../../decisions/architecture/DEC-020-defer-archive-package-implementation.md)
@@ -225,9 +225,9 @@ storage mutation.
 defines receiving review state as a derived local projection. It does not add a
 frontend, durable GUI store, or mutation authority.
 
-## Production Vertical-Slice Candidate
+## Production Vertical Slice Candidate
 
-JNY-001 single-measurement handoff is a production vertical-slice candidate when
+JNY-001 single-measurement handoff is a production vertical slice candidate when
 one workflow-level regression proves this full path:
 
 ```text
@@ -352,7 +352,7 @@ uv run ruff format --check .
 Advance this boundary only when a named workflow requires broader package-use
 behavior. Current likely separate decisions include:
 
-- production-readiness hardening for selected stored Measurement Record export;
+- production readiness hardening for selected stored Measurement Record export;
 - persisted GUI review beyond the DEC-018 local projection boundary;
 - archive package creation or extraction beyond DEC-020;
 - signed package and trusted-source policy beyond DEC-019;

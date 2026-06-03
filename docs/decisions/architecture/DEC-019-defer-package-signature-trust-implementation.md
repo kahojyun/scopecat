@@ -35,7 +35,7 @@ directory packages relate to future archive packages.
 
 Do not implement package signatures, signature verification, trusted-source
 acceptance, signer identity, key management, trust roots, revocation, or
-signature-gated durable import in the current JNY-001 production vertical-slice
+signature-gated durable import in the current JNY-001 production vertical slice
 candidate.
 
 Keep the current package contract at declared digest integrity plus explicit
@@ -65,7 +65,7 @@ Any future signature/trust implementation must first define:
 
 This decision applies to:
 
-- JNY-001 single-measurement handoff production vertical-slice candidate;
+- JNY-001 single-measurement handoff production vertical slice candidate;
 - DEC-010 directory manifest packages;
 - selected stored-record export and route-local package writer input;
 - read-only package open, integrity observation, receiving gate, import plan,

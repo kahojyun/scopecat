@@ -13,7 +13,7 @@ Owner: [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/p
 ## Context
 
 [`DEC-010`](DEC-010-package-format-directory-manifest.md) keeps the JNY-001
-production vertical-slice candidate on a directory manifest package:
+production vertical slice candidate on a directory manifest package:
 `{package_id}/package-manifest.json` plus package-relative members. That
 decision intentionally left archive creation and extraction out of scope.
 
@@ -30,13 +30,13 @@ trust contract.
 The current package directory remains useful as inspectable local-review
 evidence. Implementing archive support before those contracts exist would add
 failure modes without closing a user-visible acceptance gap in the current
-production vertical-slice candidate.
+production vertical slice candidate.
 
 ## Decision
 
 Do not implement archive creation, archive extraction, archive input opening,
 archive-to-directory materialization, or archive-backed durable import in the
-current JNY-001 production vertical-slice candidate.
+current JNY-001 production vertical slice candidate.
 
 The current portable package remains the directory manifest package accepted by
 DEC-010. Export, writer, open, receiving, import-plan, durable-import, CLI, and
@@ -66,7 +66,7 @@ Any future archive implementation must first define:
 
 This decision applies to:
 
-- JNY-001 single-measurement handoff production vertical-slice candidate;
+- JNY-001 single-measurement handoff production vertical slice candidate;
 - selected stored-record export and route-local package writing;
 - package open, integrity observation, receiving gate, import planning,
   receiving review state, and durable-import adaptation;
@@ -90,7 +90,7 @@ while the receiving/import contract is still moving toward production
 readiness.
 
 Archive work remains visible but no longer acts as the default next
-implementation step. The next handoff pressure should be production-readiness
+implementation step. The next handoff pressure should be production readiness
 hardening unless a named workflow explicitly needs archive transport.
 
 The tradeoff is that directory packages are less convenient for transfer than a

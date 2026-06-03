@@ -108,7 +108,7 @@ journey is portable measurement handoff, not legacy migration itself. Evidence
 covers local record preparation, selected stored-record package export, package
 writing/opening, receiving review/import plan, and durable import adaptation.
 The DEC-010 directory manifest package format is accepted for the current
-production-slice candidate. DEC-011 keeps that package unsigned local-review
+production vertical slice candidate. DEC-011 keeps that package unsigned local-review
 evidence: declared digest integrity is observed, but signature validation,
 authenticity, sender trust, and scientific validity are not claimed. DEC-019
 keeps signature/trust implementation deferred until a signed-artifact and
