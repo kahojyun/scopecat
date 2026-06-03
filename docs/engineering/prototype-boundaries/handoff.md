@@ -168,6 +168,11 @@ review surface for this production vertical slice only. It does not define a
 public SDK, final package format, archive contract, signature/trust policy, or
 portable error schema.
 
+The CLI may print `HandoffErrorDiagnostic` JSON to stderr for handoff
+receipt-summary contract failures. That CLI output is local operator guidance
+only. It is not a portable/export artifact, retry authorization, package
+acceptance, or public CLI error contract.
+
 Receiving review state is a local projection over package-open, integrity,
 receiving-gate, import-plan, optional inspection, durable-import receipt, and
 retry-summary facts. DEC-018 defines that projection boundary without accepting

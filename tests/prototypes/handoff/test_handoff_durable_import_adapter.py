@@ -756,6 +756,89 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
         self.assertEqual(summary["final_state"], "imported_handoff_measurement_record")
         self.assertEqual(summary["next_action"], "use_durable_measurement_record")
 
+    def test_module_cli_reports_local_diagnostic_for_unsupported_receipt_posture(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            receipt_path = Path(temp_dir) / "unsupported-receipt.json"
+            receipt_path.write_text(
+                json.dumps({"artifact_posture": "portable_handoff_receipt"}),
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "scopecat.handoff",
+                    "--receipt-summary",
+                    str(receipt_path),
+                ],
+                check=False,
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+        diagnostic = json.loads(result.stderr)
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(diagnostic["artifact_posture"], "local_handoff_error_diagnostic")
+        self.assertEqual(
+            diagnostic["error"],
+            {
+                "code": "handoff_contract_error",
+                "operation": "receipt_summary_cli",
+                "message": "receipt artifact_posture is unsupported",
+            },
+        )
+        self.assertEqual(diagnostic["summary_policy"]["portable_export"], "not_produced")
+
+    def test_module_cli_reports_local_diagnostic_for_malformed_handoff_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            receipt_path = Path(temp_dir) / "malformed-handoff-receipt.json"
+            receipt_path.write_text(
+                json.dumps(
+                    {
+                        "artifact_posture": "local_handoff_durable_import_receipt",
+                        "handoff_durable_import_policy": {},
+                        "workflow": {},
+                        "request": {},
+                        "import_plan": {},
+                        "durable_import_request": None,
+                        "durable_import_result": None,
+                        "durable_import_review": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "scopecat.handoff",
+                    "--receipt-summary",
+                    str(receipt_path),
+                ],
+                check=False,
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+        diagnostic = json.loads(result.stderr)
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(
+            diagnostic["error"]["operation"],
+            "summarize_handoff_durable_import_receipt",
+        )
+        self.assertEqual(
+            diagnostic["error"]["message"],
+            "handoff durable import receipt policy is unsupported",
+        )
+
     def test_receipt_summary_rejects_inconsistent_imported_state(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)

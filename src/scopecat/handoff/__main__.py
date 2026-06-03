@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 
 from scopecat.handoff.durable_import import summarize_handoff_durable_import_receipt
+from scopecat.handoff.errors import HandoffContractError, HandoffError
 from scopecat.handoff.import_workflow import summarize_import_workflow_receipt
 from scopecat.handoff.inspect import write_inspection_artifact
 from scopecat.handoff.package import summarize_package_context_references
@@ -45,7 +47,10 @@ def _receipt_summary(receipt_path: Path) -> dict[str, object]:
         return summarize_import_workflow_receipt(receipt).to_dict()
     if posture == "local_handoff_durable_import_receipt":
         return summarize_handoff_durable_import_receipt(receipt).to_dict()
-    raise ValueError("receipt artifact_posture is unsupported")
+    raise HandoffContractError(
+        "receipt artifact_posture is unsupported",
+        operation="receipt_summary_cli",
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -73,7 +78,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             parser.error("package_dir is not accepted with --receipt-summary")
         if args.html_dir is not None:
             parser.error("--html-dir is not accepted with --receipt-summary")
-        payload = _receipt_summary(args.receipt_summary)
+        try:
+            payload = _receipt_summary(args.receipt_summary)
+        except HandoffError as exc:
+            print(
+                json.dumps(exc.to_diagnostic().to_dict(), indent=2, sort_keys=True),
+                file=sys.stderr,
+            )
+            return 2
     else:
         if args.package_dir is None:
             parser.error("package_dir is required unless --receipt-summary is provided")

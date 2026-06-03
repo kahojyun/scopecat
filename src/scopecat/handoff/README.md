@@ -183,6 +183,11 @@ continuation review. It does not run package import, approve storage
 acceptance or durable import, persist review state, or become a public import
 API.
 
+When `--receipt-summary` sees a handoff contract error, the CLI writes the
+local `HandoffErrorDiagnostic` JSON to stderr and exits nonzero. This is local
+operator guidance for review; it is not a portable/export artifact or public
+CLI error contract.
+
 ## Historical Candidate Context
 
 Discovery implementation candidates remain historical validation inputs, not
