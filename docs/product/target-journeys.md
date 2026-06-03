@@ -111,14 +111,16 @@ The DEC-010 directory manifest package format is accepted for the current
 production-slice candidate. DEC-011 keeps that package unsigned local-review
 evidence: declared digest integrity is observed, but signature validation,
 authenticity, sender trust, and scientific validity are not claimed. Batch
-receiving, linked-context payload import, and signature/trust implementation
-beyond DEC-011 remain separate validation questions. DEC-012 allows generic
+durable import and signature/trust implementation beyond DEC-011 remain
+separate validation questions. DEC-012 allows generic
 handoff writer inputs to package explicitly declared linked-context payloads
 for review. DEC-014 allows selected stored-record export to package explicitly
 declared record-local linked-context payloads without treating recorded
 references as file-copy authority. DEC-013 allows multi-measurement import
 planning, while durable import remains one-record-at-a-time. DEC-015 allows
 selected stored-record batch package export without adding batch durable import.
+DEC-016 keeps linked-context payload import deferred until Measurement Records
+has an accepted context artifact storage contract.
 
 Source evidence:
 

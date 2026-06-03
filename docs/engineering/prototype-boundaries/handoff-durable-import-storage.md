@@ -18,7 +18,9 @@ Read it with:
   for durable Measurement Records creation, writing, finalization, projection,
   import, and storage authority;
 - [`../../../src/scopecat/handoff/README.md`](../../../src/scopecat/handoff/README.md)
-  for the live handoff API surface.
+  for the live handoff API surface;
+- [`../../decisions/architecture/DEC-016-defer-linked-context-payload-import.md`](../../decisions/architecture/DEC-016-defer-linked-context-payload-import.md)
+  for the current linked-context payload import deferral.
 
 ## Current Boundary
 
@@ -80,8 +82,9 @@ package and ready import-plan path:
 
 Linked context remains review context. Optional managed context-reference
 metadata may be preserved in local package, import-plan, and handoff
-durable-import review surfaces, but linked-context payloads are not imported
-into Measurement Records storage.
+durable-import review surfaces. DEC-016 keeps packaged linked-context payloads
+out of Measurement Records storage until a separate context artifact import
+contract exists.
 
 ## Artifact And Storage Authority
 
@@ -128,7 +131,7 @@ This boundary does not accept:
   behavior;
 - final record-id generation policy;
 - manifest replacement or canonical-current-state manifest updates;
-- linked-context payload materialization;
+- linked-context payload materialization beyond DEC-016;
 - archive extraction, signatures, authenticity, or package trust policy;
 - adapter discovery, drop-folder protocol, service API, or stable public
   adapter API;
@@ -172,7 +175,7 @@ Likely separate decisions include:
 
 - batch package receiving/import and partial-success policy;
 - package archive format, trust, authenticity, or signature handling;
-- linked-context payload import;
+- linked-context payload import beyond DEC-016;
 - existing-record update/import conflict behavior;
 - persistent receiving review state or GUI durable review workflow;
 - stronger recovery, locking, or concurrent storage behavior.

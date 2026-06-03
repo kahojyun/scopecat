@@ -43,9 +43,10 @@ Package-writer ids remain caller-declared package-input facts. They do not
 become durable Scopecat Measurement Record identity and do not replace
 storage-backed selected-record export evidence.
 
-Import planning and durable import do not import linked-context payloads. They
-continue to expose linked context for review and keep the action
-`keep_reference_only` with a `linked_context_payload_import` non-claim.
+Import planning and durable import do not import linked-context payloads.
+DEC-016 keeps them as reviewable package contents, while import planning keeps
+the action `keep_reference_only` with a `linked_context_payload_import`
+non-claim.
 
 Selected stored Measurement Record export remains a separate authority boundary.
 DEC-014 narrows that path to request-declared record-local linked payloads
@@ -78,8 +79,8 @@ It also makes the import boundary explicit: packaged linked context can be
 inspected and integrity-observed, but it does not become durable storage
 content.
 
-Future work must still decide how different context kinds are typed and whether
-any durable import route should accept linked-context payloads.
+Future work must still decide how different context kinds are typed before any
+durable import route can accept linked-context payloads.
 
 ## Alternatives Considered
 
@@ -107,7 +108,7 @@ Superseded by:
 Revisit this decision when:
 
 - selected stored Measurement Record export needs broader linked-payload discovery;
-- durable import needs to store linked-context payloads;
+- durable import needs to store linked-context payloads under a context artifact contract;
 - context kind schemas become product contracts;
 - batch export/import needs package-level context topology;
 - GUI review needs richer packaged-context presentation.
@@ -115,6 +116,7 @@ Revisit this decision when:
 ## Related Evidence And Owners
 
 - [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
+- [`DEC-016-defer-linked-context-payload-import.md`](DEC-016-defer-linked-context-payload-import.md)
 - [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
 - [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
 - [`../../../tests/prototypes/handoff/test_handoff_engineering_prototype_writer.py`](../../../tests/prototypes/handoff/test_handoff_engineering_prototype_writer.py)

@@ -42,7 +42,8 @@ not payload authority by themselves, and selected export does not recursively
 resolve references or discover eligible context files from record metadata.
 
 Import planning and durable import continue to exclude linked-context payload
-import. Packaged linked context is reviewable package content only.
+import under DEC-016. Packaged linked context is reviewable package content
+only.
 
 ## Scope
 
@@ -70,9 +71,8 @@ payloads without weakening the storage-backed identity and continuity checks.
 The authority remains explicit: the export request names the record-local file
 and expected bytes, while the package writer owns package-member validation.
 
-Future work must still decide whether linked-context payloads can be imported,
-whether selected-record batch export needs richer package-level context topology, and
-whether context kinds need stable schemas.
+Future work must still decide whether selected-record batch export needs richer
+package-level context topology and whether context kinds need stable schemas.
 
 ## Alternatives Considered
 
@@ -99,7 +99,7 @@ Superseded by:
 
 Revisit this decision when:
 
-- durable import needs to store linked-context payloads;
+- durable import needs to store linked-context payloads under a context artifact contract;
 - selected stored Measurement Record batch export needs shared context
   topology;
 - context kind schemas become product contracts;
@@ -110,6 +110,7 @@ Revisit this decision when:
 
 - [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
 - [`DEC-012-linked-context-payload-packaging.md`](DEC-012-linked-context-payload-packaging.md)
+- [`DEC-016-defer-linked-context-payload-import.md`](DEC-016-defer-linked-context-payload-import.md)
 - [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
 - [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
 - [`../../../tests/prototypes/handoff/test_handoff_selected_record_export_prototype.py`](../../../tests/prototypes/handoff/test_handoff_selected_record_export_prototype.py)

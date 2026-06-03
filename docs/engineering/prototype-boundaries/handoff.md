@@ -8,9 +8,9 @@ Accepted engineering-prototype boundary.
 
 This note owns the current package-use boundary for `scopecat.handoff`: writing
 Scopecat-authored package directories from caller-declared source files,
-exporting one selected stored Measurement Record to a package, opening
-packages read-only, producing local review surfaces, running receiving gates,
-and building non-mutating import plans.
+exporting selected stored Measurement Records to packages, opening packages
+read-only, producing local review surfaces, running receiving gates, and
+building non-mutating import plans.
 
 Read it with:
 
@@ -30,6 +30,8 @@ Read it with:
   for the current selected-record linked-context payload export boundary;
 - [`../../decisions/architecture/DEC-015-selected-record-batch-package-export.md`](../../decisions/architecture/DEC-015-selected-record-batch-package-export.md)
   for the current selected-record batch export boundary;
+- [`../../decisions/architecture/DEC-016-defer-linked-context-payload-import.md`](../../decisions/architecture/DEC-016-defer-linked-context-payload-import.md)
+  for the current durable linked-context payload import deferral;
 - [`../workflow-validation-map.md`](../workflow-validation-map.md) for the
   current cross-capability handoff workflow gap.
 
@@ -54,7 +56,7 @@ The selected stored-record export adapter composes with that package writer:
 complete Measurement Record read model and record-local receipts
   -> selected-record export request with explicit preview metadata
   -> package writer request
-  -> directory-shaped single-measurement package
+  -> directory-shaped selected-measurement package
   -> read-only package open
 ```
 
@@ -174,6 +176,12 @@ reference-only review facts unless the request carries that payload authority.
 allows non-mutating import plans to list multiple package measurements. Durable
 handoff import remains one planned measurement per storage mutation.
 
+[`DEC-016`](../../decisions/architecture/DEC-016-defer-linked-context-payload-import.md)
+keeps linked-context payload import deferred. Packaged linked context remains
+reviewable package content; import planning keeps `keep_reference_only` and
+durable import does not materialize linked payloads into Measurement Records
+storage.
+
 ## Production Vertical-Slice Candidate
 
 JNY-001 single-measurement handoff is a production vertical-slice candidate when
@@ -211,9 +219,9 @@ Acceptance for that candidate is intentionally narrow:
   context reference-only.
 
 This candidate is not production readiness for the whole handoff capability.
-Batch durable import, linked-context payload import, persistent GUI/review
-state, public SDK contracts, and final storage schemas remain separate
-decisions. Archive format is explicitly deferred by
+Batch durable import, persistent GUI/review state, public SDK contracts, and
+final storage schemas remain separate decisions. Archive format is explicitly
+deferred by
 [`DEC-010`](../../decisions/architecture/DEC-010-package-format-directory-manifest.md).
 Signature/authenticity implementation and trust policy beyond the unsigned
 local-review posture are explicitly deferred by
@@ -226,6 +234,8 @@ Selected-record linked-context payload export is governed by
 [`DEC-014`](../../decisions/architecture/DEC-014-selected-record-linked-context-payload-export.md).
 Selected-record batch export without batch durable import is governed by
 [`DEC-015`](../../decisions/architecture/DEC-015-selected-record-batch-package-export.md).
+Linked-context payload import deferral is governed by
+[`DEC-016`](../../decisions/architecture/DEC-016-defer-linked-context-payload-import.md).
 
 ## Historical Context
 
@@ -255,7 +265,7 @@ This boundary does not accept:
   authenticity validation, or trusted-source policy;
 - durable import, package acceptance, existing-record update, durable
   multi-measurement batch import, rollback policy, or storage conflict policy;
-- recursive traversal or linked-context payload import;
+- recursive traversal or linked-context payload import beyond DEC-016;
 - analysis/fit result model, fit execution, uncertainty, write-back, or result
   import;
 - shared measurement-record domain model or cross-route object lifecycle.
@@ -285,7 +295,7 @@ behavior. Current likely separate decisions include:
 - production-readiness hardening for selected stored Measurement Record export;
 - GUI review beyond local static HTML;
 - signature implementation or trusted-source policy beyond DEC-011;
-- durable linked-context payload import or batch durable import;
+- batch durable import or durable linked-context payload import beyond DEC-016;
 - analysis or fit results as first-class package display facts;
 - shared lifecycle or domain model extraction justified by more than one
   accepted route.

@@ -119,10 +119,10 @@ The generic package writer can package explicitly declared linked-context
 payload files under `context/` after source digest and size preflight. Opened
 packages expose those entries as `packaged_payload`, and integrity observation
 checks them as declared package members. Import planning and durable import
-still do not import linked-context payloads. Selected stored-record export uses
-the same package-member path only when its export request declares a source
-path under the selected record directory, a `context/` package path, digest, and
-byte size.
+still do not import linked-context payloads under DEC-016. Selected
+stored-record export uses the same package-member path only when its export
+request declares a source path under the selected record directory, a
+`context/` package path, digest, and byte size.
 
 ## CLI
 
