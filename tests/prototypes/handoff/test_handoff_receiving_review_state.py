@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 import tempfile
 import unittest
@@ -12,10 +13,12 @@ from scopecat.handoff import (
     HandoffDurableImportRequest,
     HandoffImportPlanRequest,
     HandoffReceivingReviewRequest,
+    HandoffReceivingReviewStateReceiptRequest,
     project_handoff_receiving_review_state,
     review_handoff_durable_import_retry,
     run_handoff_durable_import_from_plan,
     summarize_handoff_durable_import_receipt,
+    write_handoff_receiving_review_state_receipt,
 )
 from scopecat.handoff.import_plan import build_import_plan
 from scopecat.handoff.receiving import run_receiving_gate_from_request
@@ -114,6 +117,68 @@ class HandoffReceivingReviewStateProjectionTest(unittest.TestCase):
         self.assertIn("persisted_gui_state", summary["does_not_claim"])
         self.assertEqual(summary["review_state_policy"]["storage_mutation"], "not_performed")
         self.assertEqual(summary["review_state_policy"]["gui_state_persistence"], "not_performed")
+
+    def test_writes_local_receiving_review_state_receipt_for_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            package_dir = _copy_package(temp_path)
+            import_plan = _import_plan_run(package_dir)
+            projection = project_handoff_receiving_review_state(import_plan=import_plan)
+            state_root = temp_path / "receiving-state"
+            state_root.mkdir()
+
+            receipt = write_handoff_receiving_review_state_receipt(
+                HandoffReceivingReviewStateReceiptRequest(
+                    request_id="persist-receiving-review-state-001",
+                    receipt_path="reviews/handoff-package-legacy-rabi-001/state-receipt.json",
+                ),
+                projection=projection,
+                state_root=state_root,
+            )
+            written = json.loads(
+                (
+                    state_root / "reviews/handoff-package-legacy-rabi-001/state-receipt.json"
+                ).read_text(encoding="utf-8")
+            )
+
+        self.assertTrue(receipt.written)
+        self.assertEqual(written["artifact_posture"], "local_receiving_review_state_receipt")
+        self.assertEqual(written["package_id"], "handoff-package-legacy-rabi-001")
+        self.assertEqual(
+            written["receipt_policy"]["authority"],
+            "local_review_continuity_receipt",
+        )
+        self.assertEqual(
+            written["projection"]["artifact_posture"],
+            "local_receiving_review_state_projection",
+        )
+        self.assertIn("gui_state_store", written["does_not_claim"])
+        self.assertIn("storage_mutation", written["does_not_claim"])
+
+    def test_receiving_review_state_receipt_no_overwrite(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            package_dir = _copy_package(temp_path)
+            import_plan = _import_plan_run(package_dir)
+            projection = project_handoff_receiving_review_state(import_plan=import_plan)
+            state_root = temp_path / "receiving-state"
+            state_root.mkdir()
+            request = HandoffReceivingReviewStateReceiptRequest(
+                request_id="persist-receiving-review-state-001",
+                receipt_path="reviews/state-receipt.json",
+            )
+            write_handoff_receiving_review_state_receipt(
+                request,
+                projection=projection,
+                state_root=state_root,
+            )
+
+            with self.assertRaises(HandoffContractError):
+                write_handoff_receiving_review_state_receipt(
+                    request,
+                    projection=projection,
+                    state_root=state_root,
+                )
 
     def test_projects_blocked_receiving_gate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

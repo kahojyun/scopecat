@@ -196,8 +196,12 @@ Receiving review state is a local projection over package-open, integrity,
 receiving-gate, import-plan, optional inspection, durable-import receipt, and
 retry-summary facts. `project_handoff_receiving_review_state()` implements
 that DEC-018 projection as a read-only local summary over typed receipts and
-diagnostics. It validates supplied receipt continuity and keeps persisted
-GUI-owned state deferred.
+diagnostics. It validates supplied receipt continuity and keeps GUI-owned state
+deferred. DEC-023 accepts
+`write_handoff_receiving_review_state_receipt()` for no-overwrite local receipt
+materialization of that projection; the receipt is review-continuity evidence,
+not package acceptance, retry authorization, storage mutation, or a GUI state
+store.
 
 ## Artifact Authority
 
@@ -280,6 +284,9 @@ storage mutation.
 defines receiving review state as a derived local projection. The current
 projection implementation is local review evidence only; it does not add a
 frontend, durable GUI store, or mutation authority.
+[`DEC-023`](../../decisions/architecture/DEC-023-accept-local-receiving-review-state-receipts.md)
+allows that projection to be materialized as a local no-overwrite review-state
+receipt for workflow continuity without making the receipt a GUI-owned store.
 
 ## Production Vertical Slice Candidate
 
@@ -375,8 +382,8 @@ This boundary does not accept:
 - final public SDK names or package publishing metadata;
 - hard pandas/numpy dependency;
 - production plotting or publication-grade rendering;
-- live GUI components, routing, interaction model, or persisted GUI review
-  state beyond DEC-018;
+- live GUI components, routing, interaction model, or GUI-owned persisted
+  review state beyond DEC-018 and DEC-023;
 - numeric dtype conversion, unit conversion, schema inference, scan-shape
   inference, trace opening, or array API;
 - archive creation, archive-backed durable import, or compressed package format
@@ -414,7 +421,8 @@ Advance this boundary only when a named workflow requires broader package-use
 behavior. Current likely separate decisions include:
 
 - production readiness hardening for selected stored Measurement Record export;
-- persisted GUI review beyond the DEC-018 local projection boundary;
+- GUI-owned persisted review beyond the DEC-018 projection and DEC-023 local
+  receipt boundary;
 - archive package creation, archive-backed durable import, or broader archive
   semantics beyond DEC-021;
 - signature verification and trusted-source policy beyond DEC-019 and the

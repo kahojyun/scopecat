@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import copy
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
+from scopecat.handoff._contracts import validate_public_identifier, validate_relative_path
 from scopecat.handoff.durable_import import (
     HandoffDurableImportReceiptSummary,
     HandoffDurableImportRetryReview,
@@ -20,6 +23,16 @@ RECEIVING_REVIEW_STATE_POLICY = {
     "storage_mutation": "not_performed",
     "package_mutation": "not_performed",
     "gui_state_persistence": "not_performed",
+    "portable_export": "not_produced",
+}
+RECEIVING_REVIEW_STATE_RECEIPT_SCHEMA = "scopecat.handoff_receiving_review_state_receipt.v0"
+RECEIVING_REVIEW_STATE_RECEIPT_POLICY = {
+    "source": "local_receiving_review_state_projection",
+    "authority": "local_review_continuity_receipt",
+    "receipt_materialization": "local_no_overwrite_json_receipt",
+    "storage_mutation": "not_performed",
+    "package_mutation": "not_performed",
+    "gui_state_store": "not_created",
     "portable_export": "not_produced",
 }
 
@@ -186,6 +199,65 @@ class HandoffReceivingReviewStateProjection:
         }
 
 
+@dataclass(frozen=True)
+class HandoffReceivingReviewStateReceiptRequest:
+    """Request to persist a local receiving review-state projection receipt."""
+
+    request_id: str
+    receipt_path: str
+    collision_policy: str = "no_overwrite"
+
+    def __post_init__(self) -> None:
+        validate_public_identifier(self.request_id, "receiving review state receipt request_id")
+        validate_relative_path(self.receipt_path, "receiving review state receipt_path")
+        if not self.receipt_path.endswith(".json"):
+            raise ValueError("receiving review state receipt_path must end with .json")
+        if self.collision_policy != "no_overwrite":
+            raise ValueError("receiving review state receipt collision_policy must be no_overwrite")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "request_id": self.request_id,
+            "receipt_path": self.receipt_path,
+            "collision_policy": self.collision_policy,
+        }
+
+
+@dataclass(frozen=True)
+class HandoffReceivingReviewStateReceipt:
+    """Local receipt that materializes a receiving review-state projection."""
+
+    request: HandoffReceivingReviewStateReceiptRequest
+    projection: HandoffReceivingReviewStateProjection
+    written: bool
+
+    @property
+    def classification(self) -> str:
+        return self.projection.classification
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "artifact_posture": "local_receiving_review_state_receipt",
+            "receipt_schema": RECEIVING_REVIEW_STATE_RECEIPT_SCHEMA,
+            "receipt_policy": copy.deepcopy(RECEIVING_REVIEW_STATE_RECEIPT_POLICY),
+            "request": self.request.to_dict(),
+            "written": self.written,
+            "classification": self.classification,
+            "package_id": self.projection.package_id,
+            "projection": self.projection.to_dict(),
+            "does_not_claim": [
+                "gui_state_store",
+                "package_acceptance",
+                "storage_mutation",
+                "package_mutation",
+                "signature_or_authenticity_validation",
+                "retry_authorization",
+                "portable_export",
+                "public_view_model_schema",
+            ],
+        }
+
+
 def project_handoff_receiving_review_state(
     *,
     receiving_gate: HandoffReceivingGateRun | None = None,
@@ -208,6 +280,44 @@ def project_handoff_receiving_review_state(
         raise promote_handoff_contract_error(
             exc,
             operation="project_handoff_receiving_review_state",
+        ) from exc
+
+
+def write_handoff_receiving_review_state_receipt(
+    request: HandoffReceivingReviewStateReceiptRequest,
+    *,
+    projection: HandoffReceivingReviewStateProjection,
+    state_root: str | Path,
+) -> HandoffReceivingReviewStateReceipt:
+    """Persist a local DEC-023 receiving review-state receipt without mutation authority."""
+
+    try:
+        if not isinstance(request, HandoffReceivingReviewStateReceiptRequest):
+            raise ValueError("receiving review state receipt request is unsupported")
+        if not isinstance(projection, HandoffReceivingReviewStateProjection):
+            raise ValueError("receiving review state receipt projection is unsupported")
+        receipt = HandoffReceivingReviewStateReceipt(
+            request=request,
+            projection=projection,
+            written=True,
+        )
+        root = _existing_directory(Path(state_root), "receiving review state root")
+        target = _target_under(root, request.receipt_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists() or target.is_symlink():
+            raise ValueError("receiving review state receipt collision")
+        with target.open("x", encoding="utf-8") as handle:
+            handle.write(json.dumps(receipt.to_dict(), indent=2, sort_keys=True) + "\n")
+        return receipt
+    except ValueError as exc:
+        raise promote_handoff_contract_error(
+            exc,
+            operation="write_handoff_receiving_review_state_receipt",
+        ) from exc
+    except OSError as exc:
+        raise promote_handoff_contract_error(
+            ValueError(f"receiving review state receipt write failed: {exc}"),
+            operation="write_handoff_receiving_review_state_receipt",
         ) from exc
 
 
@@ -240,6 +350,22 @@ def _validate_continuity(
             raise ValueError("receiving review-state projection retry summary is inconsistent")
         if import_plan is not None and retry_review.import_plan != import_plan:
             raise ValueError("receiving review-state projection retry import plan is inconsistent")
+
+
+def _existing_directory(path: Path, owner: str) -> Path:
+    resolved = path.resolve()
+    if not resolved.exists() or not resolved.is_dir():
+        raise ValueError(f"{owner} must be an existing directory")
+    if resolved.is_symlink():
+        raise ValueError(f"{owner} must not be a symlink")
+    return resolved
+
+
+def _target_under(root: Path, relative_path: str) -> Path:
+    target = (root / relative_path).resolve()
+    if root != target and root not in target.parents:
+        raise ValueError("receiving review state receipt_path must stay under state root")
+    return target
 
 
 def _package_summary(

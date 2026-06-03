@@ -51,7 +51,8 @@ A future GUI receiving surface should be able to project, at minimum:
 
 The state projection is local review state. It is not a portable package
 artifact, package acceptance, durable storage mutation authority, signature
-trust evidence, or cross-session persistence contract.
+trust evidence, or GUI-owned state store. DEC-023 later accepts a narrow local
+receipt materialization boundary for cross-session review continuity.
 
 ## Scope
 
@@ -87,9 +88,10 @@ returns a `local_receiving_review_state_projection` summary with explicit
 non-claims. It remains a read-only local review surface, not a persisted GUI
 store.
 
-Future GUI work must still decide where review state lives, how freshness is
-checked across sessions, how user acknowledgement is recorded, and whether GUI
-state should become durable or remain a derived view over receipts.
+Future GUI work must still decide where GUI-owned review state lives, how
+freshness is checked across sessions, how user acknowledgement is recorded, and
+whether GUI state should become durable or remain a derived view over receipts.
+DEC-023 local receipts do not answer those GUI ownership questions.
 
 ## Alternatives Considered
 
@@ -116,6 +118,7 @@ Superseded by:
 Revisit this decision when:
 
 - a live GUI route needs to persist receiving review state across sessions;
+- DEC-023 local receipts need to become GUI-owned state;
 - users need to resume package review after package bytes or integrity facts
   change;
 - import retry review needs GUI-owned acknowledgement;
@@ -131,6 +134,7 @@ Revisit this decision when:
 - [`DEC-017-defer-batch-durable-import.md`](DEC-017-defer-batch-durable-import.md)
 - [`DEC-019-defer-package-signature-trust-implementation.md`](DEC-019-defer-package-signature-trust-implementation.md)
 - [`DEC-020-defer-archive-package-implementation.md`](DEC-020-defer-archive-package-implementation.md)
+- [`DEC-023-accept-local-receiving-review-state-receipts.md`](DEC-023-accept-local-receiving-review-state-receipts.md)
 - [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
 - [`../../engineering/prototype-boundaries/handoff-durable-import-storage.md`](../../engineering/prototype-boundaries/handoff-durable-import-storage.md)
 - [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
