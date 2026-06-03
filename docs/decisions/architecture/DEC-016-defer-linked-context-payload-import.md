@@ -70,9 +70,10 @@ storage mutation. Users can package and inspect declared context payloads, but
 importing a package measurement will not silently create context artifacts or
 attach arbitrary files to a durable record.
 
-The remaining handoff import extension pressure shifts to batch durable import,
-GUI receiving state, signature/trust implementation, or a future explicitly
-scoped context-artifact import contract.
+The remaining handoff extension pressure shifts to signature/trust
+implementation, archive packaging/extraction, or a future explicitly scoped
+context-artifact import contract. GUI receiving state projection is governed by
+DEC-018.
 
 ## Alternatives Considered
 
@@ -110,6 +111,7 @@ Revisit this decision when:
 
 - [`DEC-012-linked-context-payload-packaging.md`](DEC-012-linked-context-payload-packaging.md)
 - [`DEC-014-selected-record-linked-context-payload-export.md`](DEC-014-selected-record-linked-context-payload-export.md)
+- [`DEC-018-define-receiving-review-state-contract.md`](DEC-018-define-receiving-review-state-contract.md)
 - [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
 - [`../../engineering/prototype-boundaries/handoff-durable-import-storage.md`](../../engineering/prototype-boundaries/handoff-durable-import-storage.md)
 - [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)

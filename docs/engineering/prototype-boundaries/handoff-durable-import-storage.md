@@ -22,7 +22,9 @@ Read it with:
 - [`../../decisions/architecture/DEC-016-defer-linked-context-payload-import.md`](../../decisions/architecture/DEC-016-defer-linked-context-payload-import.md)
   for the current linked-context payload import deferral;
 - [`../../decisions/architecture/DEC-017-defer-batch-durable-import.md`](../../decisions/architecture/DEC-017-defer-batch-durable-import.md)
-  for the current batch durable import deferral.
+  for the current batch durable import deferral;
+- [`../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md`](../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md)
+  for the receiving review state projection boundary.
 
 ## Current Boundary
 
@@ -108,6 +110,9 @@ CLI summaries are local review surfaces. They are not portable handoff
 artifacts, retry approval, persistent GUI state, destination freshness proof,
 or storage mutation authority.
 
+DEC-018 allows future GUI receiving surfaces to project these local review
+facts, but does not make the durable-import adapter own persisted GUI state.
+
 ## Current Failure Shape
 
 The durable import pipeline reports storage outcomes. Handoff preserves those
@@ -146,7 +151,7 @@ This boundary does not accept:
 - lock identity, stale-lock cleanup, crash recovery, or concurrent writer
   behavior;
 - public storage schema, export schema, database index, or GUI import review
-  state.
+  state beyond DEC-018.
 
 ## Tests And Fixtures
 
@@ -184,5 +189,5 @@ Likely separate decisions include:
 - package archive format, trust, authenticity, or signature handling;
 - linked-context payload import beyond DEC-016;
 - existing-record update/import conflict behavior;
-- persistent receiving review state or GUI durable review workflow;
+- persisted receiving review state or GUI durable review workflow beyond DEC-018;
 - stronger recovery, locking, or concurrent storage behavior.

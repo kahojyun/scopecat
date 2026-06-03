@@ -122,6 +122,8 @@ selected stored-record batch package export without adding batch durable import.
 DEC-016 keeps linked-context payload import deferred until Measurement Records
 has an accepted context artifact storage contract. DEC-017 keeps batch durable
 import deferred until a destination and partial-success contract exists.
+DEC-018 defines receiving review state as a derived local projection without
+accepting a persisted GUI state store.
 
 Source evidence:
 

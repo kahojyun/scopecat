@@ -115,6 +115,9 @@ objects, durable-import adapter receipts, retry reviews, and CLI summaries are
 local review surfaces unless a later slice explicitly promotes one as a
 portable/export artifact.
 
+Receiving review state is currently a derived local projection over those
+receipts under DEC-018. This module does not persist GUI-owned review state.
+
 The generic package writer can package explicitly declared linked-context
 payload files under `context/` after source digest and size preflight. Opened
 packages expose those entries as `packaged_payload`, and integrity observation

@@ -34,6 +34,8 @@ Read it with:
   for the current durable linked-context payload import deferral;
 - [`../../decisions/architecture/DEC-017-defer-batch-durable-import.md`](../../decisions/architecture/DEC-017-defer-batch-durable-import.md)
   for the current batch durable import deferral;
+- [`../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md`](../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md)
+  for the current receiving review state projection boundary;
 - [`../workflow-validation-map.md`](../workflow-validation-map.md) for the
   current cross-capability handoff workflow gap.
 
@@ -136,6 +138,11 @@ The receiving path:
 - records blocked plans without destination, storage mutation, conflict policy,
   or rollback behavior.
 
+Receiving review state is a local projection over package-open, integrity,
+receiving-gate, import-plan, optional inspection, durable-import receipt, and
+retry-summary facts. DEC-018 defines that projection boundary without accepting
+a persisted GUI-owned state store.
+
 ## Artifact Authority
 
 The package directory and `package-manifest.json` are portable handoff
@@ -189,6 +196,10 @@ keeps batch durable import deferred. Multi-measurement packages may be reviewed
 and planned together, but durable import remains one planned measurement per
 storage mutation.
 
+[`DEC-018`](../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md)
+defines receiving review state as a derived local projection. It does not add a
+frontend, durable GUI store, or mutation authority.
+
 ## Production Vertical-Slice Candidate
 
 JNY-001 single-measurement handoff is a production vertical-slice candidate when
@@ -226,7 +237,7 @@ Acceptance for that candidate is intentionally narrow:
   context reference-only.
 
 This candidate is not production readiness for the whole handoff capability.
-Persistent GUI/review state, public SDK contracts, and final storage schemas
+Persisted GUI/review state, public SDK contracts, and final storage schemas
 remain separate decisions. Archive format is explicitly deferred by
 [`DEC-010`](../../decisions/architecture/DEC-010-package-format-directory-manifest.md).
 Signature/authenticity implementation and trust policy beyond the unsigned
@@ -244,6 +255,8 @@ Linked-context payload import deferral is governed by
 [`DEC-016`](../../decisions/architecture/DEC-016-defer-linked-context-payload-import.md).
 Batch durable import deferral is governed by
 [`DEC-017`](../../decisions/architecture/DEC-017-defer-batch-durable-import.md).
+Receiving review state projection is governed by
+[`DEC-018`](../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md).
 
 ## Historical Context
 
@@ -266,7 +279,8 @@ This boundary does not accept:
 - final public SDK names or package publishing metadata;
 - hard pandas/numpy dependency;
 - production plotting or publication-grade rendering;
-- live GUI components, routing, or interaction model;
+- live GUI components, routing, interaction model, or persisted GUI review
+  state beyond DEC-018;
 - numeric dtype conversion, unit conversion, schema inference, scan-shape
   inference, trace opening, or array API;
 - archive extraction, compressed package format, signature validation,
@@ -302,7 +316,7 @@ Advance this boundary only when a named workflow requires broader package-use
 behavior. Current likely separate decisions include:
 
 - production-readiness hardening for selected stored Measurement Record export;
-- GUI review beyond local static HTML;
+- persisted GUI review beyond the DEC-018 local projection boundary;
 - signature implementation or trusted-source policy beyond DEC-011;
 - durable linked-context payload import beyond DEC-016 or batch durable import
   beyond DEC-017;
