@@ -36,6 +36,8 @@ Read it with:
   for the current batch durable import deferral;
 - [`../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md`](../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md)
   for the current receiving review state projection boundary;
+- [`../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md`](../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md)
+  for the current package signature/trust implementation deferral;
 - [`../workflow-validation-map.md`](../workflow-validation-map.md) for the
   current cross-capability handoff workflow gap.
 
@@ -158,6 +160,10 @@ keeps this package unsigned local-review evidence. Declared digest integrity
 may gate receiving/import planning, but signature validation, authenticity,
 sender trust, and scientific validity remain unclaimed.
 
+[`DEC-019`](../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md)
+keeps signature/trust implementation deferred until a signed-artifact,
+canonicalized coverage, signer identity, and trust-root contract exists.
+
 Local writer receipts, workflow receipts, inspection HTML, receiving-gate
 results, import-plan objects, CLI summaries, and retry reviews are local review
 surfaces unless a later slice explicitly promotes one as a portable/export
@@ -242,7 +248,7 @@ remain separate decisions. Archive format is explicitly deferred by
 [`DEC-010`](../../decisions/architecture/DEC-010-package-format-directory-manifest.md).
 Signature/authenticity implementation and trust policy beyond the unsigned
 local-review posture are explicitly deferred by
-[`DEC-011`](../../decisions/architecture/DEC-011-package-trust-authenticity-posture.md).
+[`DEC-019`](../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md).
 Generic writer linked-context payload packaging without import is governed by
 [`DEC-012`](../../decisions/architecture/DEC-012-linked-context-payload-packaging.md).
 Batch import planning without batch durable mutation is governed by
@@ -257,6 +263,8 @@ Batch durable import deferral is governed by
 [`DEC-017`](../../decisions/architecture/DEC-017-defer-batch-durable-import.md).
 Receiving review state projection is governed by
 [`DEC-018`](../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md).
+Package signature/trust implementation deferral is governed by
+[`DEC-019`](../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md).
 
 ## Historical Context
 
@@ -284,7 +292,7 @@ This boundary does not accept:
 - numeric dtype conversion, unit conversion, schema inference, scan-shape
   inference, trace opening, or array API;
 - archive extraction, compressed package format, signature validation,
-  authenticity validation, or trusted-source policy;
+  authenticity validation, or trusted-source policy beyond DEC-019;
 - durable import, package acceptance, existing-record update, durable
   multi-measurement batch import beyond DEC-017, rollback policy, or storage
   conflict policy;
@@ -317,7 +325,7 @@ behavior. Current likely separate decisions include:
 
 - production-readiness hardening for selected stored Measurement Record export;
 - persisted GUI review beyond the DEC-018 local projection boundary;
-- signature implementation or trusted-source policy beyond DEC-011;
+- signed package and trusted-source policy beyond DEC-019;
 - durable linked-context payload import beyond DEC-016 or batch durable import
   beyond DEC-017;
 - analysis or fit results as first-class package display facts;

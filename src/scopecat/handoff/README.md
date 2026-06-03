@@ -118,6 +118,11 @@ portable/export artifact.
 Receiving review state is currently a derived local projection over those
 receipts under DEC-018. This module does not persist GUI-owned review state.
 
+Package signature/trust implementation is deferred under DEC-019. This module
+observes declared digest integrity and emits explicit non-claims, but it does
+not verify signer identity, package authenticity, trusted source, or
+signature-gated import policy.
+
 The generic package writer can package explicitly declared linked-context
 payload files under `context/` after source digest and size preflight. Opened
 packages expose those entries as `packaged_payload`, and integrity observation

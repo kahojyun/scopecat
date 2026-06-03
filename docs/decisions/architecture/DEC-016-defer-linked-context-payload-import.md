@@ -70,10 +70,10 @@ storage mutation. Users can package and inspect declared context payloads, but
 importing a package measurement will not silently create context artifacts or
 attach arbitrary files to a durable record.
 
-The remaining handoff extension pressure shifts to signature/trust
-implementation, archive packaging/extraction, or a future explicitly scoped
-context-artifact import contract. GUI receiving state projection is governed by
-DEC-018.
+The remaining handoff extension pressure shifts to archive
+packaging/extraction, signed package policy beyond DEC-019, or a future
+explicitly scoped context-artifact import contract. GUI receiving state
+projection is governed by DEC-018.
 
 ## Alternatives Considered
 

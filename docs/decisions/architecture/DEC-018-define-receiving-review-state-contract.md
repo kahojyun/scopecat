@@ -121,6 +121,7 @@ Revisit this decision when:
 - [`DEC-013-batch-receiving-import-planning.md`](DEC-013-batch-receiving-import-planning.md)
 - [`DEC-016-defer-linked-context-payload-import.md`](DEC-016-defer-linked-context-payload-import.md)
 - [`DEC-017-defer-batch-durable-import.md`](DEC-017-defer-batch-durable-import.md)
+- [`DEC-019-defer-package-signature-trust-implementation.md`](DEC-019-defer-package-signature-trust-implementation.md)
 - [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
 - [`../../engineering/prototype-boundaries/handoff-durable-import-storage.md`](../../engineering/prototype-boundaries/handoff-durable-import-storage.md)
 - [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)

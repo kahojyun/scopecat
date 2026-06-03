@@ -24,7 +24,9 @@ Read it with:
 - [`../../decisions/architecture/DEC-017-defer-batch-durable-import.md`](../../decisions/architecture/DEC-017-defer-batch-durable-import.md)
   for the current batch durable import deferral;
 - [`../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md`](../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md)
-  for the receiving review state projection boundary.
+  for the receiving review state projection boundary;
+- [`../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md`](../../decisions/architecture/DEC-019-defer-package-signature-trust-implementation.md)
+  for the current package signature/trust implementation deferral.
 
 ## Current Boundary
 
@@ -113,6 +115,11 @@ or storage mutation authority.
 DEC-018 allows future GUI receiving surfaces to project these local review
 facts, but does not make the durable-import adapter own persisted GUI state.
 
+DEC-019 keeps signature/trust implementation deferred. The durable-import
+adapter may consume declared digest integrity from the reviewed package path,
+but it does not verify signer identity, trusted source, package authenticity,
+or signature-gated mutation policy.
+
 ## Current Failure Shape
 
 The durable import pipeline reports storage outcomes. Handoff preserves those
@@ -144,7 +151,8 @@ This boundary does not accept:
 - final record-id generation policy;
 - manifest replacement or canonical-current-state manifest updates;
 - linked-context payload materialization beyond DEC-016;
-- archive extraction, signatures, authenticity, or package trust policy;
+- archive extraction, signatures, authenticity, or package trust policy beyond
+  DEC-019;
 - adapter discovery, drop-folder protocol, service API, or stable public
   adapter API;
 - conflict policy beyond new-record no-overwrite behavior;
@@ -186,7 +194,8 @@ Advance this boundary only when a named workflow requires a broader behavior.
 Likely separate decisions include:
 
 - batch package receiving/import and partial-success policy beyond DEC-017;
-- package archive format, trust, authenticity, or signature handling;
+- package archive format, trust, authenticity, or signature handling beyond
+  DEC-019;
 - linked-context payload import beyond DEC-016;
 - existing-record update/import conflict behavior;
 - persisted receiving review state or GUI durable review workflow beyond DEC-018;

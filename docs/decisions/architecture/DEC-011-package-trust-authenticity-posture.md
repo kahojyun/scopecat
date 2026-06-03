@@ -45,6 +45,10 @@ import-plan, and durable-import receipts must continue to expose this
 separation with explicit `not_performed` policy fields or `does_not_claim`
 entries.
 
+[`DEC-019`](DEC-019-defer-package-signature-trust-implementation.md) keeps
+signature/trust implementation deferred until a signed-artifact, canonicalized
+coverage, signer identity, and trust-root contract exists.
+
 ## Scope
 
 This decision applies to:
@@ -73,7 +77,7 @@ partial or misleading security model.
 
 Future signature/authenticity work must define the signer identity model, trust
 root, signature coverage, unsigned-package handling, retry/error contract, and
-how those facts appear in receiving review.
+how those facts appear in receiving review as required by DEC-019.
 
 ## Alternatives Considered
 
@@ -111,6 +115,7 @@ Revisit this decision when:
 ## Related Evidence And Owners
 
 - [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
+- [`DEC-019-defer-package-signature-trust-implementation.md`](DEC-019-defer-package-signature-trust-implementation.md)
 - [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
 - [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
 - [`../../../tests/prototypes/handoff/test_handoff_jny001_single_measurement_workflow.py`](../../../tests/prototypes/handoff/test_handoff_jny001_single_measurement_workflow.py)

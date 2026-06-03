@@ -94,7 +94,7 @@ Revisit this decision when:
 
 - handoff packages need to cross a transport boundary where directories are not
   acceptable;
-- trust/authenticity or signature work starts;
+- signed package or trusted-source policy work beyond DEC-019 starts;
 - linked-context payload packaging needs atomic package transfer;
 - batch export/import needs a stable bundle format;
 - package publication, SDK, or GUI workflows require an archive artifact.
