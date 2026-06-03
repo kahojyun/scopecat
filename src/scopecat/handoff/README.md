@@ -24,6 +24,8 @@ Package writer and local package workflow:
 
 - `write_package(source, source_root=..., package_root=...)`
 - `run_package_workflow(source, source_root=..., package_root=...)`
+- `export_selected_measurement_record_from_request(request, storage_root=..., package_root=...)`
+- `export_selected_measurement_record(source, storage_root=..., package_root=...)`
 
 Read-only package use and local review:
 
@@ -78,6 +80,13 @@ normalized CSV shape, and row count before any storage mutation.
 The generated package directory and `package-manifest.json` are portable
 handoff artifacts. Package contents must use package-relative paths and
 validated managed references at the package/export boundary.
+
+Selected stored-record export is a route-local adapter over the existing
+Measurement Records read model and record-local receipts. It reads one complete
+stored record, requires explicit preview metadata, delegates package writing to
+the package writer, keeps linked context reference-only, and does not mutate
+Measurement Records storage, refresh read models, infer schema, create
+archives, or accept/import packages.
 
 Local writer receipts, inspection HTML, function return values, import-plan
 objects, durable-import adapter receipts, retry reviews, and CLI summaries are

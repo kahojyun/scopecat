@@ -8,8 +8,9 @@ Accepted engineering-prototype boundary.
 
 This note owns the current package-use boundary for `scopecat.handoff`: writing
 Scopecat-authored package directories from caller-declared source files,
-opening packages read-only, producing local review surfaces, running receiving
-gates, and building non-mutating import plans.
+exporting one selected stored Measurement Record to a package, opening
+packages read-only, producing local review surfaces, running receiving gates,
+and building non-mutating import plans.
 
 Read it with:
 
@@ -35,6 +36,16 @@ caller-declared source root and package write request
   -> non-mutating import plan
 ```
 
+The selected stored-record export adapter composes with that package writer:
+
+```text
+complete Measurement Record read model and record-local receipts
+  -> selected-record export request with explicit preview metadata
+  -> package writer request
+  -> directory-shaped single-measurement package
+  -> read-only package open
+```
+
 This boundary owns package artifact creation and read-only package review. It
 does not own durable storage mutation; durable import is delegated through
 [`handoff-durable-import-storage.md`](handoff-durable-import-storage.md).
@@ -53,6 +64,19 @@ The current package writer:
 - keeps linked context reference-only;
 - returns a local write receipt;
 - proves generated packages open through the read-only opener.
+
+The selected stored-record export adapter:
+
+- requires an approved selected-record export request;
+- reads one complete Measurement Records read model plus record-local creation
+  and writer receipts;
+- preserves record id, record-local primary-data path, digest, size, label,
+  and experiment type into the package writer request;
+- requires explicit preview metadata and does not infer plot semantics from CSV
+  headers;
+- writes a single-measurement package through the package writer;
+- keeps linked context reference-only;
+- does not mutate Measurement Records storage or refresh read models.
 
 The current read-only package use:
 
@@ -149,8 +173,7 @@ uv run ruff format --check .
 Advance this boundary only when a named workflow requires broader package-use
 behavior. Current likely separate decisions include:
 
-- selected stored Measurement Record to single-measurement handoff package
-  export;
+- production-readiness hardening for selected stored Measurement Record export;
 - GUI review beyond local static HTML;
 - archive, signature, authenticity, or trust behavior;
 - linked-context payload packaging or review;

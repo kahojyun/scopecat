@@ -44,12 +44,21 @@ from scopecat.handoff.receiving import (
     HandoffReceivingReviewRequest,
     run_receiving_gate,
 )
+from scopecat.handoff.selected_record_export import (
+    SELECTED_RECORD_EXPORT_POLICY,
+    SelectedMeasurementRecordExportLinkedContext,
+    SelectedMeasurementRecordExportRequest,
+    SelectedMeasurementRecordExportRun,
+    export_selected_measurement_record,
+    export_selected_measurement_record_from_request,
+)
 from scopecat.handoff.tables import HandoffPlotSeries, HandoffTable
 from scopecat.handoff.workflow import HandoffPackageWorkflowRun, run_package_workflow
 from scopecat.handoff.writer import HandoffPackageWriteReceipt, write_package
 
 __all__ = [
     "HANDOFF_INSPECTION_ARTIFACT_NAME",
+    "SELECTED_RECORD_EXPORT_POLICY",
     "HandoffContextReferenceSummary",
     "HandoffDurableImportDestination",
     "HandoffDurableImportReceiptSummary",
@@ -73,8 +82,13 @@ __all__ = [
     "HandoffReceivingGateRun",
     "HandoffReceivingReviewRequest",
     "HandoffTable",
+    "SelectedMeasurementRecordExportLinkedContext",
+    "SelectedMeasurementRecordExportRequest",
+    "SelectedMeasurementRecordExportRun",
     "build_durable_import_request_from_handoff_plan",
     "build_inspection_html",
+    "export_selected_measurement_record",
+    "export_selected_measurement_record_from_request",
     "observe_package_integrity",
     "open_package",
     "review_handoff_durable_import_retry",
