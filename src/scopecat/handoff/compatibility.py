@@ -79,6 +79,7 @@ def current_handoff_compatibility_contract() -> dict[str, Any]:
             "local_handoff_durable_import_receipt",
             "local_handoff_durable_import_receipt_summary",
             "local_handoff_durable_import_retry_review",
+            "local_jny001_operator_smoke_summary",
             "local_receiving_review_state_projection",
             "local_receiving_review_state_receipt",
             "local_archive_materialization_contract",

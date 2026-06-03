@@ -49,6 +49,10 @@ from scopecat.handoff.integrity import (
     HandoffPackageIntegrityReport,
     observe_package_integrity,
 )
+from scopecat.handoff.operator_smoke import (
+    HandoffJny001OperatorSmokeSummary,
+    summarize_jny001_operator_smoke,
+)
 from scopecat.handoff.package import (
     HandoffContextReferenceSummary,
     HandoffFinding,
@@ -113,6 +117,7 @@ __all__ = [
     "HandoffImportPlanRun",
     "HandoffIntegrityMemberObservation",
     "HandoffIntegrityOwnerRef",
+    "HandoffJny001OperatorSmokeSummary",
     "HandoffLinkedContext",
     "HandoffLinkedContextImportPlan",
     "HandoffMeasurement",
@@ -159,6 +164,7 @@ __all__ = [
     "run_package_workflow",
     "run_receiving_gate",
     "summarize_handoff_durable_import_receipt",
+    "summarize_jny001_operator_smoke",
     "summarize_package_context_references",
     "write_handoff_receiving_review_state_receipt",
     "write_inspection_artifact",
