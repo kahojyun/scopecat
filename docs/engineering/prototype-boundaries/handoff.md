@@ -118,6 +118,14 @@ request approval gaps, package destination collisions, missing record evidence,
 record evidence mismatches, incomplete records, and record path scope
 violations. It does not authorize retry or mutate storage.
 
+Selected-record export receipts also include local
+`read_model_freshness_review` guidance. The export path checks that the
+selected read model matches the request, record-local creation manifest, and
+writer receipt before writing a package. Missing, invalid, stale, incomplete, or
+out-of-scope read-model evidence blocks export and reports the required retry
+input, but selected export does not project, refresh, repair, or otherwise
+mutate Measurement Records storage.
+
 For JNY-001 product handoff, this storage-backed selected-record export path is
 the production vertical slice candidate. Direct package-writer input remains an
 adapter or engineering route for already-reviewed normalized data, not a
