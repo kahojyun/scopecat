@@ -389,6 +389,12 @@ class SelectedMeasurementRecordExportRun:
                 export_error=self.export_error,
                 package_written=self.package_write is not None,
             ),
+            "read_model_freshness_review": _read_model_freshness_review(
+                classification=self.classification,
+                approved=self.request.approved,
+                export_error=self.export_error,
+                package_written=self.package_write is not None,
+            ),
             "export": {
                 "performed": self.exported,
                 "storage_root": str(self.storage_root),
@@ -452,6 +458,12 @@ class SelectedMeasurementRecordBatchExportRun:
             ],
             "package_write": None if self.package_write is None else self.package_write.to_dict(),
             "export_review": _export_review(
+                classification=self.classification,
+                approved=self.request.approved,
+                export_error=self.export_error,
+                package_written=self.package_write is not None,
+            ),
+            "read_model_freshness_review": _read_model_freshness_review(
                 classification=self.classification,
                 approved=self.request.approved,
                 export_error=self.export_error,
@@ -963,6 +975,152 @@ def _export_retry_requirement(block_reason: str | None) -> str | None:
         "record_evidence_mismatch",
         "record_not_complete",
         "record_path_scope_violation",
+    }:
+        return "fresh_matching_record_read_model_manifest_and_writer_receipt"
+    return "reviewed_export_input_correction"
+
+
+def _read_model_freshness_review(
+    *,
+    classification: str,
+    approved: bool,
+    export_error: str | None,
+    package_written: bool,
+) -> dict[str, Any]:
+    block_reason = _read_model_freshness_block_reason(
+        approved=approved,
+        export_error=export_error,
+    )
+    return {
+        "classification": _read_model_freshness_classification(
+            classification=classification,
+            block_reason=block_reason,
+            package_written=package_written,
+        ),
+        "read_model_refresh": "not_performed",
+        "block_reason": block_reason,
+        "next_action": _read_model_freshness_next_action(
+            classification=classification,
+            block_reason=block_reason,
+        ),
+        "retry_requires": _read_model_freshness_retry_requirement(block_reason),
+        "does_not_claim": [
+            "read_model_refresh",
+            "automatic_projection",
+            "storage_mutation",
+            "record_repair",
+        ],
+    }
+
+
+def _read_model_freshness_block_reason(
+    *,
+    approved: bool,
+    export_error: str | None,
+) -> str | None:
+    if export_error is None:
+        return None if approved else "request_not_approved"
+    if "target already exists" in export_error:
+        return "package_destination_collision"
+    if "record read model is required" in export_error:
+        return "missing_read_model"
+    if (
+        "read model schema is unsupported" in export_error
+        or "record read model must be JSON" in export_error
+        or "record read model must be an object" in export_error
+    ):
+        return "invalid_read_model"
+    if (
+        "read model record_id must match request" in export_error
+        or "read model record_dir must match request" in export_error
+        or "must match writer receipt" in export_error
+    ):
+        return "stale_read_model"
+    if "requires complete read model lifecycle" in export_error:
+        return "read_model_not_complete"
+    if "is required" in export_error:
+        return "missing_record_evidence"
+    if "must stay under record_dir" in export_error:
+        return "read_model_scope_invalid"
+    if "must match request" in export_error:
+        return "record_evidence_mismatch"
+    return "read_model_freshness_unresolved"
+
+
+def _read_model_freshness_classification(
+    *,
+    classification: str,
+    block_reason: str | None,
+    package_written: bool,
+) -> str:
+    if package_written:
+        return "fresh_read_model_evidence"
+    if block_reason is None and classification in {
+        "exported_selected_measurement_record",
+        "exported_selected_measurement_record_batch",
+    }:
+        return "fresh_read_model_evidence"
+    if block_reason == "request_not_approved":
+        return "not_checked_before_approval"
+    if block_reason == "package_destination_collision":
+        return "fresh_read_model_evidence_not_exported"
+    if block_reason == "missing_read_model":
+        return "missing_read_model_requires_projection"
+    if block_reason == "invalid_read_model":
+        return "invalid_read_model_requires_projection"
+    if block_reason == "stale_read_model":
+        return "stale_read_model_requires_refresh"
+    if block_reason == "read_model_not_complete":
+        return "read_model_not_complete_for_export"
+    if block_reason in {
+        "missing_record_evidence",
+        "read_model_scope_invalid",
+        "record_evidence_mismatch",
+    }:
+        return "read_model_freshness_not_exportable"
+    return "read_model_freshness_unresolved"
+
+
+def _read_model_freshness_next_action(
+    *,
+    classification: str,
+    block_reason: str | None,
+) -> str:
+    if classification in {
+        "exported_selected_measurement_record",
+        "exported_selected_measurement_record_batch",
+    }:
+        return "continue_selected_record_export"
+    if block_reason == "request_not_approved":
+        return "approve_selected_record_export_request"
+    if block_reason == "package_destination_collision":
+        return "choose_new_package_destination_before_retry"
+    if block_reason in {"missing_read_model", "invalid_read_model", "stale_read_model"}:
+        return "project_or_refresh_read_model_before_selected_record_export"
+    if block_reason in {
+        "read_model_not_complete",
+        "missing_record_evidence",
+        "read_model_scope_invalid",
+        "record_evidence_mismatch",
+    }:
+        return "review_record_evidence_before_export_retry"
+    return "review_selected_record_export_error_before_retry"
+
+
+def _read_model_freshness_retry_requirement(block_reason: str | None) -> str | None:
+    if block_reason is None:
+        return None
+    if block_reason == "request_not_approved":
+        return "approved_selected_record_export_request"
+    if block_reason == "package_destination_collision":
+        return "fresh_package_destination_or_removed_collision"
+    if block_reason in {"missing_read_model", "invalid_read_model", "stale_read_model"}:
+        return "fresh_projected_record_read_model"
+    if block_reason in {
+        "read_model_not_complete",
+        "missing_record_evidence",
+        "read_model_scope_invalid",
+        "record_evidence_mismatch",
     }:
         return "fresh_matching_record_read_model_manifest_and_writer_receipt"
     return "reviewed_export_input_correction"

@@ -141,6 +141,13 @@ classifies successful transfer review or blocked retry review. This is local
 review guidance only; it does not approve retry, mutate storage, or refresh
 read models.
 
+Selected-record export receipts also include `read_model_freshness_review`
+guidance. This review records whether read-model evidence was fresh enough for
+export, blocked because it was missing, invalid, stale, incomplete, or
+out-of-scope, or was not checked before approval. The export path reports the
+required retry evidence but does not project, refresh, repair, or mutate
+Measurement Records storage.
+
 Receiving gate and import-plan receipts include `receiving_review` and
 `import_plan_review` guidance that classifies successful continuation or
 blocked retry review. This is local review guidance only; it does not approve

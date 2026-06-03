@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 import tempfile
 import unittest
@@ -212,6 +213,22 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
                 "block_reason": None,
                 "next_action": "transfer_package_for_receiving_review",
                 "retry_requires": None,
+            },
+        )
+        self.assertEqual(
+            payload["read_model_freshness_review"],
+            {
+                "classification": "fresh_read_model_evidence",
+                "read_model_refresh": "not_performed",
+                "block_reason": None,
+                "next_action": "continue_selected_record_export",
+                "retry_requires": None,
+                "does_not_claim": [
+                    "read_model_refresh",
+                    "automatic_projection",
+                    "storage_mutation",
+                    "record_repair",
+                ],
             },
         )
 
@@ -446,6 +463,10 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
                 "retry_requires": "approved_selected_record_export_request",
             },
         )
+        self.assertEqual(
+            run.to_dict()["read_model_freshness_review"]["classification"],
+            "not_checked_before_approval",
+        )
 
     def test_export_requires_complete_read_model_before_package_write(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -471,6 +492,10 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
         self.assertEqual(
             run.to_dict()["export_review"]["next_action"],
             "review_record_evidence_before_export_retry",
+        )
+        self.assertEqual(
+            run.to_dict()["read_model_freshness_review"]["classification"],
+            "read_model_not_complete_for_export",
         )
 
     def test_export_rejects_primary_data_outside_selected_record_dir(self) -> None:
@@ -500,6 +525,57 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
             run.to_dict()["export_review"]["block_reason"],
             "record_path_scope_violation",
         )
+
+    def test_export_blocks_stale_read_model_before_package_write(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root, package_root = self._create_imported_record(Path(temp_dir))
+            read_model_path = storage_root / "records" / "run-3101-rabi" / "record-read-model.json"
+            read_model = json.loads(read_model_path.read_text(encoding="utf-8"))
+            read_model["primary_data"]["digest"] = (
+                "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            )
+            read_model_path.write_text(json.dumps(read_model, indent=2), encoding="utf-8")
+
+            run = export_selected_measurement_record_from_request(
+                _export_request(),
+                storage_root=storage_root,
+                package_root=package_root,
+            )
+
+            self.assertFalse((package_root / "handoff-package-run-3101-rabi").exists())
+
+        review = run.to_dict()["read_model_freshness_review"]
+        self.assertFalse(run.exported)
+        self.assertIn("must match writer receipt", run.export_error or "")
+        self.assertEqual(review["classification"], "stale_read_model_requires_refresh")
+        self.assertEqual(review["read_model_refresh"], "not_performed")
+        self.assertEqual(review["block_reason"], "stale_read_model")
+        self.assertEqual(
+            review["next_action"],
+            "project_or_refresh_read_model_before_selected_record_export",
+        )
+        self.assertEqual(review["retry_requires"], "fresh_projected_record_read_model")
+        self.assertIn("storage_mutation", review["does_not_claim"])
+
+    def test_export_blocks_missing_read_model_before_package_write(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_root, package_root = self._create_imported_record(Path(temp_dir))
+            (storage_root / "records" / "run-3101-rabi" / "record-read-model.json").unlink()
+
+            run = export_selected_measurement_record_from_request(
+                _export_request(),
+                storage_root=storage_root,
+                package_root=package_root,
+            )
+
+            self.assertFalse((package_root / "handoff-package-run-3101-rabi").exists())
+
+        review = run.to_dict()["read_model_freshness_review"]
+        self.assertFalse(run.exported)
+        self.assertEqual(review["classification"], "missing_read_model_requires_projection")
+        self.assertEqual(review["read_model_refresh"], "not_performed")
+        self.assertEqual(review["block_reason"], "missing_read_model")
+        self.assertEqual(review["retry_requires"], "fresh_projected_record_read_model")
 
     def test_export_review_summarizes_missing_evidence_block(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -544,6 +620,10 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
                 "next_action": "choose_new_package_destination_before_retry",
                 "retry_requires": "fresh_package_destination_or_removed_collision",
             },
+        )
+        self.assertEqual(
+            second.to_dict()["read_model_freshness_review"]["classification"],
+            "fresh_read_model_evidence_not_exported",
         )
 
 
