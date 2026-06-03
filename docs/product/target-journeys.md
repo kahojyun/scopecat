@@ -66,9 +66,9 @@ Current slices:
 - JNY-001 Portable Measurement Handoff;
 - JNY-006 Selected Reference Comparison.
 
-Promotion condition: promote only after a narrow use-case-centered slice proves
-manual review, explicit run-start authority, execution boundary, monitoring,
-result recording, and recovery expectations together.
+Promotion condition: promote only after a narrow slice around a named use case
+proves manual review, explicit run-start authority, execution boundary,
+monitoring, result recording, and recovery expectations together.
 
 ## Journey Catalog
 

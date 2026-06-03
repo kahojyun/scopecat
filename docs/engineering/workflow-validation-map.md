@@ -8,11 +8,11 @@ Use-case and workflow validation owner.
 
 This map organizes Scopecat validation progress by use case, workflow segment,
 scenario evidence, and operation evidence rather than by candidate file,
-fixture family, or code module. Use it to decide what the next use-case-centered
+fixture family, or code module. Use it to decide what the next use-case-driven
 prototype should validate.
 
 Use stable `UC-*` IDs for use cases and workflow segments that can drive
-use-case-centered validation. Do not assign stable IDs to scenarios or
+use-case-driven validation. Do not assign stable IDs to scenarios or
 operations unless they are promoted into named use cases.
 Use `UC-CAND-*` IDs for missing or candidate use cases that are visible enough
 to sequence, but not yet validated enough to join the `UC-*` table.
