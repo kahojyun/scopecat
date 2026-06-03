@@ -67,6 +67,20 @@ Current pressure:
 - evidence about readiness is scattered;
 - notebooks and local scripts can hide which context was actually used.
 
+### Instrument And Service Readiness
+
+Users often check whether instruments, services, drivers, environments, or
+helper processes are ready enough before they trust a run.
+
+Current pressure:
+
+- readiness checks may live in scripts, notebooks, GUIs, logs, or operator
+  habits rather than a stable review surface;
+- failure recovery can require local knowledge about drivers, services,
+  hardware state, or lab-specific restart order;
+- Scopecat can record bounded readiness evidence, but current-state readiness
+  does not imply Scopecat owns hardware safety or recovery.
+
 ### Calibration Continuation
 
 Calibration work often depends on interrupted notebook state, fit previews,
@@ -91,6 +105,20 @@ Current pressure:
 - readiness and completeness are not always explicit;
 - monitoring needs are real, but execution and scan control remain owned by the
   measurement code.
+
+### Post-Run Analysis And Reporting
+
+After a run, users often analyze, plot, summarize, and report selected results
+before deciding whether the data is worth preserving, comparing, or handing off.
+
+Current pressure:
+
+- analysis artifacts can be mixed with primary data, transformed data,
+  notebooks, figures, reports, and presentation material;
+- selected "useful" results may be identified after several exploratory plots
+  or notebook edits;
+- later handoff or comparison depends on knowing which data is primary, which
+  artifacts are derived, and which context is missing.
 
 ### Experiment Code Recovery
 

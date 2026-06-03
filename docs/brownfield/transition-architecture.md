@@ -96,7 +96,7 @@ Deferred authority:
 - selected stored Measurement Record to single-measurement package export is
   the next posture change to validate.
 
-### Manual Pre-Run Context Review And Approval
+### Pre-Run Context Review
 
 Current journey:
 
@@ -117,8 +117,8 @@ Target journey:
 - assemble selected parameter, code, environment, and setup context into a
   reviewable pre-run package;
 - show missing or risky context before run start;
-- record the operator's approval or deferral without taking hardware-control
-  authority by default.
+- record the operator's acknowledgement, deferral, or note without taking
+  hardware-control authority by default.
 
 Ownership posture:
 
@@ -218,6 +218,10 @@ Target journey:
 - keep execution and deployment authority separate until a narrower workflow
   proves the need.
 
+Coordination role: this is a context-support journey. It should help other
+journeys understand code context without becoming a generic Git, package
+management, runtime, or execution journey.
+
 Ownership posture:
 
 - explicit run/step code-context recording: candidate `Record`;
@@ -250,6 +254,11 @@ Target journey:
 - review objective comparison findings across declared context;
 - leave interpretation and action to the user unless a later workflow earns
   stronger authority.
+
+Coordination role: this is a review-oriented journey that can support pre-run
+review, post-run analysis, calibration continuation, monitoring review, and
+handoff decisions. Do not treat every comparison input as a new standalone
+journey.
 
 Ownership posture:
 

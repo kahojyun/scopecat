@@ -38,6 +38,49 @@ product intent; implementation owners remain in the implementation register.
 Do not use legacy system names as target journey names. Legacy behavior belongs
 in the brownfield current-state and transition documents.
 
+## Experiment Lifecycle Composition
+
+Real experiment work usually crosses several target journeys:
+
+```text
+prepare context
+  -> start the run outside Scopecat
+  -> monitor running measurement
+  -> record or import measurement facts
+  -> analyze, compare, continue calibration, or hand off selected results
+```
+
+Scopecat should acknowledge this lifecycle without claiming the whole lifecycle
+as one current target journey. The current target journeys intentionally prove
+smaller boundaries around review, recording, monitoring, comparison, and
+handoff.
+
+## Deferred Umbrella Journeys
+
+### Start And Complete A Measurement
+
+Why deferred:
+
+- it would imply run-start authority;
+- it would couple parameter apply, code execution, environment readiness,
+  monitoring, result recording, failure recovery, and handoff too early;
+- it would pressure Scopecat toward hardware safety, scan execution,
+  scheduling, and recovery ownership before narrower workflows earn those
+  boundaries.
+
+Current slices:
+
+- Pre-Run Context Review;
+- Experiment Code Context Recovery And Reuse;
+- Running Measurement Monitoring And Inspection;
+- Calibration Work Continuation;
+- Portable Measurement Handoff;
+- Selected Reference Comparison.
+
+Promotion condition: promote only after a narrow vertical slice proves manual
+review, explicit run-start authority, execution boundary, monitoring, result
+recording, and recovery expectations together.
+
 ## Journey Catalog
 
 ### Portable Measurement Handoff
@@ -80,7 +123,7 @@ Source evidence:
 - [`selected-run-handoff.md`](../discovery/problem-briefs/selected-run-handoff.md);
 - [`measurement-record-boundary.md`](../discovery/problem-briefs/measurement-record-boundary.md).
 
-### Manual Pre-Run Context Review And Approval
+### Pre-Run Context Review
 
 Goal: review selected parameter, code, environment, and setup context before a
 manual run without giving Scopecat execution or hardware-control authority.
@@ -91,7 +134,7 @@ Primary workflows:
 - context selection;
 - prepared-run review;
 - optional environment-operation evidence;
-- operator approval.
+- operator acknowledgement or deferral.
 
 Use cases to prove:
 
@@ -101,6 +144,7 @@ Use cases to prove:
 - consume parameter-state facts in a prepared-run review chain;
 - capture bounded environment-operation evidence;
 - record code context for a run or step;
+- record operator acknowledgement, deferral, or note;
 - later add setup-binding snapshot selection.
 
 Supporting capabilities:
@@ -112,9 +156,9 @@ Supporting capabilities:
 - setup-binding candidate workflow.
 
 Validation orientation: parameter-state review has live engineering prototype
-coverage. Prepared-run context and approval remain scenario evidence without a
-live route owner. Environment operation is operation evidence for later
-readiness/context use, not a standalone journey.
+coverage. Prepared-run context and acknowledgement remain scenario evidence
+without a live route owner. Environment operation is operation evidence for
+later readiness/context use, not a standalone journey.
 
 Source evidence:
 
@@ -224,6 +268,9 @@ Supporting capabilities:
 Validation orientation: discovery and implementation-candidate evidence.
 Environment Operation currently provides operation evidence for bounded
 `uv sync`, not a full code-context or runtime-readiness journey.
+This journey supports other journeys by making code context understandable; it
+does not own Git replacement, package management, deployment, runtime, or
+experiment execution by default.
 
 Source evidence:
 
@@ -259,6 +306,9 @@ Supporting capabilities:
 Validation orientation: discovery evidence. The first credible use case is
 comparison over declared context, not a universal setup truth or judgment
 engine.
+This is a review-oriented journey that can support pre-run, post-run,
+calibration, monitoring, and handoff decisions without turning every comparison
+input into a separate target journey.
 
 Source evidence:
 
@@ -270,7 +320,7 @@ Source evidence:
 
 Supports:
 
-- manual pre-run context review;
+- pre-run context review;
 - selected reference comparison;
 - portable handoff context.
 

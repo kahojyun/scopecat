@@ -51,9 +51,9 @@ Decision gate:
   primary-data references, missing context, and portable/export artifact
   boundaries clearly enough to connect the two validated ends.
 
-### 2. Stabilize Manual Pre-Run Context Review
+### 2. Stabilize Pre-Run Context Review
 
-Target journey: Manual Pre-Run Context Review And Approval.
+Target journey: Pre-Run Context Review.
 
 Next vertical-slice pressure:
 
@@ -70,8 +70,8 @@ Already validated:
 
 Decision gate:
 
-- a user-facing prepared-run use case has explicit input, review, approval, and
-  no-run-start semantics.
+- a user-facing prepared-run use case has explicit input, review,
+  acknowledgement or deferral, and no-run-start semantics.
 
 ### 3. Promote One Experiment Code Context Step
 

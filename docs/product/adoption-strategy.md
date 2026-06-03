@@ -115,7 +115,7 @@ User value:
 
 Supports:
 
-- Manual Pre-Run Context Review And Approval;
+- Pre-Run Context Review;
 - Parameter State Review;
 - Measurement Records context links later.
 
@@ -136,7 +136,7 @@ User value:
 Supports:
 
 - Experiment Code Context Recovery And Reuse;
-- Manual Pre-Run Context Review And Approval later;
+- Pre-Run Context Review later;
 - Experiment Code Context;
 - Environment Operation.
 
