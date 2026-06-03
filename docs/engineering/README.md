@@ -15,7 +15,7 @@ Use these documents before adding or promoting live code:
 
 | Document | Use For |
 | --- | --- |
-| [`delivery-maturity-model.md`](delivery-maturity-model.md) | Classify workflow and capability maturity; choose validation methods without treating candidate/prototype counts as progress. |
+| [`delivery-maturity-model.md`](delivery-maturity-model.md) | Classify maturity for user journeys, workflows, use cases, vertical slices, and product capabilities; choose validation methods without treating candidate/prototype counts as progress. |
 | [`workflow-validation-map.md`](workflow-validation-map.md) | Start from user journeys, use cases, scenarios, operations, validated behavior, missing seams, and next validation questions. |
 | [`implementation-register.md`](implementation-register.md) | Track live implementation owners and route readers to module and prototype-boundary detail. |
 | [`../product/capability-map.md`](../product/capability-map.md) | Track product capabilities, maturity, evidence state, and open advancement questions. |

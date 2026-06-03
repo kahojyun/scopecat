@@ -15,9 +15,11 @@ nearest owner and avoid turning candidates or future plans into current truth.
   [`terminology.md`](terminology.md). Distinguish workflow, capability,
   maturity, validation method, decision status, evidence, artifact boundary,
   and ownership.
-- **Maturity**: classify the affected workflow or capability maturity using
-  the delivery maturity model. Treat candidates, spikes, prototypes, and
-  scenarios as validation methods, not progress metrics by themselves.
+- **Maturity**: classify maturity only for delivery objects named by the
+  delivery maturity model: user journeys, workflows, use cases, vertical
+  slices, and product capabilities. Treat candidates, spikes, prototypes,
+  scenarios, and operations as evidence or validation methods, not maturity
+  owners by themselves.
 - **Owner**: update every affected owner, but keep each fact in one durable
   place: workflow and use case map for user journey, use case, scenario, operation,
   and validation status; product capability map for capability maturity;
@@ -41,6 +43,6 @@ nearest owner and avoid turning candidates or future plans into current truth.
   supersession clarification.
 - **Future flexibility**: do not describe an unvalidated future owner, request
   shape, schema, GUI, storage model, SDK, or redaction policy as accepted.
-- **Reader test**: a context-free reader should be able to answer which
-  workflow or capability changed, what maturity changed, who owns it, and what
-  remains unaccepted.
+- **Reader test**: a context-free reader should be able to answer which user
+  journey, workflow, use case, vertical slice, or capability changed, what
+  maturity changed, who owns it, and what remains unaccepted.

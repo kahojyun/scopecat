@@ -18,8 +18,8 @@ product and software-delivery vocabulary over project-local category names.
 | Broad user path | User journey | A user's end-to-end path across one or more workflows or capabilities. | Code modules, fixture families, or implementation-candidate counts. |
 | Ordered user process | Workflow | A user-visible sequence of activities that completes a goal. | A single operation, route-local receipt, code module, or capability. |
 | Product ability | Capability | A product ability that may support one or more workflows. | A separate product, a route-local module name, or a validation method. |
-| Delivery maturity | Maturity | Discovery, engineering prototype, production vertical slice, production readiness, or maintained product capability. | Project-wide phase gates or validation method counts. |
-| Validation technique | Validation method | Candidate, spike, prototype, scenario, dogfood run, fixture validation, or readiness review. | Product progress unless it advances a named workflow or capability. |
+| Delivery maturity | Maturity | Discovery, engineering prototype, production vertical slice, production readiness, or maintained product capability for user journeys, workflows, use cases, vertical slices, and product capabilities. | Project-wide phase gates, validation method counts, scenarios, operations, modules, or artifact boundaries. |
+| Validation technique | Validation method | Candidate, spike, prototype, scenario, dogfood run, fixture validation, or readiness review. | Product progress unless it advances a named maturity owner. |
 | Implementation location | Module | Code package or module that implements behavior. | Product capability unless the product concept and code boundary intentionally match. |
 | Formal choice | Decision | A committed engineering or product choice with owner, scope, and supersession path. | Discovery evidence, validation result, or navigation note. |
 | Evidence strength | Evidence | Research result, validation result, test, fixture, scenario, or dogfood run supporting a claim. | Decision status or implementation ownership. |
