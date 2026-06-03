@@ -138,9 +138,9 @@ Retirement requires:
 - Shared domain model extraction should remain deferred until repeated
   production vertical slices prove stable cross-capability concepts.
 
-## Decision Triggers
+## Decision-Record Triggers
 
-Create or update an ADR when a branch:
+Create or update a decision record when a branch:
 
 - moves a boundary from `Review`, `Bridge`, `Shadow`, or `Assist` to
   `Primary owner`;
@@ -150,10 +150,14 @@ Create or update an ADR when a branch:
 - promotes a legacy-specific artifact shape into a target product object;
 - extracts a shared domain model across capabilities.
 
+Use [`../decisions/README.md`](../decisions/README.md) to decide whether the
+record is an architecture decision record, product decision, engineering
+decision, discovery decision, or operational decision.
+
 ## Update Rule
 
 Update this strategy when migration patterns, default authority rules, or
-decision triggers change.
+decision-record triggers change.
 
 Do not use this file as a roadmap, backlog, implementation checklist, or
 validation result.

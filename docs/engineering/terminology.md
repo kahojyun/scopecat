@@ -65,6 +65,9 @@ Decision status: No decision
 
 is clearer than describing the same file by what it is not.
 
+Use [`../decisions/README.md`](../decisions/README.md) for decision-record
+types, ADR usage, and the current decision register.
+
 ## Scope Language
 
 Use the narrowest standard phrase:

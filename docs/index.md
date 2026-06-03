@@ -13,6 +13,7 @@ docs/
               adoption strategy
   brownfield/ current-state assessment, transition architecture, migration
               strategy, and migration roadmap
+  decisions/  decision register, decision taxonomy, and template
   engineering/ delivery maturity model, workflow validation map,
                implementation register, prototype boundaries, and engineering
                archive
@@ -34,6 +35,9 @@ docs/
 | [`brownfield/transition-architecture.md`](brownfield/transition-architecture.md) | Current/transition/target journey mapping and ownership posture. |
 | [`brownfield/migration-strategy.md`](brownfield/migration-strategy.md) | Brownfield modernization patterns and authority-transfer rules. |
 | [`brownfield/migration-roadmap.md`](brownfield/migration-roadmap.md) | Vertical-slice migration sequence and decision gates. |
+| [`decisions/README.md`](decisions/README.md) | Decision-record navigation and governance. |
+| [`decisions/register.md`](decisions/register.md) | Current product, architecture, engineering, discovery, and operational decision index. |
+| [`decisions/template.md`](decisions/template.md) | Template for new decision records. |
 | [`engineering/README.md`](engineering/README.md) | Engineering governance navigation for maturity, workflow, capability, and promotion rules. |
 | [`engineering/delivery-maturity-model.md`](engineering/delivery-maturity-model.md) | Product objects, maturity states, validation methods, promotion rules, and drift control. |
 | [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md) | Use case validation state, evidence scopes, missing seams, and next validation questions. |

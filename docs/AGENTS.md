@@ -20,6 +20,7 @@
   journeys, `docs/product/target-capabilities.md` owns product capability
   maturity, `docs/brownfield/` owns current-state assessment, transition
   architecture, migration strategy, and migration roadmap,
+  `docs/decisions/register.md` owns cross-document decision indexing,
   `docs/engineering/implementation-register.md` owns live implementation
   ownership, and `docs/product/direction.md` owns product direction and
   long-term boundary strategy.

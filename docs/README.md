@@ -25,6 +25,8 @@ flat navigation map when you already know which owner you need.
 - Current brownfield migration strategy and roadmap:
   [`brownfield/migration-strategy.md`](brownfield/migration-strategy.md) and
   [`brownfield/migration-roadmap.md`](brownfield/migration-roadmap.md)
+- Current decision register:
+  [`decisions/register.md`](decisions/register.md)
 - Current use case validation state, evidence scopes, and composition gaps:
   [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md)
 - Current maturity vocabulary:
@@ -52,14 +54,16 @@ For product and implementation direction:
    start adopting Scopecat.
 5. [`brownfield/README.md`](brownfield/README.md) for as-is lab context,
    transition architecture, migration strategy, and migration roadmap.
-6. [`engineering/README.md`](engineering/README.md) for delivery maturity,
+6. [`decisions/README.md`](decisions/README.md) for decision type rules,
+   current decision status, and decision-record templates.
+7. [`engineering/README.md`](engineering/README.md) for delivery maturity,
    workflow validation, implementation ownership, and promotion governance.
-7. [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md)
+8. [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md)
    to find use case validation state, evidence scopes, missing seams, and next
    validation questions.
-8. [`engineering/implementation-register.md`](engineering/implementation-register.md)
+9. [`engineering/implementation-register.md`](engineering/implementation-register.md)
    to find live implementation owners and their module/boundary detail docs.
-9. [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) and the owning module
+10. [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) and the owning module
    README for live implementation boundaries and API details.
 
 For new discovery work:
