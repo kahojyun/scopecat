@@ -5,6 +5,10 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+from scopecat.handoff.archive_materialization import (
+    HANDOFF_ARCHIVE_MATERIALIZATION_POLICY,
+    HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA,
+)
 from scopecat.handoff.durable_import import (
     DOES_NOT_CLAIM as _DURABLE_IMPORT_DOES_NOT_CLAIM,
 )
@@ -45,12 +49,14 @@ def current_handoff_compatibility_contract() -> dict[str, Any]:
             "receiving_gate": _RECEIVING_GATE_SCHEMA,
             "import_plan": _IMPORT_PLAN_SCHEMA,
             "handoff_durable_import": HANDOFF_DURABLE_IMPORT_SCHEMA,
+            "archive_materialization_review": (HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA),
         },
         "policies": {
             "selected_record_export": copy.deepcopy(SELECTED_RECORD_EXPORT_POLICY),
             "receiving_gate": copy.deepcopy(_RECEIVING_GATE_POLICY),
             "import_plan": copy.deepcopy(_IMPORT_PLAN_POLICY),
             "handoff_durable_import": copy.deepcopy(HANDOFF_DURABLE_IMPORT_POLICY),
+            "archive_materialization": copy.deepcopy(HANDOFF_ARCHIVE_MATERIALIZATION_POLICY),
         },
         "local_artifact_postures": [
             "local_write_receipt",
@@ -66,6 +72,8 @@ def current_handoff_compatibility_contract() -> dict[str, Any]:
             "local_handoff_durable_import_receipt_summary",
             "local_handoff_durable_import_retry_review",
             "local_receiving_review_state_projection",
+            "local_archive_materialization_contract",
+            "local_archive_materialization_contract_review",
             "local_handoff_error_diagnostic",
         ],
         "public_error_contract": {

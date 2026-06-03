@@ -194,6 +194,10 @@ format. Archive creation and extraction remain deferred for a later decision.
 keeps archive creation, extraction, archive input opening, and archive-backed
 durable import deferred until archive artifact authority, extraction safety,
 staging, and materialization review contracts exist.
+`current_handoff_archive_materialization_contract()` records the current
+transport-only archive posture: archive bytes are not the package artifact of
+record, and any future archive materialization must stage into a DEC-010
+directory manifest package before package open and integrity review.
 
 [`DEC-011`](../../decisions/architecture/DEC-011-package-trust-authenticity-posture.md)
 keeps this package unsigned local-review evidence. Declared digest integrity

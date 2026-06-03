@@ -160,6 +160,9 @@ signature-gated import policy.
 Archive package implementation is deferred under DEC-020. This module writes
 and opens directory manifest packages; it does not create archives, accept
 archive inputs, extract packages, or treat archive bytes as package authority.
+`current_handoff_archive_materialization_contract()` and
+`review_handoff_archive_materialization_contract()` expose local contract
+review for that future work without performing archive materialization.
 
 The generic package writer can package explicitly declared linked-context
 payload files under `context/` after source digest and size preflight. Opened

@@ -89,6 +89,9 @@ class HandoffCompatibilityContractTest(unittest.TestCase):
                 "receiving_gate": "scopecat.handoff_receiving_gate.v0",
                 "import_plan": "scopecat.handoff_import_plan.v0",
                 "handoff_durable_import": "scopecat.handoff_durable_import.v0",
+                "archive_materialization_review": (
+                    "scopecat.handoff_archive_materialization_review.v0"
+                ),
             },
         )
         self.assertEqual(
@@ -103,12 +106,20 @@ class HandoffCompatibilityContractTest(unittest.TestCase):
             contract["policies"]["handoff_durable_import"],
             HANDOFF_DURABLE_IMPORT_POLICY,
         )
+        self.assertEqual(
+            contract["policies"]["archive_materialization"]["archive_extraction"],
+            "not_performed",
+        )
         self.assertIn(
             "local_handoff_error_diagnostic",
             contract["local_artifact_postures"],
         )
         self.assertIn(
             "local_receiving_review_state_projection",
+            contract["local_artifact_postures"],
+        )
+        self.assertIn(
+            "local_archive_materialization_contract_review",
             contract["local_artifact_postures"],
         )
         self.assertIn("local_write_receipt", contract["local_artifact_postures"])

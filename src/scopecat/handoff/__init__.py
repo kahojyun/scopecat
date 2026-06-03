@@ -1,5 +1,11 @@
 """Current handoff package engineering prototype API."""
 
+from scopecat.handoff.archive_materialization import (
+    ArchiveMaterializationContractReview,
+    ArchiveMaterializationMemberReview,
+    current_handoff_archive_materialization_contract,
+    review_handoff_archive_materialization_contract,
+)
 from scopecat.handoff.compatibility import (
     HANDOFF_COMPATIBILITY_CONTRACT_VERSION,
     current_handoff_compatibility_contract,
@@ -74,6 +80,8 @@ __all__ = [
     "HANDOFF_COMPATIBILITY_CONTRACT_VERSION",
     "HANDOFF_INSPECTION_ARTIFACT_NAME",
     "SELECTED_RECORD_EXPORT_POLICY",
+    "ArchiveMaterializationContractReview",
+    "ArchiveMaterializationMemberReview",
     "HandoffContextReferenceSummary",
     "HandoffContractError",
     "HandoffDurableImportDestination",
@@ -109,6 +117,7 @@ __all__ = [
     "SelectedMeasurementRecordExportRun",
     "build_durable_import_request_from_handoff_plan",
     "build_inspection_html",
+    "current_handoff_archive_materialization_contract",
     "current_handoff_compatibility_contract",
     "export_selected_measurement_record",
     "export_selected_measurement_record_batch",
@@ -117,6 +126,7 @@ __all__ = [
     "observe_package_integrity",
     "open_package",
     "project_handoff_receiving_review_state",
+    "review_handoff_archive_materialization_contract",
     "review_handoff_durable_import_retry",
     "run_handoff_durable_import",
     "run_handoff_durable_import_from_plan",
