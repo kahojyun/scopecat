@@ -382,7 +382,7 @@ def _writer_source(
             "overwrite_behavior": "no_overwrite",
             "checksum_algorithm": "sha256",
             "primary_data_materialization": "copy_declared_primary_data",
-            "linked_context_materialization": "reference_only",
+            "linked_context_materialization": "declared_reference_or_payload",
             "archive_creation": "not_performed",
             "package_acceptance": "not_performed",
             "source_mutation": "not_performed",

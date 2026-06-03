@@ -59,6 +59,9 @@ class HandoffLinkedContext:
     package_state: str
     materialization: str
     linked_measurement_record_ids: tuple[str, ...]
+    package_path: str | None = None
+    declared_digest: str | None = None
+    declared_size_bytes: int | None = None
     context_reference: dict[str, str] | None = None
 
     @classmethod
@@ -68,8 +71,13 @@ class HandoffLinkedContext:
             kind=item["kind"],
             label=item["label"],
             package_state=item["package_state"],
-            materialization="reference_only",
+            materialization=(
+                "packaged_payload" if item["package_state"] == "packaged" else "reference_only"
+            ),
             linked_measurement_record_ids=tuple(item["linked_measurement_record_ids"]),
+            package_path=item.get("package_path"),
+            declared_digest=item.get("digest"),
+            declared_size_bytes=item.get("size_bytes"),
             context_reference=copy.deepcopy(item.get("context_reference")),
         )
 
@@ -82,6 +90,12 @@ class HandoffLinkedContext:
             "materialization": self.materialization,
             "linked_measurement_record_ids": list(self.linked_measurement_record_ids),
         }
+        if self.package_path is not None:
+            result["package_path"] = self.package_path
+        if self.declared_digest is not None:
+            result["declared_digest"] = self.declared_digest
+        if self.declared_size_bytes is not None:
+            result["declared_size_bytes"] = self.declared_size_bytes
         if self.context_reference is not None:
             result["context_reference"] = copy.deepcopy(self.context_reference)
         return result
@@ -324,6 +338,7 @@ def summarize_package_context_references(
                 "label": item.label,
                 "package_state": item.package_state,
                 "materialization": item.materialization,
+                "package_path": item.package_path,
                 "linked_measurement_record_ids": list(item.linked_measurement_record_ids),
                 "reference_id": reference["reference_id"],
                 "reference_kind": reference["reference_kind"],

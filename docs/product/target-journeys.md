@@ -112,7 +112,9 @@ production-slice candidate. DEC-011 keeps that package unsigned local-review
 evidence: declared digest integrity is observed, but signature validation,
 authenticity, sender trust, and scientific validity are not claimed. Batch
 receiving, linked-context payload import, and signature/trust implementation
-beyond DEC-011 remain separate validation questions.
+beyond DEC-011 remain separate validation questions. DEC-012 allows generic
+handoff writer inputs to package explicitly declared linked-context payloads
+for review, but selected stored-record export remains reference-only.
 
 Source evidence:
 

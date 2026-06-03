@@ -136,9 +136,12 @@ class HandoffManifestLinkedContext:
     link_id: str
     kind: str
     label: str
+    package_path: str | None
     package_state: str
     reason: str | None
     linked_measurement_record_ids: tuple[str, ...]
+    digest: str | None = None
+    size_bytes: int | None = None
     context_reference: dict[str, str] | None = None
 
 
@@ -225,9 +228,12 @@ def _linked_context_from_manifest(
             link_id=item["link_id"],
             kind=item["kind"],
             label=item["label"],
+            package_path=item.get("package_path"),
             package_state=item["package_state"],
             reason=item["reason"],
             linked_measurement_record_ids=tuple(item["linked_measurement_record_ids"]),
+            digest=item.get("digest"),
+            size_bytes=item.get("size_bytes"),
             context_reference=copy.deepcopy(item.get("context_reference")),
         )
         for item in source["linked_context"]

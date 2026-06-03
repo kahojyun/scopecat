@@ -22,6 +22,8 @@ Read it with:
   for the current package format decision;
 - [`../../decisions/architecture/DEC-011-package-trust-authenticity-posture.md`](../../decisions/architecture/DEC-011-package-trust-authenticity-posture.md)
   for the current package trust/authenticity posture;
+- [`../../decisions/architecture/DEC-012-linked-context-payload-packaging.md`](../../decisions/architecture/DEC-012-linked-context-payload-packaging.md)
+  for the current route-local linked-context payload boundary;
 - [`../workflow-validation-map.md`](../workflow-validation-map.md) for the
   current cross-capability handoff workflow gap.
 
@@ -69,6 +71,12 @@ The current package writer:
 - returns a local write receipt;
 - proves generated packages open through the read-only opener.
 
+The package writer is a route-local capability, not the normal JNY-001 product
+handoff entrypoint. Caller-declared package ids, measurement ids, and
+linked-context ids are reviewed package-input facts. They are not durable
+Scopecat Measurement Record identity and do not replace storage lifecycle
+evidence, record-local read models, creation manifests, or writer receipts.
+
 The selected stored-record export adapter:
 
 - requires an approved selected-record export request;
@@ -81,6 +89,11 @@ The selected stored-record export adapter:
 - writes a single-measurement package through the package writer;
 - keeps linked context reference-only;
 - does not mutate Measurement Records storage or refresh read models.
+
+For JNY-001 product handoff, this storage-backed selected-record export path is
+the production vertical-slice candidate. Direct package-writer input remains an
+adapter or engineering route for already-reviewed normalized data, not a
+user-facing bypass around Measurement Records storage.
 
 The current read-only package use:
 
@@ -126,10 +139,17 @@ results, import-plan objects, CLI summaries, and retry reviews are local review
 surfaces unless a later slice explicitly promotes one as a portable/export
 artifact.
 
-Linked context is reference-only in this boundary. The package-use route may
-expose linked-context references for review, but it does not package linked
-payloads, recursively traverse references, restore environments, or import
+Selected stored Measurement Record export keeps linked context reference-only.
+The package-use route may expose linked-context references for review, but it
+does not recursively traverse references, restore environments, or import
 linked context into durable Measurement Records storage.
+
+[`DEC-012`](../../decisions/architecture/DEC-012-linked-context-payload-packaging.md)
+narrows that posture for the generic package writer: explicitly declared
+linked-context payload files may be packaged under `context/`, opened as
+`packaged_payload`, and integrity-observed. Import planning and durable import
+still do not import linked-context payloads, and selected stored Measurement
+Record export remains reference-only.
 
 ## Production Vertical-Slice Candidate
 
@@ -163,16 +183,18 @@ Acceptance for that candidate is intentionally narrow:
 - receiving review and import planning remain non-mutating;
 - durable storage mutation remains delegated to Measurement Records import;
 - local receipts remain review surfaces, not portable package artifacts;
-- linked context remains reference-only.
+- selected stored Measurement Record export keeps linked context reference-only.
 
 This candidate is not production readiness for the whole handoff capability.
-Batch export/import, linked-context payload packaging, persistent GUI/review
-state, public SDK contracts, and final storage schemas remain separate
-decisions. Archive format is explicitly deferred by
+Batch export/import, selected-record linked-context payload export, persistent
+GUI/review state, public SDK contracts, and final storage schemas remain
+separate decisions. Archive format is explicitly deferred by
 [`DEC-010`](../../decisions/architecture/DEC-010-package-format-directory-manifest.md).
 Signature/authenticity implementation and trust policy beyond the unsigned
 local-review posture are explicitly deferred by
 [`DEC-011`](../../decisions/architecture/DEC-011-package-trust-authenticity-posture.md).
+Generic writer linked-context payload packaging without import is governed by
+[`DEC-012`](../../decisions/architecture/DEC-012-linked-context-payload-packaging.md).
 
 ## Historical Context
 
@@ -202,7 +224,8 @@ This boundary does not accept:
   authenticity validation, or trusted-source policy;
 - durable import, package acceptance, existing-record update, durable
   multi-measurement batch import, rollback policy, or storage conflict policy;
-- linked-context payload packaging, opening, recursive traversal, or import;
+- selected-record linked-context payload export, recursive traversal, or
+  linked-context payload import;
 - analysis/fit result model, fit execution, uncertainty, write-back, or result
   import;
 - shared measurement-record domain model or cross-route object lifecycle.
@@ -232,7 +255,8 @@ behavior. Current likely separate decisions include:
 - production-readiness hardening for selected stored Measurement Record export;
 - GUI review beyond local static HTML;
 - signature implementation or trusted-source policy beyond DEC-011;
-- linked-context payload packaging or review;
+- selected-record linked-context payload export or durable linked-context
+  payload import;
 - analysis or fit results as first-class package display facts;
 - shared lifecycle or domain model extraction justified by more than one
   accepted route.

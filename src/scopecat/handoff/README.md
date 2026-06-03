@@ -61,6 +61,12 @@ package projections consume typed route-local manifest fragments. Raw workflow
 dictionaries are accepted only at public `run_*` edge adapters; internal
 composition should pass typed route-local request and run objects.
 
+`write_package(...)` is the route-local writer primitive. It accepts explicit
+caller-declared package ids, measurement ids, source paths, digests, sizes, and
+linked-context facts. Those identifiers are reviewed package-input facts only;
+they are not durable Scopecat Measurement Record identity and do not replace
+record-local read models, creation manifests, or writer receipts.
+
 `run_import_plan(...)` is a non-mutating plan. It names package members that
 could be considered for later acceptance, but accepts no destination path,
 performs no conflict detection, writes no storage records, and does not decide
@@ -88,13 +94,23 @@ the package writer, keeps linked context reference-only, and does not mutate
 Measurement Records storage, refresh read models, infer schema, create
 archives, or accept/import packages.
 
+For the normal JNY-001 product handoff path, selected stored-record export is
+the storage-backed entrypoint. Direct package-writer input remains an adapter or
+engineering route for already-reviewed normalized data, not a user-facing
+shortcut around Measurement Records storage.
+
 Local writer receipts, inspection HTML, function return values, import-plan
 objects, durable-import adapter receipts, retry reviews, and CLI summaries are
 local review surfaces unless a later slice explicitly promotes one as a
-portable/export artifact. Linked-context entries remain reference-only: the
-module can expose selected context references for review, but it does not
-package linked payloads, resolve references, restore environments, or import
-linked context into durable Measurement Records storage.
+portable/export artifact.
+
+The generic package writer can package explicitly declared linked-context
+payload files under `context/` after source digest and size preflight. Opened
+packages expose those entries as `packaged_payload`, and integrity observation
+checks them as declared package members. Import planning and durable import
+still do not import linked-context payloads. Selected stored-record export
+keeps linked context reference-only until a later slice defines how stored
+records declare eligible linked payload sources.
 
 ## CLI
 

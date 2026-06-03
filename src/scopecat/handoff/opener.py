@@ -254,8 +254,13 @@ def open_handoff_package(package_dir: Path) -> HandoffPackage:
             kind=item.kind,
             label=item.label,
             package_state=item.package_state,
-            materialization="reference_only",
+            materialization=(
+                "packaged_payload" if item.package_state == "packaged" else "reference_only"
+            ),
             linked_measurement_record_ids=item.linked_measurement_record_ids,
+            package_path=item.package_path,
+            declared_digest=item.digest,
+            declared_size_bytes=item.size_bytes,
             context_reference=item.context_reference,
         )
         for item in preview.linked_context
