@@ -17,7 +17,7 @@ from scopecat.parameter_state import (
 )
 
 ROOT = Path(__file__).resolve().parents[3]
-FIXTURES = ROOT / "tests" / "fixtures"
+FIXTURES = ROOT / "tests" / "fixtures" / "prototypes" / "parameter_state"
 ADAPTER_STORAGE_FIXTURE = FIXTURES / "parameter_state_storage_read_view" / "basic_read"
 
 

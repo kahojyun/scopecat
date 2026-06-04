@@ -15,7 +15,15 @@ from scopecat.measurement_records import (
 )
 
 ROOT = Path(__file__).resolve().parents[3]
-FIXTURE = ROOT / "tests" / "fixtures" / "existing_record_update" / "basic_append_update"
+FIXTURE = (
+    ROOT
+    / "tests"
+    / "fixtures"
+    / "prototypes"
+    / "measurement_records"
+    / "existing_record_update"
+    / "basic_append_update"
+)
 
 
 def _read_json(path: Path) -> dict:

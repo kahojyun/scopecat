@@ -28,7 +28,15 @@ FIXTURE = (
     / "basic_package"
 )
 SOURCE_ROOT = FIXTURE / "source"
-LEGACY_CANDIDATE_FIXTURE = ROOT / "tests" / "fixtures" / "handoff_package_writer" / "basic_package"
+LEGACY_CANDIDATE_FIXTURE = (
+    ROOT
+    / "tests"
+    / "fixtures"
+    / "prototypes"
+    / "handoff"
+    / "handoff_package_writer"
+    / "basic_package"
+)
 
 
 def _load_input() -> dict:

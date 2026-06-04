@@ -6,8 +6,8 @@ Testing policy, not a fixture inventory.
 
 Fixtures should match the test stage they support. Prototype-owned fixtures
 live under `tests/fixtures/prototypes/<route>/`. The historical flat
-candidate-fixture surface has been reduced to fixture families still referenced
-by current prototype tests plus bounded scan/data-shape discovery evidence.
+candidate-fixture surface has been removed; the remaining flat fixture family
+is bounded scan/data-shape discovery evidence.
 
 ## Discovery Fixtures
 
@@ -59,9 +59,8 @@ tests/fixtures/prototypes/<route>/<workflow-step>/
 ```
 
 Not every directory needs every subdirectory. Keep fixtures small and explicit.
-If a prototype test still uses prior discovery evidence from a retained flat
-fixture directory, treat that directory as transitional. Do not add unrelated
-cases there.
+Prototype tests should not read from flat fixture directories. Move useful
+prototype evidence under the owning route before changing the test.
 
 `expected-receipt.json` and `expected-review.json` normally assert local
 receipt or review-summary behavior; they remain repository-safe expected

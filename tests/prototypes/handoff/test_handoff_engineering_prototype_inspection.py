@@ -17,12 +17,16 @@ BASIC_PACKAGE = (
     ROOT
     / "tests"
     / "fixtures"
+    / "prototypes"
+    / "handoff"
     / "handoff_package_opener"
     / "basic_package"
     / "package"
     / "handoff-package-legacy-rabi-001"
 )
-ROUTE_PRESSURE_ROOT = ROOT / "tests" / "fixtures" / "handoff_package_route_pressure"
+ROUTE_PRESSURE_ROOT = (
+    ROOT / "tests" / "fixtures" / "prototypes" / "handoff" / "handoff_package_route_pressure"
+)
 RICHER_PACKAGE = (
     ROUTE_PRESSURE_ROOT
     / "richer_reader_package"

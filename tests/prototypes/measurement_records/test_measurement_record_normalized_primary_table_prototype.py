@@ -17,7 +17,15 @@ from scopecat.measurement_records.normalized_primary_table import (
 )
 
 ROOT = Path(__file__).resolve().parents[3]
-FIXTURE = ROOT / "tests" / "fixtures" / "normalized_primary_table" / "basic_table"
+FIXTURE = (
+    ROOT
+    / "tests"
+    / "fixtures"
+    / "prototypes"
+    / "measurement_records"
+    / "normalized_primary_table"
+    / "basic_table"
+)
 
 
 def _load_json(path: Path) -> dict:

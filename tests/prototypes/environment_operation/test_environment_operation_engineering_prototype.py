@@ -18,7 +18,6 @@ from scopecat.environment_operation import (
 )
 
 ROOT = Path(__file__).resolve().parents[3]
-INTENT_FIXTURE = ROOT / "tests" / "fixtures" / "uv_sync_intent" / "basic_uv_sync_intent"
 PROTOTYPE_FIXTURE = (
     ROOT
     / "tests"

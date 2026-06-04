@@ -156,9 +156,8 @@ fixtures become engineering regression assets.
 The promoted writer fixtures live under
 `tests/fixtures/prototypes/handoff/handoff_engineering_prototype_writer/` and
 use source-root terminology directly. The older discovery candidate writer
-fixtures remain under `tests/fixtures/handoff_package_writer/` as historical
-evidence for the candidate shape and are not translated in promoted writer
-tests.
+fixtures remain recoverable from git history as historical evidence for the
+candidate shape and are not translated in promoted writer tests.
 
 When existing fixtures do not match the prototype shape:
 

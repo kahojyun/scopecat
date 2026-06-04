@@ -23,7 +23,15 @@ from scopecat.measurement_records.finalization import FINALIZATION_POLICY, FINAL
 from scopecat.measurement_records.read_view import READ_VIEW_POLICY, READ_VIEW_SCHEMA
 
 ROOT = Path(__file__).resolve().parents[3]
-CHUNK_FIXTURE = ROOT / "tests" / "fixtures" / "measurement_storage_writer" / "basic_append"
+CHUNK_FIXTURE = (
+    ROOT
+    / "tests"
+    / "fixtures"
+    / "prototypes"
+    / "measurement_records"
+    / "measurement_storage_writer"
+    / "basic_append"
+)
 
 
 def _digest(path: Path) -> str:

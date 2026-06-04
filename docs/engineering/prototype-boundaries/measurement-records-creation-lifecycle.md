@@ -84,15 +84,16 @@ publication.
 
 The active prototype tests live under
 [`../../../tests/prototypes/measurement_records/`](../../../tests/prototypes/measurement_records/).
-Relevant fixture families live under [`../../../tests/fixtures/`](../../../tests/fixtures/)
+Relevant fixture families live under
+[`../../../tests/fixtures/prototypes/measurement_records/`](../../../tests/fixtures/prototypes/measurement_records/)
 and include:
 
 - `normalized_primary_table/`
 - `existing_record_update/`
 - `measurement_storage_writer/`
-- `parameter_state_storage_writer/`
-- `source_agnostic_parameter_state_read_view/`
-- `scan_data_shapes/`
+
+The retained scan/data-shape discovery fixtures live separately under
+[`../../../tests/fixtures/scan_data_shapes/`](../../../tests/fixtures/scan_data_shapes/).
 
 Run repository checks with:
 

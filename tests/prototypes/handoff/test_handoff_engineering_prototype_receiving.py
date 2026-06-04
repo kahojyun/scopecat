@@ -12,6 +12,8 @@ PACKAGE = (
     ROOT
     / "tests"
     / "fixtures"
+    / "prototypes"
+    / "handoff"
     / "handoff_package_opener"
     / "basic_package"
     / "package"
