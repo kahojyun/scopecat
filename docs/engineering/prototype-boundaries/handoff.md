@@ -95,9 +95,9 @@ The current package writer:
 - returns a local write receipt;
 - proves generated packages open through the read-only opener.
 
-The package writer is a route-local capability, not the normal JNY-001 product
-handoff entrypoint. Caller-declared package ids, measurement ids, and
-linked-context ids are reviewed package-input facts. They are not durable
+The package writer is a route-local capability, not the normal JNY-001 Share A
+Selected Measurement entrypoint. Caller-declared package ids, measurement ids,
+and linked-context ids are reviewed package-input facts. They are not durable
 Scopecat Measurement Record identity and do not replace storage lifecycle
 evidence, record-local read models, creation manifests, or writer receipts.
 
@@ -142,10 +142,10 @@ receipt or refresh contract error, final export, and preflight review. The
 composition does not repair primary data, replace record manifests, mutate
 writer/finalization receipts, or accept/import packages.
 
-For JNY-001 product handoff, this storage-backed selected-record export path is
-the production vertical slice candidate. Direct package-writer input remains an
-adapter or engineering route for already-reviewed normalized data, not a
-user-facing bypass around Measurement Records storage.
+For JNY-001 Share A Selected Measurement, this storage-backed selected-record
+export path is the production vertical slice candidate. Direct package-writer
+input remains an adapter or engineering route for already-reviewed normalized
+data, not a user-facing bypass around Measurement Records storage.
 
 The current read-only package use:
 
@@ -215,9 +215,9 @@ artifacts. Package contents must use package-relative paths and validated
 managed references at the package/export boundary.
 
 [`DEC-010`](../../decisions/architecture/DEC-010-package-format-directory-manifest.md) keeps this
-directory manifest package as the current JNY-001 production vertical slice package
-format. Archive bytes are transport containers; the materialized directory
-package remains the package of record.
+directory manifest package as the current JNY-001 Share A Selected Measurement
+production vertical slice package format. Archive bytes are transport
+containers; the materialized directory package remains the package of record.
 
 [`DEC-020`](../../decisions/architecture/DEC-020-defer-archive-package-implementation.md)
 kept archive implementation deferred until archive artifact authority,
@@ -287,13 +287,14 @@ receipt for workflow continuity without making the receipt a GUI-owned store.
 [`DEC-025`](../../decisions/architecture/DEC-025-defer-existing-record-update-and-final-storage-schema.md)
 keeps selected stored-record export source-storage-read-only and receiving
 durable import new-record-only. Existing-record update, merge import, manifest
-replacement, primary-data compaction, and final storage schema publication
-remain outside the current JNY-001 production-readiness boundary.
+replacement, primary-data compaction, post-run results review, and final storage
+schema publication remain outside the current JNY-001 production readiness
+boundary.
 
 ## Production Vertical Slice Candidate
 
-JNY-001 single-measurement handoff is a production vertical slice candidate when
-one workflow-level regression proves this full path:
+JNY-001 Share A Selected Measurement is a production vertical slice candidate
+when one workflow-level regression proves this full path:
 
 ```text
 source-side durable Measurement Record

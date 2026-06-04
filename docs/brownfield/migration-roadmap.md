@@ -19,41 +19,116 @@ implementation task list, release plan, or issue tracker.
 - Keep legacy-specific parsing and target product concepts separate.
 - Promote shared domain concepts only after repeated slices need the same
   stable contract.
+- Use target journeys for user-recognizable end-to-end jobs. Keep reusable
+  context and comparison work as supporting workflows until a consuming journey
+  proves an independent user goal.
+- Distinguish actual adoption order from design validation order. Adoption can
+  start where local pain is strongest; design sequencing should preserve the
+  Measurement Record anchor, review receipts, package/export boundaries, and
+  authority non-claims.
+
+## Adoption Order Versus Design Order
+
+Brownfield adoption is opportunity-driven. A lab may reasonably start from
+handoff, parameter review, running monitoring, calibration continuation, or a
+specific fragile legacy boundary depending on current pain and integration
+cost.
+
+This roadmap is a design validation sequence. It orders slices to keep
+dependencies and authority boundaries coherent:
+
+```text
+evidence and source posture
+  -> Measurement Record anchor
+  -> post-run review and prepared-run receipts
+  -> handoff, comparison, running, calibration, or rerun extensions
+```
+
+If an adoption path starts later in the lifecycle, keep the same boundary
+rules: record evidence explicitly, avoid run-start or hardware-control creep,
+and link new review outputs back to the Measurement Record or another named
+Scopecat boundary when the use case needs continuity.
 
 ## Current Migration Sequence
 
-### 1. Close Portable Measurement Handoff
+This sequence follows the current-state-to-target migration spine. It is not a
+historical implementation order. JNY-001 already has the strongest vertical
+slice evidence and can continue to harden in parallel; the order below is for
+validating cleaner product boundaries before splitting or promoting more code.
 
-Target journey: JNY-001.
+`Already validated` records evidence that exists for the boundary. It may
+include discovery validation slices, engineering prototype slices,
+implementation-candidate evidence, and production vertical slice segments.
+Treat the maturity labels in the workflow validation map as authoritative; do
+not read every `Already validated` bullet as a maintained product capability.
 
-Target use case: UC-CAND-001.
+### 1. Make External Runs Visible
 
-Related risks: BR-RISK-003, BR-RISK-004, BR-RISK-010.
+Target boundary: JNY-007 Record Or Adopt A Measurement, supported by CAP-001
+Measurement Records.
 
-Related decisions: DEC-003, DEC-004.
+Target use case: UC-001 and UC-002 as current supporting use cases; promote a
+new candidate only when adoption or recording needs a user-facing route beyond
+Measurement Records scaffolding.
+
+Related risks: BR-RISK-003, BR-RISK-004, BR-RISK-011.
+
+Related decisions: DEC-004, DEC-025.
 
 Next validation focus:
 
-- export one selected stored Measurement Record to a preview-ready
-  single-measurement handoff package.
+- decide which first user-facing route or use case should own recording/adoption
+  beyond the existing Measurement Records capability path feeding JNY-001 and
+  JNY-008.
 
 Already validated:
 
 - legacy-backed measurement record shell and storage visibility;
 - normalized primary-data durable import;
-- local package writing/opening from declared source-root data;
-- receiving-side read-only package review, import plan, and accepted durable
-  import.
+- record-local references and local storage review surfaces.
 
 Decision gate:
 
-- package export from stored Measurement Records preserves identity,
-  primary-data references, missing context, and portable/export artifact
-  boundaries clearly enough to connect the two validated ends.
+- a user-facing recording/adoption use case has explicit source posture,
+  reviewed primary-data handling, repository-safe context references, and clear
+  non-claims around legacy execution, adapter discovery, and scientific
+  validity.
 
-### 2. Stabilize Pre-Run Context Review
+### 2. Select Measurements For Sharing
 
-Target journey: JNY-002.
+Target boundary: JNY-001 Share A Selected Measurement.
+
+Target use case: UC-006 and JNY-001-SMOKE.
+
+Related risks: BR-RISK-003, BR-RISK-004, BR-RISK-010.
+
+Related decisions: DEC-003, DEC-004, DEC-010, DEC-011, DEC-021, DEC-024,
+DEC-025.
+
+Next validation focus:
+
+- decide whether the selected-record handoff path needs production-readiness
+  hardening, batch export productization, linked-context payload follow-up, or a
+  different product fork.
+
+Already validated:
+
+- selected stored-record package export;
+- local package writing/opening from declared source-root data;
+- safe zip archive creation and materialization around the DEC-010 package of
+  record;
+- receiving-side read-only package review, import plan, review-state receipt,
+  and accepted new-record durable import.
+
+Decision gate:
+
+- handoff hardening remains centered on sharing a selected Measurement Record,
+  not on absorbing Measurement Record creation, adoption, running updates, or
+  post-run results review.
+
+### 3. Check Context Before A Run
+
+Target boundary: JNY-002 Prepare A Manual Run.
 
 Target use case: UC-CAND-002.
 
@@ -77,37 +152,76 @@ Already validated:
 Decision gate:
 
 - a user-facing prepared-run use case has explicit input, review,
-  acknowledgement or deferral, and no-run-start semantics.
+  acknowledgement or deferral, no-run-start semantics, and a receipt shape that
+  a later Measurement Record can reference as context evidence.
 
-### 3. Promote One Experiment Code Context Step
+### 4. Maintain Parameter And Setup Files
 
-Target journey: JNY-005.
+Target boundary: CAP-003 Parameter State Review, setup-binding support, and
+JNY-002 supporting workflow coverage. This is not promoted to a target journey
+until the work has an independent user goal beyond prepared-run context review
+or calibration continuation support.
 
-Target use case: UC-CAND-003.
+Target use case: candidate to define from parameter-history, parameter-plot,
+setup-binding, or review-summary pressure.
 
-Related risks: BR-RISK-005, BR-RISK-009.
+Related risks: BR-RISK-005, BR-RISK-007, BR-RISK-008, BR-RISK-009.
 
-Related decisions: DEC-002, DEC-008.
+Related decisions: DEC-002, DEC-006, DEC-008.
 
 Next validation focus:
 
-- choose one concrete step: record, compare, materialize, observe editable
-  folder, prepare rerun, or GUI review.
+- decide which parameter/setup maintenance work is needed first by
+  prepared-run review: history, comparison, plotting, setup-binding snapshot,
+  adapter summary, or accepted-write review.
 
 Already validated:
 
-- discovery and implementation-candidate evidence for code-context recording;
-- bounded environment-operation evidence for `uv sync` review;
-- candidate materialization and environment-readiness evidence.
+- adapter-authored parameter-state intake;
+- parameter-state storage and read view;
+- source-agnostic parameter-state selection;
+- route-local pre-run parameter-state consumption;
+- reviewable calibration action and continuation summaries that create
+  accepted-write pressure.
 
 Decision gate:
 
-- the selected step has a user goal independent of generic Git replacement or
-  execution ownership.
+- parameter/setup work remains a capability or supporting workflow unless a
+  repeated independent user job emerges; it must not imply hardware apply,
+  live-instrument state ownership, universal setup truth, or broad runtime DLP.
 
-### 4. Validate Running Measurement Monitoring
+### 5. Review Completed Results
 
-Target journey: JNY-004.
+Target boundary: JNY-008 Browse And Review Completed Results.
+
+Target use case: candidate to define from post-run result browsing, filtering,
+plotting, and Measurement Records readiness-review pressure.
+
+Related risks: BR-RISK-003, BR-RISK-006, BR-RISK-007, BR-RISK-010.
+
+Related decisions: DEC-025.
+
+Next validation focus:
+
+- choose the first live post-run route or use case: records browser, plotter,
+  readiness-review receipt, or a narrow composition of those surfaces.
+
+Already validated:
+
+- record read-model projection and refresh;
+- selected-record export freshness review;
+- local operator review artifacts and receipts.
+
+Decision gate:
+
+- a post-run results review use case lets users find, inspect, plot, and assess
+  completed or near-completed results before handoff, comparison, calibration
+  continuation, or rerun preparation without replacing canonical source
+  evidence.
+
+### 6. Inspect Running Measurements
+
+Target boundary: JNY-004 Monitor A Running Measurement.
 
 Target use case: UC-CAND-004.
 
@@ -127,11 +241,11 @@ Already validated:
 Decision gate:
 
 - monitoring provides review value without becoming scan control, scheduling,
-  or automatic retune.
+  automatic retune, or execution ownership.
 
-### 5. Reassess Calibration Continuation
+### 7. Continue Calibration Work
 
-Target journey: JNY-003.
+Target boundary: JNY-003 Recover Or Continue Calibration Work.
 
 Target use case: UC-CAND-005.
 
@@ -153,6 +267,36 @@ Decision gate:
 
 - repeated use cases require stable calibration review state, continuation
   action recording, and support expectations beyond one scenario.
+
+### 8. Reconstruct A Reference Or Rerun
+
+Target boundary: JNY-009 Reproduce Or Rerun From A Reference.
+
+Target use case: future candidate composed from selected-reference comparison
+and experiment-code context evidence.
+
+Related risks: BR-RISK-005, BR-RISK-007, BR-RISK-009.
+
+Related decisions: DEC-002, DEC-008.
+
+Next validation focus:
+
+- choose whether the first concrete step is reference selection, declared
+  context comparison, selected-code comparison, workspace materialization, or
+  rerun preparation.
+
+Already validated:
+
+- selected-reference comparison discovery evidence;
+- discovery and implementation-candidate evidence for code-context recording;
+- bounded environment-operation evidence for `uv sync` review;
+- candidate materialization and environment-readiness evidence.
+
+Decision gate:
+
+- the selected reproduction/rerun use case has a user goal independent of
+  generic Git replacement, package management, or experiment execution
+  ownership.
 
 ## Deferred Cross-Cutting Work
 

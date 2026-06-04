@@ -8,6 +8,9 @@ Measurement Records.
 This module owns the live route-local APIs for creating, importing, reviewing,
 and reading local measurement records. It is not a final storage architecture,
 public SDK contract, maintained product capability, or shared domain model.
+It supports the target journeys for recording/adopting measurements,
+post-run results review, running inspection, and selected-record handoff, but it
+does not own those full product journeys.
 
 For workflow and implementation ownership, start from
 [`../../../docs/engineering/workflow-validation-map.md`](../../../docs/engineering/workflow-validation-map.md)

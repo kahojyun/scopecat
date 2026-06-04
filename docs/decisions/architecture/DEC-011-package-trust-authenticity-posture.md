@@ -48,7 +48,7 @@ entries.
 
 This decision applies to:
 
-- JNY-001 single-measurement handoff production vertical slice candidate;
+- JNY-001 Share A Selected Measurement production vertical slice candidate;
 - DEC-010 directory manifest packages;
 - handoff package writer/open/integrity/receiving/import-plan/durable-import
   local receipts;
