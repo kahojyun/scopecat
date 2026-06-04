@@ -140,13 +140,12 @@ Next validation focus:
 - decide whether prepared-run context review becomes a live route owner or
   remains discovery evidence.
 
-Already validated:
+Evidence status:
 
-- adapter-authored parameter-state intake;
-- parameter-state storage and read view;
-- source-agnostic parameter-state selection;
-- route-local pre-run parameter-state consumption;
-- bounded environment-operation evidence.
+- retired parameter-state prototype evidence exists for adapter-authored intake,
+  local storage/read views, source-agnostic selection, and pre-run
+  consumption, but it is not an active implementation boundary;
+- bounded environment-operation evidence remains active.
 
 Decision gate:
 
@@ -174,13 +173,12 @@ Next validation focus:
   prepared-run review: history, comparison, plotting, setup-binding snapshot,
   adapter summary, or accepted-write review.
 
-Already validated:
+Evidence status:
 
-- adapter-authored parameter-state intake;
-- parameter-state storage and read view;
-- source-agnostic parameter-state selection;
-- route-local pre-run parameter-state consumption;
-- reviewable calibration action and continuation summaries that create
+- retired parameter-state prototype evidence exists for adapter-authored intake,
+  local storage/read views, source-agnostic selection, and pre-run
+  consumption, but it is not an active implementation boundary;
+- reviewable calibration action and continuation summaries create
   accepted-write pressure.
 
 Decision gate:

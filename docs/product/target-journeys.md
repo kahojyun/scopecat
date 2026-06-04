@@ -169,7 +169,7 @@ hardware-control authority.
 
 Primary workflows:
 
-- parameter-state intake and review;
+- parameter/context intake and review;
 - context selection;
 - prepared-run review;
 - optional environment-operation evidence;
@@ -177,10 +177,7 @@ Primary workflows:
 
 Use cases to prove:
 
-- import and review adapter-authored parameter state;
-- store and read reviewed parameter state;
-- select source-agnostic parameter state for run preparation;
-- consume parameter-state facts in a prepared-run review chain;
+- review selected parameter/context facts for run preparation;
 - capture bounded environment-operation evidence;
 - record code context for a run or step;
 - record operator acknowledgement, deferral, or note;
@@ -196,12 +193,13 @@ Supporting capabilities:
 - Measurement Records context links;
 - setup-binding candidate workflow.
 
-Validation orientation: parameter-state review has live engineering prototype
-coverage. Prepared-run context and acknowledgement remain scenario evidence
-without a live route owner. Environment operation is operation evidence for
-later readiness/context use, not a standalone journey. This journey should
-compose review-ready summaries from supporting capabilities; it should not own
-all parameter, code, environment, or setup management UX.
+Validation orientation: the former parameter-state prototype is retired
+historical evidence, not active implementation coverage. Prepared-run context
+and acknowledgement remain scenario evidence without a live route owner.
+Environment operation is operation evidence for later readiness/context use, not
+a standalone journey. This journey should compose review-ready summaries from
+supporting capabilities; it should not own all parameter, code, environment, or
+setup management UX.
 
 Source evidence:
 

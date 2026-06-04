@@ -24,7 +24,6 @@ product capability maturity.
 | [`handoff-durable-import-storage.md`](handoff-durable-import-storage.md) | Current handoff durable-import adaptation into Measurement Records. |
 | [`measurement-records-creation-lifecycle.md`](measurement-records-creation-lifecycle.md) | Current durable Measurement Records storage, read/update/import, reference, and local-review boundary. |
 | [`measurement-records-legacy-run-storage.md`](measurement-records-legacy-run-storage.md) | Legacy run storage visibility, converted-primary attach, references, inventory, and local review. |
-| [`parameter-state.md`](parameter-state.md) | Parameter-state review, storage/read view, selection context, and route-local pre-run consumption. |
 
 These notes are not final product architecture, public API commitments, or
 production vertical-slice acceptance.

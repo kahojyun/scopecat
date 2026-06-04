@@ -37,7 +37,6 @@ Current layout:
 tests/prototypes/environment_operation/
 tests/prototypes/handoff/
 tests/prototypes/measurement_records/
-tests/prototypes/parameter_state/
 ```
 
 Good assertion targets:

@@ -101,8 +101,7 @@ Current journey:
 
 Transition journey:
 
-- import adapter-authored parameter state for review;
-- store/read selected parameter-state facts locally;
+- reuse historical parameter-state evidence as domain input only when useful;
 - capture bounded environment-operation evidence when useful;
 - compose prepared-run context evidence without granting run-start authority.
 
@@ -118,9 +117,8 @@ Target journey:
 
 Ownership posture:
 
-- adapter-authored parameter-state intake: `Bridge`;
-- parameter-state storage and read view: `Partial owner`;
-- source-agnostic parameter-state selection and review chain: `Review`;
+- parameter-state intake, storage, selection, and review chain: retired
+  prototype evidence, not an active owner;
 - bounded environment-operation evidence: `Assist` or `Shadow`, depending on
   the later use case that consumes it;
 - prepared-run review receipt: candidate `Record` and `Review` evidence.
@@ -141,7 +139,8 @@ Current journey:
 Transition journey:
 
 - record reviewable fit, evidence, action, and continuation summaries;
-- hand accepted calibration writes into parameter-state review;
+- preserve accepted calibration write pressure for future parameter-state
+  review if a real entrypoint earns it;
 - keep execution and write-back outside Scopecat.
 
 Target journey:
@@ -154,8 +153,8 @@ Target journey:
 Ownership posture:
 
 - reviewable fit, action, and continuation summaries: `Record` and `Review`;
-- accepted calibration write handoff to parameter-state review: candidate
-  `Bridge` evidence.
+- accepted calibration write handoff to parameter-state review: historical
+  pressure, not an active bridge.
 
 Deferred authority:
 

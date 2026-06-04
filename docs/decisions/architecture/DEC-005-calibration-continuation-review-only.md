@@ -6,6 +6,13 @@ Architecture decision.
 
 Decision status: accepted.
 
+Current implementation note: the former `scopecat.parameter_state` prototype
+and its source-agnostic prepared-run review chain were later retired from active
+implementation. This decision still records historical calibration-continuation
+evidence and pressure, but it no longer grants an active parameter-state bridge
+owner. Future parameter-state work must restart from a named brownfield
+entrypoint and current domain model.
+
 This note records the current calibration continuation boundary. It preserves
 what the validated evidence now supports and
 where future work should wait for real workflow pressure. It does not accept a
@@ -73,7 +80,7 @@ advance workflow state automatically.
 | Step and observation continuity | Step intent resolution, step observation link | Freeze moving intent selectors into step records and link measurement records as observed outputs without payload reads or shared relation graph behavior. |
 | Fit/write review chain | Fit result link, proposed write link, accepted write handoff | Preserve observation, measurement, fit-result, proposed-write, base parameter-state, external-apply decisions, and accepted handoff continuity without fitting, write-back, rollback, hardware control, or treating external apply as managed state. |
 | Review completeness | Review bundle, missing evidence findings, timeline trace, review state projection | Surface missing evidence, ordering/timestamp issues, and per-step review cards without executing actions or starting parameter-state intake. |
-| Parameter-state bridge | Calibration parameter-state intake/storage, source-agnostic prepared-run consumption/review chain | Let accepted calibration writes become managed parameter-state snapshots and later prepared-run parameter context through parameter-state-owned boundaries. |
+| Parameter-state bridge | Historical calibration parameter-state intake/storage and source-agnostic prepared-run consumption/review-chain evidence | Preserved pressure for accepted calibration writes to become reviewed parameter context later; the former parameter-state-owned boundaries are retired and must be re-earned from a named entrypoint. |
 | Measurement context backbone | Calibration-derived parameter-state measurement context, backbone context findings | Prove happy-path continuity into later measurement context and surface missing/partial context as review findings. |
 | Local review consumption | Calibration continuation review surface, review action recording | Show review cards, backbone context, findings, and labels-only actions in notebook/CLI-shaped data, then record explicit user choices without executing them. |
 
