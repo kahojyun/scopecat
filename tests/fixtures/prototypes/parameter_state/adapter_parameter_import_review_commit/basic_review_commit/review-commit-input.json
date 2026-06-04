@@ -1,29 +1,6 @@
 {
-  "adapter_parameter_import_review_policy": {
-    "input_authority": "validated_adapter_preview",
-    "review_required": "explicit_human_acceptance",
-    "managed_parameter_state_creation": "summary_only_not_written",
-    "legacy_source_parsing": "not_performed_by_scopecat",
-    "schema_migration": "not_performed",
-    "external_file_authority": "not_claimed",
-    "hardware_write_back": "not_performed",
-    "storage_mutation": "not_performed",
-    "gui_workflow": "not_defined"
-  },
   "adapter_preview_manifest": {
     "manifest_schema": "scopecat.adapter_parameter_state_import_manifest.v0",
-    "adapter_parameter_import_policy": {
-      "manifest_authority": "adapter_authored",
-      "legacy_source_parsing": "not_performed_by_scopecat",
-      "source_observation": "adapter_declared_only",
-      "parameter_state_creation": "not_performed",
-      "import_acceptance": "not_performed",
-      "schema_migration": "not_performed",
-      "external_file_authority": "not_claimed",
-      "hardware_write_back": "not_performed",
-      "gui_workflow": "not_defined",
-      "stable_public_api": "not_defined"
-    },
     "adapter": {
       "adapter_id": "public-safe-parameter-adapter",
       "name": "Public-safe parameter adapter fixture",
@@ -136,14 +113,12 @@
       {
         "code": "legacy_parameter_formats_not_supported_by_core",
         "severity": "info",
-        "message": "Legacy JSON and XLSX parsing was performed by the adapter, not Scopecat core.",
-        "does_not_claim": "core_parameter_json_or_xlsx_reader_available"
+        "message": "Legacy JSON and XLSX parsing was performed by the adapter, not Scopecat core."
       },
       {
         "code": "candidate_requires_human_review",
         "severity": "review",
-        "message": "Adapter-normalized entries are previewed before any Scopecat-managed parameter state is created.",
-        "does_not_claim": "parameter_state_committed"
+        "message": "Adapter-normalized entries are previewed before any Scopecat-managed parameter state is created."
       }
     ]
   },
@@ -208,12 +183,5 @@
         ]
       }
     ]
-  },
-  "side_effect_claims": {
-    "legacy_source_parsing": "not_performed",
-    "schema_migration": "not_performed",
-    "external_file_authority": "not_claimed",
-    "hardware_write_back": "not_performed",
-    "storage_mutation": "not_performed"
   }
 }

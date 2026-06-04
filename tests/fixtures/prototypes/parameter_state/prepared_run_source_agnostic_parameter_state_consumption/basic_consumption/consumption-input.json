@@ -1,21 +1,4 @@
 {
-  "consumption_policy": {
-    "composition_authority": "prepared_run_parameter_state_reference",
-    "prepared_context_source": "declared_prepared_run_context_summary",
-    "parameter_state_source": "source_agnostic_storage_read_view_summary",
-    "fresh_storage_read": "not_performed",
-    "catalog_discovery": "not_performed",
-    "storage_mutation": "not_performed",
-    "parameter_write_back": "not_performed",
-    "hardware_control": "not_performed",
-    "setup_mutation": "not_performed",
-    "environment_sync": "not_performed",
-    "code_import_execution": "not_performed",
-    "readiness_claim": "composition_review_facts_only",
-    "gui_workflow": "not_defined",
-    "shared_parameter_schema": "not_defined",
-    "shared_run_context_schema": "not_defined"
-  },
   "consumption_request": {
     "request_id": "prepared-run-source-agnostic-parameter-state-consumption-0001",
     "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
@@ -24,18 +7,6 @@
     "expected_state_id": "param-state-0008"
   },
   "prepared_run_context_summary": {
-    "prepared_run_context_policy": {
-      "run_context_authority": "preparation_summary_only",
-      "context_source": "declared_fixture_records",
-      "workspace_observation_source": "declared_editable_folder_observation_summary",
-      "shared_context_schema": "not_defined",
-      "hardware_control": "not_performed",
-      "parameter_write_back": "not_performed",
-      "setup_mutation": "not_performed",
-      "environment_sync": "not_performed",
-      "code_import_execution": "not_performed",
-      "readiness_claim": "selection_and_workspace_observation_only"
-    },
     "prepared_run_contexts": [
       {
         "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
@@ -67,7 +38,7 @@
         "context_id": "measurement-intent-chevron-qA",
         "context_label": "qA chevron follow-up",
         "record_status": "declared_user_intent",
-        "authority": "prepared_run_context_fixture"
+        "authority": "prepared_run_context_summary"
       },
       {
         "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
@@ -78,7 +49,7 @@
         "context_id": "param-state-0008",
         "context_label": "qA default bias after Rabi calibration review",
         "record_status": "trusted_for_declared_scope",
-        "authority": "source_agnostic_parameter_state_read_view_fixture"
+        "authority": "source_agnostic_parameter_state_read_view_summary"
       },
       {
         "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
@@ -89,7 +60,7 @@
         "context_id": "setup-binding-0002",
         "context_label": "qA default binding after bias-line move",
         "record_status": "selected_binding_snapshot",
-        "authority": "setup_binding_fixture"
+        "authority": "setup_binding_summary"
       },
       {
         "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
@@ -100,7 +71,7 @@
         "context_id": "station-registry-synthetic-redacted",
         "context_label": "redacted synthetic station registry",
         "record_status": "selected_station_context",
-        "authority": "setup_binding_fixture"
+        "authority": "setup_binding_summary"
       },
       {
         "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
@@ -111,7 +82,7 @@
         "context_id": "managed-code-version-readout-0001",
         "context_label": "readout calibration managed code version",
         "record_status": "materialized_workspace_available",
-        "authority": "managed_code_version_fixture"
+        "authority": "managed_code_version_summary"
       },
       {
         "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
@@ -122,60 +93,14 @@
         "context_id": "editable-observation-readout-0001",
         "context_label": "readout rerun workspace observation",
         "record_status": "observed_with_review_findings",
-        "authority": "editable_folder_observation_fixture"
+        "authority": "editable_folder_observation_summary"
       }
     ],
     "missing_context_findings": [],
     "workspace_context_findings": []
   },
   "source_agnostic_read_view_summary": {
-    "attention": [
-      {
-        "basis": "Only declared manifest and receipt files are read for each requested state.",
-        "code": "explicit_manifest_and_receipt_read",
-        "does_not_claim": "catalog_discovery_or_storage_scan",
-        "severity": "review"
-      },
-      {
-        "basis": "Adapter and calibration provenance are preserved as source-specific payloads.",
-        "code": "typed_provenance_preserved",
-        "does_not_claim": "universal_provenance_schema",
-        "severity": "info"
-      },
-      {
-        "basis": "Observed sha256 and size facts are compared with request and receipt facts.",
-        "code": "checksum_continuity_checked",
-        "does_not_claim": "final_storage_integrity_contract",
-        "severity": "info"
-      },
-      {
-        "basis": "The read view does not write, repair, migrate, or update storage.",
-        "code": "storage_mutation_not_performed",
-        "does_not_claim": "storage_writer_or_catalog_update",
-        "severity": "review"
-      },
-      {
-        "basis": "Reading parameter state does not apply parameters to instruments.",
-        "code": "hardware_write_back_not_performed",
-        "does_not_claim": "instrument_command_or_current_hardware_state",
-        "severity": "review"
-      }
-    ],
     "classification": "all_explicit_parameter_states_ready",
-    "read_view_policy": {
-      "catalog_discovery": "not_performed",
-      "checksum_algorithm": "sha256",
-      "compatibility_output": "not_produced",
-      "gui_workflow": "not_defined",
-      "hardware_write_back": "not_performed",
-      "manifest_observation": "explicit_manifest_and_receipt_files_only",
-      "read_authority": "explicit_parameter_state_storage_references",
-      "schema_migration": "not_performed",
-      "shared_parameter_schema": "not_defined",
-      "storage_mutation": "not_performed",
-      "storage_root_authority": "caller_provided_storage_root_plus_declared_relative_paths",
-      "supported_manifest_sources": "adapter_and_calibration_derived"
-    },
     "review_findings": [],
     "stored_states": [
       {

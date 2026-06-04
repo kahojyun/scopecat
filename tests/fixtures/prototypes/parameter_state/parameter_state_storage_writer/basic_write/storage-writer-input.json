@@ -1,17 +1,4 @@
 {
-  "storage_policy": {
-    "write_authority": "approved_parameter_state_storage_write",
-    "input_authority": "reviewed_managed_parameter_state_summary",
-    "destination_authority": "caller_provided_storage_root_plus_declared_relative_paths",
-    "overwrite_behavior": "no_overwrite",
-    "checksum_algorithm": "sha256",
-    "legacy_source_parsing": "not_performed_by_scopecat",
-    "schema_migration": "not_performed",
-    "external_file_authority": "not_claimed",
-    "hardware_write_back": "not_performed",
-    "gui_workflow": "not_defined",
-    "shared_parameter_schema": "not_defined"
-  },
   "storage_request": {
     "request_id": "parameter-state-storage-write-0001",
     "approval": {
@@ -120,25 +107,6 @@
       ],
       "disposition": "not_committed_to_managed_parameter_state",
       "reason": "Adapter preserved the table-shaped value as schema-limited; this preview slice does not migrate table shapes."
-    }
-  ],
-  "side_effect_claims": {
-    "legacy_source_parsing": "not_performed",
-    "schema_migration": "not_performed",
-    "external_file_authority": "not_claimed",
-    "hardware_write_back": "not_performed",
-    "storage_mutation": "performed"
-  },
-  "expected_write_results": [
-    {
-      "path": "parameter-states/param-state-imported-0001/parameter-state.json",
-      "kind": "parameter_state_manifest",
-      "digest": "sha256:05974eba3977078d0fb963b1db7c575b91ef165ae4e6abb233c39a4446a48c7a"
-    },
-    {
-      "path": "parameter-states/param-state-imported-0001/write-receipt.json",
-      "kind": "write_receipt",
-      "digest": "sha256:ac8574f7032e9728a0bb1860006ac6a1705183b5b457b4dffe43a4e61d2fe092"
     }
   ]
 }

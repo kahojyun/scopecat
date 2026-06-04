@@ -13,35 +13,6 @@ import copy
 from dataclasses import dataclass, field
 from typing import Any
 
-_EXPECTED_POLICY = {
-    "alignment_authority": "declared_prepared_run_scope_review",
-    "parameter_context_source": "prepared_run_parameter_state_consumption_summary",
-    "setup_binding_source": "declared_setup_binding_summary",
-    "measurement_intent_source": "prepared_run_manual_target",
-    "parameter_write_back": "not_performed",
-    "hardware_control": "not_performed",
-    "automatic_run_start": "not_performed",
-    "fresh_storage_read": "not_performed",
-    "catalog_discovery": "not_performed",
-    "setup_mutation": "not_performed",
-    "environment_sync": "not_performed",
-    "code_import_execution": "not_performed",
-    "readiness_claim": "scope_review_facts_only",
-    "gui_workflow": "not_defined",
-    "shared_scope_schema": "not_defined",
-}
-
-_CONSUMPTION_POLICY_EXPECTED = {
-    "fresh_storage_read": "not_performed",
-    "catalog_discovery": "not_performed",
-    "storage_mutation": "not_performed",
-    "parameter_write_back": "not_performed",
-    "hardware_control": "not_performed",
-    "setup_mutation": "not_performed",
-    "environment_sync": "not_performed",
-    "code_import_execution": "not_performed",
-}
-
 
 @dataclass(frozen=True, init=False)
 class PreparedRunScopeAlignmentRequest:
@@ -89,15 +60,6 @@ def _records_by_key(records: list[dict[str, Any]], key: str) -> dict[str, dict[s
     return output
 
 
-def _validate_policy(source: dict[str, Any]) -> None:
-    policy = source["alignment_policy"]
-    if set(policy) != set(_EXPECTED_POLICY):
-        raise ValueError("prepared-run scope alignment policy shape")
-    for key, expected in _EXPECTED_POLICY.items():
-        if policy[key] != expected:
-            raise ValueError(f"prepared-run scope alignment policy {key} must be {expected}")
-
-
 def _setup_bindings_by_id(source: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return _records_by_key(source["setup_binding_summary"]["setup_bindings"], "snapshot_id")
 
@@ -128,10 +90,6 @@ def _input_ref(measurement: dict[str, Any], name: str) -> dict[str, Any] | None:
 
 def _validate_consumption_summary(source: dict[str, Any]) -> None:
     summary = source["parameter_state_consumption_summary"]
-    policy = summary["consumption_policy"]
-    for key, expected in _CONSUMPTION_POLICY_EXPECTED.items():
-        if policy[key] != expected:
-            raise ValueError(f"parameter-state consumption summary {key} must be {expected}")
     if summary["parameter_state"] is None:
         raise ValueError("scope alignment requires parameter_state consumption facts")
     if summary["classification"] not in {
@@ -176,18 +134,16 @@ def _validate_request(source: dict[str, Any]) -> None:
 
 
 def _validate_references(source: dict[str, Any]) -> None:
-    _validate_policy(source)
     _validate_consumption_summary(source)
     _validate_setup_binding_summary(source)
     _validate_request(source)
 
 
-def _finding(code: str, basis: Any, does_not_claim: str) -> dict[str, Any]:
+def _finding(code: str, basis: Any) -> dict[str, Any]:
     return {
         "code": code,
         "severity": "review",
         "basis": copy.deepcopy(basis),
-        "does_not_claim": does_not_claim,
     }
 
 
@@ -238,7 +194,6 @@ def _alignment_findings(source: dict[str, Any]) -> list[dict[str, Any]]:
                     "expected_sample_id": expected_sample_id,
                     "setup_sample_id": setup_sample["sample_id"],
                 },
-                "automatic_parameter_invalidation_or_hardware_safety",
             )
         )
     if expected_sample_id not in lineage_tokens:
@@ -249,7 +204,6 @@ def _alignment_findings(source: dict[str, Any]) -> list[dict[str, Any]]:
                     "expected_sample_id": expected_sample_id,
                     "lineage_target_scope": sorted(lineage_tokens),
                 },
-                "automatic_parameter_invalidation_or_lineage_repair",
             )
         )
 
@@ -262,7 +216,6 @@ def _alignment_findings(source: dict[str, Any]) -> list[dict[str, Any]]:
                     "missing_targets": missing_binding_targets,
                     "setup_binding_id": request["setup_binding_id"],
                 },
-                "hardware_mapping_repair_or_run_blocking",
             )
         )
 
@@ -276,7 +229,6 @@ def _alignment_findings(source: dict[str, Any]) -> list[dict[str, Any]]:
                     "measurement_targets": sorted(measurement_targets),
                     "lineage_target_scope": sorted(lineage_tokens),
                 },
-                "automatic_parameter_invalidation_or_run_blocking",
             )
         )
     elif lineage_missing_targets:
@@ -287,18 +239,11 @@ def _alignment_findings(source: dict[str, Any]) -> list[dict[str, Any]]:
                     "covered_targets": sorted(lineage_covered_targets),
                     "missing_targets": lineage_missing_targets,
                 },
-                "automatic_parameter_invalidation_or_run_blocking",
             )
         )
 
     if consumption["classification"] != "prepared_run_parameter_state_ready":
-        findings.append(
-            _finding(
-                "parameter_consumption_not_ready",
-                consumption["classification"],
-                "automatic_run_blocking_or_parameter_write_back",
-            )
-        )
+        findings.append(_finding("parameter_consumption_not_ready", consumption["classification"]))
     return findings
 
 
@@ -340,46 +285,15 @@ def _scope_summary(source: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _attention() -> list[dict[str, str]]:
-    return [
-        {
-            "code": "scope_alignment_review_only",
-            "severity": "info",
-            "basis": "Alignment compares declared context summaries without owning their payload schemas.",
-            "does_not_claim": "shared_parameter_setup_measurement_schema",
-        },
-        {
-            "code": "hardware_control_not_performed",
-            "severity": "review",
-            "basis": "Setup-binding alignment does not inspect or configure hardware.",
-            "does_not_claim": "current_instrument_state",
-        },
-        {
-            "code": "parameter_write_back_not_performed",
-            "severity": "review",
-            "basis": "Alignment does not apply, repair, or invalidate parameter values.",
-            "does_not_claim": "parameter_application_or_invalidation",
-        },
-        {
-            "code": "run_start_not_performed",
-            "severity": "review",
-            "basis": "Alignment findings are review facts, not execution permission.",
-            "does_not_claim": "run_can_start",
-        },
-    ]
-
-
 def build_prepared_run_scope_alignment_summary(source: dict[str, Any]) -> dict[str, Any]:
     """Build a prepared-run scope alignment summary from explicit summaries."""
     request_model = PreparedRunScopeAlignmentRequest.from_dict(source)
     source = request_model.source
     findings = _alignment_findings(source)
     summary = {
-        "alignment_policy": copy.deepcopy(source["alignment_policy"]),
         "alignment_request": copy.deepcopy(source["alignment_request"]),
         "classification": _classification(findings),
         "scope_summary": _scope_summary(source),
         "review_findings": findings,
-        "attention": _attention(),
     }
     return PreparedRunScopeAlignmentResult(summary=summary).to_dict()

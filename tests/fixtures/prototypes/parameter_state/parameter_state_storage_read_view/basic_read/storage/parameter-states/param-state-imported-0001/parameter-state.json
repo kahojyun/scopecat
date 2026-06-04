@@ -94,11 +94,5 @@
       "qubits.qA.drive_frequency_hz",
       "qubits.qA.pi_amp"
     ]
-  },
-  "storage_non_claims": {
-    "external_file_authority": "not_claimed",
-    "hardware_write_back": "not_performed",
-    "legacy_source_parsing": "not_performed",
-    "schema_migration": "not_performed"
   }
 }

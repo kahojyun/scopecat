@@ -93,15 +93,6 @@ def _records_by_key(records: list[dict[str, Any]], key: str) -> dict[str, dict[s
     return output
 
 
-def _validate_policy(source: dict[str, Any]) -> None:
-    policy = source["adapter_parameter_import_review_policy"]
-    if set(policy) != set(_EXPECTED_POLICY):
-        raise ValueError("adapter parameter import review policy must match expected shape")
-    for key, expected in _EXPECTED_POLICY.items():
-        if policy[key] != expected:
-            raise ValueError(f"adapter parameter import review policy {key} must be {expected}")
-
-
 def _candidate_entries_by_path(preview_summary: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return _records_by_key(preview_summary["candidate_entries"], "path")
 
@@ -194,25 +185,9 @@ def _validate_managed_state(
         raise ValueError("managed parameter state trusted paths must match managed entries")
 
 
-def _validate_side_effects(source: dict[str, Any]) -> None:
-    side_effects = source["side_effect_claims"]
-    for key in (
-        "legacy_source_parsing",
-        "schema_migration",
-        "hardware_write_back",
-        "storage_mutation",
-    ):
-        if side_effects[key] != "not_performed":
-            raise ValueError(f"side effect claim {key} must be not_performed")
-    if side_effects["external_file_authority"] != "not_claimed":
-        raise ValueError("side effect claim external_file_authority must be not_claimed")
-
-
 def _validate_references(source: dict[str, Any], preview_summary: dict[str, Any]) -> None:
-    _validate_policy(source)
     _validate_review(source["review"], preview_summary)
     _validate_managed_state(source["managed_parameter_state"], source["review"], preview_summary)
-    _validate_side_effects(source)
 
 
 def _accepted_entry_summary(entry: dict[str, Any]) -> dict[str, Any]:
@@ -279,7 +254,6 @@ def build_adapter_parameter_import_review_commit_summary(source: dict[str, Any])
     preview_summary = request_model.preview_summary
     review = source["review"]
     summary = {
-        "policy": copy.deepcopy(source["adapter_parameter_import_review_policy"]),
         "preview_summary": {
             "manifest_schema": preview_summary["manifest_schema"],
             "classification": preview_summary["classification"],
@@ -301,6 +275,5 @@ def build_adapter_parameter_import_review_commit_summary(source: dict[str, Any])
         "managed_parameter_state": _managed_state_summary(source["managed_parameter_state"]),
         "provenance": _provenance_summary(preview_summary),
         "excluded_preview_entries": _excluded_preview_findings(review, preview_summary),
-        "side_effects": copy.deepcopy(source["side_effect_claims"]),
     }
     return AdapterParameterImportReviewCommitResult(summary=summary).to_dict()

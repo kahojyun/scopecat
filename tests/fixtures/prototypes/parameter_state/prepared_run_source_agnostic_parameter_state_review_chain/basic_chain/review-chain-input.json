@@ -1,72 +1,6 @@
 {
-  "review_chain_policy": {
-    "chain_authority": "declared_prepared_run_parameter_review_chain",
-    "parameter_consumption_source": "prepared_run_source_agnostic_parameter_state_consumption_summary",
-    "gate_source": "existing_prepared_run_parameter_state_gate",
-    "scope_alignment_source": "existing_prepared_run_scope_alignment",
-    "fresh_storage_read": "not_performed",
-    "catalog_discovery": "not_performed",
-    "storage_mutation": "not_performed",
-    "parameter_write_back": "not_performed",
-    "compatibility_output": "not_produced",
-    "hardware_control": "not_performed",
-    "automatic_run_start": "not_performed",
-    "environment_sync": "not_performed",
-    "code_import_execution": "not_performed",
-    "gui_workflow": "not_defined",
-    "new_gate_schema": "not_defined"
-  },
   "source_agnostic_consumption_summary": {
-    "attention": [
-      {
-        "basis": "Prepared-run parameter context is checked against one selected state from a source-agnostic read-view summary.",
-        "code": "prepared_context_consumes_source_agnostic_read_view",
-        "does_not_claim": "catalog_discovery_or_storage_lookup",
-        "severity": "info"
-      },
-      {
-        "basis": "Adapter or calibration provenance is carried as a typed payload for run-preparation review.",
-        "code": "typed_provenance_projected_for_review",
-        "does_not_claim": "universal_provenance_schema",
-        "severity": "info"
-      },
-      {
-        "basis": "Trusted parameter entries are visible as run-preparation facts.",
-        "code": "trusted_entries_projected_for_review",
-        "does_not_claim": "parameter_write_back_or_hardware_state",
-        "severity": "review"
-      },
-      {
-        "basis": "The composition consumes prior read-view facts and does not open storage.",
-        "code": "storage_read_not_repeated",
-        "does_not_claim": "fresh_integrity_observation",
-        "severity": "info"
-      },
-      {
-        "basis": "Composed run-preparation facts do not import code, sync an environment, or execute a run.",
-        "code": "execution_not_granted",
-        "does_not_claim": "run_start_or_runnable_readiness",
-        "severity": "review"
-      }
-    ],
     "classification": "prepared_run_parameter_state_ready",
-    "consumption_policy": {
-      "catalog_discovery": "not_performed",
-      "code_import_execution": "not_performed",
-      "composition_authority": "prepared_run_parameter_state_reference",
-      "environment_sync": "not_performed",
-      "fresh_storage_read": "not_performed",
-      "gui_workflow": "not_defined",
-      "hardware_control": "not_performed",
-      "parameter_state_source": "source_agnostic_storage_read_view_summary",
-      "parameter_write_back": "not_performed",
-      "prepared_context_source": "declared_prepared_run_context_summary",
-      "readiness_claim": "composition_review_facts_only",
-      "setup_mutation": "not_performed",
-      "shared_parameter_schema": "not_defined",
-      "shared_run_context_schema": "not_defined",
-      "storage_mutation": "not_performed"
-    },
     "consumption_request": {
       "expected_state_id": "param-state-0008",
       "parameter_context_id": "param-state-0008",
@@ -107,7 +41,7 @@
         "prepared_at": "2026-05-23T10:35:00Z"
       },
       "parameter_context_ref": {
-        "authority": "source_agnostic_parameter_state_read_view_fixture",
+        "authority": "source_agnostic_parameter_state_read_view_summary",
         "context_id": "param-state-0008",
         "context_label": "qA default bias after Rabi calibration review",
         "family": "parameter_state",
@@ -217,22 +151,6 @@
     }
   },
   "gate_input": {
-    "gate_policy": {
-      "gate_authority": "declared_prepared_run_parameter_review_policy",
-      "consumption_source": "prepared_run_parameter_state_consumption_summary",
-      "review_gate_scope": "parameter_state_context_only",
-      "automatic_run_start": "not_performed",
-      "parameter_write_back": "not_performed",
-      "hardware_control": "not_performed",
-      "fresh_storage_read": "not_performed",
-      "catalog_discovery": "not_performed",
-      "storage_mutation": "not_performed",
-      "environment_sync": "not_performed",
-      "code_import_execution": "not_performed",
-      "readiness_claim": "parameter_review_gate_only",
-      "gui_workflow": "not_defined",
-      "shared_gate_schema": "not_defined"
-    },
     "gate_request": {
       "gate_id": "prepared-run-source-agnostic-parameter-state-gate-0001",
       "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
@@ -243,56 +161,7 @@
       "unavailable_context_policy": "block_manual_run_review"
     },
     "parameter_state_consumption_summary": {
-      "attention": [
-        {
-          "basis": "Prepared-run parameter context is checked against one selected state from a source-agnostic read-view summary.",
-          "code": "prepared_context_consumes_source_agnostic_read_view",
-          "does_not_claim": "catalog_discovery_or_storage_lookup",
-          "severity": "info"
-        },
-        {
-          "basis": "Adapter or calibration provenance is carried as a typed payload for run-preparation review.",
-          "code": "typed_provenance_projected_for_review",
-          "does_not_claim": "universal_provenance_schema",
-          "severity": "info"
-        },
-        {
-          "basis": "Trusted parameter entries are visible as run-preparation facts.",
-          "code": "trusted_entries_projected_for_review",
-          "does_not_claim": "parameter_write_back_or_hardware_state",
-          "severity": "review"
-        },
-        {
-          "basis": "The composition consumes prior read-view facts and does not open storage.",
-          "code": "storage_read_not_repeated",
-          "does_not_claim": "fresh_integrity_observation",
-          "severity": "info"
-        },
-        {
-          "basis": "Composed run-preparation facts do not import code, sync an environment, or execute a run.",
-          "code": "execution_not_granted",
-          "does_not_claim": "run_start_or_runnable_readiness",
-          "severity": "review"
-        }
-      ],
       "classification": "prepared_run_parameter_state_ready",
-      "consumption_policy": {
-        "catalog_discovery": "not_performed",
-        "code_import_execution": "not_performed",
-        "composition_authority": "prepared_run_parameter_state_reference",
-        "environment_sync": "not_performed",
-        "fresh_storage_read": "not_performed",
-        "gui_workflow": "not_defined",
-        "hardware_control": "not_performed",
-        "parameter_state_source": "source_agnostic_storage_read_view_summary",
-        "parameter_write_back": "not_performed",
-        "prepared_context_source": "declared_prepared_run_context_summary",
-        "readiness_claim": "composition_review_facts_only",
-        "setup_mutation": "not_performed",
-        "shared_parameter_schema": "not_defined",
-        "shared_run_context_schema": "not_defined",
-        "storage_mutation": "not_performed"
-      },
       "consumption_request": {
         "expected_state_id": "param-state-0008",
         "parameter_context_id": "param-state-0008",
@@ -333,7 +202,7 @@
           "prepared_at": "2026-05-23T10:35:00Z"
         },
         "parameter_context_ref": {
-          "authority": "source_agnostic_parameter_state_read_view_fixture",
+          "authority": "source_agnostic_parameter_state_read_view_summary",
           "context_id": "param-state-0008",
           "context_label": "qA default bias after Rabi calibration review",
           "family": "parameter_state",
@@ -444,23 +313,6 @@
     }
   },
   "scope_alignment_input": {
-    "alignment_policy": {
-      "alignment_authority": "declared_prepared_run_scope_review",
-      "parameter_context_source": "prepared_run_parameter_state_consumption_summary",
-      "setup_binding_source": "declared_setup_binding_summary",
-      "measurement_intent_source": "prepared_run_manual_target",
-      "parameter_write_back": "not_performed",
-      "hardware_control": "not_performed",
-      "automatic_run_start": "not_performed",
-      "fresh_storage_read": "not_performed",
-      "catalog_discovery": "not_performed",
-      "setup_mutation": "not_performed",
-      "environment_sync": "not_performed",
-      "code_import_execution": "not_performed",
-      "readiness_claim": "scope_review_facts_only",
-      "gui_workflow": "not_defined",
-      "shared_scope_schema": "not_defined"
-    },
     "alignment_request": {
       "alignment_id": "prepared-run-source-agnostic-scope-alignment-0001",
       "prepared_run_context_id": "prepared-run-context-chevron-qA-0001",
@@ -470,56 +322,7 @@
       "station_registry_id": "station-registry-synthetic-redacted"
     },
     "parameter_state_consumption_summary": {
-      "attention": [
-        {
-          "basis": "Prepared-run parameter context is checked against one selected state from a source-agnostic read-view summary.",
-          "code": "prepared_context_consumes_source_agnostic_read_view",
-          "does_not_claim": "catalog_discovery_or_storage_lookup",
-          "severity": "info"
-        },
-        {
-          "basis": "Adapter or calibration provenance is carried as a typed payload for run-preparation review.",
-          "code": "typed_provenance_projected_for_review",
-          "does_not_claim": "universal_provenance_schema",
-          "severity": "info"
-        },
-        {
-          "basis": "Trusted parameter entries are visible as run-preparation facts.",
-          "code": "trusted_entries_projected_for_review",
-          "does_not_claim": "parameter_write_back_or_hardware_state",
-          "severity": "review"
-        },
-        {
-          "basis": "The composition consumes prior read-view facts and does not open storage.",
-          "code": "storage_read_not_repeated",
-          "does_not_claim": "fresh_integrity_observation",
-          "severity": "info"
-        },
-        {
-          "basis": "Composed run-preparation facts do not import code, sync an environment, or execute a run.",
-          "code": "execution_not_granted",
-          "does_not_claim": "run_start_or_runnable_readiness",
-          "severity": "review"
-        }
-      ],
       "classification": "prepared_run_parameter_state_ready",
-      "consumption_policy": {
-        "catalog_discovery": "not_performed",
-        "code_import_execution": "not_performed",
-        "composition_authority": "prepared_run_parameter_state_reference",
-        "environment_sync": "not_performed",
-        "fresh_storage_read": "not_performed",
-        "gui_workflow": "not_defined",
-        "hardware_control": "not_performed",
-        "parameter_state_source": "source_agnostic_storage_read_view_summary",
-        "parameter_write_back": "not_performed",
-        "prepared_context_source": "declared_prepared_run_context_summary",
-        "readiness_claim": "composition_review_facts_only",
-        "setup_mutation": "not_performed",
-        "shared_parameter_schema": "not_defined",
-        "shared_run_context_schema": "not_defined",
-        "storage_mutation": "not_performed"
-      },
       "consumption_request": {
         "expected_state_id": "param-state-0008",
         "parameter_context_id": "param-state-0008",
@@ -560,7 +363,7 @@
           "prepared_at": "2026-05-23T10:35:00Z"
         },
         "parameter_context_ref": {
-          "authority": "source_agnostic_parameter_state_read_view_fixture",
+          "authority": "source_agnostic_parameter_state_read_view_summary",
           "context_id": "param-state-0008",
           "context_label": "qA default bias after Rabi calibration review",
           "family": "parameter_state",

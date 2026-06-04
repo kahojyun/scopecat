@@ -15,33 +15,6 @@ from typing import Any
 
 from scopecat.parameter_state._contracts import validate_non_negative_integer
 
-_EXPECTED_POLICY = {
-    "gate_authority": "declared_prepared_run_parameter_review_policy",
-    "consumption_source": "prepared_run_parameter_state_consumption_summary",
-    "review_gate_scope": "parameter_state_context_only",
-    "automatic_run_start": "not_performed",
-    "parameter_write_back": "not_performed",
-    "hardware_control": "not_performed",
-    "fresh_storage_read": "not_performed",
-    "catalog_discovery": "not_performed",
-    "storage_mutation": "not_performed",
-    "environment_sync": "not_performed",
-    "code_import_execution": "not_performed",
-    "readiness_claim": "parameter_review_gate_only",
-    "gui_workflow": "not_defined",
-    "shared_gate_schema": "not_defined",
-}
-
-_CONSUMPTION_POLICY_EXPECTED = {
-    "fresh_storage_read": "not_performed",
-    "catalog_discovery": "not_performed",
-    "storage_mutation": "not_performed",
-    "parameter_write_back": "not_performed",
-    "hardware_control": "not_performed",
-    "environment_sync": "not_performed",
-    "code_import_execution": "not_performed",
-}
-
 
 @dataclass(frozen=True, init=False)
 class PreparedRunParameterStateGateRequest:
@@ -79,15 +52,6 @@ class PreparedRunParameterStateGateResult:
         return copy.deepcopy(self._summary)
 
 
-def _validate_policy(source: dict[str, Any]) -> None:
-    policy = source["gate_policy"]
-    if set(policy) != set(_EXPECTED_POLICY):
-        raise ValueError("prepared-run parameter-state gate policy shape")
-    for key, expected in _EXPECTED_POLICY.items():
-        if policy[key] != expected:
-            raise ValueError(f"prepared-run parameter-state gate policy {key} must be {expected}")
-
-
 def _validate_request(source: dict[str, Any]) -> None:
     request = source["gate_request"]
     if request["gate_mode"] != "manual_run_precheck_review":
@@ -105,10 +69,6 @@ def _validate_request(source: dict[str, Any]) -> None:
 
 def _validate_consumption_summary(source: dict[str, Any]) -> None:
     summary = source["parameter_state_consumption_summary"]
-    policy = summary["consumption_policy"]
-    for key, expected in _CONSUMPTION_POLICY_EXPECTED.items():
-        if policy[key] != expected:
-            raise ValueError(f"parameter-state consumption summary {key} must be {expected}")
     request = source["gate_request"]
     prepared_context = summary["prepared_run_context"]
     if prepared_context["prepared_run_context_id"] != request["prepared_run_context_id"]:
@@ -121,17 +81,15 @@ def _validate_consumption_summary(source: dict[str, Any]) -> None:
 
 
 def _validate_references(source: dict[str, Any]) -> None:
-    _validate_policy(source)
     _validate_request(source)
     _validate_consumption_summary(source)
 
 
-def _finding(code: str, basis: Any, does_not_claim: str) -> dict[str, Any]:
+def _finding(code: str, basis: Any) -> dict[str, Any]:
     return {
         "code": code,
         "severity": "review",
         "basis": copy.deepcopy(basis),
-        "does_not_claim": does_not_claim,
     }
 
 
@@ -143,29 +101,13 @@ def _gate_findings(source: dict[str, Any]) -> list[dict[str, Any]]:
 
     if summary["classification"] == "prepared_run_parameter_state_unavailable_for_review":
         findings.append(
-            _finding(
-                "required_parameter_context_unavailable",
-                summary["classification"],
-                "run_start_or_context_repair",
-            )
+            _finding("required_parameter_context_unavailable", summary["classification"])
         )
     elif summary["classification"] != "prepared_run_parameter_state_ready":
-        findings.append(
-            _finding(
-                "parameter_consumption_needs_review",
-                summary["classification"],
-                "automatic_run_blocking_or_parameter_write_back",
-            )
-        )
+        findings.append(_finding("parameter_consumption_needs_review", summary["classification"]))
 
     for finding in summary["review_findings"]:
-        findings.append(
-            _finding(
-                "parameter_consumption_finding",
-                finding,
-                "automatic_run_blocking_or_parameter_write_back",
-            )
-        )
+        findings.append(_finding("parameter_consumption_finding", finding))
 
     if parameter_state is None:
         return findings
@@ -178,15 +120,12 @@ def _gate_findings(source: dict[str, Any]) -> list[dict[str, Any]]:
                     "expected_state_id": request["expected_state_id"],
                     "observed_state_id": parameter_state["state_id"],
                 },
-                "state_repair_or_hardware_safety_decision",
             )
         )
     if parameter_state["trust_status"] != "trusted_for_declared_scope":
         findings.append(
             _finding(
-                "parameter_state_not_trusted_for_declared_scope",
-                parameter_state["trust_status"],
-                "hardware_safety_or_write_back_decision",
+                "parameter_state_not_trusted_for_declared_scope", parameter_state["trust_status"]
             )
         )
     trusted_entry_count = len(summary["trusted_entries"])
@@ -198,7 +137,6 @@ def _gate_findings(source: dict[str, Any]) -> list[dict[str, Any]]:
                     "required_min_trusted_entries": request["required_min_trusted_entries"],
                     "trusted_entry_count": trusted_entry_count,
                 },
-                "automatic_parameter_completion_or_write_back",
             )
         )
     return findings
@@ -236,35 +174,6 @@ def _parameter_state_input(summary: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def _attention() -> list[dict[str, str]]:
-    return [
-        {
-            "code": "parameter_gate_only",
-            "severity": "info",
-            "basis": "Gate output classifies parameter-context review state only.",
-            "does_not_claim": "run_can_start_or_hardware_safe",
-        },
-        {
-            "code": "parameter_write_back_not_performed",
-            "severity": "review",
-            "basis": "Gate output does not apply trusted entries to instruments or files.",
-            "does_not_claim": "parameter_application",
-        },
-        {
-            "code": "fresh_storage_read_not_performed",
-            "severity": "info",
-            "basis": "Gate output consumes prior parameter-state consumption facts.",
-            "does_not_claim": "new_integrity_observation",
-        },
-        {
-            "code": "execution_not_granted",
-            "severity": "review",
-            "basis": "Gate output does not import code, sync an environment, or start a run.",
-            "does_not_claim": "execution_permission",
-        },
-    ]
-
-
 def build_prepared_run_parameter_state_gate_summary(source: dict[str, Any]) -> dict[str, Any]:
     """Build a parameter-context review gate from explicit consumption facts."""
     request_model = PreparedRunParameterStateGateRequest.from_dict(source)
@@ -273,7 +182,6 @@ def build_prepared_run_parameter_state_gate_summary(source: dict[str, Any]) -> d
     findings = _gate_findings(source)
     gate_state = _gate_state(findings)
     summary = {
-        "gate_policy": copy.deepcopy(source["gate_policy"]),
         "gate_request": copy.deepcopy(source["gate_request"]),
         "gate_decision": {
             "gate_state": gate_state,
@@ -292,6 +200,5 @@ def build_prepared_run_parameter_state_gate_summary(source: dict[str, Any]) -> d
         },
         "parameter_state_gate_input": _parameter_state_input(summary),
         "review_findings": findings,
-        "attention": _attention(),
     }
     return PreparedRunParameterStateGateResult(summary=summary).to_dict()

@@ -1,18 +1,4 @@
 {
-  "source_research_notes": [
-    "<sample>/_research/parameter-files-and-artifacts.md",
-    "<sample>/_research/parameter-mutation-workflows.md",
-    "<sample>/_research/parameter-lineage-schema-pressure.md"
-  ],
-  "parameter_state_selection_policy": {
-    "parameter_authority": "scopecat_parameter_state",
-    "selection_role": "context_input_reference",
-    "selection_intent_semantics": "scenario_label_not_lifecycle",
-    "hardware_write_back": "not_performed",
-    "current_hardware_state_claim": "not_claimed",
-    "rollback_mutation": "not_performed",
-    "branch_tag_commit_semantics": "not_claimed"
-  },
   "lineages": [
     {
       "lineage_id": "lineage-qA-default-bias",

@@ -43,7 +43,6 @@ class ParameterStateEngineeringPrototypeTest(unittest.TestCase):
         )
         self.assertEqual(len(summary["managed_parameter_state"]["entries"]), 2)
         self.assertEqual(summary["review"]["review_status"], "accepted")
-        self.assertEqual(summary["policy"]["storage_mutation"], "not_performed")
 
     def test_storage_writer_and_read_view_round_trip_declared_files(self) -> None:
         writer_fixture = FIXTURES / "parameter_state_storage_writer" / "basic_write"

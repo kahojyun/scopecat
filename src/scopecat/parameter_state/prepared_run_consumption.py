@@ -6,24 +6,6 @@ import copy
 from dataclasses import dataclass, field
 from typing import Any
 
-_EXPECTED_POLICY = {
-    "composition_authority": "prepared_run_parameter_state_reference",
-    "prepared_context_source": "declared_prepared_run_context_summary",
-    "parameter_state_source": "source_agnostic_storage_read_view_summary",
-    "fresh_storage_read": "not_performed",
-    "catalog_discovery": "not_performed",
-    "storage_mutation": "not_performed",
-    "parameter_write_back": "not_performed",
-    "hardware_control": "not_performed",
-    "setup_mutation": "not_performed",
-    "environment_sync": "not_performed",
-    "code_import_execution": "not_performed",
-    "readiness_claim": "composition_review_facts_only",
-    "gui_workflow": "not_defined",
-    "shared_parameter_schema": "not_defined",
-    "shared_run_context_schema": "not_defined",
-}
-
 _READY_READ_CLASSIFICATION = "stored_parameter_state_read_view_ready"
 
 
@@ -81,15 +63,6 @@ def _records_by_key(records: list[dict[str, Any]], key: str) -> dict[str, dict[s
     return output
 
 
-def _validate_policy(source: dict[str, Any]) -> None:
-    policy = source["consumption_policy"]
-    if set(policy) != set(_EXPECTED_POLICY):
-        raise ValueError("prepared-run source-agnostic parameter-state policy shape")
-    for key, expected in _EXPECTED_POLICY.items():
-        if policy[key] != expected:
-            raise ValueError(f"prepared-run source-agnostic policy {key} must be {expected}")
-
-
 def _prepared_contexts_by_id(source: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return _records_by_key(
         source["prepared_run_context_summary"]["prepared_run_contexts"],
@@ -129,29 +102,11 @@ def _selected_parameter_context(
 
 
 def _validate_prepared_context_summary(source: dict[str, Any]) -> None:
-    summary = source["prepared_run_context_summary"]
-    policy = summary["prepared_run_context_policy"]
-    if policy["parameter_write_back"] != "not_performed":
-        raise ValueError("prepared context summary must not perform parameter_write_back")
-    if policy["hardware_control"] != "not_performed":
-        raise ValueError("prepared context summary must not perform hardware_control")
-    if policy["code_import_execution"] != "not_performed":
-        raise ValueError("prepared context summary must not import or execute code")
     _prepared_contexts_by_id(source)
 
 
 def _validate_read_view_summary(source: dict[str, Any]) -> None:
     summary = source["source_agnostic_read_view_summary"]
-    policy = summary["read_view_policy"]
-    if policy["storage_mutation"] != "not_performed":
-        raise ValueError("source-agnostic read view must not mutate storage")
-    if policy["catalog_discovery"] != "not_performed":
-        raise ValueError("source-agnostic read view must not perform catalog_discovery")
-    if policy["hardware_write_back"] != "not_performed":
-        raise ValueError("source-agnostic read view must not perform hardware_write_back")
-    if policy["compatibility_output"] != "not_produced":
-        raise ValueError("source-agnostic read view must not produce compatibility_output")
-
     for state in summary["stored_states"]:
         parameter_state = state.get("parameter_state")
         if parameter_state is None:
@@ -193,7 +148,6 @@ def _validate_request(source: dict[str, Any]) -> None:
 
 
 def _validate_references(source: dict[str, Any]) -> None:
-    _validate_policy(source)
     _validate_prepared_context_summary(source)
     _validate_read_view_summary(source)
     _validate_request(source)
@@ -203,12 +157,11 @@ def _selected_stored_state(source: dict[str, Any]) -> dict[str, Any] | None:
     return _stored_states_by_id(source).get(source["consumption_request"]["expected_state_id"])
 
 
-def _finding(code: str, basis: Any, does_not_claim: str) -> dict[str, Any]:
+def _finding(code: str, basis: Any) -> dict[str, Any]:
     return {
         "code": code,
         "severity": "review",
         "basis": copy.deepcopy(basis),
-        "does_not_claim": does_not_claim,
     }
 
 
@@ -228,24 +181,19 @@ def _review_findings(source: dict[str, Any]) -> list[dict[str, Any]]:
             _finding(
                 "prepared_parameter_context_missing",
                 "Prepared run context does not select the requested parameter_state role.",
-                "automatic_run_blocking_or_context_repair",
             )
         )
     elif parameter_context["include_state"] != "selected":
         findings.append(
             _finding(
-                "prepared_parameter_context_unavailable",
-                parameter_context.get("missing_reason"),
-                "automatic_run_blocking_or_context_repair",
+                "prepared_parameter_context_unavailable", parameter_context.get("missing_reason")
             )
         )
 
     if selected_state is None:
         findings.append(
             _finding(
-                "selected_parameter_state_missing_from_read_view",
-                request["expected_state_id"],
-                "fresh_storage_read_or_catalog_discovery",
+                "selected_parameter_state_missing_from_read_view", request["expected_state_id"]
             )
         )
     else:
@@ -258,7 +206,6 @@ def _review_findings(source: dict[str, Any]) -> list[dict[str, Any]]:
                         "expected_state_id": request["expected_state_id"],
                         "observed_state_id": state["state_id"],
                     },
-                    "state_selection_repair_or_hardware_safety_decision",
                 )
             )
         if (
@@ -272,34 +219,19 @@ def _review_findings(source: dict[str, Any]) -> list[dict[str, Any]]:
                         "prepared_context_id": parameter_context.get("context_id"),
                         "read_view_state_id": state["state_id"],
                     },
-                    "state_selection_repair_or_hardware_safety_decision",
                 )
             )
         if selected_state["classification"] != _READY_READ_CLASSIFICATION:
             findings.append(
                 _finding(
-                    "selected_parameter_state_read_view_not_ready",
-                    selected_state["classification"],
-                    "fresh_storage_read_or_automatic_repair",
+                    "selected_parameter_state_read_view_not_ready", selected_state["classification"]
                 )
             )
         for finding in selected_state["review_findings"]:
-            findings.append(
-                _finding(
-                    "selected_parameter_state_read_view_finding",
-                    finding,
-                    "automatic_run_blocking_or_storage_repair",
-                )
-            )
+            findings.append(_finding("selected_parameter_state_read_view_finding", finding))
 
     for finding in read_view["review_findings"]:
-        findings.append(
-            _finding(
-                "source_agnostic_read_view_finding",
-                finding,
-                "automatic_run_blocking_or_storage_repair",
-            )
-        )
+        findings.append(_finding("source_agnostic_read_view_finding", finding))
     return findings
 
 
@@ -380,41 +312,6 @@ def _typed_provenance(selected_state: dict[str, Any] | None) -> dict[str, Any] |
     return copy.deepcopy(selected_state["typed_provenance"])
 
 
-def _attention() -> list[dict[str, str]]:
-    return [
-        {
-            "code": "prepared_context_consumes_source_agnostic_read_view",
-            "severity": "info",
-            "basis": "Prepared-run parameter context is checked against one selected state from a source-agnostic read-view summary.",
-            "does_not_claim": "catalog_discovery_or_storage_lookup",
-        },
-        {
-            "code": "typed_provenance_projected_for_review",
-            "severity": "info",
-            "basis": "Adapter or calibration provenance is carried as a typed payload for run-preparation review.",
-            "does_not_claim": "universal_provenance_schema",
-        },
-        {
-            "code": "trusted_entries_projected_for_review",
-            "severity": "review",
-            "basis": "Trusted parameter entries are visible as run-preparation facts.",
-            "does_not_claim": "parameter_write_back_or_hardware_state",
-        },
-        {
-            "code": "storage_read_not_repeated",
-            "severity": "info",
-            "basis": "The composition consumes prior read-view facts and does not open storage.",
-            "does_not_claim": "fresh_integrity_observation",
-        },
-        {
-            "code": "execution_not_granted",
-            "severity": "review",
-            "basis": "Composed run-preparation facts do not import code, sync an environment, or execute a run.",
-            "does_not_claim": "run_start_or_runnable_readiness",
-        },
-    ]
-
-
 def build_prepared_run_source_agnostic_parameter_state_consumption_summary(
     source: dict[str, Any],
 ) -> dict[str, Any]:
@@ -424,7 +321,6 @@ def build_prepared_run_source_agnostic_parameter_state_consumption_summary(
     selected_state = _selected_stored_state(source)
     findings = _review_findings(source)
     summary = {
-        "consumption_policy": copy.deepcopy(source["consumption_policy"]),
         "consumption_request": copy.deepcopy(source["consumption_request"]),
         "classification": _classification(findings),
         "prepared_run_context": _prepared_context_output(source),
@@ -435,6 +331,5 @@ def build_prepared_run_source_agnostic_parameter_state_consumption_summary(
         "typed_provenance": _typed_provenance(selected_state),
         "storage_read_facts": _storage_read_facts(selected_state),
         "review_findings": findings,
-        "attention": _attention(),
     }
     return PreparedRunParameterStateConsumptionResult(summary=summary).to_dict()

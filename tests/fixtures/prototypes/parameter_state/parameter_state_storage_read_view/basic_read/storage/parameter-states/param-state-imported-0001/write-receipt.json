@@ -2,14 +2,9 @@
   "approval_state": "approved",
   "collision_policy": "no_overwrite",
   "manifest": {
-    "digest": "sha256:05974eba3977078d0fb963b1db7c575b91ef165ae4e6abb233c39a4446a48c7a",
+    "digest": "sha256:529415fac959c748eb1b35db6fca70a318ecab50f3e047286ef1716b3b82ddf3",
     "path": "parameter-states/param-state-imported-0001/parameter-state.json",
-    "size_bytes": 3563
-  },
-  "non_claims": {
-    "final_storage_architecture": "not_defined",
-    "hardware_write_back": "not_performed",
-    "schema_migration": "not_performed"
+    "size_bytes": 3356
   },
   "receipt_schema": "scopecat.parameter_state_storage_receipt.v0",
   "request_id": "parameter-state-storage-write-0001",

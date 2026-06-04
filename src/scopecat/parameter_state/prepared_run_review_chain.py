@@ -13,34 +13,6 @@ from scopecat.parameter_state.prepared_run_scope_alignment import (
     build_prepared_run_scope_alignment_summary,
 )
 
-_EXPECTED_POLICY = {
-    "chain_authority": "declared_prepared_run_parameter_review_chain",
-    "parameter_consumption_source": "prepared_run_source_agnostic_parameter_state_consumption_summary",
-    "gate_source": "existing_prepared_run_parameter_state_gate",
-    "scope_alignment_source": "existing_prepared_run_scope_alignment",
-    "fresh_storage_read": "not_performed",
-    "catalog_discovery": "not_performed",
-    "storage_mutation": "not_performed",
-    "parameter_write_back": "not_performed",
-    "compatibility_output": "not_produced",
-    "hardware_control": "not_performed",
-    "automatic_run_start": "not_performed",
-    "environment_sync": "not_performed",
-    "code_import_execution": "not_performed",
-    "gui_workflow": "not_defined",
-    "new_gate_schema": "not_defined",
-}
-
-_CONSUMPTION_POLICY_EXPECTED = {
-    "fresh_storage_read": "not_performed",
-    "catalog_discovery": "not_performed",
-    "storage_mutation": "not_performed",
-    "parameter_write_back": "not_performed",
-    "hardware_control": "not_performed",
-    "environment_sync": "not_performed",
-    "code_import_execution": "not_performed",
-}
-
 
 @dataclass(frozen=True, init=False)
 class PreparedRunParameterStateReviewChainRequest:
@@ -78,26 +50,8 @@ class PreparedRunParameterStateReviewChainResult:
         return copy.deepcopy(self._summary)
 
 
-def _validate_policy(source: dict[str, Any]) -> None:
-    policy = source["review_chain_policy"]
-    if set(policy) != set(_EXPECTED_POLICY):
-        raise ValueError("prepared-run source-agnostic review-chain policy shape")
-    for key, expected in _EXPECTED_POLICY.items():
-        if policy[key] != expected:
-            raise ValueError(
-                f"prepared-run source-agnostic review-chain policy {key} must be {expected}"
-            )
-
-
 def _validate_consumption_summary(source: dict[str, Any]) -> None:
     summary = source["source_agnostic_consumption_summary"]
-    if summary["consumption_policy"]["parameter_state_source"] != (
-        "source_agnostic_storage_read_view_summary"
-    ):
-        raise ValueError("review chain requires source-agnostic parameter-state consumption")
-    for key, expected in _CONSUMPTION_POLICY_EXPECTED.items():
-        if summary["consumption_policy"][key] != expected:
-            raise ValueError(f"source-agnostic consumption summary {key} must be {expected}")
     if summary["parameter_state"] is None:
         raise ValueError("review chain requires selected parameter_state facts")
 
@@ -136,7 +90,6 @@ def _validate_alignment_input(source: dict[str, Any]) -> None:
 
 
 def _validate_references(source: dict[str, Any]) -> None:
-    _validate_policy(source)
     _validate_consumption_summary(source)
     _validate_gate_input(source)
     _validate_alignment_input(source)
@@ -154,29 +107,6 @@ def _chain_classification(gate_summary: dict[str, Any], alignment_summary: dict[
     return "parameter_review_chain_ready_for_manual_review"
 
 
-def _attention() -> list[dict[str, str]]:
-    return [
-        {
-            "code": "existing_gate_reused",
-            "severity": "info",
-            "basis": "Source-agnostic parameter-state consumption is accepted by the existing parameter-state gate shape.",
-            "does_not_claim": "new_gate_schema",
-        },
-        {
-            "code": "existing_scope_alignment_reused",
-            "severity": "info",
-            "basis": "Source-agnostic parameter-state consumption is accepted by the existing scope-alignment shape.",
-            "does_not_claim": "new_scope_schema",
-        },
-        {
-            "code": "calibration_derived_state_reaches_pre_run_review",
-            "severity": "review",
-            "basis": "The selected calibration-derived parameter state flows through gate and scope review without storage reads or hardware apply.",
-            "does_not_claim": "run_start_or_hardware_safety",
-        },
-    ]
-
-
 def build_prepared_run_source_agnostic_parameter_state_review_chain_summary(
     source: dict[str, Any],
 ) -> dict[str, Any]:
@@ -187,7 +117,6 @@ def build_prepared_run_source_agnostic_parameter_state_review_chain_summary(
     alignment_summary = build_prepared_run_scope_alignment_summary(source["scope_alignment_input"])
     consumption = source["source_agnostic_consumption_summary"]
     summary = {
-        "review_chain_policy": copy.deepcopy(source["review_chain_policy"]),
         "classification": _chain_classification(gate_summary, alignment_summary),
         "selected_parameter_state": {
             "state_id": consumption["parameter_state"]["state_id"],
@@ -216,6 +145,5 @@ def build_prepared_run_source_agnostic_parameter_state_review_chain_summary(
             {"source": "scope_alignment", **finding}
             for finding in alignment_summary["review_findings"]
         ],
-        "attention": _attention(),
     }
     return PreparedRunParameterStateReviewChainResult(summary=summary).to_dict()

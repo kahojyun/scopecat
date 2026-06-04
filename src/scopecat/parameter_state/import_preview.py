@@ -15,19 +15,6 @@ from typing import Any
 
 _MANIFEST_SCHEMA = "scopecat.adapter_parameter_state_import_manifest.v0"
 
-_EXPECTED_POLICY = {
-    "manifest_authority": "adapter_authored",
-    "legacy_source_parsing": "not_performed_by_scopecat",
-    "source_observation": "adapter_declared_only",
-    "parameter_state_creation": "not_performed",
-    "import_acceptance": "not_performed",
-    "schema_migration": "not_performed",
-    "external_file_authority": "not_claimed",
-    "hardware_write_back": "not_performed",
-    "gui_workflow": "not_defined",
-    "stable_public_api": "not_defined",
-}
-
 _ADAPTER_AUTHORITY = "external_adapter"
 _SOURCE_SYSTEM_KIND = "external_legacy_parameter_sources"
 _SOURCE_FORMATS = {"legacy_parameters_json", "xlsx_parameter_table", "project_specific_output"}
@@ -90,15 +77,6 @@ def _validate_public_safe_token(value: str, owner: str, *, requires_redacted: bo
         or (requires_redacted and "redacted" not in value.lower())
     ):
         raise ValueError(f"{owner} must be public-safe")
-
-
-def _validate_policy(source: dict[str, Any]) -> None:
-    policy = source["adapter_parameter_import_policy"]
-    if set(policy) != set(_EXPECTED_POLICY):
-        raise ValueError("adapter parameter import policy must match expected shape")
-    for key, expected in _EXPECTED_POLICY.items():
-        if policy[key] != expected:
-            raise ValueError(f"adapter parameter import policy {key} must be {expected}")
 
 
 def _validate_adapter(source: dict[str, Any]) -> None:
@@ -229,7 +207,6 @@ def _validate_adapter_findings(source: dict[str, Any]) -> None:
 def _validate_references(source: dict[str, Any]) -> None:
     if source["manifest_schema"] != _MANIFEST_SCHEMA:
         raise ValueError(f"manifest_schema must be {_MANIFEST_SCHEMA}")
-    _validate_policy(source)
     _validate_adapter(source)
     sources = _records_by_key(source["legacy_sources"], "source_id")
     for source_ref in source["legacy_sources"]:
@@ -327,41 +304,6 @@ def _preview_findings(source: dict[str, Any]) -> list[dict[str, Any]]:
     return findings
 
 
-def _attention() -> list[dict[str, str]]:
-    return [
-        {
-            "code": "adapter_manifest_boundary",
-            "severity": "info",
-            "basis": "Scopecat consumes normalized adapter-authored parameter facts only.",
-            "does_not_claim": "stable_public_sdk_or_cli",
-        },
-        {
-            "code": "legacy_parameter_parser_not_in_core",
-            "severity": "review",
-            "basis": "Legacy JSON, spreadsheet, or project-specific parsing is performed by an external adapter before Scopecat sees the manifest.",
-            "does_not_claim": "core_parameters_json_or_xlsx_reader",
-        },
-        {
-            "code": "source_observation_adapter_declared",
-            "severity": "review",
-            "basis": "Legacy source identity and availability are adapter-declared; Scopecat does not inspect legacy source files in this candidate.",
-            "does_not_claim": "file_contents_or_checksum_verified",
-        },
-        {
-            "code": "parameter_state_not_created",
-            "severity": "review",
-            "basis": "The adapter manifest is previewed before review/commit creates managed parameter state.",
-            "does_not_claim": "scopecat_parameter_state_created",
-        },
-        {
-            "code": "schema_migration_not_performed",
-            "severity": "review",
-            "basis": "Schema-limited values are surfaced as findings rather than migrated.",
-            "does_not_claim": "table_shape_migrated",
-        },
-    ]
-
-
 def build_adapter_authored_parameter_state_import_preview_summary(
     source: dict[str, Any],
 ) -> dict[str, Any]:
@@ -369,7 +311,6 @@ def build_adapter_authored_parameter_state_import_preview_summary(
     _validate_references(source)
     return {
         "manifest_schema": source["manifest_schema"],
-        "adapter_parameter_import_policy": copy.deepcopy(source["adapter_parameter_import_policy"]),
         "adapter": _adapter_summary(source),
         "legacy_sources": [_source_summary(source_ref) for source_ref in source["legacy_sources"]],
         "candidate_parameter_state": _candidate_summary(source),
@@ -378,8 +319,4 @@ def build_adapter_authored_parameter_state_import_preview_summary(
         "preview_findings": _preview_findings(source),
         "adapter_findings": copy.deepcopy(source["adapter_findings"]),
         "classification": _classification(source),
-        "import_acceptance": "not_accepted",
-        "parameter_state_creation": "not_performed",
-        "hardware_write_back": "not_performed",
-        "attention": _attention(),
     }

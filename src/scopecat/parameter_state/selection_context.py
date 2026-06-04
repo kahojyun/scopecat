@@ -12,16 +12,6 @@ import copy
 from dataclasses import dataclass, field
 from typing import Any
 
-_EXPECTED_POLICY = {
-    "parameter_authority": "scopecat_parameter_state",
-    "selection_role": "context_input_reference",
-    "selection_intent_semantics": "scenario_label_not_lifecycle",
-    "hardware_write_back": "not_performed",
-    "current_hardware_state_claim": "not_claimed",
-    "rollback_mutation": "not_performed",
-    "branch_tag_commit_semantics": "not_claimed",
-}
-
 _CONTEXT_KINDS = {
     "future_run_preparation",
     "analysis_comparison",
@@ -99,15 +89,6 @@ def _selections_by_id(source: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return _records_by_key(source["parameter_state_selections"], "selection_id")
 
 
-def _validate_policy(source: dict[str, Any]) -> None:
-    policy = source["parameter_state_selection_policy"]
-    if set(policy) != set(_EXPECTED_POLICY):
-        raise ValueError("parameter state selection policy must match expected shape")
-    for key, expected in _EXPECTED_POLICY.items():
-        if policy[key] != expected:
-            raise ValueError(f"parameter state selection policy {key} must be {expected}")
-
-
 def _validate_state(state: dict[str, Any], lineages: dict[str, dict[str, Any]]) -> None:
     if state["lineage_id"] not in lineages:
         raise ValueError(f"state {state['state_id']} references missing lineage")
@@ -182,7 +163,6 @@ def _validate_selection(
 
 
 def _validate_references(source: dict[str, Any]) -> None:
-    _validate_policy(source)
     lineages = _lineages_by_id(source)
     states = _states_by_id(source)
     contexts = _contexts_by_id(source)
@@ -250,11 +230,6 @@ def _selection_summary(
         "selection_reason": selection["selection_reason"],
         "selected_at": selection["selected_at"],
         "selected_by_role": selection["selected_by_role"],
-        "side_effects": {
-            "hardware_write_back": selection["hardware_write_back"],
-            "current_hardware_state_claim": selection["current_hardware_state_claim"],
-            "rollback_mutation": selection["rollback_mutation"],
-        },
     }
 
 
@@ -297,7 +272,6 @@ def build_parameter_state_selection_summary(source: dict[str, Any]) -> dict[str,
     states = _states_by_id(source)
     contexts = _contexts_by_id(source)
     summary = {
-        "policy": copy.deepcopy(source["parameter_state_selection_policy"]),
         "lineages": [_lineage_summary(lineage) for lineage in source["lineages"]],
         "selection_contexts": [
             _context_summary(context) for context in source["selection_contexts"]

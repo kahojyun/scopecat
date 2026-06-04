@@ -1,4 +1,4 @@
-"""Read-only parameter-state storage view implementation candidate.
+"""Read-only parameter-state storage view prototype.
 
 This module reads one explicitly declared stored parameter-state manifest and
 write receipt under a caller-provided storage root. It deliberately does not
@@ -26,21 +26,6 @@ from scopecat.parameter_state._storage import (
     existing_directory_root,
     path_under,
 )
-
-_EXPECTED_POLICY = {
-    "read_authority": "explicit_parameter_state_storage_reference",
-    "storage_root_authority": "caller_provided_storage_root_plus_declared_relative_paths",
-    "manifest_observation": "explicit_manifest_and_receipt_files_only",
-    "checksum_algorithm": "sha256",
-    "storage_mutation": "not_performed",
-    "catalog_discovery": "not_performed",
-    "legacy_source_observation": "not_performed",
-    "schema_migration": "not_performed",
-    "external_file_authority": "not_claimed",
-    "hardware_write_back": "not_performed",
-    "gui_workflow": "not_defined",
-    "shared_parameter_schema": "not_defined",
-}
 
 _MANIFEST_SCHEMA = "scopecat.parameter_state_storage_manifest.v0"
 _RECEIPT_SCHEMA = "scopecat.parameter_state_storage_receipt.v0"
@@ -98,15 +83,6 @@ class ParameterStateStorageReadResult:
         return copy.deepcopy(self._summary)
 
 
-def _validate_policy(source: dict[str, Any]) -> None:
-    policy = source["read_view_policy"]
-    if set(policy) != set(_EXPECTED_POLICY):
-        raise ValueError("expected parameter state storage read-view policy shape")
-    for key, expected in _EXPECTED_POLICY.items():
-        if policy[key] != expected:
-            raise ValueError(f"parameter state storage read-view policy {key} must be {expected}")
-
-
 def _validate_read_request(source: dict[str, Any]) -> None:
     request = source["read_request"]
     validate_relative_path(request["manifest_path"], "read request manifest_path")
@@ -131,7 +107,6 @@ def _validate_read_request(source: dict[str, Any]) -> None:
 
 
 def _validate_references(source: dict[str, Any]) -> None:
-    _validate_policy(source)
     _validate_read_request(source)
 
 
@@ -189,12 +164,11 @@ def _load_json_observed(observed: dict[str, Any], label: str) -> dict[str, Any] 
         raise ValueError(f"{label} must be UTF-8 JSON") from exc
 
 
-def _finding(code: str, basis: str, does_not_claim: str) -> dict[str, str]:
+def _finding(code: str, basis: str) -> dict[str, str]:
     return {
         "code": code,
         "severity": "review",
         "basis": basis,
-        "does_not_claim": does_not_claim,
     }
 
 
@@ -210,7 +184,6 @@ def _file_findings(
                 f"{owner}_unavailable",
                 f"Declared {owner.replace('_', ' ')} file could not be observed "
                 "under the caller root.",
-                "repair_or_catalog_discovery",
             )
         ]
     findings = []
@@ -220,7 +193,6 @@ def _file_findings(
                 f"{owner}_digest_mismatch",
                 f"Observed {owner.replace('_', ' ')} sha256 digest differs from "
                 "the declared digest.",
-                "repair_or_cause_attribution",
             )
         )
     if observed["observed_size_bytes"] != expected_size:
@@ -228,7 +200,6 @@ def _file_findings(
             _finding(
                 f"{owner}_size_mismatch",
                 f"Observed {owner.replace('_', ' ')} byte size differs from the declared size.",
-                "repair_or_cause_attribution",
             )
         )
     return findings
@@ -270,14 +241,6 @@ def _validate_manifest_shape(manifest: dict[str, Any]) -> None:
                 raise ValueError(
                     "parameter state manifest excluded entry references missing provenance source"
                 )
-    for key, expected in {
-        "legacy_source_parsing": "not_performed",
-        "schema_migration": "not_performed",
-        "external_file_authority": "not_claimed",
-        "hardware_write_back": "not_performed",
-    }.items():
-        if manifest["storage_non_claims"][key] != expected:
-            raise ValueError(f"parameter state manifest non-claim {key} must be {expected}")
 
 
 def _validate_receipt_shape(receipt: dict[str, Any]) -> None:
@@ -287,12 +250,6 @@ def _validate_receipt_shape(receipt: dict[str, Any]) -> None:
     validate_non_negative_integer(receipt["manifest"]["size_bytes"], "receipt manifest size_bytes")
     if receipt["storage_mutation"] != "performed":
         raise ValueError("parameter state receipt storage_mutation must be performed")
-    if receipt["non_claims"]["final_storage_architecture"] != "not_defined":
-        raise ValueError("parameter state receipt final_storage_architecture must be not_defined")
-    if receipt["non_claims"]["hardware_write_back"] != "not_performed":
-        raise ValueError("parameter state receipt hardware_write_back must be not_performed")
-    if receipt["non_claims"]["schema_migration"] != "not_performed":
-        raise ValueError("parameter state receipt schema_migration must be not_performed")
 
 
 def _continuity_findings(
@@ -327,7 +284,6 @@ def _continuity_findings(
             _finding(
                 "receipt_manifest_path_mismatch",
                 "Receipt manifest path does not match the explicit read request.",
-                "repair_or_catalog_discovery",
             )
         )
     if receipt["manifest"]["digest"] != request["expected_manifest_digest"]:
@@ -335,7 +291,6 @@ def _continuity_findings(
             _finding(
                 "receipt_manifest_declared_digest_mismatch",
                 "Receipt manifest digest does not match the explicit read request.",
-                "repair_or_cause_attribution",
             )
         )
     if receipt["manifest"]["size_bytes"] != request["expected_manifest_size_bytes"]:
@@ -343,7 +298,6 @@ def _continuity_findings(
             _finding(
                 "receipt_manifest_declared_size_mismatch",
                 "Receipt manifest size does not match the explicit read request.",
-                "repair_or_cause_attribution",
             )
         )
     if receipt["manifest"]["digest"] != manifest_observed["observed_digest"]:
@@ -351,7 +305,6 @@ def _continuity_findings(
             _finding(
                 "receipt_manifest_digest_mismatch",
                 "Receipt manifest digest does not match the observed manifest digest.",
-                "repair_or_cause_attribution",
             )
         )
     if receipt["manifest"]["size_bytes"] != manifest_observed["observed_size_bytes"]:
@@ -359,7 +312,6 @@ def _continuity_findings(
             _finding(
                 "receipt_manifest_size_mismatch",
                 "Receipt manifest size does not match the observed manifest size.",
-                "repair_or_cause_attribution",
             )
         )
     if receipt["state_id"] != manifest["state"]["state_id"]:
@@ -367,7 +319,6 @@ def _continuity_findings(
             _finding(
                 "receipt_state_id_mismatch",
                 "Receipt state_id does not match the manifest state_id.",
-                "repair_or_cause_attribution",
             )
         )
     if request["state_id"] != manifest["state"]["state_id"]:
@@ -375,7 +326,6 @@ def _continuity_findings(
             _finding(
                 "requested_state_id_mismatch",
                 "Requested state_id does not match the manifest state_id.",
-                "repair_or_cause_attribution",
             )
         )
     if request["state_id"] != receipt["state_id"]:
@@ -383,7 +333,6 @@ def _continuity_findings(
             _finding(
                 "requested_receipt_state_id_mismatch",
                 "Requested state_id does not match the receipt state_id.",
-                "repair_or_cause_attribution",
             )
         )
     return findings
@@ -425,41 +374,6 @@ def _trusted_entries(manifest: dict[str, Any] | None) -> list[dict[str, Any]]:
     return copy.deepcopy(manifest["state"]["entries"])
 
 
-def _attention() -> list[dict[str, str]]:
-    return [
-        {
-            "code": "explicit_manifest_and_receipt_read",
-            "severity": "review",
-            "basis": "Only the declared manifest and receipt files are read.",
-            "does_not_claim": "catalog_discovery_or_storage_scan",
-        },
-        {
-            "code": "checksum_continuity_checked",
-            "severity": "info",
-            "basis": "Observed sha256 and size facts are compared with request and receipt facts.",
-            "does_not_claim": "final_storage_integrity_contract",
-        },
-        {
-            "code": "legacy_source_observation_not_performed",
-            "severity": "review",
-            "basis": "Legacy source references remain provenance and are not opened.",
-            "does_not_claim": "source_file_checksum_or_availability",
-        },
-        {
-            "code": "storage_mutation_not_performed",
-            "severity": "review",
-            "basis": "The read view does not write, repair, migrate, or update storage.",
-            "does_not_claim": "storage_writer_or_catalog_update",
-        },
-        {
-            "code": "hardware_write_back_not_performed",
-            "severity": "review",
-            "basis": "Reading parameter state does not apply parameters to instruments.",
-            "does_not_claim": "instrument_command_or_current_hardware_state",
-        },
-    ]
-
-
 def read_parameter_state_storage_view(
     source: dict[str, Any], *, storage_root: Path
 ) -> dict[str, Any]:
@@ -489,7 +403,6 @@ def read_parameter_state_storage_view(
 
     findings = _continuity_findings(source, manifest_observed, receipt_observed, manifest, receipt)
     summary = {
-        "read_view_policy": copy.deepcopy(source["read_view_policy"]),
         "read_request": copy.deepcopy(request),
         "observed_files": [
             _observed_file_summary(
@@ -526,6 +439,5 @@ def read_parameter_state_storage_view(
         if receipt is not None
         else None,
         "review_findings": findings,
-        "attention": _attention(),
     }
     return ParameterStateStorageReadResult(summary=summary).to_dict()

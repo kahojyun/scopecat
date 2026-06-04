@@ -1,4 +1,4 @@
-"""Bounded parameter-state storage writer implementation candidate.
+"""Bounded parameter-state storage writer prototype.
 
 This module writes one reviewed managed parameter-state summary under a
 caller-provided storage root. It deliberately does not parse legacy files,
@@ -22,21 +22,6 @@ from scopecat.parameter_state._storage import (
     write_new_files_transaction,
 )
 
-_EXPECTED_POLICY = {
-    "write_authority": "approved_parameter_state_storage_write",
-    "input_authority": "reviewed_managed_parameter_state_summary",
-    "destination_authority": "caller_provided_storage_root_plus_declared_relative_paths",
-    "overwrite_behavior": "no_overwrite",
-    "checksum_algorithm": "sha256",
-    "legacy_source_parsing": "not_performed_by_scopecat",
-    "schema_migration": "not_performed",
-    "external_file_authority": "not_claimed",
-    "hardware_write_back": "not_performed",
-    "gui_workflow": "not_defined",
-    "shared_parameter_schema": "not_defined",
-}
-
-_SHA256_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _MANAGED_STATE_KINDS = {"seed_snapshot", "committed_snapshot"}
 _READINESS = {"seeded_incomplete", "partially_calibrated"}
 _TRUST_STATUS = {"trusted_for_declared_scope", "not_fully_trusted"}
@@ -120,15 +105,6 @@ def _relative_parts(relative_path: str) -> tuple[str, ...]:
     return PurePosixPath(relative_path).parts
 
 
-def _validate_policy(source: dict[str, Any]) -> None:
-    policy = source["storage_policy"]
-    if set(policy) != set(_EXPECTED_POLICY):
-        raise ValueError("expected parameter state storage writer policy shape")
-    for key, expected in _EXPECTED_POLICY.items():
-        if policy[key] != expected:
-            raise ValueError(f"parameter state storage writer policy {key} must be {expected}")
-
-
 def _validate_storage_request(source: dict[str, Any]) -> None:
     request = source["storage_request"]
     if request["approval"]["approval_state"] != "approved":
@@ -206,27 +182,10 @@ def _validate_provenance(source: dict[str, Any]) -> None:
                 raise ValueError("excluded preview entry references missing provenance source")
 
 
-def _validate_side_effects(source: dict[str, Any]) -> None:
-    side_effects = source["side_effect_claims"]
-    for key in (
-        "legacy_source_parsing",
-        "schema_migration",
-        "hardware_write_back",
-        "storage_mutation",
-    ):
-        expected = "performed" if key == "storage_mutation" else "not_performed"
-        if side_effects[key] != expected:
-            raise ValueError(f"side effect claim {key} must be {expected}")
-    if side_effects["external_file_authority"] != "not_claimed":
-        raise ValueError("side effect claim external_file_authority must be not_claimed")
-
-
 def _validate_references(source: dict[str, Any]) -> None:
-    _validate_policy(source)
     _validate_storage_request(source)
     _validate_managed_state(source)
     _validate_provenance(source)
-    _validate_side_effects(source)
 
 
 def _manifest_bytes(source: dict[str, Any]) -> bytes:
@@ -240,12 +199,6 @@ def _manifest_bytes(source: dict[str, Any]) -> bytes:
             "review_status": source["review"]["review_status"],
             "accepted_at": source["review"]["accepted_at"],
             "accepted_by_role": source["review"]["accepted_by_role"],
-        },
-        "storage_non_claims": {
-            "legacy_source_parsing": "not_performed",
-            "schema_migration": "not_performed",
-            "external_file_authority": "not_claimed",
-            "hardware_write_back": "not_performed",
         },
     }
     return json.dumps(manifest, indent=2, sort_keys=True).encode("utf-8") + b"\n"
@@ -269,48 +222,8 @@ def _receipt_bytes(
         },
         "collision_policy": request["destination"]["collision_policy"],
         "storage_mutation": "performed",
-        "non_claims": {
-            "final_storage_architecture": "not_defined",
-            "schema_migration": "not_performed",
-            "hardware_write_back": "not_performed",
-        },
     }
     return json.dumps(receipt, indent=2, sort_keys=True).encode("utf-8") + b"\n"
-
-
-def _attention() -> list[dict[str, str]]:
-    return [
-        {
-            "code": "parameter_state_storage_write_performed",
-            "severity": "review",
-            "basis": "Approved fixture input wrote a new parameter-state storage directory.",
-            "does_not_claim": "final_storage_architecture",
-        },
-        {
-            "code": "no_overwrite_storage",
-            "severity": "review",
-            "basis": "Existing state directory, manifest, or receipt targets are refused.",
-            "does_not_claim": "overwrite_merge_or_update",
-        },
-        {
-            "code": "reviewed_summary_authority",
-            "severity": "review",
-            "basis": "The writer consumes reviewed managed parameter-state summary input.",
-            "does_not_claim": "legacy_parser_or_review_engine",
-        },
-        {
-            "code": "source_provenance_preserved",
-            "severity": "info",
-            "basis": "Adapter and legacy-source references are carried as provenance.",
-            "does_not_claim": "source_file_observation_or_checksum",
-        },
-        {
-            "code": "hardware_write_back_not_performed",
-            "severity": "review",
-            "basis": "Persisting parameter state does not apply parameters to instruments.",
-            "does_not_claim": "instrument_command_or_current_hardware_state",
-        },
-    ]
 
 
 def _ensure_new_targets(source: dict[str, Any], storage_root: Path) -> None:
@@ -320,27 +233,6 @@ def _ensure_new_targets(source: dict[str, Any], storage_root: Path) -> None:
         [request["state_dir"], request["manifest_path"], request["receipt_path"]],
         "parameter state storage",
     )
-
-
-def _validate_declared_expected_results(
-    source: dict[str, Any],
-    manifest_digest: str,
-    receipt_digest: str,
-) -> None:
-    expected = source.get("expected_write_results")
-    if expected is None:
-        return
-    by_kind = {item["kind"]: item for item in expected}
-    if set(by_kind) != {"parameter_state_manifest", "write_receipt"}:
-        raise ValueError("expected write results must name manifest and receipt")
-    if not _SHA256_DIGEST.fullmatch(by_kind["parameter_state_manifest"]["digest"]):
-        raise ValueError("expected manifest digest must be sha256-prefixed hex")
-    if not _SHA256_DIGEST.fullmatch(by_kind["write_receipt"]["digest"]):
-        raise ValueError("expected receipt digest must be sha256-prefixed hex")
-    if by_kind["parameter_state_manifest"]["digest"] != manifest_digest:
-        raise ValueError("expected manifest digest does not match deterministic content")
-    if by_kind["write_receipt"]["digest"] != receipt_digest:
-        raise ValueError("expected receipt digest does not match deterministic content")
 
 
 def write_parameter_state_storage(
@@ -360,7 +252,6 @@ def write_parameter_state_storage(
     manifest_digest = f"sha256:{hashlib.sha256(manifest_content).hexdigest()}"
     receipt_content = _receipt_bytes(source, manifest_digest, len(manifest_content))
     receipt_digest = f"sha256:{hashlib.sha256(receipt_content).hexdigest()}"
-    _validate_declared_expected_results(source, manifest_digest, receipt_digest)
 
     request = source["storage_request"]
     write_new_files_transaction(
@@ -373,7 +264,6 @@ def write_parameter_state_storage(
     )
 
     summary = {
-        "storage_policy": copy.deepcopy(source["storage_policy"]),
         "storage_request": {
             "request_id": request["request_id"],
             "approval_state": request["approval"]["approval_state"],
@@ -401,7 +291,6 @@ def write_parameter_state_storage(
                 "result": "written",
                 "bytes_written": len(manifest_content),
                 "digest": manifest_digest,
-                "does_not_claim": "final_parameter_state_storage_schema",
             },
             {
                 "path": request["receipt_path"],
@@ -409,11 +298,9 @@ def write_parameter_state_storage(
                 "result": "written",
                 "bytes_written": len(receipt_content),
                 "digest": receipt_digest,
-                "does_not_claim": "final_storage_receipt_schema",
             },
         ],
         "provenance": copy.deepcopy(source["provenance"]),
         "excluded_preview_entries": copy.deepcopy(source["excluded_preview_entries"]),
-        "attention": _attention(),
     }
     return ParameterStateStorageWriteResult(summary=summary).to_dict()
