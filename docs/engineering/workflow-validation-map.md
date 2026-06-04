@@ -24,7 +24,7 @@ slice candidate backbone across the core handoff sequence: select one stored
 measurement, export a single-measurement handoff package, preview it on another
 computer, and import it into that computer's storage. The Measurement Records
 input-side work that originally scaffolded this handoff path now maps to
-JNY-007 Record Or Adopt A Measurement rather than expanding JNY-001 into the
+JNY-007 Record Runs rather than expanding JNY-001 into the
 whole measurement lifecycle.
 
 The next validation pressure should be chosen explicitly. Likely follow-up

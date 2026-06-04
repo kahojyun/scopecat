@@ -210,10 +210,10 @@ The existing system appears to run as an operator-managed workstation workflow:
   arrays, JSON records, notebooks, workbooks, reports, generated companions,
   sidecars, backups, lock-like files, and dated variants can all appear useful
   without declaring which source is authoritative.
-- Runtime coupling: measurement recording and reopen depend on LabRAD/Data
-  Vault semantics, local services, session/path conventions, numeric IDs,
-  runner code, driver timing, device state, abort behavior, cleanup, and
-  recovery habits.
+- Runtime coupling: measurement recording and later data access depend on
+  LabRAD/Data Vault semantics, local services, session/path conventions,
+  numeric IDs, runner code, driver timing, device state, abort behavior,
+  cleanup, and recovery habits.
 - Active-code risk: existing scripts and notebooks can be hardware-active,
   parameter-mutating, or environment-dependent, so treating them as passive
   artifacts can be unsafe or misleading.
@@ -230,11 +230,13 @@ The existing system appears to run as an operator-managed workstation workflow:
 
 ## Current User Work Patterns
 
-### Recording And Reopening Runs
+### Recording Runs
 
-Runs are recorded and later reopened through the existing experiment scripts,
-Data Vault-style storage, notebooks, selected numeric IDs, local folders, and
-nearby companion artifacts.
+Runs are recorded through the existing experiment scripts, Data Vault-style
+storage, notebooks, selected numeric IDs, local folders, and nearby companion
+artifacts. Later reopening and review are real current-state behavior, but are
+covered under completed-result review below rather than treated as the same
+work pattern.
 
 Current pressure:
 
@@ -243,9 +245,7 @@ Current pressure:
 - a useful run can be represented by a Data Vault-style dataset, a numeric ID,
   a folder, notebook output, a dated table, or a manually selected artifact;
 - run meaning depends on nearby parameter snapshots, setup references, generated
-  companions, analysis outputs, and notebook-local choices;
-- later reopening can require the original session/path context, helper code,
-  local services, and operator memory, not only the stored rows.
+  companions, analysis outputs, and notebook-local choices.
 
 ### Selecting Measurements For Sharing
 
@@ -330,14 +330,17 @@ Current pressure:
 
 ### Reviewing Completed Results
 
-After a run, users often browse manually managed folders, analyze data, plot
-selected series, summarize, and report selected results before deciding whether
-the data is worth preserving, comparing, or handing off.
+After a run, users often reopen stored rows or selected numeric IDs, browse
+manually managed folders, analyze data, plot selected series, summarize, and
+report selected results before deciding whether the data is worth preserving,
+comparing, or handing off.
 
 Current pressure:
 
 - finding the relevant result can depend on folder names, notebook residue,
   sidecars, reports, plots, and memory rather than a records browser;
+- reopening can require the original session/path context, helper code, local
+  services, and operator memory, not only the stored rows;
 - analysis artifacts can be mixed with primary data, transformed data,
   notebooks, figures, reports, and presentation material;
 - selected "useful" results may be identified after several exploratory plots

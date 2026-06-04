@@ -50,7 +50,7 @@ User value:
 
 Supports:
 
-- Record Or Adopt A Measurement;
+- Record Runs;
 - Browse And Review Completed Results later;
 - Reproduce Or Rerun From A Reference later;
 - Measurement Records;

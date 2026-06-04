@@ -52,7 +52,7 @@ Real experiment work usually crosses several target journeys:
 prepare a manual run
   -> start the run outside Scopecat
   -> monitor running measurement
-  -> record or adopt measurement facts
+  -> record run facts
   -> browse and review completed results
   -> share selected results, continue calibration, or reproduce from reference
 ```
@@ -80,7 +80,7 @@ Current slices:
 
 - JNY-002 Prepare A Manual Run;
 - JNY-004 Monitor A Running Measurement;
-- JNY-007 Record Or Adopt A Measurement;
+- JNY-007 Record Runs;
 - JNY-008 Browse And Review Completed Results;
 - JNY-001 Share A Selected Measurement;
 - JNY-003 Recover Or Continue Calibration Work;
@@ -127,9 +127,9 @@ Supporting capabilities:
 Validation orientation: primary active journey. Existing evidence includes the
 input-side Measurement Records work needed to prove handoff, but the target
 journey is sharing a selected measurement, not owning the whole Measurement
-Records lifecycle. Record creation, adoption, running updates, and post-run
-results review are separate journeys or workflow segments that feed this
-journey.
+Records lifecycle. Record creation, run recording, running updates, and
+post-run results review are separate journeys or workflow segments that feed
+this journey.
 
 The DEC-010 directory manifest package format is accepted for the current
 production vertical slice candidate. DEC-011 keeps that package as local
@@ -284,13 +284,13 @@ Source evidence:
 
 - [`running-measurement-inspection.md`](../discovery/problem-briefs/running-measurement-inspection.md).
 
-### Record Or Adopt A Measurement
+### Record Runs
 
 ID: JNY-007.
 
-Goal: turn externally produced, legacy-backed, adapter-authored, or manually
-declared measurement facts into a local Scopecat Measurement Record without
-replacing the system that produced the measurement.
+Goal: record existing, external, legacy-backed, adapter-authored, or manually
+declared run facts as a local Scopecat Measurement Record without replacing the
+system that produced the measurement.
 
 Primary workflows:
 
@@ -298,17 +298,18 @@ Primary workflows:
 - record source identity and source posture;
 - import or attach reviewed normalized primary data;
 - record context references supplied by the operator or adapter;
+- make the created record available for downstream browsing and review;
 - keep raw source execution, parsing, and scientific validity outside
   Scopecat unless a narrower adapter slice earns that authority.
 
 Use cases to prove:
 
-- record externally produced measurement facts locally;
+- record existing or externally produced measurement facts locally;
 - attach reviewed normalized primary data;
 - import reviewed normalized primary data into a new durable record;
 - record parameter, setup, code, artifact, and evidence references as
   record-local receipts;
-- expose the created record to local storage review.
+- expose the created record to the local Measurement Records store.
 
 Supporting capabilities:
 
@@ -323,7 +324,8 @@ Measurement Records from JNY-001 handoff. Current evidence exists as
 engineering prototype work under Measurement Records and as the input
 scaffolding used by JNY-001. The open question is not whether JNY-007 belongs
 in the target catalog; it is which first user-facing route or use case should
-own recording/adoption beyond handoff support.
+own recording beyond handoff support. Opening, browsing, plotting, and post-run
+readiness review belong to JNY-008.
 
 Source evidence:
 
@@ -335,13 +337,14 @@ Source evidence:
 ID: JNY-008.
 
 Goal: browse, filter, plot, and review completed or near-completed measurement
-results so the user can find relevant records, inspect primary data and derived
-artifacts, and decide whether a result is ready for handoff, comparison,
+results so the user can find and open relevant records, inspect primary data and
+derived artifacts, and decide whether a result is ready for handoff, comparison,
 calibration continuation, or rerun preparation.
 
 Primary workflows:
 
 - records browser and filtering;
+- completed-record open;
 - primary-data and derived-artifact inspection;
 - result plotting and exploratory review;
 - context completeness and readiness review;
