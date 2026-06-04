@@ -19,7 +19,9 @@ use Scopecat's product vocabulary.
 | Layer | Meaning | Use For |
 | --- | --- | --- |
 | Brownfield vocabulary | Concepts already visible in the current lab workflow or legacy artifacts. | Ground architecture in current user work and prevent slice-shaped abstractions from leading the model. |
-| Transition model | Scopecat concepts introduced to bridge, record, review, package, compare, or import around the brownfield workflow. | Design narrow boundaries and classify discovery slices. |
+| Core Scopecat domain concepts | Scopecat concepts close to the user problem and likely to remain visible across entrypoints. | Design durable capability boundaries without claiming final schema. |
+| Process and integration objects | Operation, review, audit, and handoff objects used to connect workflows and bounded contexts. | Model workflow seams and operation boundaries without over-promoting them to core entities. |
+| Artifact descriptor objects | Objects that describe files, packages, storage records, or artifact sets. | Keep artifact structure separate from operation results and user decisions. |
 | Product candidates | Concepts that may become stable Scopecat capabilities after repeated entrypoints prove them. | Track future architecture without promoting a final shared model. |
 
 ## Brownfield Vocabulary
@@ -44,10 +46,11 @@ Scopecat transition terms are introduced.
 | Copied folder, zip, or shared bundle | Ad hoc transfer unit used to move selected data and context between computers or collaborators. | Portable output needs explicit contents, missing-context reporting, and safe paths. |
 | Manual decision or note | Human choice to accept, stop, retry, refit, continue, copy, or share work. | Scopecat should record decisions without turning them into automatic authority. |
 
-## Transition Model
+## Core Scopecat Domain Concepts
 
-These terms are introduced by Scopecat. They are useful architecture tools but
-should not be mistaken for native brownfield concepts.
+These concepts are introduced by Scopecat but are close to the durable user
+problem. They should be modeled explicitly, while still avoiding final public
+schema or SDK commitments.
 
 | Concept | Status | Introduced To | Boundary Notes |
 | --- | --- | --- | --- |
@@ -55,17 +58,37 @@ should not be mistaken for native brownfield concepts.
 | Normalized Primary Data | Core transition concept | Make selected measurement rows inspectable, importable, packageable, and testable without parsing arbitrary legacy files. | Separate from raw legacy datasets and derived artifacts. |
 | Source Reference | Core transition concept | Preserve where a fact, file, run, or package member came from without importing or interpreting it automatically. | Reference-only by default. Observation or import requires a narrower boundary. |
 | Context Link | Core transition concept | Attach parameter, setup, code, environment, artifact, or note evidence to a measurement, package, calibration step, or review. | Linkage does not imply payload ownership, recursive traversal, or shared context schema. |
-| Review Summary | Core transition concept | Present local findings, readiness, missing context, or blocked state for a human decision. | Review text or JSON is not durable authority unless a boundary says so. |
-| Operation Result | Core transition concept | Report the outcome of one command, observation, write, import, package, or review operation. | May be transient or durable. A result is not automatically a domain object. |
-| Durable Audit Record | Core transition concept | Persist a narrow fact that an accepted operation, observation, import, write, or user decision occurred. | Historical `receipt` slice outputs should be classified here only when durable audit value is real. |
-| Manifest | Core transition concept | Describe identity, members, structure, or declared facts for a storage record, package, or artifact set. | Should not be called a receipt; it describes an artifact rather than proving an operation happened. |
 | Handoff Package | Accepted transition boundary | Replace ad hoc copied folders with explicit package contents and open-before-import review. | A Scopecat artifact, not the as-is transfer concept; trust, authenticity, and scientific validity remain separate. |
-| Import Plan | Core transition concept | Let a receiver preview what could be imported before storage mutation. | Non-mutating by default; durable import needs explicit acceptance and delegated storage rules. |
-| Operator Acknowledgement | Supporting transition concept | Capture user acceptance, deferral, note, or continuation choice without claiming run permission. | Should not become an approval bureaucracy or hardware-safety gate by default. |
 | Parameter State Record | Accepted transition boundary | Preserve reviewed point-in-time parameter facts independent of active legacy files. | Does not apply hardware state or own final parameter schema. |
+
+## Process And Integration Objects
+
+These objects are common in workflow-heavy software, especially brownfield
+systems that need review, audit, import/export, and bounded context handoff.
+They belong in the domain model as process vocabulary, not as core domain
+entities.
+
+| Concept | Role | Introduced To | Boundary Notes |
+| --- | --- | --- | --- |
+| Review Summary | Process object | Present local findings, readiness, missing context, or blocked state for a human decision. | Review text or JSON is not durable authority unless a boundary says so. |
+| Operation Result | Process object | Report the outcome of one command, observation, write, import, package, or review operation. | May be transient or durable. A result is not automatically a domain object. |
+| Durable Audit Record | Process object | Persist a narrow fact that an accepted operation, observation, import, write, or user decision occurred. | Historical `receipt` slice outputs should be classified here only when durable audit value is real. |
+| Import Plan | Integration object | Let a receiver preview what could be imported before storage mutation. | Non-mutating by default; durable import needs explicit acceptance and delegated storage rules. |
+| Operator Acknowledgement | Process object | Capture user acceptance, deferral, note, or continuation choice without claiming run permission. | Should not become an approval bureaucracy or hardware-safety gate by default. |
 | Environment Operation Evidence | Accepted transition boundary | Record bounded local manager-operation intent/result facts for later review. | This is a Scopecat evidence object; it does not prove runnable readiness. |
 | Calibration Continuation State | Supporting transition concept | Preserve fit review, proposed writes, blocked downstream work, and continuation decisions. | Should remain grounded in failed-fit and manual-continuation entrypoints, not an invented scheduler. |
 | Reference Comparison Finding | Supporting transition concept | Compare declared facts against a selected reference without explaining causes. | Does not claim setup truth, reproducibility, or user judgment. |
+
+## Artifact Descriptor Objects
+
+These objects describe artifacts or storage structures. They should not be
+confused with operation results or durable audit records.
+
+| Concept | Role | Introduced To | Boundary Notes |
+| --- | --- | --- | --- |
+| Manifest | Artifact descriptor | Describe identity, members, structure, or declared facts for a storage record, package, or artifact set. | Should not be called a receipt; it describes an artifact rather than proving an operation happened. |
+| Package Member | Artifact descriptor | Identify one file or payload carried by a package. | Package-relative identity is separate from source path, storage path, and source authority. |
+| Storage Record Member | Artifact descriptor | Identify one file, manifest, projection, or audit record under a Scopecat-owned storage boundary. | Does not define final storage schema by itself. |
 
 ## Product Candidates
 
@@ -134,9 +157,11 @@ flowchart TD
 ## Modeling Rules
 
 - Name the brownfield object first, then the Scopecat transition concept.
+- Keep core domain concepts, process/integration objects, and artifact
+  descriptor objects in separate sections.
 - Treat `Measurement Record`, `Handoff Package`, `Import Plan`, `Context Link`,
   `Operation Result`, `Durable Audit Record`, and `Manifest` as
-  Scopecat-introduced terms.
+  Scopecat-introduced terms, not brownfield-native vocabulary.
 - Do not promote a fixture field into domain vocabulary unless it maps to a
   brownfield object or a named transition boundary.
 - Reclassify historical `receipt` outputs before using them architecturally:
