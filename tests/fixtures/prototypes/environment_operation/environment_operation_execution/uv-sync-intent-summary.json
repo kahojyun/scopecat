@@ -1,5 +1,5 @@
 {
-  "intent_status": "ready_for_external_review",
+  "intent_status": "approved_for_execution",
   "sync_request": {
     "request_id": "uv-sync-intent-001",
     "approval_id": "approval-uv-sync-001",
@@ -15,9 +15,7 @@
       "uv",
       "sync",
       "--locked",
-      "--no-default-groups",
-      "--group",
-      "analysis"
+      "--no-default-groups"
     ],
     "environment_variables": []
   }

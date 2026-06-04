@@ -38,9 +38,7 @@ def _load_intent_summary() -> dict:
 
 
 def _load_tiny_uv_intent_summary() -> dict:
-    summary = _load_intent_summary()
-    summary["command_intent"]["argv"] = ["uv", "sync", "--locked", "--no-default-groups"]
-    return summary
+    return _load_intent_summary()
 
 
 def _uv_executable() -> Path:
@@ -96,6 +94,7 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
         self.assertEqual(record.findings, ())
 
         summary = record.to_dict()
+        self.assertEqual(set(summary), {"command_result", "result_status", "findings"})
         self.assertEqual(
             summary["command_result"]["output_capture"]["raw_output"],
             "not_recorded",
@@ -118,6 +117,14 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
         result = UvSyncResult.from_execution(intent, record)
         summary = result.to_summary()
 
+        self.assertEqual(
+            set(summary),
+            {"uv_sync_intent_ref", "command_result", "result_status", "result_findings"},
+        )
+        self.assertEqual(
+            set(summary["uv_sync_intent_ref"]["command_intent"]),
+            {"manager", "operation", "working_directory", "argv"},
+        )
         self.assertEqual(
             summary["uv_sync_intent_ref"]["command_intent"]["argv"],
             ["uv", "sync", "--locked", "--no-default-groups"],

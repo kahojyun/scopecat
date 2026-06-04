@@ -31,11 +31,9 @@ TINY_UV_WORKSPACE = PROTOTYPE_FIXTURE / "tiny_uv_workspace"
 
 
 def _load_tiny_uv_intent_summary() -> dict:
-    summary = json.loads(
+    return json.loads(
         (PROTOTYPE_FIXTURE / "uv-sync-intent-summary.json").read_text(encoding="utf-8")
     )
-    summary["command_intent"]["argv"] = ["uv", "sync", "--locked", "--no-default-groups"]
-    return summary
 
 
 def _uv_executable() -> Path:
@@ -131,6 +129,10 @@ class EnvironmentOperationRuntimeProbePrototypeTest(unittest.TestCase):
         self.assertEqual(probe_intent.argv[4:6], ("python", "-c"))
         self.assertIn("platform.python_version()", probe_intent.argv[6])
         self.assertIn("sys.prefix != sys.base_prefix", probe_intent.argv[6])
+        self.assertEqual(
+            set(request_ref["command_intent"]),
+            {"manager", "operation", "working_directory", "argv"},
+        )
         self.assertEqual(request_ref["command_intent"]["operation"], "runtime_probe")
 
     def test_runtime_probe_intent_requires_successful_sync_result(self) -> None:
@@ -259,6 +261,16 @@ class EnvironmentOperationRuntimeProbePrototypeTest(unittest.TestCase):
         self.assertEqual(record.runtime_facts, _runtime_facts())
 
         summary = record.to_summary(probe_intent)
+        self.assertEqual(
+            set(summary),
+            {
+                "uv_runtime_probe_request_ref",
+                "command_result",
+                "result_status",
+                "runtime_facts",
+                "result_findings",
+            },
+        )
         self.assertEqual(summary["runtime_facts"]["is_virtual_environment"], True)
         self.assertEqual(summary["command_result"]["output_capture"]["raw_output"], "not_recorded")
 

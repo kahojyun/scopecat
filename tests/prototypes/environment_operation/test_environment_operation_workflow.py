@@ -23,11 +23,9 @@ PROTOTYPE_FIXTURE = (
 
 
 def _load_tiny_uv_intent_summary() -> dict:
-    summary = json.loads(
+    return json.loads(
         (PROTOTYPE_FIXTURE / "uv-sync-intent-summary.json").read_text(encoding="utf-8")
     )
-    summary["command_intent"]["argv"] = ["uv", "sync", "--locked", "--no-default-groups"]
-    return summary
 
 
 def _runtime_facts() -> dict[str, object]:
@@ -86,7 +84,7 @@ class EnvironmentOperationWorkflowTest(unittest.TestCase):
         self.assertEqual(run.sync_result.result_status, "uv_sync_completed_success")
         self.assertEqual(
             run.operation_review.review_status,
-            "uv_sync_completed_success_with_review_limits",
+            "uv_sync_completed_success_reviewed",
         )
         self.assertEqual(run.runtime_probe_state, "performed")
         self.assertIsNotNone(run.runtime_probe_intent)
@@ -108,6 +106,7 @@ class EnvironmentOperationWorkflowTest(unittest.TestCase):
         )
 
         summary = run.to_summary()
+        self.assertEqual(set(summary), {"uv_sync_result", "operation_review", "runtime_probe"})
         self.assertEqual(summary["runtime_probe"]["runtime_probe_state"], "performed")
         self.assertEqual(
             summary["runtime_probe"]["runtime_probe_result"]["runtime_facts"][
@@ -170,6 +169,22 @@ class EnvironmentOperationWorkflowTest(unittest.TestCase):
         self.assertEqual(run.sync_result.result_status, "uv_sync_completed_success")
         self.assertEqual(run.runtime_probe_state, "not_requested")
         self.assertIsNone(run.runtime_probe_result)
+
+    def test_runtime_probe_timeout_zero_is_rejected(self) -> None:
+        intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
+        runner = QueueRunner(CommandRunResult(exit_code=0, stdout="sync ok", stderr=""))
+
+        with TemporaryDirectory() as tmp:
+            workspace_root = Path(tmp)
+            (workspace_root / "project").mkdir()
+
+            with self.assertRaisesRegex(ValueError, "timeout_seconds"):
+                run_uv_sync_operation(
+                    intent,
+                    workspace_root=workspace_root,
+                    runtime_probe_timeout_seconds=0,
+                    runner=runner,
+                )
 
 
 if __name__ == "__main__":

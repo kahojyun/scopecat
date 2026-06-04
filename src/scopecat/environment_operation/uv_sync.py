@@ -62,8 +62,8 @@ class UvSyncIntent:
     def from_summary(cls, summary: dict[str, Any]) -> UvSyncIntent:
         """Build a route-local intent from an approved operation summary."""
 
-        if summary.get("intent_status") != "ready_for_external_review":
-            raise ValueError("uv sync intent must be ready_for_external_review")
+        if summary.get("intent_status") != "approved_for_execution":
+            raise ValueError("uv sync intent must be approved_for_execution")
 
         request = _require_mapping(summary, "sync_request")
         command = _require_mapping(summary, "command_intent")

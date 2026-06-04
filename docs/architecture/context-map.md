@@ -62,7 +62,7 @@ flowchart LR
   MR -- "selected export" --> HP
   HP -- "durable mutation delegation" --> MR
   PS -- "context reference" --> MR
-  ENV -- "review evidence" --> MR
+  ENV -- "deferred evidence reference" --> MR
   CODE -- "context reference" --> MR
   SETUP -- "context reference" --> MR
   RUN -- "partial-data review" --> MR

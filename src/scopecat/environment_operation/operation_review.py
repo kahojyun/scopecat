@@ -224,7 +224,7 @@ def _review_status(result_status: str, findings: tuple[EnvironmentOperationFindi
     if findings:
         return "operation_review_has_findings"
     if result_status == SUCCESS_STATUS:
-        return "uv_sync_completed_success_with_review_limits"
+        return "uv_sync_completed_success_reviewed"
     return "operation_review_has_findings"
 
 

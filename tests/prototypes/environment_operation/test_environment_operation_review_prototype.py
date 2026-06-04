@@ -26,11 +26,9 @@ PROTOTYPE_FIXTURE = (
 
 
 def _load_tiny_uv_intent_summary() -> dict:
-    summary = json.loads(
+    return json.loads(
         (PROTOTYPE_FIXTURE / "uv-sync-intent-summary.json").read_text(encoding="utf-8")
     )
-    summary["command_intent"]["argv"] = ["uv", "sync", "--locked", "--no-default-groups"]
-    return summary
 
 
 class FakeRunner:
@@ -80,8 +78,18 @@ class EnvironmentOperationReviewPrototypeTest(unittest.TestCase):
         summary = review.to_dict()
 
         self.assertEqual(
+            set(summary),
+            {
+                "operation_review_request",
+                "sync_intent_ref",
+                "sync_result_ref",
+                "operation_review_status",
+                "operation_review_findings",
+            },
+        )
+        self.assertEqual(
             summary["operation_review_status"],
-            "uv_sync_completed_success_with_review_limits",
+            "uv_sync_completed_success_reviewed",
         )
         self.assertEqual(summary["operation_review_findings"], [])
 

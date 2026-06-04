@@ -92,7 +92,11 @@ def run_uv_sync_operation(
             runtime_probe_intent,
             workspace_root=workspace_root,
             probe_result_id=probe_result_id,
-            timeout_seconds=runtime_probe_timeout_seconds or timeout_seconds,
+            timeout_seconds=(
+                timeout_seconds
+                if runtime_probe_timeout_seconds is None
+                else runtime_probe_timeout_seconds
+            ),
             runner=runner,
             uv_executable=uv_executable,
         )
