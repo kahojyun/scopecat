@@ -46,7 +46,6 @@ docs/
 | [`architecture/context-map.md`](architecture/context-map.md) | Bounded contexts, ownership posture, and anti-corruption relationships. |
 | [`architecture/transition-architecture.md`](architecture/transition-architecture.md) | Brownfield entrypoint-driven transition architecture and slice-classification frame. |
 | [`architecture/artifact-boundary-and-redaction.md`](architecture/artifact-boundary-and-redaction.md) | Artifact boundary and redaction architecture policy. |
-| [`architecture/measurement-data-reference-boundary.md`](architecture/measurement-data-reference-boundary.md) | Measurement data, source reference, artifact, and previewable item boundary. |
 | [`decisions/README.md`](decisions/README.md) | Decision-record navigation and governance. |
 | [`decisions/register.md`](decisions/register.md) | Current product, architecture, engineering, discovery, and operational decision index. |
 | [`decisions/template.md`](decisions/template.md) | Template for new decision records. |

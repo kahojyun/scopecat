@@ -46,6 +46,7 @@ traceability upkeep, or process compliance issues.
 | BR-RISK-009 | Code/environment ownership expansion | Migration / Product boundary | Medium | Experiment Code Context, Environment Operation, Prepare A Manual Run, Reproduce Or Rerun From A Reference. | DEC-006, DEC-008 | [`../decisions/register.md`](../decisions/register.md), [`transition-architecture.md`](transition-architecture.md) | Treat code context and environment operation as supporting evidence unless a narrower workflow earns runtime or execution ownership. |
 | BR-RISK-010 | Trust/authenticity overclaim | Product semantics | Medium | Handoff package open, import, source observation, external references. | DEC-003, DEC-004, DEC-007 | [`migration-strategy.md`](migration-strategy.md), workflow validation map | Keep review, integrity observation, trust, authenticity, scientific validity, and accepted import separate. |
 | BR-RISK-011 | Sampled current state mistaken for complete truth | Migration governance | Medium | Current-state assessment, target journey catalog, roadmap. | None active | [`current-state-assessment.md`](current-state-assessment.md) | Record patterns, not exhaustive inventories; absence from current state does not mean the workflow or risk does not exist. |
+| BR-RISK-012 | External file observation mistaken for backup | Product / Data integrity | Medium | Source observation, external references, shared lab paths, package materialization. | DEC-003 | [`../decisions/architecture/DEC-003-import-source-anti-corruption-boundary.md`](../decisions/architecture/DEC-003-import-source-anti-corruption-boundary.md) | Treat observed file state as drift evidence only; require an explicit snapshot, managed copy, archive, or backup decision before claiming restore. |
 
 ## Review Triggers
 
@@ -60,6 +61,8 @@ Review this register when:
 - real current-state usage contradicts the modeled journey or transition path;
 - a production vertical slice changes storage mutation, import, export, or
   rollback behavior.
+- source observation starts recording stronger file state, snapshots, or shared
+  storage assumptions.
 
 ## Update Rule
 

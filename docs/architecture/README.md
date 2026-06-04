@@ -23,8 +23,6 @@ Python SDK, complete target architecture, or implementation task list.
 | [`context-map.md`](context-map.md) | Bounded contexts, ownership posture, and anti-corruption relationships. |
 | [`transition-architecture.md`](transition-architecture.md) | Brownfield entrypoint-driven transition architecture and slice-classification frame. |
 | [`artifact-boundary-and-redaction.md`](artifact-boundary-and-redaction.md) | Artifact surfaces, repository-safe fixtures, local review surfaces, and portable/public/export redaction boundaries. |
-| [`measurement-data-reference-boundary.md`](measurement-data-reference-boundary.md) | Boundary between normalized primary data, external source references, attachments, and previewable data items. |
-| [`external-file-reference.md`](external-file-reference.md) | External file reference vocabulary, observed-file state, and non-backup posture. |
 
 ## Reading Rules
 

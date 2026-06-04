@@ -26,8 +26,8 @@ shared measurement-record domain model.
 
 ## Current Decision
 
-The current discovery track separates **legacy source**, **normalized primary data**,
-and **observed file facts**:
+The current discovery track separates **legacy source**, **normalized primary
+data**, **previewable data items**, and **observed file facts**:
 
 ```text
 legacy system data
@@ -51,6 +51,11 @@ Adapter output can carry two distinct things:
   package, SDK/table access, and plotting only through routes that validate
   those actions.
 
+Scopecat can record references to arbitrary legacy files, attachments, and
+artifacts. It should only plot, preview, or expose dataframe-like primary data
+when the referenced content has been converted into a Scopecat-understood data
+format or explicitly declares a supported preview model.
+
 Reference-only import is a provenance and review posture. It preserves a
 current external source reference and linked context without copying primary
 data, mutating storage, opening the source, or enabling plots.
@@ -59,6 +64,11 @@ File-level source observation checks only file facts such as availability,
 sha256, and byte size for one explicit external source reference. It does not
 earn data parsing, row counts, schema validation, preview verification, plot
 readiness, repair, or import acceptance.
+
+Observed file facts are not backup or restore authority. A checksum, byte size,
+mtime, source identity, or observation time can make drift visible, but
+restoration requires an explicit copied snapshot, managed storage copy, archive,
+or backup integration accepted by a later decision.
 
 The historical copy-acceptance slice owned one approved copy-into-new-record
 mutation for reviewed adapter-normalized primary data. The copied file was
@@ -92,6 +102,12 @@ Declared preview metadata from adapters is useful as an assertion. It becomes
 Scopecat-observed previewability only when normalized data access or an
 explicit adapter authority has been validated by the relevant slice.
 
+Primary-data preview remains conservative. Historical scan/data-shape discovery
+is useful evidence for future plotting work, including adaptive or ragged
+sweeps, trace-per-point data, fixed-vector responses, complex logical values,
+and matrix-like analysis output, but those cases are not active contracts until
+a decision or prototype boundary accepts their semantics.
+
 The current adapter output boundary fixture is file-shaped only to make the
 boundary testable. It does not decide whether the final adapter handoff is a
 drop-folder protocol, writer-like API, service call, or another transport. The
@@ -104,8 +120,10 @@ plus declared output file facts.
 | --- | --- | --- |
 | External source reference | A pointer to original or lab-managed data outside Scopecat storage, with source identity, reference state, redacted display facts, and optional file-level observations. | Parseable primary data, plot readiness, repair, backup, or ownership of the external system. |
 | Adapter-normalized primary data | Data produced or declared by an adapter in a Scopecat-understood shape and reviewed as the primary data item for copy, storage, package, or read routes. | Stable adapter API, core legacy reader, inferred schema, or final storage model. |
+| Attachment or artifact reference | A pointer to an arbitrary linked file or result associated with a measurement, run, step, or analysis. | Default visualization, conversion into primary data, recursive traversal, or durable payload import. |
+| Previewable data item | A narrower data item with a supported preview model for roles, axes, units, components, shape, and plot candidates. | Generic ndarray, HDF5, notebook, image, report, or matrix visualization without a validated preview model. |
 | Reviewed adapter facts | The subset of manifest or acceptance facts another slice can consume without replaying the whole prior candidate. | A shared summary schema or reusable measurement domain model. |
-| File-level observation | Availability, digest, size, mtime-like facts for a concrete path under a caller-provided root. | Row count, column/schema validation, preview verification, scientific validity, or reference repair. |
+| File-level observation | Availability, digest, size, mtime-like facts for a concrete path under a caller-provided root. | Row count, column/schema validation, preview verification, scientific validity, reference repair, backup, or old-content restore. |
 | Data-level observation | A read using a declared supported data model, such as the current normalized CSV/table fixtures. | Automatic support for every CSV, HDF5, LabRAD, DataVault, Labber, ndarray, or future table shape. |
 | Linked context reference | A related parameter snapshot, artifact, note, or external object carried by relation facts. | Recursive traversal, payload import, or display semantics beyond the validated linked-context slice. |
 
@@ -152,6 +170,8 @@ Keep these out of the current route until a named workflow requires them:
   primary-data merge or compaction, read-model refresh, lock identity,
   stale-lock cleanup, crash recovery, and conflict policy;
 - reference repair, moved-reference discovery, or automatic path search;
+- checksum history, file watchers, backup, restore, shared storage policy, or
+  external snapshot semantics;
 - data-level open/read of external references that are not normalized primary
   data;
 - broad schema inference, automatic scan-shape inference, or generic dataframe
@@ -175,6 +195,8 @@ appears:
 - Users need reference-only records to recover from moved files:
   validate a repair/review workflow without automatic path discovery by
   default.
+- Users need to detect or explain changed external files:
+  validate observed file state without implying backup or old-content restore.
 - Users need to add data to existing records:
   validate stronger update behavior such as manifest replacement, read-model
   refresh, stale-lock cleanup, crash recovery, conflict policy, and in-progress

@@ -89,6 +89,8 @@ confused with operation results or durable audit records.
 | Manifest | Artifact descriptor | Describe identity, members, structure, or declared facts for a storage record, package, or artifact set. | Should not be called a receipt; it describes an artifact rather than proving an operation happened. |
 | Package Member | Artifact descriptor | Identify one file or payload carried by a package. | Package-relative identity is separate from source path, storage path, and source authority. |
 | Storage Record Member | Artifact descriptor | Identify one file, manifest, projection, or audit record under a Scopecat-owned storage boundary. | Does not define final storage schema by itself. |
+| Attachment Or Artifact Reference | Artifact descriptor | Keep arbitrary linked files or analysis results visible without turning them into primary measurement data. | Listing, relation, availability, or handoff visibility does not imply default plotting, payload import, backup, or conversion. |
+| Previewable Data Item | Artifact descriptor | Represent normalized primary data or analysis output that declares enough roles, axes, units, components, and shape metadata for conservative preview. | Complex, ragged, trace, vector, and matrix cases remain future preview-model work until accepted by decision or prototype boundary. |
 
 ## Product Candidates
 
