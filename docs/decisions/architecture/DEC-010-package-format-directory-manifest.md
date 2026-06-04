@@ -21,13 +21,17 @@ into a second storage root.
 
 This decision resolves whether that candidate should introduce an archive file
 as the portable package format, or continue to use the current directory-shaped
-package with `package-manifest.json`.
+package with `package-manifest.json`. The package purpose is analysis/review:
+carry selected measurement data, declared package members, and visible review
+facts for open-before-import inspection.
 
 The slice still needs visible, inspectable artifacts while linked-context
 payload import, batch durable import, and final storage schema remain unsettled.
 Later DEC-021 and DEC-024 accepted narrow zip transport
 materialization and creation, but they keep the DEC-010 directory manifest
 package as the package of record rather than making archive bytes authoritative.
+It is not an offline execution migration artifact, environment restore, code
+restore, or shared lab storage policy.
 
 ## Decision
 
@@ -64,6 +68,8 @@ This decision does not apply to:
 - linked-context payload packaging;
 - batch export/import package shape;
 - offline execution migration packages;
+- code or environment restoration;
+- shared lab storage semantics;
 - GUI or SDK packaging contracts.
 
 ## Consequences

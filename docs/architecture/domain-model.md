@@ -58,7 +58,7 @@ schema or SDK commitments.
 | Normalized Primary Data | Core transition concept | Make selected measurement rows inspectable, importable, packageable, and testable without parsing arbitrary legacy files. | Separate from raw legacy datasets and derived artifacts. |
 | Source Reference | Core transition concept | Preserve where a fact, file, run, or package member came from without importing or interpreting it automatically. | Reference-only by default. Observation or import requires a narrower boundary. |
 | Context Link | Core transition concept | Attach parameter, setup, code, environment, artifact, or note evidence to a measurement, package, calibration step, or review. | Linkage does not imply payload ownership, recursive traversal, or shared context schema. |
-| Handoff Package | Accepted transition boundary | Replace ad hoc copied folders with explicit package contents and open-before-import review. | A Scopecat artifact, not the as-is transfer concept; trust, authenticity, and scientific validity remain separate. |
+| Handoff Package | Accepted transition boundary | Replace ad hoc copied folders with explicit package contents and open-before-import review. | Current packages are analysis/review artifacts for selected measurement data and declared package members, not offline execution migration, environment restore, code restore, or a claim about shared lab storage. Trust, authenticity, and scientific validity remain separate. |
 | Parameter State Record | Accepted transition boundary | Preserve reviewed point-in-time parameter facts independent of active legacy files. | Does not apply hardware state or own final parameter schema. |
 
 ## Process And Integration Objects

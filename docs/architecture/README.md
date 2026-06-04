@@ -24,7 +24,6 @@ Python SDK, complete target architecture, or implementation task list.
 | [`transition-architecture.md`](transition-architecture.md) | Brownfield entrypoint-driven transition architecture and slice-classification frame. |
 | [`artifact-boundary-and-redaction.md`](artifact-boundary-and-redaction.md) | Artifact surfaces, repository-safe fixtures, local review surfaces, and portable/public/export redaction boundaries. |
 | [`measurement-data-reference-boundary.md`](measurement-data-reference-boundary.md) | Boundary between normalized primary data, external source references, attachments, and previewable data items. |
-| [`package-purpose-boundary.md`](package-purpose-boundary.md) | Boundary between analysis/review packages, shared lab references, and future offline execution migration. |
 | [`artifact-preview-boundary.md`](artifact-preview-boundary.md) | Boundary between arbitrary artifacts and declared previewable data items. |
 | [`complex-response-boundary.md`](complex-response-boundary.md) | Complex-valued response metadata posture for previewable data items. |
 | [`external-file-reference.md`](external-file-reference.md) | External file reference vocabulary, observed-file state, and non-backup posture. |

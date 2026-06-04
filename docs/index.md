@@ -47,7 +47,6 @@ docs/
 | [`architecture/transition-architecture.md`](architecture/transition-architecture.md) | Brownfield entrypoint-driven transition architecture and slice-classification frame. |
 | [`architecture/artifact-boundary-and-redaction.md`](architecture/artifact-boundary-and-redaction.md) | Artifact boundary and redaction architecture policy. |
 | [`architecture/measurement-data-reference-boundary.md`](architecture/measurement-data-reference-boundary.md) | Measurement data, source reference, artifact, and previewable item boundary. |
-| [`architecture/package-purpose-boundary.md`](architecture/package-purpose-boundary.md) | Package purpose boundary for review, shared references, and future offline execution migration. |
 | [`decisions/README.md`](decisions/README.md) | Decision-record navigation and governance. |
 | [`decisions/register.md`](decisions/register.md) | Current product, architecture, engineering, discovery, and operational decision index. |
 | [`decisions/template.md`](decisions/template.md) | Template for new decision records. |

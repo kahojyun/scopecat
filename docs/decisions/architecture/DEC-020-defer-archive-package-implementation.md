@@ -37,7 +37,9 @@ timing, and receiving review state.
 The current package directory remains useful as inspectable local-review
 evidence. Implementing archive support before those contracts exist would add
 failure modes without closing a user-visible acceptance gap in the current
-production vertical slice candidate.
+production vertical slice candidate. Archive transport is also separate from
+offline execution migration: carrying or restoring code, environment, settings,
+hardware context, or runnable entrypoints requires narrower ownership decisions.
 
 ## Decision
 
@@ -91,6 +93,8 @@ This decision does not apply to:
 - public package publication or SDK download/upload workflows;
 - external transport security;
 - external authenticity or trusted-source policy;
+- code, environment, settings, hardware-context, or runnable-entrypoint
+  migration;
 - GUI file-picker, drag/drop, or upload interaction design.
 
 ## Consequences
