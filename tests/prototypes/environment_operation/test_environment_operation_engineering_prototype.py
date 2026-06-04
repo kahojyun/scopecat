@@ -97,10 +97,6 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
 
         summary = record.to_dict()
         self.assertEqual(
-            summary["execution_policy"]["readiness_claim"],
-            "not_claimed",
-        )
-        self.assertEqual(
             summary["command_result"]["output_capture"]["raw_output"],
             "not_recorded",
         )
@@ -123,14 +119,6 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
         summary = result.to_summary()
 
         self.assertEqual(
-            summary["uv_sync_result_policy"]["result_authority"],
-            "scopecat_uv_sync_execution_result",
-        )
-        self.assertEqual(
-            summary["uv_sync_result_policy"]["dependency_sync"],
-            "manager_result_not_verified_by_scopecat",
-        )
-        self.assertEqual(
             summary["uv_sync_intent_ref"]["command_intent"]["argv"],
             ["uv", "sync", "--locked", "--no-default-groups"],
         )
@@ -138,14 +126,6 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
         self.assertEqual(summary["command_result"]["execution_state"], "completed_success")
         self.assertEqual(summary["result_status"], "uv_sync_completed_success")
         self.assertEqual(summary["result_findings"], [])
-        self.assertEqual(
-            {item["code"] for item in summary["attention"]},
-            {
-                "uv_sync_executed_by_scopecat",
-                "bounded_output_summary_only",
-                "runnable_readiness_not_claimed",
-            },
-        )
         self.assertEqual(record.to_result_summary(intent), summary)
 
     def test_result_summary_rejects_mismatched_intent_projection(self) -> None:
@@ -230,7 +210,7 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
         self.assertFalse(record.stdout_truncated)
         self.assertFalse(record.stderr_truncated)
 
-    def test_failed_uv_process_is_review_finding_not_readiness_claim(self) -> None:
+    def test_failed_uv_process_is_review_finding(self) -> None:
         intent = UvSyncIntent.from_summary(_load_intent_summary())
         with TemporaryDirectory() as tmp:
             workspace_root = Path(tmp)
@@ -250,7 +230,6 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
         self.assertEqual(record.exit_code, 1)
         self.assertEqual(record.stderr_summary, "lockfile needs update")
         self.assertEqual([finding.code for finding in record.findings], ["uv_sync_process_failed"])
-        self.assertEqual(record.findings[0].does_not_claim, "synchronized_or_installed_environment")
 
         summary = record.to_result_summary(intent)
         self.assertEqual(summary["result_status"], "uv_sync_completed_failed")
@@ -278,9 +257,8 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
         self.assertNotEqual(record.exit_code, 0)
         self.assertFalse(record.stderr_truncated)
         self.assertEqual([finding.code for finding in record.findings], ["uv_sync_process_failed"])
-        self.assertEqual(record.findings[0].does_not_claim, "synchronized_or_installed_environment")
 
-    def test_timeout_is_recorded_without_claiming_sync(self) -> None:
+    def test_timeout_is_recorded_as_review_finding(self) -> None:
         intent = UvSyncIntent.from_summary(_load_intent_summary())
         timeout = subprocess.TimeoutExpired(
             cmd=list(intent.argv),
@@ -309,7 +287,7 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
             [finding.code for finding in record.findings], ["uv_sync_process_timed_out"]
         )
 
-    def test_launch_failure_is_recorded_without_claiming_manager_availability(self) -> None:
+    def test_launch_failure_is_recorded_as_review_finding(self) -> None:
         intent = UvSyncIntent.from_summary(_load_intent_summary())
         with TemporaryDirectory() as tmp:
             workspace_root = Path(tmp)
@@ -325,10 +303,6 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
         self.assertEqual(
             [finding.code for finding in record.findings],
             ["uv_sync_process_launch_failed"],
-        )
-        self.assertEqual(
-            record.findings[0].does_not_claim,
-            "manager_available_or_environment_synchronized",
         )
 
     def test_intent_rejects_unapproved_or_unbounded_command_shapes(self) -> None:

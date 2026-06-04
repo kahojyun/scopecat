@@ -67,7 +67,8 @@ Future workflows may consume `EnvironmentOperationReview` as optional prior
 evidence only after that workflow has a named owner and accepted composition
 boundary. That would not change environment-operation ownership: this boundary
 still owns only the current intent/result/review semantics, `uv` manager scope,
-process-execution records, runtime probe eligibility, and non-readiness claims.
+process-execution records, runtime probe eligibility, and documented scope
+limits.
 
 ## Out Of Scope
 

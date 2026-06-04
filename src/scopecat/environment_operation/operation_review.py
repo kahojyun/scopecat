@@ -19,7 +19,6 @@ class EnvironmentOperationFinding:
     severity: str
     basis: str
     source: str
-    does_not_claim: str
 
     @classmethod
     def from_child_finding(cls, finding: UvSyncFinding) -> EnvironmentOperationFinding:
@@ -28,7 +27,6 @@ class EnvironmentOperationFinding:
             severity=finding.severity,
             basis=finding.basis,
             source="uv_sync_result",
-            does_not_claim=finding.does_not_claim,
         )
 
     def to_dict(self) -> dict[str, str]:
@@ -37,7 +35,6 @@ class EnvironmentOperationFinding:
             "severity": self.severity,
             "basis": self.basis,
             "source": self.source,
-            "does_not_claim": self.does_not_claim,
         }
 
 
@@ -50,7 +47,6 @@ class EnvironmentOperationReview:
     _result_ref: dict[str, Any] = field(repr=False)
     review_status: str
     findings: tuple[EnvironmentOperationFinding, ...]
-    _attention: tuple[dict[str, str], ...] = field(repr=False)
 
     def __init__(
         self,
@@ -60,18 +56,12 @@ class EnvironmentOperationReview:
         result_ref: dict[str, Any],
         review_status: str,
         findings: tuple[EnvironmentOperationFinding, ...],
-        attention: tuple[dict[str, str], ...],
     ) -> None:
         object.__setattr__(self, "review_id", review_id)
         object.__setattr__(self, "_intent_ref", copy.deepcopy(intent_ref))
         object.__setattr__(self, "_result_ref", copy.deepcopy(result_ref))
         object.__setattr__(self, "review_status", review_status)
         object.__setattr__(self, "findings", tuple(findings))
-        object.__setattr__(
-            self,
-            "_attention",
-            tuple(copy.deepcopy(item) for item in attention),
-        )
 
     @property
     def intent_ref(self) -> dict[str, Any]:
@@ -81,27 +71,10 @@ class EnvironmentOperationReview:
     def result_ref(self) -> dict[str, Any]:
         return copy.deepcopy(self._result_ref)
 
-    @property
-    def attention(self) -> tuple[dict[str, str], ...]:
-        return tuple(copy.deepcopy(item) for item in self._attention)
-
     def to_dict(self) -> dict[str, Any]:
         intent_ref = self.intent_ref
         result_ref = self.result_ref
         return {
-            "environment_operation_review_policy": {
-                "summary_policy": "review_summary",
-                "review_authority": "route_local_uv_sync_execution_review",
-                "manager_scope": "uv_only",
-                "process_execution": "already_recorded_not_performed_by_review",
-                "dependency_sync_verification": "not_performed",
-                "package_install_verification": "not_performed",
-                "runtime_probe": "not_performed",
-                "code_import_execution": "not_performed",
-                "hardware_probe": "not_performed",
-                "run_blocking_decision": "not_made",
-                "readiness_claim": "not_claimed",
-            },
             "operation_review_request": {
                 "review_id": self.review_id,
                 "expected_manager": "uv",
@@ -113,7 +86,6 @@ class EnvironmentOperationReview:
             "sync_result_ref": result_ref,
             "operation_review_status": self.review_status,
             "operation_review_findings": [finding.to_dict() for finding in self.findings],
-            "attention": [copy.deepcopy(item) for item in self._attention],
         }
 
 
@@ -134,7 +106,6 @@ def review_uv_sync_operation(
         result_ref=result_ref,
         review_status=_review_status(result.result_status, findings),
         findings=findings,
-        attention=tuple(_attention()),
     )
 
 
@@ -162,9 +133,6 @@ def _result_ref(result: UvSyncResult) -> dict[str, Any]:
                     command_intent, "working_directory", "uv sync intent command"
                 ),
                 "argv": _require_text_list(command_intent, "argv", "uv sync intent command"),
-                "does_not_claim": _require_text(
-                    command_intent, "does_not_claim", "uv sync intent command"
-                ),
             },
         },
         "manager": _require_text(command_result, "manager", "uv sync command result"),
@@ -199,7 +167,6 @@ def _operation_findings(
                 severity="review",
                 basis="The selected uv sync execution result did not report success.",
                 source="uv_sync_result",
-                does_not_claim="synchronized_or_installed_environment",
             )
         )
     return findings
@@ -220,7 +187,6 @@ def _alignment_findings(
             _finding(
                 "sync_result_intent_mismatch",
                 "The selected uv sync result does not reference the selected intent.",
-                "result_belongs_to_selected_intent",
             )
         )
     if result_intent != intent_ref:
@@ -228,7 +194,6 @@ def _alignment_findings(
             _finding(
                 "sync_result_intent_ref_mismatch",
                 "The selected uv sync result intent reference does not match the selected intent.",
-                "result_intent_ref_belongs_to_selected_intent",
             )
         )
     if (
@@ -241,19 +206,17 @@ def _alignment_findings(
             _finding(
                 "sync_result_command_mismatch",
                 "The selected uv sync result command facts do not match the selected intent.",
-                "external_command_matches_selected_intent",
             )
         )
     return findings
 
 
-def _finding(code: str, basis: str, does_not_claim: str) -> EnvironmentOperationFinding:
+def _finding(code: str, basis: str) -> EnvironmentOperationFinding:
     return EnvironmentOperationFinding(
         code=code,
         severity="review",
         basis=basis,
         source="operation_review_alignment",
-        does_not_claim=does_not_claim,
     )
 
 
@@ -263,29 +226,6 @@ def _review_status(result_status: str, findings: tuple[EnvironmentOperationFindi
     if result_status == SUCCESS_STATUS:
         return "uv_sync_completed_success_with_review_limits"
     return "operation_review_has_findings"
-
-
-def _attention() -> list[dict[str, str]]:
-    return [
-        {
-            "code": "operation_review_only",
-            "severity": "info",
-            "basis": "This review composes selected uv sync intent and execution result facts.",
-            "does_not_claim": "runtime_readiness_or_run_permission",
-        },
-        {
-            "code": "package_state_not_verified",
-            "severity": "review",
-            "basis": "The review does not inspect synchronized or installed package state.",
-            "does_not_claim": "verified_synchronized_environment",
-        },
-        {
-            "code": "code_execution_not_granted",
-            "severity": "review",
-            "basis": "The review does not import, load, or execute selected experiment code.",
-            "does_not_claim": "execution_permission",
-        },
-    ]
 
 
 def _require_mapping(value: dict[str, Any], key: str, owner: str) -> dict[str, Any]:

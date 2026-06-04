@@ -111,7 +111,6 @@ def _mutated_sync_result(
         command_result=command_result,
         result_status=result.result_status,
         findings=result.findings,
-        attention=result.attention,
     )
 
 
@@ -132,10 +131,7 @@ class EnvironmentOperationRuntimeProbePrototypeTest(unittest.TestCase):
         self.assertEqual(probe_intent.argv[4:6], ("python", "-c"))
         self.assertIn("platform.python_version()", probe_intent.argv[6])
         self.assertIn("sys.prefix != sys.base_prefix", probe_intent.argv[6])
-        self.assertEqual(
-            request_ref["command_intent"]["does_not_claim"],
-            "experiment_code_executed_or_run_readiness",
-        )
+        self.assertEqual(request_ref["command_intent"]["operation"], "runtime_probe")
 
     def test_runtime_probe_intent_requires_successful_sync_result(self) -> None:
         sync_intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
@@ -263,18 +259,6 @@ class EnvironmentOperationRuntimeProbePrototypeTest(unittest.TestCase):
         self.assertEqual(record.runtime_facts, _runtime_facts())
 
         summary = record.to_summary(probe_intent)
-        self.assertEqual(
-            summary["uv_runtime_probe_result_policy"]["environment_sync"],
-            "disabled_with_uv_run_no_sync",
-        )
-        self.assertEqual(
-            summary["uv_runtime_probe_result_policy"]["readiness_claim"],
-            "not_claimed",
-        )
-        self.assertEqual(
-            summary["uv_runtime_probe_result_policy"]["runtime_path_authority"],
-            "local_review_path_internal",
-        )
         self.assertEqual(summary["runtime_facts"]["is_virtual_environment"], True)
         self.assertEqual(summary["command_result"]["output_capture"]["raw_output"], "not_recorded")
 
@@ -303,10 +287,6 @@ class EnvironmentOperationRuntimeProbePrototypeTest(unittest.TestCase):
         self.assertEqual(
             [finding.code for finding in record.findings],
             ["runtime_probe_not_virtual_environment"],
-        )
-        self.assertEqual(
-            record.findings[0].does_not_claim,
-            "project_virtual_environment_used",
         )
 
     def test_runtime_probe_summary_does_not_leak_extra_constructor_fields(self) -> None:
@@ -338,8 +318,6 @@ class EnvironmentOperationRuntimeProbePrototypeTest(unittest.TestCase):
         probe_request_ref["command_intent"]["extra_secret"] = "not exported"
         command_result["raw_stdout"] = "not exported"
         command_result["output_capture"]["raw_stdout"] = "not exported"
-        attention = result.attention
-        attention = ({**attention[0], "extra_secret": "not exported"}, *attention[1:])
 
         summary = UvRuntimeProbeResult(
             probe_request_ref=probe_request_ref,
@@ -347,7 +325,6 @@ class EnvironmentOperationRuntimeProbePrototypeTest(unittest.TestCase):
             result_status=result.result_status,
             runtime_facts=result.runtime_facts,
             findings=result.findings,
-            attention=attention,
         ).to_summary()
 
         self.assertNotIn("extra_secret", summary["uv_runtime_probe_request_ref"])
@@ -357,7 +334,6 @@ class EnvironmentOperationRuntimeProbePrototypeTest(unittest.TestCase):
         )
         self.assertNotIn("raw_stdout", summary["command_result"])
         self.assertNotIn("raw_stdout", summary["command_result"]["output_capture"])
-        self.assertNotIn("extra_secret", summary["attention"][0])
 
     def test_runtime_probe_result_rejects_raw_output_capture(self) -> None:
         sync_intent = UvSyncIntent.from_summary(_load_tiny_uv_intent_summary())
@@ -390,7 +366,6 @@ class EnvironmentOperationRuntimeProbePrototypeTest(unittest.TestCase):
                 result_status=result.result_status,
                 runtime_facts=result.runtime_facts,
                 findings=result.findings,
-                attention=result.attention,
             )
 
     def test_runtime_probe_result_rejects_request_command_mismatch(self) -> None:
@@ -432,7 +407,6 @@ class EnvironmentOperationRuntimeProbePrototypeTest(unittest.TestCase):
                         result_status=result.result_status,
                         runtime_facts=result.runtime_facts,
                         findings=result.findings,
-                        attention=result.attention,
                     )
 
     def test_runtime_probe_result_rejects_inconsistent_facts_and_findings(self) -> None:
@@ -467,7 +441,6 @@ class EnvironmentOperationRuntimeProbePrototypeTest(unittest.TestCase):
                 result_status="uv_runtime_probe_completed_failed",
                 runtime_facts=result.runtime_facts,
                 findings=(),
-                attention=result.attention,
             )
 
         system_python_facts = _runtime_facts(is_virtual_environment=False)
@@ -482,7 +455,6 @@ class EnvironmentOperationRuntimeProbePrototypeTest(unittest.TestCase):
                 result_status=result.result_status,
                 runtime_facts=system_python_facts,
                 findings=(),
-                attention=result.attention,
             )
 
     def test_runtime_probe_result_rejects_internally_inconsistent_runtime_facts(self) -> None:

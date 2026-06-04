@@ -69,14 +69,12 @@ class UvRuntimeProbeFinding:
     code: str
     severity: str
     basis: str
-    does_not_claim: str
 
     def to_dict(self) -> dict[str, str]:
         return {
             "code": self.code,
             "severity": self.severity,
             "basis": self.basis,
-            "does_not_claim": self.does_not_claim,
         }
 
 
@@ -149,7 +147,6 @@ class UvRuntimeProbeIntent:
                 "operation": "runtime_probe",
                 "working_directory": self.working_directory,
                 "argv": list(self.argv),
-                "does_not_claim": "experiment_code_executed_or_run_readiness",
             },
         }
 
@@ -241,7 +238,6 @@ class UvRuntimeProbeResult:
     result_status: str
     _runtime_facts: dict[str, Any] | None = field(repr=False)
     findings: tuple[UvRuntimeProbeFinding, ...]
-    _attention: tuple[dict[str, str], ...] = field(repr=False)
 
     def __init__(
         self,
@@ -251,7 +247,6 @@ class UvRuntimeProbeResult:
         result_status: str,
         runtime_facts: dict[str, Any] | None,
         findings: tuple[UvRuntimeProbeFinding, ...],
-        attention: tuple[dict[str, str], ...],
     ) -> None:
         coerced_command_result = _coerce_probe_command_result(command_result)
         coerced_probe_request_ref = _coerce_probe_request_ref(probe_request_ref)
@@ -276,7 +271,6 @@ class UvRuntimeProbeResult:
         object.__setattr__(self, "result_status", result_status)
         object.__setattr__(self, "_runtime_facts", coerced_runtime_facts)
         object.__setattr__(self, "findings", coerced_findings)
-        object.__setattr__(self, "_attention", _validate_attention(attention))
 
     @property
     def probe_request_ref(self) -> dict[str, Any]:
@@ -292,10 +286,6 @@ class UvRuntimeProbeResult:
             return None
         return copy.deepcopy(self._runtime_facts)
 
-    @property
-    def attention(self) -> tuple[dict[str, str], ...]:
-        return tuple(copy.deepcopy(item) for item in self._attention)
-
     @classmethod
     def from_execution(
         cls,
@@ -309,35 +299,15 @@ class UvRuntimeProbeResult:
             result_status=record.result_status,
             runtime_facts=record.runtime_facts,
             findings=record.findings,
-            attention=tuple(_runtime_probe_attention()),
         )
 
     def to_summary(self) -> dict[str, Any]:
         return {
-            "uv_runtime_probe_result_policy": {
-                "summary_policy": "review_summary",
-                "result_authority": "scopecat_uv_runtime_probe_result",
-                "prior_sync_result_source": "route_local_uv_sync_result",
-                "manager_scope": "uv_only",
-                "command_result_shape": "bounded_uv_runtime_probe_execution_record",
-                "local_path_authority": "local_review_path_internal",
-                "runtime_path_authority": "local_review_path_internal",
-                "scopecat_process_execution": "performed",
-                "uv_sync": "not_performed_by_probe",
-                "lockfile_update": "not_performed",
-                "environment_sync": "disabled_with_uv_run_no_sync",
-                "package_state_verification": "not_performed",
-                "experiment_code_import": "not_performed",
-                "experiment_code_execution": "not_performed",
-                "hardware_probe": "not_performed",
-                "readiness_claim": "not_claimed",
-            },
             "uv_runtime_probe_request_ref": self.probe_request_ref,
             "command_result": self.command_result,
             "result_status": self.result_status,
             "runtime_facts": self.runtime_facts,
             "result_findings": [finding.to_dict() for finding in self.findings],
-            "attention": [copy.deepcopy(item) for item in self._attention],
         }
 
 
@@ -450,7 +420,6 @@ def _runtime_facts_from_stdout(
                 code="runtime_probe_stdout_truncated",
                 severity="review",
                 basis="The runtime probe stdout was truncated before JSON facts could be trusted.",
-                does_not_claim="complete_runtime_probe_facts",
             )
         ]
     try:
@@ -461,7 +430,6 @@ def _runtime_facts_from_stdout(
                 code="runtime_probe_output_not_json",
                 severity="review",
                 basis="The runtime probe command completed but did not emit valid JSON facts.",
-                does_not_claim="runtime_facts_observed",
             )
         ]
     try:
@@ -472,7 +440,6 @@ def _runtime_facts_from_stdout(
                 code="runtime_probe_output_shape_invalid",
                 severity="review",
                 basis=str(exc),
-                does_not_claim="runtime_facts_observed",
             )
         ]
 
@@ -517,10 +484,6 @@ def _coerce_probe_request_ref(value: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("uv runtime probe command working_directory must match request")
     if tuple(command_intent.get("argv", ())) != RUNTIME_PROBE_ARGV:
         raise ValueError("uv runtime probe command argv must be bounded probe argv")
-    if _require_text(command_intent, "does_not_claim") != (
-        "experiment_code_executed_or_run_readiness"
-    ):
-        raise ValueError("uv runtime probe command does_not_claim must preserve boundary")
     return {
         "probe_request_id": _validate_non_empty_text(
             _require_text(value, "probe_request_id"),
@@ -545,7 +508,6 @@ def _coerce_probe_request_ref(value: dict[str, Any]) -> dict[str, Any]:
             "operation": "runtime_probe",
             "working_directory": working_directory,
             "argv": list(RUNTIME_PROBE_ARGV),
-            "does_not_claim": "experiment_code_executed_or_run_readiness",
         },
     }
 
@@ -677,7 +639,6 @@ def _runtime_probe_findings(execution_state: str) -> list[UvRuntimeProbeFinding]
                 code="uv_runtime_probe_process_failed",
                 severity="review",
                 basis="The Scopecat-run uv runtime probe exited with a non-zero status.",
-                does_not_claim="runtime_available_or_environment_ready",
             )
         ]
     if execution_state == "timed_out":
@@ -686,7 +647,6 @@ def _runtime_probe_findings(execution_state: str) -> list[UvRuntimeProbeFinding]
                 code="uv_runtime_probe_process_timed_out",
                 severity="review",
                 basis="The Scopecat-run uv runtime probe exceeded the approved timeout.",
-                does_not_claim="runtime_available_or_environment_ready",
             )
         ]
     if execution_state == "launch_failed":
@@ -695,7 +655,6 @@ def _runtime_probe_findings(execution_state: str) -> list[UvRuntimeProbeFinding]
                 code="uv_runtime_probe_process_launch_failed",
                 severity="review",
                 basis="The Scopecat uv runtime probe subprocess could not be launched.",
-                does_not_claim="manager_available_or_runtime_available",
             )
         ]
     return []
@@ -712,7 +671,6 @@ def _runtime_fact_findings(
                 code="runtime_probe_not_virtual_environment",
                 severity="review",
                 basis="The probed Python reported matching sys.prefix and sys.base_prefix.",
-                does_not_claim="project_virtual_environment_used",
             )
         ]
     return []
@@ -732,24 +690,6 @@ def _validate_probe_findings(
     if not all(isinstance(finding, UvRuntimeProbeFinding) for finding in validated):
         raise ValueError("uv runtime probe findings must be UvRuntimeProbeFinding objects")
     return validated
-
-
-def _validate_attention(
-    attention: tuple[dict[str, str], ...],
-) -> tuple[dict[str, str], ...]:
-    normalized = []
-    for item in tuple(copy.deepcopy(item) for item in attention):
-        if not isinstance(item, dict):
-            raise ValueError("uv runtime probe attention entries must be objects")
-        normalized.append(
-            {
-                "code": _require_text(item, "code"),
-                "severity": _require_text(item, "severity"),
-                "basis": _require_text(item, "basis"),
-                "does_not_claim": _require_text(item, "does_not_claim"),
-            }
-        )
-    return tuple(normalized)
 
 
 def _require_string(source: dict[str, Any], key: str) -> str:
@@ -773,26 +713,3 @@ def _require_nonnegative_int(source: dict[str, Any], key: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ValueError(f"{key} must be a nonnegative integer")
     return value
-
-
-def _runtime_probe_attention() -> list[dict[str, str]]:
-    return [
-        {
-            "code": "runtime_probe_only",
-            "severity": "review",
-            "basis": "Scopecat launched a bounded Python fact probe through uv run.",
-            "does_not_claim": "run_readiness_or_experiment_execution",
-        },
-        {
-            "code": "uv_no_sync_probe",
-            "severity": "review",
-            "basis": "The probe uses uv run --locked --no-sync and does not repair the environment.",
-            "does_not_claim": "environment_synchronized_by_probe",
-        },
-        {
-            "code": "package_state_not_verified",
-            "severity": "review",
-            "basis": "The probe records interpreter facts only, not installed package state.",
-            "does_not_claim": "verified_package_environment",
-        },
-    ]

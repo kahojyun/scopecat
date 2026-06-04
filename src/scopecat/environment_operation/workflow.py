@@ -46,22 +46,6 @@ class UvSyncOperationRun:
         """Project the composed run into a local review summary."""
 
         return {
-            "environment_operation_run_policy": {
-                "summary_policy": "review_summary",
-                "run_authority": "route_local_uv_sync_operation_workflow",
-                "manager_scope": "uv_only",
-                "process_execution": "performed_for_approved_uv_sync_intent",
-                "operation_review": "performed",
-                "runtime_probe": self.runtime_probe_state,
-                "output_capture": "bounded_stdout_stderr_summaries",
-                "dependency_sync_verification": "not_performed",
-                "package_install_verification": "not_performed",
-                "experiment_code_import": "not_performed",
-                "experiment_code_execution": "not_performed",
-                "hardware_probe": "not_performed",
-                "run_blocking_decision": "not_made",
-                "readiness_claim": "not_claimed",
-            },
             "uv_sync_result": self.sync_result.to_summary(),
             "operation_review": self.operation_review.to_dict(),
             "runtime_probe": _runtime_probe_summary(
@@ -150,7 +134,6 @@ def _runtime_probe_summary(
             "runtime_probe_state": runtime_probe_state,
             "runtime_probe_request_ref": None,
             "runtime_probe_result": None,
-            "does_not_claim": "runtime_readiness_or_experiment_execution",
         }
     return {
         "runtime_probe_state": runtime_probe_state,
@@ -158,5 +141,4 @@ def _runtime_probe_summary(
             None if runtime_probe_intent is None else runtime_probe_intent.to_probe_request_ref()
         ),
         "runtime_probe_result": copy.deepcopy(runtime_probe_result.to_summary()),
-        "does_not_claim": "runtime_readiness_or_experiment_execution",
     }

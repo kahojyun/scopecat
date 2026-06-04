@@ -19,7 +19,6 @@
       "--group",
       "analysis"
     ],
-    "environment_variables": [],
-    "does_not_claim": "process_executed_or_environment_synchronized"
+    "environment_variables": []
   }
 }

@@ -39,7 +39,7 @@ Operation review:
 
 - promotes execution records into typed route-local `UvSyncResult` objects;
 - projects local review summaries with selected intent reference, bounded
-  command result, result findings, and explicit non-claims;
+  command result, and result findings;
 - composes one selected intent with one selected result in
   `EnvironmentOperationReview`;
 - surfaces alignment mismatches and result findings without deciding run

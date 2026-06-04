@@ -108,14 +108,6 @@ class EnvironmentOperationWorkflowTest(unittest.TestCase):
         )
 
         summary = run.to_summary()
-        self.assertEqual(
-            summary["environment_operation_run_policy"]["summary_policy"],
-            "review_summary",
-        )
-        self.assertEqual(
-            summary["environment_operation_run_policy"]["readiness_claim"],
-            "not_claimed",
-        )
         self.assertEqual(summary["runtime_probe"]["runtime_probe_state"], "performed")
         self.assertEqual(
             summary["runtime_probe"]["runtime_probe_result"]["runtime_facts"][
