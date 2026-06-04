@@ -46,7 +46,7 @@ Observed patterns include:
 
 ## Current User Work Patterns
 
-### Record Or Adopt A Measurement
+### Making External Runs Visible
 
 Users need to make externally produced or legacy-backed run facts visible
 without replacing the scripts, notebooks, or systems that produced them.
@@ -56,13 +56,13 @@ Current pressure:
 - source identity, operator intent, primary data, transformed data, and context
   references are often inferred from nearby files and naming conventions;
 - useful records may begin as a folder, notebook output, dated table, or
-  manually selected data artifact rather than a product-owned record;
-- adopting a measurement requires preserving source posture without claiming raw
-  source semantics, legacy execution, or scientific validity;
+  manually selected data artifact rather than a durable product object;
+- preserving a run for later use requires carrying source posture without
+  overclaiming raw source semantics, legacy execution, or scientific validity;
 - primary data, parameter snapshots, setup references, and analysis artifacts may
   need to be linked before the record is ready for downstream use.
 
-### Share A Selected Measurement
+### Selecting Measurements For Sharing
 
 Users often need to identify a useful run or result from a mixture of data
 files, notebooks, sidecar notes, reports, and folder structure.
@@ -76,7 +76,7 @@ Current pressure:
 - the receiver may need to trust folder residue before they can inspect the
   data.
 
-### Prepare A Manual Run
+### Checking Context Before A Run
 
 Users inspect parameter files, setup notes, wiring spreadsheets, code folders,
 and environment state before running.
@@ -88,7 +88,7 @@ Current pressure:
 - evidence about readiness is scattered;
 - notebooks and local scripts can hide which context was actually used.
 
-### Parameter Registry And Setup Maintenance
+### Maintaining Parameter And Setup Files
 
 Users maintain parameter, registry, wiring, and setup snapshots as practical
 working artifacts across run preparation, calibration, and later analysis.
@@ -100,11 +100,10 @@ Current pressure:
   they do not by themselves prove current hardware state;
 - setup and wiring context often lives in workbooks or notes outside the
   scripts that consume parameters;
-- users may need parameter history, comparison, or plotting, but that work
-  should remain a Parameter State capability use case unless it becomes an
-  independent product journey.
+- users may need to inspect history, compare variants, or plot parameter changes
+  before they can decide which files matter for a run or analysis step.
 
-### Instrument And Service Readiness
+### Checking Instrument And Service Readiness
 
 Users often check whether instruments, services, drivers, environments, or
 helper processes are ready enough before they trust a run.
@@ -118,7 +117,7 @@ Current pressure:
 - Scopecat can record bounded readiness evidence, but current-state readiness
   does not imply Scopecat owns hardware safety or recovery.
 
-### Calibration Continuation
+### Continuing Calibration Work
 
 Calibration work often depends on interrupted notebook state, fit previews,
 manual actions, proposed writes, and downstream blocking decisions.
@@ -131,7 +130,7 @@ Current pressure:
 - fit review and retry decisions are not durable product objects;
 - replacing execution ownership too early would create hardware-control risk.
 
-### Running Measurement Inspection
+### Inspecting Running Measurements
 
 Long-running measurements may expose partial data or progress through scripts,
 temporary files, plots, or notebook output.
@@ -143,7 +142,7 @@ Current pressure:
 - monitoring needs are real, but execution and scan control remain owned by the
   measurement code.
 
-### Review And Finalize A Completed Measurement
+### Reviewing Completed Results
 
 After a run, users often analyze, plot, summarize, and report selected results
 before deciding whether the data is worth preserving, comparing, or handing off.
@@ -157,11 +156,11 @@ Current pressure:
 - later handoff or comparison depends on knowing which data is primary, which
   artifacts are derived, which review notes matter, and which context is
   missing;
-- static reports or presentations can be useful review evidence, but they should
-  not replace record-local source identity, primary-data references, or explicit
-  operator review receipts.
+- static reports or presentations can be useful review evidence, but they can
+  hide which source data, transformations, and operator decisions produced the
+  final result.
 
-### Reproduce Or Rerun From A Reference
+### Reconstructing A Reference Or Rerun
 
 Users reconstruct a prior or known-good run by combining reference selection,
 code context, parameter/setup context, and local environment evidence.
