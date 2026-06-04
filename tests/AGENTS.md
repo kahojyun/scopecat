@@ -13,7 +13,6 @@
 - Integration/workflow tests should start from user-visible entrypoints or
   realistic storage/package state and assert the next usable user step. They
   should not depend on discovery expected-output parity.
-- New fixture directories must declare their stage posture in the fixture
-  README or in the owning test file when a README would be excessive.
-- Do not move existing flat-layout tests or fixtures only for naming cleanup.
-  Move them when the test is being rewritten for its new stage boundary.
+- New shared fixture directories must declare their stage posture in the fixture
+  README. For small one-off fixtures, declare the stage posture in the owning
+  test file instead.
