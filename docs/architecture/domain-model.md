@@ -56,7 +56,9 @@ should not be mistaken for native brownfield concepts.
 | Source Reference | Core transition concept | Preserve where a fact, file, run, or package member came from without importing or interpreting it automatically. | Reference-only by default. Observation or import requires a narrower boundary. |
 | Context Link | Core transition concept | Attach parameter, setup, code, environment, artifact, or note evidence to a measurement, package, calibration step, or review. | Linkage does not imply payload ownership, recursive traversal, or shared context schema. |
 | Review Summary | Core transition concept | Present local findings, readiness, missing context, or blocked state for a human decision. | Review text or JSON is not durable authority unless a boundary says so. |
-| Receipt | Core transition concept | Record that a specific review, import, write, acceptance, observation, or handoff step occurred. | A Scopecat audit mechanism, not a brownfield-native concept. Receipt shape remains boundary-specific. |
+| Operation Result | Core transition concept | Report the outcome of one command, observation, write, import, package, or review operation. | May be transient or durable. A result is not automatically a domain object. |
+| Durable Audit Record | Core transition concept | Persist a narrow fact that an accepted operation, observation, import, write, or user decision occurred. | Historical `receipt` slice outputs should be classified here only when durable audit value is real. |
+| Manifest | Core transition concept | Describe identity, members, structure, or declared facts for a storage record, package, or artifact set. | Should not be called a receipt; it describes an artifact rather than proving an operation happened. |
 | Handoff Package | Accepted transition boundary | Replace ad hoc copied folders with explicit package contents and open-before-import review. | A Scopecat artifact, not the as-is transfer concept; trust, authenticity, and scientific validity remain separate. |
 | Import Plan | Core transition concept | Let a receiver preview what could be imported before storage mutation. | Non-mutating by default; durable import needs explicit acceptance and delegated storage rules. |
 | Operator Acknowledgement | Supporting transition concept | Capture user acceptance, deferral, note, or continuation choice without claiming run permission. | Should not become an approval bureaucracy or hardware-safety gate by default. |
@@ -97,7 +99,9 @@ flowchart TD
   Src["Source Reference"]
   Ctx["Context Link"]
   Review["Review Summary"]
-  Receipt["Receipt"]
+  Result["Operation Result"]
+  Audit["Durable Audit Record"]
+  Manifest["Manifest"]
   Package["Handoff Package"]
 
   Notebook --> LegacyData
@@ -119,18 +123,25 @@ flowchart TD
   EnvFile --> Ctx
   Analysis --> Ctx
   Ctx --> MR
-  Review --> Receipt
-  Manual --> Receipt
+  Review --> Result
+  Result --> Audit
+  Manual --> Audit
+  MR --> Manifest
+  Package --> Manifest
   MR --> Package
 ```
 
 ## Modeling Rules
 
 - Name the brownfield object first, then the Scopecat transition concept.
-- Treat `Measurement Record`, `Handoff Package`, `Receipt`, `Import Plan`, and
-  `Context Link` as Scopecat-introduced terms.
+- Treat `Measurement Record`, `Handoff Package`, `Import Plan`, `Context Link`,
+  `Operation Result`, `Durable Audit Record`, and `Manifest` as
+  Scopecat-introduced terms.
 - Do not promote a fixture field into domain vocabulary unless it maps to a
   brownfield object or a named transition boundary.
+- Reclassify historical `receipt` outputs before using them architecturally:
+  many are operation results, durable audit records, review summaries, or
+  slice-to-slice glue rather than domain concepts.
 - Keep source, storage, package, and external references distinct.
 - Treat review, acceptance, import, and mutation as separate concepts.
 - Keep context families separate until two or more accepted boundaries need
