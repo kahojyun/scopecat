@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -383,6 +385,61 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
                     "scientific_validity",
                 ],
             },
+        )
+
+    def test_module_cli_summarizes_local_jny001_operator_smoke_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            workflow = self._prepare_ready_handoff(temp_root)
+            package = workflow["package"]
+            durable_import = run_handoff_durable_import_from_plan(
+                _durable_import_request(package.package_id),
+                import_plan=workflow["import_plan"],
+                storage_root=workflow["receiving_storage"],
+            )
+            smoke_summary = summarize_jny001_operator_smoke(
+                selected_export=workflow["export_run"],
+                archive_creation=workflow["archive_creation"],
+                archive_materialization=workflow["archive_materialization"],
+                receiving_gate=workflow["receiving_gate"],
+                import_plan=workflow["import_plan"],
+                receiving_review_state_receipt=workflow["receiving_review_state_receipt"],
+                durable_import=durable_import,
+            ).to_dict()
+            receipt_path = temp_root / "jny001-operator-smoke-summary.json"
+            receipt_path.write_text(json.dumps(smoke_summary), encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "scopecat.handoff",
+                    "--receipt-summary",
+                    str(receipt_path),
+                ],
+                check=True,
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+        summary = json.loads(result.stdout)
+
+        self.assertEqual(summary["artifact_posture"], "local_jny001_operator_smoke_summary")
+        self.assertEqual(summary["workflow_scope"], "jny001_vertical_slice_smoke")
+        self.assertEqual(summary["use_case_ids"], ["UC-006", "UC-004", "UC-002"])
+        self.assertEqual(summary["classification"], "completed_jny001_operator_smoke")
+        self.assertEqual(
+            summary["operator_result"]["next_action"], "use_durable_measurement_record"
+        )
+        self.assertEqual(summary["operator_result"]["retry_requires"], None)
+        self.assertEqual(
+            summary["boundary"]["source_record_storage_mutation"],
+            "not_performed",
+        )
+        self.assertEqual(
+            summary["boundary"]["durable_record_creation"],
+            "create_new_measurement_record",
         )
 
     def test_workflow_uses_zip_transport_without_making_archive_bytes_authoritative(

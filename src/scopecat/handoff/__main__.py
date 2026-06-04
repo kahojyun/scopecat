@@ -12,6 +12,7 @@ from scopecat.handoff.durable_import import summarize_handoff_durable_import_rec
 from scopecat.handoff.errors import HandoffContractError, HandoffError
 from scopecat.handoff.import_workflow import summarize_import_workflow_receipt
 from scopecat.handoff.inspect import write_inspection_artifact
+from scopecat.handoff.operator_smoke import summarize_jny001_operator_smoke_receipt
 from scopecat.handoff.package import summarize_package_context_references
 from scopecat.handoff.read_only import open_package
 
@@ -61,6 +62,11 @@ def _receipt_summary(receipt_path: Path) -> dict[str, object]:
             raise HandoffContractError(str(exc), operation="receipt_summary_cli") from exc
     if posture == "local_handoff_durable_import_receipt":
         return summarize_handoff_durable_import_receipt(receipt).to_dict()
+    if posture == "local_jny001_operator_smoke_summary":
+        try:
+            return summarize_jny001_operator_smoke_receipt(receipt)
+        except ValueError as exc:
+            raise HandoffContractError(str(exc), operation="receipt_summary_cli") from exc
     raise HandoffContractError(
         "receipt artifact_posture is unsupported",
         operation="receipt_summary_cli",

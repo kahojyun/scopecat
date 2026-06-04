@@ -220,6 +220,46 @@ def summarize_jny001_operator_smoke(
     )
 
 
+def summarize_jny001_operator_smoke_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
+    """Validate and return a local JNY-001 operator smoke summary receipt."""
+
+    if receipt.get("artifact_posture") != "local_jny001_operator_smoke_summary":
+        raise ValueError("JNY-001 operator smoke receipt posture is unsupported")
+    if receipt.get("summary_policy") != JNY001_OPERATOR_SMOKE_SUMMARY_POLICY:
+        raise ValueError("JNY-001 operator smoke receipt policy is unsupported")
+    _require_keys(
+        receipt,
+        {
+            "artifact_posture",
+            "summary_policy",
+            "journey_id",
+            "workflow_scope",
+            "use_case_ids",
+            "classification",
+            "package_id",
+            "source_record_id",
+            "destination_record_id",
+            "stage_sequence",
+            "stages",
+            "operator_result",
+            "boundary",
+            "does_not_claim",
+        },
+        "JNY-001 operator smoke receipt",
+    )
+    if receipt["journey_id"] != "JNY-001":
+        raise ValueError("JNY-001 operator smoke receipt journey id is unsupported")
+    if receipt["workflow_scope"] != "jny001_vertical_slice_smoke":
+        raise ValueError("JNY-001 operator smoke receipt workflow scope is unsupported")
+    return copy.deepcopy(receipt)
+
+
 def _validate_type(value: object, expected_type: type, owner: str) -> None:
     if not isinstance(value, expected_type):
         raise ValueError(f"{owner} is unsupported")
+
+
+def _require_keys(value: dict[str, Any], keys: set[str], owner: str) -> None:
+    missing = sorted(keys.difference(value))
+    if missing:
+        raise ValueError(f"{owner} is missing required keys: {', '.join(missing)}")

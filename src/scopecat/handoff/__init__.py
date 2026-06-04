@@ -52,6 +52,7 @@ from scopecat.handoff.integrity import (
 from scopecat.handoff.operator_smoke import (
     HandoffJny001OperatorSmokeSummary,
     summarize_jny001_operator_smoke,
+    summarize_jny001_operator_smoke_receipt,
 )
 from scopecat.handoff.package import (
     HandoffContextReferenceSummary,
@@ -165,6 +166,7 @@ __all__ = [
     "run_receiving_gate",
     "summarize_handoff_durable_import_receipt",
     "summarize_jny001_operator_smoke",
+    "summarize_jny001_operator_smoke_receipt",
     "summarize_package_context_references",
     "write_handoff_receiving_review_state_receipt",
     "write_inspection_artifact",
