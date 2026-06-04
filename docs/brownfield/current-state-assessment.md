@@ -27,21 +27,42 @@ Observed patterns include:
   living near each other;
 - multiple similar project trees that appear to represent related hardware,
   cooldown, board, or experiment variants;
-- repeated backup folders and dated file variants used as informal versioning;
+- repeated backup folders, notebook checkpoints, copied package folders, and
+  dated file variants used as informal versioning;
 - measurement data stored in different shapes, including CSV-like tables,
   NumPy arrays, JSON-like records, reports, and notebook outputs;
-- parameter, setup, wiring, and analysis context spread across workbooks,
-  scripts, notebooks, folders, and human naming conventions;
+- parameter, registry, setup, wiring, and analysis context spread across JSON
+  files, lock files, workbooks, scripts, notebooks, folders, and human naming
+  conventions;
 - experiment-code context stored as editable folders rather than a single
   trusted versioned artifact;
 - driver/service code, experiment scripts, plotting utilities, and analysis
   helpers sharing the same broad workspace;
+- presentation, plotting, and processing artifacts co-located with primary data
+  and experiment code, suggesting review and reporting are part of the same
+  practical work surface;
 - output artifacts that are useful to humans but do not declare a stable
   machine-readable boundary for selection, handoff, review, or import.
 
 ## Current User Work Patterns
 
-### Measurement Selection And Handoff
+### Record Or Adopt A Measurement
+
+Users need to make externally produced or legacy-backed run facts visible
+without replacing the scripts, notebooks, or systems that produced them.
+
+Current pressure:
+
+- source identity, operator intent, primary data, transformed data, and context
+  references are often inferred from nearby files and naming conventions;
+- useful records may begin as a folder, notebook output, dated table, or
+  manually selected data artifact rather than a product-owned record;
+- adopting a measurement requires preserving source posture without claiming raw
+  source semantics, legacy execution, or scientific validity;
+- primary data, parameter snapshots, setup references, and analysis artifacts may
+  need to be linked before the record is ready for downstream use.
+
+### Share A Selected Measurement
 
 Users often need to identify a useful run or result from a mixture of data
 files, notebooks, sidecar notes, reports, and folder structure.
@@ -66,6 +87,22 @@ Current pressure:
 - existing systems remain authoritative for hardware apply and run start;
 - evidence about readiness is scattered;
 - notebooks and local scripts can hide which context was actually used.
+
+### Parameter Registry And Setup Maintenance
+
+Users maintain parameter, registry, wiring, and setup snapshots as practical
+working artifacts across run preparation, calibration, and later analysis.
+
+Current pressure:
+
+- multiple dated or variant parameter and registry files can coexist;
+- lock files or sidecar files may indicate local editing or runtime state, but
+  they do not by themselves prove current hardware state;
+- setup and wiring context often lives in workbooks or notes outside the
+  scripts that consume parameters;
+- users may need parameter history, comparison, or plotting, but that work
+  should remain a Parameter State capability use case unless it becomes an
+  independent product journey.
 
 ### Instrument And Service Readiness
 
@@ -106,7 +143,7 @@ Current pressure:
 - monitoring needs are real, but execution and scan control remain owned by the
   measurement code.
 
-### Post-Run Analysis And Reporting
+### Review And Finalize A Completed Measurement
 
 After a run, users often analyze, plot, summarize, and report selected results
 before deciding whether the data is worth preserving, comparing, or handing off.
@@ -118,12 +155,16 @@ Current pressure:
 - selected "useful" results may be identified after several exploratory plots
   or notebook edits;
 - later handoff or comparison depends on knowing which data is primary, which
-  artifacts are derived, and which context is missing.
+  artifacts are derived, which review notes matter, and which context is
+  missing;
+- static reports or presentations can be useful review evidence, but they should
+  not replace record-local source identity, primary-data references, or explicit
+  operator review receipts.
 
-### Experiment Code Recovery
+### Reproduce Or Rerun From A Reference
 
-Code context is often reconstructed from copied folders, notebooks, helper
-libraries, local naming conventions, backups, and editable working trees.
+Users reconstruct a prior or known-good run by combining reference selection,
+code context, parameter/setup context, and local environment evidence.
 
 Current pressure:
 
@@ -132,21 +173,13 @@ Current pressure:
   relevant;
 - a folder can be useful evidence without being a trustworthy execution
   environment;
-- users need record, compare, and materialization paths before full execution
-  ownership.
-
-### Reference Comparison
-
-Users compare current state against last-working or notable references by
-opening files, notebooks, setup notes, and memory.
-
-Current pressure:
-
 - changed, missing, unverified, and not-compared facts are easy to collapse
   into vague gap language;
 - reference goodness is user/domain judgment, not something Scopecat should
   claim by default;
-- objective comparison needs declared context boundaries.
+- objective comparison needs declared context boundaries;
+- users need record, compare, and materialization paths before full execution
+  ownership.
 
 ## Current-State Constraints
 
