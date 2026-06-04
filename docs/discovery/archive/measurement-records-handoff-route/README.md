@@ -162,16 +162,16 @@ primitive behavior:
 ## Completed Focused Follow-Ups
 
 - **Minimal GUI view-state candidate**: validated in
-  [`gui-view-state-validation-result.md`](../../slices/measurement-records/handoff/gui-view-state-validation-result.md).
+  [`gui-view-state-validation-result.md`](../slice-inventory.md).
   Further GUI work should now require a new interaction, rendering, or product
   layout question rather than repeating route-level state projection.
 - **Richer package fixture pressure**: validated in
-  [`route-pressure-validation-result.md`](../../slices/measurement-records/handoff/route-pressure-validation-result.md).
+  [`route-pressure-validation-result.md`](../slice-inventory.md).
   The route now has repository-safe pressure for multi-plot, table-only,
   shared linked-context, degraded-preview, and optional digest/size cases
   without creating another handoff implementation layer.
 - **SDK ergonomics spike**: validated in
-  [`sdk-ergonomics-spike-validation-result.md`](../../slices/measurement-records/handoff/sdk-ergonomics-spike-validation-result.md).
+  [`sdk-ergonomics-spike-validation-result.md`](../slice-inventory.md).
   Notebook-style use can discover measurements, get dataframe-like tables,
   get declared plot records/arrays, and keep context visible without adding
   hard pandas/numpy dependencies or finalizing the public SDK.

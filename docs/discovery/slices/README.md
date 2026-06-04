@@ -1,14 +1,18 @@
-# Discovery Slices
+# Discovery Slice Archive Pointer
 
 ## Status
 
-Discovery slice evidence entry.
+Historical slice archive pointer.
 
 ## Purpose
 
-Discovery slice results record what one validation question earned and what it
-did not earn. Use them as evidence, not as the active engineering planning
-surface.
+The detailed discovery slice body corpus has been removed from the active
+documentation tree. Git history preserves the old validation plans,
+validation results, implementation-plan notes, and fixture-shaped summaries.
+
+Use this README only as a pointer to the compact historical index and to the
+current owners for architecture, workflow validation, capability maturity, and
+implementation ownership.
 
 Product journey framing belongs in
 [`../../product/target-journeys.md`](../../product/target-journeys.md).
@@ -19,24 +23,26 @@ Capability maturity belongs in
 Implementation ownership belongs in
 [`../../engineering/implementation-register.md`](../../engineering/implementation-register.md).
 
-The old flat slice inventory has moved to
-[`../archive/slice-inventory.md`](../archive/slice-inventory.md). It remains
-historical discovery evidence and a link-preserving index, but it should not be
-used as a roadmap or as proof that candidate behavior should be copied into
-live code.
+The compact historical index lives in
+[`slice-inventory.md`](../archive/slice-inventory.md). It is not a
+link-preserving mirror of the deleted slice bodies; use Git history if a
+specific removed slice body is needed.
 
 ## Current Use
 
 When starting new discovery:
 
-- start from the relevant problem brief, target journey gap, brownfield
-  transition gap, or workflow/use-case validation map gap;
+- start from the relevant brownfield entrypoint, problem brief, target journey
+  gap, architecture transition gap, or workflow/use-case validation map gap;
 - create one narrow validation plan only when a new question needs it;
-- write the validation result beside the route it informs;
+- write the validation result beside the current owner it informs, not in a
+  new unbounded slice corpus by default;
 - update the target journey map only if the result changes a target user
   journey, workflow, or use case;
 - update the brownfield transition architecture only if the result changes
   current-state, transition-state, migration, or ownership-posture claims;
+- update the architecture docs only if the result changes the brownfield
+  entrypoint model, domain model, context map, or slice classification frame;
 - update the workflow validation map only if the result changes a named use
   case, workflow seam, evidence scope, or risk question.
 

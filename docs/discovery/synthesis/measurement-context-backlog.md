@@ -140,21 +140,21 @@ Boundary: no recursive relation traversal, automatic inclusion of adjacent
 records, shared relation graph, restore, execution, or cause attribution.
 
 First direct result:
-[`measurement-context-link-validation-result.md`](../slices/measurement-context/measurement-context-link-validation-result.md)
+[`measurement-context-link-validation-result.md`](../archive/slice-inventory.md)
 validates measurement records with zero, resolved, and missing optional
 context links while keeping context reference-only and optional for primary
 measurement-record validity. The previous promoted owner was withdrawn; this
 result remains implementation-candidate evidence.
 
 First intent-resolution result:
-[`measurement-intent-resolution-validation-result.md`](../slices/measurement-context/measurement-intent-resolution-validation-result.md)
+[`measurement-intent-resolution-validation-result.md`](../archive/slice-inventory.md)
 validates the subcase where a prospective measurement intent carries moving
 context selectors, run-start resolution freezes those selectors to concrete
 context records, and the measurement record keeps only the resolved optional
 context links.
 
 First supporting-evidence result:
-[`supporting-evidence-reference-validation-result.md`](../slices/measurement-context/supporting-evidence-reference-validation-result.md)
+[`supporting-evidence-reference-validation-result.md`](../archive/slice-inventory.md)
 validates the subcase where a user explicitly supplies debug, audit, handoff,
 or review evidence related to measurement, running-measurement, prepared-run,
 operator-approval, parameter-state, or calibration-step targets while keeping
@@ -165,7 +165,7 @@ implied by run-start context review. The previous promoted owner was
 withdrawn; this result remains implementation-candidate evidence.
 
 First supporting-artifact provenance result:
-[`supporting-artifact-provenance-validation-result.md`](../slices/measurement-context/supporting-artifact-provenance-validation-result.md)
+[`supporting-artifact-provenance-validation-result.md`](../archive/slice-inventory.md)
 validates the subcase where artifact-labeled supporting evidence carries
 declared direct producer and source links without making provenance required
 for ordinary attachments, importing payloads, observing files, validating
@@ -173,7 +173,7 @@ checksums, generating artifacts, inferring analysis DAGs, judging fit quality,
 deciding measurement validity, or producing export/package behavior.
 
 First supporting-artifact observation result:
-[`supporting-artifact-observation-validation-result.md`](../slices/measurement-context/supporting-artifact-observation-validation-result.md)
+[`supporting-artifact-observation-validation-result.md`](../archive/slice-inventory.md)
 validates the subcase where an artifact-labeled supporting evidence reference
 with prior provenance is checked for file availability, sha256, and byte size
 under a caller-provided artifact root without importing payloads, parsing
@@ -182,14 +182,14 @@ generating artifacts, inferring analysis DAGs, validating fits, deciding
 measurement validity, or producing export/package behavior.
 
 First running-record evidence result:
-[`running-record-supporting-evidence-update-validation-result.md`](../slices/measurement-context/running-record-supporting-evidence-update-validation-result.md)
+[`running-record-supporting-evidence-update-validation-result.md`](../archive/slice-inventory.md)
 validates the subcase where explicit during-run supporting evidence is attached
 to a running-record review surface by target continuity while avoiding payload
 import, file observation, durable record append, runner ownership, log
 streaming, artifact provenance, and measurement-validity claims.
 
 Adjacent legacy-run sidecar result:
-[`legacy-run-sidecar-manifest-validation-result.md`](../slices/measurement-records/legacy-run-sidecar-manifest-validation-result.md)
+[`legacy-run-sidecar-manifest-validation-result.md`](../archive/slice-inventory.md)
 validates the brownfield composition where externally executed legacy code
 declares measurement identity, flexible legacy source locators, optional
 run-start context links, primary-data references, supporting evidence
@@ -199,14 +199,14 @@ legacy import, binding to one legacy reference scheme, or defining a final
 workflow schema.
 
 Adjacent locator review result:
-[`legacy-locator-sufficiency-review-validation-result.md`](../slices/measurement-records/legacy-locator-sufficiency-review-validation-result.md)
+[`legacy-locator-sufficiency-review-validation-result.md`](../archive/slice-inventory.md)
 validates review-only classification of those declared legacy locators as
 human-navigation hints, without backend lookup, path parsing, file observation,
 legacy import acceptance, storage mutation, reference repair, or a final
 locator schema.
 
 Adjacent sidecar post-run review result:
-[`legacy-sidecar-post-run-review-validation-result.md`](../slices/measurement-records/legacy-sidecar-post-run-review-validation-result.md)
+[`legacy-sidecar-post-run-review-validation-result.md`](../archive/slice-inventory.md)
 validates a local post-run projection over prior legacy sidecar and locator
 review summaries, carrying lifecycle, locator, primary-data, and supporting
 evidence sections without fresh observation, legacy import acceptance, storage
@@ -214,7 +214,7 @@ mutation, record write, reference repair, parameter write-back, measurement
 validity decisions, or GUI behavior.
 
 Adjacent sidecar GUI-state result:
-[`legacy-sidecar-review-gui-state-validation-result.md`](../slices/measurement-records/legacy-sidecar-review-gui-state-validation-result.md)
+[`legacy-sidecar-review-gui-state-validation-result.md`](../archive/slice-inventory.md)
 validates the subcase where that sidecar post-run review is projected into
 passive local cards, visible findings, and action labels for GUI, CLI, or
 notebook surfaces without executing actions, observing files, querying
@@ -222,7 +222,7 @@ backends, accepting imports, mutating storage, repairing references, writing
 parameters, deciding measurement validity, or making review state run-blocking.
 
 Adjacent legacy file-locator observation result:
-[`legacy-file-backed-locator-observation-validation-result.md`](../slices/measurement-records/legacy-file-backed-locator-observation-validation-result.md)
+[`legacy-file-backed-locator-observation-validation-result.md`](../archive/slice-inventory.md)
 validates the subcase where a user explicitly selects one declared
 `legacy_path` locator from sidecar review, supplies an external root and
 relative path, and observes file-level availability plus optional sha256 and
@@ -232,7 +232,7 @@ storage, repairing references, writing parameters, deciding measurement
 validity, or defining GUI behavior.
 
 Adjacent legacy locator-observation review-bundle result:
-[`legacy-locator-observation-review-bundle-validation-result.md`](../slices/measurement-records/legacy-locator-observation-review-bundle-validation-result.md)
+[`legacy-locator-observation-review-bundle-validation-result.md`](../archive/slice-inventory.md)
 validates the subcase where sidecar post-run review and optional prior
 file-backed locator observations are composed into one local review summary,
 surfacing no-observation, observed, unavailable, mismatch, and sidecar
@@ -241,7 +241,7 @@ preview verification, import acceptance, storage mutation, reference repair,
 parameter write-back, measurement-validity decisions, or GUI behavior.
 
 Adjacent reviewed legacy append-intent result:
-[`reviewed-legacy-sidecar-append-intent-validation-result.md`](../slices/measurement-records/reviewed-legacy-sidecar-append-intent-validation-result.md)
+[`reviewed-legacy-sidecar-append-intent-validation-result.md`](../archive/slice-inventory.md)
 validates the subcase where an operator explicitly approves carrying reviewed
 sidecar and locator-observation facts forward as review/debug evidence for a
 later measurement-record append, while still avoiding storage mutation,
@@ -250,7 +250,7 @@ verification, reference repair, parameter write-back, measurement-validity
 decisions, or GUI behavior.
 
 Adjacent reviewed legacy evidence append-receipt result:
-[`reviewed-legacy-sidecar-evidence-append-receipt-validation-result.md`](../slices/measurement-records/reviewed-legacy-sidecar-evidence-append-receipt-validation-result.md)
+[`reviewed-legacy-sidecar-evidence-append-receipt-validation-result.md`](../archive/slice-inventory.md)
 validates the subcase where that approved intent writes one review-evidence
 receipt under an existing measurement record with manifest identity preflight,
 no-overwrite behavior, and a record-local lock guard, while still avoiding
@@ -259,7 +259,7 @@ repair, parameter write-back, measurement-validity decisions, manifest
 replacement, read-model refresh, or GUI behavior.
 
 Adjacent legacy evidence receipt read-view result:
-[`legacy-evidence-receipt-read-view-validation-result.md`](../slices/measurement-records/legacy-evidence-receipt-read-view-validation-result.md)
+[`legacy-evidence-receipt-read-view-validation-result.md`](../archive/slice-inventory.md)
 validates the subcase where declared review-evidence receipt paths are read
 back from an existing measurement record, surfacing receipt identity, source
 intent, locator-observation evidence, and receipt findings without storage
@@ -268,7 +268,7 @@ preview verification, reference repair, parameter write-back,
 measurement-validity decisions, read-model refresh, or GUI behavior.
 
 Adjacent legacy brownfield adoption backbone result:
-[`legacy-brownfield-adoption-backbone-validation-result.md`](../slices/measurement-records/legacy-brownfield-adoption-backbone-validation-result.md)
+[`legacy-brownfield-adoption-backbone-validation-result.md`](../archive/slice-inventory.md)
 validates the post-run-first composition across prior legacy sidecar,
 post-run review, locator-observation review, append-intent, review-evidence
 receipt, and receipt-read summaries, while keeping lifecycle events compatible
@@ -278,7 +278,7 @@ parameter write-back, measurement-validity decisions, runner ownership, or GUI
 behavior.
 
 Adjacent legacy calibration handoff bridge result:
-[`legacy-calibration-handoff-parameter-state-bridge-validation-result.md`](../slices/measurement-records/legacy-calibration-handoff-parameter-state-bridge-validation-result.md)
+[`legacy-calibration-handoff-parameter-state-bridge-validation-result.md`](../archive/slice-inventory.md)
 validates an explicit operator-approved bridge from a legacy brownfield
 adoption summary to calibration accepted-write handoff and calibration
 parameter-state intake summaries, requiring measurement/provenance continuity
@@ -288,7 +288,7 @@ mutation, legacy parameter write-back, hardware write-back, reference repair,
 measurement-validity decisions, or GUI behavior.
 
 First post-run review result:
-[`post-run-review-bundle-validation-result.md`](../slices/measurement-context/post-run-review-bundle-validation-result.md)
+[`post-run-review-bundle-validation-result.md`](../archive/slice-inventory.md)
 validates a local post-run review composition over completed measurement
 identity, reference-only context links, context-status findings, and carried
 during-run supporting-evidence findings without storage mutation,
@@ -296,7 +296,7 @@ primary-data observation, evidence import, artifact provenance, fit validation,
 measurement-validity decisions, or package/export behavior.
 
 First post-run artifact-provenance review result:
-[`post-run-artifact-provenance-review-validation-result.md`](../slices/measurement-context/post-run-artifact-provenance-review-validation-result.md)
+[`post-run-artifact-provenance-review-validation-result.md`](../archive/slice-inventory.md)
 validates the subcase where prior supporting-artifact provenance summaries are
 surfaced inside local post-run review only when they match artifact evidence
 already present in the post-run bundle, while still avoiding storage mutation,
@@ -305,7 +305,7 @@ checksum validation, artifact generation, analysis-DAG inference, fit
 validation, measurement-validity decisions, or package/export behavior.
 
 First post-run artifact-observation review result:
-[`post-run-artifact-observation-review-validation-result.md`](../slices/measurement-context/post-run-artifact-observation-review-validation-result.md)
+[`post-run-artifact-observation-review-validation-result.md`](../archive/slice-inventory.md)
 validates the subcase where prior supporting-artifact observation summaries are
 surfaced inside local post-run review only when they match already-reviewed
 artifacts, while still avoiding fresh artifact observation, checksum
@@ -329,7 +329,7 @@ Boundary: no universal lifecycle model, hardware control, write-back,
 dependency sync, code import, runnable-readiness claim, or execution.
 
 First result:
-[`named-run-start-input-set-validation-result.md`](../slices/measurement-context/named-run-start-input-set-validation-result.md)
+[`named-run-start-input-set-validation-result.md`](../archive/slice-inventory.md)
 validates this as a side-effect-free implementation candidate with missing
 declared environment context reported as a review finding.
 
@@ -351,7 +351,7 @@ semantic source review, setup truth, parameter invalidation, raw-data
 comparison, or universal diff engine.
 
 First resolved-link result:
-[`resolved-context-link-comparison-validation-result.md`](../slices/measurement-context/resolved-context-link-comparison-validation-result.md)
+[`resolved-context-link-comparison-validation-result.md`](../archive/slice-inventory.md)
 validates selected-reference comparison over actual measurement-record context
 links, explicitly excluding prospective measurement intent selectors, context
 payload diff, primary-data comparison, fit-quality comparison, readiness
@@ -397,7 +397,7 @@ Boundary: no hardware readiness check, dependency sync, code import, setup
 truth, autonomous advice, or execution unless a narrower slice earns it.
 
 First result:
-[`context-readiness-status-validation-result.md`](../slices/measurement-context/context-readiness-status-validation-result.md)
+[`context-readiness-status-validation-result.md`](../archive/slice-inventory.md)
 validates a read-only local review projection over explicit family-owned
 context status facts, distinguishing ready, attention-needed, and blocked
 context-review states without claiming run blocking, runnable readiness,

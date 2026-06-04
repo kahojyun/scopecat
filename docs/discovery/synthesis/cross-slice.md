@@ -16,12 +16,12 @@ This synthesis compares recurring pressure across the current discovery corpus.
 It intentionally points to owner indexes rather than repeating every slice or
 route inventory.
 Individual validation-result evidence is owned by
-[`../slices/README.md`](../slices/README.md) and linked route indexes; the
+[`README.md`](../archive/slice-inventory.md) and linked route indexes; the
 recurring-concepts table below uses route and slice shorthand only.
 
 | Owner | Use For |
 | --- | --- |
-| [`../slices/README.md`](../slices/README.md) | Validation-result evidence usage by route; current maturity belongs in product and engineering owner docs. |
+| [`README.md`](../archive/slice-inventory.md) | Validation-result evidence usage by route; current maturity belongs in product and engineering owner docs. |
 | [`../routes/README.md`](../routes/README.md) | Route owners and route-specific sequencing. |
 | [`../../product/target-capabilities.md`](../../product/target-capabilities.md) | Current product capability maturity. |
 | [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md) | Current workflow state, gaps, and validation tasks. |
@@ -49,7 +49,7 @@ document only records cross-route pressure.
 | Import/source | Adapter-normalized primary data, preserved external source references, reference-only observation, copy acceptance, storage writing, and existing-record append receipts are distinct authority boundaries. | [`../routes/measurement-records/import-source-decision.md`](../routes/measurement-records/import-source-decision.md) |
 | Experiment code | Current evidence supports record -> promote -> materialize -> observe -> prepare as adjacent responsibilities around code context, without accepting Git semantics, environment restoration, code loading, or execution. | [`../routes/experiment-code/README.md`](../routes/experiment-code/README.md) |
 | Environment operation | Current evidence supports approve intent -> record result -> review locally for uv-specific operations. Discovery candidates validated declared external result recording; the route-local engineering prototype now covers one approved `uv sync` subprocess boundary without accepting verified package state, runtime readiness, code execution, or a shared manager abstraction. | [`../routes/environment-operation/README.md`](../routes/environment-operation/README.md) |
-| Parameter state, setup binding, calibration, selected reference, and measurement context | These slices add repeated pressure for named point-in-time context records, selected references, comparison findings, proposed writes, and run-start inputs, but have not earned a shared context framework. | [`../slices/README.md`](../slices/README.md) and [`measurement-context-backlog.md`](measurement-context-backlog.md) |
+| Parameter state, setup binding, calibration, selected reference, and measurement context | These slices add repeated pressure for named point-in-time context records, selected references, comparison findings, proposed writes, and run-start inputs, but have not earned a shared context framework. | [`README.md`](../archive/slice-inventory.md) and [`measurement-context-backlog.md`](measurement-context-backlog.md) |
 
 ## Version Terminology
 

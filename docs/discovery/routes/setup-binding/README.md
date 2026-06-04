@@ -27,7 +27,7 @@ validity, start runs, or define a shared input-snapshot schema.
 ## Historical Evidence
 
 - [`../../problem-briefs/setup-binding.md`](../../problem-briefs/setup-binding.md)
-- [`../../slices/setup-binding/setup-binding-validation-result.md`](../../slices/setup-binding/setup-binding-validation-result.md)
+- [`setup-binding-validation-result.md`](../../archive/slice-inventory.md)
 - [`../../../../implementation_candidates/setup_binding/README.md`](../../../../implementation_candidates/setup_binding/README.md)
 
 ## Reopen Triggers

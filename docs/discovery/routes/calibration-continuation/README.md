@@ -51,15 +51,15 @@ canonical parameter context while keeping calibration evidence as provenance.
 
 | Step | Validated By |
 | --- | --- |
-| Calibration step links observed measurement records. | [`../../slices/calibration/calibration-step-observation-link-validation-result.md`](../../slices/calibration/calibration-step-observation-link-validation-result.md) |
-| Fit/proposed-write review preserves measurement and parameter references. | [`../../slices/calibration/calibration-step-fit-result-link-validation-result.md`](../../slices/calibration/calibration-step-fit-result-link-validation-result.md), [`../../slices/calibration/calibration-step-proposed-write-link-validation-result.md`](../../slices/calibration/calibration-step-proposed-write-link-validation-result.md) |
-| Accepted calibration write handoff stays review-only and `not_applied`. | [`../../slices/calibration/calibration-accepted-write-handoff-validation-result.md`](../../slices/calibration/calibration-accepted-write-handoff-validation-result.md) |
-| Parameter-state intake/storage owns the managed snapshot. | [`../../slices/parameter-state/calibration-parameter-state-intake-validation-result.md`](../../slices/parameter-state/calibration-parameter-state-intake-validation-result.md), [`../../slices/parameter-state/calibration-parameter-state-storage-validation-result.md`](../../slices/parameter-state/calibration-parameter-state-storage-validation-result.md) |
-| Prepared-run review can consume the calibration-derived state. | [`../../slices/parameter-state/prepared-run-source-agnostic-parameter-state-consumption-validation-result.md`](../../slices/parameter-state/prepared-run-source-agnostic-parameter-state-consumption-validation-result.md), [`../../slices/parameter-state/prepared-run-source-agnostic-parameter-state-review-chain-validation-result.md`](../../slices/parameter-state/prepared-run-source-agnostic-parameter-state-review-chain-validation-result.md) |
-| The full backbone composes into later measurement context. | [`../../slices/calibration/calibration-derived-parameter-state-measurement-context-validation-result.md`](../../slices/calibration/calibration-derived-parameter-state-measurement-context-validation-result.md) |
-| Missing or partial backbone context becomes review findings. | [`../../slices/calibration/calibration-backbone-context-findings-validation-result.md`](../../slices/calibration/calibration-backbone-context-findings-validation-result.md) |
-| Notebook/CLI consumption can show review cards and backbone findings together. | [`../../slices/calibration/calibration-continuation-review-surface-validation-result.md`](../../slices/calibration/calibration-continuation-review-surface-validation-result.md) |
-| Explicit user choices can be recorded against review-surface labels. | [`../../slices/calibration/calibration-review-action-recording-validation-result.md`](../../slices/calibration/calibration-review-action-recording-validation-result.md) |
+| Calibration step links observed measurement records. | [`calibration-step-observation-link-validation-result.md`](../../archive/slice-inventory.md) |
+| Fit/proposed-write review preserves measurement and parameter references. | [`calibration-step-fit-result-link-validation-result.md`](../../archive/slice-inventory.md), [`calibration-step-proposed-write-link-validation-result.md`](../../archive/slice-inventory.md) |
+| Accepted calibration write handoff stays review-only and `not_applied`. | [`calibration-accepted-write-handoff-validation-result.md`](../../archive/slice-inventory.md) |
+| Parameter-state intake/storage owns the managed snapshot. | [`calibration-parameter-state-intake-validation-result.md`](../../archive/slice-inventory.md), [`calibration-parameter-state-storage-validation-result.md`](../../archive/slice-inventory.md) |
+| Prepared-run review can consume the calibration-derived state. | [`prepared-run-source-agnostic-parameter-state-consumption-validation-result.md`](../../archive/slice-inventory.md), [`prepared-run-source-agnostic-parameter-state-review-chain-validation-result.md`](../../archive/slice-inventory.md) |
+| The full backbone composes into later measurement context. | [`calibration-derived-parameter-state-measurement-context-validation-result.md`](../../archive/slice-inventory.md) |
+| Missing or partial backbone context becomes review findings. | [`calibration-backbone-context-findings-validation-result.md`](../../archive/slice-inventory.md) |
+| Notebook/CLI consumption can show review cards and backbone findings together. | [`calibration-continuation-review-surface-validation-result.md`](../../archive/slice-inventory.md) |
+| Explicit user choices can be recorded against review-surface labels. | [`calibration-review-action-recording-validation-result.md`](../../archive/slice-inventory.md) |
 
 ## Boundary
 

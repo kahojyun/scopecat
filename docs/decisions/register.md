@@ -49,8 +49,8 @@ unless a future branch promotes them:
 
 | Artifact | Current Classification | Owner |
 | --- | --- | --- |
-| Selected Measurement Export Decision Summary | Decision-ready discovery summary, not ADR or product contract. | [`../discovery/slices/measurement-records/selected-measurement-export-decision-summary.md`](../discovery/slices/measurement-records/selected-measurement-export-decision-summary.md) |
-| Scan Data Shape Decision Summary | Decision-ready discovery summary, not final data model. | [`../discovery/slices/measurement-records/scan-data-shape-decision-summary.md`](../discovery/slices/measurement-records/scan-data-shape-decision-summary.md) |
+| Selected Measurement Export Decision Summary | Decision-ready discovery summary, not ADR or product contract. | [`selected-measurement-export-decision-summary.md`](../discovery/archive/slice-inventory.md) |
+| Scan Data Shape Decision Summary | Decision-ready discovery summary, not final data model. | [`scan-data-shape-decision-summary.md`](../discovery/archive/slice-inventory.md) |
 
 ## Update Rule
 

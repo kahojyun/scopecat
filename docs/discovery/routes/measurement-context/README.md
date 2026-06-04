@@ -42,7 +42,7 @@ context or attachment schema, or accepts a relation graph.
 ## Historical Evidence
 
 - [`../../synthesis/measurement-context-backlog.md`](../../synthesis/measurement-context-backlog.md)
-- [`../../slices/README.md`](../../slices/README.md)
+- [`README.md`](../../archive/slice-inventory.md)
 - [`../../../../implementation_candidates/measurement_context_link/README.md`](../../../../implementation_candidates/measurement_context_link/README.md)
 - [`../../../../implementation_candidates/supporting_evidence_reference/README.md`](../../../../implementation_candidates/supporting_evidence_reference/README.md)
 - [`../../../../implementation_candidates/resolved_context_link_comparison/README.md`](../../../../implementation_candidates/resolved_context_link_comparison/README.md)

@@ -33,7 +33,7 @@ local review projection:
 | Surface | Owner |
 | --- | --- |
 | Problem framing and finding vocabulary. | [`../../problem-briefs/selected-reference-comparison.md`](../../problem-briefs/selected-reference-comparison.md) |
-| Basic context and recorded-code validation result. | [`../../slices/selected-reference/selected-reference-comparison-validation-result.md`](../../slices/selected-reference/selected-reference-comparison-validation-result.md) |
+| Basic context and recorded-code validation result. | [`selected-reference-comparison-validation-result.md`](../../archive/slice-inventory.md) |
 | Historical implementation candidate. | [`../../../../implementation_candidates/selected_reference_comparison/README.md`](../../../../implementation_candidates/selected_reference_comparison/README.md) |
 
 ## Boundary

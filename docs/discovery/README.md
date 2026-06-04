@@ -38,7 +38,7 @@ is a legacy path for discovery tracks, not an active product route map.
 | [`../engineering/implementation-register.md`](../engineering/implementation-register.md) | Current live implementation owners. |
 | [`policies/README.md`](policies/README.md) | Navigate repeated boundary vocabulary, artifact classification, and product strategy documents. |
 | [`problem-briefs/README.md`](problem-briefs/README.md) | Start from evidence-backed problem framing before choosing a validation question. |
-| [`slices/README.md`](slices/README.md) | Use discovery slice results as evidence. |
+| [`slices/README.md`](slices/README.md) | Understand the removed slice corpus and current archive policy. |
 | [`synthesis/cross-slice.md`](synthesis/cross-slice.md) | See recurring candidate concepts, stable separations, and cross-route design pressure. |
 | [`synthesis/shared-model-extraction-deferral.md`](synthesis/shared-model-extraction-deferral.md) | Understand why shared domain models are intentionally deferred. |
 | [`synthesis/measurement-context-backlog.md`](synthesis/measurement-context-backlog.md) | Shared discovery backlog for context records attached to or selected for measurements, without accepting a shared schema. |
@@ -49,16 +49,18 @@ Use [`archive/README.md`](archive/README.md) only when an active discovery owner
 points to historical inventories, retired route synthesis, or frozen
 coordination maps.
 
-## Validation Slices
+## Former Validation Slices
 
-Validation slices are grouped by discovery track. A track can contain several
-slices at different maturity levels; a slice should stay narrow even when it
-tests part of a broader workflow or adoption path.
+The former validation slice body corpus has been removed from active docs.
+The compact historical index remains in
+[`slice-inventory.md`](archive/slice-inventory.md), and Git history
+preserves the deleted bodies.
 
-Keep this README focused on navigation and use discovery-track indexes or
-consolidation docs for discovery-specific sequencing. The old flat slice
-inventory remains in [`archive/slice-inventory.md`](archive/slice-inventory.md)
-for historical reference.
+Do not restart unbounded slice accumulation. New validation should start from
+a brownfield entrypoint, architecture transition gap, target journey gap,
+workflow/use-case validation question, or clearly scoped technical risk.
+Write new validation material beside the current owner it informs unless a
+narrow temporary plan/result file is clearly earned.
 
 Future slice candidates should each answer one primary validation question. Do
 not combine import/export, storage, GUI, execution, redaction, write-back,

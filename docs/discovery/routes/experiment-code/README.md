@@ -35,7 +35,7 @@ This chain is not a mandatory workflow for every measurement. It records the
 order in which discovery slices earned stronger local claims.
 
 The broader experiment-start workflow is documented in
-[`run-preparation-workflow-boundary-validation-result.md`](../../slices/experiment-code/run-preparation-workflow-boundary-validation-result.md).
+[`run-preparation-workflow-boundary-validation-result.md`](../../archive/slice-inventory.md).
 That boundary separates legacy/passive context recording from a future
 template/prepared route, and places prepared-run context after adapters or
 preparation helpers have already produced normalized context references.

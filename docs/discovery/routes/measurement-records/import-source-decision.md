@@ -186,13 +186,13 @@ appears:
 ## Next Validation Work
 
 The first adapter-produced input boundary is now validated in
-[`adapter-output-boundary-validation-result.md`](../../slices/measurement-records/adapter-output-boundary-validation-result.md).
+[`adapter-output-boundary-validation-result.md`](../../archive/slice-inventory.md).
 Do more work on this track only when a product workflow needs a concrete final
 adapter handoff mechanism, such as drop-folder discovery, a writer-like API, or
 service-mediated adapter output.
 
 The first data-level normalized table read is now validated in
-[`normalized-primary-table-validation-result.md`](../../slices/measurement-records/normalized-primary-table-validation-result.md).
+[`normalized-primary-table-validation-result.md`](../../archive/slice-inventory.md).
 Adopt it in adapter output, storage observation, handoff package, SDK, or GUI
 routes only when that route needs the same table behavior.
 

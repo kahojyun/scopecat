@@ -47,19 +47,19 @@ and the consolidation in
 The most relevant slice
 evidence is:
 
-- [`contents-preview-validation-result.md`](../../discovery/slices/measurement-records/handoff/contents-preview-validation-result.md)
-- [`opener-validation-result.md`](../../discovery/slices/measurement-records/handoff/opener-validation-result.md)
-- [`read-view-validation-result.md`](../../discovery/slices/measurement-records/handoff/read-view-validation-result.md)
-- [`sdk-view-model-validation-result.md`](../../discovery/slices/measurement-records/handoff/sdk-view-model-validation-result.md)
-- [`sdk-ergonomics-spike-validation-result.md`](../../discovery/slices/measurement-records/handoff/sdk-ergonomics-spike-validation-result.md)
-- [`preview-shape-view-validation-result.md`](../../discovery/slices/measurement-records/handoff/preview-shape-view-validation-result.md)
-- [`visual-review-validation-result.md`](../../discovery/slices/measurement-records/handoff/visual-review-validation-result.md)
-- [`gui-view-state-validation-result.md`](../../discovery/slices/measurement-records/handoff/gui-view-state-validation-result.md)
-- [`visual-artifact-validation-result.md`](../../discovery/slices/measurement-records/handoff/visual-artifact-validation-result.md)
-- [`inspection-workflow-validation-result.md`](../../discovery/slices/measurement-records/handoff/inspection-workflow-validation-result.md)
-- [`route-pressure-validation-result.md`](../../discovery/slices/measurement-records/handoff/route-pressure-validation-result.md)
-- [`writer-validation-result.md`](../../discovery/slices/measurement-records/handoff/writer-validation-result.md)
-- [`round-trip-validation-result.md`](../../discovery/slices/measurement-records/handoff/round-trip-validation-result.md)
+- [`contents-preview-validation-result.md`](../../discovery/archive/slice-inventory.md)
+- [`opener-validation-result.md`](../../discovery/archive/slice-inventory.md)
+- [`read-view-validation-result.md`](../../discovery/archive/slice-inventory.md)
+- [`sdk-view-model-validation-result.md`](../../discovery/archive/slice-inventory.md)
+- [`sdk-ergonomics-spike-validation-result.md`](../../discovery/archive/slice-inventory.md)
+- [`preview-shape-view-validation-result.md`](../../discovery/archive/slice-inventory.md)
+- [`visual-review-validation-result.md`](../../discovery/archive/slice-inventory.md)
+- [`gui-view-state-validation-result.md`](../../discovery/archive/slice-inventory.md)
+- [`visual-artifact-validation-result.md`](../../discovery/archive/slice-inventory.md)
+- [`inspection-workflow-validation-result.md`](../../discovery/archive/slice-inventory.md)
+- [`route-pressure-validation-result.md`](../../discovery/archive/slice-inventory.md)
+- [`writer-validation-result.md`](../../discovery/archive/slice-inventory.md)
+- [`round-trip-validation-result.md`](../../discovery/archive/slice-inventory.md)
 
 The evidence should be preserved as historical validation. Prototype fixtures
 may reuse or reshape selected repository-safe cases without rewriting old

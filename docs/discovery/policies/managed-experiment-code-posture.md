@@ -220,7 +220,7 @@ later questions.
 ## Slice Recommendation
 
 Use the validated code-recording fixture and
-[`experiment-code-recording-next-boundary.md`](../slices/experiment-code/experiment-code-recording-next-boundary.md)
+[`experiment-code-recording-next-boundary.md`](../archive/slice-inventory.md)
 as the stop point for this slice.
 
 The validated boundary represents a messy external folder being recorded with a
