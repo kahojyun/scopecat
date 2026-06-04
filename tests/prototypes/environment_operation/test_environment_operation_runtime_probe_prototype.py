@@ -34,11 +34,7 @@ def _load_tiny_uv_intent_summary() -> dict:
     summary = json.loads(
         (PROTOTYPE_FIXTURE / "uv-sync-intent-summary.json").read_text(encoding="utf-8")
     )
-    summary["sync_request"]["dependency_groups"] = []
     summary["command_intent"]["argv"] = ["uv", "sync", "--locked", "--no-default-groups"]
-    summary["command_intent"]["dependency_group_selection"]["requested_groups"] = []
-    summary["command_intent"]["dependency_group_selection"]["group_matches"] = []
-    summary["command_intent"]["dependency_group_selection"]["command_dependency_groups"] = []
     return summary
 
 
@@ -252,7 +248,7 @@ class EnvironmentOperationRuntimeProbePrototypeTest(unittest.TestCase):
             record = execute_uv_runtime_probe(
                 probe_intent,
                 workspace_root=workspace_root,
-                probe_result_id="uv-runtime-probe-result-chevron-qA-001",
+                probe_result_id="uv-runtime-probe-result-001",
                 timeout_seconds=19,
                 runner=runner,
             )

@@ -39,11 +39,7 @@ def _load_intent_summary() -> dict:
 
 def _load_tiny_uv_intent_summary() -> dict:
     summary = _load_intent_summary()
-    summary["sync_request"]["dependency_groups"] = []
     summary["command_intent"]["argv"] = ["uv", "sync", "--locked", "--no-default-groups"]
-    summary["command_intent"]["dependency_group_selection"]["requested_groups"] = []
-    summary["command_intent"]["dependency_group_selection"]["group_matches"] = []
-    summary["command_intent"]["dependency_group_selection"]["command_dependency_groups"] = []
     return summary
 
 
@@ -84,7 +80,7 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
             record = execute_uv_sync(
                 intent,
                 workspace_root=workspace_root,
-                result_id="uv-sync-result-chevron-qA-001",
+                result_id="uv-sync-result-001",
                 timeout_seconds=17,
                 runner=runner,
             )
