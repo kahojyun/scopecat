@@ -13,6 +13,8 @@ flat navigation map when you already know which owner you need.
   [`product/README.md`](product/README.md)
 - Brownfield current state, transition, migration, and risks:
   [`brownfield/README.md`](brownfield/README.md)
+- Initial domain model, context map, and entrypoint-driven transition
+  architecture: [`architecture/README.md`](architecture/README.md)
 - Decision index and decision-record rules:
   [`decisions/README.md`](decisions/README.md)
 - Cross-document current-state to implementation traceability:
@@ -41,18 +43,21 @@ For product and implementation direction:
 5. [`brownfield/README.md`](brownfield/README.md) for as-is lab context,
    transition architecture, migration strategy, migration roadmap, and risk
    register.
-6. [`decisions/README.md`](decisions/README.md) for decision type rules,
+6. [`architecture/README.md`](architecture/README.md) for the initial
+   architecture model, domain concepts, context map, and entrypoint-driven
+   transition lens.
+7. [`decisions/README.md`](decisions/README.md) for decision type rules,
    current decision status, and decision-record templates.
-7. [`traceability.md`](traceability.md) for current-state to target journey,
+8. [`traceability.md`](traceability.md) for current-state to target journey,
    capability, validation, and implementation traceability.
-8. [`engineering/README.md`](engineering/README.md) for delivery maturity,
+9. [`engineering/README.md`](engineering/README.md) for delivery maturity,
    workflow validation, implementation ownership, and promotion governance.
-9. [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md)
+10. [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md)
    to find use case validation state, evidence scopes, missing seams, and next
    validation questions.
-10. [`engineering/implementation-register.md`](engineering/implementation-register.md)
+11. [`engineering/implementation-register.md`](engineering/implementation-register.md)
    to find live implementation owners and their module/boundary detail docs.
-11. [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) and the owning module
+12. [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) and the owning module
    README for live implementation boundaries and API details.
 
 For new discovery work:

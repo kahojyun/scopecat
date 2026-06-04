@@ -13,6 +13,8 @@ docs/
               adoption strategy
   brownfield/ current-state assessment, transition architecture, migration
               strategy, and migration roadmap
+  architecture/ initial domain model, context map, and entrypoint-driven
+                transition architecture
   decisions/  decision register, decision taxonomy, and template
   engineering/ delivery maturity model, workflow validation map,
                implementation register, prototype boundaries, and engineering
@@ -37,6 +39,11 @@ docs/
 | [`brownfield/migration-strategy.md`](brownfield/migration-strategy.md) | Brownfield modernization patterns and authority-transfer rules. |
 | [`brownfield/migration-roadmap.md`](brownfield/migration-roadmap.md) | Use-case-driven migration sequence and decision gates. |
 | [`brownfield/risk-register.md`](brownfield/risk-register.md) | Recurring brownfield risks, mitigation owners, and review triggers. |
+| [`architecture/README.md`](architecture/README.md) | Architecture documentation navigation. |
+| [`architecture/as-is-architecture.md`](architecture/as-is-architecture.md) | Current lab-system architecture as integration pressure. |
+| [`architecture/domain-model.md`](architecture/domain-model.md) | Initial candidate domain model and concept maturity labels. |
+| [`architecture/context-map.md`](architecture/context-map.md) | Bounded contexts, ownership posture, and anti-corruption relationships. |
+| [`architecture/transition-architecture.md`](architecture/transition-architecture.md) | Brownfield entrypoint-driven transition architecture and slice-classification frame. |
 | [`decisions/README.md`](decisions/README.md) | Decision-record navigation and governance. |
 | [`decisions/register.md`](decisions/register.md) | Current product, architecture, engineering, discovery, and operational decision index. |
 | [`decisions/template.md`](decisions/template.md) | Template for new decision records. |
