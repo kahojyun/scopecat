@@ -56,6 +56,6 @@ model, personas, UI, or storage sketches.
 | --- | --- |
 | Measurement history is useful but too narrow as a product center. | [`../../evidence-register.md`](../../evidence-register.md) |
 | Durable recording and ordinary Python substrate pressure. | [`../../evidence-register.md`](../../evidence-register.md) |
-| Measurement-record adoption, including selected handoff and later traceability. | [`../../evidence-register.md`](../../evidence-register.md), [`../../../discovery/routes/adoption-routes.md`](../../../discovery/routes/adoption-routes.md) |
+| Measurement-record adoption, including selected handoff and later traceability. | [`../../evidence-register.md`](../../evidence-register.md), [`../../../product/adoption-strategy.md`](../../../product/adoption-strategy.md) |
 | Runtime, mutation, and safety boundaries. | [`../../../product/direction.md`](../../../product/direction.md) |
 | Lab workflow gap checking. | [`lab-workflow-pressure-check.md`](lab-workflow-pressure-check.md) |

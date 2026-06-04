@@ -1,13 +1,13 @@
-# Legacy Brownfield Adoption Discovery Decision
+# DEC-004: Post-Run-First Brownfield Adoption
 
 ## Status
 
-Discovery track decision.
+Architecture decision.
 
-Decision status: accepted for current discovery guidance.
+Decision status: accepted.
 
-This note closes the current legacy brownfield adoption discovery pass inside
-the Measurement Records track. It records what the validated legacy sidecar,
+This note records the current low-intrusion brownfield adoption boundary for
+legacy Measurement Records. It records what the validated legacy sidecar,
 locator review, review-evidence append, receipt read-view, and brownfield
 adoption backbone slices now support. It does not accept a final sidecar
 manifest schema, live legacy-storage adapter, during-run sidecar writer,
@@ -17,7 +17,7 @@ design, or shared workflow model.
 
 ## Current Decision
 
-The validated brownfield adoption track is **post-run first, during-run
+The validated brownfield adoption boundary is **post-run first, during-run
 compatible**:
 
 ```text
@@ -32,7 +32,7 @@ external legacy run
   -> read-only receipt view
 ```
 
-The track is useful for low-intrusion migration from old experiment workflows:
+The boundary is useful for low-intrusion migration from old experiment workflows:
 the legacy notebook, script, runner, storage system, and hardware-control path
 can continue to execute outside Scopecat. Scopecat can receive declared facts
 about the completed run, preserve flexible legacy locators, show local review

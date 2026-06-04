@@ -9,9 +9,9 @@ Scopecat can preview and files Scopecat can only reference or observe. It does
 not accept a final storage schema, importer API, adapter API, GUI contract,
 legacy reader, artifact schema, or shared measurement-record domain model.
 
-For the current route decisions and next-work guidance after the import/source
-observation pass, read
-[`routes/measurement-records/import-source-decision.md`](../routes/measurement-records/import-source-decision.md).
+For the current source/reference anti-corruption decision after the
+import/source observation pass, read
+[`DEC-003-import-source-anti-corruption-boundary.md`](../../decisions/architecture/DEC-003-import-source-anti-corruption-boundary.md).
 
 ## Rule
 

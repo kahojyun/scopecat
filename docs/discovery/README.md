@@ -2,8 +2,8 @@
 
 ## Purpose
 
-Discovery owns problem framing, historical adoption-route evidence, validation
-artifacts, implementation-shaped exploration results before promotion,
+Discovery owns problem framing, boundary policies, validation evidence,
+implementation-shaped exploration results before promotion, compact historical
 synthesis, and explicit deferrals.
 
 These documents are not user documentation and are not accepted architecture
@@ -19,22 +19,22 @@ product capability maturity belongs in
 [`../product/target-capabilities.md`](../product/target-capabilities.md), and
 implementation ownership belongs in
 [`../engineering/implementation-register.md`](../engineering/implementation-register.md).
-Discovery track and slice documents remain evidence and discovery status, not
-the default owner for engineering-prototype expansion. The `routes/` directory
-is a legacy path for discovery tracks, not an active product route map.
+Discovery slice documents remain historical evidence, not the default owner
+for engineering-prototype expansion. The former `routes/` directory has been
+removed; product, brownfield, architecture, decision, and engineering owners
+now own active routing and sequencing.
 
 ## Read First
 
 | Document | Use For |
 | --- | --- |
-| [`doc-types.md`](doc-types.md) | Understand which discovery document type owns navigation, policies, track decisions, slice evidence, or synthesis. |
+| [`doc-types.md`](doc-types.md) | Understand which discovery document type owns navigation, policies, slice evidence, or synthesis. |
 | [`../product/adoption-strategy.md`](../product/adoption-strategy.md) | Current product adoption paths. |
 | [`../product/target-journeys.md`](../product/target-journeys.md) | Current target product user journeys, primary workflows, and use cases to prove before promotion. |
 | [`../product/target-capabilities.md`](../product/target-capabilities.md) | Current target product capabilities, maturity, evidence, and open advancement questions. |
 | [`../brownfield/README.md`](../brownfield/README.md) | Current-state, transition architecture, migration strategy, and migration roadmap for brownfield context. |
 | [`../engineering/delivery-maturity-model.md`](../engineering/delivery-maturity-model.md) | Classify maturity owners before promoting code; treat candidates, spikes, prototypes, scenarios, and operations as evidence or validation methods. |
 | [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md) | Start from use case validation state, evidence scopes, and missing seams before selecting the next use-case-driven prototype. |
-| [`routes/README.md`](routes/README.md) | Navigate discovery tracks, discovery decisions, and historical adoption-route evidence by durable user workflow. |
 | [`../engineering/implementation-register.md`](../engineering/implementation-register.md) | Current live implementation owners. |
 | [`policies/README.md`](policies/README.md) | Navigate repeated boundary vocabulary, artifact classification, and product strategy documents. |
 | [`problem-briefs/README.md`](problem-briefs/README.md) | Start from evidence-backed problem framing before choosing a validation question. |
@@ -83,12 +83,17 @@ owner of active sequencing. Current target journey framing belongs in
 use case validation sequencing belongs in
 [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md).
 
-## Discovery Track Pointers
+## Future Discovery Entry Points
 
-Use [`routes/README.md`](routes/README.md) as the single discovery-track
-inventory. This README should not repeat track tables; it only points to the
-track inventory and to engineering owners for work that has moved into live
-prototype implementation.
+Do not recreate discovery routes as the default organizing layer. New
+discovery should start from one of the active owners:
+
+- a brownfield entrypoint or migration gap in [`../brownfield/README.md`](../brownfield/README.md);
+- a target journey or adoption gap in [`../product/target-journeys.md`](../product/target-journeys.md);
+- a workflow/use-case validation gap in [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md);
+- an architecture transition gap in [`../architecture/transition-architecture.md`](../architecture/transition-architecture.md);
+- an evidence-backed problem brief in [`problem-briefs/README.md`](problem-briefs/README.md);
+- a focused artifact or boundary policy in [`policies/README.md`](policies/README.md).
 
 ## Promotion Discipline
 

@@ -62,11 +62,8 @@ architecture:
 - Running measurement inspection proves partial recorded data can be ordinary
   visible state, without accepting final lifecycle, storage, or reader API.
 
-The route-level synthesis in
-[`../../discovery/routes/measurement-records/README.md`](../../discovery/routes/measurement-records/README.md)
-and
-[`../../discovery/routes/measurement-records/import-source-decision.md`](../../discovery/routes/measurement-records/import-source-decision.md)
-keeps these as separate authority boundaries.
+DEC-003 keeps these as separate authority boundaries:
+[`../../decisions/architecture/DEC-003-import-source-anti-corruption-boundary.md`](../../decisions/architecture/DEC-003-import-source-anti-corruption-boundary.md).
 
 ## Historical Requirements Earned
 

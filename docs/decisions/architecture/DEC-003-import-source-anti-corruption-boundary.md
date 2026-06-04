@@ -1,22 +1,22 @@
-# Measurement Import And Source Discovery Decision
+# DEC-003: Import Source Anti-Corruption Boundary
 
 ## Status
 
-Discovery track decision.
+Architecture decision.
 
-Decision status: accepted for current discovery guidance.
+Decision status: accepted.
 
-This note closes the current measurement import/source-reference discovery
-pass. It records the discovery decisions earned by the validated adapter-authored
+This note records the current measurement import/source-reference boundary
+earned by the validated adapter-authored
 legacy import, adapter output boundary, normalized primary table, legacy import
 acceptance, reference-only import, reference-only source observation,
 append-only storage writer, existing-record append receipt, and measurement
 source observation slices.
 
 Later durable Measurement Records import work supersedes the copy-acceptance
-slice for active new-record import. Keep this document as discovery route
-evidence for source/reference separation and historical copy acceptance; use
-[`handoff-durable-import-storage.md`](../../../engineering/prototype-boundaries/handoff-durable-import-storage.md)
+slice for active new-record import. Keep this document as the durable
+source/reference anti-corruption decision; use
+[`handoff-durable-import-storage.md`](../../engineering/prototype-boundaries/handoff-durable-import-storage.md)
 for the current durable new-record import boundary.
 
 It does not accept a stable import API, adapter API, legacy reader, final
@@ -186,13 +186,13 @@ appears:
 ## Next Validation Work
 
 The first adapter-produced input boundary is now validated in
-[`adapter-output-boundary-validation-result.md`](../../archive/slice-inventory.md).
+[`adapter-output-boundary-validation-result.md`](../../discovery/archive/slice-inventory.md).
 Do more work on this track only when a product workflow needs a concrete final
 adapter handoff mechanism, such as drop-folder discovery, a writer-like API, or
 service-mediated adapter output.
 
 The first data-level normalized table read is now validated in
-[`normalized-primary-table-validation-result.md`](../../archive/slice-inventory.md).
+[`normalized-primary-table-validation-result.md`](../../discovery/archive/slice-inventory.md).
 Adopt it in adapter output, storage observation, handoff package, SDK, or GUI
 routes only when that route needs the same table behavior.
 

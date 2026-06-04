@@ -12,11 +12,9 @@ Use the narrowest document type that owns the statement being made.
 
 | Type | Location | Responsibility |
 | --- | --- | --- |
-| Entry point | [`README.md`](README.md) | Short navigation, current document organization, and links to route/slice owners. |
+| Entry point | [`README.md`](README.md) | Short navigation, current document organization, and links to active product, brownfield, architecture, engineering, policy, problem, and evidence owners. |
 | Problem brief | [`problem-briefs/`](problem-briefs/) | Evidence-backed user problem framing before choosing a validation question. |
 | Policy or boundary | [`policies/`](policies/) | Cross-route vocabulary, artifact boundaries, artifact classification, or product-boundary vocabulary that multiple slices should reference. |
-| Discovery track index | [`routes/`](routes/) | Discovery-track navigation, discovery status, and track-specific validation pointers. The directory name is a legacy path. |
-| Discovery track decision | [`routes/`](routes/) | Accepted-for-now discovery decisions, deferred decisions, reopen triggers, and stop rules. |
 | Slice plan | [`slices/`](slices/) | Pre-implementation validation intent for one narrow slice. |
 | Slice validation result | [`slices/`](slices/) | What one fixture or implementation candidate earned and explicitly did not earn. |
 | Slice evidence entry | [`slices/README.md`](slices/README.md) | How to use validation results as evidence without treating the old inventory as a roadmap. |
@@ -24,17 +22,15 @@ Use the narrowest document type that owns the statement being made.
 
 ## Ownership Rules
 
-- Prefer discovery-track decisions for discovery sequencing and stop rules.
-  Once a track has live engineering ownership, prefer
-  [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
-  for workflow sequencing and
+- Use [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
+  for workflow sequencing,
   [`../product/target-capabilities.md`](../product/target-capabilities.md)
-  for capability maturity. Use
+  for capability maturity, and
   [`../engineering/implementation-register.md`](../engineering/implementation-register.md)
   for implementation ownership.
-- A track `README.md` may temporarily own consolidation and recommended next
-  work when a track has not yet earned a separate decision document; split it
-  once decisions, reopen triggers, or stop rules need a stable owner.
+- Put durable decisions in [`../decisions/register.md`](../decisions/register.md)
+  and the narrowest active owner. Discovery docs may preserve evidence and
+  framing, but should not become the default home for durable decisions.
 - Prefer slice validation results for evidence about a specific fixture or
   implementation candidate.
 - Prefer policies for repeated boundary vocabulary.

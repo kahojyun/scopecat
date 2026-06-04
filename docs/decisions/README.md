@@ -29,7 +29,7 @@ Use [`register.md`](register.md) as the current index. Use
 | Architecture | System boundaries, integration patterns, authority transfer, shared models, execution/runtime/hardware ownership, storage or artifact architecture. | `docs/decisions/architecture/` or the owning architecture document linked from the register. |
 | Product | Target journeys, adoption scope, deferred umbrella journeys, non-goals, user-facing product boundaries. | `docs/decisions/product/` or the owning product document linked from the register. |
 | Engineering | Implementation strategy, prototype promotion, module boundary, test strategy, compatibility policy, live route-local technical tradeoff. | `docs/decisions/engineering/` or the owning engineering document linked from the register. |
-| Discovery | Discovery track closeout, stop rule, reopen trigger, accepted-for-now evidence interpretation. | Discovery route or slice owner linked from the register. |
+| Discovery | Discovery closeout, stop rule, reopen trigger, accepted-for-now evidence interpretation that has not yet become architecture, product, or engineering scope. | The narrowest discovery evidence owner, or a promoted decision record when future work must obey it. |
 | Operational | Development process, tooling, release, CI, package-management, or documentation workflow choices. | Project governance or tooling document linked from the register. |
 
 ## ADR Usage

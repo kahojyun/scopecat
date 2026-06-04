@@ -55,7 +55,6 @@ docs/
 | [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) | Current route-local engineering prototype boundaries promoted from discovery-backed implementation work. |
 | [`discovery/README.md`](discovery/README.md) | Discovery navigation for problem briefs, validation slices, synthesis, and deferrals. |
 | [`discovery/doc-types.md`](discovery/doc-types.md) | Discovery document type responsibilities and ownership rules. |
-| [`discovery/routes/adoption-routes.md`](discovery/routes/adoption-routes.md) | Evidence-backed adoption routes grouped by durable user workflow. |
 | [`discovery/slices/README.md`](discovery/slices/README.md) | Discovery slice evidence entry and archived inventory pointer. |
 | [`discovery/synthesis/cross-slice.md`](discovery/synthesis/cross-slice.md) | Compact historical synthesis across removed discovery slices. |
 | [`discovery/synthesis/shared-model-extraction-deferral.md`](discovery/synthesis/shared-model-extraction-deferral.md) | Current deferral of shared domain model extraction. |

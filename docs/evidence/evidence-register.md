@@ -22,7 +22,8 @@ Use neighboring documents for other layers:
   [`../product/adoption-strategy.md`](../product/adoption-strategy.md)
 - brownfield current-state and migration context:
   [`../brownfield/README.md`](../brownfield/README.md)
-- discovery adoption-route evidence: [`../discovery/routes/adoption-routes.md`](../discovery/routes/adoption-routes.md)
+- product adoption strategy:
+  [`../product/adoption-strategy.md`](../product/adoption-strategy.md)
 - external system baseline: [`external-baseline.md`](external-baseline.md)
 
 ## Source Families

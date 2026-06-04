@@ -1,13 +1,13 @@
-# Calibration Continuation Discovery Decision
+# DEC-005: Calibration Continuation Review-Only Boundary
 
 ## Status
 
-Discovery track decision.
+Architecture decision.
 
-Decision status: accepted for current discovery guidance.
+Decision status: accepted.
 
-This note closes the current calibration continuation discovery pass as a
-coherent track backbone. It records what the validated slices now support and
+This note records the current calibration continuation boundary. It preserves
+what the validated evidence now supports and
 where future work should wait for real workflow pressure. It does not accept a
 final workflow schema, relation graph, GUI, runner, scheduler, fitting
 framework, hardware-control contract, storage architecture, or shared
