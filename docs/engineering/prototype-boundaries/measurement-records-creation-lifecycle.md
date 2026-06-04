@@ -74,10 +74,11 @@ Current authority model:
 The prototype keeps manifest replacement, existing-record merge import, broad
 conflict resolution, stale-lock cleanup, crash recovery, and concurrent storage
 mutation outside the current boundary.
-For JNY-001 handoff production-readiness, DEC-025 keeps selected-record export
-source-storage-read-only and handoff durable import new-record-only; it does
-not promote existing-record merge import, manifest replacement, or final public
-storage schema publication.
+For JNY-001 Share A Selected Measurement production readiness, DEC-025 keeps
+selected-record export source-storage-read-only and handoff durable import
+new-record-only; it does not promote existing-record merge import, completed
+record finalization, manifest replacement, or final public storage schema
+publication.
 
 ## Tests And Fixtures
 

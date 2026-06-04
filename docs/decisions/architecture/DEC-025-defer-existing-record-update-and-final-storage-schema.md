@@ -12,11 +12,11 @@ Owner: [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/p
 
 ## Context
 
-JNY-001 now has a production vertical slice candidate for portable measurement
-handoff: export one complete stored Measurement Record, transfer it as a
-DEC-010 directory manifest package with optional zip transport, review it on
-the receiving side, plan import, and durably import exactly one package
-measurement into a second storage root.
+JNY-001 Share A Selected Measurement now has a production vertical slice
+candidate for portable measurement handoff: export one complete stored
+Measurement Record, transfer it as a DEC-010 directory manifest package with
+optional zip transport, review it on the receiving side, plan import, and
+durably import exactly one package measurement into a second storage root.
 
 That slice already proves the valuable user path without updating an existing
 record. Selected-record export reads one complete stored record and writes a
@@ -69,7 +69,7 @@ minimum:
 This decision applies to:
 
 - UC-006 selected stored Measurement Record export;
-- JNY-001 single-measurement handoff production vertical slice candidate;
+- JNY-001 Share A Selected Measurement production vertical slice candidate;
 - handoff durable import into Measurement Records storage;
 - Measurement Records storage-readiness posture required by the handoff slice.
 

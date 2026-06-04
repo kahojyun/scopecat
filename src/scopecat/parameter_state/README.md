@@ -24,6 +24,9 @@ review facts. It does not parse legacy parameter files, write compatibility
 files, apply parameters to hardware, inspect current instrument state, perform
 live write-back, discover catalogs, migrate schemas, start runs, mutate setup
 bindings, or define shared parameter/run-context schemas.
+It supports JNY-002 Prepare A Manual Run and calibration-continuation review;
+it does not own all parameter management, parameter history, setup truth, or
+hardware-apply workflows.
 
 Each live API accepts raw dictionaries at the edge for compatibility with the
 existing fixture corpus, immediately validates them into route-local typed

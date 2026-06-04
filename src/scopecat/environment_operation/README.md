@@ -19,6 +19,9 @@ hardware, or starting a run.
 The current route validates one approved `uv sync` operation plus an optional
 bounded interpreter fact probe. It records review-oriented facts that later
 workflows can consume as prior evidence.
+It supports prepared-run review and reference/rerun preparation as evidence;
+it is not a standalone journey, package-management owner, runtime-readiness
+authority, or execution system.
 
 ## Current Surfaces
 

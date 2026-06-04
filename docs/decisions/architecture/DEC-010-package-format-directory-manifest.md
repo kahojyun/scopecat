@@ -12,7 +12,7 @@ Owner: [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/p
 
 ## Context
 
-JNY-001 now has a single-measurement handoff production vertical slice
+JNY-001 Share A Selected Measurement now has a production vertical slice
 candidate: source-side durable Measurement Record, selected stored-record
 export, zip transport creation, zip transport materialization back into the
 directory package of record, read-only package open, receiving gate, import
@@ -52,7 +52,7 @@ creation boundaries.
 
 This decision applies to:
 
-- JNY-001 single-measurement handoff production vertical slice candidate;
+- JNY-001 Share A Selected Measurement production vertical slice candidate;
 - `scopecat.handoff` package writing/opening/receiving/import-plan behavior;
 - selected stored Measurement Record export into handoff packages;
 - workflow-level tests that validate package format posture.

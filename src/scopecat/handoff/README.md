@@ -4,6 +4,9 @@
 
 Current engineering-prototype implementation owner for Scopecat-authored
 handoff package use and durable Measurement Records handoff import adaptation.
+This module owns route-local package and receiving behavior for JNY-001 Share A
+Selected Measurement; it does not own Measurement Record creation, adoption,
+running updates, or completed-record finalization.
 
 This module is route-local prototype code. It exposes production-shaped Python
 entrypoints over validated handoff discovery evidence. Boundary details live in
@@ -131,10 +134,10 @@ each selected record and writes one multi-measurement package. Batch export is
 source-side package creation only; durable handoff import remains one planned
 measurement per storage mutation under DEC-017.
 
-For the normal JNY-001 product handoff path, selected stored-record export is
-the storage-backed entrypoint. Direct package-writer input remains an adapter or
-engineering route for already-reviewed normalized data, not a user-facing
-shortcut around Measurement Records storage.
+For the normal JNY-001 Share A Selected Measurement path, selected stored-record
+export is the storage-backed entrypoint. Direct package-writer input remains an
+adapter or engineering route for already-reviewed normalized data, not a
+user-facing shortcut around Measurement Records storage.
 
 Local writer receipts, inspection HTML, function return values, import-plan
 objects, durable-import adapter receipts, retry reviews, and CLI summaries are

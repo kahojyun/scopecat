@@ -78,7 +78,7 @@ Any future archive implementation must first define:
 
 This decision applies to:
 
-- JNY-001 single-measurement handoff production vertical slice candidate;
+- JNY-001 Share A Selected Measurement production vertical slice candidate;
 - selected stored-record export and route-local package writing;
 - package open, integrity observation, receiving gate, import planning,
   receiving review state, and durable-import adaptation;
