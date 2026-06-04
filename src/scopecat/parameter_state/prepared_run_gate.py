@@ -186,9 +186,6 @@ def build_prepared_run_parameter_state_gate_summary(source: dict[str, Any]) -> d
         "gate_decision": {
             "gate_state": gate_state,
             "recommended_action": _recommended_action(gate_state),
-            "run_start_claim": "not_claimed",
-            "parameter_write_back": "not_performed",
-            "hardware_control": "not_performed",
             "reason_codes": [finding["code"] for finding in findings],
         },
         "prepared_run_context": {

@@ -109,9 +109,6 @@ def _validate_setup_binding_summary(source: dict[str, Any]) -> None:
             raise ValueError("setup binding summary contains duplicate logical binding")
         logical_keys.add(key)
     _measurement_refs_by_id(source)
-    for measurement in source["setup_binding_summary"]["measurement_references"]:
-        if measurement["hardware_state_claim"] != "not_recorded":
-            raise ValueError("scope alignment requires hardware_state_claim not_recorded")
 
 
 def _validate_request(source: dict[str, Any]) -> None:

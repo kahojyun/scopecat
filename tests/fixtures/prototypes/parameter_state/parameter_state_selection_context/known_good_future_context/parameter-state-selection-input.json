@@ -101,10 +101,7 @@
       "selection_intent_label": "reuse_previous_working_state",
       "selection_reason": "Use the last reviewed trusted state before the exploratory high-power attempt.",
       "selected_at": "2026-05-22T09:45:00",
-      "selected_by_role": "experimenter",
-      "hardware_write_back": "not_performed",
-      "current_hardware_state_claim": "not_claimed",
-      "rollback_mutation": "not_performed"
+      "selected_by_role": "experimenter"
     }
   ]
 }

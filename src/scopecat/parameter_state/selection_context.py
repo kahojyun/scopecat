@@ -153,12 +153,6 @@ def _validate_selection(
     if not selection.get("selection_reason"):
         raise ValueError("selection reason is required")
 
-    for key in ("hardware_write_back", "rollback_mutation"):
-        if selection[key] != "not_performed":
-            raise ValueError(f"selection claim {key} must be not_performed")
-    if selection["current_hardware_state_claim"] != "not_claimed":
-        raise ValueError("selection must not claim current hardware state")
-
     _validate_requirement(selection, context, selected_state)
 
 

@@ -16,18 +16,6 @@ from scopecat.parameter_state.import_preview import (
     build_adapter_authored_parameter_state_import_preview_summary,
 )
 
-_EXPECTED_POLICY = {
-    "input_authority": "validated_adapter_preview",
-    "review_required": "explicit_human_acceptance",
-    "managed_parameter_state_creation": "summary_only_not_written",
-    "legacy_source_parsing": "not_performed_by_scopecat",
-    "schema_migration": "not_performed",
-    "external_file_authority": "not_claimed",
-    "hardware_write_back": "not_performed",
-    "storage_mutation": "not_performed",
-    "gui_workflow": "not_defined",
-}
-
 _REVIEW_STATUSES = {"accepted"}
 _MANAGED_STATE_KINDS = {"seed_snapshot", "committed_snapshot"}
 _READINESS = {"seeded_incomplete", "partially_calibrated"}

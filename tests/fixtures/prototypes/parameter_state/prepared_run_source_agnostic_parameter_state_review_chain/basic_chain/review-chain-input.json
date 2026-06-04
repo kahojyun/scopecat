@@ -545,8 +545,7 @@
           "runtime_context_refs": [
             "line-info-qA-0002",
             "readout-view-qA-0002"
-          ],
-          "hardware_state_claim": "not_recorded"
+          ]
         }
       ]
     }
