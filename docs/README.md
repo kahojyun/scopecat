@@ -1,8 +1,8 @@
 # Scopecat Docs
 
 `docs/` is Scopecat's durable project memory. It keeps product direction,
-research conclusions, problem framing, decisions, and user documentation when
-introduced.
+problem framing, decisions, architecture, engineering ownership, and user
+documentation when introduced.
 
 Start here for the top-down reading path. Use [`index.md`](index.md) only as a
 flat navigation map when you already know which owner you need.
@@ -21,7 +21,7 @@ flat navigation map when you already know which owner you need.
   [`traceability.md`](traceability.md)
 - Engineering maturity, validation, and implementation ownership:
   [`engineering/README.md`](engineering/README.md)
-- Discovery evidence and problem framing:
+- Discovery problem framing and historical validation evidence:
   [`discovery/README.md`](discovery/README.md)
 - Active execution work should live in issues, PRs, or branch-specific working
   notes when implementation starts rather than this landing page.
@@ -62,12 +62,9 @@ For product and implementation direction:
 
 For new discovery work:
 
-1. [`evidence/evidence-register.md`](evidence/evidence-register.md) and
-   [`evidence/method.md`](evidence/method.md) for stable evidence claims and
-   evidence rules.
-2. [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md)
+1. [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md)
    for problem framing.
-3. [`discovery/README.md`](discovery/README.md) for discovery problem framing
+2. [`discovery/README.md`](discovery/README.md) for discovery problem framing
    and historical validation evidence.
 
 ## Editing Rules

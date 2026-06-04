@@ -57,7 +57,6 @@ Titles may change, but IDs should not be reused.
 | `CAND-*` | [`../product/target-capabilities.md`](../product/target-capabilities.md) | Candidate feature areas that are not product capabilities yet. |
 | `DEC-*` | [`../decisions/register.md`](../decisions/register.md) | Durable product, architecture, engineering, discovery, or operational decisions. |
 | `BR-RISK-*` | [`../brownfield/risk-register.md`](../brownfield/risk-register.md) | Brownfield risks that need ongoing management. |
-| `EV-*` | [`../evidence/evidence-register.md`](../evidence/evidence-register.md) | Stable evidence claims. |
 
 Cross-document references may include `ID + short label` in headings or first
 mentions when the label helps readers orient themselves. In compact tables,

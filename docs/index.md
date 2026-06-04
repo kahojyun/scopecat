@@ -20,7 +20,6 @@ docs/
                implementation register, prototype boundaries, and engineering
                archive
   discovery/  problem briefs and historical validation-slice inventory
-  evidence/   evidence register, method, research, external baseline
 ```
 
 | Document | Use For |
@@ -58,8 +57,3 @@ docs/
 | [`discovery/README.md`](discovery/README.md) | Discovery navigation for problem briefs and historical validation evidence. |
 | [`discovery/archive/slice-inventory.md`](discovery/archive/slice-inventory.md) | Compact historical index for removed validation slice bodies. |
 | [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md) | Evidence-backed problem briefs. |
-| [`evidence/evidence-register.md`](evidence/evidence-register.md) | Stable `EV-*` evidence claims and source posture. |
-| [`evidence/method.md`](evidence/method.md) | Evidence classes, support rules, source handling, and update rules. |
-| [`evidence/external-baseline.md`](evidence/external-baseline.md) | External framework baseline. |
-| [`evidence/research/README.md`](evidence/research/README.md) | Research directory policy. |
-| [`evidence/research/research-index.md`](evidence/research/research-index.md) | Current research inputs and extracted notes. |
