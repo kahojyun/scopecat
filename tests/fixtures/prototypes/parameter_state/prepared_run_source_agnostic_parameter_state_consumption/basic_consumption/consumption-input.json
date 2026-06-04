@@ -1,8 +1,4 @@
 {
-  "fixture_id": "prepared-run-source-agnostic-parameter-state-consumption-basic",
-  "fixture_status": "synthetic_public_safe",
-  "fixture_layer": "prepared_run_source_agnostic_parameter_state_consumption_fixture",
-  "user_job": "Bind a prepared-run selected parameter-state context to one state from a source-agnostic parameter-state read-view summary without reading storage again, discovering catalogs, writing parameters, or controlling hardware.",
   "consumption_policy": {
     "composition_authority": "prepared_run_parameter_state_reference",
     "prepared_context_source": "declared_prepared_run_context_summary",

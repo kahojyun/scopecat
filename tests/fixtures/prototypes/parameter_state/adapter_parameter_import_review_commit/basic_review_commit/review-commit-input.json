@@ -1,8 +1,4 @@
 {
-  "fixture_id": "adapter-parameter-import-review-commit-basic",
-  "fixture_status": "synthetic_public_safe",
-  "fixture_layer": "adapter_parameter_import_review_commit_fixture",
-  "user_job": "Review an adapter-authored parameter import preview and create a Scopecat-managed seed parameter state from accepted scalar entries without parsing legacy sources, migrating schemas, writing files, or writing hardware.",
   "adapter_parameter_import_review_policy": {
     "input_authority": "validated_adapter_preview",
     "review_required": "explicit_human_acceptance",
@@ -16,10 +12,6 @@
   },
   "adapter_preview_manifest": {
     "manifest_schema": "scopecat.adapter_parameter_state_import_manifest.v0",
-    "fixture_id": "adapter-parameter-state-import-json-xlsx-sources",
-    "fixture_status": "synthetic_public_safe",
-    "fixture_layer": "adapter_authored_parameter_state_import_preview_fixture",
-    "user_job": "Preview adapter-normalized parameter entries from legacy JSON and XLSX sources without making Scopecat parse those legacy formats or create managed parameter state.",
     "adapter_parameter_import_policy": {
       "manifest_authority": "adapter_authored",
       "legacy_source_parsing": "not_performed_by_scopecat",

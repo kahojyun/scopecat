@@ -1,8 +1,4 @@
 {
-  "fixture_id": "parameter-state-storage-read-view-basic",
-  "fixture_status": "synthetic_public_safe",
-  "fixture_layer": "parameter_state_storage_read_view_fixture",
-  "user_job": "Read one explicitly referenced stored parameter-state manifest and receipt under a caller-provided root without scanning storage, mutating files, observing legacy sources, migrating schemas, or writing hardware.",
   "read_view_policy": {
     "read_authority": "explicit_parameter_state_storage_reference",
     "storage_root_authority": "caller_provided_storage_root_plus_declared_relative_paths",

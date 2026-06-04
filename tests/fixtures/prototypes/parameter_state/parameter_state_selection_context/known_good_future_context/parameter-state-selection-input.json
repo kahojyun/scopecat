@@ -1,8 +1,4 @@
 {
-  "fixture_id": "parameter-state-selection-known-good-future-context",
-  "fixture_status": "synthetic_public_safe",
-  "fixture_layer": "parameter_state_selection_context_fixture",
-  "user_job": "Select a previous committed parameter state as an input reference for future run preparation after an exploratory tuning state, without treating the selection as hardware rollback or a special known-good lifecycle model.",
   "source_research_notes": [
     "<sample>/_research/parameter-files-and-artifacts.md",
     "<sample>/_research/parameter-mutation-workflows.md",

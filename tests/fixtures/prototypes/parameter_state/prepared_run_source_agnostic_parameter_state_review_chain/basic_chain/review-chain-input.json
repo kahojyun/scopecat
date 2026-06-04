@@ -1,8 +1,4 @@
 {
-  "fixture_id": "prepared-run-source-agnostic-parameter-state-review-chain-basic",
-  "fixture_status": "synthetic_public_safe",
-  "fixture_layer": "prepared_run_source_agnostic_parameter_state_review_chain_fixture",
-  "user_job": "Verify source-agnostic prepared-run parameter-state consumption can use existing parameter gate and scope alignment without new schemas or hardware authority.",
   "review_chain_policy": {
     "chain_authority": "declared_prepared_run_parameter_review_chain",
     "parameter_consumption_source": "prepared_run_source_agnostic_parameter_state_consumption_summary",

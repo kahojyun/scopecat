@@ -1,8 +1,4 @@
 {
-  "fixture_id": "parameter-state-storage-writer-basic",
-  "fixture_status": "synthetic_public_safe",
-  "fixture_layer": "parameter_state_storage_writer_fixture",
-  "user_job": "Persist a reviewed managed parameter-state summary under a caller-provided storage root without overwriting existing targets, parsing legacy sources, migrating schemas, or writing hardware.",
   "storage_policy": {
     "write_authority": "approved_parameter_state_storage_write",
     "input_authority": "reviewed_managed_parameter_state_summary",

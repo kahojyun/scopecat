@@ -18,12 +18,14 @@ They may contain:
 - `candidate_summary`;
 - broad expected-output JSON;
 - synthetic boundary cases;
-- explicit `does_not_claim` fields;
 - internal-validation posture only.
 
 Use discovery fixtures for evidence, not as the main acceptance target for a
 promoted prototype. Do not add new fixtures that depend on removed
 `implementation_candidates` packages.
+
+Discovery fixture notes are evidence-local. They do not own active route
+boundaries, architecture decisions, or accepted non-claims.
 
 Recommended layout for new discovery fixtures:
 
@@ -39,6 +41,17 @@ tests/fixtures/discovery/<slice>/<case>/
 Prototype fixtures support route-local engineering behavior. They should
 prefer inputs that look like route requests, commands, local packages, storage
 roots, operation receipts, or review-plan inputs.
+
+Do not put fixture classification metadata inside prototype payloads. The
+fixture path, test name, and an optional directory README should carry case
+identity and fixture intent. Fields such as `fixture_id`, `fixture_status`,
+`fixture_layer`, and prose `user_job` belong outside the route payload unless
+the route contract explicitly consumes them.
+
+Boundary, policy, posture, authority, and `does_not_claim` fields may appear in
+prototype fixtures only when they are real request, package, receipt, or
+summary fields consumed or emitted by the code under test. They should not be
+used as fixture-local guardrail comments.
 
 Prototype fixtures should avoid making `candidate_summary` the central object.
 If a discovery summary is required as prior evidence, keep it clearly named as
