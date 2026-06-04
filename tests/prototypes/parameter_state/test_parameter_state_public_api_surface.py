@@ -28,7 +28,6 @@ class ParameterStatePublicApiSurfaceTest(unittest.TestCase):
         expected_names = {
             "build_adapter_parameter_import_review_commit_summary",
             "read_parameter_state_storage_view",
-            "read_source_agnostic_parameter_state_view",
             "write_parameter_state_storage",
         }
 

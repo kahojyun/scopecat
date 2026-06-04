@@ -8,7 +8,6 @@ from pathlib import Path
 from scopecat.parameter_state import (
     build_adapter_parameter_import_review_commit_summary,
     read_parameter_state_storage_view,
-    read_source_agnostic_parameter_state_view,
     write_parameter_state_storage,
 )
 
@@ -70,29 +69,6 @@ class ParameterStateEngineeringPrototypeTest(unittest.TestCase):
             write_summary["parameter_state"]["state_id"],
         )
         self.assertEqual(read_summary["review_findings"], [])
-
-    def test_source_agnostic_read_view_projects_adapter_state(self) -> None:
-        read_fixture = FIXTURES / "source_agnostic_parameter_state_read_view" / "basic_read"
-        storage_fixture = FIXTURES / "parameter_state_storage_read_view" / "basic_read"
-        read_input = _load(read_fixture / "read-view-input.json")
-        read_input["read_requests"] = read_input["read_requests"][:1]
-
-        summary = read_source_agnostic_parameter_state_view(
-            read_input,
-            storage_root=storage_fixture / "storage",
-        )
-
-        self.assertEqual(summary["classification"], "all_explicit_parameter_states_ready")
-        stored_state = summary["stored_states"][0]
-        self.assertEqual(stored_state["source_kind"], "adapter_import")
-        self.assertEqual(
-            stored_state["parameter_state"]["state_id"],
-            "param-state-imported-0001",
-        )
-        self.assertEqual(
-            set(stored_state["typed_provenance"]),
-            {"source_kind", "payload", "source_review"},
-        )
 
     def test_storage_writer_requires_approval_before_mutation(self) -> None:
         writer_fixture = FIXTURES / "parameter_state_storage_writer" / "basic_write"

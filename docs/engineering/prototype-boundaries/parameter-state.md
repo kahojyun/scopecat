@@ -10,23 +10,17 @@ prototype. Live API details belong in
 
 ## Current Boundary
 
-The accepted parameter-state discovery candidates live as a route-local
-engineering prototype under `src/scopecat/parameter_state/`.
+The active parameter-state prototype lives under
+`src/scopecat/parameter_state/`.
 
 The prototype owns these local review and storage surfaces:
 
 - adapter-authored parameter-state import preview;
 - explicit adapter import review/commit summary;
 - reviewed adapter-derived parameter-state storage writer;
-- explicit adapter manifest/receipt storage read view;
-- source-agnostic adapter/calibration read-view projection;
-- parameter-state selection-context summary;
-- parameter-state-local run-preparation consumption over source-agnostic
-  parameter-state facts;
-- parameter-state-local pre-run gate, scope alignment, and review-chain
-  composition.
+- explicit normalized parameter-state manifest/receipt storage read view.
 
-The promoted code keeps the candidate contracts dictionary-shaped and
+The prototype keeps the active contracts dictionary-shaped and
 route-local at the public edge, but live modules validate into typed
 route-local request objects and return typed route-local result summaries
 before projecting dictionaries for callers. It does not introduce shared
@@ -43,21 +37,15 @@ The promotion explicitly does not add:
 - schema migration;
 - setup-binding mutation;
 - automatic run start;
+- separate source-agnostic projection over heterogeneous storage shapes;
 - shared parameter, provenance, gate, or run-context schemas.
 
 ## Handoff Notes
 
-The source-agnostic read view is the route-local handoff for downstream
-prepared-run and calibration-continuation review. It accepts explicit
-adapter-derived and calibration-derived manifest/receipt references, preserves
-typed provenance payloads, and reports checksum or continuity mismatches as
-review findings.
-
-Run-preparation consumption must use prior read-view facts. A clean
-consumption summary can still produce a review-chain `needs_review`
-classification when scope alignment finds partial target coverage; that is a
-parameter-state-local review state, not an execution permission or evidence
-that a live prepared-run route owner exists.
+The storage manifest is the normalization point. Future adapter imports,
+calibration handoffs, or other creation paths should produce the same
+normalized parameter-state storage shape instead of adding source-specific
+read projections.
 
 Repository fixture and expected-output artifact classification remains
 `internal_validation_summary`. Runtime redaction is not added because these

@@ -14,14 +14,13 @@ adapter-authored import preview
   -> explicit human review/commit summary
   -> approved storage writer
   -> explicit manifest/receipt read view
-  -> optional source-agnostic read projection
 ```
 
-The prototype preserves typed adapter and calibration provenance as local
-review facts. It does not parse legacy parameter files, write compatibility
-files, apply parameters to hardware, inspect current instrument state, perform
-live write-back, discover catalogs, migrate schemas, start runs, mutate setup
-bindings, or define shared parameter/run-context schemas.
+The prototype preserves typed adapter provenance as local review facts. It does
+not parse legacy parameter files, write compatibility files, apply parameters
+to hardware, inspect current instrument state, perform live write-back,
+discover catalogs, migrate schemas, start runs, mutate setup bindings, or
+define shared parameter/run-context schemas.
 It does not own all parameter management, parameter history, setup truth,
 run-preparation workflow, or hardware-apply workflows.
 
@@ -49,7 +48,6 @@ Storage and read views:
 
 - `write_parameter_state_storage(...)`
 - `read_parameter_state_storage_view(...)`
-- `read_source_agnostic_parameter_state_view(...)`
 
 These functions are the top-level route-local exports. They accept and return
 route-local summary dictionaries for the current prototype boundary. They are
@@ -62,10 +60,9 @@ Parameter-state storage is caller-rooted and path-explicit. Current accepted
 storage artifacts are local manifests and receipts written under caller-owned
 storage roots.
 
-Current accepted review artifacts are read-view summaries and
-source-agnostic review projections. They are local review/storage surfaces, not
-portable handoff artifacts, package-shaped outputs, or public reports unless a
-later decision explicitly promotes them.
+Current accepted review artifacts are read-view summaries. They are local
+review/storage surfaces, not portable handoff artifacts, package-shaped
+outputs, or public reports unless a later decision explicitly promotes them.
 
 Repository fixtures for this module need repository-safety review. Runtime
 redaction is required only if future work turns one of these summaries into a
