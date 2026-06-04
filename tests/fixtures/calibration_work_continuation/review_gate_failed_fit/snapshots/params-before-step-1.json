@@ -1,8 +1,0 @@
-{
-  "snapshot_id": "params-before-step-1",
-  "target": "qA",
-  "parameters": {
-    "qA.readout.frequency_ghz": 5.0,
-    "qA.pulse.amplitude": 0.42
-  }
-}

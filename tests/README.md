@@ -1,23 +1,18 @@
 # Test Stages
 
 Tests are organized by behavior stage. Promoted route-local prototype tests
-live under `tests/prototypes/<route>/`; older discovery and candidate tests
-still use the flat historical layout under `tests/`.
+live under `tests/prototypes/<route>/`. The old flat candidate-test surface has
+been removed; the flat root is reserved for narrow repository-level tests such
+as scan/data-shape discovery checks.
 
 ## Discovery Validation
 
-Discovery tests prove candidate concepts, boundaries, finding vocabularies, and
-non-claims. They may:
+Discovery tests are now exceptional and should answer a bounded evidence
+question that is not yet owned by a live route. They must not import removed
+candidate packages or make broad expected-output parity an accepted boundary.
 
-- import from `implementation_candidates`;
-- load `candidate_summary` from expected-output fixtures;
-- assert full JSON parity against expected discovery outputs;
-- use synthetic fields that make boundary behavior explicit.
-
-Recommended names:
-
-- `test_<slice>_summary_candidate.py`
-- `test_<slice>_fixture.py`
+Recommended names should describe the evidence question directly, for example
+`test_scan_data_shape_generator.py`.
 
 ## Engineering Prototype
 
@@ -27,9 +22,9 @@ inputs, then assert the resulting operation, receipt, plan, review state, read
 model, or non-mutation behavior.
 
 Prototype tests should not primarily prove that a promoted API matches a
-discovery candidate summary. If compatibility with a discovery shape matters,
-keep that as a small adapter test and make behavior tests the acceptance
-surface.
+discovery candidate summary. If prior discovery evidence is still useful,
+rename or wrap it as prior evidence and make route-native behavior the
+acceptance surface.
 
 Recommended names:
 
@@ -71,6 +66,6 @@ result.
 
 ## Migration Rule
 
-Existing tests do not need to move just to satisfy naming. When rewriting a
-test or adding coverage, choose the stage explicitly and prefer the stage
-layout described in `docs/testing/fixture-policy.md`.
+When rewriting a test or adding coverage, choose the stage explicitly and
+prefer the stage layout described in `docs/testing/fixture-policy.md`. Do not
+add new flat candidate tests.

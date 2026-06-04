@@ -5,12 +5,14 @@
 Testing policy, not a fixture inventory.
 
 Fixtures should match the test stage they support. Prototype-owned fixtures
-live under `tests/fixtures/prototypes/<route>/`; many historical discovery and
-candidate fixture directories intentionally remain in the flat layout for now.
+live under `tests/fixtures/prototypes/<route>/`. The historical flat
+candidate-fixture surface has been reduced to fixture families still referenced
+by current prototype tests plus bounded scan/data-shape discovery evidence.
 
 ## Discovery Fixtures
 
-Discovery fixtures support implementation candidates and validation slices.
+Discovery fixtures support bounded evidence questions before a live owner
+exists.
 They may contain:
 
 - `candidate_summary`;
@@ -20,7 +22,8 @@ They may contain:
 - internal-validation posture only.
 
 Use discovery fixtures for evidence, not as the main acceptance target for a
-promoted prototype.
+promoted prototype. Do not add new fixtures that depend on removed
+`implementation_candidates` packages.
 
 Recommended layout for new discovery fixtures:
 
@@ -39,7 +42,8 @@ roots, operation receipts, or review-plan inputs.
 
 Prototype fixtures should avoid making `candidate_summary` the central object.
 If a discovery summary is required as prior evidence, keep it clearly named as
-prior evidence and assert route behavior separately.
+prior evidence, assert route behavior separately, and migrate the useful case
+into `tests/fixtures/prototypes/<route>/` when the test is next changed.
 
 Recommended layout for new prototype fixtures:
 
@@ -55,9 +59,9 @@ tests/fixtures/prototypes/<route>/<workflow-step>/
 ```
 
 Not every directory needs every subdirectory. Keep fixtures small and explicit.
-If a prototype test still uses prior discovery evidence, leave that shared
-fixture in the discovery/candidate location until the candidate tests are
-retired or migrated together.
+If a prototype test still uses prior discovery evidence from a retained flat
+fixture directory, treat that directory as transitional. Do not add unrelated
+cases there.
 
 `expected-receipt.json` and `expected-review.json` normally assert local
 receipt or review-summary behavior; they remain repository-safe expected

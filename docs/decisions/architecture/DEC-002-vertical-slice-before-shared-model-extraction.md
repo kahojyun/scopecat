@@ -145,8 +145,8 @@ When wording overlaps, documents should say whether a term is:
 - an implementation-candidate input or output;
 - an accepted product contract.
 
-Existing implementation candidates under `implementation_candidates/` remain
-experimental and slice-local. If a future shared module is accepted, the older
-spikes and candidates should be reviewed then: either retire them as historical
-validation artifacts or keep them as regression examples for the accepted
-boundary.
+The historical `implementation_candidates/` tree has been retired from the
+working tree after current route-local owners were established. Git history
+remains the source for old candidate experiments. Retained fixture evidence is
+prior evidence only; it is not an accepted product contract unless a current
+owner promotes the case into route-native tests and fixtures.
