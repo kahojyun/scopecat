@@ -15,10 +15,230 @@ The local sample corpus is used as a current-state reference, but stable docs
 should avoid carrying private paths, hostnames, lab identifiers, or full raw
 file inventories.
 
-## Current-State Summary
+## Current-State Architecture
 
-The current environment is a mixed research-code and measurement-artifact
-workspace rather than a clean product integration surface.
+The current environment is a LabRAD/Data Vault-era experiment-code workspace,
+not a clean product integration surface. Its architecture is notebook-led,
+service-coupled, and file-context-heavy: experiment code, hardware runners,
+parameter files, generated setup state, measurement rows, and analysis
+artifacts all participate in the practical system of record.
+
+Runtime spine:
+
+```mermaid
+flowchart LR
+  Notebook["Notebook or script entrypoint"]
+  Context["Active context files"]
+  Runtime["Runner and driver layer"]
+  Devices["Instrument and board devices"]
+  Storage["Data Vault-style storage"]
+  Review["Analysis and review workspace"]
+
+  Notebook --> Context --> Runtime --> Devices
+  Notebook --> Storage
+  Runtime --> Storage --> Review
+```
+
+Context and artifact surfaces:
+
+```mermaid
+flowchart LR
+  Manual["Human-maintained notes, wiring sheets, labels, ID lists"]
+  Params["Parameter, registry, and setup files"]
+  Generated["Generated chip, line, pulse, and setup companions"]
+  Snapshots["Run-adjacent snapshots and dated variants"]
+  Primary["Primary or partial measurement rows and companions"]
+  Derived["Derived arrays, plots, workbooks, decks, reports"]
+  Selected["Selected IDs, references, and role-labeled sets"]
+
+  Manual --> Params --> Generated
+  Params --> Snapshots
+  Primary --> Derived --> Selected
+  Manual --> Selected
+  Snapshots --> Selected
+```
+
+Transfer shape:
+
+```mermaid
+flowchart LR
+  Source["Control or analysis computer"]
+  Bundle["Copied folder, shared export, or handoff bundle"]
+  Receiver["Other computer or collaborator workspace"]
+  Gaps["Portability gaps: local paths, service assumptions, missing companions"]
+
+  Source --> Bundle --> Receiver
+  Bundle --> Gaps
+```
+
+### Existing Services And Modules
+
+Observed service and module families include:
+
+- operator notebooks for calibration, setup inspection, plotting, analysis,
+  selected-ID reopen, and practical run orchestration;
+- experiment scripts and wrappers that initialize runner-facing state, prepare
+  datasets, execute grid or generator sweeps, and perform cleanup;
+- utility modules for dataset creation, sweep execution, unit handling,
+  parameter loading, generated setup construction, plotting, and data reopen;
+- active parameter and registry JSON files, generated chip/line/pulse
+  companions, and wiring/setup workbooks used together as setup context;
+- human-maintained setup and workflow context, including notes, labels,
+  workbooks, selected-ID lists, and folder naming conventions;
+- instrument-driver and runner modules that coordinate device state, waveform
+  updates, local services, and hardware-facing calls;
+- Data Vault-style storage services and files for dataset metadata, numeric
+  IDs, row append, and later reopen;
+- analysis and reporting artifacts such as arrays, notebooks, plots,
+  workbooks, presentations, reports, archives, backups, and copied folders.
+
+This is a coupled workspace architecture. The practical module boundary is
+often "whatever the notebook imported and the operator remembered," not a
+declared package API or deployable service boundary.
+
+### Data Flows
+
+```mermaid
+sequenceDiagram
+  participant User as Operator notebook
+  participant Code as Experiment wrapper
+  participant Params as Parameter, registry, and setup files
+  participant Gen as Generated setup state
+  participant Run as Runner and drivers
+  participant Sweep as Sweep loop
+  participant DV as Data Vault
+  participant Review as Analysis and handoff artifacts
+  participant Bundle as Copied or shared bundle
+  participant Receiver as Other computer
+
+  User->>Code: select experiment, target, sweep, and options
+  Code->>Params: read active parameter and registry context
+  Params->>Gen: derive chip, line, pulse, and setup companions
+  Code->>DV: declare dataset axes, dependents, metadata, and path context
+  Code->>Run: initialize runner-facing devices and waveforms
+  Code->>Sweep: start grid or generator sweep with function and dataset
+  Sweep->>Run: execute each point or generator step
+  Run-->>Sweep: return acquired or processed point data
+  Sweep->>DV: append rows or chunks
+  Params->>Review: copy or preserve run-adjacent snapshots
+  DV->>Review: reopen selected numeric IDs and primary rows
+  User->>Review: create plots, arrays, workbooks, reports, and notes
+  User->>Bundle: copy selected data, context, and derived artifacts
+  Bundle-->>Receiver: inspect or continue analysis with portability gaps
+  opt Calibration or tuning feedback
+    Review->>Params: propose or directly write parameter changes
+    Params->>Gen: regenerate setup companions for later runs
+  end
+```
+
+The main current-state flows are:
+
+- run preparation: notebook/script selection -> config imports -> parameter,
+  registry, and setup reads -> generated setup companions -> runner/device
+  setup;
+- measurement recording: wrapper prepares Data Vault metadata -> sweep loop
+  runs points -> rows or chunks are appended -> partial data may exist after
+  abort or interruption;
+- parameter context preservation: active JSON may be copied near a run, saved
+  as a dated variant, diffed through helper code, or overwritten by calibration
+  paths;
+- analysis and handoff: selected numeric IDs and session/path context are used
+  to reopen data, then notebooks and helpers produce derived arrays, plots,
+  reports, workbooks, and sharing material.
+- computer-to-computer transfer: useful results may be copied as folders,
+  shared exports, or ad hoc bundles, where local paths, service assumptions,
+  missing companions, and unclear source identity become receiver-side
+  inspection problems;
+- calibration or tuning feedback: review and analysis can become proposed or
+  direct parameter changes, which then affect generated setup companions and
+  later runs.
+
+### Integrations
+
+Current integrations are mostly implicit and local:
+
+- LabRAD/Data Vault provides live dataset creation, row append, metadata, and
+  selected-run reopen behavior;
+- instrument services and drivers provide board control, LO/DC
+  source control, ADC/DAC channel behavior, waveform upload, trigger handling,
+  and cleanup;
+- LabRAD unit/value semantics appear in sweep and experiment code;
+- local Python/Jupyter imports, private helper packages, and local path
+  assumptions connect notebooks to scripts, data directories, and generated
+  files;
+- workbook and registry generators connect physical wiring/setup information
+  to generated runtime-facing mappings;
+- manually maintained notes, workbook tabs, folder names, selected-ID lists,
+  and labels act as context sources but are not stable machine-readable
+  contracts;
+- optional local persistence helpers, lock-like files, and backup folders act
+  as informal versioning or edit-state evidence.
+
+### Deployment And Runtime Shape
+
+The existing system appears to run as an operator-managed workstation workflow:
+
+- an operator starts local services, opens a Jupyter environment, and runs
+  notebooks or scripts from an editable workspace;
+- the code assumes service availability, local data directories, local helper
+  imports, and hardware-driver access rather than a sealed application
+  deployment;
+- notebooks and scripts can be both review surfaces and hardware-active
+  entrypoints;
+- state lives across active JSON, generated temp companions, Data Vault files,
+  notebooks, output artifacts, service state, and hardware state;
+- selected work can move to another computer through copied folders, shared
+  storage, or manually assembled bundles rather than a declared portable
+  package;
+- copied workspaces, nested repositories, backups, caches, checkpoints, and
+  dated variants make deployment identity and selected-code identity ambiguous.
+
+### Known Constraints And Technical Debt
+
+- Service coupling: measurement recording and reopen depend on LabRAD/Data
+  Vault semantics, local service availability, session/path conventions, and
+  numeric IDs.
+- Hardware-control coupling: replacing the runtime path would cross runner,
+  driver, timing, device-state, abort, cleanup, and recovery responsibilities.
+- Hidden authority: active parameter JSON, run-adjacent snapshots, generated
+  companions, backups, lock-like files, and optional history stores can all look
+  authoritative without a declared review boundary.
+- Mutation risk: calibration or helper paths can write active parameter JSON
+  directly, while proposed, accepted, rejected, and skipped changes may remain
+  notebook-local.
+- Lifecycle ambiguity: lazy dataset creation, row buffering workarounds,
+  controlled aborts, partial data, suppressed artifacts, and stale generated
+  files blur complete versus partial versus invalid state.
+- Code selection ambiguity: notebooks, copied roots, backups, nested repository
+  state, caches, and checkpoints make it difficult to say which code mattered
+  for a run.
+- Handoff fragility: selected IDs, derived arrays, figures, reports, and
+  notebooks often need session/path, parameter, setup, code, and missing-context
+  evidence to be useful elsewhere.
+- Manual context drift: human-maintained workbooks, notes, labels, selected-ID
+  lists, and folder conventions can be essential evidence but can also drift
+  from active code, parameters, generated setup state, and copied handoff
+  material.
+- Computer-transfer fragility: moving work between control and analysis
+  computers can preserve files while losing service assumptions, local paths,
+  helper imports, source identity, and openability of linked companions.
+- Redaction pressure: portable/export artifacts need managed-reference
+  validation because local paths, service names, host details, and lab-specific
+  labels can leak through ordinary artifacts.
+
+### Assessment
+
+The assessment does capture the existing system state at the right level if it
+is read as architecture pressure rather than a full source inventory. The
+important refinement is that the current state is not only a mixed research
+folder: it is a service-coupled experiment runtime where Data Vault, runner
+code, parameter JSON, generated setup state, notebooks, and analysis artifacts
+together form the effective system.
+
+Scopecat should therefore first record, link, review, compare, and hand off
+evidence around existing code boundaries. It should not begin by claiming
+hardware-control ownership, broad legacy parsing, scientific validity, or a
+clean replacement runtime.
 
 Observed patterns include:
 
