@@ -206,66 +206,27 @@ The existing system appears to run as an operator-managed workstation workflow:
 
 ### Known Limitations And Technical Debt
 
-- Artifact-shape variation: tables, Data Vault-style metadata, NumPy arrays,
-  JSON records, notebooks, workbooks, reports, archives, generated companions,
-  and sidecar files all appear in the working surface.
-- Service coupling: measurement recording and reopen depend on LabRAD/Data
-  Vault semantics, local service availability, session/path conventions, and
-  numeric IDs.
-- Hardware-control coupling: replacing the runtime path would cross runner,
-  driver, timing, device-state, abort, cleanup, and recovery responsibilities.
-- Static-analysis risk: existing scripts and notebooks can be hardware-active,
+- Artifact and authority ambiguity: tables, Data Vault-style metadata, NumPy
+  arrays, JSON records, notebooks, workbooks, reports, generated companions,
+  sidecars, backups, lock-like files, and dated variants can all appear useful
+  without declaring which source is authoritative.
+- Runtime coupling: measurement recording and reopen depend on LabRAD/Data
+  Vault semantics, local services, session/path conventions, numeric IDs,
+  runner code, driver timing, device state, abort behavior, cleanup, and
+  recovery habits.
+- Active-code risk: existing scripts and notebooks can be hardware-active,
   parameter-mutating, or environment-dependent, so treating them as passive
   artifacts can be unsafe or misleading.
-- Hidden authority: active parameter JSON, run-adjacent snapshots, generated
-  companions, backups, lock-like files, and optional history stores can all look
-  authoritative without a declared review boundary.
-- Mutation risk: calibration or helper paths can write active parameter JSON
-  directly, while proposed, accepted, rejected, and skipped changes may remain
-  notebook-local.
+- Parameter and setup drift: active parameter JSON, generated companions,
+  human-maintained workbooks, notes, labels, selected-ID lists, and folder
+  conventions can drift from each other while still shaping run interpretation.
 - Lifecycle ambiguity: lazy dataset creation, row buffering workarounds,
   controlled aborts, partial data, suppressed artifacts, and stale generated
   files blur complete versus partial versus invalid state.
-- Code selection ambiguity: notebooks, copied roots, backups, nested repository
-  state, caches, and checkpoints make it difficult to say which code mattered
-  for a run.
-- Handoff fragility: selected IDs, derived arrays, figures, reports, and
-  notebooks often need session/path, parameter, setup, code, and missing-context
-  evidence to be useful elsewhere.
-- Manual context drift: human-maintained workbooks, notes, labels, selected-ID
-  lists, and folder conventions can be essential evidence but can also drift
-  from active code, parameters, generated setup state, and copied handoff
-  material.
-- Computer-transfer fragility: moving work between control and analysis
-  computers can preserve files while losing service assumptions, local paths,
-  helper imports, source identity, and openability of linked companions.
-- Local-only reference leakage: local paths, service names, host details,
-  instrument addresses, and lab-specific labels can appear inside ordinary
-  code, metadata, notebooks, generated artifacts, and copied handoff material.
-
-Observed patterns include:
-
-- notebooks, Python scripts, helper packages, instrument-driver code, generated
-  data, logs, workbooks, presentations, archives, backups, and copied folders
-  living near each other;
-- multiple similar project trees that appear to represent related hardware,
-  cooldown, board, or experiment variants;
-- repeated backup folders, notebook checkpoints, copied package folders, and
-  dated file variants used as informal versioning;
-- measurement data stored in different shapes, including CSV-like tables,
-  NumPy arrays, JSON-like records, reports, and notebook outputs;
-- parameter, registry, setup, wiring, and analysis context spread across JSON
-  files, lock files, workbooks, scripts, notebooks, folders, and human naming
-  conventions;
-- experiment-code context stored as editable folders rather than a single
-  trusted versioned artifact;
-- driver/service code, experiment scripts, plotting utilities, and analysis
-  helpers sharing the same broad workspace;
-- presentation, plotting, and processing artifacts co-located with primary data
-  and experiment code, suggesting review and reporting are part of the same
-  practical work surface;
-- output artifacts that are useful to humans but do not declare a stable
-  machine-readable boundary for selection, handoff, review, or import.
+- Handoff and portability fragility: selected IDs, derived arrays, figures,
+  reports, notebooks, local paths, service names, host details, instrument
+  addresses, helper imports, and missing companions can all become receiver-side
+  gaps when work moves between computers or collaborators.
 
 ## Current User Work Patterns
 
