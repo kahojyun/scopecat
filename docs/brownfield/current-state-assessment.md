@@ -107,6 +107,7 @@ sequenceDiagram
   participant Run as Runner and drivers
   participant Sweep as Sweep loop
   participant DV as Data Vault
+  participant Live as Live grapher or plotting surface
   participant Review as Analysis and handoff artifacts
   participant Bundle as Copied or shared bundle
   participant Receiver as Other computer
@@ -120,6 +121,13 @@ sequenceDiagram
   Sweep->>Run: execute each point or generator step
   Run-->>Sweep: return acquired or processed point data
   Sweep->>DV: append rows or chunks
+  DV-->>Live: expose appended rows for live inspection
+  alt Operator interrupts an unpromising run
+    User-->>Sweep: interrupt or stop sweep
+    Sweep->>DV: leave partial rows and incomplete lifecycle evidence
+  else Run continues
+    Sweep->>DV: keep appending rows until completion
+  end
   Params->>Review: copy or preserve run-adjacent snapshots
   DV->>Review: reopen selected numeric IDs and primary rows
   User->>Review: create plots, arrays, workbooks, reports, and notes
@@ -139,12 +147,15 @@ The main current-state flows are:
 - measurement recording: wrapper prepares Data Vault metadata -> sweep loop
   runs points -> rows or chunks are appended -> partial data may exist after
   abort or interruption;
+- live inspection and early stop: appended rows can be inspected through live
+  graphing or plotting surfaces, and operators may interrupt unpromising runs
+  before the intended scan completes;
 - parameter context preservation: active JSON may be copied near a run, saved
   as a dated variant, diffed through helper code, or overwritten by calibration
   paths;
 - analysis and handoff: selected numeric IDs and session/path context are used
   to reopen data, then notebooks and helpers produce derived arrays, plots,
-  reports, workbooks, and sharing material.
+  reports, workbooks, and sharing material;
 - computer-to-computer transfer: useful results may be copied as folders,
   shared exports, or ad hoc bundles, where local paths, service assumptions,
   missing companions, and unclear source identity become receiver-side
