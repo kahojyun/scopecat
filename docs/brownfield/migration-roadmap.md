@@ -22,6 +22,32 @@ implementation task list, release plan, or issue tracker.
 - Use target journeys for user-recognizable end-to-end jobs. Keep reusable
   context and comparison work as supporting workflows until a consuming journey
   proves an independent user goal.
+- Distinguish actual adoption order from design validation order. Adoption can
+  start where local pain is strongest; design sequencing should preserve the
+  Measurement Record anchor, review receipts, package/export boundaries, and
+  authority non-claims.
+
+## Adoption Order Versus Design Order
+
+Brownfield adoption is opportunity-driven. A lab may reasonably start from
+handoff, parameter review, running monitoring, calibration continuation, or a
+specific fragile legacy boundary depending on current pain and integration
+cost.
+
+This roadmap is a design validation sequence. It orders slices to keep
+dependencies and authority boundaries coherent:
+
+```text
+evidence and source posture
+  -> Measurement Record anchor
+  -> review/finalization and prepared-run receipts
+  -> handoff, comparison, running, calibration, or rerun extensions
+```
+
+If an adoption path starts later in the lifecycle, keep the same boundary
+rules: record evidence explicitly, avoid run-start or hardware-control creep,
+and link new review outputs back to the Measurement Record or another named
+Scopecat boundary when the use case needs continuity.
 
 ## Current Migration Sequence
 

@@ -30,6 +30,9 @@ Use this document to answer:
   preview, and explicit import decisions.
 - Treat selective migration as optional and capability-specific, not as a
   project-wide rewrite.
+- Let adoption paths start from current user pain, but keep design validation
+  anchored in explicit evidence, Measurement Records, review receipts,
+  package/export boundaries, and authority non-claims.
 
 ## Adoption Paths
 
@@ -118,6 +121,28 @@ Supports:
 Main adoption risk: review, compatibility output, live write-back, and hardware
 apply can look like one workflow unless mutation authority is explicit.
 
+### Parameter And Setup Maintenance
+
+User change: keep existing parameter, registry, setup, and wiring files, but
+use Scopecat to review selected variants, compare history, or summarize the
+state that matters for a run or analysis step.
+
+User value:
+
+- make dated or variant parameter files easier to compare;
+- separate setup/wiring context from hardware truth claims;
+- feed prepared-run review without forcing a new parameter-authoring system.
+
+Supports:
+
+- Prepare A Manual Run later;
+- Parameter State Review;
+- setup-binding candidate workflow.
+
+Main adoption risk: parameter history, setup notes, and live hardware state can
+collapse into one perceived authority unless Scopecat keeps review separate
+from apply and current-state truth.
+
 ### Explicit Experiment-Code Recording
 
 User change: record the code context that mattered for a run or step without
@@ -139,6 +164,30 @@ Supports:
 Main adoption risk: code recording can be mistaken for package management,
 execution readiness, deployment, or version-control replacement.
 
+### Completed-Result Review
+
+User change: continue doing analysis, plotting, and reporting in the existing
+workspace, but use Scopecat to review which primary data, derived artifacts,
+notes, and context matter before handoff, comparison, calibration continuation,
+or rerun preparation.
+
+User value:
+
+- distinguish primary data from transformed or derived artifacts;
+- make review notes and missing context visible before sharing or reuse;
+- avoid hiding source identity behind static reports or presentations.
+
+Supports:
+
+- Review And Finalize A Completed Measurement;
+- Share A Selected Measurement later;
+- Reproduce Or Rerun From A Reference later;
+- Measurement Records.
+
+Main adoption risk: users may treat reports or plots as complete record truth
+unless source identity, primary-data references, and explicit review receipts
+stay visible.
+
 ### Running Monitor
 
 User change: keep a local GUI open while Python-driven measurements emit
@@ -159,6 +208,30 @@ Supports:
 
 Main adoption risk: monitoring may be confused with scheduling, scan-plan
 control, automatic retune, or hardware safety ownership.
+
+### Reference-Or-Rerun Review
+
+User change: select a known-good or notable reference, compare declared
+context, and prepare rerun/reproduction evidence while still executing runs in
+the existing system.
+
+User value:
+
+- make changed, missing, unverified, and not-compared facts explicit;
+- preserve code-context and environment-operation evidence without claiming
+  execution readiness;
+- support rerun preparation without replacing the run system.
+
+Supports:
+
+- Reproduce Or Rerun From A Reference;
+- Experiment Code Context;
+- Environment Operation;
+- Selected Reference Comparison workflow.
+
+Main adoption risk: objective comparison can be mistaken for setup truth,
+domain judgment, or rollback authority unless the comparison boundary remains
+declared and review-oriented.
 
 ### Selective Legacy Replacement
 
