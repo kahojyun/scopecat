@@ -507,9 +507,9 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
             },
         )
         self.assertEqual(
-            summary["durable_import_result"]["workflow"]["steps"],
-            ["validate_durable_import_request", "preflight_normalized_source"],
+            summary["durable_import_result"]["classification"], "blocked_before_import"
         )
+        self.assertFalse(summary["durable_import_result"]["import_result"]["performed"])
 
     def test_existing_destination_record_blocks_handoff_durable_import(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -545,12 +545,11 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
         )
         self.assertIn("existing_record_update", summary["workflow"]["does_not_claim"])
         self.assertEqual(
-            summary["durable_import_result"]["durable_import_policy"]["record_creation"],
-            "create_new_measurement_record",
+            summary["durable_import_result"]["classification"], "blocked_before_import"
         )
-        self.assertIn(
-            "existing_record_import_or_update",
-            summary["durable_import_result"]["workflow"]["does_not_claim"],
+        self.assertEqual(
+            summary["durable_import_result"]["pipeline"]["creation"],
+            "blocked_before_creation",
         )
 
     def test_late_durable_import_failure_rolls_back_before_handoff_retry(self) -> None:
@@ -1076,7 +1075,7 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "import source kind"):
             summarize_handoff_durable_import_receipt(receipt)
 
-    def test_receipt_summary_rejects_non_handoff_durable_result_policy(self) -> None:
+    def test_receipt_summary_rejects_inconsistent_durable_result_classification(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
             package_dir = _copy_package(temp_root)
@@ -1089,12 +1088,9 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
                 storage_root=storage_root,
             )
             receipt = run.to_dict()
-            receipt["durable_import_result"]["durable_import_policy"] = {
-                **receipt["durable_import_result"]["durable_import_policy"],
-                "source_authority": "other_source",
-            }
+            receipt["durable_import_result"]["classification"] = "blocked_before_import"
 
-        with self.assertRaisesRegex(ValueError, "policy"):
+        with self.assertRaisesRegex(ValueError, "inconsistent durable state"):
             summarize_handoff_durable_import_receipt(receipt)
 
     def test_receipt_summary_rejects_durable_result_request_mismatch(self) -> None:

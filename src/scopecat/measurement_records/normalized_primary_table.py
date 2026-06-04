@@ -14,20 +14,6 @@ NORMALIZED_PRIMARY_TABLE_REQUEST_SCHEMA = (
     "scopecat.measurement_record_normalized_primary_table_request.v0"
 )
 NORMALIZED_PRIMARY_TABLE_SCHEMA = "scopecat.normalized_primary_table.v0"
-NORMALIZED_PRIMARY_TABLE_POLICY = {
-    "table_authority": "scopecat_normalized_primary_table",
-    "input_authority": "caller_provided_bytes",
-    "format": "csv_table",
-    "file_observation": "not_performed",
-    "legacy_source_parsing": "not_performed",
-    "schema_inference": "not_performed",
-    "scan_shape_inference": "not_performed",
-    "scalar_type_inference": "not_performed",
-    "dataframe_adapter": "not_invoked",
-    "plot_series": "not_built",
-    "storage_mutation": "not_performed",
-    "stable_public_api": "route_local_engineering_prototype",
-}
 DECLARED_COLUMN_ROLES = {
     "annotation",
     "held_condition",
@@ -43,20 +29,6 @@ DECLARED_COLUMN_ROLES = {
     "undeclared",
     "vector_response",
 }
-DOES_NOT_CLAIM = [
-    "filesystem_observation",
-    "file_integrity_validation",
-    "adapter_transport",
-    "storage_mutation",
-    "legacy_source_parsing",
-    "schema_inference",
-    "scalar_type_inference",
-    "scan_shape_inference",
-    "dataframe_adapter",
-    "plot_series",
-    "gui_behavior",
-    "public_sdk_names",
-]
 
 
 @dataclass(frozen=True)
@@ -139,17 +111,6 @@ class MeasurementRecordNormalizedPrimaryTableRun:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_normalized_primary_table_summary",
-            "normalized_table_policy": copy.deepcopy(NORMALIZED_PRIMARY_TABLE_POLICY),
-            "workflow": {
-                "classification": self.classification,
-                "steps": [
-                    "decode_utf8_csv",
-                    "validate_rectangular_string_rows",
-                    "validate_declared_preview_columns",
-                    "summarize_table",
-                ],
-                "does_not_claim": list(DOES_NOT_CLAIM),
-            },
             "request": self.request.to_dict(),
             "table": copy.deepcopy(self.table),
             "review_findings": [copy.deepcopy(finding) for finding in self.review_findings],
@@ -190,7 +151,6 @@ def summarize_normalized_primary_table_from_request(
                 "normalized_table_row_count_mismatch",
                 request.source,
                 "Observed row count differs from the declared row count.",
-                "schema_inference_or_source_repair",
             )
         )
 
@@ -229,7 +189,6 @@ def summarize_observed_primary_table_for_read_view(
                 "primary_table_row_count_mismatch",
                 source,
                 "Observed row count differs from the writer receipt row count.",
-                "source_repair_or_manifest_refresh",
             )
         )
 
@@ -278,8 +237,6 @@ def _parse_source(source: dict[str, Any]) -> MeasurementRecordNormalizedPrimaryT
             "normalized primary table source schema must be "
             f"{NORMALIZED_PRIMARY_TABLE_REQUEST_SCHEMA}"
         )
-    if source.get("normalized_table_policy") != NORMALIZED_PRIMARY_TABLE_POLICY:
-        raise ValueError("normalized primary table source policy is unsupported")
     return MeasurementRecordNormalizedPrimaryTableRequest(
         source=_require_text(source, "source"),
         declared_columns=tuple(
@@ -319,7 +276,6 @@ def _normalized_table_summary(
     declared_by_name = {column["name"]: column for column in declared_columns}
     return {
         "normalized_table_schema": NORMALIZED_PRIMARY_TABLE_SCHEMA,
-        "normalized_table_policy": copy.deepcopy(NORMALIZED_PRIMARY_TABLE_POLICY),
         "classification": "normalized_table_review_needed"
         if findings
         else "normalized_table_ready",
@@ -423,13 +379,12 @@ def _validate_non_negative_integer(value: Any, owner: str) -> int:
     return value
 
 
-def _finding(code: str, target: str, message: str, does_not_claim: str) -> dict[str, str]:
+def _finding(code: str, target: str, message: str) -> dict[str, str]:
     return {
         "code": code,
         "severity": "review",
         "target": target,
         "message": message,
-        "does_not_claim": does_not_claim,
     }
 
 

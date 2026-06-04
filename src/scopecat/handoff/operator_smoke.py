@@ -136,6 +136,7 @@ class HandoffJny001OperatorSmokeSummary:
 
     def to_dict(self) -> dict[str, Any]:
         durable_summary = self.durable_import_summary
+        durable_result = self.durable_import.to_dict()["durable_import_result"]
         return {
             "artifact_posture": "local_jny001_operator_smoke_summary",
             "summary_policy": copy.deepcopy(JNY001_OPERATOR_SMOKE_SUMMARY_POLICY),
@@ -187,9 +188,7 @@ class HandoffJny001OperatorSmokeSummary:
                     ]
                 ),
                 "durable_record_creation": (
-                    self.durable_import.to_dict()["durable_import_result"]["durable_import_policy"][
-                        "record_creation"
-                    ]
+                    durable_result["pipeline"]["creation"] if durable_result is not None else None
                 ),
                 "existing_record_update": "not_performed",
             },

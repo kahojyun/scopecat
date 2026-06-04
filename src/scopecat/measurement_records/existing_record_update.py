@@ -2,9 +2,7 @@
 
 This module validates one approved append update for an existing measurement
 record. It writes only new append-segment and update-receipt files under the
-declared existing record directory, guarded by a record-local lock file. It
-does not rewrite primary data, replace manifests, infer schemas, scan storage
-roots, define a live service, or implement crash recovery.
+declared existing record directory, guarded by a record-local lock file.
 """
 
 from __future__ import annotations
@@ -29,23 +27,6 @@ from scopecat.measurement_records.creation import (
     validate_relative_path,
 )
 from scopecat.measurement_records.writer_integration import validate_sha256_digest
-
-EXISTING_RECORD_UPDATE_POLICY = {
-    "write_authority": "approved_existing_record_update_request",
-    "destination_authority": "caller_provided_storage_root_plus_declared_relative_paths",
-    "update_behavior": "append_new_segment_to_existing_record",
-    "overwrite_behavior": "no_overwrite_new_update_files",
-    "lock_behavior": "record_local_lock_guard",
-    "checksum_algorithm": "sha256",
-    "source_observation": "declared_update_chunk_file_only",
-    "manifest_update": "append_receipt_only",
-    "schema_inference": "not_performed",
-    "crash_recovery": "not_defined",
-    "hardware_control": "not_performed",
-    "live_service": "not_defined",
-    "gui_workflow": "not_defined",
-    "shared_measurement_schema": "not_defined",
-}
 
 _PRIMARY_DATA_FORMATS = {"csv_table"}
 
@@ -251,7 +232,6 @@ def append_existing_measurement_record(
 
 
 def _validate_source(source: dict[str, Any]) -> None:
-    _validate_policy(source)
     request = MeasurementRecordExistingUpdateRequest.from_dict(source["update_request"])
     chunk = MeasurementRecordExistingAppendChunk.from_dict(source["append_chunk"])
     current = source["current_record"]
@@ -284,15 +264,6 @@ def _validate_source(source: dict[str, Any]) -> None:
         raise ValueError("append chunk total must equal previous total plus rows_recorded")
     if chunk.total_rows_recorded > record["expected_points"]:
         raise ValueError("append chunk total must not exceed expected point count")
-
-
-def _validate_policy(source: dict[str, Any]) -> None:
-    policy = source["update_policy"]
-    if set(policy) != set(EXISTING_RECORD_UPDATE_POLICY):
-        raise ValueError("expected existing record update policy shape")
-    for key, expected in EXISTING_RECORD_UPDATE_POLICY.items():
-        if policy[key] != expected:
-            raise ValueError(f"existing record update policy {key} must be {expected}")
 
 
 def _sha256_file(path: Path) -> str:
@@ -427,7 +398,6 @@ def _receipt_bytes(
             "previous_total_rows_recorded": chunk["previous_total_rows_recorded"],
             "total_rows_recorded": chunk["total_rows_recorded"],
         },
-        "manifest_update": "not_performed_append_receipt_only",
     }
     return json.dumps(receipt, indent=2, sort_keys=True).encode("utf-8") + b"\n"
 
@@ -525,7 +495,6 @@ def _write_update_files(
             "result": "written",
             "bytes_written": segment_size,
             "digest": segment_digest,
-            "does_not_claim": "merged_primary_data_or_schema_validity",
         },
         {
             "path": request.update_receipt_path,
@@ -533,7 +502,6 @@ def _write_update_files(
             "result": "written",
             "bytes_written": len(receipt_content),
             "digest": receipt_digest,
-            "does_not_claim": "manifest_replacement_or_crash_recovery",
         },
     ]
 
@@ -547,7 +515,6 @@ def _build_summary(
     record = source["measurement_record"]
     chunk = source["append_chunk"]
     return {
-        "update_policy": copy.deepcopy(source["update_policy"]),
         "measurement_record": {
             "measurement_record_id": record["measurement_record_id"],
             "label": record["label"],
@@ -582,43 +549,7 @@ def _build_summary(
             "size_bytes": chunk["size_bytes"],
         },
         "write_results": write_results,
-        "attention": _attention(),
     }
-
-
-def _attention() -> list[dict[str, str]]:
-    return [
-        {
-            "code": "existing_record_update_performed",
-            "severity": "review",
-            "basis": "Approved fixture input wrote new update files under an existing record.",
-            "does_not_claim": "final_storage_update_model",
-        },
-        {
-            "code": "record_lock_used",
-            "severity": "review",
-            "basis": "A direct record-local lock guard is used for this fixture mutation.",
-            "does_not_claim": "distributed_locking_lock_identity_or_full_crash_recovery",
-        },
-        {
-            "code": "current_record_preflighted",
-            "severity": "info",
-            "basis": "Existing manifest and primary-data digest and size facts are checked before writing.",
-            "does_not_claim": "storage_root_scan_or_schema_inference",
-        },
-        {
-            "code": "append_receipt_only",
-            "severity": "review",
-            "basis": "The candidate writes an append segment and receipt without replacing the manifest.",
-            "does_not_claim": "compaction_or_read_model_update",
-        },
-        {
-            "code": "hardware_control_not_performed",
-            "severity": "review",
-            "basis": "The update persists declared data without controlling instruments.",
-            "does_not_claim": "instrument_command_or_safety_authority",
-        },
-    ]
 
 
 def validate_non_negative_integer(value: Any, owner: str) -> int:

@@ -36,32 +36,6 @@ from scopecat.measurement_records.creation import (
 
 WRITER_INTEGRATION_SCHEMA = "scopecat.measurement_record_writer_integration.v0"
 WRITER_RECEIPT_SCHEMA = "measurement_record_writer_receipt_v0"
-WRITER_INTEGRATION_POLICY = {
-    "workflow_authority": "approved_measurement_record_writer_request",
-    "record_authority": "existing_measurement_record_creation_manifest",
-    "storage_authority": "caller_provided_storage_root",
-    "primary_data_materialization": "write_declared_chunks_to_created_record",
-    "record_manifest": "read_only_creation_manifest_continuity_check",
-    "writer_receipt": "write_record_local_writer_receipt",
-    "collision_policy": "no_overwrite",
-    "rollback": "best_effort_synchronous_cleanup",
-    "storage_root_concurrency": "not_supported",
-    "final_lifecycle_state": "not_defined",
-    "read_model_refresh": "not_performed",
-    "existing_record_update": "not_performed",
-}
-DOES_NOT_CLAIM = [
-    "final_storage_schema",
-    "manifest_replacement",
-    "read_model_refresh",
-    "lifecycle_finalization",
-    "existing_record_update_or_merge",
-    "conflict_resolution",
-    "crash_recovery",
-    "concurrent_storage_root_mutation",
-    "schema_inference",
-    "scientific_validity",
-]
 
 _SHA256_PREFIX = "sha256:"
 _SUPPORTED_PRIMARY_DATA_FORMATS = {"csv_table"}
@@ -200,16 +174,7 @@ class MeasurementRecordWriterRun:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_record_writer_integration_receipt",
-            "writer_integration_policy": copy.deepcopy(WRITER_INTEGRATION_POLICY),
-            "workflow": {
-                "classification": self.classification,
-                "steps": [
-                    "validate_writer_request",
-                    "read_creation_manifest",
-                    *([] if not self.written else ["write_primary_data", "write_writer_receipt"]),
-                ],
-                "does_not_claim": list(DOES_NOT_CLAIM),
-            },
+            "classification": self.classification,
             "request": self.request.to_dict(),
             "record_manifest": _manifest_ref(self.record_manifest),
             "writer_integration": {
@@ -302,7 +267,6 @@ def write_created_record_primary_data_from_request(
                 "result": "written",
                 "bytes_written": len(primary_content),
                 "digest": primary_digest,
-                "does_not_claim": "schema_or_scientific_validity",
             },
             {
                 "path": request.writer_receipt_path,
@@ -310,7 +274,6 @@ def write_created_record_primary_data_from_request(
                 "result": "written",
                 "bytes_written": len(writer_receipt_content),
                 "digest": writer_receipt_digest,
-                "does_not_claim": "manifest_replacement_or_read_model_refresh",
             },
         ),
     )
@@ -319,8 +282,6 @@ def write_created_record_primary_data_from_request(
 def _parse_source(source: dict[str, Any]) -> MeasurementRecordWriterRequest:
     if source.get("writer_integration_schema") != WRITER_INTEGRATION_SCHEMA:
         raise ValueError(f"writer integration source schema must be {WRITER_INTEGRATION_SCHEMA}")
-    if source.get("writer_integration_policy") != WRITER_INTEGRATION_POLICY:
-        raise ValueError("writer integration source policy is unsupported")
     request = _require_dict(source, "writer_request")
     chunks = _require_list(request, "chunks")
     return MeasurementRecordWriterRequest(
@@ -433,7 +394,6 @@ def _writer_receipt_bytes(
             "rows_recorded": chunks[-1].total_rows_recorded,
         },
         "chunks": [chunk.to_dict() for chunk in chunks],
-        "does_not_claim": list(DOES_NOT_CLAIM),
     }
     return json.dumps(receipt, indent=2, sort_keys=True).encode("utf-8") + b"\n"
 

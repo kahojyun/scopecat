@@ -14,10 +14,7 @@ from scopecat.measurement_records import (
     import_measurement_record,
     import_measurement_record_from_request,
 )
-from scopecat.measurement_records.durable_import import (
-    DURABLE_IMPORT_POLICY,
-    DURABLE_IMPORT_SCHEMA,
-)
+from scopecat.measurement_records.durable_import import DURABLE_IMPORT_SCHEMA
 
 ROOT = Path(__file__).resolve().parents[3]
 CHUNK_FIXTURE = (
@@ -77,7 +74,6 @@ def _request(**overrides: object) -> MeasurementRecordDurableImportRequest:
 def _raw_source(**overrides: object) -> dict:
     return {
         "durable_import_schema": DURABLE_IMPORT_SCHEMA,
-        "durable_import_policy": DURABLE_IMPORT_POLICY,
         "durable_import_request": _request(**overrides).to_dict(),
     }
 
@@ -105,10 +101,23 @@ class MeasurementRecordDurableImportPrototypeTest(unittest.TestCase):
         self.assertEqual(manifest["record"]["label"], "Imported Rabi run")
         self.assertEqual(read_model["record"]["lifecycle_state"], "complete")
         self.assertEqual(read_model["primary_data"]["observed_row_count"], 3)
-        self.assertEqual(run.to_dict()["pipeline"]["projection"], "projected_read_model")
-        self.assertIn("manifest_replacement", run.to_dict()["workflow"]["does_not_claim"])
+        summary = run.to_dict()
+        self.assertEqual(
+            set(summary),
+            {
+                "artifact_posture",
+                "classification",
+                "request",
+                "storage_root",
+                "content_root",
+                "import_result",
+                "pipeline",
+            },
+        )
+        self.assertEqual(summary["classification"], "imported_new_record")
+        self.assertEqual(summary["pipeline"]["projection"], "projected_read_model")
 
-    def test_raw_source_import_uses_candidate_policy(self) -> None:
+    def test_raw_source_imports_record(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root = Path(temp_dir) / "storage"
             content_root = Path(temp_dir) / "content"
@@ -306,25 +315,6 @@ class MeasurementRecordDurableImportPrototypeTest(unittest.TestCase):
         self.assertEqual(run.to_dict()["pipeline"]["read_view"], "primary_table_ready")
         self.assertIsNone(run.to_dict()["pipeline"]["finalization"])
         self.assertIn("finalization step failed", run.import_error or "")
-
-    def test_source_policy_must_match_candidate_boundary(self) -> None:
-        source = _raw_source()
-        source["durable_import_policy"] = {
-            **DURABLE_IMPORT_POLICY,
-            "record_manifest": "replaced",
-        }
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir) / "storage"
-            content_root = Path(temp_dir) / "content"
-            storage_root.mkdir()
-            content_root.mkdir()
-
-            with self.assertRaisesRegex(ValueError, "policy"):
-                import_measurement_record(
-                    source,
-                    content_root=content_root,
-                    storage_root=storage_root,
-                )
 
     def test_read_model_path_must_be_canonical(self) -> None:
         with self.assertRaisesRegex(ValueError, "canonical"):

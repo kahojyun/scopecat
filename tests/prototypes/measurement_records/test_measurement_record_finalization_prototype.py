@@ -19,7 +19,7 @@ from scopecat.measurement_records import (
     read_created_record_primary_table_from_request,
     write_created_record_primary_data_from_request,
 )
-from scopecat.measurement_records.finalization import FINALIZATION_POLICY, FINALIZATION_SCHEMA
+from scopecat.measurement_records.finalization import FINALIZATION_SCHEMA
 from scopecat.measurement_records.read_view import READ_VIEW_POLICY, READ_VIEW_SCHEMA
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -101,7 +101,6 @@ def _finalization_request(**overrides: object) -> MeasurementRecordFinalizationR
 def _finalization_source(**overrides: object) -> dict:
     return {
         "finalization_schema": FINALIZATION_SCHEMA,
-        "finalization_policy": FINALIZATION_POLICY,
         "finalization_request": _finalization_request(**overrides).to_dict(),
         "read_view_source": _read_source(),
     }
@@ -173,9 +172,14 @@ class MeasurementRecordFinalizationPrototypeTest(unittest.TestCase):
         self.assertEqual(receipt["schema"], "measurement_record_finalization_receipt_v0")
         self.assertEqual(receipt["finalization"]["final_state"], "complete")
         self.assertEqual(receipt["finalization"]["evidence"]["table_row_count"], 5)
-        self.assertIn("manifest_replacement", receipt["does_not_claim"])
+        self.assertEqual(set(receipt), {"schema", "record", "finalization"})
         self.assertEqual(manifest_after, manifest_before)
-        self.assertIn("read_model_refresh", run.to_dict()["workflow"]["does_not_claim"])
+        summary = run.to_dict()
+        self.assertEqual(
+            set(summary),
+            {"artifact_posture", "classification", "request", "read_view", "finalization"},
+        )
+        self.assertEqual(summary["classification"], "finalized_complete")
 
     def test_raw_source_finalization_composes_read_view(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -306,19 +310,6 @@ class MeasurementRecordFinalizationPrototypeTest(unittest.TestCase):
                     read_view=_read_view(storage_root),
                     storage_root=storage_root,
                 )
-
-    def test_source_policy_must_match_candidate_boundary(self) -> None:
-        source = _finalization_source()
-        source["finalization_policy"] = {
-            **FINALIZATION_POLICY,
-            "record_manifest": "replaced",
-        }
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir) / "storage"
-            storage_root.mkdir()
-
-            with self.assertRaisesRegex(ValueError, "policy"):
-                finalize_measurement_record(source, storage_root=storage_root)
 
 
 if __name__ == "__main__":

@@ -18,7 +18,6 @@ from scopecat.handoff.errors import promote_handoff_contract_error
 from scopecat.handoff.import_plan import HandoffImportPlanRun, run_import_plan
 from scopecat.handoff.package import HandoffMeasurement
 from scopecat.measurement_records.durable_import import (
-    DURABLE_IMPORT_POLICY,
     MeasurementRecordDurableImportRequest,
     MeasurementRecordDurableImportRun,
     MeasurementRecordImportSource,
@@ -583,8 +582,6 @@ def _summarize_handoff_durable_import_receipt(
         )
         if durable_receipt.get("artifact_posture") != "local_record_durable_import_receipt":
             raise ValueError("handoff durable import durable result posture is unsupported")
-        if durable_receipt.get("durable_import_policy") != DURABLE_IMPORT_POLICY:
-            raise ValueError("handoff durable import durable result policy is unsupported")
         durable_receipt_request = _require_mapping(
             durable_receipt.get("request"),
             "handoff durable import receipt.durable_import_result.request",
@@ -597,14 +594,10 @@ def _summarize_handoff_durable_import_receipt(
             package_id=package_id,
             measurement_record_id=measurement_record_id,
         )
-        durable_workflow = _require_mapping(
-            durable_receipt.get("workflow"),
-            "handoff durable import receipt.durable_import_result.workflow",
-        )
         durable_import_classification = _read_public_id(
-            durable_workflow,
+            durable_receipt,
             "classification",
-            "durable_import_result.workflow.classification",
+            "durable_import_result.classification",
         )
         import_result = _require_mapping(
             durable_receipt.get("import_result"),

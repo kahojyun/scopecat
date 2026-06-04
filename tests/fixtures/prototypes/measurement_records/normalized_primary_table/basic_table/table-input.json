@@ -1,9 +1,4 @@
 {
-  "status": "fixture",
-  "reference_semantics": {
-    "contract_guard": "Normalized primary table validates Scopecat-readable CSV table bytes. It is not a filesystem observation, adapter transport, storage writer, schema inference engine, dataframe API, plot builder, or scan-shape contract.",
-    "source_fixture": "source/primary.csv"
-  },
   "source": "source/primary.csv",
   "declared_columns": [
     {

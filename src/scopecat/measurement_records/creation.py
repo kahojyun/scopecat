@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import json
 import os
 import re
@@ -18,33 +17,6 @@ APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 INITIAL_LIFECYCLE_STATES = {"created", "in_progress", "review_needed"}
 CREATION_SOURCE_KINDS = {"manual", "writer", "import", "handoff", "legacy_system"}
 RECORD_MANIFEST_NAME = "record-manifest.json"
-CREATION_POLICY = {
-    "workflow_authority": "approved_measurement_record_creation_request",
-    "storage_authority": "caller_provided_storage_root",
-    "record_identity": "caller_declared_public_safe_record_id",
-    "record_directory": "caller_declared_relative_record_directory",
-    "manifest": "write_initial_record_manifest",
-    "collision_policy": "no_overwrite",
-    "rollback": "best_effort_synchronous_cleanup",
-    "storage_root_concurrency": "not_supported",
-    "final_storage_schema": "not_defined",
-    "import_acceptance": "not_performed",
-    "existing_record_update": "not_performed",
-}
-DOES_NOT_CLAIM = [
-    "final_storage_schema",
-    "final_record_id_generation_policy",
-    "import_acceptance",
-    "existing_record_update",
-    "conflict_resolution",
-    "read_model_refresh",
-    "crash_recovery",
-    "concurrent_storage_root_mutation",
-    "archive_extraction",
-    "external_authenticity_or_trust_validation",
-    "linked_context_payload_import",
-    "scientific_validity",
-]
 
 _PUBLIC_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _PRIVATE_PATH_SEGMENTS = {"Users", "private"}
@@ -137,15 +109,7 @@ class MeasurementRecordCreationRun:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_record_creation_receipt",
-            "creation_policy": copy.deepcopy(CREATION_POLICY),
-            "workflow": {
-                "classification": self.classification,
-                "steps": [
-                    "validate_creation_request",
-                    *([] if not self.created else ["write_initial_record_manifest"]),
-                ],
-                "does_not_claim": list(DOES_NOT_CLAIM),
-            },
+            "classification": self.classification,
             "request": self.request.to_dict(),
             "creation": {
                 "performed": self.created,
@@ -205,8 +169,6 @@ def create_measurement_record_from_request(
 def _parse_source(source: dict[str, Any]) -> MeasurementRecordCreationRequest:
     if source.get("creation_schema") != CREATION_SCHEMA:
         raise ValueError(f"creation source schema must be {CREATION_SCHEMA}")
-    if source.get("creation_policy") != CREATION_POLICY:
-        raise ValueError("creation source policy is unsupported")
     request = _require_dict(source, "creation_request")
     return MeasurementRecordCreationRequest(
         request_id=_require_text(request, "request_id"),
@@ -253,7 +215,6 @@ def _build_manifest(request: MeasurementRecordCreationRequest) -> dict[str, Any]
             "state": "not_recorded",
             "references": [],
         },
-        "does_not_claim": list(DOES_NOT_CLAIM),
     }
 
 

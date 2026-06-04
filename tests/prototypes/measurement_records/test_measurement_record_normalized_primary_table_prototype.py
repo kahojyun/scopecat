@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import json
 import unittest
 from pathlib import Path
@@ -12,7 +11,6 @@ from scopecat.measurement_records import (
     summarize_normalized_primary_table_from_request,
 )
 from scopecat.measurement_records.normalized_primary_table import (
-    NORMALIZED_PRIMARY_TABLE_POLICY,
     NORMALIZED_PRIMARY_TABLE_REQUEST_SCHEMA,
 )
 
@@ -55,9 +53,8 @@ def _raw_source(**overrides: object) -> dict:
     source.update(overrides)
     return {
         "normalized_table_request_schema": NORMALIZED_PRIMARY_TABLE_REQUEST_SCHEMA,
-        "normalized_table_policy": copy.deepcopy(NORMALIZED_PRIMARY_TABLE_POLICY),
         "source": source["source"],
-        "declared_columns": copy.deepcopy(source["declared_columns"]),
+        "declared_columns": [dict(column) for column in source["declared_columns"]],
         "declared_row_count": source.get("declared_row_count"),
         "preview_row_limit": source.get("preview_row_limit", 5),
     }
@@ -82,19 +79,21 @@ class MeasurementRecordNormalizedPrimaryTablePrototypeTest(unittest.TestCase):
         self.assertEqual(run.table["preview"]["columns"], ["drive_frequency", "signal"])
         self.assertEqual(run.table["preview"]["rows"][0]["drive_frequency"], "5.00")
         self.assertEqual(
-            run.table["normalized_table_policy"]["stable_public_api"],
-            "route_local_engineering_prototype",
+            set(run.table),
+            {
+                "normalized_table_schema",
+                "classification",
+                "source",
+                "format",
+                "columns",
+                "declared_columns",
+                "row_count",
+                "declared_row_count",
+                "rows",
+                "preview",
+                "review_findings",
+            },
         )
-
-    def test_raw_source_requires_matching_policy_boundary(self) -> None:
-        source = _raw_source()
-        source["normalized_table_policy"] = {
-            **NORMALIZED_PRIMARY_TABLE_POLICY,
-            "storage_mutation": "performed",
-        }
-
-        with self.assertRaisesRegex(ValueError, "policy"):
-            summarize_normalized_primary_table(source, content=_content())
 
     def test_declared_row_count_mismatch_is_review_finding(self) -> None:
         run = summarize_normalized_primary_table_from_request(
@@ -106,6 +105,10 @@ class MeasurementRecordNormalizedPrimaryTablePrototypeTest(unittest.TestCase):
         self.assertEqual(
             [finding["code"] for finding in run.review_findings],
             ["normalized_table_row_count_mismatch"],
+        )
+        self.assertEqual(
+            set(run.review_findings[0]),
+            {"code", "severity", "target", "message"},
         )
 
     def test_missing_declared_preview_column_is_rejected(self) -> None:
@@ -122,16 +125,18 @@ class MeasurementRecordNormalizedPrimaryTablePrototypeTest(unittest.TestCase):
                 content=b"drive_frequency,signal\n5.00,0.44,extra\n",
             )
 
-    def test_run_summary_keeps_local_non_claim_boundary(self) -> None:
+    def test_run_summary_uses_table_facts(self) -> None:
         summary = summarize_normalized_primary_table(
             _raw_source(),
             content=_content(),
         ).to_dict()
 
+        self.assertEqual(
+            set(summary),
+            {"artifact_posture", "request", "table", "review_findings"},
+        )
         self.assertEqual(summary["artifact_posture"], "local_normalized_primary_table_summary")
-        self.assertEqual(summary["workflow"]["classification"], "normalized_table_ready")
-        self.assertIn("adapter_transport", summary["workflow"]["does_not_claim"])
-        self.assertIn("storage_mutation", summary["workflow"]["does_not_claim"])
+        self.assertEqual(summary["table"]["classification"], "normalized_table_ready")
 
 
 if __name__ == "__main__":

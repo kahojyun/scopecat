@@ -69,6 +69,16 @@ class MeasurementRecordExistingUpdatePrototypeTest(unittest.TestCase):
             self.assertEqual((record_dir / "primary.csv").read_bytes(), primary_before)
 
         summary = run.to_dict()
+        self.assertEqual(
+            set(summary),
+            {
+                "measurement_record",
+                "current_record",
+                "update_request",
+                "append_chunk",
+                "write_results",
+            },
+        )
         self.assertEqual(run.classification, "existing_record_append_recorded")
         self.assertEqual(run.write_results[0]["kind"], "append_segment")
         self.assertEqual(summary["measurement_record"]["measurement_record_id"], "run-4101-rabi")
@@ -78,6 +88,10 @@ class MeasurementRecordExistingUpdatePrototypeTest(unittest.TestCase):
         self.assertEqual(summary["append_chunk"]["total_rows_recorded"], 5)
         self.assertEqual(summary["write_results"][0]["kind"], "append_segment")
         self.assertEqual(summary["write_results"][1]["kind"], "update_receipt")
+        self.assertEqual(
+            set(summary["write_results"][0]),
+            {"path", "kind", "result", "bytes_written", "digest"},
+        )
 
     def test_raw_adapter_returns_summary(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -1,20 +1,4 @@
 {
-  "update_policy": {
-    "write_authority": "approved_existing_record_update_request",
-    "destination_authority": "caller_provided_storage_root_plus_declared_relative_paths",
-    "update_behavior": "append_new_segment_to_existing_record",
-    "overwrite_behavior": "no_overwrite_new_update_files",
-    "lock_behavior": "record_local_lock_guard",
-    "checksum_algorithm": "sha256",
-    "source_observation": "declared_update_chunk_file_only",
-    "manifest_update": "append_receipt_only",
-    "schema_inference": "not_performed",
-    "crash_recovery": "not_defined",
-    "hardware_control": "not_performed",
-    "live_service": "not_defined",
-    "gui_workflow": "not_defined",
-    "shared_measurement_schema": "not_defined"
-  },
   "measurement_record": {
     "measurement_record_id": "run-4101-rabi",
     "label": "Partial Rabi run 4101",
@@ -45,8 +29,7 @@
       "collision_policy": "no_overwrite_new_update_files"
     },
     "approval": {
-      "approval_state": "approved",
-      "approved_by": "operator-reviewed fixture"
+      "approval_state": "approved"
     }
   },
   "append_chunk": {
@@ -59,12 +42,5 @@
     "rows_recorded": 2,
     "previous_total_rows_recorded": 3,
     "total_rows_recorded": 5
-  },
-  "attention_expected": [
-    "existing_record_update_performed",
-    "record_lock_used",
-    "current_record_preflighted",
-    "append_receipt_only",
-    "hardware_control_not_performed"
-  ]
+  }
 }

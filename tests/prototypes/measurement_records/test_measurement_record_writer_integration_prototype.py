@@ -15,10 +15,7 @@ from scopecat.measurement_records import (
     write_created_record_primary_data,
     write_created_record_primary_data_from_request,
 )
-from scopecat.measurement_records.writer_integration import (
-    WRITER_INTEGRATION_POLICY,
-    WRITER_INTEGRATION_SCHEMA,
-)
+from scopecat.measurement_records.writer_integration import WRITER_INTEGRATION_SCHEMA
 
 ROOT = Path(__file__).resolve().parents[3]
 CHUNK_FIXTURE = (
@@ -97,7 +94,6 @@ def _writer_source(**overrides: object) -> dict:
     request = _writer_request(**overrides).to_dict()
     return {
         "writer_integration_schema": WRITER_INTEGRATION_SCHEMA,
-        "writer_integration_policy": WRITER_INTEGRATION_POLICY,
         "writer_request": request,
     }
 
@@ -145,13 +141,27 @@ class MeasurementRecordWriterIntegrationPrototypeTest(unittest.TestCase):
         self.assertEqual(receipt["schema"], "measurement_record_writer_receipt_v0")
         self.assertEqual(receipt["record"]["record_id"], "run-3101-rabi")
         self.assertEqual(receipt["primary_data"]["rows_recorded"], 5)
-        self.assertIn("manifest_replacement", receipt["does_not_claim"])
+        self.assertEqual(
+            set(receipt),
+            {"schema", "record", "writer_request", "primary_data", "chunks"},
+        )
         self.assertEqual(creation_manifest["primary_data"]["state"], "not_recorded")
         self.assertEqual(
             [item["kind"] for item in run.write_results],
             ["primary_data", "writer_receipt"],
         )
-        self.assertIn("read_model_refresh", run.to_dict()["workflow"]["does_not_claim"])
+        summary = run.to_dict()
+        self.assertEqual(
+            set(summary),
+            {
+                "artifact_posture",
+                "classification",
+                "request",
+                "record_manifest",
+                "writer_integration",
+            },
+        )
+        self.assertEqual(summary["classification"], "written_to_created_record")
 
     def test_unapproved_writer_request_does_not_mutate_created_record(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

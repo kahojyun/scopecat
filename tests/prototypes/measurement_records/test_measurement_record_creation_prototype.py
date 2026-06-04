@@ -10,7 +10,7 @@ from scopecat.measurement_records import (
     create_measurement_record,
     create_measurement_record_from_request,
 )
-from scopecat.measurement_records.creation import CREATION_POLICY, CREATION_SCHEMA
+from scopecat.measurement_records.creation import CREATION_SCHEMA
 
 
 def _request_source(**overrides: object) -> dict:
@@ -28,7 +28,6 @@ def _request_source(**overrides: object) -> dict:
     request.update(overrides)
     return {
         "creation_schema": CREATION_SCHEMA,
-        "creation_policy": CREATION_POLICY,
         "creation_request": request,
     }
 
@@ -55,15 +54,22 @@ class MeasurementRecordCreationPrototypeTest(unittest.TestCase):
         self.assertEqual(manifest["record"]["created_at"], "2026-05-29T10:15:00Z")
         self.assertEqual(manifest["creation"]["source_kind"], "manual")
         self.assertEqual(manifest["primary_data"], {"state": "not_recorded", "references": []})
-        self.assertIn("final_storage_schema", manifest["does_not_claim"])
+        self.assertEqual(
+            set(manifest),
+            {"schema", "record", "creation", "storage", "primary_data"},
+        )
 
         receipt = run.to_dict()
+        self.assertEqual(
+            set(receipt),
+            {"artifact_posture", "classification", "request", "creation"},
+        )
         self.assertEqual(receipt["artifact_posture"], "local_record_creation_receipt")
+        self.assertEqual(receipt["classification"], "created_record")
         self.assertEqual(receipt["creation"]["record_id"], "rabi-001")
         self.assertEqual(
             receipt["creation"]["manifest_path"], "records/rabi-001/record-manifest.json"
         )
-        self.assertIn("final_record_id_generation_policy", receipt["workflow"]["does_not_claim"])
 
     def test_unapproved_creation_does_not_mutate_storage(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -183,13 +189,3 @@ class MeasurementRecordCreationPrototypeTest(unittest.TestCase):
         self.assertEqual(run.classification, "created_record")
         self.assertEqual(manifest["record"]["lifecycle_state"], "in_progress")
         self.assertEqual(manifest["creation"]["source_kind"], "writer")
-
-    def test_source_policy_must_match_candidate_boundary(self) -> None:
-        source = _request_source()
-        source["creation_policy"] = {**CREATION_POLICY, "final_storage_schema": "defined"}
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir) / "storage"
-            storage_root.mkdir()
-
-            with self.assertRaisesRegex(ValueError, "policy"):
-                create_measurement_record(source, storage_root=storage_root)

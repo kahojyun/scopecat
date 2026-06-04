@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import csv
 import io
 import shutil
@@ -64,21 +63,6 @@ from scopecat.measurement_records.writer_integration import (
 )
 
 DURABLE_IMPORT_SCHEMA = "scopecat.measurement_record_durable_import.v0"
-DURABLE_IMPORT_POLICY = {
-    "workflow_authority": "approved_measurement_record_durable_import_request",
-    "source_authority": "reviewed_normalized_primary_data_facts",
-    "record_creation": "create_new_measurement_record",
-    "primary_data_materialization": "write_created_record_primary_data",
-    "read_view": "read_created_record_primary_table",
-    "lifecycle_finalization": "finalize_measurement_record_complete",
-    "read_model_projection": "project_measurement_record_read_model",
-    "record_manifest": "not_replaced",
-    "existing_record_update": "not_performed",
-    "collision_policy": "no_overwrite_new_record",
-    "rollback": "best_effort_synchronous_new_record_cleanup",
-    "storage_root_concurrency": "not_supported",
-    "final_storage_schema": "not_defined",
-}
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 SOURCE_KINDS = {
     "adapter_normalized_primary_data",
@@ -87,19 +71,6 @@ SOURCE_KINDS = {
 }
 CREATION_SOURCE_KINDS = {"import", "handoff"}
 PRIMARY_DATA_FORMATS = {"csv_table"}
-DOES_NOT_CLAIM = [
-    "existing_record_import_or_update",
-    "attach_to_existing_created_shell",
-    "primary_data_merge_or_compaction",
-    "manifest_replacement",
-    "linked_context_payload_import",
-    "adapter_transport_or_discovery",
-    "package_authenticity_or_trust",
-    "conflict_resolution_beyond_no_overwrite",
-    "crash_recovery",
-    "concurrent_storage_root_mutation",
-    "public_storage_schema",
-]
 _DurableImportPipelineRun = (
     MeasurementRecordCreationRun
     | MeasurementRecordWriterRun
@@ -287,26 +258,7 @@ class MeasurementRecordDurableImportRun:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_record_durable_import_receipt",
-            "durable_import_policy": copy.deepcopy(DURABLE_IMPORT_POLICY),
-            "workflow": {
-                "classification": self.classification,
-                "steps": [
-                    "validate_durable_import_request",
-                    "preflight_normalized_source",
-                    *(
-                        []
-                        if not self.imported
-                        else [
-                            "create_measurement_record",
-                            "write_created_record_primary_data",
-                            "read_created_record_primary_table",
-                            "finalize_measurement_record",
-                            "project_measurement_record_read_model",
-                        ]
-                    ),
-                ],
-                "does_not_claim": list(DOES_NOT_CLAIM),
-            },
+            "classification": self.classification,
             "request": self.request.to_dict(),
             "storage_root": str(self.storage_root),
             "content_root": str(self.content_root),
@@ -437,8 +389,6 @@ def import_measurement_record_from_request(
 def _parse_source(source: dict[str, Any]) -> MeasurementRecordDurableImportRequest:
     if source.get("durable_import_schema") != DURABLE_IMPORT_SCHEMA:
         raise ValueError(f"durable import source schema must be {DURABLE_IMPORT_SCHEMA}")
-    if source.get("durable_import_policy") != DURABLE_IMPORT_POLICY:
-        raise ValueError("durable import source policy is unsupported")
     request = _require_dict(source, "durable_import_request")
     source_facts = _require_dict(request, "import_source")
     return MeasurementRecordDurableImportRequest(

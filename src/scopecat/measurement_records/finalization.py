@@ -33,31 +33,8 @@ from scopecat.measurement_records.read_view import (
 
 FINALIZATION_SCHEMA = "scopecat.measurement_record_finalization.v0"
 FINALIZATION_RECEIPT_SCHEMA = "measurement_record_finalization_receipt_v0"
-FINALIZATION_POLICY = {
-    "workflow_authority": "approved_measurement_record_finalization_request",
-    "record_authority": "existing_measurement_record_creation_manifest",
-    "writer_receipt_authority": "record_local_writer_receipt",
-    "read_view_authority": "local_record_read_view",
-    "finalization_materialization": "write_record_local_finalization_receipt",
-    "record_manifest": "not_replaced",
-    "read_model_refresh": "not_performed",
-    "collision_policy": "no_overwrite",
-    "storage_root_concurrency": "not_supported",
-    "final_storage_schema": "not_defined",
-}
 FINALIZATION_STATES = {"complete", "failed"}
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
-DOES_NOT_CLAIM = [
-    "manifest_replacement",
-    "canonical_lifecycle_state_update",
-    "read_model_refresh",
-    "final_storage_schema",
-    "conflict_resolution",
-    "crash_recovery",
-    "concurrent_storage_root_mutation",
-    "import_finalization_semantics",
-    "gui_review_state",
-]
 
 
 @dataclass(frozen=True)
@@ -155,16 +132,7 @@ class MeasurementRecordFinalizationRun:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_record_finalization_receipt",
-            "finalization_policy": copy.deepcopy(FINALIZATION_POLICY),
-            "workflow": {
-                "classification": self.classification,
-                "steps": [
-                    "read_created_record_primary_table",
-                    "validate_finalization_request",
-                    *([] if not self.finalized else ["write_finalization_receipt"]),
-                ],
-                "does_not_claim": list(DOES_NOT_CLAIM),
-            },
+            "classification": self.classification,
             "request": self.request.to_dict(),
             "read_view": {
                 "classification": self.read_view.classification,
@@ -253,8 +221,6 @@ def _parse_source(
 ) -> tuple[MeasurementRecordFinalizationRequest, dict[str, Any]]:
     if source.get("finalization_schema") != FINALIZATION_SCHEMA:
         raise ValueError(f"finalization source schema must be {FINALIZATION_SCHEMA}")
-    if source.get("finalization_policy") != FINALIZATION_POLICY:
-        raise ValueError("finalization source policy is unsupported")
     request = _require_dict(source, "finalization_request")
     read_view_source = _require_dict(source, "read_view_source")
     return (
@@ -334,7 +300,6 @@ def _finalization_receipt(
                 "table_row_count": read_view.table["row_count"],
             },
         },
-        "does_not_claim": list(DOES_NOT_CLAIM),
     }
     return receipt
 

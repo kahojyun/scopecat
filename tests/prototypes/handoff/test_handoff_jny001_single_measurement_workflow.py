@@ -375,7 +375,7 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
                     "source_record_storage_mutation": "not_performed",
                     "archive_bytes": "transport_container_only",
                     "package_of_record": "materialized_dec010_directory_manifest_package",
-                    "durable_record_creation": "create_new_measurement_record",
+                    "durable_record_creation": "created_record",
                     "existing_record_update": "not_performed",
                 },
                 "does_not_claim": [
@@ -447,7 +447,7 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
         )
         self.assertEqual(
             summary["boundary"]["durable_record_creation"],
-            "create_new_measurement_record",
+            "created_record",
         )
 
     def test_workflow_uses_zip_transport_without_making_archive_bytes_authoritative(
