@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import unittest
 
 import scopecat.handoff as handoff
@@ -31,6 +32,16 @@ class HandoffPublicApiSurfaceTest(unittest.TestCase):
         self.assertFalse(legacy_names.intersection(handoff.__all__))
         for name in legacy_names:
             self.assertFalse(hasattr(handoff, name), name)
+
+    def test_candidate_storage_modules_are_retired_from_installable_src(self) -> None:
+        retired_modules = {
+            "scopecat.handoff.acceptance_preflight",
+            "scopecat.handoff.import_workflow",
+            "scopecat.handoff.storage_acceptance",
+        }
+
+        for module_name in retired_modules:
+            self.assertIsNone(importlib.util.find_spec(module_name), module_name)
 
     def test_durable_handoff_import_remains_top_level_export(self) -> None:
         self.assertIn("run_handoff_durable_import", handoff.__all__)

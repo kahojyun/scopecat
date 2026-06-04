@@ -28,14 +28,14 @@ from scopecat.measurement_records._storage import (
     validate_strict_child_path as _validate_strict_child_path,
 )
 from scopecat.measurement_records.creation import (
-    CANDIDATE_MANIFEST_SCHEMA,
+    MANIFEST_SCHEMA,
     validate_public_identifier,
     validate_relative_path,
     validate_text,
 )
 
 WRITER_INTEGRATION_SCHEMA = "scopecat.measurement_record_writer_integration.v0"
-WRITER_RECEIPT_SCHEMA = "measurement_record_writer_receipt_candidate_v0"
+WRITER_RECEIPT_SCHEMA = "measurement_record_writer_receipt_v0"
 WRITER_INTEGRATION_POLICY = {
     "workflow_authority": "approved_measurement_record_writer_request",
     "record_authority": "existing_measurement_record_creation_manifest",
@@ -360,7 +360,7 @@ def _read_creation_manifest(root: Path, request: MeasurementRecordWriterRequest)
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
         raise ValueError("writer integration requires an existing creation manifest") from exc
-    if manifest.get("schema") != CANDIDATE_MANIFEST_SCHEMA:
+    if manifest.get("schema") != MANIFEST_SCHEMA:
         raise ValueError("writer integration manifest schema is unsupported")
     record = _require_dict(manifest, "record")
     if record.get("record_id") != request.record_id:

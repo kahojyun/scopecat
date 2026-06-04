@@ -17,7 +17,7 @@ from scopecat.measurement_records._storage import (
 from scopecat.measurement_records._storage import path_under as _path_under_common
 from scopecat.measurement_records._storage import sha256 as _sha256
 from scopecat.measurement_records.creation import (
-    CANDIDATE_MANIFEST_SCHEMA,
+    MANIFEST_SCHEMA,
     RECORD_MANIFEST_NAME,
     validate_public_identifier,
     validate_relative_path,
@@ -262,7 +262,7 @@ def _inventory_record_dir(
 
 
 def _validate_manifest(manifest: dict[str, Any], record_dir: str, manifest_path: str) -> None:
-    if manifest.get("schema") != CANDIDATE_MANIFEST_SCHEMA:
+    if manifest.get("schema") != MANIFEST_SCHEMA:
         raise ValueError("record manifest schema is unsupported")
     record = _require_dict(manifest, "record")
     creation = _require_dict(manifest, "creation")

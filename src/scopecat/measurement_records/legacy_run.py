@@ -36,7 +36,7 @@ from scopecat.measurement_records.creation import (
 )
 
 LEGACY_RUN_RECORD_SCHEMA = "scopecat.measurement_record_legacy_run_record.v0"
-LEGACY_RUN_RECEIPT_SCHEMA = "measurement_record_legacy_run_receipt_candidate_v0"
+LEGACY_RUN_RECEIPT_SCHEMA = "measurement_record_legacy_run_receipt_v0"
 LEGACY_RUN_RECEIPT_NAME = "legacy-run-receipt.json"
 LEGACY_RUN_RECORD_POLICY = {
     "workflow_authority": "approved_legacy_run_record_request",

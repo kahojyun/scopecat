@@ -4,9 +4,9 @@
 
 Evidence-backed problem brief.
 
-Related validation artifacts:
-[`selected-measurement-export-decision-summary.md`](../archive/slice-inventory.md)
-and the public-safe `tests/fixtures/scan_data_shapes/` fixtures.
+Related historical validation is summarized in
+[`slice-inventory.md`](../archive/slice-inventory.md). Current public-safe
+data-shape evidence lives in `tests/fixtures/scan_data_shapes/`.
 
 ## User-Facing Failure
 

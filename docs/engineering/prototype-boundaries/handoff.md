@@ -379,8 +379,9 @@ are governed by
 Discovery candidates and the older
 `measurement_record_directory_candidate_v0` storage-acceptance route remain
 historical evidence only. They are useful for review order, approval, receipt,
-and rollback pressure, but they are not live runtime dependencies and should
-not be extended as the durable Measurement Records import path.
+and rollback pressure, but they are not live runtime dependencies, no longer
+exist as installable `src` modules, and should not be extended as the durable
+Measurement Records import path.
 
 Archived context lives in:
 

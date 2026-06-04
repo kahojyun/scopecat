@@ -42,7 +42,7 @@ from scopecat.measurement_records.running_inspection import (
 )
 
 OPERATOR_REVIEW_SCHEMA = "scopecat.measurement_record_operator_review.v0"
-OPERATOR_REVIEW_RECEIPT_SCHEMA = "measurement_record_operator_review_receipt_candidate_v0"
+OPERATOR_REVIEW_RECEIPT_SCHEMA = "measurement_record_operator_review_receipt_v0"
 OPERATOR_REVIEW_RECEIPT_SUMMARY_SCHEMA = (
     "scopecat.measurement_record_operator_review_receipt_summary.v0"
 )

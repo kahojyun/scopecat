@@ -32,7 +32,7 @@ from scopecat.measurement_records.read_view import (
 )
 
 FINALIZATION_SCHEMA = "scopecat.measurement_record_finalization.v0"
-FINALIZATION_RECEIPT_SCHEMA = "measurement_record_finalization_receipt_candidate_v0"
+FINALIZATION_RECEIPT_SCHEMA = "measurement_record_finalization_receipt_v0"
 FINALIZATION_POLICY = {
     "workflow_authority": "approved_measurement_record_finalization_request",
     "record_authority": "existing_measurement_record_creation_manifest",

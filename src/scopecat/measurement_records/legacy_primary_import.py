@@ -26,7 +26,7 @@ from scopecat.measurement_records._storage import (
     validate_strict_child_path as _validate_strict_child_path,
 )
 from scopecat.measurement_records.creation import (
-    CANDIDATE_MANIFEST_SCHEMA,
+    MANIFEST_SCHEMA,
     validate_public_identifier,
     validate_relative_path,
     validate_text,
@@ -384,7 +384,7 @@ def _validate_existing_legacy_record(
     request: LegacyPrimaryImportRequest,
 ) -> None:
     manifest = _read_json(storage, request.creation_manifest_path, "legacy primary import manifest")
-    if manifest.get("schema") != CANDIDATE_MANIFEST_SCHEMA:
+    if manifest.get("schema") != MANIFEST_SCHEMA:
         raise ValueError("legacy primary import manifest schema is unsupported")
     record = _require_dict(manifest, "record")
     if record.get("record_id") != request.record_id:

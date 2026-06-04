@@ -18,7 +18,7 @@ PACKAGE = (
     / "package"
     / "handoff-package-legacy-rabi-001"
 )
-HANDOFF_MODULE = ROOT / "scopecat" / "handoff"
+HANDOFF_MODULE = ROOT / "src" / "scopecat" / "handoff"
 
 
 def _load_manifest() -> dict:
@@ -107,6 +107,7 @@ class HandoffEngineeringPrototypeContractsTest(unittest.TestCase):
             )
 
     def test_handoff_prototype_no_longer_imports_implementation_candidates(self) -> None:
+        self.assertTrue(HANDOFF_MODULE.is_dir())
         offenders = []
         for path in HANDOFF_MODULE.glob("*.py"):
             if "implementation_candidates" in path.read_text(encoding="utf-8"):

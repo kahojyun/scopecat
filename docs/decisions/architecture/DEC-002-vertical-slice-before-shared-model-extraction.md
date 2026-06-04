@@ -8,15 +8,17 @@ Decision status: accepted.
 
 This note records a negative architecture decision for the current stage: do
 not extract shared domain models or shared implementation modules from the
-current slice-local candidates yet.
+current route-local prototype evidence or historical candidate evidence yet.
 
 ## Decision
 
-Keep the current implementation candidates slice-local.
+Keep shared model extraction deferred until current route-local owners prove a
+stable boundary.
 
 Do not introduce a shared `core`, `domain`, `models`, record schema, relation
 schema, warning taxonomy, preview-metadata schema, workflow model, or reusable
-builder package from the current validation and prototype evidence.
+builder package from current validation, prototype, and historical candidate
+evidence.
 
 This defers shared model and shared implementation ownership. It does not
 reject the recurring concepts.

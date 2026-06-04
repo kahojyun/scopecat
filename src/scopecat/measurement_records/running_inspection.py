@@ -26,7 +26,7 @@ from scopecat.measurement_records._storage import (
     validate_strict_child_path as _validate_strict_child_path,
 )
 from scopecat.measurement_records.creation import (
-    CANDIDATE_MANIFEST_SCHEMA,
+    MANIFEST_SCHEMA,
     validate_public_identifier,
     validate_relative_path,
     validate_text,
@@ -322,7 +322,7 @@ def _read_creation_manifest(
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
         raise ValueError("running inspection requires an existing creation manifest") from exc
-    if manifest.get("schema") != CANDIDATE_MANIFEST_SCHEMA:
+    if manifest.get("schema") != MANIFEST_SCHEMA:
         raise ValueError("running inspection manifest schema is unsupported")
     record = _require_dict(manifest, "record")
     if record.get("record_id") != request.record_id:
@@ -614,7 +614,7 @@ def _read_table(
 
     return (
         {
-            "table_schema": "measurement_record_running_primary_table_read_candidate_v0",
+            "table_schema": "measurement_record_running_primary_table_read_v0",
             "table_policy": {
                 "input_authority": "writer_receipt_plus_declared_update_receipts",
                 "format": "csv_table",

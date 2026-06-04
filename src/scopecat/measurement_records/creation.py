@@ -13,7 +13,7 @@ from typing import Any
 
 PUBLIC_IDENTIFIER_MAX_LENGTH = 128
 CREATION_SCHEMA = "scopecat.measurement_record_creation.v0"
-CANDIDATE_MANIFEST_SCHEMA = "measurement_record_creation_candidate_v0"
+MANIFEST_SCHEMA = "measurement_record_creation_v0"
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 INITIAL_LIFECYCLE_STATES = {"created", "in_progress", "review_needed"}
 CREATION_SOURCE_KINDS = {"manual", "writer", "import", "handoff", "legacy_system"}
@@ -238,7 +238,7 @@ def _build_manifest(request: MeasurementRecordCreationRequest) -> dict[str, Any]
         record["experiment_type"] = request.experiment_type
 
     return {
-        "schema": CANDIDATE_MANIFEST_SCHEMA,
+        "schema": MANIFEST_SCHEMA,
         "record": record,
         "creation": {
             "request_id": request.request_id,

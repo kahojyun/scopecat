@@ -235,7 +235,7 @@ def summarize_observed_primary_table_for_read_view(
 
     return (
         {
-            "table_schema": "measurement_record_primary_table_read_candidate_v0",
+            "table_schema": "measurement_record_primary_table_read_v0",
             "table_policy": {
                 "input_authority": "writer_receipt_declared_primary_data",
                 "format": "csv_table",

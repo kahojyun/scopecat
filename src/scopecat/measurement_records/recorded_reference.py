@@ -26,7 +26,7 @@ from scopecat.measurement_records._storage import (
     validate_strict_child_path as _validate_strict_child_path,
 )
 from scopecat.measurement_records.creation import (
-    CANDIDATE_MANIFEST_SCHEMA,
+    MANIFEST_SCHEMA,
     RECORD_MANIFEST_NAME,
     validate_public_identifier,
     validate_relative_path,
@@ -489,7 +489,7 @@ def _read_creation_manifest(
     request: MeasurementRecordReferenceRequest,
 ) -> dict[str, Any]:
     manifest = _read_json(root, request.creation_manifest_path, "recorded reference manifest")
-    if manifest.get("schema") != CANDIDATE_MANIFEST_SCHEMA:
+    if manifest.get("schema") != MANIFEST_SCHEMA:
         raise ValueError("recorded reference manifest schema is unsupported")
     record = _require_dict(manifest, "record")
     storage = _require_dict(manifest, "storage")

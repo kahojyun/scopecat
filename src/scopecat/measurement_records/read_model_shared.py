@@ -29,7 +29,7 @@ from scopecat.measurement_records.creation import validate_text
 from scopecat.measurement_records.finalization import FINALIZATION_RECEIPT_SCHEMA
 from scopecat.measurement_records.read_view import MeasurementRecordReadRun
 
-READ_MODEL_SCHEMA = "measurement_record_read_model_candidate_v0"
+READ_MODEL_SCHEMA = "measurement_record_read_model_v0"
 READ_MODEL_FILENAME = "record-read-model.json"
 READ_MODEL_DOES_NOT_CLAIM = (
     "manifest_replacement",

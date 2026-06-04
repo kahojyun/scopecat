@@ -89,10 +89,10 @@ and include:
 
 - `normalized_primary_table/`
 - `existing_record_update/`
-- `running_measurement_inspection/`
-- `measurement_record_review_inbox/`
-- `measurement_record_handoff_flow/`
-- `adapter_authored_legacy_import/`
+- `measurement_storage_writer/`
+- `parameter_state_storage_writer/`
+- `source_agnostic_parameter_state_read_view/`
+- `scan_data_shapes/`
 
 Run repository checks with:
 

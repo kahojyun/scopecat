@@ -134,7 +134,7 @@ class MeasurementRecordWriterIntegrationPrototypeTest(unittest.TestCase):
             (CHUNK_FIXTURE / "chunks" / "chunk-1.csv").read_text(encoding="utf-8")
             + (CHUNK_FIXTURE / "chunks" / "chunk-2.csv").read_text(encoding="utf-8"),
         )
-        self.assertEqual(receipt["schema"], "measurement_record_writer_receipt_candidate_v0")
+        self.assertEqual(receipt["schema"], "measurement_record_writer_receipt_v0")
         self.assertEqual(receipt["record"]["record_id"], "run-3101-rabi")
         self.assertEqual(receipt["primary_data"]["rows_recorded"], 5)
         self.assertIn("manifest_replacement", receipt["does_not_claim"])

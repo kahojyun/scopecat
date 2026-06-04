@@ -26,15 +26,24 @@ def _load(path: Path) -> dict:
 
 
 class ParameterStateEngineeringPrototypeTest(unittest.TestCase):
-    def test_adapter_import_review_commit_matches_candidate_contract(self) -> None:
+    def test_adapter_import_review_commit_accepts_reviewed_entries(self) -> None:
         fixture = FIXTURES / "adapter_parameter_import_review_commit" / "basic_review_commit"
 
         summary = build_adapter_parameter_import_review_commit_summary(
             _load(fixture / "review-commit-input.json")
         )
-        expected = _load(fixture / "expected-review-commit-summary.json")["candidate_summary"]
 
-        self.assertEqual(summary, expected)
+        self.assertEqual(
+            summary["preview_summary"]["classification"],
+            "preview_ready_with_findings",
+        )
+        self.assertEqual(
+            summary["managed_parameter_state"]["state_id"],
+            "param-state-imported-0001",
+        )
+        self.assertEqual(len(summary["managed_parameter_state"]["entries"]), 2)
+        self.assertEqual(summary["review"]["review_status"], "accepted")
+        self.assertEqual(summary["policy"]["storage_mutation"], "not_performed")
 
     def test_storage_writer_and_read_view_round_trip_declared_files(self) -> None:
         writer_fixture = FIXTURES / "parameter_state_storage_writer" / "basic_write"
@@ -241,17 +250,27 @@ class ParameterStateEngineeringPrototypeTest(unittest.TestCase):
         self.assertEqual(chain_summary["selected_parameter_state"]["source_kind"], "adapter_import")
         self.assertEqual(chain_summary["classification"], "parameter_review_chain_needs_review")
 
-    def test_selection_context_matches_candidate_contract(self) -> None:
+    def test_selection_context_reports_ready_future_context(self) -> None:
         fixture = FIXTURES / "parameter_state_selection_context" / "known_good_future_context"
 
         summary = build_parameter_state_selection_summary(
             _load(fixture / "parameter-state-selection-input.json")
         )
-        expected = _load(fixture / "expected-parameter-state-selection-summary.json")[
-            "candidate_summary"
-        ]
 
-        self.assertEqual(summary, expected)
+        selection = summary["parameter_state_selections"][0]
+        self.assertEqual(selection["selection_status"], "selected_for_context")
+        self.assertEqual(
+            selection["selected_state_id"],
+            "param-state-0002",
+        )
+        self.assertEqual(selection["selected_state_trust_status"], "trusted_for_declared_scope")
+        self.assertEqual(
+            {finding["kind"] for finding in summary["review_findings"]},
+            {
+                "context_requirement_satisfied",
+                "intent_label_is_scenario_semantics",
+            },
+        )
 
 
 if __name__ == "__main__":

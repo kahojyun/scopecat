@@ -19,22 +19,21 @@ from scopecat.environment_operation import (
 from scopecat.environment_operation.runtime_probe import RUNTIME_PROBE_ARGV
 
 ROOT = Path(__file__).resolve().parents[3]
-INTENT_FIXTURE = ROOT / "tests" / "fixtures" / "uv_sync_intent" / "basic_uv_sync_intent"
-TINY_UV_WORKSPACE = (
+PROTOTYPE_FIXTURE = (
     ROOT
     / "tests"
     / "fixtures"
     / "prototypes"
     / "environment_operation"
     / "environment_operation_execution"
-    / "tiny_uv_workspace"
 )
+TINY_UV_WORKSPACE = PROTOTYPE_FIXTURE / "tiny_uv_workspace"
 
 
 def _load_tiny_uv_intent_summary() -> dict:
     summary = json.loads(
-        (INTENT_FIXTURE / "expected-uv-sync-intent-summary.json").read_text(encoding="utf-8")
-    )["candidate_summary"]
+        (PROTOTYPE_FIXTURE / "uv-sync-intent-summary.json").read_text(encoding="utf-8")
+    )
     summary["sync_request"]["dependency_groups"] = []
     summary["command_intent"]["argv"] = ["uv", "sync", "--locked", "--no-default-groups"]
     summary["command_intent"]["dependency_group_selection"]["requested_groups"] = []

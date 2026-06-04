@@ -243,18 +243,14 @@ CLI error contract.
 ## Historical Candidate Context
 
 Discovery implementation candidates remain historical validation inputs, not
-runtime dependencies. The older candidate storage acceptance route remains
-only as historical engineering evidence in direct modules:
-
-- `scopecat.handoff.acceptance_preflight`
-- `scopecat.handoff.storage_acceptance`
-- `scopecat.handoff.import_workflow`
+runtime dependencies. The older candidate storage acceptance route has been
+retired from installable `src` modules and remains only as historical
+engineering evidence in git history and archived notes.
 
 That route proved reviewed destination continuity, no-overwrite checks, local
 operator decisions, rollback classification, receipt summary, and retry review
-for `measurement_record_directory_candidate_v0`. It is no longer exported from
-the top-level `scopecat.handoff` API and should not be extended for durable
-Measurement Records import.
+for `measurement_record_directory_candidate_v0`. It should not be restored or
+extended as the durable Measurement Records import path.
 
 ## Boundary
 

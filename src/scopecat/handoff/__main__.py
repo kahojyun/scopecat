@@ -10,7 +10,6 @@ from pathlib import Path
 
 from scopecat.handoff.durable_import import summarize_handoff_durable_import_receipt
 from scopecat.handoff.errors import HandoffContractError, HandoffError
-from scopecat.handoff.import_workflow import summarize_import_workflow_receipt
 from scopecat.handoff.inspect import write_inspection_artifact
 from scopecat.handoff.operator_smoke import summarize_jny001_operator_smoke_receipt
 from scopecat.handoff.package import summarize_package_context_references
@@ -55,11 +54,6 @@ def _receipt_summary(receipt_path: Path) -> dict[str, object]:
             operation="receipt_summary_cli",
         )
     posture = receipt.get("artifact_posture")
-    if posture == "local_import_workflow_receipt":
-        try:
-            return summarize_import_workflow_receipt(receipt).to_dict()
-        except ValueError as exc:
-            raise HandoffContractError(str(exc), operation="receipt_summary_cli") from exc
     if posture == "local_handoff_durable_import_receipt":
         return summarize_handoff_durable_import_receipt(receipt).to_dict()
     if posture == "local_jny001_operator_smoke_summary":

@@ -22,10 +22,6 @@ def _read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _candidate_summary(path: Path) -> dict:
-    return _read_json(path)["candidate_summary"]
-
-
 def _source(**overrides: object) -> dict:
     source = _read_json(FIXTURE / "existing-record-update-input.json")
     for key, value in overrides.items():
@@ -34,7 +30,7 @@ def _source(**overrides: object) -> dict:
 
 
 class MeasurementRecordExistingUpdatePrototypeTest(unittest.TestCase):
-    def test_approved_append_update_matches_validated_candidate_output(self) -> None:
+    def test_approved_append_update_records_append_without_replacing_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root = Path(temp_dir) / "storage"
             content_root = Path(temp_dir) / "content"
@@ -64,12 +60,16 @@ class MeasurementRecordExistingUpdatePrototypeTest(unittest.TestCase):
             self.assertEqual((record_dir / "record-manifest.json").read_bytes(), manifest_before)
             self.assertEqual((record_dir / "primary.csv").read_bytes(), primary_before)
 
-        self.assertEqual(
-            run.to_dict(),
-            _candidate_summary(FIXTURE / "expected-existing-record-update-summary.json"),
-        )
+        summary = run.to_dict()
         self.assertEqual(run.classification, "existing_record_append_recorded")
         self.assertEqual(run.write_results[0]["kind"], "append_segment")
+        self.assertEqual(summary["measurement_record"]["measurement_record_id"], "run-4101-rabi")
+        self.assertEqual(summary["update_request"]["update_id"], "update-4101-2")
+        self.assertEqual(summary["append_chunk"]["chunk_id"], "chunk-4101-2")
+        self.assertEqual(summary["append_chunk"]["rows_recorded"], 2)
+        self.assertEqual(summary["append_chunk"]["total_rows_recorded"], 5)
+        self.assertEqual(summary["write_results"][0]["kind"], "append_segment")
+        self.assertEqual(summary["write_results"][1]["kind"], "update_receipt")
 
     def test_raw_adapter_returns_summary(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

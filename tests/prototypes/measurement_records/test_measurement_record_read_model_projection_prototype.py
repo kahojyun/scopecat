@@ -192,7 +192,7 @@ class MeasurementRecordReadModelProjectionPrototypeTest(unittest.TestCase):
 
         self.assertEqual(run.classification, "projected_read_model")
         self.assertTrue(run.projected)
-        self.assertEqual(read_model["schema"], "measurement_record_read_model_candidate_v0")
+        self.assertEqual(read_model["schema"], "measurement_record_read_model_v0")
         self.assertEqual(read_model["record"]["lifecycle_state"], "complete")
         self.assertEqual(read_model["record"]["creation_lifecycle_state"], "created")
         self.assertEqual(read_model["primary_data"]["observed_row_count"], 5)

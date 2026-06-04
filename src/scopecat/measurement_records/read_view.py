@@ -24,7 +24,7 @@ from scopecat.measurement_records._storage import (
     validate_strict_child_path as _validate_strict_child_path,
 )
 from scopecat.measurement_records.creation import (
-    CANDIDATE_MANIFEST_SCHEMA,
+    MANIFEST_SCHEMA,
     validate_public_identifier,
     validate_relative_path,
     validate_text,
@@ -199,7 +199,7 @@ def _read_creation_manifest(root: Path, request: MeasurementRecordReadRequest) -
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
         raise ValueError("read view requires an existing creation manifest") from exc
-    if manifest.get("schema") != CANDIDATE_MANIFEST_SCHEMA:
+    if manifest.get("schema") != MANIFEST_SCHEMA:
         raise ValueError("read view creation manifest schema is unsupported")
     record = _require_dict(manifest, "record")
     if record.get("record_id") != request.record_id:

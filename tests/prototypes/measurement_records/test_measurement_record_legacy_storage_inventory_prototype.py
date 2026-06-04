@@ -104,7 +104,7 @@ def _write_minimal_projected_record(storage_root: Path) -> None:
         raise AssertionError(create_run.to_dict())
 
     read_model = {
-        "schema": "measurement_record_read_model_candidate_v0",
+        "schema": "measurement_record_read_model_v0",
         "record": {
             "record_id": "projected-run-001",
             "record_dir": "records/projected-run-001",

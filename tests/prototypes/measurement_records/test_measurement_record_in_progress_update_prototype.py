@@ -190,7 +190,7 @@ class MeasurementRecordInProgressUpdatePrototypeTest(unittest.TestCase):
             segment_text,
             (CHUNK_FIXTURE / "chunks" / "chunk-2.csv").read_text(encoding="utf-8"),
         )
-        self.assertEqual(receipt["schema"], "measurement_record_update_receipt_candidate_v0")
+        self.assertEqual(receipt["schema"], "measurement_record_update_receipt_v0")
         self.assertEqual(receipt["record"]["record_id"], "run-3101-rabi")
         self.assertEqual(receipt["append_chunk"]["previous_total_rows_recorded"], 3)
         self.assertEqual(receipt["append_chunk"]["total_rows_recorded"], 5)

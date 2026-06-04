@@ -49,7 +49,7 @@ class MeasurementRecordCreationPrototypeTest(unittest.TestCase):
             run.created_paths,
             ("records", "records/rabi-001", "records/rabi-001/record-manifest.json"),
         )
-        self.assertEqual(manifest["schema"], "measurement_record_creation_candidate_v0")
+        self.assertEqual(manifest["schema"], "measurement_record_creation_v0")
         self.assertEqual(manifest["record"]["record_id"], "rabi-001")
         self.assertEqual(manifest["record"]["lifecycle_state"], "created")
         self.assertEqual(manifest["record"]["created_at"], "2026-05-29T10:15:00Z")

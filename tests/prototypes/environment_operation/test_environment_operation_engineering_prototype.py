@@ -19,31 +19,23 @@ from scopecat.environment_operation import (
 
 ROOT = Path(__file__).resolve().parents[3]
 INTENT_FIXTURE = ROOT / "tests" / "fixtures" / "uv_sync_intent" / "basic_uv_sync_intent"
-TINY_UV_WORKSPACE = (
+PROTOTYPE_FIXTURE = (
     ROOT
     / "tests"
     / "fixtures"
     / "prototypes"
     / "environment_operation"
     / "environment_operation_execution"
-    / "tiny_uv_workspace"
 )
-MISSING_LOCK_WORKSPACE = (
-    ROOT
-    / "tests"
-    / "fixtures"
-    / "prototypes"
-    / "environment_operation"
-    / "environment_operation_execution"
-    / "missing_lock_workspace"
-)
-ENVIRONMENT_OPERATION_MODULE = ROOT / "scopecat" / "environment_operation"
+TINY_UV_WORKSPACE = PROTOTYPE_FIXTURE / "tiny_uv_workspace"
+MISSING_LOCK_WORKSPACE = PROTOTYPE_FIXTURE / "missing_lock_workspace"
+ENVIRONMENT_OPERATION_MODULE = ROOT / "src" / "scopecat" / "environment_operation"
 
 
 def _load_intent_summary() -> dict:
     return json.loads(
-        (INTENT_FIXTURE / "expected-uv-sync-intent-summary.json").read_text(encoding="utf-8")
-    )["candidate_summary"]
+        (PROTOTYPE_FIXTURE / "uv-sync-intent-summary.json").read_text(encoding="utf-8")
+    )
 
 
 def _load_tiny_uv_intent_summary() -> dict:
@@ -405,6 +397,7 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
     def test_environment_operation_prototype_does_not_import_implementation_candidates(
         self,
     ) -> None:
+        self.assertTrue(ENVIRONMENT_OPERATION_MODULE.is_dir())
         offenders = []
         for path in ENVIRONMENT_OPERATION_MODULE.glob("*.py"):
             if "implementation_candidates" in path.read_text(encoding="utf-8"):

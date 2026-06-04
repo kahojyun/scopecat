@@ -162,7 +162,7 @@ class MeasurementRecordFinalizationPrototypeTest(unittest.TestCase):
 
         self.assertEqual(run.classification, "finalized_complete")
         self.assertTrue(run.finalized)
-        self.assertEqual(receipt["schema"], "measurement_record_finalization_receipt_candidate_v0")
+        self.assertEqual(receipt["schema"], "measurement_record_finalization_receipt_v0")
         self.assertEqual(receipt["finalization"]["final_state"], "complete")
         self.assertEqual(receipt["finalization"]["evidence"]["table_row_count"], 5)
         self.assertIn("manifest_replacement", receipt["does_not_claim"])
