@@ -277,21 +277,22 @@ Observed patterns include:
 
 ## Current User Work Patterns
 
-### Making External Runs Visible
+### Recording And Reopening Runs
 
-Users need to make externally produced or legacy-backed run facts visible
-without replacing the scripts, notebooks, or systems that produced them.
+Runs are recorded and later reopened through the existing experiment scripts,
+Data Vault-style storage, notebooks, selected numeric IDs, local folders, and
+nearby companion artifacts.
 
 Current pressure:
 
 - source identity, operator intent, primary data, transformed data, and context
   references are often inferred from nearby files and naming conventions;
-- useful records may begin as a folder, notebook output, dated table, or
-  manually selected data artifact rather than a durable product object;
-- preserving a run for later use requires carrying source posture without
-  overclaiming raw source semantics, legacy execution, or scientific validity;
-- primary data, parameter snapshots, setup references, and analysis artifacts may
-  need to be linked before the record is ready for downstream use.
+- a useful run can be represented by a Data Vault-style dataset, a numeric ID,
+  a folder, notebook output, a dated table, or a manually selected artifact;
+- run meaning depends on nearby parameter snapshots, setup references, generated
+  companions, analysis outputs, and notebook-local choices;
+- later reopening can require the original session/path context, helper code,
+  local services, and operator memory, not only the stored rows.
 
 ### Selecting Measurements For Sharing
 
@@ -314,7 +315,7 @@ and environment state before running.
 
 Current pressure:
 
-- no single reviewable pre-run package owns the selected context;
+- selected pre-run context is not gathered into one stable, reviewable place;
 - existing systems remain authoritative for hardware apply and run start;
 - evidence about readiness is scattered;
 - notebooks and local scripts can hide which context was actually used.
@@ -345,8 +346,8 @@ Current pressure:
   habits rather than a stable review surface;
 - failure recovery can require local knowledge about drivers, services,
   hardware state, or lab-specific restart order;
-- Scopecat can record bounded readiness evidence, but current-state readiness
-  does not imply Scopecat owns hardware safety or recovery.
+- readiness evidence is bounded and local; it does not by itself prove hardware
+  safety or define recovery authority.
 
 ### Continuing Calibration Work
 
@@ -358,8 +359,9 @@ Current pressure:
 - continuation state is difficult to inspect after interruption;
 - proposed writes and accepted writes can be separated from later measurement
   context;
-- fit review and retry decisions are not durable product objects;
-- replacing execution ownership too early would create hardware-control risk.
+- fit review and retry decisions often remain notebook-local or implicit;
+- execution, write-back, and hardware-control concerns are entangled in the
+  existing notebooks, scripts, drivers, and operator habits.
 
 ### Inspecting Running Measurements
 
@@ -411,8 +413,8 @@ Current pressure:
 - reference goodness is user/domain judgment, not something Scopecat should
   claim by default;
 - objective comparison needs declared context boundaries;
-- users need record, compare, and materialization paths before full execution
-  ownership.
+- reconstructing a rerun requires deciding which records, files, code folders,
+  parameters, setup references, and generated artifacts still apply.
 
 ## Current-State Constraints
 
