@@ -235,12 +235,6 @@ def _validate_manifest_shape(manifest: dict[str, Any]) -> None:
                 raise ValueError(
                     "parameter state manifest entry references missing provenance source"
                 )
-    for excluded in manifest["excluded_preview_entries"]:
-        for source_id in excluded["source_ids"]:
-            if source_id not in source_ids:
-                raise ValueError(
-                    "parameter state manifest excluded entry references missing provenance source"
-                )
 
 
 def _validate_receipt_shape(receipt: dict[str, Any]) -> None:
@@ -361,7 +355,6 @@ def _state_summary(manifest: dict[str, Any] | None) -> dict[str, Any] | None:
         "lineage": copy.deepcopy(state["lineage"]),
         "readiness": state["readiness"],
         "trust_status": state["trust_status"],
-        "source_preview_candidate_state_id": state["source_preview_candidate_state_id"],
         "created_by_review_id": state["created_by_review_id"],
         "trusted_entry_paths": list(state["trusted_entry_paths"]),
         "entry_count": len(state["entries"]),
@@ -422,9 +415,6 @@ def read_parameter_state_storage_view(
         "parameter_state": _state_summary(manifest),
         "trusted_entries": _trusted_entries(manifest),
         "provenance": copy.deepcopy(manifest["provenance"]) if manifest is not None else None,
-        "excluded_preview_entries": (
-            copy.deepcopy(manifest["excluded_preview_entries"]) if manifest is not None else []
-        ),
         "source_review": copy.deepcopy(manifest["source_review"]) if manifest is not None else None,
         "receipt": {
             "request_id": receipt["request_id"],

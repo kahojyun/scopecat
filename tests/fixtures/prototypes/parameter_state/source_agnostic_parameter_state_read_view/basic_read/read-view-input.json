@@ -6,9 +6,9 @@
       "state_id": "param-state-imported-0001",
       "manifest_path": "parameter-states/param-state-imported-0001/parameter-state.json",
       "receipt_path": "parameter-states/param-state-imported-0001/write-receipt.json",
-      "expected_manifest_digest": "sha256:529415fac959c748eb1b35db6fca70a318ecab50f3e047286ef1716b3b82ddf3",
-      "expected_manifest_size_bytes": 3356,
-      "expected_receipt_digest": "sha256:861fb00b67a576596e096df398d469abf0f75e5ad57126356c110e7f8d420dd4",
+      "expected_manifest_digest": "sha256:c47b2eda88c25ba24d06b64bd8a3f730f40f711f37a27c6a75903ccf3c6cc5e8",
+      "expected_manifest_size_bytes": 2509,
+      "expected_receipt_digest": "sha256:ed0585d0a1798d8aa4aeb5d36f29d4188871783da7bfdbcf81a482343d87e30a",
       "expected_receipt_size_bytes": 484
     },
     {

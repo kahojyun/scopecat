@@ -129,8 +129,6 @@ def _validate_managed_state(
     review: dict[str, Any],
     preview_summary: dict[str, Any],
 ) -> None:
-    if managed_state["source_preview_candidate_state_id"] != review["preview_candidate_state_id"]:
-        raise ValueError("managed parameter state must reference reviewed preview candidate")
     if managed_state["created_by_review_id"] != review["review_id"]:
         raise ValueError("managed parameter state must reference creating review")
     if managed_state["state_kind"] not in _MANAGED_STATE_KINDS:
@@ -195,7 +193,6 @@ def _managed_state_summary(managed_state: dict[str, Any]) -> dict[str, Any]:
         "state_kind": managed_state["state_kind"],
         "state_label": managed_state["state_label"],
         "lineage": copy.deepcopy(managed_state["lineage"]),
-        "source_preview_candidate_state_id": managed_state["source_preview_candidate_state_id"],
         "created_by_review_id": managed_state["created_by_review_id"],
         "readiness": managed_state["readiness"],
         "trust_status": managed_state["trust_status"],

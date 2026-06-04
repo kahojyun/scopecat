@@ -231,10 +231,6 @@ def _validate_adapter_manifest(manifest: dict[str, Any]) -> None:
         for source_id in entry["source_ids"]:
             if source_id not in source_ids:
                 raise ValueError("adapter entry references missing provenance source")
-    for excluded in manifest["excluded_preview_entries"]:
-        for source_id in excluded["source_ids"]:
-            if source_id not in source_ids:
-                raise ValueError("adapter excluded entry references missing provenance source")
 
 
 def _validate_calibration_manifest(manifest: dict[str, Any]) -> None:
@@ -431,7 +427,6 @@ def _typed_provenance(source_kind: str, manifest: dict[str, Any] | None) -> dict
         return {
             "source_kind": "adapter_import",
             "payload": copy.deepcopy(manifest["provenance"]),
-            "excluded_preview_entries": copy.deepcopy(manifest["excluded_preview_entries"]),
             "source_review": copy.deepcopy(manifest["source_review"]),
         }
     return {

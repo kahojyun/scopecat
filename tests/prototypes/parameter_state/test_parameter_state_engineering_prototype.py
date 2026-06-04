@@ -1,16 +1,12 @@
 from __future__ import annotations
 
 import json
-import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
 from scopecat.parameter_state import (
     build_adapter_parameter_import_review_commit_summary,
-    build_parameter_state_selection_summary,
-    build_prepared_run_source_agnostic_parameter_state_consumption_summary,
-    build_prepared_run_source_agnostic_parameter_state_review_chain_summary,
     read_parameter_state_storage_view,
     read_source_agnostic_parameter_state_view,
     write_parameter_state_storage,
@@ -18,7 +14,6 @@ from scopecat.parameter_state import (
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = ROOT / "tests" / "fixtures" / "prototypes" / "parameter_state"
-ADAPTER_STORAGE_FIXTURE = FIXTURES / "parameter_state_storage_read_view" / "basic_read"
 
 
 def _load(path: Path) -> dict:
@@ -75,6 +70,29 @@ class ParameterStateEngineeringPrototypeTest(unittest.TestCase):
             write_summary["parameter_state"]["state_id"],
         )
         self.assertEqual(read_summary["review_findings"], [])
+
+    def test_source_agnostic_read_view_projects_adapter_state(self) -> None:
+        read_fixture = FIXTURES / "source_agnostic_parameter_state_read_view" / "basic_read"
+        storage_fixture = FIXTURES / "parameter_state_storage_read_view" / "basic_read"
+        read_input = _load(read_fixture / "read-view-input.json")
+        read_input["read_requests"] = read_input["read_requests"][:1]
+
+        summary = read_source_agnostic_parameter_state_view(
+            read_input,
+            storage_root=storage_fixture / "storage",
+        )
+
+        self.assertEqual(summary["classification"], "all_explicit_parameter_states_ready")
+        stored_state = summary["stored_states"][0]
+        self.assertEqual(stored_state["source_kind"], "adapter_import")
+        self.assertEqual(
+            stored_state["parameter_state"]["state_id"],
+            "param-state-imported-0001",
+        )
+        self.assertEqual(
+            set(stored_state["typed_provenance"]),
+            {"source_kind", "payload", "source_review"},
+        )
 
     def test_storage_writer_requires_approval_before_mutation(self) -> None:
         writer_fixture = FIXTURES / "parameter_state_storage_writer" / "basic_write"
@@ -143,133 +161,6 @@ class ParameterStateEngineeringPrototypeTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "sources must come from preview"):
             build_adapter_parameter_import_review_commit_summary(source)
-
-    def test_source_agnostic_read_view_and_prepared_run_chain_match_contracts(self) -> None:
-        read_fixture = FIXTURES / "source_agnostic_parameter_state_read_view" / "basic_read"
-        consumption_fixture = (
-            FIXTURES
-            / "prepared_run_source_agnostic_parameter_state_consumption"
-            / "basic_consumption"
-        )
-        chain_fixture = (
-            FIXTURES / "prepared_run_source_agnostic_parameter_state_review_chain" / "basic_chain"
-        )
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir) / "storage"
-            shutil.copytree(ADAPTER_STORAGE_FIXTURE / "storage", storage_root)
-            read_input = _load(read_fixture / "read-view-input.json")
-            read_input["read_requests"] = read_input["read_requests"][:1]
-            read_summary = read_source_agnostic_parameter_state_view(
-                read_input,
-                storage_root=storage_root,
-            )
-
-        consumption_input = _load(consumption_fixture / "consumption-input.json")
-        consumption_summary = (
-            build_prepared_run_source_agnostic_parameter_state_consumption_summary(
-                consumption_input
-            )
-        )
-        chain_input = _load(chain_fixture / "review-chain-input.json")
-        chain_input["source_agnostic_consumption_summary"] = consumption_summary
-        chain_input["gate_input"]["parameter_state_consumption_summary"] = consumption_summary
-        chain_input["scope_alignment_input"]["parameter_state_consumption_summary"] = (
-            consumption_summary
-        )
-        chain_summary = build_prepared_run_source_agnostic_parameter_state_review_chain_summary(
-            chain_input
-        )
-
-        self.assertEqual(read_summary["classification"], "all_explicit_parameter_states_ready")
-        self.assertEqual(
-            consumption_summary["classification"], "prepared_run_parameter_state_ready"
-        )
-        self.assertEqual(
-            chain_summary["classification"],
-            "parameter_review_chain_needs_review",
-        )
-        self.assertIn(
-            "parameter_lineage_partial_target_coverage",
-            {finding["code"] for finding in chain_summary["review_findings"]},
-        )
-
-    def test_adapter_imported_state_reaches_prepared_run_review_chain(self) -> None:
-        read_fixture = FIXTURES / "source_agnostic_parameter_state_read_view" / "basic_read"
-        consumption_fixture = (
-            FIXTURES
-            / "prepared_run_source_agnostic_parameter_state_consumption"
-            / "basic_consumption"
-        )
-        chain_fixture = (
-            FIXTURES / "prepared_run_source_agnostic_parameter_state_review_chain" / "basic_chain"
-        )
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir) / "storage"
-            shutil.copytree(ADAPTER_STORAGE_FIXTURE / "storage", storage_root)
-            read_input = _load(read_fixture / "read-view-input.json")
-            read_input["read_requests"] = read_input["read_requests"][:1]
-            read_summary = read_source_agnostic_parameter_state_view(
-                read_input,
-                storage_root=storage_root,
-            )
-
-        adapter_state_id = "param-state-imported-0001"
-        consumption_input = _load(consumption_fixture / "consumption-input.json")
-        consumption_input["source_agnostic_read_view_summary"] = read_summary
-        consumption_input["consumption_request"]["expected_state_id"] = adapter_state_id
-        consumption_input["consumption_request"]["parameter_context_id"] = adapter_state_id
-        for context_ref in consumption_input["prepared_run_context_summary"][
-            "selected_context_refs"
-        ]:
-            if context_ref["family"] == "parameter_state":
-                context_ref["context_id"] = adapter_state_id
-                context_ref["context_label"] = "qA default bias imported seed"
-                context_ref["record_status"] = "trusted_for_declared_scope"
-
-        consumption_summary = (
-            build_prepared_run_source_agnostic_parameter_state_consumption_summary(
-                consumption_input
-            )
-        )
-        chain_input = _load(chain_fixture / "review-chain-input.json")
-        chain_input["source_agnostic_consumption_summary"] = consumption_summary
-        chain_input["gate_input"]["parameter_state_consumption_summary"] = consumption_summary
-        chain_input["gate_input"]["gate_request"]["expected_state_id"] = adapter_state_id
-        chain_input["scope_alignment_input"]["parameter_state_consumption_summary"] = (
-            consumption_summary
-        )
-
-        chain_summary = build_prepared_run_source_agnostic_parameter_state_review_chain_summary(
-            chain_input
-        )
-
-        self.assertEqual(consumption_summary["parameter_state"]["source_kind"], "adapter_import")
-        self.assertEqual(chain_summary["selected_parameter_state"]["source_kind"], "adapter_import")
-        self.assertEqual(chain_summary["classification"], "parameter_review_chain_needs_review")
-
-    def test_selection_context_reports_ready_future_context(self) -> None:
-        fixture = FIXTURES / "parameter_state_selection_context" / "known_good_future_context"
-
-        summary = build_parameter_state_selection_summary(
-            _load(fixture / "parameter-state-selection-input.json")
-        )
-
-        selection = summary["parameter_state_selections"][0]
-        self.assertEqual(selection["selection_status"], "selected_for_context")
-        self.assertEqual(
-            selection["selected_state_id"],
-            "param-state-0002",
-        )
-        self.assertEqual(selection["selected_state_trust_status"], "trusted_for_declared_scope")
-        self.assertEqual(
-            {finding["kind"] for finding in summary["review_findings"]},
-            {
-                "context_requirement_satisfied",
-                "intent_label_is_scenario_semantics",
-            },
-        )
 
 
 if __name__ == "__main__":

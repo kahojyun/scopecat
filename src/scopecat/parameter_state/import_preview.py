@@ -163,7 +163,7 @@ def _validate_candidate_entry(
         if entry["trust"] != "adapter_declared_trusted":
             raise ValueError("candidate_entry must be adapter-declared trusted")
         if entry["value_shape"] != "scalar":
-            raise ValueError("candidate_entry must be scalar in this slice")
+            raise ValueError("candidate_entry must be scalar for this import preview")
         if not _is_json_scalar(entry["value"]):
             raise ValueError("candidate_entry value must be scalar")
         return

@@ -27,9 +27,6 @@ class ParameterStatePublicApiSurfaceTest(unittest.TestCase):
     def test_promoted_route_exports_core_review_chain(self) -> None:
         expected_names = {
             "build_adapter_parameter_import_review_commit_summary",
-            "build_parameter_state_selection_summary",
-            "build_prepared_run_source_agnostic_parameter_state_consumption_summary",
-            "build_prepared_run_source_agnostic_parameter_state_review_chain_summary",
             "read_parameter_state_storage_view",
             "read_source_agnostic_parameter_state_view",
             "write_parameter_state_storage",

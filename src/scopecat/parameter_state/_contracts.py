@@ -1,6 +1,6 @@
-"""Small shared contract primitives for discovery candidates.
+"""Small shared contract primitives for parameter-state prototypes.
 
-These helpers validate repeated low-level facts before candidate code uses
+These helpers validate repeated low-level facts before prototype code uses
 them as path segments, relation targets, manifest references, or write roots.
 They intentionally do not define a measurement-record model, package schema, or
 redaction engine.

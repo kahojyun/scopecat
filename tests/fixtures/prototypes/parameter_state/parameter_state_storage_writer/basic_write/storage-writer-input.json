@@ -34,7 +34,6 @@
         "default_bias"
       ]
     },
-    "source_preview_candidate_state_id": "adapter-candidate-param-state-0001",
     "created_by_review_id": "adapter-import-review-0001",
     "readiness": "seeded_incomplete",
     "trust_status": "trusted_for_declared_scope",
@@ -88,25 +87,5 @@
       }
     ],
     "source_observation": "adapter_declared_only"
-  },
-  "excluded_preview_entries": [
-    {
-      "path": "readout.qA.frequency_hz",
-      "entry_state": "skipped_untrusted",
-      "source_ids": [
-        "legacy-json-parameters-001"
-      ],
-      "disposition": "not_committed_to_managed_parameter_state",
-      "reason": "Adapter found the value in a copied legacy file but could not confirm it was calibrated for this sample context."
-    },
-    {
-      "path": "readout.qA.calibration_table",
-      "entry_state": "skipped_schema_limited",
-      "source_ids": [
-        "legacy-xlsx-parameter-table-001"
-      ],
-      "disposition": "not_committed_to_managed_parameter_state",
-      "reason": "Adapter preserved the table-shaped value as schema-limited; this preview slice does not migrate table shapes."
-    }
-  ]
+  }
 }

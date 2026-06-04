@@ -1,9 +1,8 @@
-# Parameter State Engineering Prototype
+# Parameter State Prototype
 
 ## Status
 
-This route-local module promotes the accepted parameter-state discovery
-candidates into production-shaped prototype code.
+This route-local module contains the active parameter-state prototype code.
 
 Implementation ownership is tracked in
 [`../../../docs/engineering/implementation-register.md`](../../../docs/engineering/implementation-register.md).
@@ -16,7 +15,6 @@ adapter-authored import preview
   -> approved storage writer
   -> explicit manifest/receipt read view
   -> optional source-agnostic read projection
-  -> parameter-state-local run-preparation consumption and review chain
 ```
 
 The prototype preserves typed adapter and calibration provenance as local
@@ -24,9 +22,8 @@ review facts. It does not parse legacy parameter files, write compatibility
 files, apply parameters to hardware, inspect current instrument state, perform
 live write-back, discover catalogs, migrate schemas, start runs, mutate setup
 bindings, or define shared parameter/run-context schemas.
-It supports JNY-002 Prepare A Manual Run and calibration-continuation review;
-it does not own all parameter management, parameter history, setup truth, or
-hardware-apply workflows.
+It does not own all parameter management, parameter history, setup truth,
+run-preparation workflow, or hardware-apply workflows.
 
 Each live API accepts raw dictionaries at the edge for compatibility with the
 existing fixture corpus, immediately validates them into route-local typed
@@ -38,12 +35,6 @@ Storage reads and writes are caller-rooted and path-explicit. The writer uses
 no-overwrite behavior for a reviewed managed parameter-state summary. Read
 views only open declared manifest and receipt files and compare checksum and
 size facts; they do not repair storage or scan for alternatives.
-
-Run-preparation composition consumes prior read-view facts inside this
-parameter-state route. The gate and scope alignment summaries classify review
-state for manual pre-run review only; a ready chain is not execution
-permission, does not imply a live prepared-run route owner, and carries no
-hardware-safety claim.
 
 ## API Surface
 
@@ -60,14 +51,6 @@ Storage and read views:
 - `read_parameter_state_storage_view(...)`
 - `read_source_agnostic_parameter_state_view(...)`
 
-Selection and manual pre-run review:
-
-- `build_parameter_state_selection_summary(...)`
-- `build_prepared_run_source_agnostic_parameter_state_consumption_summary(...)`
-- `build_prepared_run_parameter_state_gate_summary(...)`
-- `build_prepared_run_scope_alignment_summary(...)`
-- `build_prepared_run_source_agnostic_parameter_state_review_chain_summary(...)`
-
 These functions are the top-level route-local exports. They accept and return
 route-local summary dictionaries for the current prototype boundary. They are
 not stable public SDK functions or shared schema contracts. Direct submodules
@@ -79,19 +62,18 @@ Parameter-state storage is caller-rooted and path-explicit. Current accepted
 storage artifacts are local manifests and receipts written under caller-owned
 storage roots.
 
-Current accepted review artifacts are read-view summaries, source-agnostic
-review projections, selection summaries, and prepared-run review-chain
-summaries. They are local review/storage surfaces, not portable handoff
-artifacts, package-shaped outputs, or public reports unless a later slice
-explicitly promotes them.
+Current accepted review artifacts are read-view summaries and
+source-agnostic review projections. They are local review/storage surfaces, not
+portable handoff artifacts, package-shaped outputs, or public reports unless a
+later decision explicitly promotes them.
 
 Repository fixtures for this module need repository-safety review. Runtime
-redaction is required only if a future slice turns one of these summaries into
-a portable/export boundary.
+redaction is required only if future work turns one of these summaries into a
+portable/export boundary.
 
-## Historical Candidate Context
+## Historical Context
 
-Discovery candidates remain validation evidence, not runtime dependencies for
+Historical candidates remain validation evidence, not runtime dependencies for
 this module. The live route-local boundary is the top-level
 `scopecat.parameter_state` export surface listed above plus the accepted
 prototype boundary in

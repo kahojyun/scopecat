@@ -141,8 +141,6 @@ def _validate_managed_state(source: dict[str, Any]) -> None:
         raise ValueError("parameter state readiness is unsupported")
     if state["trust_status"] not in _TRUST_STATUS:
         raise ValueError("parameter state trust_status is unsupported")
-    if not state["source_preview_candidate_state_id"]:
-        raise ValueError("parameter state requires source_preview_candidate_state_id")
     if not state["created_by_review_id"]:
         raise ValueError("parameter state requires created_by_review_id")
     if not state["lineage"]["lineage_id"]:
@@ -176,10 +174,6 @@ def _validate_provenance(source: dict[str, Any]) -> None:
         for source_id in entry["source_ids"]:
             if source_id not in source_ids:
                 raise ValueError("parameter state entry references missing provenance source")
-    for excluded in source["excluded_preview_entries"]:
-        for source_id in excluded["source_ids"]:
-            if source_id not in source_ids:
-                raise ValueError("excluded preview entry references missing provenance source")
 
 
 def _validate_references(source: dict[str, Any]) -> None:
@@ -193,7 +187,6 @@ def _manifest_bytes(source: dict[str, Any]) -> bytes:
         "manifest_schema": "scopecat.parameter_state_storage_manifest.v0",
         "state": copy.deepcopy(source["reviewed_managed_parameter_state"]),
         "provenance": copy.deepcopy(source["provenance"]),
-        "excluded_preview_entries": copy.deepcopy(source["excluded_preview_entries"]),
         "source_review": {
             "review_id": source["review"]["review_id"],
             "review_status": source["review"]["review_status"],
@@ -301,6 +294,5 @@ def write_parameter_state_storage(
             },
         ],
         "provenance": copy.deepcopy(source["provenance"]),
-        "excluded_preview_entries": copy.deepcopy(source["excluded_preview_entries"]),
     }
     return ParameterStateStorageWriteResult(summary=summary).to_dict()

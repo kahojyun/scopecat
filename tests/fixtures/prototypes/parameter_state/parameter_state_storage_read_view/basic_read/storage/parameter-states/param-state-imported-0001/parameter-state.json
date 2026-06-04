@@ -1,24 +1,4 @@
 {
-  "excluded_preview_entries": [
-    {
-      "disposition": "not_committed_to_managed_parameter_state",
-      "entry_state": "skipped_untrusted",
-      "path": "readout.qA.frequency_hz",
-      "reason": "Adapter found the value in a copied legacy file but could not confirm it was calibrated for this sample context.",
-      "source_ids": [
-        "legacy-json-parameters-001"
-      ]
-    },
-    {
-      "disposition": "not_committed_to_managed_parameter_state",
-      "entry_state": "skipped_schema_limited",
-      "path": "readout.qA.calibration_table",
-      "reason": "Adapter preserved the table-shaped value as schema-limited; this preview slice does not migrate table shapes.",
-      "source_ids": [
-        "legacy-xlsx-parameter-table-001"
-      ]
-    }
-  ],
   "manifest_schema": "scopecat.parameter_state_storage_manifest.v0",
   "provenance": {
     "adapter_id": "public-safe-parameter-adapter",
@@ -85,7 +65,6 @@
       ]
     },
     "readiness": "seeded_incomplete",
-    "source_preview_candidate_state_id": "adapter-candidate-param-state-0001",
     "state_id": "param-state-imported-0001",
     "state_kind": "seed_snapshot",
     "state_label": "qA default bias imported seed after adapter review",
