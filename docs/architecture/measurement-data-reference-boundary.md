@@ -32,6 +32,19 @@ every historical storage system.
 | Attachment or artifact | An arbitrary linked file or result associated with a measurement, run, step, or analysis. | List it, relate it to source measurements, report availability or source-link findings, and hand it to an external tool or later validated consumer. | Default visualization or conversion into measurement primary data. |
 | Previewable data item | A narrower data item that declares roles, axes, units, components, shape, and plot candidates in a supported preview model. | Drive conservative local preview, GUI, SDK, and handoff projections. | Generic ndarray, HDF5, notebook, image, report, or matrix visualization without a validated preview model. |
 
+## Preview Model Pressure
+
+Current active architecture accepts only conservative preview from normalized
+primary data and explicit preview metadata. It does not accept automatic
+data-shape inference or a final plotting model.
+
+Historical scan/data-shape discovery remains useful evidence when a concrete
+preview workflow needs more than simple table-oriented plotting. Future preview
+work can reuse those cases for regular, adaptive, or ragged sweeps,
+trace-per-point data, fixed-vector responses, complex logical values, and
+matrix-like analysis outputs. Those cases are not active contracts until a
+decision or prototype boundary accepts their semantics.
+
 ## Adapter Boundary
 
 Legacy-specific knowledge belongs in user-owned or lab-owned adapters unless a

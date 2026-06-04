@@ -102,6 +102,7 @@ brownfield entrypoints prove stable ownership.
 | Running Measurement Monitor | Users inspect partial data and progress before completion. | Explicit lifecycle/progress events are available without scan control. |
 | Calibration Continuation | Users recover from failed fits and proposed writes across steps. | A repeated workflow needs stable action recording and review state beyond one scenario. |
 | Reference/Rerun Preparation | Users compare against last-working or notable references. | Objective comparison findings and manual rerun preparation become a named workflow. |
+| Primary Data Preview Model | Users will need plots beyond simple table previews, including shape-aware primary data views. | A concrete plotting or preview workflow needs stable semantics for adaptive or ragged sweeps, trace-per-point data, fixed-vector responses, complex logical values, or matrix-like analysis output. |
 
 ## Relationship Sketch
 
@@ -181,7 +182,7 @@ The following are intentionally not accepted by this initial model:
 - final measurement storage schema;
 - public package schema;
 - public SDK object model;
-- automatic data-shape inference;
+- automatic data-shape inference or a final primary-data plotting model;
 - analysis provenance DAG;
 - hardware/run execution model;
 - scheduler, retry, or rollback model;
