@@ -204,13 +204,19 @@ The existing system appears to run as an operator-managed workstation workflow:
 - copied workspaces, nested repositories, backups, caches, checkpoints, and
   dated variants make deployment identity and selected-code identity ambiguous.
 
-### Known Constraints And Technical Debt
+### Known Limitations And Technical Debt
 
+- Artifact-shape variation: tables, Data Vault-style metadata, NumPy arrays,
+  JSON records, notebooks, workbooks, reports, archives, generated companions,
+  and sidecar files all appear in the working surface.
 - Service coupling: measurement recording and reopen depend on LabRAD/Data
   Vault semantics, local service availability, session/path conventions, and
   numeric IDs.
 - Hardware-control coupling: replacing the runtime path would cross runner,
   driver, timing, device-state, abort, cleanup, and recovery responsibilities.
+- Static-analysis risk: existing scripts and notebooks can be hardware-active,
+  parameter-mutating, or environment-dependent, so treating them as passive
+  artifacts can be unsafe or misleading.
 - Hidden authority: active parameter JSON, run-adjacent snapshots, generated
   companions, backups, lock-like files, and optional history stores can all look
   authoritative without a declared review boundary.
@@ -233,23 +239,9 @@ The existing system appears to run as an operator-managed workstation workflow:
 - Computer-transfer fragility: moving work between control and analysis
   computers can preserve files while losing service assumptions, local paths,
   helper imports, source identity, and openability of linked companions.
-- Redaction pressure: portable/export artifacts need managed-reference
-  validation because local paths, service names, host details, and lab-specific
-  labels can leak through ordinary artifacts.
-
-### Assessment
-
-The assessment does capture the existing system state at the right level if it
-is read as architecture pressure rather than a full source inventory. The
-important refinement is that the current state is not only a mixed research
-folder: it is a service-coupled experiment runtime where Data Vault, runner
-code, parameter JSON, generated setup state, notebooks, and analysis artifacts
-together form the effective system.
-
-Scopecat should therefore first record, link, review, compare, and hand off
-evidence around existing code boundaries. It should not begin by claiming
-hardware-control ownership, broad legacy parsing, scientific validity, or a
-clean replacement runtime.
+- Local-only reference leakage: local paths, service names, host details,
+  instrument addresses, and lab-specific labels can appear inside ordinary
+  code, metadata, notebooks, generated artifacts, and copied handoff material.
 
 Observed patterns include:
 
@@ -415,18 +407,6 @@ Current pressure:
 - objective comparison needs declared context boundaries;
 - reconstructing a rerun requires deciding which records, files, code folders,
   parameters, setup references, and generated artifacts still apply.
-
-## Current-State Constraints
-
-- Scopecat should not assume it can parse every legacy artifact shape.
-- Scopecat should not infer hardware truth, setup truth, or scientific validity
-  from local filenames or folder structure.
-- Scopecat should not execute current-state scripts during static analysis or
-  discovery.
-- Scopecat should treat local evidence as a guide for product pressure, not as
-  the target product model.
-- Portable/export artifacts need stronger managed-reference validation and
-  redaction than local internal review surfaces.
 
 ## Update Rule
 
