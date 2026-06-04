@@ -298,7 +298,8 @@ Primary workflows:
 - record source identity and source posture;
 - import or attach reviewed normalized primary data;
 - record context references supplied by the operator or adapter;
-- make the created record available for downstream browsing and review;
+- write the created record to the local Measurement Records store for
+  downstream journeys;
 - keep raw source execution, parsing, and scientific validity outside
   Scopecat unless a narrower adapter slice earns that authority.
 

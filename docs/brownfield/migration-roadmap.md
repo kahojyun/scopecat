@@ -84,7 +84,7 @@ Already validated:
 
 - legacy-backed measurement record shell and storage visibility;
 - normalized primary-data durable import;
-- record-local references and local storage review surfaces.
+- record-local references and storage visibility scaffolding.
 
 Decision gate:
 

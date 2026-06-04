@@ -232,18 +232,17 @@ The existing system appears to run as an operator-managed workstation workflow:
 
 ### Recording Runs
 
-Runs are recorded through the existing experiment scripts, Data Vault-style
-storage, notebooks, selected numeric IDs, local folders, and nearby companion
-artifacts. Later reopening and review are real current-state behavior, but are
-covered under completed-result review below rather than treated as the same
-work pattern.
+Runs are recorded by experiment scripts into Data Vault-style storage and
+nearby run-adjacent files, with notebooks and local folders often adding output
+or context around the recorded data. Numeric IDs are generated as part of that
+recording/storage process.
 
 Current pressure:
 
 - source identity, operator intent, primary data, transformed data, and context
   references are often inferred from nearby files and naming conventions;
-- a useful run can be represented by a Data Vault-style dataset, a numeric ID,
-  a folder, notebook output, a dated table, or a manually selected artifact;
+- a useful run can leave evidence as a Data Vault-style dataset, generated
+  numeric ID, folder, notebook output, dated table, or nearby artifact;
 - run meaning depends on nearby parameter snapshots, setup references, generated
   companions, analysis outputs, and notebook-local choices.
 

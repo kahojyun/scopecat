@@ -217,14 +217,15 @@ Target journey:
 - keep source execution, raw historical file semantics, adapter discovery, and
   scientific validity outside Scopecat unless narrower slices earn that
   authority;
-- expose the created record to local storage review and downstream workflows.
+- expose the created record through local storage/catalog visibility for
+  downstream workflows.
 
 Ownership posture:
 
 - local legacy run recording: `Record` and `Bridge`;
 - normalized primary-data durable import: `Bridge` and `Partial owner`;
 - recorded references: `Record`;
-- local storage visibility: `Review`.
+- local storage/catalog visibility: `Record`.
 
 Deferred authority:
 
