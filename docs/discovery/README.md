@@ -28,7 +28,6 @@ now own active routing and sequencing.
 
 | Document | Use For |
 | --- | --- |
-| [`doc-types.md`](doc-types.md) | Understand which discovery document type owns problem framing and historical evidence. |
 | [`../product/adoption-strategy.md`](../product/adoption-strategy.md) | Current product adoption paths. |
 | [`../product/target-journeys.md`](../product/target-journeys.md) | Current target product user journeys, primary workflows, and use cases to prove before promotion. |
 | [`../product/target-capabilities.md`](../product/target-capabilities.md) | Current target product capabilities, maturity, evidence, and open advancement questions. |

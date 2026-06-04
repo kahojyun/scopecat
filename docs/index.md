@@ -58,7 +58,6 @@ docs/
 | [`engineering/terminology.md`](engineering/terminology.md) | Standard engineering terms for workflow, capability, maturity, validation method, decision, evidence, artifact boundary, and ownership. |
 | [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) | Current route-local engineering prototype boundaries promoted from discovery-backed implementation work. |
 | [`discovery/README.md`](discovery/README.md) | Discovery navigation for problem briefs and historical validation evidence. |
-| [`discovery/doc-types.md`](discovery/doc-types.md) | Discovery document type responsibilities and ownership rules. |
 | [`discovery/archive/slice-inventory.md`](discovery/archive/slice-inventory.md) | Compact historical index for removed validation slice bodies. |
 | [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md) | Evidence-backed problem briefs. |
 | [`evidence/evidence-register.md`](evidence/evidence-register.md) | Stable `EV-*` evidence claims and source posture. |
