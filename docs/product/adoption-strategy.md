@@ -47,8 +47,9 @@ User value:
 
 Supports:
 
-- Portable Measurement Handoff;
-- Selected Reference Comparison later;
+- Record Or Adopt A Measurement;
+- Review And Finalize A Completed Measurement later;
+- Reproduce Or Rerun From A Reference later;
 - Measurement Records;
 - Experiment Code Context later;
 - Parameter State Review later.
@@ -56,7 +57,7 @@ Supports:
 Main adoption risk: users may expect Scopecat to understand raw legacy formats,
 scientific validity, or execution semantics before those boundaries are owned.
 
-### Portable Handoff-First
+### Selected Measurement Handoff-First
 
 User change: select useful measurement data and send a Scopecat-authored
 package for read-only review, preview, and later import on another computer.
@@ -69,7 +70,7 @@ User value:
 
 Supports:
 
-- Portable Measurement Handoff;
+- Share A Selected Measurement;
 - Handoff Packages;
 - Measurement Records.
 
@@ -89,7 +90,7 @@ User value:
 
 Supports:
 
-- Portable Measurement Handoff;
+- Share A Selected Measurement;
 - Handoff Packages;
 - Measurement Records.
 
@@ -110,7 +111,7 @@ User value:
 
 Supports:
 
-- Pre-Run Context Review;
+- Prepare A Manual Run;
 - Parameter State Review;
 - Measurement Records context links later.
 
@@ -130,8 +131,8 @@ User value:
 
 Supports:
 
-- Experiment Code Context Recovery And Reuse;
-- Pre-Run Context Review later;
+- Reproduce Or Rerun From A Reference later;
+- Prepare A Manual Run later;
 - Experiment Code Context;
 - Environment Operation.
 
@@ -151,7 +152,7 @@ User value:
 
 Supports:
 
-- Running Measurement Monitoring And Inspection;
+- Monitor A Running Measurement;
 - Running Measurement Monitor;
 - Measurement Records;
 - optional app runtime.

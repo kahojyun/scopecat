@@ -55,7 +55,7 @@ Current pressure:
 - the receiver may need to trust folder residue before they can inspect the
   data.
 
-### Pre-Run Context Review
+### Prepare A Manual Run
 
 Users inspect parameter files, setup notes, wiring spreadsheets, code folders,
 and environment state before running.

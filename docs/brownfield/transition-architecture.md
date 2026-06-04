@@ -46,7 +46,7 @@ Use the narrowest posture that matches the accepted behavior:
 
 ## Journey Transitions
 
-### JNY-001 Portable Measurement Handoff
+### JNY-001 Share A Selected Measurement
 
 Current journey:
 
@@ -59,9 +59,8 @@ Current journey:
 
 Transition journey:
 
-- record legacy-backed measurement facts into local Measurement Records;
-- attach reviewed normalized primary data when available;
-- write a Scopecat-authored package from an accepted source;
+- select a complete-enough local Measurement Record;
+- write a Scopecat-authored package from the selected record;
 - open the package read-only on the receiving side;
 - import one approved package measurement into local storage.
 
@@ -76,8 +75,7 @@ Target journey:
 
 Ownership posture:
 
-- local legacy run recording: `Record` and `Bridge`;
-- normalized primary-data durable import: `Bridge` and `Partial owner`;
+- selected stored-record export: `Review` and `Partial owner`;
 - handoff package writing/opening: `Partial owner` for Scopecat-authored
   package artifacts;
 - receiving-side review/import plan: `Review`;
@@ -88,10 +86,11 @@ Deferred authority:
 
 - legacy execution, raw historical file semantics, adapter discovery, and
   scientific validity remain outside Scopecat;
-- selected stored Measurement Record to single-measurement package export is
-  the next posture change to validate.
+- Measurement Record creation, adoption, running updates, and post-run
+  finalization belong to separate journeys or workflow segments that feed this
+  handoff journey.
 
-### JNY-002 Pre-Run Context Review
+### JNY-002 Prepare A Manual Run
 
 Current journey:
 
@@ -109,11 +108,13 @@ Transition journey:
 
 Target journey:
 
-- assemble selected parameter, code, environment, and setup context into a
-  reviewable pre-run package;
+- assemble selected parameter, code, environment, setup, and prior context into
+  a reviewable pre-run package;
 - show missing or risky context before run start;
 - record the operator's acknowledgement, deferral, or note without taking
-  hardware-control authority by default.
+  hardware-control authority by default;
+- let a later Measurement Record reference the prepared-run receipt as context
+  evidence.
 
 Ownership posture:
 
@@ -121,14 +122,15 @@ Ownership posture:
 - parameter-state storage and read view: `Partial owner`;
 - source-agnostic parameter-state selection and review chain: `Review`;
 - bounded environment-operation evidence: `Assist` or `Shadow`, depending on
-  the later use case that consumes it.
+  the later use case that consumes it;
+- prepared-run review receipt: candidate `Record` and `Review` evidence.
 
 Deferred authority:
 
 - hardware apply, live write-back, current instrument-state truth, automatic
   run start, and shared run-context authority remain outside Scopecat.
 
-### JNY-003 Calibration Work Continuation
+### JNY-003 Recover Or Continue Calibration Work
 
 Current journey:
 
@@ -161,7 +163,7 @@ Deferred authority:
 - Scopecat-decided retry, mutation, write-back, and hardware control remain
   outside Scopecat.
 
-### JNY-004 Running Measurement Monitoring And Inspection
+### JNY-004 Monitor A Running Measurement
 
 Current journey:
 
@@ -191,49 +193,87 @@ Deferred authority:
 - experiment execution, scan-plan changes, automatic retune, and scheduling
   remain outside Scopecat.
 
-### JNY-005 Experiment Code Context Recovery And Reuse
+### JNY-007 Record Or Adopt A Measurement
 
 Current journey:
 
-- users reconstruct code context from copied folders, notebooks, helper files,
-  and local path conventions;
-- dirty Git state or folder names are not reliable enough for early adoption.
+- users make legacy, external, notebook, or manually reviewed measurement facts
+  visible by copying files, preserving notes, or relying on folder conventions;
+- durable identity, source posture, and primary-data readiness are often mixed
+  together.
 
 Transition journey:
 
-- record explicit run/step code context with entrypoint and include policy;
-- compare selected recorded-code context;
-- capture bounded environment-operation evidence without executing experiment
-  code.
+- create a local Measurement Record shell;
+- record declared source identity and source posture;
+- import or attach reviewed normalized primary data;
+- record operator- or adapter-declared context references as receipts.
 
 Target journey:
 
-- select, compare, restore, or materialize the code context associated with a
-  run, calibration step, handoff, or comparison;
-- keep execution and deployment authority separate until a narrower workflow
-  proves the need.
-
-Coordination role: this is a context-support journey. It should help other
-journeys understand code context without becoming a generic Git, package
-management, runtime, or execution journey.
+- turn externally produced, legacy-backed, adapter-authored, or manually
+  declared measurement facts into a local Scopecat Measurement Record;
+- keep source execution, raw historical file semantics, adapter discovery, and
+  scientific validity outside Scopecat unless narrower slices earn that
+  authority;
+- expose the created record to local storage review and downstream workflows.
 
 Ownership posture:
 
-- explicit run/step code-context recording: candidate `Record`;
-- selected-code comparison: candidate `Review`;
-- bounded `uv sync` operation evidence: `Assist` or `Shadow`.
+- local legacy run recording: `Record` and `Bridge`;
+- normalized primary-data durable import: `Bridge` and `Partial owner`;
+- recorded references: `Record`;
+- local storage visibility: `Review`.
 
 Deferred authority:
 
-- dependency closure, code execution, managed deployment, remote execution, and
-  experiment-code runtime ownership remain outside Scopecat.
+- raw legacy parsing, legacy execution, reference repair, current instrument
+  truth, and scientific validity remain outside Scopecat by default.
 
-### JNY-006 Selected Reference Comparison
+### JNY-008 Review And Finalize A Completed Measurement
+
+Current journey:
+
+- users review completed results through notebooks, reports, sidecars, and
+  folder inspection before deciding whether a measurement is ready to share or
+  use;
+- missing context, derived artifacts, and operator notes often remain separate
+  from primary data.
+
+Transition journey:
+
+- review a completed Measurement Record read model and record-local receipts;
+- identify missing, stale, or incomplete context;
+- record operator review notes or continuation receipts;
+- project a read model for downstream selection.
+
+Target journey:
+
+- confirm primary data, context references, derived artifacts, and operator
+  notes for a completed measurement;
+- make the record understandable and ready for handoff, comparison,
+  calibration continuation, or rerun preparation;
+- keep review/finalization separate from canonical source replacement.
+
+Ownership posture:
+
+- completed-record review: candidate `Review`;
+- operator notes and review receipts: candidate `Record`;
+- read-model projection: `Review` convenience projection, not canonical storage
+  authority.
+
+Deferred authority:
+
+- final public storage schema, manifest replacement, broad merge import,
+  scientific validity, and GUI-owned review state remain outside this journey
+  until narrower decisions accept them.
+
+### JNY-009 Reproduce Or Rerun From A Reference
 
 Current journey:
 
 - users compare against last-working or notable references by reopening files,
-  notebooks, setup notes, and memory;
+  notebooks, setup notes, copied folders, and memory;
 - changed, missing, unverified, and not-compared facts are easy to collapse
   into vague gap language.
 
@@ -241,29 +281,39 @@ Transition journey:
 
 - mark or select reference records;
 - compare declared measurement, code, parameter, or setup context;
+- capture selected code-context and environment-operation evidence when useful;
 - surface objective findings without claiming domain judgment.
 
 Target journey:
 
 - choose a reference record or context bundle;
 - review objective comparison findings across declared context;
-- leave interpretation and action to the user unless a later workflow earns
-  stronger authority.
-
-Coordination role: this is a review-oriented journey that can support pre-run
-review, post-run analysis, calibration continuation, monitoring review, and
-handoff decisions. Do not treat every comparison input as a new standalone
-journey.
+- prepare enough reviewed context to reproduce, rerun, or investigate
+  differences;
+- keep interpretation, setup truth, execution, and mutation with the user or a
+  later workflow until stronger authority is earned.
 
 Ownership posture:
 
 - selected reference marking: candidate `Record`;
-- declared context comparison: candidate `Review`.
+- declared context comparison: candidate `Review`;
+- explicit run/step code-context recording: candidate `Record`;
+- selected-code comparison or workspace materialization: candidate `Review` or
+  `Assist`, depending on the later use case.
 
 Deferred authority:
 
-- setup truth, user/domain judgment, rollback, and hardware or environment
+- setup truth, user/domain judgment, rollback, dependency closure, code
+  execution, managed deployment, remote execution, and hardware or environment
   mutation remain outside Scopecat.
+
+## Supporting Workflow Posture
+
+The former target journey entries JNY-005 Experiment Code Context Recovery And
+Reuse and JNY-006 Selected Reference Comparison are now supporting workflows.
+They remain important validation owners for code-context and comparison slices,
+but they should not drive standalone journey UX unless a consuming journey
+proves a user-recognizable end-to-end job.
 
 ## Update Rule
 
