@@ -17,7 +17,7 @@
   tokens, or accidental local filesystem leaks; synthetic sensitive-shaped
   examples may appear only when intentionally testing boundary behavior.
 - Classify artifact boundaries using
-  `docs/discovery/policies/artifact-boundary-and-redaction.md` only when
+  `docs/architecture/artifact-boundary-and-redaction.md` only when
   changing public output, sharing boundaries, review summaries, package/export
   artifacts, or generated artifacts that define or cross a declared boundary.
   Do not treat ordinary discovery fixtures, expected outputs, local UI surfaces,
@@ -28,8 +28,8 @@
   Portable/export artifacts need runtime redaction. Strictly validate
   Scopecat-managed references such as paths, source identities,
   package-relative references, relation targets, external-root displays, and
-  materialization destinations when a slice owns or transforms them. Treat user
-  labels, display names, notes, and descriptions as free text unless a slice
+  materialization destinations when work owns or transforms them. Treat user
+  labels, display names, notes, and descriptions as free text unless the work
   explicitly accepts a redaction policy surface.
 - Keep prototypes within their stated boundary; static-analysis prototypes must
   not execute analyzed fixture or source code.

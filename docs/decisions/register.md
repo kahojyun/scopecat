@@ -42,22 +42,13 @@ ADR-style record, but the register ID remains the cross-document handle.
 | DEC-024 | Accept safe archive creation | Architecture | Accepted | [`architecture/DEC-024-accept-safe-archive-creation.md`](architecture/DEC-024-accept-safe-archive-creation.md), [`../engineering/prototype-boundaries/handoff.md`](../engineering/prototype-boundaries/handoff.md) | BR-RISK-010 | Zip archive creation boundary. | Openable DEC-010 directory packages may be written to zip transport archives under no-overwrite; archive bytes remain transport-only and archive-backed import, external authenticity, and package authority remain unclaimed. |
 | DEC-025 | Defer existing-record update and final storage schema for JNY-001 | Architecture | Accepted | [`architecture/DEC-025-defer-existing-record-update-and-final-storage-schema.md`](architecture/DEC-025-defer-existing-record-update-and-final-storage-schema.md), [`../engineering/prototype-boundaries/handoff.md`](../engineering/prototype-boundaries/handoff.md) | BR-RISK-003 | JNY-001 Share A Selected Measurement storage-readiness boundary. | Handoff production-readiness hardening remains source-storage-read-only for selected export and new-record-only for durable import; existing-record update, merge import, manifest replacement, and final storage schema stay separate decisions. |
 
-## Unregistered Decision-Like Artifacts
-
-These artifacts are decision pressure or recommendations, not durable decisions
-unless a future branch promotes them:
-
-| Artifact | Current Classification | Owner |
-| --- | --- | --- |
-| Selected Measurement Export Decision Summary | Decision-ready discovery summary, not ADR or product contract. | [`selected-measurement-export-decision-summary.md`](../discovery/archive/slice-inventory.md) |
-| Scan Data Shape Decision Summary | Decision-ready discovery summary, not final data model. | [`scan-data-shape-decision-summary.md`](../discovery/archive/slice-inventory.md) |
-
 ## Update Rule
 
 Update this register when a branch creates, supersedes, retires, reclassifies,
-or materially changes a durable decision. If an artifact is only recommendation
-or discovery evidence, list it under unregistered decision-like artifacts
-instead of promoting it implicitly.
+or materially changes a durable decision. Historical validation-slice pressure
+that has not become a durable decision belongs in
+[`../discovery/archive/slice-inventory.md`](../discovery/archive/slice-inventory.md)
+or the current owner it informs, not in this register.
 
 Do not add a new `DEC-*` entry for implementation sequencing, PR scope,
 hardening inventory, review findings, validation status, next validation

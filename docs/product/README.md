@@ -12,9 +12,9 @@ become and how users can start adopting it.
 
 Use engineering docs for delivery maturity, implementation ownership,
 prototype boundaries, tests, fixtures, and live API details. Use discovery docs
-for evidence, problem framing, validation plans/results, and historical route
-grouping. Use brownfield docs for as-is lab context, transition architecture,
-migration strategy, and authority transfer.
+for problem briefs and historical validation-slice inventory. Use brownfield
+docs for as-is lab context, transition architecture, migration strategy, and
+authority transfer.
 
 ## Documents
 

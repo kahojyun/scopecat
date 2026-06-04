@@ -2,27 +2,14 @@
 
 ## Purpose
 
-Discovery owns problem framing and historical validation evidence before it is
-promoted into product, brownfield, architecture, decision, or engineering
-owners.
+Discovery owns problem briefs and the compact historical validation-slice
+inventory. Product, brownfield, architecture, decision, and engineering docs
+own active direction, sequencing, boundaries, and implementation ownership.
 
-These documents are not user documentation and are not accepted architecture
-unless a narrower document says so. Use them to decide the next validation or
-implementation slice without promoting slice-local vocabulary into shared
-product contracts too early.
-
-After discovery evidence starts moving into live route-local code, product
-journey framing belongs in [`../product/target-journeys.md`](../product/target-journeys.md),
-use case validation sequencing belongs in
-[`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md),
-product capability maturity belongs in
-[`../product/target-capabilities.md`](../product/target-capabilities.md), and
-implementation ownership belongs in
-[`../engineering/implementation-register.md`](../engineering/implementation-register.md).
-Discovery slice documents remain historical evidence, not the default owner
-for engineering-prototype expansion. The former `routes/` directory has been
-removed; product, brownfield, architecture, decision, and engineering owners
-now own active routing and sequencing.
+These documents are not user documentation, accepted architecture, validation
+plans, or prototype-boundary owners unless a narrower current owner says so.
+Use them to frame the next validation question without promoting historical
+slice vocabulary into shared product contracts.
 
 ## Read First
 
@@ -36,30 +23,19 @@ now own active routing and sequencing.
 | [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md) | Start from use case validation state, evidence scopes, and missing seams before selecting the next use-case-driven prototype. |
 | [`../engineering/implementation-register.md`](../engineering/implementation-register.md) | Current live implementation owners. |
 | [`problem-briefs/README.md`](problem-briefs/README.md) | Start from evidence-backed problem framing before choosing a validation question. |
-| [`archive/slice-inventory.md`](archive/slice-inventory.md) | Understand the removed slice corpus and current archive policy. |
+| [`archive/slice-inventory.md`](archive/slice-inventory.md) | Compact index for removed validation-slice bodies when an active owner points there. |
 
 ## Historical Reference
 
-Use [`archive/slice-inventory.md`](archive/slice-inventory.md) only when an
-active owner points to historical validation slice evidence.
+Use [`archive/slice-inventory.md`](archive/slice-inventory.md) only when a
+current owner points to historical validation-slice evidence. Git history
+preserves the deleted slice bodies.
 
-## Former Validation Slices
-
-The former validation slice body corpus has been removed from active docs.
-The compact historical index remains in
-[`slice-inventory.md`](archive/slice-inventory.md), and Git history
-preserves the deleted bodies.
-
-Do not restart unbounded slice accumulation. New validation should start from
-a brownfield entrypoint, architecture transition gap, target journey gap,
-workflow/use-case validation question, or clearly scoped technical risk.
-Write new validation material beside the current owner it informs unless a
-narrow temporary plan/result file is clearly earned.
-
-Future slice candidates should each answer one primary validation question. Do
-not combine import/export, storage, GUI, execution, redaction, write-back,
-restore, or shared-framework decisions just because the same fixture mentions
-more than one of them.
+Do not restart unbounded slice accumulation. New validation should start from a
+brownfield entrypoint, architecture transition gap, target journey gap,
+workflow/use-case validation question, or clearly scoped technical risk. Write
+new validation material beside the current owner it informs unless a narrow
+temporary plan/result file is clearly earned.
 
 Discovery fixtures and expected outputs are repository-safe artifacts by
 default, not automatically portable/public/export artifacts. Use
@@ -70,13 +46,6 @@ For handoff package writers, the generated package directory is the portable
 artifact, `package-manifest.json` is the portable contract/index inside that
 directory, and any function return value is local/review-only unless the slice
 declares otherwise.
-
-Validation result and plan documents may include slice-local recommendations
-for what their fixture earned or deferred. They should not be treated as the
-owner of active sequencing. Current target journey framing belongs in
-[`../product/target-journeys.md`](../product/target-journeys.md), and current
-use case validation sequencing belongs in
-[`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md).
 
 ## Future Discovery Entry Points
 

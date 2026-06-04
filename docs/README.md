@@ -21,6 +21,8 @@ flat navigation map when you already know which owner you need.
   [`traceability.md`](traceability.md)
 - Engineering maturity, validation, and implementation ownership:
   [`engineering/README.md`](engineering/README.md)
+- Fixture and expected-output policy:
+  [`testing/fixture-policy.md`](testing/fixture-policy.md)
 - Discovery problem framing and historical validation evidence:
   [`discovery/README.md`](discovery/README.md)
 - Active execution work should live in issues, PRs, or branch-specific working
