@@ -19,6 +19,7 @@ owns the architecture entrypoint and domain-model lens.
 ## Transition Principles
 
 - Start from existing user entrypoints, not from invented object families.
+- Name the brownfield object before introducing the Scopecat transition object.
 - Improve review, record, package, bridge, and compare workflows before owning
   execution.
 - Keep legacy authority explicit until a named boundary moves.
@@ -29,14 +30,14 @@ owns the architecture entrypoint and domain-model lens.
 
 ## Entrypoint Transition Map
 
-| Brownfield Entrypoint | Current System Anchor | Scopecat Transition Role | Core Domain Objects | Slice Classification Signal |
-| --- | --- | --- | --- | --- |
-| Share a selected measurement | Selected IDs, Data Vault-style rows, copied folders, derived review artifacts. | Select one complete-enough record, export package, open package, review, import after acceptance. | Measurement Record, Primary Data, Handoff Package, Review Receipt, Operator Decision. | Keep slices that prove package, open-before-import, import planning, durable import, artifact boundary, and redaction behavior. Archive pure GUI/view-model experiments unless they guide current UX. |
-| Record an externally produced run | Legacy files, sidecars, adapter outputs, run notes, external source references. | Record source posture, reviewed primary data, references, and receipts without replacing the runner. | Measurement Record, Source Artifact, Primary Data, Context Reference, Review Receipt. | Keep slices proving source posture, normalized primary data, no-overwrite storage, and reference-only boundaries. Archive repeated sidecar projections once summarized. |
-| Review context before a manual run | Parameter files, setup notes, code folders, environment files, operator notebooks. | Compose selected context evidence and acknowledgement without run-start or hardware-control authority. | Parameter State, Setup Context, Experiment Code Context, Environment Evidence, Operator Decision, Review Receipt. | Keep slices tied to manual-prep user review. Archive concept-only context bundles that do not change the entrypoint or boundary. |
-| Inspect running or partial measurements | Live plotters, partial rows, progress habits, interrupted scans. | Observe lifecycle/progress/partial data and surface review state without scan control. | Measurement Record, Primary Data, Running State, Review Receipt. | Keep slices that prove lifecycle/progress observation and partial-data review. Archive static projections that do not connect to emitted events or user decisions. |
-| Continue calibration work | Failed fits, notebooks, manual recovery, proposed writes, blocked downstream steps. | Record fit review, user action, continuation state, and accepted handoff into parameter-state review. | Calibration Step, Measurement Record, Parameter State, Operator Decision, Review Receipt. | Keep slices that prove accepted write handoff, action recording, and continuity. Archive over-fragmented review-state projections after extracting the model. |
-| Compare or rerun from a reference | Last-working runs, notable references, copied code, remembered setup, selected artifacts. | Compare declared context and prepare manual rerun evidence without claiming reproducibility. | Reference Measurement, Measurement Record, Context Reference, Experiment Code Context, Parameter State, Setup Context. | Keep slices that prove objective comparison findings. Archive slices that imply restore, cause attribution, or shared relation graph before acceptance. |
+| Brownfield Entrypoint | Brownfield Objects | Scopecat Transition Objects | Slice Classification Signal |
+| --- | --- | --- | --- |
+| Share a selected measurement | Selected IDs, Data Vault-style rows, copied folders, zips, plots, reports, analysis outputs. | Measurement Record, Normalized Primary Data, Handoff Package, Import Plan, Receipt. | Keep slices that prove package, open-before-import, import planning, durable import, artifact boundary, and redaction behavior. Archive pure GUI/view-model experiments unless they guide current UX. |
+| Record an externally produced run | Legacy files, sidecars, adapter outputs, run notes, primary tables, external source references. | Measurement Record, Source Reference, Normalized Primary Data, Context Link, Receipt. | Keep slices proving source posture, normalized primary data, no-overwrite storage, and reference-only boundaries. Archive repeated sidecar projections once summarized. |
+| Review context before a manual run | Parameter files, setup notes, code folders, environment files, generated companions, operator notebooks. | Parameter State Record, Context Link, Review Summary, Operator Acknowledgement, Environment Operation Evidence. | Keep slices tied to manual-prep user review. Archive concept-only context bundles that do not change the entrypoint or boundary. |
+| Inspect running or partial measurements | Live plotters, partial rows, latest sweep state, interrupted scans, operator stop decisions. | Measurement Record, Normalized Primary Data, Review Summary, Receipt. | Keep slices that prove lifecycle/progress observation and partial-data review. Archive static projections that do not connect to emitted events or user decisions. |
+| Continue calibration work | Failed fits, manual refits, notebooks, proposed parameter changes, blocked downstream steps. | Calibration Continuation State, Operator Acknowledgement, Context Link, Parameter State Record, Receipt. | Keep slices that prove accepted write handoff, action recording, and continuity. Archive over-fragmented review-state projections after extracting brownfield terms and transition rules. |
+| Compare or rerun from a reference | Last-working runs, notable references, copied code, remembered setup, selected artifacts. | Reference Comparison Finding, Context Link, Review Summary, candidate Experiment Code Context and Setup Context. | Keep slices that prove objective comparison findings. Archive slices that imply restore, cause attribution, or shared relation graph before acceptance. |
 
 ## Architecture Flow
 
@@ -45,7 +46,7 @@ flowchart TD
   Entry["Brownfield entrypoint"]
   Current["Current system anchor"]
   Role["Scopecat transition role"]
-  Domain["Domain concepts and ownership"]
+  Domain["Brownfield vocabulary then transition concepts"]
   Boundary["Accepted or candidate boundary"]
   Slice["Discovery slice classification"]
   Decision["Decision or prototype promotion"]

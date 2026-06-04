@@ -11,7 +11,9 @@ Use this map to decide where adapters, anti-corruption layers, review
 boundaries, and deferred contracts belong.
 
 This is not a final service architecture, package layout, deployment topology,
-or public API map.
+or public API map. Context names other than `Legacy Lab Runtime` are Scopecat
+architecture contexts, not proof that the current lab system already has those
+bounded contexts.
 
 ## Contexts
 
@@ -21,7 +23,7 @@ or public API map.
 | Measurement Records | Scopecat accepted boundary | Local measurement identity, primary-data import/write, source posture, references, receipts, read/review projections. | Does not own all legacy parsing, scientific validity, hardware execution, or universal context graph. |
 | Handoff Packages | Scopecat accepted boundary | Package selected measurement data for review, open package read-only, plan/import after acceptance. | Does not own sender trust, authenticity, batch durable import, linked-context durable import, or final public package contract by default. |
 | Parameter State Review | Scopecat accepted boundary | Review, store, read, select, and consume parameter-state facts for manual preparation. | Does not own hardware apply, live write-back, current instrument truth, or setup truth. |
-| Environment Evidence | Scopecat accepted boundary | Record bounded environment-manager operation evidence and local review facts. | Does not own verified package state, runtime readiness, code execution, or hardware/service probes. |
+| Environment Operation Evidence | Scopecat accepted boundary | Record bounded environment-manager operation intent, result, and local review facts. | Does not own verified package state, runtime readiness, code execution, or hardware/service probes. |
 | Experiment Code Context | Scopecat candidate context | Record, compare, materialize, or observe selected code/workspace facts. | Does not own Git semantics, importability, dependency closure, environment restoration, or execution. |
 | Setup Context | Scopecat candidate context | Represent setup-binding, station-registry, wiring, generated companion, and physical-context facts. | Does not own parameter state, hardware state, or universal setup truth. |
 | Running Measurement Monitor | Scopecat candidate context | Observe lifecycle, progress, and partial-data facts from active measurements. | Does not own scan control, scheduling, automatic retune, or execution changes. |
@@ -46,7 +48,7 @@ flowchart LR
   MR["Measurement Records"]
   HP["Handoff Packages"]
   PS["Parameter State Review"]
-  ENV["Environment Evidence"]
+  ENV["Environment Operation Evidence"]
   CODE["Experiment Code Context"]
   SETUP["Setup Context"]
   RUN["Running Measurement Monitor"]
