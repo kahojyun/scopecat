@@ -56,6 +56,12 @@ historical implementation order. JNY-001 already has the strongest vertical
 slice evidence and can continue to harden in parallel; the order below is for
 validating cleaner product boundaries before splitting or promoting more code.
 
+`Already validated` records evidence that exists for the boundary. It may
+include discovery validation slices, engineering prototype slices,
+implementation-candidate evidence, and production vertical slice segments.
+Treat the maturity labels in the workflow validation map as authoritative; do
+not read every `Already validated` bullet as a maintained product capability.
+
 ### 1. Make External Runs Visible
 
 Target boundary: JNY-007 Record Or Adopt A Measurement, supported by CAP-001
