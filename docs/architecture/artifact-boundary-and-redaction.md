@@ -2,9 +2,10 @@
 
 ## Status
 
-Discovery policy rule.
+Architecture policy rule.
 
-This note defines the artifact surfaces that Scopecat discovery work should
+This note defines the artifact surfaces that Scopecat validation and product
+work should
 name when deciding redaction and reference-validation responsibility. It keeps
 local review surfaces useful while making portable/export/package boundaries
 explicit.
@@ -18,7 +19,7 @@ public/export documentation or define a generated artifact boundary.
 
 ## Rule
 
-Discovery work uses three top-level artifact boundary classifications:
+Scopecat work uses three top-level artifact boundary classifications:
 
 - **local/review surface**: a Scopecat UI, review summary, local receipt, or
   discovery summary meant for the local user, developer, or reviewer;
@@ -43,7 +44,7 @@ artifact, or otherwise generated to be carried away or shared, treat it as a
 portable/public/export boundary even when the slice did not explicitly label
 it.
 
-Discovery candidates should not recursively scan every string by default.
+Validation candidates should not recursively scan every string by default.
 Instead, they should validate the Scopecat-managed references that the slice
 claims to own. Deliberate projection and typed contract checks are contract
 hygiene, not a demand for broad runtime redaction. Keep broad free-text

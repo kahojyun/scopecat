@@ -19,7 +19,7 @@ docs/
   engineering/ delivery maturity model, workflow validation map,
                implementation register, prototype boundaries, and engineering
                archive
-  discovery/  problem briefs, policies, routes, validation slices, synthesis
+  discovery/  problem briefs and historical validation-slice inventory
   evidence/   evidence register, method, research, external baseline
 ```
 
@@ -33,6 +33,7 @@ docs/
 | [`product/target-journeys.md`](product/target-journeys.md) | Target product user journeys, primary workflows, use cases to prove, and discovery-to-engineering orientation. |
 | [`product/target-capabilities.md`](product/target-capabilities.md) | Target product capabilities, maturity, evidence state, and open advancement questions. |
 | [`product/adoption-strategy.md`](product/adoption-strategy.md) | Product adoption paths and user-value entry points. |
+| [`product/managed-experiment-code-posture.md`](product/managed-experiment-code-posture.md) | Product posture for managed experiment-code versions. |
 | [`brownfield/README.md`](brownfield/README.md) | Brownfield documentation navigation. |
 | [`brownfield/current-state-assessment.md`](brownfield/current-state-assessment.md) | As-is lab workflow and artifact patterns. |
 | [`brownfield/transition-architecture.md`](brownfield/transition-architecture.md) | Current/transition/target journey mapping and ownership posture. |
@@ -44,6 +45,9 @@ docs/
 | [`architecture/domain-model.md`](architecture/domain-model.md) | Initial candidate domain model and concept maturity labels. |
 | [`architecture/context-map.md`](architecture/context-map.md) | Bounded contexts, ownership posture, and anti-corruption relationships. |
 | [`architecture/transition-architecture.md`](architecture/transition-architecture.md) | Brownfield entrypoint-driven transition architecture and slice-classification frame. |
+| [`architecture/artifact-boundary-and-redaction.md`](architecture/artifact-boundary-and-redaction.md) | Artifact boundary and redaction architecture policy. |
+| [`architecture/measurement-data-reference-boundary.md`](architecture/measurement-data-reference-boundary.md) | Measurement data, source reference, artifact, and previewable item boundary. |
+| [`architecture/package-purpose-boundary.md`](architecture/package-purpose-boundary.md) | Package purpose boundary for review, shared references, and future offline execution migration. |
 | [`decisions/README.md`](decisions/README.md) | Decision-record navigation and governance. |
 | [`decisions/register.md`](decisions/register.md) | Current product, architecture, engineering, discovery, and operational decision index. |
 | [`decisions/template.md`](decisions/template.md) | Template for new decision records. |
@@ -53,11 +57,9 @@ docs/
 | [`engineering/implementation-register.md`](engineering/implementation-register.md) | Live implementation owners and primary module or boundary detail docs. |
 | [`engineering/terminology.md`](engineering/terminology.md) | Standard engineering terms for workflow, capability, maturity, validation method, decision, evidence, artifact boundary, and ownership. |
 | [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) | Current route-local engineering prototype boundaries promoted from discovery-backed implementation work. |
-| [`discovery/README.md`](discovery/README.md) | Discovery navigation for problem briefs, validation slices, synthesis, and deferrals. |
+| [`discovery/README.md`](discovery/README.md) | Discovery navigation for problem briefs and historical validation evidence. |
 | [`discovery/doc-types.md`](discovery/doc-types.md) | Discovery document type responsibilities and ownership rules. |
-| [`discovery/slices/README.md`](discovery/slices/README.md) | Discovery slice evidence entry and archived inventory pointer. |
-| [`discovery/synthesis/cross-slice.md`](discovery/synthesis/cross-slice.md) | Compact historical synthesis across removed discovery slices. |
-| [`discovery/synthesis/shared-model-extraction-deferral.md`](discovery/synthesis/shared-model-extraction-deferral.md) | Current deferral of shared domain model extraction. |
+| [`discovery/archive/slice-inventory.md`](discovery/archive/slice-inventory.md) | Compact historical index for removed validation slice bodies. |
 | [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md) | Evidence-backed problem briefs. |
 | [`evidence/evidence-register.md`](evidence/evidence-register.md) | Stable `EV-*` evidence claims and source posture. |
 | [`evidence/method.md`](evidence/method.md) | Evidence classes, support rules, source handling, and update rules. |

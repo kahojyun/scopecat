@@ -97,7 +97,7 @@ Use these owner documents for details:
 - [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
   for use cases, scenarios, operations, seams, and
   validation questions;
-- [`../discovery/policies/managed-experiment-code-posture.md`](../discovery/policies/managed-experiment-code-posture.md)
+- [`managed-experiment-code-posture.md`](managed-experiment-code-posture.md)
   for historical discovery strategy around Git-like experiment-code versions.
 
 Cross-machine value should start from portable records, handoff packages,
@@ -144,7 +144,7 @@ Artifact classification and redaction are boundary-specific. Local review
 surfaces and repository-safe fixtures should remain useful and explicit;
 portable/export artifacts need stronger managed-reference validation and
 redaction behavior. The detailed policy owner is
-[`../discovery/policies/artifact-boundary-and-redaction.md`](../discovery/policies/artifact-boundary-and-redaction.md).
+[`../architecture/artifact-boundary-and-redaction.md`](../architecture/artifact-boundary-and-redaction.md).
 
 ## Expansion Strategy
 

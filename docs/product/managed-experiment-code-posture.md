@@ -2,15 +2,15 @@
 
 ## Status
 
-Discovery product strategy note.
+Product strategy note.
 
 This note records the intended product direction for experiment-code
 management. It does not accept a final storage backend, Git replacement,
 workspace layout, package manager, environment manager, execution service,
 workflow/DAG model, merge model, sync protocol, GUI design, or code registry.
 The durable product direction lives in
-[`product-direction.md`](../../product/direction.md); this note owns the
-slice-specific discovery boundary.
+[`direction.md`](direction.md); this note owns the experiment-code posture
+until a narrower decision promotes storage, execution, or workspace authority.
 
 ## Direction
 
@@ -220,7 +220,7 @@ later questions.
 ## Slice Recommendation
 
 Use the validated code-recording fixture and
-[`experiment-code-recording-next-boundary.md`](../archive/slice-inventory.md)
+[`experiment-code-recording-next-boundary.md`](../discovery/archive/slice-inventory.md)
 as the stop point for this slice.
 
 The validated boundary represents a messy external folder being recorded with a

@@ -1,12 +1,14 @@
-# Shared Model Extraction Deferral
+# DEC-002: Vertical Slice Before Shared Model Extraction
 
 ## Status
 
-Discovery deferral, not an ADR.
+Architecture decision.
 
-This note records a negative decision for the current discovery stage: do not
-extract shared domain models or shared implementation modules from the current
-slice-local candidates yet.
+Decision status: accepted.
+
+This note records a negative architecture decision for the current stage: do
+not extract shared domain models or shared implementation modules from the
+current slice-local candidates yet.
 
 ## Decision
 
@@ -14,7 +16,7 @@ Keep the current implementation candidates slice-local.
 
 Do not introduce a shared `core`, `domain`, `models`, record schema, relation
 schema, warning taxonomy, preview-metadata schema, workflow model, or reusable
-builder package from the current discovery work.
+builder package from the current validation and prototype evidence.
 
 This defers shared model and shared implementation ownership. It does not
 reject the recurring concepts.

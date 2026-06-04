@@ -2,7 +2,7 @@
 
 ## Status
 
-Discovery boundary note.
+Architecture boundary note.
 
 This note clarifies the current Measurement Records distinction between data
 Scopecat can preview and files Scopecat can only reference or observe. It does
@@ -11,7 +11,7 @@ legacy reader, artifact schema, or shared measurement-record domain model.
 
 For the current source/reference anti-corruption decision after the
 import/source observation pass, read
-[`DEC-003-import-source-anti-corruption-boundary.md`](../../decisions/architecture/DEC-003-import-source-anti-corruption-boundary.md).
+[`DEC-003-import-source-anti-corruption-boundary.md`](../decisions/architecture/DEC-003-import-source-anti-corruption-boundary.md).
 
 ## Rule
 

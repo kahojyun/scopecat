@@ -2,7 +2,7 @@
 
 ## Status
 
-Discovery policy sketch.
+Architecture policy sketch.
 
 This note records candidate vocabulary and unresolved policy questions for
 externally referenced files. It does not accept a final storage architecture,
@@ -24,7 +24,7 @@ That still does not decide how Scopecat should treat externally referenced
 files over time.
 
 This note should be read with
-[`policies/artifact-boundary-and-redaction.md`](artifact-boundary-and-redaction.md):
+[`artifact-boundary-and-redaction.md`](artifact-boundary-and-redaction.md):
 discovery fixtures and expected outputs are repository-safe artifacts by
 default, while portable/public/export artifacts and package writer outputs need
 explicit portable/export redaction and reference rules.

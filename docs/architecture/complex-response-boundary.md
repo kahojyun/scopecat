@@ -2,7 +2,7 @@
 
 ## Status
 
-Discovery boundary.
+Architecture boundary.
 
 Decision status: accepted for current scan/data-shape validation.
 

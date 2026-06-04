@@ -67,8 +67,8 @@ For new discovery work:
    evidence rules.
 2. [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md)
    for problem framing.
-3. [`discovery/README.md`](discovery/README.md) for discovery route, slice,
-   policy, and synthesis navigation.
+3. [`discovery/README.md`](discovery/README.md) for discovery problem framing
+   and historical validation evidence.
 
 ## Editing Rules
 

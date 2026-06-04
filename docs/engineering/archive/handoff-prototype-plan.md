@@ -40,10 +40,12 @@ packaging before proving read-only use.
 
 ## Discovery Evidence Reused
 
-The prototype starts from the route decisions in
-[`decision.md`](../../discovery/archive/measurement-records-handoff-route/decision.md)
-and the consolidation in
-[`README.md`](../../discovery/archive/measurement-records-handoff-route/README.md).
+The prototype started from retired handoff discovery route decisions that are
+now preserved in Git history. Current handoff boundaries live in
+[`handoff.md`](../prototype-boundaries/handoff.md),
+[`handoff-durable-import-storage.md`](../prototype-boundaries/handoff-durable-import-storage.md),
+and the architecture decision records under
+[`../../decisions/architecture/`](../../decisions/architecture/).
 The most relevant slice
 evidence is:
 

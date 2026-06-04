@@ -2,9 +2,9 @@
 
 ## Purpose
 
-Discovery owns problem framing, boundary policies, validation evidence,
-implementation-shaped exploration results before promotion, compact historical
-synthesis, and explicit deferrals.
+Discovery owns problem framing and historical validation evidence before it is
+promoted into product, brownfield, architecture, decision, or engineering
+owners.
 
 These documents are not user documentation and are not accepted architecture
 unless a narrower document says so. Use them to decide the next validation or
@@ -28,7 +28,7 @@ now own active routing and sequencing.
 
 | Document | Use For |
 | --- | --- |
-| [`doc-types.md`](doc-types.md) | Understand which discovery document type owns navigation, policies, slice evidence, or synthesis. |
+| [`doc-types.md`](doc-types.md) | Understand which discovery document type owns problem framing and historical evidence. |
 | [`../product/adoption-strategy.md`](../product/adoption-strategy.md) | Current product adoption paths. |
 | [`../product/target-journeys.md`](../product/target-journeys.md) | Current target product user journeys, primary workflows, and use cases to prove before promotion. |
 | [`../product/target-capabilities.md`](../product/target-capabilities.md) | Current target product capabilities, maturity, evidence, and open advancement questions. |
@@ -36,17 +36,13 @@ now own active routing and sequencing.
 | [`../engineering/delivery-maturity-model.md`](../engineering/delivery-maturity-model.md) | Classify maturity owners before promoting code; treat candidates, spikes, prototypes, scenarios, and operations as evidence or validation methods. |
 | [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md) | Start from use case validation state, evidence scopes, and missing seams before selecting the next use-case-driven prototype. |
 | [`../engineering/implementation-register.md`](../engineering/implementation-register.md) | Current live implementation owners. |
-| [`policies/README.md`](policies/README.md) | Navigate repeated boundary vocabulary, artifact classification, and product strategy documents. |
 | [`problem-briefs/README.md`](problem-briefs/README.md) | Start from evidence-backed problem framing before choosing a validation question. |
-| [`slices/README.md`](slices/README.md) | Understand the removed slice corpus and current archive policy. |
-| [`synthesis/cross-slice.md`](synthesis/cross-slice.md) | See compact historical cross-slice design pressure after the detailed slice corpus removal. |
-| [`synthesis/shared-model-extraction-deferral.md`](synthesis/shared-model-extraction-deferral.md) | Understand why shared domain models are intentionally deferred. |
+| [`archive/slice-inventory.md`](archive/slice-inventory.md) | Understand the removed slice corpus and current archive policy. |
 
 ## Historical Reference
 
-Use [`archive/README.md`](archive/README.md) only when an active discovery owner
-points to historical inventories, retired route synthesis, or frozen
-coordination maps.
+Use [`archive/slice-inventory.md`](archive/slice-inventory.md) only when an
+active owner points to historical validation slice evidence.
 
 ## Former Validation Slices
 
@@ -68,7 +64,7 @@ more than one of them.
 
 Discovery fixtures and expected outputs are repository-safe artifacts by
 default, not automatically portable/public/export artifacts. Use
-[`policies/artifact-boundary-and-redaction.md`](policies/artifact-boundary-and-redaction.md)
+[`../architecture/artifact-boundary-and-redaction.md`](../architecture/artifact-boundary-and-redaction.md)
 when deciding whether a slice needs runtime redaction, managed-reference
 validation, a review-summary projection, or portable/package redaction rules.
 For handoff package writers, the generated package directory is the portable
@@ -93,7 +89,7 @@ discovery should start from one of the active owners:
 - a workflow/use-case validation gap in [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md);
 - an architecture transition gap in [`../architecture/transition-architecture.md`](../architecture/transition-architecture.md);
 - an evidence-backed problem brief in [`problem-briefs/README.md`](problem-briefs/README.md);
-- a focused artifact or boundary policy in [`policies/README.md`](policies/README.md).
+- a focused architecture boundary in [`../architecture/README.md`](../architecture/README.md).
 
 ## Promotion Discipline
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-Discovery boundary note.
+Architecture boundary note.
 
 This note separates three related ways Scopecat may help users analyze,
 share, or move experiment work. It does not accept a final package format,
