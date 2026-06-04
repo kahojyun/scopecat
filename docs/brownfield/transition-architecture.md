@@ -86,8 +86,8 @@ Deferred authority:
 
 - legacy execution, raw historical file semantics, adapter discovery, and
   scientific validity remain outside Scopecat;
-- Measurement Record creation, adoption, running updates, and post-run
-  finalization belong to separate journeys or workflow segments that feed this
+- Measurement Record creation, adoption, running updates, and post-run results
+  review belong to separate journeys or workflow segments that feed this
   handoff journey.
 
 ### JNY-002 Prepare A Manual Run
@@ -230,34 +230,37 @@ Deferred authority:
 - raw legacy parsing, legacy execution, reference repair, current instrument
   truth, and scientific validity remain outside Scopecat by default.
 
-### JNY-008 Review And Finalize A Completed Measurement
+### JNY-008 Browse And Review Completed Results
 
 Current journey:
 
-- users review completed results through notebooks, reports, sidecars, and
-  folder inspection before deciding whether a measurement is ready to share or
-  use;
-- missing context, derived artifacts, and operator notes often remain separate
-  from primary data.
+- users browse completed results through manually managed folders, notebooks,
+  plots, reports, sidecars, and memory before deciding whether a measurement is
+  ready to share or use;
+- primary data, derived artifacts, plots, missing context, and operator notes
+  often remain separate and hard to filter together.
 
 Transition journey:
 
 - review a completed Measurement Record read model and record-local receipts;
+- browse and filter candidate records;
+- plot selected primary-data or derived-result series;
 - identify missing, stale, or incomplete context;
 - record operator review notes or continuation receipts;
 - project a read model for downstream selection.
 
 Target journey:
 
-- confirm primary data, context references, derived artifacts, and operator
-  notes for a completed measurement;
-- make the record understandable and ready for handoff, comparison,
+- browse, filter, and plot completed or near-completed measurement results;
+- inspect primary data, context references, derived artifacts, and operator
+  notes together;
+- make the selected result understandable and ready for handoff, comparison,
   calibration continuation, or rerun preparation;
-- keep review/finalization separate from canonical source replacement.
+- keep post-run review separate from canonical source replacement.
 
 Ownership posture:
 
-- completed-record review: candidate `Review`;
+- records browser, filtering, and plotter surfaces: candidate `Review`;
 - operator notes and review receipts: candidate `Record`;
 - read-model projection: `Review` convenience projection, not canonical storage
   authority.

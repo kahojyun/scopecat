@@ -49,7 +49,7 @@ Measurement Record and review/package boundaries coherent.
 | Checking instrument and service readiness | Capture bounded evidence or typed operation receipts while the old system remains the readiness authority. | CAP-004 Environment Operation; JNY-002/JNY-009 support. |
 | Continuing calibration work | Record fit review, user action, continuation state, and accepted write handoff before considering execution assistance. | JNY-003 Recover Or Continue Calibration Work. |
 | Inspecting running measurements | Observe lifecycle/progress/partial-data events without scan control or scheduling ownership. | JNY-004 Monitor A Running Measurement; CAP-006 candidate. |
-| Reviewing completed results | Review primary data, derived artifacts, notes, and missing context before downstream handoff, comparison, or rerun preparation. | JNY-008 Review And Finalize A Completed Measurement. |
+| Reviewing completed results | Browse, filter, plot, and review primary data, derived artifacts, notes, and missing context before downstream handoff, comparison, or rerun preparation. | JNY-008 Browse And Review Completed Results. |
 | Reconstructing a reference or rerun | Compare declared context and selected code context, then prepare rerun/reproduction evidence without claiming setup truth or execution authority. | JNY-009 Reproduce Or Rerun From A Reference; Experiment Code and Selected Reference support. |
 
 This mapping is not an implementation order. It is the boundary map that keeps
@@ -103,7 +103,7 @@ Examples:
 
 After the bridge boundaries are useful, Scopecat can add capabilities that are
 hard to maintain in the current workflow, such as cross-run comparison,
-parameter history, completed-record readiness review, reference-based rerun
+parameter history, post-run results readiness review, reference-based rerun
 preparation, calibration continuation state, and package receiving continuity.
 
 These additions should still be pulled by named journeys or capability use

@@ -51,7 +51,7 @@ User value:
 Supports:
 
 - Record Or Adopt A Measurement;
-- Review And Finalize A Completed Measurement later;
+- Browse And Review Completed Results later;
 - Reproduce Or Rerun From A Reference later;
 - Measurement Records;
 - Experiment Code Context later;
@@ -174,12 +174,13 @@ or rerun preparation.
 User value:
 
 - distinguish primary data from transformed or derived artifacts;
+- browse, filter, and plot completed results before choosing what matters;
 - make review notes and missing context visible before sharing or reuse;
 - avoid hiding source identity behind static reports or presentations.
 
 Supports:
 
-- Review And Finalize A Completed Measurement;
+- Browse And Review Completed Results;
 - Share A Selected Measurement later;
 - Reproduce Or Rerun From A Reference later;
 - Measurement Records.

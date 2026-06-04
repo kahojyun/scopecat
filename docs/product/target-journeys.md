@@ -53,7 +53,7 @@ prepare a manual run
   -> start the run outside Scopecat
   -> monitor running measurement
   -> record or adopt measurement facts
-  -> review and finalize the completed measurement
+  -> browse and review completed results
   -> share selected results, continue calibration, or reproduce from reference
 ```
 
@@ -81,14 +81,14 @@ Current slices:
 - JNY-002 Prepare A Manual Run;
 - JNY-004 Monitor A Running Measurement;
 - JNY-007 Record Or Adopt A Measurement;
-- JNY-008 Review And Finalize A Completed Measurement;
+- JNY-008 Browse And Review Completed Results;
 - JNY-001 Share A Selected Measurement;
 - JNY-003 Recover Or Continue Calibration Work;
 - JNY-009 Reproduce Or Rerun From A Reference.
 
 Promotion condition: promote only after a narrow slice around a named use case
 proves manual review, explicit run-start authority, execution boundary,
-monitoring, result recording, review/finalization, and recovery expectations
+monitoring, result recording, post-run review, and recovery expectations
 together.
 
 ## Journey Catalog
@@ -127,9 +127,9 @@ Supporting capabilities:
 Validation orientation: primary active journey. Existing evidence includes the
 input-side Measurement Records work needed to prove handoff, but the target
 journey is sharing a selected measurement, not owning the whole Measurement
-Records lifecycle. Record creation, adoption, running updates, and completed
-measurement finalization are separate journeys or workflow segments that feed
-this journey.
+Records lifecycle. Record creation, adoption, running updates, and post-run
+results review are separate journeys or workflow segments that feed this
+journey.
 
 The DEC-010 directory manifest package format is accepted for the current
 production vertical slice candidate. DEC-011 keeps that package as local
@@ -318,54 +318,61 @@ Supporting capabilities:
 - Parameter State Review later;
 - Experiment Code Context later.
 
-Validation orientation: this journey separates the input side of Measurement
-Records from JNY-001 handoff. Current evidence exists as engineering prototype
-work under Measurement Records and as the input scaffolding used by JNY-001,
-but future design should treat adoption/recording as its own user job when it
-is validated beyond handoff support.
+Validation orientation: this target journey separates the input side of
+Measurement Records from JNY-001 handoff. Current evidence exists as
+engineering prototype work under Measurement Records and as the input
+scaffolding used by JNY-001. The open question is not whether JNY-007 belongs
+in the target catalog; it is which first user-facing route or use case should
+own recording/adoption beyond handoff support.
 
 Source evidence:
 
 - [`measurement-record-boundary.md`](../discovery/problem-briefs/measurement-record-boundary.md);
 - [`selected-run-handoff.md`](../discovery/problem-briefs/selected-run-handoff.md).
 
-### Review And Finalize A Completed Measurement
+### Browse And Review Completed Results
 
 ID: JNY-008.
 
-Goal: review a completed measurement's primary data, context references,
-derived artifacts, and operator notes so the record is understandable and ready
-for downstream use such as handoff, comparison, calibration continuation, or
-rerun preparation.
+Goal: browse, filter, plot, and review completed or near-completed measurement
+results so the user can find relevant records, inspect primary data and derived
+artifacts, and decide whether a result is ready for handoff, comparison,
+calibration continuation, or rerun preparation.
 
 Primary workflows:
 
-- completed-record review;
-- primary-data and context completeness review;
-- derived artifact and supporting evidence review;
-- operator review receipt or finalization;
-- read-model projection for downstream selection.
+- records browser and filtering;
+- primary-data and derived-artifact inspection;
+- result plotting and exploratory review;
+- context completeness and readiness review;
+- operator review receipt or readiness note.
 
 Use cases to prove:
 
-- inspect a completed Measurement Record before export or reuse;
+- find relevant completed or near-completed Measurement Records;
+- open primary data, derived artifacts, reports, notes, and context references;
+- plot selected result series or ranges before choosing what matters;
 - identify missing or stale context;
 - record an operator note, acknowledgement, or continuation decision;
-- finalize or project the record without replacing canonical source evidence;
-- surface whether the record is ready for handoff or needs more review.
+- surface whether the result is ready for handoff or needs more review;
+- keep browsing, plotting, and review separate from canonical source
+  replacement.
 
 Supporting capabilities:
 
 - Measurement Records;
+- records browser and plotter candidates;
 - selected reference comparison workflow;
 - Experiment Code Context;
 - Handoff Packages later;
 - Calibration Continuation Review later.
 
-Validation orientation: current JNY-001 evidence includes selected-record export
-and read-model freshness checks, but completed-record review should not remain
-hidden inside handoff. Promote this journey only around a user-facing
-post-run review use case with explicit record-readiness semantics.
+Validation orientation: this target journey is the user-facing post-run result
+review hypothesis behind records browser and plotter pressure. Current JNY-001
+evidence includes selected-record export and read-model freshness checks, but
+post-run browsing, plotting, and readiness review should not remain hidden
+inside handoff. The open question is which first route or use case should own
+the live records browser, plotter, and readiness-review behavior.
 
 Source evidence:
 
@@ -448,7 +455,7 @@ Former target journey ID: JNY-006, retired from the target journey catalog.
 Supports:
 
 - Prepare A Manual Run;
-- Review And Finalize A Completed Measurement;
+- Browse And Review Completed Results;
 - Recover Or Continue Calibration Work;
 - Reproduce Or Rerun From A Reference;
 - Share A Selected Measurement later.

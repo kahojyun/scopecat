@@ -6,7 +6,7 @@ Current engineering-prototype implementation owner for Scopecat-authored
 handoff package use and durable Measurement Records handoff import adaptation.
 This module owns route-local package and receiving behavior for JNY-001 Share A
 Selected Measurement; it does not own Measurement Record creation, adoption,
-running updates, or completed-record finalization.
+running updates, or post-run results review.
 
 This module is route-local prototype code. It exposes production-shaped Python
 entrypoints over validated handoff discovery evidence. Boundary details live in

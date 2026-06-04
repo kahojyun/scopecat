@@ -40,7 +40,7 @@ dependencies and authority boundaries coherent:
 ```text
 evidence and source posture
   -> Measurement Record anchor
-  -> review/finalization and prepared-run receipts
+  -> post-run review and prepared-run receipts
   -> handoff, comparison, running, calibration, or rerun extensions
 ```
 
@@ -77,8 +77,9 @@ Related decisions: DEC-004, DEC-025.
 
 Next validation focus:
 
-- decide whether record/adopt is a standalone user journey now or remains a
-  Measurement Records capability path feeding JNY-001 and JNY-008.
+- decide which first user-facing route or use case should own recording/adoption
+  beyond the existing Measurement Records capability path feeding JNY-001 and
+  JNY-008.
 
 Already validated:
 
@@ -123,7 +124,7 @@ Decision gate:
 
 - handoff hardening remains centered on sharing a selected Measurement Record,
   not on absorbing Measurement Record creation, adoption, running updates, or
-  completed-record finalization.
+  post-run results review.
 
 ### 3. Check Context Before A Run
 
@@ -191,10 +192,10 @@ Decision gate:
 
 ### 5. Review Completed Results
 
-Target boundary: JNY-008 Review And Finalize A Completed Measurement.
+Target boundary: JNY-008 Browse And Review Completed Results.
 
-Target use case: candidate to define from Measurement Records review/finalize
-pressure.
+Target use case: candidate to define from post-run result browsing, filtering,
+plotting, and Measurement Records readiness-review pressure.
 
 Related risks: BR-RISK-003, BR-RISK-006, BR-RISK-007, BR-RISK-010.
 
@@ -202,8 +203,8 @@ Related decisions: DEC-025.
 
 Next validation focus:
 
-- decide whether post-run record review/finalization needs a route owner before
-  more handoff hardening.
+- choose the first live post-run route or use case: records browser, plotter,
+  readiness-review receipt, or a narrow composition of those surfaces.
 
 Already validated:
 
@@ -213,9 +214,10 @@ Already validated:
 
 Decision gate:
 
-- a completed-record review use case has explicit readiness semantics for
-  handoff, comparison, calibration continuation, or rerun preparation without
-  replacing canonical source evidence.
+- a post-run results review use case lets users find, inspect, plot, and assess
+  completed or near-completed results before handoff, comparison, calibration
+  continuation, or rerun preparation without replacing canonical source
+  evidence.
 
 ### 6. Inspect Running Measurements
 

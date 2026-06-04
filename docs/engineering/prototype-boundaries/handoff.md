@@ -287,9 +287,9 @@ receipt for workflow continuity without making the receipt a GUI-owned store.
 [`DEC-025`](../../decisions/architecture/DEC-025-defer-existing-record-update-and-final-storage-schema.md)
 keeps selected stored-record export source-storage-read-only and receiving
 durable import new-record-only. Existing-record update, merge import, manifest
-replacement, primary-data compaction, completed-record finalization, and final
-storage schema publication remain outside the current JNY-001 production
-readiness boundary.
+replacement, primary-data compaction, post-run results review, and final storage
+schema publication remain outside the current JNY-001 production readiness
+boundary.
 
 ## Production Vertical Slice Candidate
 

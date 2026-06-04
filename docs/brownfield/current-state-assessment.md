@@ -144,11 +144,14 @@ Current pressure:
 
 ### Reviewing Completed Results
 
-After a run, users often analyze, plot, summarize, and report selected results
-before deciding whether the data is worth preserving, comparing, or handing off.
+After a run, users often browse manually managed folders, analyze data, plot
+selected series, summarize, and report selected results before deciding whether
+the data is worth preserving, comparing, or handing off.
 
 Current pressure:
 
+- finding the relevant result can depend on folder names, notebook residue,
+  sidecars, reports, plots, and memory rather than a records browser;
 - analysis artifacts can be mixed with primary data, transformed data,
   notebooks, figures, reports, and presentation material;
 - selected "useful" results may be identified after several exploratory plots
