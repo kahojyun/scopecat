@@ -41,15 +41,15 @@ context or attachment schema, or accepts a relation graph.
 
 ## Historical Evidence
 
-- [`../../synthesis/measurement-context-backlog.md`](../../synthesis/measurement-context-backlog.md)
-- [`README.md`](../../archive/slice-inventory.md)
+- [`../../synthesis/cross-slice.md`](../../synthesis/cross-slice.md)
+- [`../../archive/slice-inventory.md`](../../archive/slice-inventory.md)
 - [`../../../../implementation_candidates/measurement_context_link/README.md`](../../../../implementation_candidates/measurement_context_link/README.md)
 - [`../../../../implementation_candidates/supporting_evidence_reference/README.md`](../../../../implementation_candidates/supporting_evidence_reference/README.md)
 - [`../../../../implementation_candidates/resolved_context_link_comparison/README.md`](../../../../implementation_candidates/resolved_context_link_comparison/README.md)
 
 ## Still Candidate-Only
 
-The broader measurement-context support backlog remains candidate-only:
+Broader measurement-context support remains candidate-only:
 
 - named run-start input sets;
 - measurement context-link storage or mutation;

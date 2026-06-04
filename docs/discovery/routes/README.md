@@ -62,5 +62,4 @@ for live implementation ownership.
 | [`../problem-briefs/README.md`](../problem-briefs/README.md) | Evidence-backed problem framing before choosing a validation question. |
 | [`README.md`](../archive/slice-inventory.md) | How to use discovery slice results as evidence. |
 | [`slice-inventory.md`](../archive/slice-inventory.md) | Historical flat discovery slice inventory. |
-| [`../synthesis/measurement-context-backlog.md`](../synthesis/measurement-context-backlog.md) | Shared backlog for measurement-context-shaped validation work across routes. |
 | [`../problem-briefs/setup-binding.md`](../problem-briefs/setup-binding.md) and [`setup-binding-validation-result.md`](../archive/slice-inventory.md) | Historical setup-binding evidence. The active narrow route-local owner is [`setup-binding/README.md`](setup-binding/README.md). |

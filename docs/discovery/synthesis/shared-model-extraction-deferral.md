@@ -21,11 +21,12 @@ reject the recurring concepts.
 
 ## Context
 
-The cross-slice synthesis shows repeated vocabulary across areas including
-measurement records, running inspection, calibration continuation, parameter
-state, setup binding, selected-reference comparison, experiment-code records,
-managed code versions, declared environment context, environment operation,
-prepared-run context, and measurement/data-shape fixtures:
+Historical cross-slice synthesis and the current architecture docs show
+repeated vocabulary across areas including measurement records, running
+inspection, calibration continuation, parameter state, setup binding,
+selected-reference comparison, experiment-code records, managed code versions,
+declared environment context, environment operation, prepared-run context, and
+measurement/data-shape fixtures:
 
 - measurement record;
 - source identity;
@@ -42,10 +43,10 @@ prepared-run context, and measurement/data-shape fixtures:
 Those concepts are real discovery pressure. They are useful for analysis,
 fixture design, validation wording, and future architecture discussions.
 
-The measurement-context candidate backlog is part of that discovery pressure.
-It may be used to name common validation questions across parameter state,
-setup binding, experiment code context, declared environment context, analysis
-choices, artifacts, attachments, and selected-reference review.
+The removed measurement-context backlog was useful discovery pressure, but it
+should not remain an active planning owner. Future validation questions should
+start from current architecture, product, and engineering owners before adding
+new discovery-local material.
 
 These concepts and backlog entries are not yet stable enough to become shared
 product schema or shared code. The slices still differ in their immediate user

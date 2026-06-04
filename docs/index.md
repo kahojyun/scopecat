@@ -57,7 +57,7 @@ docs/
 | [`discovery/doc-types.md`](discovery/doc-types.md) | Discovery document type responsibilities and ownership rules. |
 | [`discovery/routes/adoption-routes.md`](discovery/routes/adoption-routes.md) | Evidence-backed adoption routes grouped by durable user workflow. |
 | [`discovery/slices/README.md`](discovery/slices/README.md) | Discovery slice evidence entry and archived inventory pointer. |
-| [`discovery/synthesis/cross-slice.md`](discovery/synthesis/cross-slice.md) | Current synthesis across validated discovery slices. |
+| [`discovery/synthesis/cross-slice.md`](discovery/synthesis/cross-slice.md) | Compact historical synthesis across removed discovery slices. |
 | [`discovery/synthesis/shared-model-extraction-deferral.md`](discovery/synthesis/shared-model-extraction-deferral.md) | Current deferral of shared domain model extraction. |
 | [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md) | Evidence-backed problem briefs. |
 | [`evidence/evidence-register.md`](evidence/evidence-register.md) | Stable `EV-*` evidence claims and source posture. |

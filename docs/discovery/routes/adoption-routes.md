@@ -28,9 +28,8 @@ A route is different from a validation slice:
 | --- | --- |
 | [`../../evidence/evidence-register.md`](../../evidence/evidence-register.md) | Stable evidence claims and source coverage. |
 | [`problem-briefs/README.md`](../problem-briefs/README.md) | Evidence-backed user-facing failure cases. |
-| [`README.md#validation-slices`](../README.md#validation-slices) | Discovery validation slices historically grouped under these routes. |
-| [`../synthesis/cross-slice.md`](../synthesis/cross-slice.md) | Recurring candidate concepts across validated slices. |
-| [`../synthesis/measurement-context-backlog.md`](../synthesis/measurement-context-backlog.md) | Shared discovery backlog for context-shaped validation work across routes. |
+| [`README.md#former-validation-slices`](../README.md#former-validation-slices) | Discovery validation slices historically grouped under these routes. |
+| [`../synthesis/cross-slice.md`](../synthesis/cross-slice.md) | Compact historical cross-slice design pressure. |
 | [`../synthesis/shared-model-extraction-deferral.md`](../synthesis/shared-model-extraction-deferral.md) | Why shared domain models are still deferred. |
 | [`../../product/direction.md`](../../product/direction.md) | Current product direction, ownership assumptions, non-goals, and expansion strategy. |
 | [`../../product/adoption-strategy.md`](../../product/adoption-strategy.md) | Current product adoption paths. |

@@ -204,6 +204,6 @@ The active durable handoff import boundary lives in
 | [`../../implementation_candidates/measurement_record_handoff_flow/`](../../../../implementation_candidates/measurement_record_handoff_flow) | First import-to-handoff composition candidate. |
 
 Context-shaped work such as recorded analysis choices and handoff context
-should use [`synthesis/measurement-context-backlog.md`](../../synthesis/measurement-context-backlog.md)
-unless the slice is about primary measurement data or direct
-artifact-to-measurement source-link boundaries.
+should start from the current architecture and workflow owners unless the work
+is about primary measurement data or direct artifact-to-measurement source-link
+boundaries.

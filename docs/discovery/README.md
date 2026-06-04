@@ -39,9 +39,8 @@ is a legacy path for discovery tracks, not an active product route map.
 | [`policies/README.md`](policies/README.md) | Navigate repeated boundary vocabulary, artifact classification, and product strategy documents. |
 | [`problem-briefs/README.md`](problem-briefs/README.md) | Start from evidence-backed problem framing before choosing a validation question. |
 | [`slices/README.md`](slices/README.md) | Understand the removed slice corpus and current archive policy. |
-| [`synthesis/cross-slice.md`](synthesis/cross-slice.md) | See recurring candidate concepts, stable separations, and cross-route design pressure. |
+| [`synthesis/cross-slice.md`](synthesis/cross-slice.md) | See compact historical cross-slice design pressure after the detailed slice corpus removal. |
 | [`synthesis/shared-model-extraction-deferral.md`](synthesis/shared-model-extraction-deferral.md) | Understand why shared domain models are intentionally deferred. |
-| [`synthesis/measurement-context-backlog.md`](synthesis/measurement-context-backlog.md) | Shared discovery backlog for context records attached to or selected for measurements, without accepting a shared schema. |
 
 ## Historical Reference
 
