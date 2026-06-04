@@ -2,8 +2,8 @@
 
 ## Status
 
-Current engineering-prototype implementation owner for approved local
-environment-manager operations.
+Frozen engineering-prototype implementation owner for one approved local `uv`
+operation chain.
 
 The promoted boundary is owned by
 [`../../../docs/engineering/prototype-boundaries/environment-operation.md`](../../../docs/engineering/prototype-boundaries/environment-operation.md).
@@ -12,16 +12,16 @@ Implementation ownership is tracked in
 
 ## Purpose
 
-Capture bounded environment-manager operation evidence for later review
-without deciding runtime readiness, importing experiment code, contacting
-hardware, or starting a run.
+Capture bounded local `uv` operation evidence for later review without
+deciding runtime readiness, importing experiment code, contacting hardware, or
+starting a run.
 
 The current route validates one approved `uv sync` operation plus an optional
 bounded interpreter fact probe. It records review-oriented facts that later
-workflows can consume as prior evidence.
-It supports prepared-run review and reference/rerun preparation as evidence;
-it is not a standalone journey, package-management owner, runtime-readiness
-authority, or execution system.
+workflows can consume as prior evidence after a named entrypoint earns that
+composition. It is not a standalone journey, package-management owner,
+runtime-readiness authority, prepared-run owner, reference/rerun owner, or
+execution system.
 
 ## Current Surfaces
 
@@ -81,9 +81,9 @@ they are not public SDK or cross-route domain APIs.
 
 ## Artifact Boundaries
 
-Result, review, operation-run, and probe summaries are local review surfaces.
-They are not portable/export artifacts unless a later slice explicitly promotes
-one.
+Result, review, operation-run, and probe summaries are local review surfaces
+for this frozen prototype boundary. They are not portable/export artifacts
+unless a later decision explicitly promotes one.
 
 Runtime probe summaries may include local interpreter paths such as
 `sys.executable`, `sys.prefix`, `sys.base_prefix`, and the local execution cwd.
@@ -102,4 +102,6 @@ and related environment fixture families under
 ## Boundary
 
 This README owns live API orientation. Detailed scope limits live in the
-prototype-boundary note linked above.
+prototype-boundary note linked above. Do not expand this module beyond the
+current `uv sync` plus optional interpreter fact-probe chain without a named
+entrypoint and decision.

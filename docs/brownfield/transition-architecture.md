@@ -102,7 +102,7 @@ Current journey:
 Transition journey:
 
 - reuse historical parameter-state evidence as domain input only when useful;
-- capture bounded environment-operation evidence when useful;
+- reuse sealed bounded environment-operation evidence when useful;
 - compose prepared-run context evidence without granting run-start authority.
 
 Target journey:
@@ -119,8 +119,8 @@ Ownership posture:
 
 - parameter-state intake, storage, selection, and review chain: retired
   prototype evidence, not an active owner;
-- bounded environment-operation evidence: `Assist` or `Shadow`, depending on
-  the later use case that consumes it;
+- bounded environment-operation evidence: sealed supporting evidence until a
+  later use case chooses an `Assist` or `Shadow` posture;
 - prepared-run review receipt: candidate `Record` and `Review` evidence.
 
 Deferred authority:
@@ -288,7 +288,8 @@ Transition journey:
 
 - mark or select reference records;
 - compare declared measurement, code, parameter, or setup context;
-- capture selected code-context and environment-operation evidence when useful;
+- capture selected code-context evidence and reuse sealed environment-operation
+  evidence when useful;
 - surface objective findings without claiming domain judgment.
 
 Target journey:

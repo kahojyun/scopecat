@@ -62,7 +62,7 @@ class UvSyncIntent:
 
     @classmethod
     def from_summary(cls, summary: dict[str, Any]) -> UvSyncIntent:
-        """Build a route-local intent from a validated discovery-style summary."""
+        """Build a route-local intent from an approved operation summary."""
 
         if summary.get("intent_status") != "ready_for_external_review":
             raise ValueError("uv sync intent must be ready_for_external_review")

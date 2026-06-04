@@ -2,17 +2,19 @@
 
 ## Status
 
-Accepted engineering-prototype boundary.
+Accepted frozen engineering-prototype boundary.
 
 This is the current live route-local boundary note for the
 environment-operation prototype's first local execution vertical. Keep live API
 syntax in
 [`../../../src/scopecat/environment_operation/README.md`](../../../src/scopecat/environment_operation/README.md)
-and leave the prototype plan/readiness notes as frozen snapshots.
+and leave the prototype plan/readiness notes as frozen snapshots. Treat the
+current module as sealed evidence until a named brownfield entrypoint and
+decision justify expansion.
 
 ## Current Boundary
 
-The accepted environment-operation prototype owns the route's first local `uv`
+The accepted environment-operation prototype owns one local `uv`
 execution/review vertical:
 
 ```text
@@ -35,7 +37,7 @@ The promoted baseline includes:
 - the route-local `src/scopecat/environment_operation/` module boundary;
 - no runtime dependency on historical `implementation_candidates`;
 - `UvSyncIntent` as the approved route-local command object parsed from a
-  validated discovery-style intent summary;
+  validated operation intent summary;
 - bounded sync argv construction, currently
   `uv sync --locked --no-default-groups` plus optional `--group name` pairs;
 - caller-provided workspace root plus declared relative command directory;
@@ -61,11 +63,11 @@ The promoted baseline includes:
   sync, reviews the typed result, conditionally probes successful review-clean
   sync results, and records skipped probe state explicitly.
 
-The prepared-run route now consumes `EnvironmentOperationReview` as optional
-prior evidence through a prepared-run-owned projection adapter. That
-integration does not change environment-operation ownership: this route still
-owns intent/result/review semantics, manager scope, process-execution records,
-runtime probe eligibility, and non-readiness claims.
+Future workflows may consume `EnvironmentOperationReview` as optional prior
+evidence only after that workflow has a named owner and accepted composition
+boundary. That would not change environment-operation ownership: this boundary
+still owns only the current intent/result/review semantics, `uv` manager scope,
+process-execution records, runtime probe eligibility, and non-readiness claims.
 
 ## Out Of Scope
 
@@ -91,6 +93,14 @@ This boundary does not accept:
   snippets, or operation review summaries;
 - a shared environment, prepared-run, experiment-code, or measurement-record
   domain model.
+
+## Frozen Scope
+
+Do not add new environment managers, generic process execution, runtime
+readiness decisions, package-state truth, GUI monitoring, environment-variable
+authority, prepared-run ownership, reference/rerun ownership, or shared
+environment contracts inside this module. Validate those as separate
+entrypoint-driven extensions if a future journey needs them.
 
 ## Historical Candidate Context
 
@@ -119,7 +129,8 @@ approved uv sync intent
   -> composed local workflow summary
 ```
 
-The next engineering phase should choose one explicit path:
+The next engineering phase should choose one explicit path outside this frozen
+boundary:
 
 - operation-review integration: add optional manifest preflight to the
   route-local operation review without turning it into a sync prerequisite;

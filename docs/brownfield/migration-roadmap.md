@@ -145,7 +145,8 @@ Evidence status:
 - retired parameter-state prototype evidence exists for adapter-authored intake,
   local storage/read views, source-agnostic selection, and pre-run
   consumption, but it is not an active implementation boundary;
-- bounded environment-operation evidence remains active.
+- bounded environment-operation evidence remains available as a sealed
+  supporting prototype.
 
 Decision gate:
 
@@ -286,7 +287,7 @@ Already validated:
 
 - selected-reference comparison discovery evidence;
 - discovery and implementation-candidate evidence for code-context recording;
-- bounded environment-operation evidence for `uv sync` review;
+- sealed bounded environment-operation evidence for `uv sync` review;
 - candidate materialization and environment-readiness evidence.
 
 Decision gate:
