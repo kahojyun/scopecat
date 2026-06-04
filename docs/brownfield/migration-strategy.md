@@ -42,7 +42,7 @@ Measurement Record and review/package boundaries coherent.
 
 | Current Work Pattern | Migration Move | Target Boundary |
 | --- | --- | --- |
-| Making external runs visible | Record declared source posture, primary data, and context references without replacing the producing scripts or notebooks. | JNY-007 Record Or Adopt A Measurement; CAP-001 Measurement Records. |
+| Recording runs | Record declared source posture, primary data, and context references without replacing the producing scripts or notebooks. | JNY-007 Record Runs; CAP-001 Measurement Records. |
 | Selecting measurements for sharing | Select a complete-enough Measurement Record, export it, and keep open-before-import review separate from accepted import. | JNY-001 Share A Selected Measurement; CAP-002 Handoff Packages. |
 | Checking context before a run | Compose review-ready parameter, code, environment, setup, and prior-context summaries, then record acknowledgement or deferral without run-start authority. | JNY-002 Prepare A Manual Run; CAP-003/CAP-004/CAP-005 support. |
 | Maintaining parameter and setup files | Review, compare, and summarize parameter/registry/setup variants as capability evidence before promoting any standalone journey. | CAP-003 Parameter State Review; setup-binding support. |

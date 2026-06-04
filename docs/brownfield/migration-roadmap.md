@@ -62,13 +62,13 @@ implementation-candidate evidence, and production vertical slice segments.
 Treat the maturity labels in the workflow validation map as authoritative; do
 not read every `Already validated` bullet as a maintained product capability.
 
-### 1. Make External Runs Visible
+### 1. Record Runs
 
-Target boundary: JNY-007 Record Or Adopt A Measurement, supported by CAP-001
+Target boundary: JNY-007 Record Runs, supported by CAP-001
 Measurement Records.
 
 Target use case: UC-001 and UC-002 as current supporting use cases; promote a
-new candidate only when adoption or recording needs a user-facing route beyond
+new candidate only when recording needs a user-facing route beyond
 Measurement Records scaffolding.
 
 Related risks: BR-RISK-003, BR-RISK-004, BR-RISK-011.
@@ -77,19 +77,18 @@ Related decisions: DEC-004, DEC-025.
 
 Next validation focus:
 
-- decide which first user-facing route or use case should own recording/adoption
-  beyond the existing Measurement Records capability path feeding JNY-001 and
-  JNY-008.
+- decide which first user-facing route or use case should own recording beyond
+  the existing Measurement Records capability path feeding JNY-001 and JNY-008.
 
 Already validated:
 
 - legacy-backed measurement record shell and storage visibility;
 - normalized primary-data durable import;
-- record-local references and local storage review surfaces.
+- record-local references and storage visibility scaffolding.
 
 Decision gate:
 
-- a user-facing recording/adoption use case has explicit source posture,
+- a user-facing recording use case has explicit source posture,
   reviewed primary-data handling, repository-safe context references, and clear
   non-claims around legacy execution, adapter discovery, and scientific
   validity.
@@ -123,8 +122,8 @@ Already validated:
 Decision gate:
 
 - handoff hardening remains centered on sharing a selected Measurement Record,
-  not on absorbing Measurement Record creation, adoption, running updates, or
-  post-run results review.
+  not on absorbing Measurement Record creation, run recording, running updates,
+  or post-run results review.
 
 ### 3. Check Context Before A Run
 

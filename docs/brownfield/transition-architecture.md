@@ -86,9 +86,9 @@ Deferred authority:
 
 - legacy execution, raw historical file semantics, adapter discovery, and
   scientific validity remain outside Scopecat;
-- Measurement Record creation, adoption, running updates, and post-run results
-  review belong to separate journeys or workflow segments that feed this
-  handoff journey.
+- Measurement Record creation, run recording, running updates, and post-run
+  results review belong to separate journeys or workflow segments that feed
+  this handoff journey.
 
 ### JNY-002 Prepare A Manual Run
 
@@ -193,12 +193,13 @@ Deferred authority:
 - experiment execution, scan-plan changes, automatic retune, and scheduling
   remain outside Scopecat.
 
-### JNY-007 Record Or Adopt A Measurement
+### JNY-007 Record Runs
 
 Current journey:
 
-- users make legacy, external, notebook, or manually reviewed measurement facts
-  visible by copying files, preserving notes, or relying on folder conventions;
+- users record and preserve legacy, external, notebook, or manually reviewed
+  measurement facts by copying files, preserving notes, or relying on folder
+  conventions;
 - durable identity, source posture, and primary-data readiness are often mixed
   together.
 
@@ -212,21 +213,24 @@ Transition journey:
 Target journey:
 
 - turn externally produced, legacy-backed, adapter-authored, or manually
-  declared measurement facts into a local Scopecat Measurement Record;
+  declared run facts into a local Scopecat Measurement Record;
 - keep source execution, raw historical file semantics, adapter discovery, and
   scientific validity outside Scopecat unless narrower slices earn that
   authority;
-- expose the created record to local storage review and downstream workflows.
+- expose the created record through local storage/catalog visibility for
+  downstream workflows.
 
 Ownership posture:
 
 - local legacy run recording: `Record` and `Bridge`;
 - normalized primary-data durable import: `Bridge` and `Partial owner`;
 - recorded references: `Record`;
-- local storage visibility: `Review`.
+- local storage/catalog visibility: `Record`.
 
 Deferred authority:
 
+- opening, browsing, plotting, and post-run readiness review belong to
+  JNY-008;
 - raw legacy parsing, legacy execution, reference repair, current instrument
   truth, and scientific validity remain outside Scopecat by default.
 
@@ -234,16 +238,16 @@ Deferred authority:
 
 Current journey:
 
-- users browse completed results through manually managed folders, notebooks,
-  plots, reports, sidecars, and memory before deciding whether a measurement is
-  ready to share or use;
+- users browse and reopen completed results through manually managed folders,
+  notebooks, plots, reports, sidecars, and memory before deciding whether a
+  measurement is ready to share or use;
 - primary data, derived artifacts, plots, missing context, and operator notes
   often remain separate and hard to filter together.
 
 Transition journey:
 
 - review a completed Measurement Record read model and record-local receipts;
-- browse and filter candidate records;
+- browse, open, and filter candidate records;
 - plot selected primary-data or derived-result series;
 - identify missing, stale, or incomplete context;
 - record operator review notes or continuation receipts;
@@ -251,7 +255,8 @@ Transition journey:
 
 Target journey:
 
-- browse, filter, and plot completed or near-completed measurement results;
+- browse, open, filter, and plot completed or near-completed measurement
+  results;
 - inspect primary data, context references, derived artifacts, and operator
   notes together;
 - make the selected result understandable and ready for handoff, comparison,
@@ -260,7 +265,7 @@ Target journey:
 
 Ownership posture:
 
-- records browser, filtering, and plotter surfaces: candidate `Review`;
+- records browser, open, filtering, and plotter surfaces: candidate `Review`;
 - operator notes and review receipts: candidate `Record`;
 - read-model projection: `Review` convenience projection, not canonical storage
   authority.
