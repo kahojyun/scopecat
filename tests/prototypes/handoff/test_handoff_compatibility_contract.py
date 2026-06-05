@@ -44,7 +44,7 @@ def _import_plan_source() -> dict:
 
 
 class HandoffCompatibilityContractTest(unittest.TestCase):
-    def test_contract_names_current_route_local_schemas_and_policies(self) -> None:
+    def test_contract_names_current_route_local_schemas_and_artifacts(self) -> None:
         contract = current_handoff_compatibility_contract()
 
         self.assertEqual(
@@ -65,21 +65,7 @@ class HandoffCompatibilityContractTest(unittest.TestCase):
                 "archive_creation": "scopecat.handoff_archive_creation.v1",
             },
         )
-        self.assertNotIn("receiving_gate", contract["policies"])
-        self.assertNotIn("import_plan", contract["policies"])
-        self.assertNotIn("handoff_durable_import", contract["policies"])
-        self.assertEqual(
-            contract["policies"]["archive_materialization"]["archive_extraction"],
-            "not_performed",
-        )
-        self.assertEqual(
-            contract["policies"]["archive_package_materialization"]["archive_extraction"],
-            "performed_into_staging_directory",
-        )
-        self.assertEqual(
-            contract["policies"]["archive_package_creation"]["archive_creation"],
-            "performed_from_dec010_directory_manifest_package",
-        )
+        self.assertNotIn("policies", contract)
         self.assertIn(
             "local_handoff_error_diagnostic",
             contract["local_artifact_postures"],
@@ -112,17 +98,6 @@ class HandoffCompatibilityContractTest(unittest.TestCase):
         self.assertIn("local_workflow_receipt", contract["local_artifact_postures"])
         self.assertIn("review_summary", contract["local_artifact_postures"])
         self.assertTrue(contract["public_error_contract"]["value_error_compatible"])
-
-    def test_contract_returns_copy_safe_policy_snapshots(self) -> None:
-        contract = current_handoff_compatibility_contract()
-        contract["policies"]["archive_materialization"]["archive_extraction"] = "mutated"
-
-        fresh_contract = current_handoff_compatibility_contract()
-
-        self.assertEqual(
-            fresh_contract["policies"]["archive_materialization"]["archive_extraction"],
-            "not_performed",
-        )
 
     def test_receiving_schema_drift_is_rejected_as_contract_error(self) -> None:
         source = _receiving_gate_source()

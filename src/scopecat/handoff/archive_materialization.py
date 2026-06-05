@@ -16,48 +16,8 @@ from scopecat.handoff.errors import promote_handoff_contract_error
 from scopecat.handoff.read_only import open_package
 
 HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA = "scopecat.handoff_archive_materialization_review.v1"
-HANDOFF_ARCHIVE_MATERIALIZATION_POLICY = {
-    "archive_implementation": "not_performed",
-    "archive_creation": "not_performed",
-    "archive_extraction": "not_performed",
-    "archive_input_opening": "not_performed",
-    "archive_backed_durable_import": "not_performed",
-    "archive_bytes_authority": "transport_container_only",
-    "package_artifact_of_record": "dec010_directory_manifest_package",
-    "canonical_inner_format": "dec010_directory_manifest_package",
-    "materialization_authority": "future_safe_staging_review_required",
-    "external_authenticity_validation": "not_performed",
-}
 HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA = "scopecat.handoff_archive_materialization.v1"
-HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY = {
-    "archive_implementation": "zip_materialization",
-    "archive_creation": "not_performed",
-    "archive_extraction": "performed_into_staging_directory",
-    "archive_input_opening": "zipfile_read_only",
-    "archive_backed_durable_import": "not_performed",
-    "archive_bytes_authority": "transport_container_only",
-    "package_artifact_of_record": "dec010_directory_manifest_package",
-    "canonical_inner_format": "dec010_directory_manifest_package",
-    "materialization_authority": "approved_archive_materialization_request",
-    "external_authenticity_validation": "not_performed",
-    "collision_policy": "no_overwrite",
-    "failure_cleanup": "remove_partial_materialization",
-}
 HANDOFF_ARCHIVE_CREATION_SCHEMA = "scopecat.handoff_archive_creation.v1"
-HANDOFF_ARCHIVE_PACKAGE_CREATION_POLICY = {
-    "archive_implementation": "zip_creation",
-    "archive_creation": "performed_from_dec010_directory_manifest_package",
-    "archive_output": "zip_transport_container",
-    "archive_extraction": "not_performed",
-    "archive_input_opening": "not_performed",
-    "archive_backed_durable_import": "not_performed",
-    "archive_bytes_authority": "transport_container_only",
-    "package_artifact_of_record": "dec010_directory_manifest_package",
-    "canonical_inner_format": "dec010_directory_manifest_package",
-    "creation_authority": "approved_archive_creation_request",
-    "external_authenticity_validation": "not_performed",
-    "collision_policy": "no_overwrite",
-}
 REQUIRED_RESOURCE_LIMITS = [
     "archive_size_bytes",
     "extracted_size_bytes",
@@ -98,14 +58,14 @@ class ArchiveMaterializationContractReview:
 
     review_id: str
     archive_format: str
-    staging_policy: dict[str, str]
+    staging_requirements: dict[str, str]
     resource_limits: dict[str, str]
     member_reviews: tuple[ArchiveMaterializationMemberReview, ...]
 
     @property
     def blocked_reasons(self) -> tuple[str, ...]:
         reasons: list[str] = []
-        reasons.extend(_staging_policy_blockers(self.staging_policy))
+        reasons.extend(_staging_requirements_blockers(self.staging_requirements))
         reasons.extend(_resource_limit_blockers(self.resource_limits))
         for member in self.member_reviews:
             reasons.extend(member.blocked_reasons)
@@ -127,20 +87,14 @@ class ArchiveMaterializationContractReview:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_archive_materialization_contract_review",
-            "archive_materialization_policy": copy.deepcopy(HANDOFF_ARCHIVE_MATERIALIZATION_POLICY),
             "review_id": self.review_id,
             "archive_format": self.archive_format,
             "classification": self.classification,
-            "staging_policy": copy.deepcopy(self.staging_policy),
+            "staging_requirements": copy.deepcopy(self.staging_requirements),
             "resource_limits": copy.deepcopy(self.resource_limits),
             "member_reviews": [member.to_dict() for member in self.member_reviews],
             "blocked_reasons": list(self.blocked_reasons),
             "review_state": _review_state(self.blocked_reasons),
-            "artifact_authority": {
-                "archive_bytes": "transport_container_only",
-                "package_of_record": "dec010_directory_manifest_package",
-                "opened_package_authority": "materialized_directory_after_future_safe_extraction",
-            },
         }
 
 
@@ -239,7 +193,6 @@ class HandoffArchiveCreationRun:
         return {
             "artifact_posture": "local_archive_creation_receipt",
             "archive_creation_schema": HANDOFF_ARCHIVE_CREATION_SCHEMA,
-            "archive_creation_policy": copy.deepcopy(HANDOFF_ARCHIVE_PACKAGE_CREATION_POLICY),
             "classification": self.classification,
             "steps": [
                 "validate_archive_creation_request",
@@ -266,10 +219,6 @@ class HandoffArchiveCreationRun:
                 "block_reason": _creation_block_reason(self),
                 "next_action": _creation_next_action(self),
                 "retry_requires": _creation_retry_requirement(self),
-            },
-            "artifact_authority": {
-                "archive_bytes": "transport_container_only",
-                "package_of_record": "dec010_directory_manifest_package",
             },
         }
 
@@ -303,9 +252,6 @@ class HandoffArchiveMaterializationRun:
         return {
             "artifact_posture": "local_archive_materialization_receipt",
             "archive_materialization_schema": HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA,
-            "archive_materialization_policy": copy.deepcopy(
-                HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY
-            ),
             "classification": self.classification,
             "steps": [
                 "validate_archive_materialization_request",
@@ -336,10 +282,6 @@ class HandoffArchiveMaterializationRun:
                 "next_action": _materialization_next_action(self),
                 "retry_requires": _materialization_retry_requirement(self),
             },
-            "artifact_authority": {
-                "archive_bytes": "transport_container_only",
-                "package_of_record": "materialized_dec010_directory_manifest_package",
-            },
         }
 
 
@@ -349,15 +291,9 @@ def current_handoff_archive_materialization_contract() -> dict[str, Any]:
     return {
         "artifact_posture": "local_archive_materialization_contract",
         "contract_version": HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA,
-        "archive_materialization_policy": copy.deepcopy(HANDOFF_ARCHIVE_MATERIALIZATION_POLICY),
-        "artifact_authority": {
-            "current_package_of_record": "dec010_directory_manifest_package",
-            "future_archive_bytes": "transport_container_only",
-            "future_opened_package": "materialized_dec010_directory_manifest_package",
-        },
         "future_materialization_requirements": {
             "staging_directory": "required_unique_empty_scopecat_owned_directory",
-            "cleanup": "required_explicit_success_and_failure_policy",
+            "cleanup": "required_explicit_success_and_failure_cleanup",
             "overwrite": "no_overwrite_without_new_decision",
             "path_safety": [
                 "reject_absolute_member_paths",
@@ -554,10 +490,9 @@ def _review_handoff_archive_materialization_contract(
         source,
         {
             "archive_materialization_review_schema",
-            "archive_materialization_policy",
             "review_id",
             "archive_format",
-            "staging_policy",
+            "staging_requirements",
             "resource_limits",
             "members",
         },
@@ -568,17 +503,18 @@ def _review_handoff_archive_materialization_contract(
         != HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA
     ):
         raise ValueError("archive_materialization_review_schema is unsupported")
-    if source["archive_materialization_policy"] != HANDOFF_ARCHIVE_MATERIALIZATION_POLICY:
-        raise ValueError("archive_materialization_policy is unsupported")
     review_id = validate_public_identifier(source["review_id"], "archive review_id")
     archive_format = validate_public_identifier(source["archive_format"], "archive_format")
-    staging_policy = _parse_string_mapping(source["staging_policy"], "staging_policy")
+    staging_requirements = _parse_string_mapping(
+        source["staging_requirements"],
+        "staging_requirements",
+    )
     resource_limits = _parse_resource_limits(source["resource_limits"])
     members = _parse_members(source["members"])
     return ArchiveMaterializationContractReview(
         review_id=review_id,
         archive_format=archive_format,
-        staging_policy=staging_policy,
+        staging_requirements=staging_requirements,
         resource_limits=resource_limits,
         member_reviews=members,
     )
@@ -590,15 +526,12 @@ def _parse_creation_source(source: dict[str, Any]) -> HandoffArchiveCreationRequ
         source,
         {
             "archive_creation_schema",
-            "archive_creation_policy",
             "archive_creation_request",
         },
         "archive creation source",
     )
     if source["archive_creation_schema"] != HANDOFF_ARCHIVE_CREATION_SCHEMA:
         raise ValueError("archive_creation_schema is unsupported")
-    if source["archive_creation_policy"] != HANDOFF_ARCHIVE_PACKAGE_CREATION_POLICY:
-        raise ValueError("archive_creation_policy is unsupported")
     request = _require_mapping(
         source["archive_creation_request"],
         "archive_creation_request",
@@ -622,15 +555,12 @@ def _parse_materialization_source(source: dict[str, Any]) -> HandoffArchiveMater
         source,
         {
             "archive_materialization_schema",
-            "archive_materialization_policy",
             "archive_materialization_request",
         },
         "archive materialization source",
     )
     if source["archive_materialization_schema"] != HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA:
         raise ValueError("archive_materialization_schema is unsupported")
-    if source["archive_materialization_policy"] != HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY:
-        raise ValueError("archive_materialization_policy is unsupported")
     request = _require_mapping(
         source["archive_materialization_request"],
         "archive_materialization_request",
@@ -986,7 +916,7 @@ def _member_type_blockers(member_type: str) -> list[str]:
     if member_type == "regular_file":
         return []
     if member_type == "directory":
-        return ["directory_archive_member_requires_explicit_policy"]
+        return ["directory_archive_member_not_allowed"]
     if member_type == "symlink":
         return ["symlink_archive_member_not_allowed"]
     if member_type in {"metadata", "hidden_metadata"}:
@@ -994,16 +924,16 @@ def _member_type_blockers(member_type: str) -> list[str]:
     return ["unsupported_archive_member_type"]
 
 
-def _staging_policy_blockers(policy: dict[str, str]) -> list[str]:
+def _staging_requirements_blockers(requirements: dict[str, str]) -> list[str]:
     required = {
         "staging_directory": "required_unique_empty_scopecat_owned_directory",
         "overwrite": "no_overwrite",
         "cleanup": "explicit_success_and_failure_cleanup_required",
     }
     return [
-        f"{key}_policy_required"
+        f"{key}_requirement_not_met"
         for key, expected in required.items()
-        if policy.get(key) != expected
+        if requirements.get(key) != expected
     ]
 
 

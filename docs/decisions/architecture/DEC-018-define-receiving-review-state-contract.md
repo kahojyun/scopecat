@@ -44,10 +44,7 @@ A future GUI receiving surface should be able to project, at minimum:
   package and integrity observation;
 - per-measurement import-plan readiness and blocked reasons;
 - linked-context review handling, including DEC-016 `keep_reference_only`;
-- durable-import result or retry summary for one selected measurement;
-- explicit non-claims for external authenticity/trust, archive extraction, batch
-  durable import, linked-context payload import, and storage mutation before
-  durable import.
+- durable-import result or retry summary for one selected measurement.
 
 The state projection is local review state. It is not a portable package
 artifact, package acceptance, durable storage mutation authority, external

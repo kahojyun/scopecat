@@ -185,12 +185,11 @@ message. That diagnostic is a local review surface only; it is not a
 portable/export artifact, retry authorization, package acceptance, storage
 mutation authority, or public error schema.
 
-`current_handoff_compatibility_contract()` exposes a copy-safe local snapshot
-of current route schemas, policy fields, local artifact postures, error
-diagnostic posture, and explicit non-claims. It is a route-local compatibility
-review surface for this production vertical slice only. It does not define a
-public SDK, final package format, archive contract, authenticity/trust policy, or
-portable error schema.
+`current_handoff_compatibility_contract()` exposes a local snapshot of current
+route schemas, local artifact postures, and error diagnostic posture. It is a
+route-local compatibility review surface for this production vertical slice
+only. It does not define a public SDK, final package format, archive contract,
+authenticity/trust policy, or portable error schema.
 
 The CLI may print `HandoffErrorDiagnostic` JSON to stderr for handoff
 receipt-summary contract failures. That CLI output is local operator guidance

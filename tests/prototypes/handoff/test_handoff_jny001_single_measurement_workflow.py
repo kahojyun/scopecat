@@ -362,10 +362,6 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
                     "next_action": "use_durable_measurement_record",
                     "retry_requires": None,
                     "durable_import_performed": True,
-                },
-                "boundary": {
-                    "archive_bytes": "transport_container_only",
-                    "package_of_record": "materialized_dec010_directory_manifest_package",
                     "durable_record_creation": "created_record",
                 },
             },
@@ -418,7 +414,7 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
         )
         self.assertEqual(summary["operator_result"]["retry_requires"], None)
         self.assertEqual(
-            summary["boundary"]["durable_record_creation"],
+            summary["operator_result"]["durable_record_creation"],
             "created_record",
         )
 
@@ -452,18 +448,6 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
         self.assertEqual(
             export_summary["package_write"]["package"]["classification"],
             "package_written_ready_for_transfer_review",
-        )
-        self.assertEqual(
-            creation_summary["artifact_authority"]["archive_bytes"],
-            "transport_container_only",
-        )
-        self.assertEqual(
-            creation_summary["artifact_authority"]["package_of_record"],
-            "dec010_directory_manifest_package",
-        )
-        self.assertEqual(
-            materialization_summary["artifact_authority"]["package_of_record"],
-            "materialized_dec010_directory_manifest_package",
         )
         self.assertEqual(creation_summary["classification"], "created_zip_transport_archive")
         self.assertEqual(

@@ -30,9 +30,9 @@ may persist the current `local_receiving_review_state_projection` summary as a
 no-overwrite local JSON receipt under caller-provided local state storage.
 
 The receipt is local review evidence only. It records the projection summary,
-request id, receipt path, package id, classification, and explicit non-claims.
-It does not replace package-open, integrity, receiving-gate, import-plan,
-durable-import, retry-review, or error diagnostic receipts as the source facts.
+request id, receipt path, package id, and classification. It does not replace
+package-open, integrity, receiving-gate, import-plan, durable-import,
+retry-review, or error diagnostic receipts as the source facts.
 
 DEC-018 remains in force for the projection contract. This decision narrows the
 persistence boundary to receipt materialization only; it does not accept a

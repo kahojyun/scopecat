@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import shutil
 import tempfile
 import unittest
@@ -20,11 +19,9 @@ from scopecat.handoff import (
     review_handoff_archive_materialization_contract,
 )
 from scopecat.handoff.archive_materialization import (
-    HANDOFF_ARCHIVE_MATERIALIZATION_POLICY,
+    HANDOFF_ARCHIVE_CREATION_SCHEMA,
     HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA,
     HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA,
-    HANDOFF_ARCHIVE_PACKAGE_CREATION_POLICY,
-    HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY,
 )
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -44,10 +41,9 @@ PACKAGE_FIXTURE = (
 def _source(**overrides: object) -> dict:
     source = {
         "archive_materialization_review_schema": (HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA),
-        "archive_materialization_policy": HANDOFF_ARCHIVE_MATERIALIZATION_POLICY,
         "review_id": "archive-materialization-contract-review-001",
         "archive_format": "zip",
-        "staging_policy": {
+        "staging_requirements": {
             "staging_directory": "required_unique_empty_scopecat_owned_directory",
             "overwrite": "no_overwrite",
             "cleanup": "explicit_success_and_failure_cleanup_required",
@@ -99,15 +95,13 @@ def _creation_request(**overrides: object) -> HandoffArchiveCreationRequest:
 def _raw_source(**overrides: object) -> dict:
     return {
         "archive_materialization_schema": HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA,
-        "archive_materialization_policy": HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY,
         "archive_materialization_request": _request(**overrides).to_dict(),
     }
 
 
 def _raw_creation_source(**overrides: object) -> dict:
     return {
-        "archive_creation_schema": "scopecat.handoff_archive_creation.v1",
-        "archive_creation_policy": HANDOFF_ARCHIVE_PACKAGE_CREATION_POLICY,
+        "archive_creation_schema": HANDOFF_ARCHIVE_CREATION_SCHEMA,
         "archive_creation_request": _creation_request(**overrides).to_dict(),
     }
 
@@ -133,14 +127,6 @@ class HandoffArchiveMaterializationContractTest(unittest.TestCase):
         contract = current_handoff_archive_materialization_contract()
 
         self.assertEqual(contract["artifact_posture"], "local_archive_materialization_contract")
-        self.assertEqual(
-            contract["artifact_authority"]["current_package_of_record"],
-            "dec010_directory_manifest_package",
-        )
-        self.assertEqual(
-            contract["artifact_authority"]["future_archive_bytes"],
-            "transport_container_only",
-        )
         self.assertIn(
             "reject_parent_traversal",
             contract["future_materialization_requirements"]["path_safety"],
@@ -160,14 +146,6 @@ class HandoffArchiveMaterializationContractTest(unittest.TestCase):
         self.assertEqual(
             review["classification"],
             "review_clean_archive_materialization_contract",
-        )
-        self.assertEqual(
-            review["artifact_authority"]["archive_bytes"],
-            "transport_container_only",
-        )
-        self.assertEqual(
-            review["artifact_authority"]["package_of_record"],
-            "dec010_directory_manifest_package",
         )
 
     def test_blocks_parent_traversal_and_absolute_member_paths(self) -> None:
@@ -217,7 +195,7 @@ class HandoffArchiveMaterializationContractTest(unittest.TestCase):
 
         self.assertIn("symlink_archive_member_not_allowed", review["blocked_reasons"])
         self.assertIn(
-            "directory_archive_member_requires_explicit_policy",
+            "directory_archive_member_not_allowed",
             review["blocked_reasons"],
         )
         self.assertIn("metadata_archive_member_not_allowed", review["blocked_reasons"])
@@ -236,7 +214,7 @@ class HandoffArchiveMaterializationContractTest(unittest.TestCase):
 
     def test_blocks_missing_staging_and_resource_limit_contracts(self) -> None:
         source = _source()
-        source["staging_policy"] = {
+        source["staging_requirements"] = {
             "staging_directory": "reuse_existing_directory",
             "overwrite": "overwrite_allowed",
             "cleanup": "best_effort",
@@ -247,20 +225,17 @@ class HandoffArchiveMaterializationContractTest(unittest.TestCase):
 
         review = review_handoff_archive_materialization_contract(source).to_dict()
 
-        self.assertIn("staging_directory_policy_required", review["blocked_reasons"])
-        self.assertIn("overwrite_policy_required", review["blocked_reasons"])
-        self.assertIn("cleanup_policy_required", review["blocked_reasons"])
+        self.assertIn("staging_directory_requirement_not_met", review["blocked_reasons"])
+        self.assertIn("overwrite_requirement_not_met", review["blocked_reasons"])
+        self.assertIn("cleanup_requirement_not_met", review["blocked_reasons"])
         self.assertIn("extracted_size_bytes_limit_required", review["blocked_reasons"])
         self.assertIn("member_count_limit_required", review["blocked_reasons"])
         self.assertIn("compression_ratio_limit_required", review["blocked_reasons"])
         self.assertIn("extraction_time_limit_required", review["blocked_reasons"])
 
-    def test_policy_drift_is_a_contract_error(self) -> None:
+    def test_extra_review_source_field_is_a_contract_error(self) -> None:
         source = _source()
-        source["archive_materialization_policy"] = copy.deepcopy(
-            HANDOFF_ARCHIVE_MATERIALIZATION_POLICY
-        )
-        source["archive_materialization_policy"]["archive_extraction"] = "extract_zip"
+        source["unexpected_contract_snapshot"] = {"archive_extraction": "extract_zip"}
 
         with self.assertRaises(HandoffContractError) as context:
             review_handoff_archive_materialization_contract(source)
@@ -270,7 +245,7 @@ class HandoffArchiveMaterializationContractTest(unittest.TestCase):
             {
                 "code": "handoff_contract_error",
                 "operation": "review_handoff_archive_materialization_contract",
-                "message": "archive_materialization_policy is unsupported",
+                "message": "archive materialization review source fields are unsupported",
             },
         )
 
@@ -301,21 +276,13 @@ class HandoffArchiveMaterializationContractTest(unittest.TestCase):
         self.assertTrue(creation.created)
         self.assertTrue(materialized.materialized)
         self.assertEqual(package.measurement_ids, ("legacy-rabi-001",))
-        self.assertEqual(
-            creation_payload["artifact_authority"]["archive_bytes"],
-            "transport_container_only",
-        )
-        self.assertEqual(
-            creation_payload["artifact_authority"]["package_of_record"],
-            "dec010_directory_manifest_package",
-        )
         self.assertIn(
             "handoff-package-legacy-rabi-001/package-manifest.json",
             creation_payload["archive"]["archived_files"],
         )
         self.assertEqual(creation_payload["creation_review"]["block_reason"], None)
 
-    def test_raw_source_archive_creation_uses_explicit_policy(self) -> None:
+    def test_raw_source_archive_creation_uses_schema_and_request(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
             package_root = temp_root / "packages"
@@ -429,21 +396,13 @@ class HandoffArchiveMaterializationContractTest(unittest.TestCase):
         payload = run.to_dict()
         self.assertTrue(run.materialized)
         self.assertEqual(package.measurement_ids, ("legacy-rabi-001",))
-        self.assertEqual(
-            payload["artifact_authority"]["archive_bytes"],
-            "transport_container_only",
-        )
-        self.assertEqual(
-            payload["artifact_authority"]["package_of_record"],
-            "materialized_dec010_directory_manifest_package",
-        )
         self.assertIn(
             "handoff-package-legacy-rabi-001/package-manifest.json",
             payload["materialization"]["materialized_files"],
         )
         self.assertEqual(payload["materialization_review"]["block_reason"], None)
 
-    def test_raw_source_materialization_uses_explicit_policy(self) -> None:
+    def test_raw_source_materialization_uses_schema_and_request(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
             archive_root = temp_root / "archives"

@@ -46,7 +46,7 @@ Good assertion targets:
 - files written or deliberately not written;
 - receipt and read-model continuity;
 - review findings and next required decision;
-- explicit non-claims attached to a real workflow step.
+- explicit operation facts attached to a real workflow step.
 
 ## Integration And Workflow
 

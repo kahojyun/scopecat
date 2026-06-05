@@ -105,10 +105,10 @@ diagnostic is not a portable/export artifact, retry authorization, package
 acceptance, or public error schema.
 
 `current_handoff_compatibility_contract()` returns a read-only local snapshot
-of the current route schemas, policy fields that are still real operational
-inputs, and local artifact postures. The snapshot is a review contract for the
-current route-local behavior; it does not publish a public SDK, final package
-format, archive contract, authenticity/trust policy, or portable error schema.
+of the current route schemas and local artifact postures. The snapshot is a
+review contract for the current route-local behavior; it does not publish a
+public SDK, final package format, archive contract, authenticity/trust policy,
+or portable error schema.
 
 ## Artifact Boundaries
 
@@ -178,9 +178,10 @@ projection as a no-overwrite local JSON receipt for review continuity. This
 module still does not create GUI-owned review state, package acceptance, retry
 authorization, or mutation authority.
 
-This module observes declared digest integrity and emits explicit non-claims,
-but it does not verify external authenticity, package provenance, trusted
-source, or trust-gated import policy.
+This module observes declared digest integrity, but it does not verify external
+authenticity, package provenance, trusted source, or trust-gated import policy.
+That limitation is documented in the accepted decisions rather than repeated
+as receipt fields.
 
 Archive-backed durable import, archive bytes as package authority, and broader
 archive semantics remain deferred under DEC-020, while DEC-021 accepts safe zip

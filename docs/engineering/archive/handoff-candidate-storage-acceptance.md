@@ -105,9 +105,7 @@ carry:
 - stored primary data path and format;
 - preview metadata copied from the opened package;
 - source integrity facts already observed before acceptance;
-- linked context entries as reference-only facts;
-- explicit non-claims for final storage schema, package authenticity,
-  linked-context payload import, schema inference, and scientific validity.
+- linked context entries as reference-only facts.
 
 The manifest should not import or rewrite linked-context payloads, infer data
 schema from CSV content, compute scientific metadata, or create a shared

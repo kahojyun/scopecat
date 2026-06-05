@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import copy
 from typing import Any
 
 from scopecat.handoff.archive_materialization import (
     HANDOFF_ARCHIVE_CREATION_SCHEMA,
-    HANDOFF_ARCHIVE_MATERIALIZATION_POLICY,
     HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA,
     HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA,
-    HANDOFF_ARCHIVE_PACKAGE_CREATION_POLICY,
-    HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY,
 )
 from scopecat.handoff.durable_import import (
     HANDOFF_DURABLE_IMPORT_SCHEMA,
@@ -45,13 +41,6 @@ def current_handoff_compatibility_contract() -> dict[str, Any]:
             "archive_materialization_review": (HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA),
             "archive_materialization": HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA,
             "archive_creation": HANDOFF_ARCHIVE_CREATION_SCHEMA,
-        },
-        "policies": {
-            "archive_materialization": copy.deepcopy(HANDOFF_ARCHIVE_MATERIALIZATION_POLICY),
-            "archive_package_materialization": copy.deepcopy(
-                HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY
-            ),
-            "archive_package_creation": copy.deepcopy(HANDOFF_ARCHIVE_PACKAGE_CREATION_POLICY),
         },
         "local_artifact_postures": [
             "local_write_receipt",

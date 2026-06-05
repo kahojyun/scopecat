@@ -147,16 +147,6 @@ class HandoffJny001OperatorSmokeSummary:
                 "next_action": durable_summary.next_action,
                 "retry_requires": durable_summary.retry_requires,
                 "durable_import_performed": durable_summary.durable_import_performed,
-            },
-            "boundary": {
-                "archive_bytes": (
-                    self.archive_creation.to_dict()["artifact_authority"]["archive_bytes"]
-                ),
-                "package_of_record": (
-                    self.archive_materialization.to_dict()["artifact_authority"][
-                        "package_of_record"
-                    ]
-                ),
                 "durable_record_creation": (
                     durable_result["pipeline"]["creation"] if durable_result is not None else None
                 ),
@@ -206,7 +196,6 @@ def summarize_jny001_operator_smoke_receipt(receipt: dict[str, Any]) -> dict[str
             "stage_sequence",
             "stages",
             "operator_result",
-            "boundary",
         },
         "JNY-001 operator smoke receipt",
     )

@@ -63,8 +63,7 @@ The current adapter:
   projection, no-overwrite handling, and rollback classification to
   `scopecat.measurement_records`;
 - returns a local handoff durable-import receipt that records package,
-  selected measurement, destination, durable-import classification, and
-  explicit non-claims.
+  selected measurement, destination, and durable-import classification.
 
 Durable-import receipts and summaries include local review guidance for
 successful import, blocked import-plan handoff, durable source-preflight
