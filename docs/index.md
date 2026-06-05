@@ -9,8 +9,8 @@ the recommended top-down reading path.
 
 ```text
 docs/
-  product/   product direction, target journeys, target capabilities, and
-              adoption strategy
+  product/   product vision, success metrics, target journeys, target
+              capabilities, and adoption strategy
   brownfield/ current-state assessment, transition architecture, migration
               strategy, and migration roadmap
   architecture/ initial domain model, context map, and entrypoint-driven
@@ -29,7 +29,8 @@ docs/
 | [`AGENTS.md`](AGENTS.md) | AI-session rules for work inside `docs/`. |
 | [`traceability.md`](traceability.md) | Current-state pressure to target journey, capability, validation, and implementation traceability. |
 | [`product/README.md`](product/README.md) | Product documentation navigation. |
-| [`product/direction.md`](product/direction.md) | Current product direction, default ownership boundaries, and non-goals. |
+| [`product/vision.md`](product/vision.md) | Product vision and durable product posture. |
+| [`product/success-metrics.md`](product/success-metrics.md) | Product success metrics, journey outcome signals, promotion checks, and anti-metrics. |
 | [`product/target-journeys.md`](product/target-journeys.md) | Target product user journeys, primary workflows, use cases to prove, and discovery-to-engineering orientation. |
 | [`product/target-capabilities.md`](product/target-capabilities.md) | Target product capabilities, maturity, evidence state, and open advancement questions. |
 | [`product/adoption-strategy.md`](product/adoption-strategy.md) | Product adoption paths and user-value entry points. |

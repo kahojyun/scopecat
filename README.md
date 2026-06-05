@@ -7,12 +7,13 @@ workflows. It is designed to improve evidence, review, and handoff around
 existing lab systems while leaving room for deeper migration when a workflow
 proves the need.
 
-Scopecat is in active development; current docs describe product direction,
+Scopecat is in active development; current docs describe success metrics,
 evidence, and implementation boundaries rather than finalized product
 commitments.
 
-See `docs/product/direction.md` for product direction and `docs/README.md` for
-the documentation workspace.
+See `docs/product/vision.md` for the product vision,
+`docs/product/success-metrics.md` for product success metrics, and
+`docs/README.md` for the documentation workspace.
 
 ## Status
 

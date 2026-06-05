@@ -4,13 +4,15 @@
 
 Product strategy note.
 
-This note records the intended product direction for experiment-code
-management. It does not accept a final storage backend, Git replacement,
+This note records the intended product posture for experiment-code management.
+It does not accept a final storage backend, Git replacement,
 workspace layout, package manager, environment manager, execution service,
 workflow/DAG model, merge model, sync protocol, GUI design, or code registry.
-The durable product direction lives in
-[`direction.md`](direction.md); this note owns the experiment-code posture
-until a narrower decision promotes storage, execution, or workspace authority.
+The product vision lives in [`vision.md`](vision.md). Product success
+signals live in [`success-metrics.md`](success-metrics.md); target journey and
+brownfield documents own broader adoption and migration context. This note owns
+the experiment-code posture until a narrower decision promotes storage,
+execution, or workspace authority.
 
 ## Direction
 

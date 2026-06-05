@@ -1,6 +1,6 @@
 # Scopecat Docs
 
-`docs/` is Scopecat's durable project memory. It keeps product direction,
+`docs/` is Scopecat's durable project memory. It keeps product outcomes,
 problem framing, decisions, architecture, engineering ownership, and user
 documentation when introduced.
 
@@ -9,7 +9,8 @@ flat navigation map when you already know which owner you need.
 
 ## Where To Find Current State
 
-- Product direction, target journeys, capabilities, and adoption strategy:
+- Product vision, success metrics, target journeys, capabilities, and adoption
+  strategy:
   [`product/README.md`](product/README.md)
 - Brownfield current state, transition, migration, and risks:
   [`brownfield/README.md`](brownfield/README.md)
@@ -30,36 +31,37 @@ flat navigation map when you already know which owner you need.
 
 ## Read Top Down
 
-For product and implementation direction:
+For product vision, outcomes, and implementation direction:
 
 1. [`product/README.md`](product/README.md) for product docs, then
-   [`product/direction.md`](product/direction.md) for product direction,
-   long-term boundaries, and non-goals.
-2. [`product/target-journeys.md`](product/target-journeys.md) for target user
+   [`product/vision.md`](product/vision.md) for product vision.
+2. [`product/success-metrics.md`](product/success-metrics.md) for success
+   metrics, outcome signals, promotion checks, and anti-metrics.
+3. [`product/target-journeys.md`](product/target-journeys.md) for target user
    journeys, workflows, and use cases to prove.
-3. [`product/target-capabilities.md`](product/target-capabilities.md) for product
+4. [`product/target-capabilities.md`](product/target-capabilities.md) for product
    capabilities, maturity, supporting evidence, and open advancement
    questions.
-4. [`product/adoption-strategy.md`](product/adoption-strategy.md) for how users
+5. [`product/adoption-strategy.md`](product/adoption-strategy.md) for how users
    start adopting Scopecat.
-5. [`brownfield/README.md`](brownfield/README.md) for as-is lab context,
+6. [`brownfield/README.md`](brownfield/README.md) for as-is lab context,
    transition architecture, migration strategy, migration roadmap, and risk
    register.
-6. [`architecture/README.md`](architecture/README.md) for the initial
+7. [`architecture/README.md`](architecture/README.md) for the initial
    architecture model, domain concepts, context map, and entrypoint-driven
    transition lens.
-7. [`decisions/README.md`](decisions/README.md) for decision type rules,
+8. [`decisions/README.md`](decisions/README.md) for decision type rules,
    current decision status, and decision-record templates.
-8. [`traceability.md`](traceability.md) for current-state to target journey,
+9. [`traceability.md`](traceability.md) for current-state to target journey,
    capability, validation, and implementation traceability.
-9. [`engineering/README.md`](engineering/README.md) for delivery maturity,
+10. [`engineering/README.md`](engineering/README.md) for delivery maturity,
    workflow validation, implementation ownership, and promotion governance.
-10. [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md)
+11. [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md)
    to find use case validation state, evidence scopes, missing seams, and next
    validation questions.
-11. [`engineering/implementation-register.md`](engineering/implementation-register.md)
+12. [`engineering/implementation-register.md`](engineering/implementation-register.md)
    to find live implementation owners and their module/boundary detail docs.
-12. [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) and the owning module
+13. [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) and the owning module
    README for live implementation boundaries and API details.
 
 For new discovery work:

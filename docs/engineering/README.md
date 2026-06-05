@@ -56,7 +56,8 @@ decisions.
 
 This directory does not replace:
 
-- product direction, target journey, target capability, or adoption-strategy
+- product vision, success metrics, target journey, target capability, or
+  adoption-strategy
   docs;
 - brownfield current-state, transition architecture, migration strategy, or
   migration roadmap docs;
