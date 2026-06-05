@@ -41,7 +41,6 @@ from scopecat.handoff.selected_record_export import (
     export_selected_measurement_record_from_request,
     export_selected_measurement_record_with_preflight_refresh,
 )
-from scopecat.handoff.workflow import run_package_workflow
 from scopecat.handoff.writer import write_package
 
 __all__ = [
@@ -70,7 +69,6 @@ __all__ = [
     "open_package",
     "review_handoff_durable_import_retry",
     "run_handoff_durable_import_from_plan",
-    "run_package_workflow",
     "run_receiving_gate_from_request",
     "summarize_handoff_durable_import_receipt",
     "summarize_package_context_references",

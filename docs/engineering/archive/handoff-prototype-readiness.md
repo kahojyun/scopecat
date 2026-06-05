@@ -39,7 +39,7 @@ traversal, or a shared measurement-record domain model.
 
 | Criterion | Status | Assessment |
 | --- | --- | --- |
-| Usable local Python or CLI entrypoint | Historical | This archived note predates the typed receiving/import-plan cleanup. Current active code uses `open_package(package_dir)`, `observe_package_integrity(package_dir)`, `run_receiving_gate_from_request(...)`, `build_import_plan(...)`, `write_package(...)`, `run_package_workflow(...)`, and `python -m scopecat.handoff <package-dir>`. |
+| Usable local Python or CLI entrypoint | Historical | This archived note predates later cleanup. Current active code uses `open_package(package_dir)`, `observe_package_integrity(package_dir)`, `run_receiving_gate_from_request(...)`, `build_import_plan(...)`, `write_package(...)`, and `python -m scopecat.handoff <package-dir>`. The old composite workflow helper was removed. |
 | Representative regression coverage | Met | Tests cover source-root writing, writer-to-reader round trip, local workflow composition, read-only integrity observation, read-only receiving gate, basic opener, richer route-pressure package, multi-plot, table-only, shared context, degraded preview, CLI, HTML artifact, symlink guardrails, and typed manifest/write boundaries. |
 | Documented contracts and non-claims | Met | The route plan, consolidation, decision note, and prototype README define directory-package subset scope, source-root writer scope, local workflow classification, artifact classification, dependency deferrals, and non-claims. |
 | Green repository verification | Met | Current milestone verification uses `uv run python -m unittest discover -s tests`, `uv run ruff check .`, and `uv run ruff format --check .`. |
@@ -63,8 +63,7 @@ These choices are strong enough to carry into the promotion pass:
 - product-shaped `HandoffPackage`, `HandoffMeasurement`, `HandoffTable`,
   `HandoffPlotSeries`, `HandoffFinding`, and `HandoffLinkedContext`
   projections;
-- local `HandoffPackageWriteReceipt` and `HandoffPackageWorkflowRun`
-  projections;
+- local `HandoffPackageWriteReceipt` projection;
 - manifest-only preview classification before package-local file reads;
 - package-directory and package-id continuity;
 - canonical primary data topology,

@@ -89,7 +89,6 @@ class HandoffPublicApiSurfaceTest(unittest.TestCase):
             "HandoffMeasurementImportPlan",
             "HandoffPackage",
             "HandoffPackageIntegrityReport",
-            "HandoffPackageWorkflowRun",
             "HandoffPackageWriteReceipt",
             "HandoffPlotSeries",
             "HandoffReceivingGateRun",

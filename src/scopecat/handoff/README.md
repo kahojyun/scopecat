@@ -22,10 +22,9 @@ and
 
 ## Current Surfaces
 
-Package writer and local package workflow:
+Package writer:
 
 - `write_package(source, source_root=..., package_root=...)`
-- `run_package_workflow(source, source_root=..., package_root=...)`
 - `export_selected_measurement_record_from_request(request, storage_root=..., package_root=...)`
 - `export_selected_measurement_record_batch_from_request(request, storage_root=..., package_root=...)`
 
