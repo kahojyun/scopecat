@@ -8,8 +8,6 @@ Decision status: accepted.
 
 Date: 2026-06-03.
 
-Owner: [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md).
-
 ## Context
 
 JNY-001 handoff packages already expose linked context as review-visible
@@ -112,10 +110,10 @@ Revisit this decision when:
 - batch export/import needs package-level context topology;
 - GUI review needs richer packaged-context presentation.
 
-## Related Evidence And Owners
+## Related Evidence
 
 - [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
 - [`DEC-016-defer-linked-context-payload-import.md`](DEC-016-defer-linked-context-payload-import.md)
-- [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
-- [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
-- [`../../../tests/prototypes/handoff/test_handoff_package_writer.py`](../../../tests/prototypes/handoff/test_handoff_package_writer.py)
+- [`../../engineering/prototype-boundaries/handoff.md`](../engineering/prototype-boundaries/handoff.md)
+- [`../../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
+- [`../../../tests/prototypes/handoff/test_handoff_package_writer.py`](../../tests/prototypes/handoff/test_handoff_package_writer.py)

@@ -8,8 +8,6 @@ Decision status: accepted.
 
 Date: 2026-06-03.
 
-Owner: [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md).
-
 ## Context
 
 JNY-001 Share A Selected Measurement now has a production vertical slice path:
@@ -117,9 +115,9 @@ Revisit this decision when:
 - package publication, SDK, or GUI workflows require an archive artifact beyond
   DEC-020.
 
-## Related Evidence And Owners
+## Related Evidence
 
-- [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
-- [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
-- [`../../../src/scopecat/handoff/README.md`](../../../src/scopecat/handoff/README.md)
+- [`../../engineering/prototype-boundaries/handoff.md`](../engineering/prototype-boundaries/handoff.md)
+- [`../../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
+- [`../../../src/scopecat/handoff/README.md`](../../src/scopecat/handoff/README.md)
 - [`DEC-020-defer-archive-package-implementation.md`](DEC-020-defer-archive-package-implementation.md)

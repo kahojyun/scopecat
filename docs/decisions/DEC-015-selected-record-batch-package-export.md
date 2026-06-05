@@ -8,8 +8,6 @@ Decision status: accepted.
 
 Date: 2026-06-03.
 
-Owner: [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md).
-
 ## Context
 
 The route-local package writer can already write packages containing multiple
@@ -103,12 +101,12 @@ Revisit this decision when:
 - GUI review needs stable multi-measurement selection state;
 - package format changes beyond DEC-010.
 
-## Related Evidence And Owners
+## Related Evidence
 
 - [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
 - [`DEC-013-batch-receiving-import-planning.md`](DEC-013-batch-receiving-import-planning.md)
 - [`DEC-016-defer-linked-context-payload-import.md`](DEC-016-defer-linked-context-payload-import.md)
 - [`DEC-017-defer-batch-durable-import.md`](DEC-017-defer-batch-durable-import.md)
-- [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
-- [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
-- [`../../../tests/prototypes/handoff/test_handoff_selected_record_export.py`](../../../tests/prototypes/handoff/test_handoff_selected_record_export.py)
+- [`../../engineering/prototype-boundaries/handoff.md`](../engineering/prototype-boundaries/handoff.md)
+- [`../../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
+- [`../../../tests/prototypes/handoff/test_handoff_selected_record_export.py`](../../tests/prototypes/handoff/test_handoff_selected_record_export.py)

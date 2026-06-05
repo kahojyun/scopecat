@@ -8,8 +8,6 @@ Decision status: accepted.
 
 Date: 2026-06-03.
 
-Owner: [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md).
-
 Superseded in part by
 [`DEC-021-accept-safe-archive-materialization.md`](DEC-021-accept-safe-archive-materialization.md),
 which accepts safe zip transport materialization into the DEC-010 directory
@@ -154,13 +152,13 @@ Revisit this decision when:
   bundle semantics;
 - package publication requires transport-ready artifacts.
 
-## Related Evidence And Owners
+## Related Evidence
 
 - [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
 - [`DEC-021-accept-safe-archive-materialization.md`](DEC-021-accept-safe-archive-materialization.md)
 - [`DEC-024-accept-safe-archive-creation.md`](DEC-024-accept-safe-archive-creation.md)
-- [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
-- [`../../engineering/prototype-boundaries/handoff-durable-import-storage.md`](../../engineering/prototype-boundaries/handoff-durable-import-storage.md)
-- [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
-- [`../../../src/scopecat/handoff/README.md`](../../../src/scopecat/handoff/README.md)
-- [`../../../src/scopecat/handoff/archive_materialization.py`](../../../src/scopecat/handoff/archive_materialization.py)
+- [`../../engineering/prototype-boundaries/handoff.md`](../engineering/prototype-boundaries/handoff.md)
+- [`../../engineering/prototype-boundaries/handoff-durable-import-storage.md`](../engineering/prototype-boundaries/handoff-durable-import-storage.md)
+- [`../../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
+- [`../../../src/scopecat/handoff/README.md`](../../src/scopecat/handoff/README.md)
+- [`../../../src/scopecat/handoff/archive_materialization.py`](../../src/scopecat/handoff/archive_materialization.py)

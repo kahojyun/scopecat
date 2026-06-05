@@ -8,8 +8,6 @@ Decision status: accepted.
 
 Date: 2026-06-03.
 
-Owner: [`../../engineering/prototype-boundaries/handoff-durable-import-storage.md`](../../engineering/prototype-boundaries/handoff-durable-import-storage.md).
-
 ## Context
 
 DEC-013 allows receiving/import planning to list multiple package measurements
@@ -104,12 +102,12 @@ Revisit this decision when:
 - retry review needs to coordinate multiple failed package measurements;
 - storage conflict policy expands beyond new-record no-overwrite behavior.
 
-## Related Evidence And Owners
+## Related Evidence
 
 - [`DEC-013-batch-receiving-import-planning.md`](DEC-013-batch-receiving-import-planning.md)
 - [`DEC-015-selected-record-batch-package-export.md`](DEC-015-selected-record-batch-package-export.md)
-- [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
-- [`../../engineering/prototype-boundaries/handoff-durable-import-storage.md`](../../engineering/prototype-boundaries/handoff-durable-import-storage.md)
-- [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
-- [`../../../src/scopecat/handoff/durable_import.py`](../../../src/scopecat/handoff/durable_import.py)
-- [`../../../tests/prototypes/handoff/test_handoff_durable_import_adapter.py`](../../../tests/prototypes/handoff/test_handoff_durable_import_adapter.py)
+- [`../../engineering/prototype-boundaries/handoff.md`](../engineering/prototype-boundaries/handoff.md)
+- [`../../engineering/prototype-boundaries/handoff-durable-import-storage.md`](../engineering/prototype-boundaries/handoff-durable-import-storage.md)
+- [`../../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
+- [`../../../src/scopecat/handoff/durable_import.py`](../../src/scopecat/handoff/durable_import.py)
+- [`../../../tests/prototypes/handoff/test_handoff_durable_import_adapter.py`](../../tests/prototypes/handoff/test_handoff_durable_import_adapter.py)

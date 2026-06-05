@@ -8,8 +8,6 @@ Decision status: accepted.
 
 Date: 2026-06-03.
 
-Owner: [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md).
-
 ## Context
 
 DEC-012 lets the route-local package writer copy explicitly declared
@@ -106,11 +104,11 @@ Revisit this decision when:
 - recorded references gain a separate accepted payload-authority model;
 - GUI review needs persistent linked-context selection state.
 
-## Related Evidence And Owners
+## Related Evidence
 
 - [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
 - [`DEC-012-linked-context-payload-packaging.md`](DEC-012-linked-context-payload-packaging.md)
 - [`DEC-016-defer-linked-context-payload-import.md`](DEC-016-defer-linked-context-payload-import.md)
-- [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
-- [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
-- [`../../../tests/prototypes/handoff/test_handoff_selected_record_export.py`](../../../tests/prototypes/handoff/test_handoff_selected_record_export.py)
+- [`../../engineering/prototype-boundaries/handoff.md`](../engineering/prototype-boundaries/handoff.md)
+- [`../../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
+- [`../../../tests/prototypes/handoff/test_handoff_selected_record_export.py`](../../tests/prototypes/handoff/test_handoff_selected_record_export.py)

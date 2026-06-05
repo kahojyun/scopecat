@@ -8,8 +8,6 @@ Decision status: accepted.
 
 Date: 2026-06-03.
 
-Owner: [`../../engineering/prototype-boundaries/handoff-durable-import-storage.md`](../../engineering/prototype-boundaries/handoff-durable-import-storage.md).
-
 ## Context
 
 DEC-012 allows explicitly declared linked-context payload files to be packaged
@@ -103,12 +101,12 @@ Revisit this decision when:
 - retry review needs to coordinate primary-data and context-payload import;
 - GUI review needs persistent context-import selection state.
 
-## Related Evidence And Owners
+## Related Evidence
 
 - [`DEC-012-linked-context-payload-packaging.md`](DEC-012-linked-context-payload-packaging.md)
 - [`DEC-014-selected-record-linked-context-payload-export.md`](DEC-014-selected-record-linked-context-payload-export.md)
-- [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
-- [`../../engineering/prototype-boundaries/handoff-durable-import-storage.md`](../../engineering/prototype-boundaries/handoff-durable-import-storage.md)
-- [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
-- [`../../../src/scopecat/handoff/import_plan.py`](../../../src/scopecat/handoff/import_plan.py)
-- [`../../../src/scopecat/handoff/durable_import.py`](../../../src/scopecat/handoff/durable_import.py)
+- [`../../engineering/prototype-boundaries/handoff.md`](../engineering/prototype-boundaries/handoff.md)
+- [`../../engineering/prototype-boundaries/handoff-durable-import-storage.md`](../engineering/prototype-boundaries/handoff-durable-import-storage.md)
+- [`../../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
+- [`../../../src/scopecat/handoff/import_plan.py`](../../src/scopecat/handoff/import_plan.py)
+- [`../../../src/scopecat/handoff/durable_import.py`](../../src/scopecat/handoff/durable_import.py)

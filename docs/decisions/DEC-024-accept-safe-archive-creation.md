@@ -8,8 +8,6 @@ Decision status: accepted.
 
 Date: 2026-06-04.
 
-Owner: [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md).
-
 ## Context
 
 DEC-021 accepts safe zip archive materialization into a DEC-010
@@ -98,10 +96,10 @@ Revisit this decision when:
 - resource limits for archive creation must become explicit policy;
 - compression policy or deterministic archive bytes are required.
 
-## Related Evidence And Owners
+## Related Evidence
 
 - [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
 - [`DEC-021-accept-safe-archive-materialization.md`](DEC-021-accept-safe-archive-materialization.md)
-- [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
-- [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
-- [`../../../src/scopecat/handoff/archive_materialization.py`](../../../src/scopecat/handoff/archive_materialization.py)
+- [`../../engineering/prototype-boundaries/handoff.md`](../engineering/prototype-boundaries/handoff.md)
+- [`../../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
+- [`../../../src/scopecat/handoff/archive_materialization.py`](../../src/scopecat/handoff/archive_materialization.py)

@@ -8,8 +8,6 @@ Decision status: accepted.
 
 Date: 2026-06-03.
 
-Owner: [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md).
-
 ## Context
 
 Handoff packages can contain more than one selected measurement. The package
@@ -94,11 +92,11 @@ Revisit this decision when:
 - selected stored Measurement Record export needs broader batch package topology;
 - retry review needs to coordinate more than one failed measurement.
 
-## Related Evidence And Owners
+## Related Evidence
 
 - [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
 - [`DEC-017-defer-batch-durable-import.md`](DEC-017-defer-batch-durable-import.md)
-- [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
-- [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
-- [`../../../tests/prototypes/handoff/test_handoff_import_plan.py`](../../../tests/prototypes/handoff/test_handoff_import_plan.py)
-- [`../../../tests/prototypes/handoff/test_handoff_durable_import_adapter.py`](../../../tests/prototypes/handoff/test_handoff_durable_import_adapter.py)
+- [`../../engineering/prototype-boundaries/handoff.md`](../engineering/prototype-boundaries/handoff.md)
+- [`../../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
+- [`../../../tests/prototypes/handoff/test_handoff_import_plan.py`](../../tests/prototypes/handoff/test_handoff_import_plan.py)
+- [`../../../tests/prototypes/handoff/test_handoff_durable_import_adapter.py`](../../tests/prototypes/handoff/test_handoff_durable_import_adapter.py)

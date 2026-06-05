@@ -8,8 +8,6 @@ Decision status: proposed | accepted | superseded | retired.
 
 Date: YYYY-MM-DD.
 
-Owner: document, team, or person responsible for future updates.
-
 ## Context
 
 What problem, constraint, evidence, or competing forces require a decision?
@@ -52,6 +50,6 @@ Revisit this decision when:
 
 - ...
 
-## Related Evidence And Owners
+## Related Evidence
 
 - ...
