@@ -2,15 +2,17 @@
 
 ## Purpose
 
-Index accepted architecture decision records for Scopecat. This register is a
-compact navigation and status index; rationale, scope, consequences,
-alternatives, supersession, review triggers, and related evidence belong in the
-linked ADR file.
+Index architecture decision records for Scopecat. This register is a compact
+navigation and status index; rationale, scope, consequences, alternatives,
+supersession, review triggers, and related evidence belong in the linked ADR
+file.
 
 Use stable `ADR-*` IDs when referencing architecture decisions from product,
 brownfield, engineering, discovery, risk, source, or test documents.
 
 ## Active ADRs
+
+Active ADRs currently constrain future work.
 
 | ID | Decision | Status |
 | --- | --- | --- |
@@ -32,8 +34,16 @@ brownfield, engineering, discovery, risk, source, or test documents.
 | ADR-0016 | [Accept safe archive creation](ADR-0016-accept-safe-archive-creation.md) | Accepted |
 | ADR-0017 | [Defer existing-record update and final storage schema for JNY-001](ADR-0017-defer-existing-record-update-and-final-storage-schema.md) | Accepted |
 
+## Inactive ADRs
+
+No superseded or retired ADRs are currently retained.
+
 ## Update Rule
 
 Update this register when a branch creates, supersedes, retires, renumbers, or
 materially changes an ADR. Keep register rows compact; do not duplicate ADR
 body content here.
+
+When an ADR is superseded or retired, move it to an inactive ADR section rather
+than deleting it. Do not preserve records that were never valid architecture
+decisions.

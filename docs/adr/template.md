@@ -4,7 +4,8 @@
 
 ADR status: proposed | accepted | superseded | retired.
 
-Date: YYYY-MM-DD.
+Date: YYYY-MM-DD when known; omit or use `not recorded` only for migrated
+records where the original decision date is unknown.
 
 ## Context
 
