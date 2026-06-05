@@ -40,20 +40,6 @@ from scopecat.measurement_records.read_model_refresh import (
 from scopecat.measurement_records.read_model_shared import READ_MODEL_SCHEMA
 from scopecat.measurement_records.read_view import READ_VIEW_SCHEMA
 
-SELECTED_RECORD_EXPORT_POLICY = {
-    "workflow_authority": "approved_selected_measurement_record_export_request",
-    "record_authority": "stored_measurement_record_read_model_and_receipts",
-    "source_authority": "caller_provided_storage_root_plus_record_local_paths",
-    "package_authority": "delegated_handoff_package_writer",
-    "primary_data_materialization": "copy_record_local_primary_data",
-    "linked_context_materialization": "declared_reference_or_payload",
-    "portable_export_boundary": "handoff_package_manifest_primary_data_and_declared_context",
-    "record_storage_mutation": "not_performed",
-    "read_model_refresh": "not_performed",
-    "schema_inference": "not_performed",
-    "recursive_relation_traversal": "not_performed",
-    "package_import_acceptance": "not_performed",
-}
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 
 

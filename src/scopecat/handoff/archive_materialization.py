@@ -15,7 +15,7 @@ from scopecat.handoff._contracts import validate_public_identifier, validate_rel
 from scopecat.handoff.errors import promote_handoff_contract_error
 from scopecat.handoff.read_only import open_package
 
-HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA = "scopecat.handoff_archive_materialization_review.v0"
+HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA = "scopecat.handoff_archive_materialization_review.v1"
 HANDOFF_ARCHIVE_MATERIALIZATION_POLICY = {
     "archive_implementation": "not_performed",
     "archive_creation": "not_performed",
@@ -28,7 +28,7 @@ HANDOFF_ARCHIVE_MATERIALIZATION_POLICY = {
     "materialization_authority": "future_safe_staging_review_required",
     "external_authenticity_validation": "not_performed",
 }
-HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA = "scopecat.handoff_archive_materialization.v0"
+HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA = "scopecat.handoff_archive_materialization.v1"
 HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY = {
     "archive_implementation": "zip_materialization",
     "archive_creation": "not_performed",
@@ -43,7 +43,7 @@ HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY = {
     "collision_policy": "no_overwrite",
     "failure_cleanup": "remove_partial_materialization",
 }
-HANDOFF_ARCHIVE_CREATION_SCHEMA = "scopecat.handoff_archive_creation.v0"
+HANDOFF_ARCHIVE_CREATION_SCHEMA = "scopecat.handoff_archive_creation.v1"
 HANDOFF_ARCHIVE_PACKAGE_CREATION_POLICY = {
     "archive_implementation": "zip_creation",
     "archive_creation": "performed_from_dec010_directory_manifest_package",

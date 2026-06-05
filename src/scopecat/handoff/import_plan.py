@@ -13,7 +13,7 @@ from scopecat.handoff.inspect import write_inspection_artifact
 from scopecat.handoff.package import HandoffLinkedContext, HandoffMeasurement, HandoffPackage
 from scopecat.handoff.receiving import HandoffReceivingGateRun, run_receiving_gate
 
-_EXPECTED_SCHEMA = "scopecat.handoff_import_plan.v0"
+_EXPECTED_SCHEMA = "scopecat.handoff_import_plan.v1"
 
 
 @dataclass(frozen=True)

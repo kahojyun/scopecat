@@ -61,7 +61,7 @@ class HandoffErrorDiagnosticsTest(unittest.TestCase):
         with self.assertRaises(HandoffContractError) as context:
             run_import_plan(
                 {
-                    "import_plan_schema": "scopecat.handoff_import_plan.v0",
+                    "import_plan_schema": "scopecat.handoff_import_plan.v1",
                     "receiving_gate_source": {
                         "receiving_gate_schema": "unsupported",
                         "receiving_review_request": {},

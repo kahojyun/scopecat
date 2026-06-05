@@ -12,7 +12,7 @@ from scopecat.handoff.integrity import HandoffPackageIntegrityReport, observe_pa
 from scopecat.handoff.package import HandoffPackage
 from scopecat.handoff.read_only import open_package
 
-_EXPECTED_SCHEMA = "scopecat.handoff_receiving_gate.v0"
+_EXPECTED_SCHEMA = "scopecat.handoff_receiving_gate.v1"
 
 
 @dataclass(frozen=True)

@@ -40,9 +40,10 @@ present that observation as authenticity validation, sender trust,
 trusted-source acceptance, or scientific validity.
 
 Current export, package open, integrity observation, receiving gate,
-import-plan, and durable-import receipts must continue to expose this
-separation with explicit `not_performed` policy fields or `does_not_claim`
-entries.
+import-plan, and durable-import receipts must expose positive operation facts
+only. Boundary and decision documents own the trust/authenticity limitation;
+receipts must not carry fixture-era policy disclaimers just to restate that
+limitation.
 
 ## Scope
 

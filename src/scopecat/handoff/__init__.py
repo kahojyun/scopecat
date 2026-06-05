@@ -76,7 +76,6 @@ from scopecat.handoff.review_state import (
     write_handoff_receiving_review_state_receipt,
 )
 from scopecat.handoff.selected_record_export import (
-    SELECTED_RECORD_EXPORT_POLICY,
     SelectedMeasurementRecordBatchExportRecord,
     SelectedMeasurementRecordBatchExportRequest,
     SelectedMeasurementRecordBatchExportRun,
@@ -97,7 +96,6 @@ from scopecat.handoff.writer import HandoffPackageWriteReceipt, write_package
 __all__ = [
     "HANDOFF_COMPATIBILITY_CONTRACT_VERSION",
     "HANDOFF_INSPECTION_ARTIFACT_NAME",
-    "SELECTED_RECORD_EXPORT_POLICY",
     "ArchiveMaterializationContractReview",
     "ArchiveMaterializationMemberReview",
     "HandoffArchiveCreationRequest",

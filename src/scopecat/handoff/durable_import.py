@@ -24,7 +24,7 @@ from scopecat.measurement_records.durable_import import (
     import_measurement_record_from_request,
 )
 
-HANDOFF_DURABLE_IMPORT_SCHEMA = "scopecat.handoff_durable_import.v0"
+HANDOFF_DURABLE_IMPORT_SCHEMA = "scopecat.handoff_durable_import.v1"
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 
 

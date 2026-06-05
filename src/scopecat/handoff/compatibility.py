@@ -6,6 +6,7 @@ import copy
 from typing import Any
 
 from scopecat.handoff.archive_materialization import (
+    HANDOFF_ARCHIVE_CREATION_SCHEMA,
     HANDOFF_ARCHIVE_MATERIALIZATION_POLICY,
     HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA,
     HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA,
@@ -21,7 +22,6 @@ from scopecat.handoff.import_plan import (
 from scopecat.handoff.receiving import (
     _EXPECTED_SCHEMA as _RECEIVING_GATE_SCHEMA,
 )
-from scopecat.handoff.selected_record_export import SELECTED_RECORD_EXPORT_POLICY
 
 HANDOFF_COMPATIBILITY_CONTRACT_VERSION = "scopecat.handoff.compatibility.v0"
 
@@ -44,9 +44,9 @@ def current_handoff_compatibility_contract() -> dict[str, Any]:
             "handoff_durable_import": HANDOFF_DURABLE_IMPORT_SCHEMA,
             "archive_materialization_review": (HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA),
             "archive_materialization": HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA,
+            "archive_creation": HANDOFF_ARCHIVE_CREATION_SCHEMA,
         },
         "policies": {
-            "selected_record_export": copy.deepcopy(SELECTED_RECORD_EXPORT_POLICY),
             "archive_materialization": copy.deepcopy(HANDOFF_ARCHIVE_MATERIALIZATION_POLICY),
             "archive_package_materialization": copy.deepcopy(
                 HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY

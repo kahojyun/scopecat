@@ -46,7 +46,7 @@ def _source(**overrides: object) -> dict:
         "archive_materialization_review_schema": (HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA),
         "archive_materialization_policy": HANDOFF_ARCHIVE_MATERIALIZATION_POLICY,
         "review_id": "archive-materialization-contract-review-001",
-        "archive_format": "zip_candidate",
+        "archive_format": "zip",
         "staging_policy": {
             "staging_directory": "required_unique_empty_scopecat_owned_directory",
             "overwrite": "no_overwrite",
@@ -106,7 +106,7 @@ def _raw_source(**overrides: object) -> dict:
 
 def _raw_creation_source(**overrides: object) -> dict:
     return {
-        "archive_creation_schema": "scopecat.handoff_archive_creation.v0",
+        "archive_creation_schema": "scopecat.handoff_archive_creation.v1",
         "archive_creation_policy": HANDOFF_ARCHIVE_PACKAGE_CREATION_POLICY,
         "archive_creation_request": _creation_request(**overrides).to_dict(),
     }
@@ -150,7 +150,7 @@ class HandoffArchiveMaterializationContractTest(unittest.TestCase):
             contract["future_materialization_requirements"]["resource_limits"],
         )
 
-    def test_review_clean_candidate_still_does_not_extract_or_accept_archive(self) -> None:
+    def test_review_clean_contract_still_does_not_extract_or_accept_archive(self) -> None:
         review = review_handoff_archive_materialization_contract(_source()).to_dict()
 
         self.assertEqual(

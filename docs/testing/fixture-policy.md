@@ -46,10 +46,10 @@ Do not put fixture classification metadata inside prototype payloads. The
 fixture path, test name, and an optional directory README should carry case
 identity and fixture intent.
 
-Boundary, policy, posture, authority, and `does_not_claim` fields may appear in
-prototype fixtures only when they are real request, package, receipt, or
-summary fields consumed or emitted by the code under test. They should not be
-used as fixture-local guardrail comments.
+Boundary, policy, posture, and authority fields may appear in fixtures only
+when they are real request, package, receipt, or summary fields consumed or
+emitted by the code under test. They should not be used as fixture-local
+guardrail comments.
 
 Prefer module-owned constants or typed request/result builders for invariant
 route policy. Accepted boundary and decision documents own boundary guidance,

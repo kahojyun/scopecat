@@ -226,3 +226,6 @@ def _require_keys(value: dict[str, Any], keys: set[str], owner: str) -> None:
     missing = sorted(keys.difference(value))
     if missing:
         raise ValueError(f"{owner} is missing required keys: {', '.join(missing)}")
+    extra = sorted(set(value).difference(keys))
+    if extra:
+        raise ValueError(f"{owner} has unsupported keys: {', '.join(extra)}")

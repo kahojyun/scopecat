@@ -15,7 +15,7 @@ from scopecat.handoff import (
 
 def _receiving_gate_source() -> dict:
     return {
-        "receiving_gate_schema": "scopecat.handoff_receiving_gate.v0",
+        "receiving_gate_schema": "scopecat.handoff_receiving_gate.v1",
         "receiving_review_request": {
             "request_id": "receive-handoff-package-legacy-rabi-001",
             "review": {
@@ -30,7 +30,7 @@ def _receiving_gate_source() -> dict:
 
 def _import_plan_source() -> dict:
     return {
-        "import_plan_schema": "scopecat.handoff_import_plan.v0",
+        "import_plan_schema": "scopecat.handoff_import_plan.v1",
         "receiving_gate_source": _receiving_gate_source(),
         "import_plan_request": {
             "request_id": "plan-import-handoff-package-legacy-rabi-001",
@@ -44,7 +44,7 @@ def _import_plan_source() -> dict:
 
 
 class HandoffCompatibilityContractTest(unittest.TestCase):
-    def test_contract_names_current_route_local_schemas_policies_and_non_claims(self) -> None:
+    def test_contract_names_current_route_local_schemas_and_policies(self) -> None:
         contract = current_handoff_compatibility_contract()
 
         self.assertEqual(
@@ -55,13 +55,14 @@ class HandoffCompatibilityContractTest(unittest.TestCase):
         self.assertEqual(
             contract["schemas"],
             {
-                "receiving_gate": "scopecat.handoff_receiving_gate.v0",
-                "import_plan": "scopecat.handoff_import_plan.v0",
-                "handoff_durable_import": "scopecat.handoff_durable_import.v0",
+                "receiving_gate": "scopecat.handoff_receiving_gate.v1",
+                "import_plan": "scopecat.handoff_import_plan.v1",
+                "handoff_durable_import": "scopecat.handoff_durable_import.v1",
                 "archive_materialization_review": (
-                    "scopecat.handoff_archive_materialization_review.v0"
+                    "scopecat.handoff_archive_materialization_review.v1"
                 ),
-                "archive_materialization": "scopecat.handoff_archive_materialization.v0",
+                "archive_materialization": "scopecat.handoff_archive_materialization.v1",
+                "archive_creation": "scopecat.handoff_archive_creation.v1",
             },
         )
         self.assertNotIn("receiving_gate", contract["policies"])
@@ -125,7 +126,7 @@ class HandoffCompatibilityContractTest(unittest.TestCase):
 
     def test_receiving_schema_drift_is_rejected_as_contract_error(self) -> None:
         source = _receiving_gate_source()
-        source["receiving_gate_schema"] = "scopecat.handoff_receiving_gate.v1"
+        source["receiving_gate_schema"] = "scopecat.handoff_receiving_gate.v0"
 
         with self.assertRaises(HandoffContractError) as context:
             run_receiving_gate(source, package_dir=Path("unused-package"))
@@ -137,7 +138,7 @@ class HandoffCompatibilityContractTest(unittest.TestCase):
 
     def test_import_plan_schema_drift_is_rejected_as_contract_error(self) -> None:
         source = _import_plan_source()
-        source["import_plan_schema"] = "scopecat.handoff_import_plan.v1"
+        source["import_plan_schema"] = "scopecat.handoff_import_plan.v0"
 
         with self.assertRaises(HandoffContractError) as context:
             run_import_plan(source, package_dir=Path("unused-package"))

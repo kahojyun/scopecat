@@ -55,7 +55,7 @@ WRITER_FIXTURE = (
 
 def _receiving_gate_source() -> dict:
     return {
-        "receiving_gate_schema": "scopecat.handoff_receiving_gate.v0",
+        "receiving_gate_schema": "scopecat.handoff_receiving_gate.v1",
         "receiving_review_request": {
             "request_id": "receive-handoff-package-legacy-rabi-001",
             "review": {
@@ -70,7 +70,7 @@ def _receiving_gate_source() -> dict:
 
 def _import_plan_source() -> dict:
     return {
-        "import_plan_schema": "scopecat.handoff_import_plan.v0",
+        "import_plan_schema": "scopecat.handoff_import_plan.v1",
         "receiving_gate_source": _receiving_gate_source(),
         "import_plan_request": {
             "request_id": "plan-import-handoff-package-legacy-rabi-001",

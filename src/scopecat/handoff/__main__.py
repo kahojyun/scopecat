@@ -82,8 +82,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--receipt-summary",
         type=Path,
         help=(
-            "Read a local import workflow or handoff durable-import receipt JSON file "
-            "and print a continuation summary."
+            "Read a handoff durable-import receipt or JNY-001 operator smoke summary "
+            "JSON file and print a continuation summary."
         ),
     )
     args = parser.parse_args(argv)
