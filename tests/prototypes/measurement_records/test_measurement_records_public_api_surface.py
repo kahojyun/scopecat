@@ -53,7 +53,6 @@ class MeasurementRecordsPublicApiSurfaceTest(unittest.TestCase):
         slice_names = {
             "MeasurementRecordExistingUpdateRequest",
             "MeasurementRecordInProgressUpdateRequest",
-            "MeasurementRecordNormalizedPrimaryTableRequest",
             "MeasurementRecordRunningInspectionRequest",
             "append_existing_measurement_record_from_request",
             "append_in_progress_measurement_record_from_request",
@@ -61,7 +60,6 @@ class MeasurementRecordsPublicApiSurfaceTest(unittest.TestCase):
             "inspect_running_measurement_record_from_request",
             "legacy_measurement_slug",
             "record_legacy_measurement_run_from_request",
-            "summarize_normalized_primary_table_from_request",
             "summarize_running_measurement_inspection",
         }
 

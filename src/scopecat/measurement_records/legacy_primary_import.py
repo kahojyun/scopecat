@@ -18,6 +18,9 @@ from scopecat.measurement_records._contracts import (
     validate_relative_path,
     validate_text,
 )
+from scopecat.measurement_records._primary_table_summary import (
+    summarize_observed_primary_table,
+)
 from scopecat.measurement_records._storage import (
     ensure_no_symlink_parents as _ensure_no_symlink_parents,
 )
@@ -36,9 +39,6 @@ from scopecat.measurement_records.durable_import import (
     MeasurementRecordImportSource,
 )
 from scopecat.measurement_records.legacy_run import LEGACY_RUN_RECEIPT_SCHEMA
-from scopecat.measurement_records.normalized_primary_table import (
-    summarize_observed_primary_table,
-)
 from scopecat.measurement_records.read_model_shared import READ_MODEL_FILENAME, READ_MODEL_SCHEMA
 
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}

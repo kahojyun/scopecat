@@ -25,10 +25,10 @@ SOURCE_FIXTURE = (
     / "fixtures"
     / "prototypes"
     / "measurement_records"
-    / "normalized_primary_table"
-    / "basic_table"
-    / "source"
-    / "primary.csv"
+    / "measurement_storage_writer"
+    / "basic_append"
+    / "chunks"
+    / "chunk-1.csv"
 )
 
 
@@ -59,7 +59,7 @@ def _create_record(storage_root: Path) -> None:
                 content_ref="source/primary.csv",
                 declared_digest=_digest(source_path),
                 size_bytes=source_path.stat().st_size,
-                rows_recorded=5,
+                rows_recorded=3,
             ),
         ),
         content_root=content_root,

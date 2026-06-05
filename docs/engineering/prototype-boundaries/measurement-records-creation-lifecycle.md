@@ -79,11 +79,8 @@ publication.
 The active prototype tests live under
 [`../../../tests/prototypes/measurement_records/`](../../../tests/prototypes/measurement_records/).
 Relevant fixture families live under
-[`../../../tests/fixtures/prototypes/measurement_records/`](../../../tests/fixtures/prototypes/measurement_records/)
-and include:
-
-- `normalized_primary_table/`
-- `measurement_storage_writer/`
+[`../../../tests/fixtures/prototypes/measurement_records/`](../../../tests/fixtures/prototypes/measurement_records/).
+The active Measurement Records tests currently use `measurement_storage_writer/`.
 
 The retained scan/data-shape discovery fixtures live separately under
 [`../../../tests/fixtures/scan_data_shapes/`](../../../tests/fixtures/scan_data_shapes/).
