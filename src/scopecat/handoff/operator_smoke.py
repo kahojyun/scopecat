@@ -19,30 +19,6 @@ from scopecat.handoff.receiving import HandoffReceivingGateRun
 from scopecat.handoff.review_state import HandoffReceivingReviewStateReceipt
 from scopecat.handoff.selected_record_export import SelectedMeasurementRecordExportRun
 
-JNY001_OPERATOR_SMOKE_SUMMARY_POLICY = {
-    "source": "local_jny001_vertical_slice_receipts",
-    "authority": "read_only_operator_smoke_summary",
-    "workflow_mutation": "not_performed",
-    "storage_mutation": "not_performed",
-    "package_mutation": "not_performed",
-    "portable_export": "not_produced",
-}
-
-DOES_NOT_CLAIM = [
-    "workflow_execution",
-    "mutation_authority",
-    "portable_export",
-    "public_api_contract",
-    "gui_state_store",
-    "archive_backed_durable_import",
-    "archive_bytes_as_package_artifact_of_record",
-    "existing_record_update",
-    "batch_durable_import",
-    "linked_context_payload_import",
-    "external_authenticity_or_trust_validation",
-    "scientific_validity",
-]
-
 
 @dataclass(frozen=True)
 class HandoffJny001OperatorSmokeSummary:
@@ -139,7 +115,6 @@ class HandoffJny001OperatorSmokeSummary:
         durable_result = self.durable_import.to_dict()["durable_import_result"]
         return {
             "artifact_posture": "local_jny001_operator_smoke_summary",
-            "summary_policy": copy.deepcopy(JNY001_OPERATOR_SMOKE_SUMMARY_POLICY),
             "journey_id": "JNY-001",
             "workflow_scope": "jny001_vertical_slice_smoke",
             "use_case_ids": ["UC-006", "UC-004", "UC-002"],
@@ -174,11 +149,6 @@ class HandoffJny001OperatorSmokeSummary:
                 "durable_import_performed": durable_summary.durable_import_performed,
             },
             "boundary": {
-                "source_record_storage_mutation": (
-                    self.selected_export.to_dict()["selected_record_export_policy"][
-                        "record_storage_mutation"
-                    ]
-                ),
                 "archive_bytes": (
                     self.archive_creation.to_dict()["artifact_authority"]["archive_bytes"]
                 ),
@@ -190,9 +160,7 @@ class HandoffJny001OperatorSmokeSummary:
                 "durable_record_creation": (
                     durable_result["pipeline"]["creation"] if durable_result is not None else None
                 ),
-                "existing_record_update": "not_performed",
             },
-            "does_not_claim": list(DOES_NOT_CLAIM),
         }
 
 
@@ -224,13 +192,10 @@ def summarize_jny001_operator_smoke_receipt(receipt: dict[str, Any]) -> dict[str
 
     if receipt.get("artifact_posture") != "local_jny001_operator_smoke_summary":
         raise ValueError("JNY-001 operator smoke receipt posture is unsupported")
-    if receipt.get("summary_policy") != JNY001_OPERATOR_SMOKE_SUMMARY_POLICY:
-        raise ValueError("JNY-001 operator smoke receipt policy is unsupported")
     _require_keys(
         receipt,
         {
             "artifact_posture",
-            "summary_policy",
             "journey_id",
             "workflow_scope",
             "use_case_ids",
@@ -242,7 +207,6 @@ def summarize_jny001_operator_smoke_receipt(receipt: dict[str, Any]) -> dict[str
             "stages",
             "operator_result",
             "boundary",
-            "does_not_claim",
         },
         "JNY-001 operator smoke receipt",
     )

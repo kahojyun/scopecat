@@ -332,14 +332,6 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
             smoke_summary,
             {
                 "artifact_posture": "local_jny001_operator_smoke_summary",
-                "summary_policy": {
-                    "source": "local_jny001_vertical_slice_receipts",
-                    "authority": "read_only_operator_smoke_summary",
-                    "workflow_mutation": "not_performed",
-                    "storage_mutation": "not_performed",
-                    "package_mutation": "not_performed",
-                    "portable_export": "not_produced",
-                },
                 "journey_id": "JNY-001",
                 "workflow_scope": "jny001_vertical_slice_smoke",
                 "use_case_ids": ["UC-006", "UC-004", "UC-002"],
@@ -372,26 +364,10 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
                     "durable_import_performed": True,
                 },
                 "boundary": {
-                    "source_record_storage_mutation": "not_performed",
                     "archive_bytes": "transport_container_only",
                     "package_of_record": "materialized_dec010_directory_manifest_package",
                     "durable_record_creation": "created_record",
-                    "existing_record_update": "not_performed",
                 },
-                "does_not_claim": [
-                    "workflow_execution",
-                    "mutation_authority",
-                    "portable_export",
-                    "public_api_contract",
-                    "gui_state_store",
-                    "archive_backed_durable_import",
-                    "archive_bytes_as_package_artifact_of_record",
-                    "existing_record_update",
-                    "batch_durable_import",
-                    "linked_context_payload_import",
-                    "external_authenticity_or_trust_validation",
-                    "scientific_validity",
-                ],
             },
         )
 
@@ -441,10 +417,6 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
             summary["operator_result"]["next_action"], "use_durable_measurement_record"
         )
         self.assertEqual(summary["operator_result"]["retry_requires"], None)
-        self.assertEqual(
-            summary["boundary"]["source_record_storage_mutation"],
-            "not_performed",
-        )
         self.assertEqual(
             summary["boundary"]["durable_record_creation"],
             "created_record",
@@ -543,10 +515,7 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
             import_plan_summary["import_plan_policy"]["external_authenticity_validation"],
             "not_performed",
         )
-        self.assertIn(
-            "external_authenticity_or_trust_validation",
-            export_summary["workflow"]["does_not_claim"],
-        )
+        self.assertEqual(export_summary["classification"], "exported_selected_measurement_record")
         self.assertIn(
             "external_authenticity_or_trust_validation",
             receiving_summary["does_not_claim"],

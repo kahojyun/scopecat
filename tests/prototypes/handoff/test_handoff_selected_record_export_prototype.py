@@ -9,7 +9,6 @@ from dataclasses import replace
 from pathlib import Path
 
 from scopecat.handoff import (
-    SELECTED_RECORD_EXPORT_POLICY,
     SelectedMeasurementRecordBatchExportRecord,
     SelectedMeasurementRecordBatchExportRequest,
     SelectedMeasurementRecordExportLinkedContext,
@@ -206,10 +205,7 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
         self.assertEqual(measurement.linked_context[0].materialization, "reference_only")
         payload = run.to_dict()
         self.assertEqual(payload["artifact_posture"], "local_selected_record_export_receipt")
-        self.assertEqual(
-            payload["selected_record_export_policy"]["record_storage_mutation"],
-            "not_performed",
-        )
+        self.assertEqual(payload["classification"], "exported_selected_measurement_record")
         self.assertEqual(
             payload["package_write"]["package"]["classification"],
             "package_written_ready_for_transfer_review",
@@ -232,12 +228,6 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
                 "block_reason": None,
                 "next_action": "continue_selected_record_export",
                 "retry_requires": None,
-                "does_not_claim": [
-                    "read_model_refresh",
-                    "automatic_projection",
-                    "storage_mutation",
-                    "record_repair",
-                ],
             },
         )
 
@@ -266,16 +256,14 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
         self.assertTrue(run.exported)
         self.assertEqual(after, before)
         self.assertEqual(
-            run.to_dict()["selected_record_export_policy"]["record_storage_mutation"],
-            "not_performed",
+            run.to_dict()["classification"],
+            "exported_selected_measurement_record",
         )
-        self.assertIn("existing_record_update", run.to_dict()["workflow"]["does_not_claim"])
 
-    def test_raw_source_entrypoint_uses_explicit_export_policy(self) -> None:
+    def test_raw_source_entrypoint_exports_selected_record(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root, package_root = self._create_imported_record(Path(temp_dir))
             source = {
-                "selected_record_export_policy": SELECTED_RECORD_EXPORT_POLICY,
                 "selected_record_export_request": _export_request().to_dict(),
             }
 
@@ -301,8 +289,8 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
         self.assertTrue(run.exported)
         self.assertIsNone(run.refresh_run)
         self.assertEqual(
-            payload["workflow"]["steps"],
-            ["run_initial_selected_record_export_preflight"],
+            payload["classification"],
+            "exported_selected_measurement_record_after_preflight",
         )
         self.assertEqual(payload["preflight_review"]["refresh_performed"], False)
         self.assertEqual(payload["preflight_review"]["block_reason"], None)
@@ -433,7 +421,10 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
         self.assertEqual(package.measurement_ids, ("run-3101-rabi", "run-3102-rabi"))
         self.assertEqual(package.measurement("run-3102-rabi").label, "Imported Rabi repeat")
         self.assertEqual(package.measurement("run-3102-rabi").primary_table.row_count, 3)
-        self.assertIn("batch_durable_import", summary["workflow"]["does_not_claim"])
+        self.assertEqual(
+            summary["classification"],
+            "exported_selected_measurement_record_batch",
+        )
         self.assertEqual(len(summary["records"]), 2)
         self.assertEqual(
             [
@@ -443,7 +434,7 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
             ["run-3101-rabi", "run-3102-rabi"],
         )
 
-    def test_raw_batch_source_entrypoint_uses_explicit_export_policy(self) -> None:
+    def test_raw_batch_source_entrypoint_exports_selected_records(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root, package_root = self._create_two_imported_records(Path(temp_dir))
             request = SelectedMeasurementRecordBatchExportRequest(
@@ -466,7 +457,6 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
                 ),
             )
             source = {
-                "selected_record_export_policy": SELECTED_RECORD_EXPORT_POLICY,
                 "selected_record_batch_export_request": request.to_dict(),
             }
 
@@ -703,7 +693,6 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
             "project_or_refresh_read_model_before_selected_record_export",
         )
         self.assertEqual(review["retry_requires"], "fresh_projected_record_read_model")
-        self.assertIn("storage_mutation", review["does_not_claim"])
 
     def test_export_blocks_missing_read_model_before_package_write(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

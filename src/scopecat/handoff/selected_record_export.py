@@ -54,31 +54,7 @@ SELECTED_RECORD_EXPORT_POLICY = {
     "recursive_relation_traversal": "not_performed",
     "package_import_acceptance": "not_performed",
 }
-DOES_NOT_CLAIM = [
-    "shared_measurement_schema",
-    "read_model_refresh",
-    "existing_record_update",
-    "linked_context_payload_import",
-    "reference_resolution",
-    "schema_inference",
-    "scientific_validity",
-    "archive_creation",
-    "external_authenticity_or_trust_validation",
-    "package_import_acceptance",
-]
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
-
-PRE_EXPORT_READ_MODEL_REFRESH_POLICY = {
-    "workflow_authority": "approved_selected_measurement_record_export_request",
-    "freshness_authority": "selected_record_export_read_model_freshness_review",
-    "refresh_authority": "delegated_measurement_record_read_model_refresh",
-    "export_authority": "selected_measurement_record_export",
-    "user_visible_refresh": "transparent_pre_export_projection_refresh",
-    "refresh_scope": "missing_invalid_or_stale_read_model_only",
-    "record_storage_mutation": "delegated_read_model_atomic_replace_only",
-    "package_write": "after_fresh_read_model_evidence",
-    "package_import_acceptance": "not_performed",
-}
 
 
 @dataclass(frozen=True)
@@ -387,18 +363,7 @@ class SelectedMeasurementRecordExportRun:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_selected_record_export_receipt",
-            "selected_record_export_policy": copy.deepcopy(SELECTED_RECORD_EXPORT_POLICY),
-            "workflow": {
-                "classification": self.classification,
-                "steps": [
-                    "validate_selected_record_export_request",
-                    *([] if not self.request.approved else ["read_record_read_model"]),
-                    *([] if self.record_manifest is None else ["read_record_creation_manifest"]),
-                    *([] if self.writer_receipt is None else ["read_record_writer_receipt"]),
-                    *([] if self.package_write is None else ["write_handoff_package"]),
-                ],
-                "does_not_claim": list(DOES_NOT_CLAIM),
-            },
+            "classification": self.classification,
             "request": self.request.to_dict(),
             "record": _record_ref(self.read_model, self.record_manifest, self.writer_receipt),
             "package_write": None if self.package_write is None else self.package_write.to_dict(),
@@ -460,25 +425,7 @@ class SelectedMeasurementRecordPreflightExportRun:
         refresh_performed = self.refresh_run is not None and self.refresh_run.refreshed
         return {
             "artifact_posture": "local_selected_record_preflight_export_receipt",
-            "pre_export_read_model_refresh_policy": copy.deepcopy(
-                PRE_EXPORT_READ_MODEL_REFRESH_POLICY
-            ),
-            "workflow": {
-                "classification": self.classification,
-                "steps": [
-                    "run_initial_selected_record_export_preflight",
-                    *([] if self.refresh_run is None else ["run_read_model_refresh"]),
-                    *([] if self.final_export is None else ["retry_selected_record_export"]),
-                ],
-                "does_not_claim": [
-                    "primary_data_repair",
-                    "manifest_replacement",
-                    "receipt_mutation",
-                    "package_import_acceptance",
-                    "external_authenticity_or_trust_validation",
-                    "gui_review_state",
-                ],
-            },
+            "classification": self.classification,
             "request": self.request.to_dict(),
             "initial_export": self.initial_export.to_dict(),
             "refresh": None if self.refresh_run is None else self.refresh_run.to_dict(),
@@ -536,18 +483,7 @@ class SelectedMeasurementRecordBatchExportRun:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_selected_record_batch_export_receipt",
-            "selected_record_export_policy": copy.deepcopy(SELECTED_RECORD_EXPORT_POLICY),
-            "workflow": {
-                "classification": self.classification,
-                "steps": [
-                    "validate_selected_record_batch_export_request",
-                    *([] if not self.request.approved else ["read_record_read_models"]),
-                    *([] if not self.records else ["read_record_creation_manifests"]),
-                    *([] if not self.records else ["read_record_writer_receipts"]),
-                    *([] if self.package_write is None else ["write_handoff_package"]),
-                ],
-                "does_not_claim": [*DOES_NOT_CLAIM, "batch_durable_import"],
-            },
+            "classification": self.classification,
             "request": self.request.to_dict(),
             "records": [
                 _record_ref(record.read_model, record.record_manifest, record.writer_receipt)
@@ -758,8 +694,6 @@ def export_selected_measurement_record_batch_from_request(
 
 
 def _parse_source(source: dict[str, Any]) -> SelectedMeasurementRecordExportRequest:
-    if source.get("selected_record_export_policy") != SELECTED_RECORD_EXPORT_POLICY:
-        raise ValueError("selected record export policy is unsupported")
     request = _require_dict(source, "selected_record_export_request")
     linked_context = tuple(
         _parse_linked_context(item)
@@ -806,8 +740,6 @@ def _validate_selected_export_identity(
 
 
 def _parse_batch_source(source: dict[str, Any]) -> SelectedMeasurementRecordBatchExportRequest:
-    if source.get("selected_record_export_policy") != SELECTED_RECORD_EXPORT_POLICY:
-        raise ValueError("selected record batch export policy is unsupported")
     request = _require_dict(source, "selected_record_batch_export_request")
     return SelectedMeasurementRecordBatchExportRequest(
         request_id=_require_text(request, "request_id"),
@@ -1167,12 +1099,6 @@ def _read_model_freshness_review(
             block_reason=block_reason,
         ),
         "retry_requires": _read_model_freshness_retry_requirement(block_reason),
-        "does_not_claim": [
-            "read_model_refresh",
-            "automatic_projection",
-            "storage_mutation",
-            "record_repair",
-        ],
     }
 
 
