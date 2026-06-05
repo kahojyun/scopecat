@@ -39,7 +39,7 @@ traversal, or a shared measurement-record domain model.
 
 | Criterion | Status | Assessment |
 | --- | --- | --- |
-| Usable local Python or CLI entrypoint | Historical | This archived note predates later cleanup. Current active code uses Python entrypoints such as `open_package(package_dir)`, `observe_package_integrity(package_dir)`, `run_receiving_gate_from_request(...)`, `build_import_plan(...)`, and route-local `write_package(...)`. The old composite workflow helper and module CLI were removed. |
+| Usable local Python or CLI entrypoint | Historical | This archived note predates later cleanup. Current active code uses Python entrypoints such as `open_package(package_dir)`, `observe_package_integrity(package_dir)`, `run_receiving_gate_from_request(...)`, `build_import_plan(...)`, and route-local `write_package_from_source(...)`. The old composite workflow helper and module CLI were removed. |
 | Representative regression coverage | Met | Tests cover source-root writing, writer-to-reader round trip, local workflow composition, read-only integrity observation, read-only receiving gate, basic opener, richer route-pressure package, multi-plot, table-only, shared context, degraded preview, HTML artifact, symlink guardrails, and typed manifest/write boundaries. |
 | Documented contracts and non-claims | Met | The route plan, consolidation, decision note, and prototype README define directory-package subset scope, source-root writer scope, local workflow classification, artifact classification, dependency deferrals, and non-claims. |
 | Green repository verification | Met | Current milestone verification uses `uv run python -m unittest discover -s tests`, `uv run ruff check .`, and `uv run ruff format --check .`. |

@@ -15,7 +15,7 @@ from scopecat.handoff import (
 )
 from scopecat.handoff.import_plan import build_import_plan
 from scopecat.handoff.receiving import run_receiving_gate_from_request
-from scopecat.handoff.writer import write_package
+from tests.prototypes.handoff.package_writer_helpers import write_package_from_fixture_source
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURE = (
@@ -46,7 +46,7 @@ class HandoffEngineeringPrototypeWriterTest(unittest.TestCase):
     def assertRejected(self, source: dict, pattern: str) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             with self.assertRaisesRegex(ValueError, pattern):
-                write_package(
+                write_package_from_fixture_source(
                     source,
                     source_root=SOURCE_ROOT,
                     package_root=Path(temp_dir),
@@ -55,7 +55,7 @@ class HandoffEngineeringPrototypeWriterTest(unittest.TestCase):
     def test_writes_package_from_declared_source_root_and_opens_with_reader(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             package_root = Path(temp_dir)
-            receipt = write_package(
+            receipt = write_package_from_fixture_source(
                 _load_input(),
                 source_root=SOURCE_ROOT,
                 package_root=package_root,
@@ -95,33 +95,6 @@ class HandoffEngineeringPrototypeWriterTest(unittest.TestCase):
             _sha256_digest(manifest_bytes),
         )
 
-    def test_rejects_unsupported_raw_writer_fields(self) -> None:
-        cases = [
-            ("top_level", ("storage_root",)),
-            ("package_write_request", ("package_write_request", "destination_record_id")),
-            ("package_identity", ("package_identity", "local_path")),
-            ("selected_measurement", ("selected_measurements", 0, "storage_record")),
-            ("primary_data", ("selected_measurements", 0, "primary_data", "local_path")),
-            (
-                "preview_metadata",
-                ("selected_measurements", 0, "declared_preview_metadata", "schema_inference"),
-            ),
-            (
-                "default_bundle",
-                ("selected_measurements", 0, "default_bundle", 0, "payload_path"),
-            ),
-            ("linked_context", ("linked_context", 0, "payload")),
-        ]
-
-        for label, path in cases:
-            with self.subTest(label=label):
-                source = _load_input()
-                target = source
-                for part in path[:-1]:
-                    target = target[part]
-                target[path[-1]] = "unsupported"
-                self.assertRejected(source, "fields are unsupported")
-
     def test_source_digest_must_match_before_any_write(self) -> None:
         source = _load_input()
         source["selected_measurements"][0]["primary_data"]["expected_digest"] = (
@@ -131,7 +104,11 @@ class HandoffEngineeringPrototypeWriterTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             package_root = Path(temp_dir)
             with self.assertRaisesRegex(ValueError, "digest does not match"):
-                write_package(source, source_root=SOURCE_ROOT, package_root=package_root)
+                write_package_from_fixture_source(
+                    source,
+                    source_root=SOURCE_ROOT,
+                    package_root=package_root,
+                )
             self.assertFalse((package_root / "handoff-package-legacy-rabi-001").exists())
 
     def test_package_root_must_not_overlap_source_root(self) -> None:
@@ -146,17 +123,29 @@ class HandoffEngineeringPrototypeWriterTest(unittest.TestCase):
                 (SOURCE_ROOT / "records" / "legacy-rabi-001" / "primary.csv").read_bytes()
             )
             with self.assertRaisesRegex(ValueError, "outside source root"):
-                write_package(source, source_root=source_root, package_root=source_root)
+                write_package_from_fixture_source(
+                    source,
+                    source_root=source_root,
+                    package_root=source_root,
+                )
 
             package_root = source_root / "packages"
             package_root.mkdir()
             with self.assertRaisesRegex(ValueError, "outside source root"):
-                write_package(source, source_root=source_root, package_root=package_root)
+                write_package_from_fixture_source(
+                    source,
+                    source_root=source_root,
+                    package_root=package_root,
+                )
             self.assertEqual(list(package_root.iterdir()), [])
 
             package_parent = temp_root
             with self.assertRaisesRegex(ValueError, "outside package root"):
-                write_package(source, source_root=source_root, package_root=package_parent)
+                write_package_from_fixture_source(
+                    source,
+                    source_root=source_root,
+                    package_root=package_parent,
+                )
             self.assertEqual(list(package_parent.iterdir()), [source_root])
 
     def test_multiple_selected_measurements_round_trip_through_reader(self) -> None:
@@ -194,7 +183,11 @@ class HandoffEngineeringPrototypeWriterTest(unittest.TestCase):
             package_root = temp_root / "packages"
             package_root.mkdir()
 
-            write_package(source, source_root=source_root, package_root=package_root)
+            write_package_from_fixture_source(
+                source,
+                source_root=source_root,
+                package_root=package_root,
+            )
             package = open_package(package_root / "handoff-package-legacy-rabi-001")
 
         self.assertEqual(package.measurement_ids, ("legacy-rabi-001", "legacy-rabi-002"))
@@ -212,7 +205,7 @@ class HandoffEngineeringPrototypeWriterTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             package_root = Path(temp_dir)
-            write_package(
+            write_package_from_fixture_source(
                 source,
                 source_root=SOURCE_ROOT,
                 package_root=package_root,
@@ -262,7 +255,7 @@ class HandoffEngineeringPrototypeWriterTest(unittest.TestCase):
             package_root = temp_root / "packages"
             package_root.mkdir()
 
-            receipt = write_package(
+            receipt = write_package_from_fixture_source(
                 source,
                 source_root=source_root,
                 package_root=package_root,

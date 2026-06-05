@@ -13,7 +13,7 @@ from scopecat.handoff.receiving import (
     HandoffReceivingReviewRequest,
     run_receiving_gate_from_request,
 )
-from scopecat.handoff.writer import write_package
+from tests.prototypes.handoff.package_writer_helpers import write_package_from_fixture_source
 
 ROOT = Path(__file__).resolve().parents[3]
 PACKAGE = (
@@ -117,7 +117,7 @@ def _multi_measurement_package(temp_root: Path) -> Path:
     second_source.write_bytes(second_content)
     package_root = temp_root / "packages"
     package_root.mkdir()
-    write_package(source, source_root=source_root, package_root=package_root)
+    write_package_from_fixture_source(source, source_root=source_root, package_root=package_root)
     return package_root / "handoff-package-legacy-rabi-001"
 
 

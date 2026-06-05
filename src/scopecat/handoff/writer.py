@@ -392,22 +392,6 @@ def _linked_context_package_path(context: HandoffPackageLinkedContext) -> str:
     return context.package_path
 
 
-def write_package(
-    source: dict[str, Any],
-    *,
-    source_root: Path,
-    package_root: Path,
-) -> HandoffPackageWriteReceipt:
-    """Compatibility adapter for raw package-writer dictionaries."""
-
-    write_source = _parse_write_source(source)
-    return write_package_from_source(
-        write_source,
-        source_root=source_root,
-        package_root=package_root,
-    )
-
-
 def write_package_from_source(
     source: HandoffPackageWriteSource,
     *,
@@ -822,115 +806,6 @@ def _linked_context_to_dict(item: HandoffPackageLinkedContext) -> dict[str, Any]
     if item.expected_size_bytes is not None:
         result["expected_size_bytes"] = item.expected_size_bytes
     return result
-
-
-def _parse_write_source(source: dict[str, Any]) -> HandoffPackageWriteSource:
-    _validate_references(source)
-    identity = source["package_identity"]
-    request = source["package_write_request"]
-    return HandoffPackageWriteSource(
-        identity=HandoffPackageIdentity(
-            package_id=identity["package_id"],
-            display_name=identity["display_name"],
-            created_by=identity["created_by"],
-            source_export_summary_id=identity["source_export_summary_id"],
-            display_path=identity["display_path"],
-            local_path_redacted=identity["local_path_redacted"],
-        ),
-        request=HandoffPackageWriteRequest(
-            request_id=request["request_id"],
-            package_dir=request["package_dir"],
-            manifest_path=request["manifest_path"],
-        ),
-        selected_measurements=tuple(
-            _parse_selected_measurement(record) for record in source["selected_measurements"]
-        ),
-        linked_context=tuple(_parse_linked_context(item) for item in source["linked_context"]),
-    )
-
-
-def _parse_selected_measurement(record: dict[str, Any]) -> HandoffPackageSelectedMeasurement:
-    primary = record["primary_data"]
-    preview = record["declared_preview_metadata"]
-    shape = preview["data_shape"]
-    return HandoffPackageSelectedMeasurement(
-        measurement_record_id=record["measurement_record_id"],
-        legacy_data_id=record["legacy_data_id"],
-        label=record["label"],
-        experiment_type=record["experiment_type"],
-        target=record["target"],
-        primary_data=HandoffPackagePrimaryData(
-            kind=primary["kind"],
-            label=primary["label"],
-            source_path=primary["source_path"],
-            expected_digest=primary["expected_digest"],
-            expected_size_bytes=primary["expected_size_bytes"],
-            package_path=primary["package_path"],
-            include_status=primary["include_status"],
-            relation=primary["relation"],
-            authority=primary["authority"],
-            format=primary["format"],
-            package_state=primary["package_state"],
-            reason=primary["reason"],
-        ),
-        declared_preview_metadata=HandoffPackagePreviewMetadata(
-            status=preview["status"],
-            metadata_authority=preview["metadata_authority"],
-            data_shape_kind=shape["kind"],
-            data_shape_axis_order=tuple(shape["axis_order"]),
-            declared_columns=tuple(
-                HandoffPackagePreviewColumn(
-                    name=column["name"],
-                    role=column["role"],
-                    label=column["label"],
-                    unit=column["unit"],
-                )
-                for column in preview["declared_columns"]
-            ),
-            plot_candidates=tuple(
-                HandoffPackagePreviewPlotCandidate(
-                    x=candidate["x"],
-                    y=candidate["y"],
-                    source=candidate["source"],
-                )
-                for candidate in preview["plot_candidates"]
-            ),
-        ),
-        default_bundle=tuple(
-            HandoffPackageBundleItem(
-                item_id=item["item_id"],
-                kind=item["kind"],
-                label=item["label"],
-                package_path=item["package_path"],
-                include_status=item["include_status"],
-                relation=item["relation"],
-                authority=item["authority"],
-                package_state=item["package_state"],
-                reason=item["reason"],
-            )
-            for item in record["default_bundle"]
-        ),
-    )
-
-
-def _parse_linked_context(item: dict[str, Any]) -> HandoffPackageLinkedContext:
-    context_reference = item.get("context_reference")
-    return HandoffPackageLinkedContext(
-        link_id=item["link_id"],
-        kind=item["kind"],
-        label=item["label"],
-        package_path=item["package_path"],
-        include_status=item["include_status"],
-        relation=item["relation"],
-        authority=item["authority"],
-        package_state=item["package_state"],
-        reason=item["reason"],
-        linked_measurement_record_ids=tuple(item["linked_measurement_record_ids"]),
-        source_path=item.get("source_path"),
-        expected_digest=item.get("expected_digest"),
-        expected_size_bytes=item.get("expected_size_bytes"),
-        context_reference=dict(context_reference) if context_reference is not None else None,
-    )
 
 
 def _existing_directory_root(root: Path, label: str) -> Path:

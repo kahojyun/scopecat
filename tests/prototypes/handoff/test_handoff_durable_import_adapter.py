@@ -17,7 +17,7 @@ from scopecat.handoff import (
 from scopecat.handoff.durable_import import build_durable_import_request_from_handoff_plan
 from scopecat.handoff.import_plan import build_import_plan
 from scopecat.handoff.receiving import run_receiving_gate_from_request
-from scopecat.handoff.writer import write_package
+from tests.prototypes.handoff.package_writer_helpers import write_package_from_fixture_source
 
 ROOT = Path(__file__).resolve().parents[3]
 PACKAGE = (
@@ -193,7 +193,7 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
             storage_root = temp_root / "storage"
             package_root.mkdir()
             storage_root.mkdir()
-            write_package(
+            write_package_from_fixture_source(
                 source,
                 source_root=WRITER_FIXTURE / "source",
                 package_root=package_root,
@@ -290,7 +290,11 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
             second_source.write_bytes(second_content)
             package_root = temp_root / "packages"
             package_root.mkdir()
-            write_package(source, source_root=source_root, package_root=package_root)
+            write_package_from_fixture_source(
+                source,
+                source_root=source_root,
+                package_root=package_root,
+            )
             package_dir = package_root / "handoff-package-legacy-rabi-001"
             import_plan = _import_plan_run(package_dir)
 

@@ -104,7 +104,6 @@ class HandoffPublicApiSurfaceTest(unittest.TestCase):
             "build_inspection_html",
             "summarize_package_context_references",
             "write_inspection_artifact",
-            "write_package",
             "write_package_from_source",
         }
 
