@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -292,91 +291,6 @@ def record_measurement_record_references_from_request(
     )
 
 
-def list_measurement_record_references(
-    *,
-    storage_root: str | Path,
-    records_dir: str = "records",
-) -> dict[str, Any]:
-    """Read record-local recorded reference receipts for local review."""
-
-    validate_relative_path(records_dir, "recorded reference review records_dir")
-    root = _existing_directory_root(Path(storage_root), "recorded reference review storage root")
-    records_path = _path_under(root, records_dir)
-    _ensure_no_symlink_parents(root, records_dir, "recorded reference review records dir")
-    entries: list[dict[str, Any]] = []
-    findings: list[dict[str, str]] = []
-    if not records_path.exists():
-        return _recorded_reference_review(entries, findings)
-    if records_path.is_symlink():
-        raise ValueError("recorded reference review records dir must not be a symlink")
-    if not records_path.is_dir():
-        raise ValueError("recorded reference review records dir must be a directory")
-
-    for record_path in sorted(records_path.iterdir(), key=lambda item: item.name):
-        record_rel = _relative_to_root(root, record_path)
-        if record_path.is_symlink() or not record_path.is_dir():
-            continue
-        references_dir = record_path / RECORDED_REFERENCE_RECEIPT_DIR
-        if not references_dir.exists():
-            continue
-        references_dir_rel = _relative_to_root(root, references_dir)
-        if references_dir.is_symlink():
-            findings.append(
-                _finding(
-                    "recorded_reference_dir_symlink_ignored",
-                    references_dir_rel,
-                    "Recorded reference directory is a symlink.",
-                )
-            )
-            continue
-        if not references_dir.is_dir():
-            findings.append(
-                _finding(
-                    "recorded_reference_dir_invalid",
-                    references_dir_rel,
-                    "Recorded reference path is not a directory.",
-                )
-            )
-            continue
-        for receipt_path in sorted(references_dir.iterdir(), key=lambda item: item.name):
-            receipt_rel = _relative_to_root(root, receipt_path)
-            if receipt_path.is_symlink():
-                findings.append(
-                    _finding(
-                        "recorded_reference_receipt_symlink_ignored",
-                        receipt_rel,
-                        "Recorded reference receipt is a symlink.",
-                    )
-                )
-                continue
-            if not receipt_path.is_file():
-                findings.append(
-                    _finding(
-                        "recorded_reference_receipt_invalid",
-                        receipt_rel,
-                        "Recorded reference receipt candidate is not a file.",
-                    )
-                )
-                continue
-            try:
-                content = receipt_path.read_bytes()
-                receipt = _parse_recorded_reference_receipt(content)
-                entry = _entry_from_receipt(receipt, receipt_rel, _sha256(content), len(content))
-                if entry["record_dir"] != record_rel:
-                    raise ValueError("Recorded reference receipt record_dir conflicts with scan.")
-            except ValueError as exc:
-                findings.append(
-                    _finding(
-                        "recorded_reference_receipt_invalid",
-                        receipt_rel,
-                        str(exc),
-                    )
-                )
-                continue
-            entries.append(entry)
-    return _recorded_reference_review(entries, findings)
-
-
 def _read_creation_manifest(
     root: Path,
     request: MeasurementRecordReferenceRequest,
@@ -474,17 +388,6 @@ def _write_new_file(path: Path, content: bytes) -> None:
         handle.write(content)
 
 
-def _parse_recorded_reference_receipt(content: bytes) -> dict[str, Any]:
-    try:
-        receipt = json.loads(content.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError("Recorded reference receipt must be utf-8 JSON.") from exc
-    if not isinstance(receipt, dict):
-        raise ValueError("Recorded reference receipt must be a JSON object.")
-    _validate_recorded_reference_receipt(receipt)
-    return receipt
-
-
 def _validate_recorded_reference_receipt(receipt: dict[str, Any]) -> None:
     if receipt.get("schema") != RECORDED_REFERENCE_RECEIPT_SCHEMA:
         raise ValueError("Recorded reference receipt schema is unsupported.")
@@ -566,60 +469,6 @@ def _references_from_dict(source: dict[str, Any]) -> MeasurementRecordReference:
     )
 
 
-def _entry_from_receipt(
-    receipt: dict[str, Any],
-    receipt_path: str,
-    receipt_digest: str,
-    receipt_size_bytes: int,
-) -> dict[str, Any]:
-    record = _require_dict(receipt, "record")
-    reference_set = _require_dict(receipt, "reference_set")
-    references = _require_list(receipt, "references")
-    return {
-        "record_id": validate_public_identifier(
-            record.get("record_id"),
-            "recorded reference record_id",
-        ),
-        "record_dir": validate_relative_path(
-            record.get("record_dir"),
-            "recorded reference record_dir",
-        ),
-        "receipt": {
-            "path": receipt_path,
-            "digest": receipt_digest,
-            "size_bytes": receipt_size_bytes,
-        },
-        "reference_set": {
-            "reference_set_id": validate_public_identifier(
-                reference_set.get("reference_set_id"),
-                "recorded reference reference_set_id",
-            ),
-            "previous_reference_receipt": copy.deepcopy(
-                reference_set.get("previous_reference_receipt")
-            ),
-            "operator_notes": reference_set.get("operator_notes"),
-        },
-        "references": [copy.deepcopy(reference) for reference in references],
-        "reference_count": len(references),
-    }
-
-
-def _recorded_reference_review(
-    entries: list[dict[str, Any]],
-    findings: list[dict[str, str]],
-) -> dict[str, Any]:
-    return {
-        "artifact_posture": "local_measurement_record_recorded_reference_review",
-        "classification": (
-            "measurement_record_recorded_reference_review_needed"
-            if findings
-            else "measurement_record_recorded_reference_review_ready"
-        ),
-        "entries": entries,
-        "review_findings": findings,
-    }
-
-
 def _read_json(root: Path, relative_path: str, owner: str) -> dict[str, Any]:
     _ensure_no_symlink_parents(root, relative_path, owner)
     target = _path_under(root, relative_path)
@@ -636,21 +485,8 @@ def _read_json(root: Path, relative_path: str, owner: str) -> dict[str, Any]:
     return value
 
 
-def _finding(code: str, target: str, message: str) -> dict[str, str]:
-    return {
-        "code": code,
-        "severity": "review",
-        "target": target,
-        "message": message,
-    }
-
-
 def _path_under(root: Path, relative_path: str) -> Path:
     return _path_under_common(root, relative_path, "recorded reference path")
-
-
-def _relative_to_root(root: Path, path: Path) -> str:
-    return path.relative_to(root).as_posix()
 
 
 def _validate_non_overlapping_paths(paths: tuple[str, ...], owner: str) -> None:

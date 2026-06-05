@@ -15,7 +15,6 @@ from scopecat.measurement_records.recorded_reference import (
     MeasurementRecordReference,
     MeasurementRecordReferenceRequest,
     MeasurementRecordReferenceRun,
-    list_measurement_record_references,
     record_measurement_record_references_from_request,
 )
 from scopecat.measurement_records.user_workflow import (
@@ -41,7 +40,6 @@ __all__ = [
     "MeasurementRecordReferenceRun",
     "RecordedReferenceInput",
     "import_measurement_record_from_request",
-    "list_measurement_record_references",
     "record_legacy_measurement",
     "record_legacy_measurement_from_request",
     "record_measurement_record_references_from_request",

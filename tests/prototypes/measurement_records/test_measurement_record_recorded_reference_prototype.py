@@ -9,7 +9,6 @@ from pathlib import Path
 from scopecat.measurement_records import (
     MeasurementRecordReference,
     MeasurementRecordReferenceRequest,
-    list_measurement_record_references,
     record_measurement_record_references_from_request,
 )
 from scopecat.measurement_records.durable_import import (
@@ -149,7 +148,6 @@ class MeasurementRecordReferencePrototypeTest(unittest.TestCase):
                 / "references-set-001.json"
             )
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-            review = list_measurement_record_references(storage_root=storage_root)
 
         self.assertEqual(run.classification, "recorded_measurement_record_references")
         self.assertEqual(before, after)
@@ -164,11 +162,7 @@ class MeasurementRecordReferencePrototypeTest(unittest.TestCase):
                 "preliminary_analysis_result",
             ],
         )
-        self.assertEqual(
-            review["classification"],
-            "measurement_record_recorded_reference_review_ready",
-        )
-        self.assertEqual(review["entries"][0]["reference_count"], 4)
+        self.assertEqual(receipt["operation"]["request_id"], "record-references-run-ctx")
 
     def test_unapproved_request_does_not_write(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -211,13 +205,19 @@ class MeasurementRecordReferencePrototypeTest(unittest.TestCase):
                 ),
                 storage_root=storage_root,
             )
-            review = list_measurement_record_references(storage_root=storage_root)
+            second_receipt_path = (
+                storage_root
+                / "records"
+                / "run-ctx-001"
+                / "recorded-references"
+                / "references-set-002.json"
+            )
+            second_receipt = json.loads(second_receipt_path.read_text(encoding="utf-8"))
 
         self.assertTrue(first.recorded)
         self.assertTrue(second.recorded)
-        self.assertEqual(len(review["entries"]), 2)
         self.assertEqual(
-            review["entries"][1]["reference_set"]["previous_reference_receipt"]["path"],
+            second_receipt["reference_set"]["previous_reference_receipt"]["path"],
             "records/run-ctx-001/recorded-references/references-set-001.json",
         )
 

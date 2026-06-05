@@ -41,7 +41,6 @@ class MeasurementRecordsPublicApiSurfaceTest(unittest.TestCase):
             "MeasurementRecordReferenceRun",
             "RecordedReferenceInput",
             "import_measurement_record_from_request",
-            "list_measurement_record_references",
             "record_legacy_measurement",
             "record_legacy_measurement_from_request",
             "record_measurement_record_references_from_request",

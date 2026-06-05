@@ -31,9 +31,8 @@ capabilities:
 - `record_legacy_measurement(...)` and
   `record_legacy_measurement_from_request(...)` for adopting one legacy or
   externally executed measurement behind user-facing facts;
-- `record_measurement_record_references_from_request(...)` and
-  `list_measurement_record_references(...)` for declared context links attached
-  to a Measurement Record.
+- `record_measurement_record_references_from_request(...)` for declared
+  context links attached to a Measurement Record.
 
 These package-level APIs use typed request/value objects. Slice-level
 operations such as normalized-table summary and stored-primary reads remain
