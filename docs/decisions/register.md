@@ -22,7 +22,6 @@ cross-document handle.
 | DEC-004 | [Use post-run-first brownfield adoption for legacy measurement records](DEC-004-post-run-first-brownfield-adoption.md) | Architecture / Product | Accepted |
 | DEC-005 | [Keep calibration continuation review-only until a narrower workflow earns execution or write-back authority](DEC-005-calibration-continuation-review-only.md) | Architecture / Product | Accepted |
 | DEC-006 | [Separate pre-run context review from run-start authority](DEC-006-separate-pre-run-context-review-from-run-start-authority.md) | Product / Architecture | Accepted |
-| DEC-007 | [Treat selected reference comparison as a supporting review workflow](DEC-007-treat-selected-reference-comparison-as-supporting-review-workflow.md) | Product | Accepted |
 | DEC-008 | [Keep experiment code context separate from runtime and execution ownership](DEC-008-keep-experiment-code-context-separate-from-runtime-and-execution-ownership.md) | Product / Architecture | Accepted |
 | DEC-010 | [Use directory manifest packages for the JNY-001 production vertical slice path](DEC-010-package-format-directory-manifest.md) | Architecture | Accepted |
 | DEC-011 | [Treat JNY-001 directory packages as declared integrity evidence](DEC-011-package-trust-authenticity-posture.md) | Architecture | Accepted |
@@ -37,19 +36,13 @@ cross-document handle.
 | DEC-024 | [Accept safe archive creation](DEC-024-accept-safe-archive-creation.md) | Architecture | Accepted |
 | DEC-025 | [Defer existing-record update and final storage schema for JNY-001](DEC-025-defer-existing-record-update-and-final-storage-schema.md) | Architecture | Accepted |
 
-## Retired Decisions
-
-| ID | Decision | Type | Status |
-| --- | --- | --- | --- |
-| DEC-009 | [Retire historical handoff discovery route decision as active guidance](DEC-009-retire-historical-handoff-discovery-route-decision.md) | Discovery | Retired |
-
 ## Update Rule
 
 Update this register when a branch creates, supersedes, retires, reclassifies,
 or materially changes a durable decision. Historical validation-slice pressure
 that has not become a durable decision belongs in
 [`../discovery/archive/slice-inventory.md`](../discovery/archive/slice-inventory.md)
-or the current owner it informs, not in this register.
+or the current source document it informs, not in this register.
 
 Do not add a new `DEC-*` entry for implementation sequencing, PR scope,
 hardening inventory, review findings, validation status, next validation
