@@ -51,20 +51,13 @@ class HandoffEngineeringPrototypeReceivingTest(unittest.TestCase):
         self.assertTrue(run.acceptance_allowed)
         self.assertEqual(summary["artifact_posture"], "local_receiving_gate_receipt")
         self.assertEqual(summary["classification"], "ready_for_acceptance_mutation")
+        self.assertIsNone(summary["block_reason"])
         self.assertEqual(summary["package"]["package_id"], "handoff-package-legacy-rabi-001")
         self.assertEqual(
             summary["package"]["integrity_classification"],
             "declared_integrity_verified",
         )
         self.assertTrue(summary["acceptance_gate"]["allowed"])
-        self.assertEqual(
-            summary["receiving_review"],
-            {
-                "classification": "ready_for_acceptance_mutation",
-                "acceptance_allowed": True,
-                "block_reason": None,
-            },
-        )
         self.assertFalse(records_exist)
 
     def test_receiving_gate_blocks_when_integrity_requires_review(self) -> None:
@@ -90,15 +83,8 @@ class HandoffEngineeringPrototypeReceivingTest(unittest.TestCase):
             summary["integrity_observation"]["classification"],
             "integrity_review_required",
         )
+        self.assertEqual(summary["block_reason"], "package_integrity_review_required")
         self.assertFalse(summary["acceptance_gate"]["allowed"])
-        self.assertEqual(
-            summary["receiving_review"],
-            {
-                "classification": "blocked_before_acceptance",
-                "acceptance_allowed": False,
-                "block_reason": "package_integrity_review_required",
-            },
-        )
         self.assertFalse(records_exist)
 
     def test_receiving_gate_returns_blocked_review_when_declared_primary_is_missing(self) -> None:
@@ -125,10 +111,7 @@ class HandoffEngineeringPrototypeReceivingTest(unittest.TestCase):
             summary["package"]["open_error"],
             "handoff package primary data is unavailable",
         )
-        self.assertEqual(
-            summary["receiving_review"]["block_reason"],
-            "package_integrity_review_required",
-        )
+        self.assertEqual(summary["block_reason"], "package_integrity_review_required")
         self.assertFalse(records_exist)
 
     def test_rejects_reviewed_package_id_mismatch(self) -> None:

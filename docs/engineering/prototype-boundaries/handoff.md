@@ -15,7 +15,7 @@ building non-mutating import plans.
 Read it with:
 
 - [`../../../src/scopecat/handoff/README.md`](../../../src/scopecat/handoff/README.md)
-  for live API and CLI orientation;
+  for live API orientation;
 - [`handoff-durable-import-storage.md`](handoff-durable-import-storage.md) for
   the separate durable Measurement Records import adapter boundary;
 - [`../../decisions/architecture/DEC-010-package-format-directory-manifest.md`](../../decisions/architecture/DEC-010-package-format-directory-manifest.md)
@@ -170,11 +170,10 @@ The receiving path:
 - records blocked plans without destination, storage mutation, conflict policy,
   or rollback behavior.
 
-Receiving gate and import-plan receipts include local review guidance for
-successful continuation or blocked retry review. That guidance classifies
-integrity-review blocks and receiving-gate readiness before durable import is
-considered. It does not authorize retry, package acceptance, or storage
-mutation.
+Receiving gate and import-plan receipts keep compact `block_reason` state for
+blocked local runs. That state reflects integrity-review blocks and
+receiving-gate readiness before durable import is considered. It does not
+authorize retry, package acceptance, or storage mutation.
 
 Public receiving and import-planning API functions promote route contract
 failures to `HandoffContractError`, which remains `ValueError`-compatible.
@@ -182,11 +181,6 @@ failures to `HandoffContractError`, which remains `ValueError`-compatible.
 message. That diagnostic is a local review surface only; it is not a
 portable/export artifact, retry authorization, package acceptance, storage
 mutation authority, or public error schema.
-
-The CLI may print `HandoffErrorDiagnostic` JSON to stderr for handoff
-receipt-summary contract failures. That CLI output is local operator guidance
-only. It is not a portable/export artifact, retry authorization, package
-acceptance, or public CLI error contract.
 
 ## Artifact Authority
 
@@ -220,9 +214,8 @@ integrity may gate receiving/import planning, but external authenticity, sender
 trust, and scientific validity remain unclaimed.
 
 Local writer receipts, workflow receipts, inspection HTML, receiving-gate
-results, import-plan objects, CLI summaries, and retry reviews are local review
-surfaces unless a later slice explicitly promotes one as a portable/export
-artifact.
+results, import-plan objects, and retry reviews are local review surfaces unless
+a later slice explicitly promotes one as a portable/export artifact.
 
 Selected stored Measurement Record export may package request-declared
 record-local linked-context payloads under `context/`. The package-use route

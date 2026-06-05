@@ -5,10 +5,10 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from scopecat.handoff import (
+from scopecat.handoff import open_package
+from scopecat.handoff.inspect import (
     HANDOFF_INSPECTION_ARTIFACT_NAME,
     build_inspection_html,
-    open_package,
     write_inspection_artifact,
 )
 

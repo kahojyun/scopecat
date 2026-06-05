@@ -70,10 +70,18 @@ class HandoffReceivingGateRun:
             return "ready_for_acceptance_mutation"
         return "blocked_before_acceptance"
 
+    @property
+    def block_reason(self) -> str | None:
+        return _receiving_block_reason(
+            acceptance_allowed=self.acceptance_allowed,
+            integrity_classification=self.integrity_report.classification,
+        )
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_receiving_gate_receipt",
             "classification": self.classification,
+            "block_reason": self.block_reason,
             "request": self.request.to_dict(),
             "package": {
                 "package_id": self.package.package_id,
@@ -93,11 +101,6 @@ class HandoffReceivingGateRun:
                 "required_integrity_classification": "declared_integrity_verified",
                 "allowed": self.acceptance_allowed,
             },
-            "receiving_review": _receiving_review(
-                classification=self.classification,
-                acceptance_allowed=self.acceptance_allowed,
-                integrity_classification=self.integrity_report.classification,
-            ),
         }
 
 
@@ -174,23 +177,6 @@ def _validate_reviewed_facts(
         raise ValueError("integrity package id must match opened package")
     if request.reviewed_integrity_classification != integrity_report.classification:
         raise ValueError("reviewed integrity classification must match observed integrity")
-
-
-def _receiving_review(
-    *,
-    classification: str,
-    acceptance_allowed: bool,
-    integrity_classification: str,
-) -> dict[str, str | None | bool]:
-    block_reason = _receiving_block_reason(
-        acceptance_allowed=acceptance_allowed,
-        integrity_classification=integrity_classification,
-    )
-    return {
-        "classification": classification,
-        "acceptance_allowed": acceptance_allowed,
-        "block_reason": block_reason,
-    }
 
 
 def _receiving_block_reason(

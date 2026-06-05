@@ -52,10 +52,6 @@ class HandoffPublicApiSurfaceTest(unittest.TestCase):
         self.assertTrue(hasattr(handoff, "run_handoff_durable_import_from_plan"))
         self.assertIn("summarize_handoff_durable_import_receipt", handoff.__all__)
 
-    def test_context_reference_summary_is_top_level_export(self) -> None:
-        self.assertIn("summarize_package_context_references", handoff.__all__)
-        self.assertTrue(hasattr(handoff, "summarize_package_context_references"))
-
     def test_archive_materialization_is_top_level_export(self) -> None:
         self.assertIn("HandoffArchiveCreationRequest", handoff.__all__)
         self.assertIn("HandoffArchiveMaterializationRequest", handoff.__all__)
@@ -73,6 +69,7 @@ class HandoffPublicApiSurfaceTest(unittest.TestCase):
     def test_route_local_result_and_projection_types_are_not_top_level_exports(self) -> None:
         route_local_types = {
             "ArchiveMaterializationMemberReview",
+            "HANDOFF_INSPECTION_ARTIFACT_NAME",
             "HandoffArchiveCreationRun",
             "HandoffArchiveMaterializationRun",
             "HandoffContextReferenceSummary",
@@ -96,6 +93,11 @@ class HandoffPublicApiSurfaceTest(unittest.TestCase):
             "SelectedMeasurementRecordBatchExportRun",
             "SelectedMeasurementRecordExportRun",
             "SelectedMeasurementRecordPreflightExportRun",
+            "build_durable_import_request_from_handoff_plan",
+            "build_inspection_html",
+            "summarize_package_context_references",
+            "write_inspection_artifact",
+            "write_package",
         }
 
         self.assertFalse(route_local_types.intersection(handoff.__all__))

@@ -137,6 +137,14 @@ class HandoffImportPlanRun:
             return "ready_for_import_acceptance_decision"
         return "blocked_before_import_acceptance"
 
+    @property
+    def block_reason(self) -> str | None:
+        return _import_plan_block_reason(
+            import_plan_allowed=self.import_plan_allowed,
+            receiving_gate_classification=self.receiving_gate.classification,
+            receiving_block_reason=self.receiving_gate.block_reason,
+        )
+
     def to_dict(self) -> dict[str, Any]:
         steps = [
             "open_package",
@@ -146,6 +154,7 @@ class HandoffImportPlanRun:
         return {
             "artifact_posture": "local_import_plan_receipt",
             "classification": self.classification,
+            "block_reason": self.block_reason,
             "steps": steps,
             "request": self.request.to_dict(),
             "package": {
@@ -164,14 +173,6 @@ class HandoffImportPlanRun:
                 "planned_measurement_imports": [plan.to_dict() for plan in self.measurement_plans],
                 "linked_context": [plan.to_dict() for plan in self.linked_context_plans],
             },
-            "import_plan_review": _import_plan_review(
-                classification=self.classification,
-                import_plan_allowed=self.import_plan_allowed,
-                receiving_gate_classification=self.receiving_gate.classification,
-                receiving_block_reason=(
-                    self.receiving_gate.to_dict()["receiving_review"]["block_reason"]
-                ),
-            ),
         }
 
 
@@ -219,25 +220,6 @@ def _build_import_plan_run(
         measurement_plans=measurement_plans,
         linked_context_plans=linked_context_plans,
     )
-
-
-def _import_plan_review(
-    *,
-    classification: str,
-    import_plan_allowed: bool,
-    receiving_gate_classification: str,
-    receiving_block_reason: str | None,
-) -> dict[str, str | None | bool]:
-    block_reason = _import_plan_block_reason(
-        import_plan_allowed=import_plan_allowed,
-        receiving_gate_classification=receiving_gate_classification,
-        receiving_block_reason=receiving_block_reason,
-    )
-    return {
-        "classification": classification,
-        "import_plan_allowed": import_plan_allowed,
-        "block_reason": block_reason,
-    }
 
 
 def _import_plan_block_reason(

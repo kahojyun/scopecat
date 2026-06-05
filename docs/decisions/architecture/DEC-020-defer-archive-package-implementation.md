@@ -49,7 +49,7 @@ vertical slice candidate beyond the DEC-021 materialization and DEC-024
 creation boundaries.
 
 The current portable package remains the directory manifest package accepted by
-DEC-010. Export, writer, open, receiving, import-plan, durable-import, CLI, and
+DEC-010. Export, writer, open, receiving, import-plan, durable-import, and
 review surfaces must continue to state archive-backed durable import and archive
 bytes as package authority as `not_performed` or equivalent explicit
 non-claims.
@@ -84,7 +84,7 @@ This decision applies to:
 - selected stored-record export and route-local package writing;
 - package open, integrity observation, receiving gate, import planning,
   receiving review outcomes, and durable-import adaptation;
-- CLI and local review surfaces that report archive handling posture;
+- local review surfaces that report archive handling posture;
 - workflow documentation and tests that state package format posture.
 
 This decision does not apply to:

@@ -2,18 +2,13 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from scopecat.handoff import (
-    HANDOFF_INSPECTION_ARTIFACT_NAME,
-    open_package,
-    summarize_package_context_references,
-)
-from scopecat.handoff.package import HandoffPackage
+from scopecat.handoff import open_package
+from scopecat.handoff.inspect import HANDOFF_INSPECTION_ARTIFACT_NAME, write_inspection_artifact
+from scopecat.handoff.package import HandoffPackage, summarize_package_context_references
 from scopecat.handoff.tables import HandoffPlotSeries, HandoffTable
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -182,33 +177,6 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
         with self.assertRaisesRegex(KeyError, "missing-measurement"):
             package.measurement("missing-measurement")
 
-    def test_module_cli_prints_read_only_orientation_summary(self) -> None:
-        result = subprocess.run(
-            [sys.executable, "-m", "scopecat.handoff", str(PACKAGE)],
-            check=True,
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-        )
-
-        summary = json.loads(result.stdout)
-
-        self.assertEqual(summary["package_id"], "handoff-package-legacy-rabi-001")
-        self.assertEqual(summary["measurement_ids"], ["legacy-rabi-001"])
-        self.assertEqual(summary["preview_classification"], "needs_review_before_acceptance")
-        self.assertEqual(summary["finding_count"], 1)
-        self.assertEqual(summary["linked_context_count"], 1)
-        self.assertEqual(
-            summary["context_reference_summary"],
-            {
-                "context_reference_count": 0,
-                "reference_family_counts": {},
-                "prepared_run_context_ids": [],
-                "untyped_linked_context_ids": ["package-legacy-001-parameter-snapshot"],
-            },
-        )
-        self.assertIsNone(summary["html_artifact"])
-
     def test_context_reference_summary_groups_review_references_by_family(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             package_dir = _copy_package(temp_dir)
@@ -289,28 +257,12 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
             "managed-code-version-rabi-001",
         )
 
-    def test_module_cli_can_write_local_html_inspection_artifact(self) -> None:
+    def test_local_html_inspection_artifact_can_be_written(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "scopecat.handoff",
-                    str(PACKAGE),
-                    "--html-dir",
-                    temp_dir,
-                ],
-                check=True,
-                cwd=ROOT,
-                capture_output=True,
-                text=True,
-            )
+            summary = write_inspection_artifact(open_package(PACKAGE), output_dir=Path(temp_dir))
             artifact_path = Path(temp_dir) / HANDOFF_INSPECTION_ARTIFACT_NAME
             html = artifact_path.read_text(encoding="utf-8")
 
-        summary = json.loads(result.stdout)
-
-        self.assertEqual(summary["package_id"], "handoff-package-legacy-rabi-001")
         self.assertEqual(summary["html_artifact"]["filename"], HANDOFF_INSPECTION_ARTIFACT_NAME)
         self.assertEqual(summary["html_artifact"]["portable_package_member"], False)
         self.assertIn("Rabi calibration follow-up", html)

@@ -124,10 +124,10 @@ Durable Measurement Records storage is owned by
 `scopecat.measurement_records`. The handoff durable-import adapter owns request
 adaptation and local review continuity only.
 
-Local handoff durable-import receipts, receipt summaries, retry reviews, and
-CLI summaries are local review surfaces. They are not portable handoff
-artifacts, retry approval, persistent GUI state, destination freshness proof,
-or storage mutation authority.
+Local handoff durable-import receipts, receipt summaries, and retry reviews are
+local review surfaces. They are not portable handoff artifacts, retry approval,
+persistent GUI state, destination freshness proof, or storage mutation
+authority.
 
 The durable-import adapter may consume declared digest integrity from the
 reviewed package path, but it does not verify external authenticity, trusted

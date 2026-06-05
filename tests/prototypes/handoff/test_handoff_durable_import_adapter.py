@@ -3,8 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
-import subprocess
-import sys
 import tempfile
 import unittest
 from dataclasses import replace
@@ -15,15 +13,17 @@ from scopecat.handoff import (
     HandoffDurableImportRequest,
     HandoffImportPlanRequest,
     HandoffReceivingReviewRequest,
-    build_durable_import_request_from_handoff_plan,
     review_handoff_durable_import_retry,
     run_handoff_durable_import_from_plan,
     summarize_handoff_durable_import_receipt,
-    write_package,
 )
-from scopecat.handoff.durable_import import HandoffDurableImportReceiptSummary
+from scopecat.handoff.durable_import import (
+    HandoffDurableImportReceiptSummary,
+    build_durable_import_request_from_handoff_plan,
+)
 from scopecat.handoff.import_plan import build_import_plan
 from scopecat.handoff.receiving import run_receiving_gate_from_request
+from scopecat.handoff.writer import write_package
 
 ROOT = Path(__file__).resolve().parents[3]
 PACKAGE = (
@@ -655,187 +655,6 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
                     previous_summary,
                     fresh_import_plan=_import_plan_run(package_dir),
                 )
-
-    def test_module_cli_summarizes_local_handoff_durable_import_receipt(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_root = Path(temp_dir)
-            package_dir = _copy_package(temp_root)
-            storage_root = temp_root / "storage"
-            storage_root.mkdir()
-            run = run_handoff_durable_import_from_plan(
-                _request(),
-                import_plan=_import_plan_run(package_dir),
-                storage_root=storage_root,
-            )
-            receipt_path = temp_root / "handoff-durable-import-receipt.json"
-            receipt_path.write_text(json.dumps(run.to_dict()), encoding="utf-8")
-
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "scopecat.handoff",
-                    "--receipt-summary",
-                    str(receipt_path),
-                ],
-                check=True,
-                cwd=ROOT,
-                capture_output=True,
-                text=True,
-            )
-
-        summary = json.loads(result.stdout)
-
-        self.assertEqual(
-            summary["artifact_posture"],
-            "local_handoff_durable_import_receipt_summary",
-        )
-        self.assertEqual(summary["package_id"], "handoff-package-legacy-rabi-001")
-        self.assertEqual(summary["measurement_record_id"], "legacy-rabi-001")
-        self.assertEqual(summary["destination_record_id"], "imported-legacy-rabi-001")
-        self.assertEqual(summary["final_state"], "imported_handoff_measurement_record")
-
-    def test_module_cli_reports_local_diagnostic_for_unsupported_receipt_posture(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            receipt_path = Path(temp_dir) / "unsupported-receipt.json"
-            receipt_path.write_text(
-                json.dumps({"artifact_posture": "portable_handoff_receipt"}),
-                encoding="utf-8",
-            )
-
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "scopecat.handoff",
-                    "--receipt-summary",
-                    str(receipt_path),
-                ],
-                check=False,
-                cwd=ROOT,
-                capture_output=True,
-                text=True,
-            )
-
-        diagnostic = json.loads(result.stderr)
-
-        self.assertEqual(result.returncode, 2)
-        self.assertEqual(result.stdout, "")
-        self.assertEqual(diagnostic["artifact_posture"], "local_handoff_error_diagnostic")
-        self.assertEqual(
-            diagnostic["error"],
-            {
-                "code": "handoff_contract_error",
-                "operation": "receipt_summary_cli",
-                "message": "receipt artifact_posture is unsupported",
-            },
-        )
-
-    def test_module_cli_reports_local_diagnostic_for_malformed_handoff_receipt(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            receipt_path = Path(temp_dir) / "malformed-handoff-receipt.json"
-            receipt_path.write_text(
-                json.dumps(
-                    {
-                        "artifact_posture": "local_handoff_durable_import_receipt",
-                        "classification": "unsupported",
-                        "steps": [],
-                        "request": {},
-                        "import_plan": {},
-                        "durable_import_request": None,
-                        "durable_import_result": None,
-                        "durable_import_review": {},
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "scopecat.handoff",
-                    "--receipt-summary",
-                    str(receipt_path),
-                ],
-                check=False,
-                cwd=ROOT,
-                capture_output=True,
-                text=True,
-            )
-
-        diagnostic = json.loads(result.stderr)
-
-        self.assertEqual(result.returncode, 2)
-        self.assertEqual(result.stdout, "")
-        self.assertEqual(
-            diagnostic["error"]["operation"],
-            "summarize_handoff_durable_import_receipt",
-        )
-        self.assertEqual(
-            diagnostic["error"]["message"],
-            "handoff durable import receipt.request.durable_record_destination must be an object",
-        )
-
-    def test_module_cli_reports_local_diagnostic_for_invalid_json_receipt(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            receipt_path = Path(temp_dir) / "invalid-receipt.json"
-            receipt_path.write_text("{not-json", encoding="utf-8")
-
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "scopecat.handoff",
-                    "--receipt-summary",
-                    str(receipt_path),
-                ],
-                check=False,
-                cwd=ROOT,
-                capture_output=True,
-                text=True,
-            )
-
-        diagnostic = json.loads(result.stderr)
-
-        self.assertEqual(result.returncode, 2)
-        self.assertEqual(result.stdout, "")
-        self.assertEqual(
-            diagnostic["error"],
-            {
-                "code": "handoff_contract_error",
-                "operation": "receipt_summary_cli",
-                "message": "receipt summary input must be valid JSON",
-            },
-        )
-
-    def test_module_cli_reports_local_diagnostic_for_non_object_receipt(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            receipt_path = Path(temp_dir) / "list-receipt.json"
-            receipt_path.write_text("[]", encoding="utf-8")
-
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "scopecat.handoff",
-                    "--receipt-summary",
-                    str(receipt_path),
-                ],
-                check=False,
-                cwd=ROOT,
-                capture_output=True,
-                text=True,
-            )
-
-        diagnostic = json.loads(result.stderr)
-
-        self.assertEqual(result.returncode, 2)
-        self.assertEqual(result.stdout, "")
-        self.assertEqual(
-            diagnostic["error"]["message"],
-            "receipt summary input must be a JSON object",
-        )
 
     def test_receipt_summary_rejects_inconsistent_imported_state(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

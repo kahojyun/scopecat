@@ -8,12 +8,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scopecat.handoff import write_package
 from scopecat.handoff.import_plan import HandoffImportPlanRequest, build_import_plan
 from scopecat.handoff.receiving import (
     HandoffReceivingReviewRequest,
     run_receiving_gate_from_request,
 )
+from scopecat.handoff.writer import write_package
 
 ROOT = Path(__file__).resolve().parents[3]
 PACKAGE = (
@@ -143,14 +143,7 @@ class HandoffEngineeringPrototypeImportPlanTest(unittest.TestCase):
             summary["receiving_gate"]["classification"],
             "ready_for_acceptance_mutation",
         )
-        self.assertEqual(
-            summary["import_plan_review"],
-            {
-                "classification": "ready_for_import_acceptance_decision",
-                "import_plan_allowed": True,
-                "block_reason": None,
-            },
-        )
+        self.assertIsNone(summary["block_reason"])
         self.assertEqual(
             summary["import_plan"]["planned_measurement_imports"][0]["source"]["package_path"],
             "measurements/legacy-rabi-001/primary.csv",
@@ -205,14 +198,7 @@ class HandoffEngineeringPrototypeImportPlanTest(unittest.TestCase):
         self.assertEqual(run.classification, "blocked_before_import_acceptance")
         self.assertFalse(run.import_plan_allowed)
         self.assertEqual(summary["import_plan"]["planned_measurement_imports"], [])
-        self.assertEqual(
-            summary["import_plan_review"],
-            {
-                "classification": "blocked_before_import_acceptance",
-                "import_plan_allowed": False,
-                "block_reason": "package_integrity_review_required",
-            },
-        )
+        self.assertEqual(summary["block_reason"], "package_integrity_review_required")
 
     def test_rejects_unknown_selected_measurement(self) -> None:
         with self.assertRaisesRegex(ValueError, "requested measurement ids"):

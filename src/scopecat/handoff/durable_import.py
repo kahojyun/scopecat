@@ -201,9 +201,7 @@ class HandoffDurableImportRun:
                 final_state=self.classification,
                 approval_state=self.request.approval_state,
                 import_plan_allowed=self.import_plan.import_plan_allowed,
-                import_plan_block_reason=(
-                    self.import_plan.to_dict()["import_plan_review"]["block_reason"]
-                ),
+                import_plan_block_reason=self.import_plan.block_reason,
                 durable_import_classification=(
                     None
                     if self.durable_import_run is None

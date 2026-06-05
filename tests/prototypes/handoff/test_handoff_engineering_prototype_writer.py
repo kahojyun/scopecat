@@ -12,10 +12,10 @@ from scopecat.handoff import (
     HandoffReceivingReviewRequest,
     observe_package_integrity,
     open_package,
-    write_package,
 )
 from scopecat.handoff.import_plan import build_import_plan
 from scopecat.handoff.receiving import run_receiving_gate_from_request
+from scopecat.handoff.writer import write_package
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURE = (

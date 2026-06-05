@@ -24,16 +24,12 @@ and
 
 Package writer:
 
-- `write_package(source, source_root=..., package_root=...)`
 - `export_selected_measurement_record_from_request(request, storage_root=..., package_root=...)`
 - `export_selected_measurement_record_batch_from_request(request, storage_root=..., package_root=...)`
 
 Read-only package use and local review:
 
 - `open_package(package_dir)`
-- `summarize_package_context_references(package)`
-- `build_inspection_html(...)`
-- `write_inspection_artifact(...)`
 
 Receiving-side read-only planning:
 
@@ -44,15 +40,15 @@ Receiving-side read-only planning:
 Durable Measurement Records import adaptation:
 
 - `run_handoff_durable_import_from_plan(request, import_plan=..., storage_root=...)`
-- `build_durable_import_request_from_handoff_plan(request, import_plan=...)`
 - `summarize_handoff_durable_import_receipt(receipt)`
 - `review_handoff_durable_import_retry(previous_summary, fresh_import_plan=...)`
 
 The top-level module exports active operation entrypoints and caller-supplied
 request/value objects needed to invoke those operations. Route projection,
-run/result, receipt-summary, and inspection model types remain importable from
-their owning submodules when tests or route-local integrations need them, but
-they are not package-root contracts. `HandoffError` and
+run/result, receipt-summary, direct writer, context-summary, durable-request
+builder, and inspection helpers remain importable from their owning submodules
+when tests or route-local integrations need them, but they are not package-root
+contracts. `HandoffError` and
 `HandoffContractError` remain the package-root error types. Modules with
 leading underscores are route-private implementation modules.
 
@@ -129,9 +125,9 @@ adapter or engineering route for already-reviewed normalized data, not a
 user-facing shortcut around Measurement Records storage.
 
 Local writer receipts, inspection HTML, function return values, import-plan
-objects, durable-import adapter receipts, retry reviews, and CLI summaries are
-local review surfaces unless a later slice explicitly promotes one as a
-portable/export artifact.
+objects, durable-import adapter receipts, and retry reviews are local review
+surfaces unless a later slice explicitly promotes one as a portable/export
+artifact.
 
 Selected-record export receipts include `export_review` guidance that
 classifies successful transfer review or blocked retry review. This is local
@@ -155,10 +151,9 @@ preflight review. This is the product-shaped path for a user-transparent cache
 refresh; it still does not repair primary data, replace record manifests, mutate
 writer/finalization receipts, or import/accept packages.
 
-Receiving gate and import-plan receipts include `receiving_review` and
-`import_plan_review` guidance that classifies successful continuation or
-blocked retry review. This is local review guidance only; it does not approve
-retry, accept packages, or mutate storage.
+Receiving gate and import-plan receipts keep compact `block_reason` state for
+blocked local runs. They do not approve retry, accept packages, or mutate
+storage.
 
 This module observes declared digest integrity, but it does not verify external
 authenticity, package provenance, trusted source, or trust-gated import policy.
@@ -187,27 +182,6 @@ still do not import linked-context payloads under DEC-016. Selected
 stored-record export uses the same package-member path only when its export
 request declares a source path under the selected record directory, a
 `context/` package path, digest, and byte size.
-
-## CLI
-
-The CLI remains a local operator surface:
-
-```sh
-python -m scopecat.handoff <package-dir>
-python -m scopecat.handoff <package-dir> --html-dir <output-dir>
-python -m scopecat.handoff --receipt-summary <receipt.json>
-```
-
-It opens a package for read-only orientation, optionally writes local
-inspection HTML, and summarizes local durable-import receipts for continuation
-review. It does not run package import, approve storage
-acceptance or durable import, persist review state, or become a public import
-API.
-
-When `--receipt-summary` sees a handoff contract error, the CLI writes the
-local `HandoffErrorDiagnostic` JSON to stderr and exits nonzero. This is local
-operator guidance for review; it is not a portable/export artifact or public
-CLI error contract.
 
 ## Historical Candidate Context
 
