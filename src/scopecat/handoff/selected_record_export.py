@@ -329,15 +329,43 @@ class SelectedMeasurementRecordBatchExportRequest:
 
 
 @dataclass(frozen=True)
+class _SelectedRecordExportRecordRef:
+    record_id: str
+    record_dir: str
+    lifecycle_state: str
+    primary_data_path: str
+    primary_data_digest: str
+    primary_data_size_bytes: int
+    label: str | None
+    experiment_type: str | None
+    writer_receipt_path: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "record_id": self.record_id,
+            "record_dir": self.record_dir,
+            "lifecycle_state": self.lifecycle_state,
+            "primary_data_path": self.primary_data_path,
+            "primary_data_digest": self.primary_data_digest,
+            "primary_data_size_bytes": self.primary_data_size_bytes,
+        }
+        if self.label is not None:
+            result["label"] = self.label
+        if self.experiment_type is not None:
+            result["experiment_type"] = self.experiment_type
+        if self.writer_receipt_path is not None:
+            result["writer_receipt_path"] = self.writer_receipt_path
+        return result
+
+
+@dataclass(frozen=True)
 class SelectedMeasurementRecordExportRun:
-    """Local review run for selected-record package export."""
+    """Local run for selected-record package export."""
 
     request: SelectedMeasurementRecordExportRequest
     storage_root: Path
     package_root: Path
-    read_model: dict[str, Any] | None = None
-    record_manifest: dict[str, Any] | None = None
-    writer_receipt: dict[str, Any] | None = None
+    record: _SelectedRecordExportRecordRef | None = None
     package_write: HandoffPackageWriteReceipt | None = None
     export_error: str | None = None
 
@@ -366,7 +394,7 @@ class SelectedMeasurementRecordExportRun:
             "classification": self.classification,
             "block_reason": self.block_reason,
             "request": self.request.to_dict(),
-            "record": _record_ref(self.read_model, self.record_manifest, self.writer_receipt),
+            "record": None if self.record is None else self.record.to_dict(),
             "package_write": None if self.package_write is None else self.package_write.to_dict(),
             "export": {
                 "performed": self.exported,
@@ -437,19 +465,17 @@ class SelectedMeasurementRecordPreflightExportRun:
 @dataclass(frozen=True)
 class _SelectedRecordExportEvidence:
     record: SelectedMeasurementRecordBatchExportRecord
-    read_model: dict[str, Any]
-    record_manifest: dict[str, Any]
-    writer_receipt: dict[str, Any]
+    record_ref: _SelectedRecordExportRecordRef
 
 
 @dataclass(frozen=True)
 class SelectedMeasurementRecordBatchExportRun:
-    """Local review run for selected-record batch package export."""
+    """Local run for selected-record batch package export."""
 
     request: SelectedMeasurementRecordBatchExportRequest
     storage_root: Path
     package_root: Path
-    records: tuple[_SelectedRecordExportEvidence, ...] = ()
+    records: tuple[_SelectedRecordExportRecordRef, ...] = ()
     package_write: HandoffPackageWriteReceipt | None = None
     export_error: str | None = None
 
@@ -478,10 +504,7 @@ class SelectedMeasurementRecordBatchExportRun:
             "classification": self.classification,
             "block_reason": self.block_reason,
             "request": self.request.to_dict(),
-            "records": [
-                _record_ref(record.read_model, record.record_manifest, record.writer_receipt)
-                for record in self.records
-            ],
+            "records": [record.to_dict() for record in self.records],
             "package_write": None if self.package_write is None else self.package_write.to_dict(),
             "export": {
                 "performed": self.exported,
@@ -511,13 +534,8 @@ def export_selected_measurement_record_from_request(
         )
 
     try:
-        read_model = _read_read_model(storage, request)
-        manifest = _read_json(
-            storage, f"{request.record_dir}/record-manifest.json", "record manifest"
-        )
-        writer_receipt_path = _writer_receipt_path(read_model)
-        writer_receipt = _read_json(storage, writer_receipt_path, "writer receipt")
-        writer_source = _writer_source(request, read_model, manifest, writer_receipt)
+        evidence = _read_record_export_evidence(storage, request.to_batch_record())
+        writer_source = _writer_source(request, evidence)
         package_write = write_package_from_source(
             writer_source,
             source_root=storage,
@@ -535,9 +553,7 @@ def export_selected_measurement_record_from_request(
         request=request,
         storage_root=storage,
         package_root=packages,
-        read_model=read_model,
-        record_manifest=manifest,
-        writer_receipt=writer_receipt,
+        record=evidence.record_ref,
         package_write=package_write,
     )
 
@@ -647,7 +663,7 @@ def export_selected_measurement_record_batch_from_request(
         request=request,
         storage_root=storage,
         package_root=packages,
-        records=records,
+        records=tuple(record.record_ref for record in records),
         package_write=package_write,
     )
 
@@ -683,11 +699,11 @@ def _read_record_export_evidence(
     manifest = _read_json(storage, f"{record.record_dir}/record-manifest.json", "record manifest")
     writer_receipt_path = _writer_receipt_path(read_model)
     writer_receipt = _read_json(storage, writer_receipt_path, "writer receipt")
+    _validate_read_model_primary_scope(record, read_model)
+    _validate_record_continuity(record, read_model, manifest, writer_receipt)
     return _SelectedRecordExportEvidence(
         record=record,
-        read_model=read_model,
-        record_manifest=manifest,
-        writer_receipt=writer_receipt,
+        record_ref=_record_ref(read_model, manifest, writer_receipt),
     )
 
 
@@ -717,34 +733,17 @@ def _package_write_request(
 def _measurement_writer_item(
     evidence: _SelectedRecordExportEvidence,
 ) -> HandoffPackageSelectedMeasurement:
-    record = _require_dict(evidence.record_manifest, "record")
-    primary_data = _require_dict(evidence.read_model, "primary_data")
-    primary_path = _require_text(primary_data, "path")
-    validate_relative_path(primary_path, "selected record export primary data path")
-    _validate_strict_child_path(
-        primary_path,
-        evidence.record.record_dir,
-        "selected record export primary data path",
-    )
-    digest = _require_text(primary_data, "digest")
-    size_bytes = _require_int(primary_data, "size_bytes")
-    label = record.get("label") or evidence.record.record_id
-    experiment_type = record.get("experiment_type") or "unspecified"
+    ref = evidence.record_ref
+    label = ref.label or evidence.record.record_id
+    experiment_type = ref.experiment_type or "unspecified"
     validate_public_identifier(experiment_type, "selected record export experiment_type")
-    _validate_record_continuity(
-        evidence.record,
-        evidence.read_model,
-        evidence.record_manifest,
-        evidence.writer_receipt,
-    )
-
     package_primary_path = evidence.record.package_primary_path
     primary = HandoffPackagePrimaryData(
         kind="primary_data",
         label="Stored primary data",
-        source_path=primary_path,
-        expected_digest=digest,
-        expected_size_bytes=size_bytes,
+        source_path=ref.primary_data_path,
+        expected_digest=ref.primary_data_digest,
+        expected_size_bytes=ref.primary_data_size_bytes,
         package_path=package_primary_path,
         include_status="included_by_default",
         relation="selected_measurement_source",
@@ -840,16 +839,8 @@ def _batch_writer_source(
 
 def _writer_source(
     request: SelectedMeasurementRecordExportRequest,
-    read_model: dict[str, Any],
-    manifest: dict[str, Any],
-    writer_receipt: dict[str, Any],
+    evidence: _SelectedRecordExportEvidence,
 ) -> HandoffPackageWriteSource:
-    evidence = _SelectedRecordExportEvidence(
-        record=request.to_batch_record(),
-        read_model=read_model,
-        record_manifest=manifest,
-        writer_receipt=writer_receipt,
-    )
     return HandoffPackageWriteSource(
         request=_package_write_request(request),
         identity=_package_write_identity(request),
@@ -890,6 +881,20 @@ def _validate_record_continuity(
         raise ValueError("selected record export primary data digest must match writer receipt")
     if writer_primary.get("size_bytes") != model_primary.get("size_bytes"):
         raise ValueError("selected record export primary data size must match writer receipt")
+
+
+def _validate_read_model_primary_scope(
+    request: SelectedMeasurementRecordBatchExportRecord,
+    read_model: dict[str, Any],
+) -> None:
+    primary_data = _require_dict(read_model, "primary_data")
+    primary_path = _require_text(primary_data, "path")
+    validate_relative_path(primary_path, "selected record export primary data path")
+    _validate_strict_child_path(
+        primary_path,
+        request.record_dir,
+        "selected record export primary data path",
+    )
 
 
 def _read_read_model(
@@ -980,30 +985,34 @@ def _preflight_block_reason(run: SelectedMeasurementRecordPreflightExportRun) ->
 
 
 def _record_ref(
-    read_model: dict[str, Any] | None,
-    manifest: dict[str, Any] | None,
-    writer_receipt: dict[str, Any] | None,
-) -> dict[str, Any] | None:
-    if read_model is None:
-        return None
+    read_model: dict[str, Any],
+    manifest: dict[str, Any],
+    writer_receipt: dict[str, Any],
+) -> _SelectedRecordExportRecordRef:
     record = _require_dict(read_model, "record")
     primary = _require_dict(read_model, "primary_data")
-    result = {
-        "record_id": record.get("record_id"),
-        "record_dir": record.get("record_dir"),
-        "lifecycle_state": record.get("lifecycle_state"),
-        "primary_data_path": primary.get("path"),
-        "primary_data_digest": primary.get("digest"),
-        "primary_data_size_bytes": primary.get("size_bytes"),
-    }
-    if manifest is not None:
-        manifest_record = _require_dict(manifest, "record")
-        result["label"] = manifest_record.get("label")
-        result["experiment_type"] = manifest_record.get("experiment_type")
-    if writer_receipt is not None:
-        writer_request = _require_dict(writer_receipt, "writer_request")
-        result["writer_receipt_path"] = writer_request.get("writer_receipt_path")
-    return result
+    label = None
+    experiment_type = None
+    manifest_record = _require_dict(manifest, "record")
+    if manifest_record.get("label") is not None:
+        label = _require_text(manifest_record, "label")
+    if manifest_record.get("experiment_type") is not None:
+        experiment_type = _require_text(manifest_record, "experiment_type")
+    writer_receipt_path = None
+    writer_request = _require_dict(writer_receipt, "writer_request")
+    if writer_request.get("writer_receipt_path") is not None:
+        writer_receipt_path = _require_text(writer_request, "writer_receipt_path")
+    return _SelectedRecordExportRecordRef(
+        record_id=_require_text(record, "record_id"),
+        record_dir=_require_text(record, "record_dir"),
+        lifecycle_state=_require_text(record, "lifecycle_state"),
+        primary_data_path=_require_text(primary, "path"),
+        primary_data_digest=_require_text(primary, "digest"),
+        primary_data_size_bytes=_require_int(primary, "size_bytes"),
+        label=label,
+        experiment_type=experiment_type,
+        writer_receipt_path=writer_receipt_path,
+    )
 
 
 def _read_json(root: Path, relative_path: str, label: str) -> dict[str, Any]:
