@@ -28,8 +28,8 @@ Accepted surface groups:
 | Surface | Current Boundary |
 | --- | --- |
 | Record creation | Creates one no-overwrite record shell with `record-manifest.json` and a local creation receipt. |
-| Primary-data pipeline | Writes reviewed normalized primary CSV, reads it back, finalizes the record, and projects/refreshes `record-read-model.json`. |
-| Durable import | Imports one reviewed normalized primary table into a new record with synchronous partial-failure rollback. |
+| Primary-data attach flow | Writes reviewed normalized primary CSV, reads it back, finalizes the record, and projects/refreshes `record-read-model.json` for legacy attach paths. |
+| Durable import | Imports one reviewed normalized primary table directly into a new record with synchronous partial-failure rollback. |
 | Recorded references | Writes record-local receipts for user-declared context references while leaving referenced payloads outside Measurement Records ownership. |
 
 Legacy-run storage and converted-primary attach are owned separately by

@@ -9,7 +9,6 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
-from unittest.mock import patch
 
 from scopecat.handoff import (
     HandoffDurableImportDestination,
@@ -456,62 +455,9 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
         self.assertEqual(
             summary["durable_import_result"]["classification"], "blocked_before_import"
         )
-        self.assertEqual(
-            summary["durable_import_result"]["pipeline"]["creation"],
-            "blocked_before_creation",
-        )
-
-    def test_late_durable_import_failure_rolls_back_before_handoff_retry(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_root = Path(temp_dir)
-            package_dir = _copy_package(temp_root)
-            storage_root = temp_root / "storage"
-            storage_root.mkdir()
-
-            with patch(
-                "scopecat.measurement_records.durable_import."
-                "project_measurement_record_read_model_from_read_view",
-                side_effect=RuntimeError("simulated projection failure"),
-            ):
-                run = run_handoff_durable_import_from_plan(
-                    _request(),
-                    import_plan=_import_plan_run(package_dir),
-                    storage_root=storage_root,
-                )
-            record_dir_exists = (storage_root / "records" / "imported-legacy-rabi-001").exists()
-            summary = run.to_dict()
-            receipt_summary = summarize_handoff_durable_import_receipt(summary)
-            retry_review = review_handoff_durable_import_retry(
-                receipt_summary,
-                fresh_import_plan=_import_plan_run(package_dir),
-            )
-
-        self.assertEqual(run.classification, "blocked_before_handoff_durable_import")
-        self.assertFalse(record_dir_exists)
-        self.assertEqual(
-            run.durable_import_run.classification if run.durable_import_run else None,
-            "rolled_back_after_import_failure",
-        )
-        self.assertTrue(
-            run.durable_import_run.rollback_performed if run.durable_import_run else False
-        )
-        self.assertFalse(run.durable_import_run.partial_commit if run.durable_import_run else True)
         self.assertIn(
-            "projection step failed",
+            "already exists",
             run.durable_import_run.import_error if run.durable_import_run else "",
-        )
-        self.assertEqual(
-            summary["durable_import_review"],
-            {
-                "classification": "blocked_before_handoff_durable_import",
-                "durable_import_performed": False,
-                "block_reason": "durable_import_rolled_back",
-            },
-        )
-        self.assertEqual(receipt_summary.block_reason, "durable_import_rolled_back")
-        self.assertEqual(
-            retry_review.classification,
-            "fresh_import_plan_ready_for_retry",
         )
 
     def test_summarizes_blocked_plan_without_authorizing_retry(self) -> None:

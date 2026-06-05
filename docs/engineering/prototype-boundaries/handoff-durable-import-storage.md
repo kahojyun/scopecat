@@ -85,9 +85,9 @@ import into existing records, attach to pre-created shells, replace manifests,
 merge primary data, or publish a final storage schema for Measurement Records.
 
 The import plan is not write authority. Before mutation, the delegated
-Measurement Records pipeline reopens the package member through the package
-directory content root and validates digest, byte size, normalized CSV shape,
-format, and row count.
+Measurement Records durable import operation reopens the package member through
+the package directory content root and validates digest, byte size, normalized
+CSV shape, format, and row count.
 
 ## Source Facts
 
@@ -140,7 +140,7 @@ cleanup.
 
 ## Current Failure Shape
 
-The durable import pipeline reports storage outcomes. Handoff preserves those
+The durable import operation reports storage outcomes. Handoff preserves those
 outcomes in its local receipt and summary instead of reclassifying storage
 semantics.
 
@@ -194,7 +194,7 @@ Relevant regression expectations:
 - raw-edge composition through import planning and durable import;
 - unapproved or not-ready plans block before mutation;
 - package-id and selected-measurement mismatches block before mutation;
-- stale package bytes are revalidated by the delegated durable-import pipeline;
+- stale package bytes are revalidated by the delegated durable-import operation;
 - linked context remains reference-only review context;
 - receipt summaries and retry reviews expose stable local review guidance but
   do not authorize mutation.

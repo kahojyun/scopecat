@@ -82,9 +82,9 @@ Durable import is a separate boundary. When a reviewed handoff package feeds
 durable storage, this module adapts exactly one ready import-plan measurement
 into `MeasurementRecordImportSource` and
 `MeasurementRecordDurableImportRequest`, then delegates mutation to the
-Measurement Records durable import pipeline. The adapter does not treat the
+Measurement Records durable import operation. The adapter does not treat the
 import plan as sufficient write authority for bytes on disk; the delegated
-pipeline reopens the package member and preflights digest, byte size,
+operation reopens the package member and preflights digest, byte size,
 normalized CSV shape, and row count before any storage mutation.
 Under DEC-025 this path creates a new Measurement Record only; it does not
 update existing records, merge primary data, replace manifests, or publish a

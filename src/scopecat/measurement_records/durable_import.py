@@ -1,9 +1,11 @@
-"""Durable new-record import through the measurement-record pipeline."""
+"""Durable new-record import for normalized measurement data."""
 
 from __future__ import annotations
 
 import csv
 import io
+import json
+import os
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -12,6 +14,8 @@ from types import TracebackType
 from typing import Any
 
 from scopecat.measurement_records._contracts import (
+    MANIFEST_SCHEMA,
+    RECORD_MANIFEST_NAME,
     validate_public_identifier,
     validate_relative_path,
     validate_text,
@@ -34,35 +38,13 @@ from scopecat.measurement_records._storage import (
 from scopecat.measurement_records._storage import (
     validate_strict_child_path as _validate_strict_child_path,
 )
-from scopecat.measurement_records.creation import (
-    MeasurementRecordCreationRequest,
-    MeasurementRecordCreationRun,
-    create_measurement_record_from_request,
+from scopecat.measurement_records.normalized_primary_table import (
+    summarize_observed_primary_table_for_read_view,
 )
-from scopecat.measurement_records.finalization import (
-    MeasurementRecordFinalizationRequest,
-    MeasurementRecordFinalizationRun,
-    finalize_measurement_record_from_read_view,
-)
-from scopecat.measurement_records.read_model_projection import (
-    MeasurementRecordReadModelProjectionRequest,
-    MeasurementRecordReadModelProjectionRun,
-    project_measurement_record_read_model_from_read_view,
-)
-from scopecat.measurement_records.read_model_shared import _validate_canonical_read_model_path
-from scopecat.measurement_records.read_view import (
-    MeasurementRecordReadRequest,
-    MeasurementRecordReadRun,
-    read_created_record_primary_table_from_request,
-)
-from scopecat.measurement_records.writer_integration import (
-    MeasurementRecordWriterChunk,
-    MeasurementRecordWriterRequest,
-    MeasurementRecordWriterRun,
-    validate_positive_integer,
-    validate_sha256_digest,
-    write_created_record_primary_data_from_request,
-)
+from scopecat.measurement_records.read_model_shared import READ_MODEL_FILENAME, READ_MODEL_SCHEMA
+
+WRITER_RECEIPT_SCHEMA = "measurement_record_writer_receipt_v0"
+FINALIZATION_RECEIPT_SCHEMA = "measurement_record_finalization_receipt_v0"
 
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 SOURCE_KINDS = {
@@ -72,13 +54,6 @@ SOURCE_KINDS = {
 }
 CREATION_SOURCE_KINDS = {"import", "handoff"}
 PRIMARY_DATA_FORMATS = {"csv_table"}
-_DurableImportPipelineRun = (
-    MeasurementRecordCreationRun
-    | MeasurementRecordWriterRun
-    | MeasurementRecordReadRun
-    | MeasurementRecordFinalizationRun
-    | MeasurementRecordReadModelProjectionRun
-)
 
 
 @dataclass(frozen=True)
@@ -173,11 +148,7 @@ class MeasurementRecordDurableImportRequest:
             self.record_dir,
             "durable import read_model_path",
         )
-        _validate_canonical_read_model_path(
-            self.read_model_path,
-            self.record_dir,
-            "durable import read_model_path",
-        )
+        _validate_canonical_read_model_path(self.read_model_path, self.record_dir)
         if self.creation_source_kind not in CREATION_SOURCE_KINDS:
             raise ValueError("durable import creation_source_kind is unsupported")
         if self.label is not None:
@@ -201,7 +172,7 @@ class MeasurementRecordDurableImportRequest:
 
     @property
     def creation_manifest_path(self) -> str:
-        return f"{self.record_dir}/record-manifest.json"
+        return f"{self.record_dir}/{RECORD_MANIFEST_NAME}"
 
     def to_dict(self) -> dict[str, Any]:
         request = {
@@ -226,16 +197,12 @@ class MeasurementRecordDurableImportRequest:
 
 @dataclass(frozen=True)
 class MeasurementRecordDurableImportRun:
-    """Local receipt for durable new-record import."""
+    """Local result for durable new-record import."""
 
     request: MeasurementRecordDurableImportRequest
     storage_root: Path
     content_root: Path
-    creation_run: MeasurementRecordCreationRun | None = None
-    writer_run: MeasurementRecordWriterRun | None = None
-    read_view_run: MeasurementRecordReadRun | None = None
-    finalization_run: MeasurementRecordFinalizationRun | None = None
-    projection_run: MeasurementRecordReadModelProjectionRun | None = None
+    stored_record: dict[str, Any] | None = None
     rollback_performed: bool = False
     import_error: str | None = None
     partial_commit: bool = False
@@ -263,18 +230,12 @@ class MeasurementRecordDurableImportRun:
             "request": self.request.to_dict(),
             "storage_root": str(self.storage_root),
             "content_root": str(self.content_root),
+            "stored_record": None if self.stored_record is None else dict(self.stored_record),
             "import_result": {
                 "performed": self.imported,
                 "rollback_performed": self.rollback_performed,
                 "partial_commit": self.partial_commit,
                 "import_error": self.import_error,
-            },
-            "pipeline": {
-                "creation": _run_classification(self.creation_run),
-                "writer": _run_classification(self.writer_run),
-                "read_view": _run_classification(self.read_view_run),
-                "finalization": _run_classification(self.finalization_run),
-                "projection": _run_classification(self.projection_run),
             },
         }
 
@@ -297,63 +258,37 @@ def import_measurement_record_from_request(
             content_root=content,
         )
 
-    creation_run = writer_run = read_view_run = finalization_run = projection_run = None
     guard = _DurableImportMutationGuard(storage, request)
+    stored_record = None
     with guard:
         guard.stage("preflight")
-        _preflight_source(request, content)
-        guard.stage("creation")
-        creation_run = create_measurement_record_from_request(
-            _creation_request(request),
-            storage_root=storage,
+        primary_content = _preflight_source(request, content)
+        table, findings = summarize_observed_primary_table_for_read_view(
+            primary_content,
+            source=request.primary_data_path,
+            declared_row_count=request.import_source.rows_recorded,
+            preview_row_limit=5,
         )
-        if not creation_run.created:
-            raise _DurableImportFailure(_classification_error("creation", creation_run))
-        guard.mark_mutation_started(creation_run)
+        if findings:
+            raise _DurableImportFailure("durable import primary table review needed")
 
-        guard.stage("writer")
-        writer_run = write_created_record_primary_data_from_request(
-            _writer_request(request),
-            content_root=content,
-            storage_root=storage,
+        guard.stage("target_preflight")
+        _ensure_new_record_targets(storage, request)
+        guard.stage("write")
+        guard.mark_mutation_started()
+        stored_record = _write_imported_record(
+            storage,
+            request,
+            primary_content,
+            table,
+            read_model_writer=projection_model_writer or _write_new_file,
         )
-        if not writer_run.written:
-            raise _DurableImportFailure(_classification_error("writer", writer_run))
-
-        guard.stage("read_view")
-        read_view_run = read_created_record_primary_table_from_request(
-            _read_request(request),
-            storage_root=storage,
-        )
-        guard.stage("finalization")
-        finalization_run = finalize_measurement_record_from_read_view(
-            _finalization_request(request),
-            read_view=read_view_run,
-            storage_root=storage,
-        )
-        if not finalization_run.finalized:
-            raise _DurableImportFailure(_classification_error("finalization", finalization_run))
-
-        guard.stage("projection")
-        projection_run = project_measurement_record_read_model_from_read_view(
-            _projection_request(request),
-            read_view=read_view_run,
-            storage_root=storage,
-            model_writer=projection_model_writer,
-        )
-        if not projection_run.projected:
-            raise _DurableImportFailure(_classification_error("projection", projection_run))
 
     if guard.import_error is not None:
         return MeasurementRecordDurableImportRun(
             request=request,
             storage_root=storage,
             content_root=content,
-            creation_run=creation_run,
-            writer_run=writer_run,
-            read_view_run=read_view_run,
-            finalization_run=finalization_run,
-            projection_run=projection_run,
             rollback_performed=guard.rollback_performed,
             partial_commit=guard.partial_commit,
             import_error=guard.import_error,
@@ -363,15 +298,11 @@ def import_measurement_record_from_request(
         request=request,
         storage_root=storage,
         content_root=content,
-        creation_run=creation_run,
-        writer_run=writer_run,
-        read_view_run=read_view_run,
-        finalization_run=finalization_run,
-        projection_run=projection_run,
+        stored_record=stored_record,
     )
 
 
-def _preflight_source(request: MeasurementRecordDurableImportRequest, content_root: Path) -> None:
+def _preflight_source(request: MeasurementRecordDurableImportRequest, content_root: Path) -> bytes:
     if request.import_source.primary_data_format != "csv_table":
         raise _DurableImportFailure("durable import source format is unsupported")
     path = _path_under(content_root, request.import_source.content_ref)
@@ -393,6 +324,7 @@ def _preflight_source(request: MeasurementRecordDurableImportRequest, content_ro
     rows = _count_normalized_csv_rows(content)
     if rows != request.import_source.rows_recorded:
         raise _DurableImportFailure("durable import source row count does not match")
+    return content
 
 
 def _count_normalized_csv_rows(content: bytes) -> int:
@@ -420,82 +352,239 @@ def _count_normalized_csv_rows(content: bytes) -> int:
     return rows
 
 
-def _creation_request(
+def _write_imported_record(
+    storage_root: Path,
     request: MeasurementRecordDurableImportRequest,
-) -> MeasurementRecordCreationRequest:
-    return MeasurementRecordCreationRequest(
-        request_id=f"{request.request_id}-create",
-        approval_state=request.approval_state,
-        record_id=request.record_id,
-        record_dir=request.record_dir,
-        initial_lifecycle_state="created",
-        creation_source_kind=request.creation_source_kind,
-        label=request.label,
-        experiment_type=request.experiment_type,
+    primary_content: bytes,
+    table: dict[str, Any],
+    *,
+    read_model_writer: Callable[[Path, bytes], None],
+) -> dict[str, Any]:
+    manifest_content = _json_bytes(_record_manifest(request))
+    writer_receipt_content = _json_bytes(
+        _writer_receipt(
+            request,
+            primary_content=primary_content,
+        )
+    )
+    finalization_receipt_content = _json_bytes(
+        _finalization_receipt(
+            request,
+            primary_digest=_sha256(primary_content),
+            table=table,
+        )
+    )
+    read_model_content = _json_bytes(
+        _read_model(
+            request,
+            table=table,
+            manifest_digest=_sha256(manifest_content),
+            writer_receipt_digest=_sha256(writer_receipt_content),
+            finalization_receipt_digest=_sha256(finalization_receipt_content),
+            primary_size=len(primary_content),
+        )
     )
 
+    record_dir = _path_under(storage_root, request.record_dir)
+    record_dir.mkdir(parents=True)
+    _write_new_file(_path_under(storage_root, request.creation_manifest_path), manifest_content)
+    _write_new_file(_path_under(storage_root, request.primary_data_path), primary_content)
+    _write_new_file(_path_under(storage_root, request.writer_receipt_path), writer_receipt_content)
+    _write_new_file(
+        _path_under(storage_root, request.finalization_receipt_path),
+        finalization_receipt_content,
+    )
+    try:
+        read_model_writer(_path_under(storage_root, request.read_model_path), read_model_content)
+    except Exception as exc:
+        raise _DurableImportFailure(f"durable import read model write failed: {exc}") from exc
 
-def _writer_request(
+    return {
+        "record_id": request.record_id,
+        "record_dir": request.record_dir,
+        "creation_manifest_path": request.creation_manifest_path,
+        "primary_data_path": request.primary_data_path,
+        "writer_receipt_path": request.writer_receipt_path,
+        "finalization_receipt_path": request.finalization_receipt_path,
+        "read_model_path": request.read_model_path,
+        "primary_data_digest": _sha256(primary_content),
+        "read_model_digest": _sha256(read_model_content),
+    }
+
+
+def _ensure_new_record_targets(
+    storage_root: Path,
     request: MeasurementRecordDurableImportRequest,
-) -> MeasurementRecordWriterRequest:
-    chunk = MeasurementRecordWriterChunk(
-        chunk_id=f"{request.import_source.source_item_id}-chunk",
-        sequence=1,
-        event_id=f"{request.request_id}-source",
-        content_ref=request.import_source.content_ref,
-        declared_digest=request.import_source.declared_digest,
-        size_bytes=request.import_source.size_bytes,
-        rows_recorded=request.import_source.rows_recorded,
-        total_rows_recorded=request.import_source.rows_recorded,
-    )
-    return MeasurementRecordWriterRequest(
-        request_id=f"{request.request_id}-write",
-        approval_state=request.approval_state,
-        record_id=request.record_id,
-        record_dir=request.record_dir,
-        primary_data_path=request.primary_data_path,
-        writer_receipt_path=request.writer_receipt_path,
-        primary_data_format=request.import_source.primary_data_format,
-        expected_rows=request.import_source.rows_recorded,
-        chunks=(chunk,),
-    )
+) -> None:
+    if os.path.lexists(_path_under(storage_root, request.record_dir)):
+        raise _DurableImportFailure("durable import record_dir target already exists")
+    _ensure_no_symlink_parents(storage_root, request.record_dir, "durable import record_dir")
+    for relative_path in (
+        request.creation_manifest_path,
+        request.primary_data_path,
+        request.writer_receipt_path,
+        request.finalization_receipt_path,
+        request.read_model_path,
+    ):
+        _ensure_no_symlink_parents(storage_root, relative_path, "durable import target")
+        if os.path.lexists(_path_under(storage_root, relative_path)):
+            raise _DurableImportFailure("durable import target already exists")
 
 
-def _read_request(request: MeasurementRecordDurableImportRequest) -> MeasurementRecordReadRequest:
-    return MeasurementRecordReadRequest(
-        request_id=f"{request.request_id}-read",
-        record_id=request.record_id,
-        record_dir=request.record_dir,
-        writer_receipt_path=request.writer_receipt_path,
-    )
+def _record_manifest(request: MeasurementRecordDurableImportRequest) -> dict[str, Any]:
+    record: dict[str, Any] = {
+        "record_id": request.record_id,
+        "lifecycle_state": "created",
+    }
+    if request.label is not None:
+        record["label"] = request.label
+    if request.experiment_type is not None:
+        record["experiment_type"] = request.experiment_type
+
+    return {
+        "schema": MANIFEST_SCHEMA,
+        "record": record,
+        "creation": {
+            "request_id": f"{request.request_id}-create",
+            "source_kind": request.creation_source_kind,
+            "source_kind_authority": "declared_provenance_only",
+        },
+        "storage": {
+            "record_dir": request.record_dir,
+            "manifest_path": request.creation_manifest_path,
+        },
+        "primary_data": {
+            "state": "not_recorded",
+            "references": [],
+        },
+    }
 
 
-def _finalization_request(
+def _writer_receipt(
     request: MeasurementRecordDurableImportRequest,
-) -> MeasurementRecordFinalizationRequest:
-    return MeasurementRecordFinalizationRequest(
-        request_id=f"{request.request_id}-finalize",
-        approval_state=request.approval_state,
-        record_id=request.record_id,
-        record_dir=request.record_dir,
-        writer_receipt_path=request.writer_receipt_path,
-        finalization_receipt_path=request.finalization_receipt_path,
-        final_state="complete",
-    )
+    *,
+    primary_content: bytes,
+) -> dict[str, Any]:
+    primary_digest = _sha256(primary_content)
+    source = request.import_source
+    return {
+        "schema": WRITER_RECEIPT_SCHEMA,
+        "record": {
+            "record_id": request.record_id,
+            "record_dir": request.record_dir,
+            "creation_manifest_path": request.creation_manifest_path,
+            "creation_lifecycle_state": "created",
+        },
+        "writer_request": {
+            "request_id": f"{request.request_id}-write",
+            "primary_data_path": request.primary_data_path,
+            "writer_receipt_path": request.writer_receipt_path,
+            "primary_data_format": source.primary_data_format,
+            "expected_rows": source.rows_recorded,
+        },
+        "primary_data": {
+            "path": request.primary_data_path,
+            "format": source.primary_data_format,
+            "digest": primary_digest,
+            "size_bytes": len(primary_content),
+            "rows_recorded": source.rows_recorded,
+        },
+        "source": source.to_dict(),
+    }
 
 
-def _projection_request(
+def _finalization_receipt(
     request: MeasurementRecordDurableImportRequest,
-) -> MeasurementRecordReadModelProjectionRequest:
-    return MeasurementRecordReadModelProjectionRequest(
-        request_id=f"{request.request_id}-project",
-        approval_state=request.approval_state,
-        record_id=request.record_id,
-        record_dir=request.record_dir,
-        writer_receipt_path=request.writer_receipt_path,
-        finalization_receipt_path=request.finalization_receipt_path,
-        read_model_path=request.read_model_path,
-    )
+    *,
+    primary_digest: str,
+    table: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "schema": FINALIZATION_RECEIPT_SCHEMA,
+        "record": {
+            "record_id": request.record_id,
+            "record_dir": request.record_dir,
+            "creation_manifest_path": request.creation_manifest_path,
+            "writer_receipt_path": request.writer_receipt_path,
+        },
+        "finalization": {
+            "request_id": f"{request.request_id}-finalize",
+            "final_state": "complete",
+            "operator_reason": None,
+            "evidence": {
+                "read_view_classification": table["classification"],
+                "primary_data_path": request.primary_data_path,
+                "primary_data_digest": primary_digest,
+                "rows_recorded": request.import_source.rows_recorded,
+                "table_row_count": table["row_count"],
+            },
+        },
+    }
+
+
+def _read_model(
+    request: MeasurementRecordDurableImportRequest,
+    *,
+    table: dict[str, Any],
+    manifest_digest: str,
+    writer_receipt_digest: str,
+    finalization_receipt_digest: str,
+    primary_size: int,
+) -> dict[str, Any]:
+    return {
+        "schema": READ_MODEL_SCHEMA,
+        "record": {
+            "record_id": request.record_id,
+            "record_dir": request.record_dir,
+            "lifecycle_state": "complete",
+            "creation_lifecycle_state": "created",
+        },
+        "sources": {
+            "creation_manifest": {
+                "path": request.creation_manifest_path,
+                "schema": MANIFEST_SCHEMA,
+                "digest": manifest_digest,
+            },
+            "writer_receipt": {
+                "path": request.writer_receipt_path,
+                "schema": WRITER_RECEIPT_SCHEMA,
+                "digest": writer_receipt_digest,
+            },
+            "finalization_receipt": {
+                "path": request.finalization_receipt_path,
+                "schema": FINALIZATION_RECEIPT_SCHEMA,
+                "digest": finalization_receipt_digest,
+            },
+            "read_view": {
+                "classification": table["classification"],
+            },
+        },
+        "primary_data": {
+            "path": request.primary_data_path,
+            "format": table["format"],
+            "digest": request.import_source.declared_digest,
+            "size_bytes": primary_size,
+            "declared_row_count": request.import_source.rows_recorded,
+            "observed_row_count": table["row_count"],
+        },
+        "table": {
+            "classification": table["classification"],
+            "columns": table["columns"],
+            "preview": table["preview"],
+        },
+        "review": {
+            "findings": [],
+        },
+        "finalization": {
+            "final_state": "complete",
+            "operator_reason": None,
+        },
+        "projection": {
+            "request_id": f"{request.request_id}-project",
+            "read_model_path": request.read_model_path,
+            "projection_kind": "derived_local_summary",
+        },
+    }
 
 
 @dataclass
@@ -504,7 +593,6 @@ class _DurableImportMutationGuard:
     request: MeasurementRecordDurableImportRequest
     current_stage: str = "preflight"
     mutation_started: bool = False
-    creation_run: MeasurementRecordCreationRun | None = None
     rollback_performed: bool = False
     partial_commit: bool = False
     import_error: str | None = None
@@ -530,23 +618,20 @@ class _DurableImportMutationGuard:
             self.storage_root,
             self.request,
             self.mutation_started,
-            self.creation_run,
         )
         return True
 
     def stage(self, name: str) -> None:
         self.current_stage = name
 
-    def mark_mutation_started(self, creation_run: MeasurementRecordCreationRun) -> None:
+    def mark_mutation_started(self) -> None:
         self.mutation_started = True
-        self.creation_run = creation_run
 
 
 def _rollback_new_record(
     storage_root: Path,
     request: MeasurementRecordDurableImportRequest,
     mutation_started: bool,
-    creation_run: MeasurementRecordCreationRun | None,
 ) -> tuple[bool, bool]:
     if not mutation_started:
         return False, False
@@ -554,57 +639,28 @@ def _rollback_new_record(
     try:
         shutil.rmtree(record_path)
     except FileNotFoundError:
-        partial_commit = _remove_empty_created_parent_dirs(storage_root, request, creation_run)
-        return True, partial_commit
+        return True, _remove_empty_created_parent_dirs(storage_root, request)
     except OSError:
         return False, True
-    partial_commit = _remove_empty_created_parent_dirs(storage_root, request, creation_run)
-    return True, partial_commit
+    return True, _remove_empty_created_parent_dirs(storage_root, request)
 
 
 def _remove_empty_created_parent_dirs(
     storage_root: Path,
     request: MeasurementRecordDurableImportRequest,
-    creation_run: MeasurementRecordCreationRun | None,
 ) -> bool:
     partial_commit = False
-    record_dir = request.record_dir
-    for relative_path in reversed(_created_paths(creation_run)):
-        if relative_path == record_dir or relative_path.endswith("/record-manifest.json"):
-            continue
-        path = _path_under(storage_root, relative_path)
+    parts = Path(validate_relative_path(request.record_dir, "durable import record_dir")).parts
+    for depth in range(len(parts) - 1, 0, -1):
+        path = storage_root.joinpath(*parts[:depth])
         if not path.exists():
             continue
         try:
             path.rmdir()
         except OSError:
             partial_commit = True
+            break
     return partial_commit
-
-
-def _created_paths(creation_run: MeasurementRecordCreationRun | None) -> tuple[str, ...]:
-    if creation_run is None:
-        return ()
-    return creation_run.created_paths
-
-
-def _classification_error(owner: str, run: _DurableImportPipelineRun) -> str:
-    detail = _run_error(run)
-    if detail is not None:
-        return f"durable import {owner} step did not complete: {run.classification}: {detail}"
-    return f"durable import {owner} step did not complete: {run.classification}"
-
-
-def _run_error(run: _DurableImportPipelineRun) -> str | None:
-    if isinstance(run, MeasurementRecordCreationRun):
-        return run.creation_error
-    if isinstance(run, MeasurementRecordWriterRun):
-        return run.write_error
-    if isinstance(run, MeasurementRecordFinalizationRun):
-        return run.finalization_error
-    if isinstance(run, MeasurementRecordReadModelProjectionRun):
-        return run.projection_error
-    return None
 
 
 class _DurableImportFailure(RuntimeError):
@@ -619,10 +675,35 @@ def _validate_non_overlapping_paths(paths: tuple[str, ...], owner: str) -> None:
     _validate_non_overlapping_paths_common(paths, owner, reject_parent_child=True)
 
 
-def _run_classification(run: _DurableImportPipelineRun | None) -> str | None:
-    if run is None:
-        return None
-    return run.classification
+def _validate_canonical_read_model_path(read_model_path: str, record_dir: str) -> None:
+    if read_model_path != f"{record_dir}/{READ_MODEL_FILENAME}":
+        raise ValueError("durable import read_model_path must be the canonical path")
+
+
+def _write_new_file(path: Path, content: bytes) -> None:
+    with path.open("xb") as handle:
+        handle.write(content)
+
+
+def _json_bytes(content: dict[str, Any]) -> bytes:
+    return (json.dumps(content, indent=2, sort_keys=True) + "\n").encode("utf-8")
+
+
+def validate_positive_integer(value: Any, owner: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise ValueError(f"{owner} must be positive")
+    return value
+
+
+def validate_sha256_digest(value: Any, owner: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not value.startswith("sha256:")
+        or len(value) != 71
+        or any(character not in "0123456789abcdef" for character in value.removeprefix("sha256:"))
+    ):
+        raise ValueError(f"{owner} must be a sha256-prefixed hex digest")
+    return value
 
 
 def _require_dict(value: dict[str, Any], field: str) -> dict[str, Any]:
@@ -637,7 +718,7 @@ def _require_text(value: dict[str, Any], field: str) -> str:
 
 
 def _optional_text(value: dict[str, Any], field: str, *, default: str | None) -> str | None:
-    if field not in value:
+    if field not in value or value[field] is None:
         return default
     return validate_text(value[field], field)
 
