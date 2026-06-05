@@ -203,15 +203,16 @@ containers; the materialized directory package remains the package of record.
 kept archive implementation deferred until archive artifact authority,
 extraction safety, staging, and materialization review contracts existed.
 [`DEC-021`](../../decisions/architecture/DEC-021-accept-safe-archive-materialization.md)
-accepts a narrow zip materialization candidate. `materialize_handoff_archive_package()`
-and `materialize_handoff_archive_package_from_request()` materialize a zip
+accepts a narrow zip materialization candidate.
+`materialize_handoff_archive_package_from_request()` materializes a zip
 transport archive into a DEC-010 directory-manifest package after path,
 duplicate-member, symlink, metadata-member, manifest, collision, cleanup, and
-package-open checks. [`DEC-024`](../../decisions/architecture/DEC-024-accept-safe-archive-creation.md)
-accepts `create_handoff_archive_package()` and
-`create_handoff_archive_package_from_request()` for creating zip transport
-archives from openable DEC-010 packages under no-overwrite. Signature/trust
-validation and archive-backed durable import remain out of scope.
+package-open checks.
+[`DEC-024`](../../decisions/architecture/DEC-024-accept-safe-archive-creation.md)
+accepts `create_handoff_archive_package_from_request()` for creating zip
+transport archives from openable DEC-010 packages under no-overwrite.
+Signature/trust validation and archive-backed durable import remain out of
+scope.
 
 [`DEC-011`](../../decisions/architecture/DEC-011-package-trust-authenticity-posture.md)
 keeps this package as declared-integrity local-review evidence. Declared digest

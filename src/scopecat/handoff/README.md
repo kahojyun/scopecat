@@ -27,9 +27,7 @@ Package writer and local package workflow:
 - `write_package(source, source_root=..., package_root=...)`
 - `run_package_workflow(source, source_root=..., package_root=...)`
 - `export_selected_measurement_record_from_request(request, storage_root=..., package_root=...)`
-- `export_selected_measurement_record(source, storage_root=..., package_root=...)`
 - `export_selected_measurement_record_batch_from_request(request, storage_root=..., package_root=...)`
-- `export_selected_measurement_record_batch(source, storage_root=..., package_root=...)`
 
 Read-only package use and local review:
 
@@ -177,15 +175,11 @@ This module writes and opens directory manifest packages, can create a zip
 transport archive from one, and can materialize a zip transport archive into a
 staging directory; it still does not verify authenticity or trust, import
 directly from archive bytes, or treat archive bytes as package authority.
-`current_handoff_archive_materialization_contract()` and
-`review_handoff_archive_materialization_contract()` expose local contract
-review for archive materialization posture. `materialize_handoff_archive_package()`
-and `materialize_handoff_archive_package_from_request()` materialize zip
+`materialize_handoff_archive_package_from_request()` materializes zip
 transport archives after path, member, manifest, collision, and package-open
-checks. `create_handoff_archive_package()` and
-`create_handoff_archive_package_from_request()` create zip transport archives
-after package-open, member, symlink, metadata, collision, and no-overwrite
-checks.
+checks. `create_handoff_archive_package_from_request()` creates zip transport
+archives after package-open, member, symlink, metadata, collision, and
+no-overwrite checks.
 
 The generic package writer can package explicitly declared linked-context
 payload files under `context/` after source digest and size preflight. Opened

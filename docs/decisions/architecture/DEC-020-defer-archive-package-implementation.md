@@ -108,13 +108,10 @@ The tradeoff is that directory packages are less convenient for transfer than a
 single file. Users who need single-file transfer still need external packaging
 outside Scopecat until an archive contract is accepted.
 
-The current implementation exposes
-`current_handoff_archive_materialization_contract()` and
-`review_handoff_archive_materialization_contract()` as local contract-review
-surfaces. They do not create archives, open archive inputs, extract bytes, or
-authorize durable import. They only classify future archive materialization
-contract candidates against the required staging, path-safety,
-resource-limit, receiving-review, and artifact-authority posture above.
+This decision is historical for the deferred state. Archive creation and
+materialization moved forward under DEC-021 and DEC-024 as narrow typed-request
+helpers. The earlier local contract-review prototype is no longer kept as an
+active implementation surface.
 
 ## Alternatives Considered
 

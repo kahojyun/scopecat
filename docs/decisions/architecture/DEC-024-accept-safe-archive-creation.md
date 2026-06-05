@@ -63,11 +63,11 @@ authority. Receiving workflows still materialize the archive into the DEC-010
 directory package before package open, integrity review, receiving gate, import
 planning, or durable import.
 
-The implementation exposes `create_handoff_archive_package()` and
-`create_handoff_archive_package_from_request()` as local receipt-producing
-helpers. The receipt records archive creation as transport-only evidence and
-keeps package acceptance, durable import, storage mutation, archive-backed
-import, and external authenticity/trust validation unclaimed.
+The implementation exposes `create_handoff_archive_package_from_request()` as
+a local receipt-producing helper. The receipt records archive creation as
+transport-only evidence and keeps package acceptance, durable import, storage
+mutation, archive-backed import, and external authenticity/trust validation
+unclaimed.
 
 ## Alternatives Considered
 

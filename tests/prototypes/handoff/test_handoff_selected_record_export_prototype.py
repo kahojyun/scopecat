@@ -13,8 +13,6 @@ from scopecat.handoff import (
     SelectedMeasurementRecordBatchExportRequest,
     SelectedMeasurementRecordExportLinkedContext,
     SelectedMeasurementRecordExportRequest,
-    export_selected_measurement_record,
-    export_selected_measurement_record_batch,
     export_selected_measurement_record_batch_from_request,
     export_selected_measurement_record_from_request,
     export_selected_measurement_record_with_preflight_refresh,
@@ -260,21 +258,6 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
             "exported_selected_measurement_record",
         )
 
-    def test_raw_source_entrypoint_exports_selected_record(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root, package_root = self._create_imported_record(Path(temp_dir))
-            source = {
-                "selected_record_export_request": _export_request().to_dict(),
-            }
-
-            run = export_selected_measurement_record(
-                source,
-                storage_root=storage_root,
-                package_root=package_root,
-            )
-
-        self.assertTrue(run.exported)
-
     def test_preflight_export_uses_existing_fresh_read_model_without_refresh(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root, package_root = self._create_imported_record(Path(temp_dir))
@@ -433,40 +416,6 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
             ],
             ["run-3101-rabi", "run-3102-rabi"],
         )
-
-    def test_raw_batch_source_entrypoint_exports_selected_records(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root, package_root = self._create_two_imported_records(Path(temp_dir))
-            request = SelectedMeasurementRecordBatchExportRequest(
-                request_id="export-rabi-batch-raw-3101-3102",
-                approval_state="approved",
-                package_id="handoff-package-rabi-batch-raw-3101-3102",
-                display_name="Raw Rabi batch selected measurement handoff",
-                source_export_summary_id="export-summary-rabi-batch-raw-3101-3102",
-                display_path="HANDOFF_PACKAGE:/redacted/rabi-batch-raw-3101-3102",
-                records=(
-                    _export_request().to_batch_record(),
-                    SelectedMeasurementRecordBatchExportRecord(
-                        record_id="run-3102-rabi",
-                        record_dir="records/run-3102-rabi",
-                        read_model_path="records/run-3102-rabi/record-read-model.json",
-                        legacy_data_id=3102,
-                        target="qA",
-                        declared_preview_metadata=_preview_metadata(record_id="run-3102-rabi"),
-                    ),
-                ),
-            )
-            source = {
-                "selected_record_batch_export_request": request.to_dict(),
-            }
-
-            run = export_selected_measurement_record_batch(
-                source,
-                storage_root=storage_root,
-                package_root=package_root,
-            )
-
-        self.assertTrue(run.exported)
 
     def test_batch_export_rejects_duplicate_selected_record_ids(self) -> None:
         duplicate_record = _export_request().to_batch_record()

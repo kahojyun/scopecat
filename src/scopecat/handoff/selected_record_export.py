@@ -495,22 +495,6 @@ class SelectedMeasurementRecordBatchExportRun:
         }
 
 
-def export_selected_measurement_record(
-    source: dict[str, Any],
-    *,
-    storage_root: str | Path,
-    package_root: str | Path,
-) -> SelectedMeasurementRecordExportRun:
-    """Export one stored Measurement Record from a raw route-local source."""
-
-    request = _parse_source(source)
-    return export_selected_measurement_record_from_request(
-        request,
-        storage_root=storage_root,
-        package_root=package_root,
-    )
-
-
 def export_selected_measurement_record_from_request(
     request: SelectedMeasurementRecordExportRequest,
     *,
@@ -624,22 +608,6 @@ def export_selected_measurement_record_with_preflight_refresh(
     )
 
 
-def export_selected_measurement_record_batch(
-    source: dict[str, Any],
-    *,
-    storage_root: str | Path,
-    package_root: str | Path,
-) -> SelectedMeasurementRecordBatchExportRun:
-    """Export selected stored Measurement Records from a raw route-local source."""
-
-    request = _parse_batch_source(source)
-    return export_selected_measurement_record_batch_from_request(
-        request,
-        storage_root=storage_root,
-        package_root=package_root,
-    )
-
-
 def export_selected_measurement_record_batch_from_request(
     request: SelectedMeasurementRecordBatchExportRequest,
     *,
@@ -678,29 +646,6 @@ def export_selected_measurement_record_batch_from_request(
     )
 
 
-def _parse_source(source: dict[str, Any]) -> SelectedMeasurementRecordExportRequest:
-    request = _require_dict(source, "selected_record_export_request")
-    linked_context = tuple(
-        _parse_linked_context(item)
-        for item in _optional_list(request, "linked_context", default=[])
-    )
-    return SelectedMeasurementRecordExportRequest(
-        request_id=_require_text(request, "request_id"),
-        approval_state=_require_text(request, "approval_state"),
-        package_id=_require_text(request, "package_id"),
-        display_name=_require_text(request, "display_name"),
-        source_export_summary_id=_require_text(request, "source_export_summary_id"),
-        display_path=_require_text(request, "display_path"),
-        record_id=_require_text(request, "record_id"),
-        record_dir=_require_text(request, "record_dir"),
-        read_model_path=_require_text(request, "read_model_path"),
-        legacy_data_id=_require_int(request, "legacy_data_id"),
-        target=_require_text(request, "target"),
-        declared_preview_metadata=_require_dict(request, "declared_preview_metadata"),
-        linked_context=linked_context,
-    )
-
-
 def _validate_selected_export_identity(
     *,
     request_id: str,
@@ -722,60 +667,6 @@ def _validate_selected_export_identity(
         "local_path_redacted": True,
     }
     validate_handoff_package_identity(identity, display_path="required")
-
-
-def _parse_batch_source(source: dict[str, Any]) -> SelectedMeasurementRecordBatchExportRequest:
-    request = _require_dict(source, "selected_record_batch_export_request")
-    return SelectedMeasurementRecordBatchExportRequest(
-        request_id=_require_text(request, "request_id"),
-        approval_state=_require_text(request, "approval_state"),
-        package_id=_require_text(request, "package_id"),
-        display_name=_require_text(request, "display_name"),
-        source_export_summary_id=_require_text(request, "source_export_summary_id"),
-        display_path=_require_text(request, "display_path"),
-        records=tuple(
-            _parse_batch_record(item) for item in _optional_list(request, "records", default=[])
-        ),
-    )
-
-
-def _parse_batch_record(item: Any) -> SelectedMeasurementRecordBatchExportRecord:
-    item = _require_mapping(item, "selected record batch export record")
-    linked_context = tuple(
-        _parse_linked_context(context)
-        for context in _optional_list(item, "linked_context", default=[])
-    )
-    return SelectedMeasurementRecordBatchExportRecord(
-        record_id=_require_text(item, "record_id"),
-        record_dir=_require_text(item, "record_dir"),
-        read_model_path=_require_text(item, "read_model_path"),
-        legacy_data_id=_require_int(item, "legacy_data_id"),
-        target=_require_text(item, "target"),
-        declared_preview_metadata=_require_dict(item, "declared_preview_metadata"),
-        linked_context=linked_context,
-    )
-
-
-def _parse_linked_context(item: Any) -> SelectedMeasurementRecordExportLinkedContext:
-    item = _require_mapping(item, "selected record export linked_context item")
-    context_reference = item.get("context_reference")
-    if context_reference is not None:
-        context_reference = _require_mapping(
-            context_reference,
-            "selected record export context_reference",
-        )
-    return SelectedMeasurementRecordExportLinkedContext(
-        link_id=_require_text(item, "link_id"),
-        kind=_require_text(item, "kind"),
-        label=_require_text(item, "label"),
-        relation=_require_text(item, "relation"),
-        reason=_require_text(item, "reason"),
-        context_reference=copy.deepcopy(context_reference),
-        source_path=_optional_text(item, "source_path"),
-        package_path=_optional_text(item, "package_path"),
-        expected_digest=_optional_text(item, "expected_digest"),
-        expected_size_bytes=_optional_int(item, "expected_size_bytes"),
-    )
 
 
 def _read_record_export_evidence(
@@ -1273,35 +1164,12 @@ def _require_dict(source: dict[str, Any], key: str) -> dict[str, Any]:
     return _require_mapping(source.get(key), key)
 
 
-def _optional_list(source: dict[str, Any], key: str, *, default: list[Any]) -> list[Any]:
-    value = source.get(key, default)
-    if not isinstance(value, list):
-        raise ValueError(f"{key} must be a list")
-    return value
-
-
 def _require_text(source: dict[str, Any], key: str) -> str:
     return validate_text(source.get(key), key)
 
 
-def _optional_text(source: dict[str, Any], key: str) -> str | None:
-    value = source.get(key)
-    if value is None:
-        return None
-    return validate_text(value, key)
-
-
 def _require_int(source: dict[str, Any], key: str) -> int:
     value = source.get(key)
-    if not isinstance(value, int) or isinstance(value, bool):
-        raise ValueError(f"{key} must be an integer")
-    return value
-
-
-def _optional_int(source: dict[str, Any], key: str) -> int | None:
-    value = source.get(key)
-    if value is None:
-        return None
     if not isinstance(value, int) or isinstance(value, bool):
         raise ValueError(f"{key} must be an integer")
     return value
