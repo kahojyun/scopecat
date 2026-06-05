@@ -10,11 +10,6 @@ Separate current legacy ownership from Scopecat-owned or candidate contexts.
 Use this map to decide where adapters, anti-corruption layers, review
 boundaries, and deferred contracts belong.
 
-This is not a final service architecture, package layout, deployment topology,
-or public API map. Context names other than `Legacy Lab Runtime` are Scopecat
-architecture contexts, not proof that the current lab system already has those
-bounded contexts.
-
 ## Contexts
 
 | Context | Owner Posture | Primary Responsibility | Explicit Non-Ownership |

@@ -7,8 +7,7 @@ Current brownfield transition architecture.
 ## Purpose
 
 Describe how Scopecat bridges from current lab workflows to target product
-journeys. This is a transition architecture document, not a target journey map,
-adoption strategy, implementation plan, or validation map.
+journeys.
 
 Use this document to separate:
 

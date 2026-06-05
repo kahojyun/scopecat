@@ -7,8 +7,6 @@ Current brownfield risk register.
 ## Purpose
 
 Track recurring brownfield risks that can derail Scopecat's migration strategy.
-This is a risk register, not a task list, test plan, decision record, or
-implementation backlog.
 
 Use this register to keep high-risk boundaries visible as named use cases
 advance. Use decision records when a risk requires a durable choice, and use

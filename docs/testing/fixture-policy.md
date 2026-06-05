@@ -2,7 +2,7 @@
 
 ## Status
 
-Testing policy, not a fixture inventory.
+Testing policy.
 
 Fixtures should match the test stage they support. Prototype-owned fixtures
 live under `tests/fixtures/prototypes/<route>/`. The historical flat

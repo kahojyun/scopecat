@@ -7,9 +7,7 @@ Current lightweight traceability map.
 ## Purpose
 
 Connect brownfield current-state pressure to target journeys, use cases,
-capabilities, validation state, and implementation owners. This is a navigation
-map, not a roadmap, task list, decision record, or complete requirements
-matrix.
+capabilities, validation state, and implementation owners.
 
 Use this map when checking whether a discovery result, product journey,
 capability, validation row, or implementation owner is drifting away from the

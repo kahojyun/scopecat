@@ -7,8 +7,7 @@ Current use-case-driven migration roadmap.
 ## Purpose
 
 Sequence brownfield migration by validated use cases implemented as thin
-slices. This is a roadmap for product and architecture sequencing, not an
-implementation task list, release plan, or issue tracker.
+slices.
 
 ## Sequencing Principles
 
@@ -144,7 +143,7 @@ Evidence status:
 
 - retired parameter-state prototype evidence exists for adapter-authored intake,
   local storage/read views, source-agnostic selection, and pre-run
-  consumption, but it is not an active implementation boundary;
+  consumption;
 - bounded environment-operation evidence remains available as a sealed
   supporting prototype.
 
@@ -157,9 +156,9 @@ Decision gate:
 ### 4. Maintain Parameter And Setup Files
 
 Target boundary: CAP-003 Parameter State Review, setup-binding support, and
-JNY-002 supporting workflow coverage. This is not promoted to a target journey
-until the work has an independent user goal beyond prepared-run context review
-or calibration continuation support.
+JNY-002 supporting workflow coverage. Keep this as supporting work until it has
+an independent user goal beyond prepared-run context review or calibration
+continuation support.
 
 Target use case: candidate to define from parameter-history, parameter-plot,
 setup-binding, or review-summary pressure.
@@ -178,7 +177,7 @@ Evidence status:
 
 - retired parameter-state prototype evidence exists for adapter-authored intake,
   local storage/read views, source-agnostic selection, and pre-run
-  consumption, but it is not an active implementation boundary;
+  consumption;
 - reviewable calibration action and continuation summaries create
   accepted-write pressure.
 

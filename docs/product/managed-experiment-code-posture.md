@@ -5,14 +5,10 @@
 Product strategy note.
 
 This note records the intended product posture for experiment-code management.
-It does not accept a final storage backend, Git replacement,
-workspace layout, package manager, environment manager, execution service,
-workflow/DAG model, merge model, sync protocol, GUI design, or code registry.
-The product vision lives in [`vision.md`](vision.md). Product success
-signals live in [`success-metrics.md`](success-metrics.md); target journey and
-brownfield documents own broader adoption and migration context. This note owns
-the experiment-code posture until a narrower decision promotes storage,
-execution, or workspace authority.
+It keeps the experiment-code path aligned with the product vision while storage,
+workspace, execution, environment, and workflow authority are still being
+earned. Product success signals live in
+[`success-metrics.md`](success-metrics.md).
 
 ## Direction
 
@@ -42,16 +38,13 @@ repositories, backup folders, notebook checkpoints, copied helper packages,
 generated files, and unclear entrypoints. Scopecat should be able to record
 useful run/step code context without pretending the folder is well managed.
 
-The earliest adoption path should be deliberately minimal:
+The earliest adoption path should record explicit code context:
 
 - record only files or references the user explicitly includes;
-- do not inspect internal Git state;
-- do not recursively analyze every file in the recorded folder;
-- do not turn unrecorded backup, cache, checkpoint, or generated files into
-  noisy warnings;
 - strip notebook outputs before recording `.ipynb` files;
-- avoid dependency discovery, import-time inspection, and mutation-capability
-  inference unless a later validation earns them.
+- keep unrecorded backup, cache, checkpoint, or generated files out of scope;
+- defer Git inspection, dependency discovery, import-time inspection, and
+  mutation-capability inference until a later workflow earns them.
 
 The near-term product boundary is:
 
@@ -110,14 +103,12 @@ This means the first record can say:
 - that execution, dependency discovery, Git inspection, and mutation analysis
   were not performed.
 
-This boundary does not require users to divide the codebase into independently
-versioned workflow nodes.
-
-It also does not require Scopecat to analyze a legacy repository before it can
-be useful. Scopecat records the run/step code context, makes its limits
-visible, strips notebook outputs when recording notebooks, and links that code
-context to measurements or calibration steps. Users can later promote or select
-those records for restore, comparison, or managed workspace migration.
+This boundary lets Scopecat become useful before a legacy repository is
+analyzed or divided into independently versioned workflow nodes. Scopecat
+records the run/step code context, makes its limits visible, strips notebook
+outputs when recording notebooks, and links that code context to measurements
+or calibration steps. Users can later promote or select those records for
+restore, comparison, or managed workspace migration.
 
 ## Adoption Route
 
@@ -218,18 +209,3 @@ later questions.
   readiness operations become validation rather than user-declared references
   and readiness planning?
 - What conditions would earn workflow/DAG nodes as first-class records?
-
-## Slice Recommendation
-
-Use the validated code-recording fixture and
-[`experiment-code-recording-next-boundary.md`](../discovery/archive/slice-inventory.md)
-as the stop point for this slice.
-
-The validated boundary represents a messy external folder being recorded with a
-small explicit include list as a candidate for a future Scopecat-managed
-version. It makes the recorded root, entrypoint, included files,
-notebook-output stripping, declared context references, and non-recording
-policy visible without inspecting Git, scanning unrecorded files, executing
-code, importing code, or inferring dependencies. Start a later
-managed-workspace slice only when restore, compare, materialization, or
-prepared-run-context behavior creates concrete implementation pressure.

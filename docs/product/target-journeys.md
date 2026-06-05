@@ -7,9 +7,7 @@ Current target product journey map.
 ## Purpose
 
 Own Scopecat's target product-facing user journeys and the first decomposition
-from discovery evidence into workflows and use cases. This is a product
-planning document, not a brownfield migration document, implementation
-register, scenario inventory, or engineering task plan.
+from discovery evidence into workflows and use cases.
 
 ## Reading Rules
 

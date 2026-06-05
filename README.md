@@ -7,9 +7,8 @@ workflows. It is designed to improve evidence, review, and handoff around
 existing lab systems while leaving room for deeper migration when a workflow
 proves the need.
 
-Scopecat is in active development; current docs describe success metrics,
-evidence, and implementation boundaries rather than finalized product
-commitments.
+Scopecat is in active development. The current phase is an engineering
+prototype, not a maintained product capability.
 
 See `docs/product/vision.md` for the product vision,
 `docs/product/success-metrics.md` for product success metrics, and
@@ -17,11 +16,8 @@ See `docs/product/vision.md` for the product vision,
 
 ## Status
 
-Current implementation phase: engineering prototype.
-
 The repository contains live route-local prototype owners, discovery evidence,
-and historical candidates. It is not a finalized product architecture or
-maintained product capability yet.
+and historical candidates.
 
 ## Documentation
 
@@ -30,7 +26,6 @@ Start with `docs/README.md`.
 The documentation workspace is the long-lived project memory for product
 analysis, research, engineering prototype boundaries, and user documentation
 when introduced.
-It should not be treated as a finalized product specification.
 
 ## Development
 

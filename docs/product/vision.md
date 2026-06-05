@@ -11,8 +11,8 @@ The repository [`../../README.md`](../../README.md) gives the short
 repo-facing summary; this document owns the internal product vision used by
 other docs.
 
-This is not a roadmap, success-metrics document, target journey map, or
-implementation plan.
+Use the rest of the product document set for metrics, journeys, capabilities,
+and adoption detail.
 
 ## Vision
 

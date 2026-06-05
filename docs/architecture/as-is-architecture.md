@@ -7,9 +7,7 @@ Initial architecture reading of the current brownfield environment.
 ## Purpose
 
 Describe the current system as an integration and migration environment for
-Scopecat. This document is an architecture frame over the current-state
-evidence, not a raw inventory, target architecture, implementation plan, or
-complete legacy-system specification.
+Scopecat. It frames current-state evidence as architecture pressure.
 
 The detailed brownfield evidence owner remains
 [`../brownfield/current-state-assessment.md`](../brownfield/current-state-assessment.md).
@@ -79,15 +77,3 @@ until a new entrypoint is named.
 | Inspect a running or partial measurement | Live plotting, partial rows, progress habits, and interrupted runs. | Observe lifecycle/progress/partial-data evidence without scan control. |
 | Continue calibration work | Failed fits, notebooks, proposed writes, and downstream blocking. | Record review state, user actions, and accepted handoff to parameter review. |
 | Compare or rerun from a reference | Last-working runs, selected references, copied code, and remembered setup. | Compare declared context and prepare review evidence without claiming reproducibility. |
-
-## Non-Claims
-
-This as-is architecture does not define:
-
-- a complete legacy inventory;
-- final storage schema;
-- public API or SDK;
-- hardware-control architecture;
-- automatic legacy parsing;
-- scientific-validity model;
-- universal context graph.

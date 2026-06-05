@@ -7,10 +7,8 @@ from accepted product capabilities.
 
 ## Purpose
 
-Track Scopecat product capabilities and their maturity. This is a product
-planning document, not an implementation inventory, feature list, brownfield
-system inventory, or scenario catalog. A capability may support multiple
-journeys and may be implemented by one or more modules.
+Track Scopecat product capabilities and their maturity. A capability may
+support multiple journeys and may be implemented by one or more modules.
 
 Use stable `CAP-*` IDs when referencing product capabilities from journey,
 validation, traceability, implementation, decision, or risk documents.

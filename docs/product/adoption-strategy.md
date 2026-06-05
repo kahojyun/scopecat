@@ -6,10 +6,7 @@ Current product adoption strategy.
 
 ## Purpose
 
-Describe how users can start adopting Scopecat. This is a product strategy
-document, not a brownfield current-state assessment, transition architecture,
-migration plan, journey catalog, workflow validation map, or implementation
-register.
+Describe how users can start adopting Scopecat.
 
 Use this document to answer:
 

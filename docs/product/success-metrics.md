@@ -7,8 +7,7 @@ Current product success metrics and adoption outcome guide.
 ## Purpose
 
 Define how Scopecat adoption and brownfield modernization progress should be
-judged. This is a product outcome document, not a target journey map,
-brownfield migration strategy, implementation plan, or contract owner.
+judged.
 
 Use this document when deciding whether a proposed capability, slice, or
 hardening step improves the real workflow enough to justify promotion.

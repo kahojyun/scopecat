@@ -10,10 +10,6 @@ Provide a shared analysis language for architecture, discovery cleanup, and
 next-slice design while keeping brownfield concepts separate from Scopecat
 transition concepts.
 
-This is not a final public schema, storage schema, SDK contract, fixture
-schema, shared implementation module, or claim that current lab users already
-use Scopecat's product vocabulary.
-
 ## Layers
 
 | Layer | Meaning | Use For |

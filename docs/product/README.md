@@ -10,12 +10,6 @@ Product docs own Scopecat's product vision, success metrics, target journeys,
 target capabilities, and adoption strategy. They explain what product outcomes
 matter and how users can start adopting Scopecat.
 
-Use engineering docs for delivery maturity, implementation ownership,
-prototype boundaries, tests, fixtures, and live API details. Use discovery docs
-for problem briefs and historical validation-slice inventory. Use brownfield
-docs for as-is lab context, transition architecture, migration strategy, and
-authority transfer.
-
 ## Documents
 
 | Document | Use For |
