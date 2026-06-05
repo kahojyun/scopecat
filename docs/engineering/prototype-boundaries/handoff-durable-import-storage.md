@@ -182,9 +182,7 @@ This boundary does not accept:
 Active prototype tests live under
 [`../../../tests/prototypes/handoff/`](../../../tests/prototypes/handoff/),
 especially the durable-import adapter coverage. Handoff fixtures live under
-[`../../../tests/fixtures/prototypes/handoff/`](../../../tests/fixtures/prototypes/handoff/)
-and selected handoff fixture families under
-[`../../../tests/fixtures/`](../../../tests/fixtures/).
+[`../../../tests/fixtures/prototypes/handoff/`](../../../tests/fixtures/prototypes/handoff/).
 
 Relevant regression expectations:
 

@@ -1,6 +1,6 @@
 {
   "fixture_id": "scan-shape-sidecar-declared-table",
-  "fixture_status": "synthetic_public_safe",
+  "fixture_classification": "repository_safe_synthetic_discovery_input",
   "validation_goal": "Check whether a clean sidecar declaration can provide shape and column meaning for weakly labeled source data without schema inference.",
   "measurement": {
     "measurement_id": "synthetic-meas-02002",

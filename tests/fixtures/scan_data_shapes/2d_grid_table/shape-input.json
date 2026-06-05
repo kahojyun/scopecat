@@ -1,6 +1,6 @@
 {
   "fixture_id": "scan-shape-2d-grid-table",
-  "fixture_status": "synthetic_public_safe",
+  "fixture_classification": "repository_safe_synthetic_discovery_input",
   "validation_goal": "Check whether a clean declaration can represent a rectangular two-axis measurement table without inferring schema from legacy files.",
   "measurement": {
     "measurement_id": "synthetic-meas-02001",

@@ -1,6 +1,7 @@
 {
   "shape_summary_id": "fixed_vector_response_table.expected",
   "status": "expected_validation_output",
+  "summary_classification": "internal_validation_summary",
   "source_fixture": "shape-input.json",
   "measurement": {
     "measurement_id": "synthetic-single-shot-iq-001",

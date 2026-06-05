@@ -366,9 +366,7 @@ This boundary does not accept:
 Active prototype tests live under
 [`../../../tests/prototypes/handoff/`](../../../tests/prototypes/handoff/).
 Handoff fixtures live under
-[`../../../tests/fixtures/prototypes/handoff/`](../../../tests/fixtures/prototypes/handoff/)
-and selected handoff fixture families under
-[`../../../tests/fixtures/`](../../../tests/fixtures/).
+[`../../../tests/fixtures/prototypes/handoff/`](../../../tests/fixtures/prototypes/handoff/).
 
 Run repository checks with:
 

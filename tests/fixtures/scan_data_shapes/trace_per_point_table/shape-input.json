@@ -1,6 +1,6 @@
 {
   "fixture_id": "scan-shape-trace-per-point-table",
-  "fixture_status": "synthetic_public_safe",
+  "fixture_classification": "repository_safe_synthetic_discovery_input",
   "validation_goal": "Check whether a declared outer table can reference one small trace table per scan point without accepting a binary container, importer, or final nested storage layout.",
   "measurement": {
     "measurement_id": "synthetic-meas-02005",

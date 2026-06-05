@@ -65,8 +65,8 @@ tests/integration/handoff/
 ```
 
 These tests should not assert discovery expected-output parity. They may reuse
-discovery fixtures as input evidence, but the acceptance target is the workflow
-result.
+prototype fixtures as input state or discovery fixtures as input evidence, but
+the acceptance target is the workflow result.
 
 ## Migration Rule
 

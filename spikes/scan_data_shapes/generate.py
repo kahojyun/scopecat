@@ -860,6 +860,7 @@ def _generate_2d_grid_summary(source: dict[str, Any], fixture_root: Path) -> dic
     return {
         "shape_summary_id": f"{source['fixture_id']}.expected",
         "status": "expected_validation_output",
+        "summary_classification": "internal_validation_summary",
         "source_fixture": "shape-input.json",
         "measurement": measurement,
         "shape": {
@@ -949,6 +950,7 @@ def _generate_ragged_summary(source: dict[str, Any], fixture_root: Path) -> dict
     return {
         "shape_summary_id": f"{source['fixture_id']}.expected",
         "status": "expected_validation_output",
+        "summary_classification": "internal_validation_summary",
         "source_fixture": "shape-input.json",
         "measurement": measurement,
         "shape": {
@@ -1044,6 +1046,7 @@ def _generate_ragged_observed_summary(source: dict[str, Any], fixture_root: Path
     return {
         "shape_summary_id": f"{source['fixture_id']}.expected",
         "status": "expected_validation_output",
+        "summary_classification": "internal_validation_summary",
         "source_fixture": "shape-input.json",
         "measurement": measurement,
         "shape": {
@@ -1242,6 +1245,7 @@ def _generate_trace_summary(source: dict[str, Any], fixture_root: Path) -> dict[
     return {
         "shape_summary_id": f"{source['fixture_id']}.expected",
         "status": "expected_validation_output",
+        "summary_classification": "internal_validation_summary",
         "source_fixture": "shape-input.json",
         "measurement": measurement,
         "shape": {
@@ -1367,6 +1371,7 @@ def _generate_fixed_vector_summary(source: dict[str, Any], fixture_root: Path) -
     return {
         "shape_summary_id": f"{source['fixture_id']}.expected",
         "status": "expected_validation_output",
+        "summary_classification": "internal_validation_summary",
         "source_fixture": "shape-input.json",
         "measurement": measurement,
         "shape": {
@@ -1465,6 +1470,7 @@ def _generate_sidecar_summary(source: dict[str, Any], fixture_root: Path) -> dic
     return {
         "shape_summary_id": f"{source['fixture_id']}.expected",
         "status": "expected_validation_output",
+        "summary_classification": "internal_validation_summary",
         "source_fixture": "shape-input.json",
         "measurement": measurement,
         "shape": {

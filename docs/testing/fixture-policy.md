@@ -88,6 +88,12 @@ Integration fixtures support cross-route or user-visible workflows. They should
 model realistic local state and avoid discovery expected-output parity as the
 acceptance target.
 
+Integration tests may reuse prototype fixtures as input state when the
+workflow intentionally starts from an accepted route-local behavior. Add a
+dedicated `tests/fixtures/integration/<workflow>/` fixture only when the
+workflow needs its own cross-route state, expected outputs, or non-obvious
+setup.
+
 Recommended layout for new integration fixtures:
 
 ```text
