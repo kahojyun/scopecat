@@ -219,7 +219,6 @@ def _validate_preview_metadata(record: dict[str, Any]) -> None:
     if preview["status"] == "preview_ready":
         validate_handoff_preview_ready_metadata(
             preview,
-            primary_path=record["primary_data"]["package_path"],
             owner=f"measurement {record_id} preview",
         )
         return

@@ -43,7 +43,6 @@ class HandoffPackagePreviewMetadata:
 def coerce_handoff_package_preview_metadata(
     source: object,
     *,
-    primary_path: str,
     owner: str,
 ) -> HandoffPackagePreviewMetadata:
     """Normalize caller or manifest-shaped declared table-preview metadata."""
@@ -52,7 +51,6 @@ def coerce_handoff_package_preview_metadata(
         manifest = source.to_manifest()
         validate_handoff_preview_ready_metadata(
             manifest,
-            primary_path=primary_path,
             owner=owner,
         )
         return source
@@ -60,7 +58,6 @@ def coerce_handoff_package_preview_metadata(
         raise ValueError(f"{owner} declared_preview_metadata must be an object")
     validate_handoff_preview_ready_metadata(
         source,
-        primary_path=primary_path,
         owner=owner,
     )
     return _preview_metadata_from_manifest(source, owner=owner)

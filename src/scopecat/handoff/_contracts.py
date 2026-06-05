@@ -358,8 +358,6 @@ def validate_context_reference(
         raise ValueError(f"{owner} reference_kind must match kind")
     if reference["materialization"] != "reference_only":
         raise ValueError(f"{owner} context_reference materialization must be reference_only")
-    if reference["reference_family"] == "prepared_run" and item_kind != "prepared_run_context":
-        raise ValueError(f"{owner} prepared_run references must use prepared_run_context kind")
     return {
         "reference_id": reference["reference_id"],
         "reference_kind": reference["reference_kind"],
@@ -371,7 +369,6 @@ def validate_context_reference(
 def validate_handoff_preview_ready_metadata(
     preview: dict[str, Any],
     *,
-    primary_path: str,
     owner: str,
 ) -> set[str]:
     """Validate preview-ready metadata and return declared column names."""

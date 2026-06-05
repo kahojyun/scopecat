@@ -175,10 +175,7 @@ class SelectedMeasurementRecordBatchExportRecord:
         object.__setattr__(
             self,
             "declared_preview_metadata",
-            _coerce_declared_preview_metadata(
-                self.declared_preview_metadata,
-                record_id=self.record_id,
-            ),
+            _coerce_declared_preview_metadata(self.declared_preview_metadata),
         )
         for item in self.linked_context:
             if item.source_path is not None:
@@ -234,10 +231,7 @@ class SelectedMeasurementRecordExportRequest:
         object.__setattr__(
             self,
             "declared_preview_metadata",
-            _coerce_declared_preview_metadata(
-                self.declared_preview_metadata,
-                record_id=self.record_id,
-            ),
+            _coerce_declared_preview_metadata(self.declared_preview_metadata),
         )
         self.to_batch_record()
 
@@ -784,12 +778,9 @@ def _measurement_writer_item(
 
 def _coerce_declared_preview_metadata(
     source: object,
-    *,
-    record_id: str,
 ) -> HandoffPackagePreviewMetadata:
     return coerce_handoff_package_preview_metadata(
         source,
-        primary_path=f"measurements/{record_id}/primary.csv",
         owner="selected record export preview",
     )
 

@@ -203,7 +203,6 @@ def _opened_measurement(
                 "metadata_authority": preview.metadata_authority,
                 "declared_columns": list(preview.declared_columns),
             },
-            primary_path=primary.package_path,
             owner="handoff opened package preview",
         ),
         primary_table=HandoffTable.from_records(columns, rows),

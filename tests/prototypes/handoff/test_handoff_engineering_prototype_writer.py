@@ -308,17 +308,6 @@ class HandoffEngineeringPrototypeWriterTest(unittest.TestCase):
             receipt_summary["write_results"],
         )
 
-    def test_prepared_run_context_reference_family_requires_prepared_run_kind(self) -> None:
-        source = _load_input()
-        source["linked_context"][0]["context_reference"] = {
-            "reference_id": "prepared-run-context-rabi-001",
-            "reference_kind": "parameter_state",
-            "reference_family": "prepared_run",
-            "materialization": "reference_only",
-        }
-
-        self.assertRejected(source, "prepared_run references")
-
 
 if __name__ == "__main__":
     unittest.main()

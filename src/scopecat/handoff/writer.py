@@ -418,7 +418,6 @@ def _validate_selected_measurements(
         seen_ids.add(measurement_id)
         validate_handoff_preview_ready_metadata(
             record.declared_preview_metadata.to_manifest(),
-            primary_path=record.primary_data.package_path,
             owner="handoff package preview",
         )
         _validate_default_bundle(record)
