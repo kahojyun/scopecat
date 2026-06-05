@@ -1,26 +1,22 @@
-# DEC-020: Defer Archive Package Implementation
+# ADR-0014: Defer Archive Authority And Archive-Backed Durable Import
 
 ## Status
 
-Decision type: architecture.
-
-Decision status: accepted.
+ADR status: accepted.
 
 Date: 2026-06-03.
 
-Owner: [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md).
-
 Superseded in part by
-[`DEC-021-accept-safe-archive-materialization.md`](DEC-021-accept-safe-archive-materialization.md),
-which accepts safe zip transport materialization into the DEC-010 directory
+[`ADR-0015-accept-safe-archive-materialization.md`](ADR-0015-accept-safe-archive-materialization.md),
+which accepts safe zip transport materialization into the ADR-0006 directory
 package of record, and by
-[`DEC-024-accept-safe-archive-creation.md`](DEC-024-accept-safe-archive-creation.md),
-which accepts safe zip transport creation from the DEC-010 directory package of
-record. Archive-backed durable import remains outside DEC-021 and DEC-024.
+[`ADR-0016-accept-safe-archive-creation.md`](ADR-0016-accept-safe-archive-creation.md),
+which accepts safe zip transport creation from the ADR-0006 directory package of
+record. Archive-backed durable import remains outside ADR-0015 and ADR-0016.
 
 ## Context
 
-[`DEC-010`](DEC-010-package-format-directory-manifest.md) keeps the JNY-001
+[`ADR-0006`](ADR-0006-package-format-directory-manifest.md) keeps the JNY-001
 production vertical slice candidate on a directory manifest package:
 `{package_id}/package-manifest.json` plus package-relative members. That
 decision intentionally left archive creation and extraction out of scope.
@@ -45,18 +41,18 @@ hardware context, or runnable entrypoints requires narrower ownership decisions.
 
 Do not implement archive-backed durable import, archive bytes as package
 authority, or broader archive semantics in the current JNY-001 production
-vertical slice candidate beyond the DEC-021 materialization and DEC-024
+vertical slice candidate beyond the ADR-0015 materialization and ADR-0016
 creation boundaries.
 
 The current portable package remains the directory manifest package accepted by
-DEC-010. Export, writer, open, receiving, import-plan, durable-import, and
+ADR-0006. Export, writer, open, receiving, import-plan, durable-import, and
 review surfaces must continue to state archive-backed durable import and archive
 bytes as package authority as `not_performed` or equivalent explicit
 non-claims.
 
-DEC-021 and DEC-024 later accept archive transport while keeping archive bytes
+ADR-0015 and ADR-0016 later accept archive transport while keeping archive bytes
 as a transport container only. The package artifact of record remains the
-materialized DEC-010 directory manifest package. External authenticity or
+materialized ADR-0006 directory manifest package. External authenticity or
 signing mechanisms remain outside Scopecat's archive contract.
 
 Any future archive implementation must first define:
@@ -64,7 +60,7 @@ Any future archive implementation must first define:
 - archive format and extension;
 - archive bytes as transport-container authority, unless a later decision
   changes package artifact authority;
-- DEC-010 directory manifest as the canonical inner package format;
+- ADR-0006 directory manifest as the canonical inner package format;
 - safe extraction rules for absolute paths, parent traversal, duplicate names,
   hidden metadata, symlinks, permissions, and platform-specific path behavior;
 - staging directory, cleanup, overwrite, collision, and retry policy;
@@ -109,7 +105,7 @@ single file. Users who need single-file transfer still need external packaging
 outside Scopecat until an archive contract is accepted.
 
 This decision is historical for the deferred state. Archive creation and
-materialization moved forward under DEC-021 and DEC-024 as narrow typed-request
+materialization moved forward under ADR-0015 and ADR-0016 as narrow typed-request
 helpers. The earlier local contract-review prototype is no longer kept as an
 active implementation surface.
 
@@ -136,10 +132,10 @@ Supersedes:
 
 Superseded by:
 
-- [`DEC-021-accept-safe-archive-materialization.md`](DEC-021-accept-safe-archive-materialization.md)
-  for safe zip materialization into the DEC-010 package of record.
-- [`DEC-024-accept-safe-archive-creation.md`](DEC-024-accept-safe-archive-creation.md)
-  for safe zip creation from the DEC-010 package of record.
+- [`ADR-0015-accept-safe-archive-materialization.md`](ADR-0015-accept-safe-archive-materialization.md)
+  for safe zip materialization into the ADR-0006 package of record.
+- [`ADR-0016-accept-safe-archive-creation.md`](ADR-0016-accept-safe-archive-creation.md)
+  for safe zip creation from the ADR-0006 package of record.
 
 ## Review Triggers
 
@@ -154,13 +150,13 @@ Revisit this decision when:
   bundle semantics;
 - package publication requires transport-ready artifacts.
 
-## Related Evidence And Owners
+## Related Evidence
 
-- [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
-- [`DEC-021-accept-safe-archive-materialization.md`](DEC-021-accept-safe-archive-materialization.md)
-- [`DEC-024-accept-safe-archive-creation.md`](DEC-024-accept-safe-archive-creation.md)
-- [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
-- [`../../engineering/prototype-boundaries/handoff-durable-import-storage.md`](../../engineering/prototype-boundaries/handoff-durable-import-storage.md)
-- [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
-- [`../../../src/scopecat/handoff/README.md`](../../../src/scopecat/handoff/README.md)
-- [`../../../src/scopecat/handoff/archive_materialization.py`](../../../src/scopecat/handoff/archive_materialization.py)
+- [`ADR-0006-package-format-directory-manifest.md`](ADR-0006-package-format-directory-manifest.md)
+- [`ADR-0015-accept-safe-archive-materialization.md`](ADR-0015-accept-safe-archive-materialization.md)
+- [`ADR-0016-accept-safe-archive-creation.md`](ADR-0016-accept-safe-archive-creation.md)
+- [`../../engineering/prototype-boundaries/handoff.md`](../engineering/prototype-boundaries/handoff.md)
+- [`../../engineering/prototype-boundaries/handoff-durable-import-storage.md`](../engineering/prototype-boundaries/handoff-durable-import-storage.md)
+- [`../../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
+- [`../../../src/scopecat/handoff/README.md`](../../src/scopecat/handoff/README.md)
+- [`../../../src/scopecat/handoff/archive_materialization.py`](../../src/scopecat/handoff/archive_materialization.py)

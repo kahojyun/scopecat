@@ -1,14 +1,11 @@
-# Decision Title
+# ADR-0000: Decision Title
 
 ## Status
 
-Decision type: architecture | product | engineering | discovery | operational.
+ADR status: proposed | accepted | superseded | retired.
 
-Decision status: proposed | accepted | superseded | retired.
-
-Date: YYYY-MM-DD.
-
-Owner: document, team, or person responsible for future updates.
+Date: YYYY-MM-DD when known; omit or use `not recorded` only for migrated
+records where the original decision date is unknown.
 
 ## Context
 
@@ -52,6 +49,6 @@ Revisit this decision when:
 
 - ...
 
-## Related Evidence And Owners
+## Related Evidence
 
 - ...

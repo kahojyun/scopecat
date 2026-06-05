@@ -1,10 +1,8 @@
-# DEC-003: Import Source Anti-Corruption Boundary
+# ADR-0002: Import Source Anti-Corruption Boundary
 
 ## Status
 
-Architecture decision.
-
-Decision status: accepted.
+ADR status: accepted.
 
 This note records the current measurement import/source-reference boundary
 earned by the validated adapter-authored
@@ -16,7 +14,7 @@ source observation slices.
 Later durable Measurement Records import work supersedes the copy-acceptance
 slice for active new-record import. Keep this document as the durable
 source/reference anti-corruption decision; use
-[`handoff-durable-import-storage.md`](../../engineering/prototype-boundaries/handoff-durable-import-storage.md)
+[`handoff-durable-import-storage.md`](../engineering/prototype-boundaries/handoff-durable-import-storage.md)
 for the current durable new-record import boundary.
 
 It does not accept a stable import API, adapter API, legacy reader, final
@@ -205,28 +203,14 @@ appears:
   lifecycle and failure semantics:
   reconsider shared model extraction with an accepted decision.
 
-## Next Validation Work
-
-The first adapter-produced input boundary is now validated in
-[`adapter-output-boundary-validation-result.md`](../../discovery/archive/slice-inventory.md).
-Do more work on this track only when a product workflow needs a concrete final
-adapter handoff mechanism, such as drop-folder discovery, a writer-like API, or
-service-mediated adapter output.
-
-The first data-level normalized table read is now validated in
-[`normalized-primary-table-validation-result.md`](../../discovery/archive/slice-inventory.md).
-Adopt it in adapter output, storage observation, handoff package, SDK, or GUI
-routes only when that route needs the same table behavior.
-
-If the product question is instead durable storage editing beyond append
-receipts, validate the next existing-record update boundary: manifest
-replacement, read-model refresh, stale-lock cleanup, crash recovery, conflict
-policy, or in-progress record semantics. That remains storage-concurrency and
-mutation work, not import/source-reference work.
-
 ## Stop Rule
 
 Do not add another import/source slice merely to restate that external source
 references are not previewable primary data, that file-level observation is not
 data-level observation, or that adapters own legacy parsing. Future work should
 name the user workflow and the authority boundary it changes.
+
+## Related Evidence
+
+- [`../discovery/archive/slice-inventory.md`](../discovery/archive/slice-inventory.md)
+- [`../engineering/prototype-boundaries/handoff-durable-import-storage.md`](../engineering/prototype-boundaries/handoff-durable-import-storage.md)

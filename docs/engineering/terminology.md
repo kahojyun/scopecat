@@ -55,7 +55,7 @@ Titles may change, but IDs should not be reused.
 | `UC-CAND-*` | [`workflow-validation-map.md`](workflow-validation-map.md) | Candidate use cases that may become `UC-*` after validation. |
 | `CAP-*` | [`../product/target-capabilities.md`](../product/target-capabilities.md) | Accepted product capabilities. |
 | `CAND-*` | [`../product/target-capabilities.md`](../product/target-capabilities.md) | Candidate feature areas that are not product capabilities yet. |
-| `DEC-*` | [`../decisions/register.md`](../decisions/register.md) | Durable product, architecture, engineering, discovery, or operational decisions. |
+| `ADR-*` | [`../adr/register.md`](../adr/register.md) | Architecture decisions that future work must obey. |
 | `BR-RISK-*` | [`../brownfield/risk-register.md`](../brownfield/risk-register.md) | Brownfield risks that need ongoing management. |
 
 Cross-document references may include `ID + short label` in headings or first
@@ -101,8 +101,8 @@ Decision status: No decision
 
 is clearer than describing the same file by what it is not.
 
-Use [`../decisions/README.md`](../decisions/README.md) for decision-record
-types, ADR usage, and the current decision register.
+Use [`../adr/README.md`](../adr/README.md) for ADR admission rules, flat record
+layout, and the current ADR register.
 
 ## Scope Language
 

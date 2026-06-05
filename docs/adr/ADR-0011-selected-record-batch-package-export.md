@@ -1,19 +1,15 @@
-# DEC-015: Allow Selected-Record Batch Package Export Without Batch Import
+# ADR-0011: Allow Selected-Record Batch Package Export Without Batch Import
 
 ## Status
 
-Decision type: architecture.
-
-Decision status: accepted.
+ADR status: accepted.
 
 Date: 2026-06-03.
-
-Owner: [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md).
 
 ## Context
 
 The route-local package writer can already write packages containing multiple
-selected measurements. DEC-013 allows receiving/import planning over multiple
+selected measurements. ADR-0009 allows receiving/import planning over multiple
 package measurements without turning that plan into batch durable mutation.
 
 This decision resolves whether the JNY-001 storage-backed selected-record
@@ -37,7 +33,7 @@ reader.
 
 The batch export request is package-level write authority. It may include
 multiple record selections, but it does not authorize durable batch import.
-Receiving and durable import remain governed by DEC-013 and DEC-017: import
+Receiving and durable import remain governed by ADR-0009 and ADR-0013: import
 plans may list multiple measurements, while durable handoff import still
 mutates exactly one planned measurement per operation.
 
@@ -46,17 +42,17 @@ mutates exactly one planned measurement per operation.
 This decision applies to:
 
 - selected stored Measurement Record batch export requests;
-- DEC-010 directory manifest packages;
+- ADR-0006 directory manifest packages;
 - record-local evidence validation for every selected record;
 - package writer multi-measurement output.
 
 This decision does not apply to:
 
-- durable batch Measurement Records import beyond DEC-017;
+- durable batch Measurement Records import beyond ADR-0013;
 - per-record destination assignment on receiving;
 - batch conflict resolution, partial success, rollback, or retry policy;
 - recursive linked-context traversal;
-- linked-context payload import beyond DEC-016;
+- linked-context payload import beyond ADR-0012;
 - GUI batch review state.
 
 ## Consequences
@@ -67,7 +63,7 @@ receiving side still stays conservative: a multi-measurement package can be
 opened and planned as a batch, but durable storage mutation remains
 one-record-at-a-time.
 
-Future work beyond DEC-017 must still decide whether batch durable import is
+Future work beyond ADR-0013 must still decide whether batch durable import is
 worth the additional destination, conflict, partial-success, rollback, and
 retry contracts.
 
@@ -77,7 +73,7 @@ retry contracts.
   because the writer and receiving plan already support multi-measurement
   package review safely.
 - Option: couple batch export to batch durable import. Rejected because
-  DEC-013 explicitly keeps durable mutation one planned measurement at a time.
+  ADR-0009 explicitly keeps durable mutation one planned measurement at a time.
 - Option: allow batch export from arbitrary caller paths. Rejected because
   UC-006 remains the storage-backed product path; direct writer input stays
   route-local.
@@ -96,19 +92,19 @@ Superseded by:
 
 Revisit this decision when:
 
-- durable import needs multi-record mutation beyond DEC-017;
+- durable import needs multi-record mutation beyond ADR-0013;
 - receiving review needs persistent batch destination assignment;
 - selected batch export needs package-level context topology;
-- linked-context payload import is revisited beyond DEC-016;
+- linked-context payload import is revisited beyond ADR-0012;
 - GUI review needs stable multi-measurement selection state;
-- package format changes beyond DEC-010.
+- package format changes beyond ADR-0006.
 
-## Related Evidence And Owners
+## Related Evidence
 
-- [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
-- [`DEC-013-batch-receiving-import-planning.md`](DEC-013-batch-receiving-import-planning.md)
-- [`DEC-016-defer-linked-context-payload-import.md`](DEC-016-defer-linked-context-payload-import.md)
-- [`DEC-017-defer-batch-durable-import.md`](DEC-017-defer-batch-durable-import.md)
-- [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
-- [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
-- [`../../../tests/prototypes/handoff/test_handoff_selected_record_export.py`](../../../tests/prototypes/handoff/test_handoff_selected_record_export.py)
+- [`ADR-0006-package-format-directory-manifest.md`](ADR-0006-package-format-directory-manifest.md)
+- [`ADR-0009-batch-receiving-import-planning.md`](ADR-0009-batch-receiving-import-planning.md)
+- [`ADR-0012-defer-linked-context-payload-import.md`](ADR-0012-defer-linked-context-payload-import.md)
+- [`ADR-0013-defer-batch-durable-import.md`](ADR-0013-defer-batch-durable-import.md)
+- [`../../engineering/prototype-boundaries/handoff.md`](../engineering/prototype-boundaries/handoff.md)
+- [`../../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
+- [`../../../tests/prototypes/handoff/test_handoff_selected_record_export.py`](../../tests/prototypes/handoff/test_handoff_selected_record_export.py)

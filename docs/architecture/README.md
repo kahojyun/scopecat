@@ -36,5 +36,5 @@ Use architecture docs to answer:
 - whether historical evidence should influence current architecture or remain
   archived evidence.
 
-Do not use these docs to claim final public contracts. Use decision records
-when a candidate concept becomes an accepted architecture decision.
+Do not use these docs to claim final public contracts. Use ADRs when a
+candidate concept becomes an accepted architecture decision.

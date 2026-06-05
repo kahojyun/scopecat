@@ -41,7 +41,7 @@ class ArchiveMaterializationMemberReview:
 
 @dataclass(frozen=True)
 class HandoffArchiveMaterializationRequest:
-    """Approved request to materialize a zip archive into a DEC-010 package directory."""
+    """Approved request to materialize a zip archive into a ADR-0006 package directory."""
 
     request_id: str
     approval_state: str
@@ -74,7 +74,7 @@ class HandoffArchiveMaterializationRequest:
 
 @dataclass(frozen=True)
 class HandoffArchiveCreationRequest:
-    """Approved request to create a zip archive transport from a DEC-010 package."""
+    """Approved request to create a zip archive transport from a ADR-0006 package."""
 
     request_id: str
     approval_state: str
@@ -209,7 +209,7 @@ def materialize_handoff_archive_package_from_request(
     archive_root: str | Path,
     materialization_root: str | Path,
 ) -> HandoffArchiveMaterializationRun:
-    """Materialize a zip archive transport into a DEC-010 package directory."""
+    """Materialize a zip archive transport into a ADR-0006 package directory."""
 
     archive_base = _existing_directory_root(
         Path(archive_root),
@@ -284,7 +284,7 @@ def create_handoff_archive_package_from_request(
     package_root: str | Path,
     archive_root: str | Path,
 ) -> HandoffArchiveCreationRun:
-    """Create a zip transport archive from a DEC-010 package directory."""
+    """Create a zip transport archive from a ADR-0006 package directory."""
 
     package_base = _existing_directory_root(Path(package_root), "archive creation package root")
     archive_base = _existing_directory_root(Path(archive_root), "archive creation archive root")

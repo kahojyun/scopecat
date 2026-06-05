@@ -1,18 +1,14 @@
-# DEC-011: Treat JNY-001 Directory Packages As Declared Integrity Evidence
+# ADR-0007: Treat JNY-001 Directory Packages As Declared Integrity Evidence
 
 ## Status
 
-Decision type: architecture.
-
-Decision status: accepted.
+ADR status: accepted.
 
 Date: 2026-06-03.
 
-Owner: [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md).
-
 ## Context
 
-[`DEC-010`](DEC-010-package-format-directory-manifest.md) keeps the JNY-001
+[`ADR-0006`](ADR-0006-package-format-directory-manifest.md) keeps the JNY-001
 single-measurement production vertical slice candidate on a directory manifest
 package format. This decision resolves whether that package should claim
 authenticity or trust, or whether the current slice should remain limited to
@@ -50,7 +46,7 @@ limitation.
 This decision applies to:
 
 - JNY-001 Share A Selected Measurement production vertical slice candidate;
-- DEC-010 directory manifest packages;
+- ADR-0006 directory manifest packages;
 - handoff package writer/open/integrity/receiving/import-plan/durable-import
   local receipts;
 - workflow-level tests that validate trust/authenticity posture.
@@ -100,9 +96,9 @@ Revisit this decision when:
   non-Scopecat system;
 - durable import policy needs to require a trusted package before mutation.
 
-## Related Evidence And Owners
+## Related Evidence
 
-- [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
-- [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
-- [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
-- [`../../../tests/integration/handoff/test_jny001_single_measurement_handoff.py`](../../../tests/integration/handoff/test_jny001_single_measurement_handoff.py)
+- [`ADR-0006-package-format-directory-manifest.md`](ADR-0006-package-format-directory-manifest.md)
+- [`../../engineering/prototype-boundaries/handoff.md`](../engineering/prototype-boundaries/handoff.md)
+- [`../../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
+- [`../../../tests/integration/handoff/test_jny001_single_measurement_handoff.py`](../../tests/integration/handoff/test_jny001_single_measurement_handoff.py)

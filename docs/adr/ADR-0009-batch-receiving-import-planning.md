@@ -1,14 +1,10 @@
-# DEC-013: Allow Batch Import Planning Without Batch Durable Mutation
+# ADR-0009: Allow Batch Import Planning Without Batch Durable Mutation
 
 ## Status
 
-Decision type: architecture.
-
-Decision status: accepted.
+ADR status: accepted.
 
 Date: 2026-06-03.
-
-Owner: [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md).
 
 ## Context
 
@@ -31,7 +27,7 @@ for multiple package measurements. `all_measurements` may expand to all opened
 package measurement ids, and `selected_measurements` may name more than one
 measurement id.
 
-The durable handoff import adapter remains single-measurement only. DEC-017
+The durable handoff import adapter remains single-measurement only. ADR-0013
 keeps a ready multi-measurement import plan as review evidence and planning
 output, not durable batch mutation authority. Durable import must continue to
 require exactly one planned measurement before building a
@@ -41,13 +37,13 @@ require exactly one planned measurement before building a
 
 This decision applies to:
 
-- DEC-010 directory manifest handoff packages;
+- ADR-0006 directory manifest handoff packages;
 - receiving gate and import-plan output over multi-measurement packages;
 - route-local durable import adaptation from handoff import plans.
 
 This decision does not apply to:
 
-- batch durable Measurement Records mutation beyond DEC-017;
+- batch durable Measurement Records mutation beyond ADR-0013;
 - per-record destination assignment for batches;
 - batch conflict resolution, rollback, retry, or partial-success policy;
 - selected stored Measurement Record batch export authority;
@@ -59,7 +55,7 @@ Receiving users can review and plan multiple package measurements together
 without implying a batch write. Durable import stays conservative and
 per-record, preserving the already validated no-overwrite and retry behavior.
 
-Future batch durable import work beyond DEC-017 must define per-measurement
+Future batch durable import work beyond ADR-0013 must define per-measurement
 destinations, conflict handling, partial-success reporting, rollback
 expectations, and retry semantics before allowing multi-record mutation.
 
@@ -94,11 +90,11 @@ Revisit this decision when:
 - selected stored Measurement Record export needs broader batch package topology;
 - retry review needs to coordinate more than one failed measurement.
 
-## Related Evidence And Owners
+## Related Evidence
 
-- [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
-- [`DEC-017-defer-batch-durable-import.md`](DEC-017-defer-batch-durable-import.md)
-- [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
-- [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
-- [`../../../tests/prototypes/handoff/test_handoff_import_plan.py`](../../../tests/prototypes/handoff/test_handoff_import_plan.py)
-- [`../../../tests/prototypes/handoff/test_handoff_durable_import_adapter.py`](../../../tests/prototypes/handoff/test_handoff_durable_import_adapter.py)
+- [`ADR-0006-package-format-directory-manifest.md`](ADR-0006-package-format-directory-manifest.md)
+- [`ADR-0013-defer-batch-durable-import.md`](ADR-0013-defer-batch-durable-import.md)
+- [`../../engineering/prototype-boundaries/handoff.md`](../engineering/prototype-boundaries/handoff.md)
+- [`../../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
+- [`../../../tests/prototypes/handoff/test_handoff_import_plan.py`](../../tests/prototypes/handoff/test_handoff_import_plan.py)
+- [`../../../tests/prototypes/handoff/test_handoff_durable_import_adapter.py`](../../tests/prototypes/handoff/test_handoff_durable_import_adapter.py)

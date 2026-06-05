@@ -1,10 +1,8 @@
-# DEC-004: Post-Run-First Brownfield Adoption
+# ADR-0003: Post-Run-First Brownfield Adoption
 
 ## Status
 
-Architecture decision.
-
-Decision status: accepted.
+ADR status: accepted.
 
 This note records the current low-intrusion brownfield adoption boundary for
 legacy Measurement Records. It records what the validated legacy sidecar,

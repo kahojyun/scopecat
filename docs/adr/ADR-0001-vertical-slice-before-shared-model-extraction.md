@@ -1,10 +1,8 @@
-# DEC-002: Vertical Slice Before Shared Model Extraction
+# ADR-0001: Vertical Slice Before Shared Model Extraction
 
 ## Status
 
-Architecture decision.
-
-Decision status: accepted.
+ADR status: accepted.
 
 This note records a negative architecture decision for the current stage: do
 not extract shared domain models or shared implementation modules from the

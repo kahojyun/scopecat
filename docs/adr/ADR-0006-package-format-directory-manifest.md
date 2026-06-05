@@ -1,14 +1,10 @@
-# DEC-010: Use Directory Manifest Packages For The JNY-001 Production Vertical Slice Path
+# ADR-0006: Use Directory Manifest Packages For The JNY-001 Production Vertical Slice Path
 
 ## Status
 
-Decision type: architecture.
-
-Decision status: accepted.
+ADR status: accepted.
 
 Date: 2026-06-03.
-
-Owner: [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md).
 
 ## Context
 
@@ -26,8 +22,8 @@ facts for open-before-import inspection.
 
 The slice still needs visible, inspectable artifacts while linked-context
 payload import, batch durable import, and final storage schema remain unsettled.
-Later DEC-021 and DEC-024 accepted narrow zip transport
-materialization and creation, but they keep the DEC-010 directory manifest
+Later ADR-0015 and ADR-0016 accepted narrow zip transport
+materialization and creation, but they keep the ADR-0006 directory manifest
 package as the package of record rather than making archive bytes authoritative.
 It is not an offline execution migration artifact, environment restore, code
 restore, or shared lab storage policy.
@@ -41,14 +37,14 @@ package-relative primary data under `measurements/{measurement_record_id}/`.
 
 Archive bytes remain transport-only. Current package writer, opener,
 receiving, import-plan, and durable-import paths must continue to treat the
-DEC-010 directory manifest package as the package artifact of record. Archive
-creation and materialization are governed separately by DEC-024 and DEC-021;
+ADR-0006 directory manifest package as the package artifact of record. Archive
+creation and materialization are governed separately by ADR-0016 and ADR-0015;
 archive-backed durable import and archive bytes as package authority remain
 out of scope.
 
-[`DEC-020`](DEC-020-defer-archive-package-implementation.md) keeps
+[`ADR-0014`](ADR-0014-defer-archive-authority-and-archive-backed-durable-import.md) keeps
 archive-backed durable import, archive bytes as package authority, and broader
-archive semantics deferred beyond the DEC-021 materialization and DEC-024
+archive semantics deferred beyond the ADR-0015 materialization and ADR-0016
 creation boundaries.
 
 ## Scope
@@ -80,7 +76,7 @@ integrity behavior focused on declared package members.
 
 It also means any future archive expansion must define whether archive bytes
 become authoritative and how durable import is gated from archive-backed flows,
-as required by DEC-020. Any external signing or authenticity mechanism remains
+as required by ADR-0014. Any external signing or authenticity mechanism remains
 outside Scopecat's package format.
 
 ## Alternatives Considered
@@ -115,11 +111,11 @@ Revisit this decision when:
 - linked-context payload packaging needs atomic package transfer;
 - batch export/import needs a stable bundle format;
 - package publication, SDK, or GUI workflows require an archive artifact beyond
-  DEC-020.
+  ADR-0014.
 
-## Related Evidence And Owners
+## Related Evidence
 
-- [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
-- [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
-- [`../../../src/scopecat/handoff/README.md`](../../../src/scopecat/handoff/README.md)
-- [`DEC-020-defer-archive-package-implementation.md`](DEC-020-defer-archive-package-implementation.md)
+- [`../../engineering/prototype-boundaries/handoff.md`](../engineering/prototype-boundaries/handoff.md)
+- [`../../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
+- [`../../../src/scopecat/handoff/README.md`](../../src/scopecat/handoff/README.md)
+- [`ADR-0014-defer-archive-authority-and-archive-backed-durable-import.md`](ADR-0014-defer-archive-authority-and-archive-backed-durable-import.md)

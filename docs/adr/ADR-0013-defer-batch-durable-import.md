@@ -1,19 +1,15 @@
-# DEC-017: Defer Batch Durable Import
+# ADR-0013: Defer Batch Durable Import
 
 ## Status
 
-Decision type: architecture.
-
-Decision status: accepted.
+ADR status: accepted.
 
 Date: 2026-06-03.
 
-Owner: [`../../engineering/prototype-boundaries/handoff-durable-import-storage.md`](../../engineering/prototype-boundaries/handoff-durable-import-storage.md).
-
 ## Context
 
-DEC-013 allows receiving/import planning to list multiple package measurements
-without storage mutation. DEC-015 allows selected stored-record export to
+ADR-0009 allows receiving/import planning to list multiple package measurements
+without storage mutation. ADR-0011 allows selected stored-record export to
 produce multi-measurement handoff packages. This decision resolves whether a
 reviewed multi-measurement import plan should authorize one durable batch
 mutation.
@@ -51,9 +47,9 @@ and implementation slice that defines, at minimum:
 
 This decision applies to:
 
-- DEC-010 directory manifest packages;
-- DEC-013 multi-measurement import plans;
-- DEC-015 selected stored-record batch package export;
+- ADR-0006 directory manifest packages;
+- ADR-0009 multi-measurement import plans;
+- ADR-0011 selected stored-record batch package export;
 - handoff durable-import adaptation to Measurement Records storage.
 
 This decision does not apply to:
@@ -104,12 +100,12 @@ Revisit this decision when:
 - retry review needs to coordinate multiple failed package measurements;
 - storage conflict policy expands beyond new-record no-overwrite behavior.
 
-## Related Evidence And Owners
+## Related Evidence
 
-- [`DEC-013-batch-receiving-import-planning.md`](DEC-013-batch-receiving-import-planning.md)
-- [`DEC-015-selected-record-batch-package-export.md`](DEC-015-selected-record-batch-package-export.md)
-- [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
-- [`../../engineering/prototype-boundaries/handoff-durable-import-storage.md`](../../engineering/prototype-boundaries/handoff-durable-import-storage.md)
-- [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
-- [`../../../src/scopecat/handoff/durable_import.py`](../../../src/scopecat/handoff/durable_import.py)
-- [`../../../tests/prototypes/handoff/test_handoff_durable_import_adapter.py`](../../../tests/prototypes/handoff/test_handoff_durable_import_adapter.py)
+- [`ADR-0009-batch-receiving-import-planning.md`](ADR-0009-batch-receiving-import-planning.md)
+- [`ADR-0011-selected-record-batch-package-export.md`](ADR-0011-selected-record-batch-package-export.md)
+- [`../../engineering/prototype-boundaries/handoff.md`](../engineering/prototype-boundaries/handoff.md)
+- [`../../engineering/prototype-boundaries/handoff-durable-import-storage.md`](../engineering/prototype-boundaries/handoff-durable-import-storage.md)
+- [`../../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
+- [`../../../src/scopecat/handoff/durable_import.py`](../../src/scopecat/handoff/durable_import.py)
+- [`../../../tests/prototypes/handoff/test_handoff_durable_import_adapter.py`](../../tests/prototypes/handoff/test_handoff_durable_import_adapter.py)

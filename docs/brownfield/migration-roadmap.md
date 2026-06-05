@@ -72,7 +72,7 @@ Measurement Records scaffolding.
 
 Related risks: BR-RISK-003, BR-RISK-004, BR-RISK-011.
 
-Related decisions: DEC-004, DEC-025.
+Related ADRs: ADR-0003, ADR-0017.
 
 Next validation focus:
 
@@ -100,8 +100,8 @@ Target use case: UC-006 and JNY-001-SMOKE.
 
 Related risks: BR-RISK-003, BR-RISK-004, BR-RISK-010.
 
-Related decisions: DEC-003, DEC-004, DEC-010, DEC-011, DEC-021, DEC-024,
-DEC-025.
+Related ADRs: ADR-0002, ADR-0003, ADR-0006, ADR-0007, ADR-0015, ADR-0016,
+ADR-0017.
 
 Next validation focus:
 
@@ -113,7 +113,7 @@ Already validated:
 
 - selected stored-record package export;
 - local package writing/opening from declared source-root data;
-- safe zip archive creation and materialization around the DEC-010 package of
+- safe zip archive creation and materialization around the ADR-0006 package of
   record;
 - receiving-side read-only package review, import plan, and accepted new-record
   durable import.
@@ -132,7 +132,7 @@ Target use case: UC-CAND-002.
 
 Related risks: BR-RISK-001, BR-RISK-007, BR-RISK-008, BR-RISK-009.
 
-Related decisions: DEC-006.
+Related ADRs: ADR-0004.
 
 Next validation focus:
 
@@ -162,7 +162,7 @@ setup-binding, or review-summary pressure.
 
 Related risks: BR-RISK-005, BR-RISK-007, BR-RISK-008, BR-RISK-009.
 
-Related decisions: DEC-002, DEC-006, DEC-008.
+Related ADRs: ADR-0001, ADR-0004, ADR-0005.
 
 Next validation focus:
 
@@ -190,7 +190,7 @@ plotting, and Measurement Records readiness-review pressure.
 
 Related risks: BR-RISK-003, BR-RISK-006, BR-RISK-007, BR-RISK-010.
 
-Related decisions: DEC-025.
+Related ADRs: ADR-0017.
 
 Next validation focus:
 
@@ -218,7 +218,7 @@ Target use case: UC-CAND-004.
 
 Related risks: BR-RISK-001, BR-RISK-007.
 
-Related decisions: DEC-001.
+Related ADRs: ADR-0004.
 
 Next validation focus:
 
@@ -242,7 +242,7 @@ Target use case: UC-CAND-005.
 
 Related risks: BR-RISK-001, BR-RISK-005, BR-RISK-007.
 
-Related decisions: DEC-002, DEC-005.
+Related ADRs: ADR-0001.
 
 Next validation focus:
 
@@ -268,7 +268,7 @@ and experiment-code context evidence.
 
 Related risks: BR-RISK-005, BR-RISK-007, BR-RISK-009.
 
-Related decisions: DEC-002, DEC-008.
+Related ADRs: ADR-0001, ADR-0005.
 
 Next validation focus:
 

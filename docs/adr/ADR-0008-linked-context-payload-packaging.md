@@ -1,14 +1,10 @@
-# DEC-012: Package Explicit Linked Context Payloads Without Importing Them
+# ADR-0008: Package Explicit Linked Context Payloads Without Importing Them
 
 ## Status
 
-Decision type: architecture.
-
-Decision status: accepted.
+ADR status: accepted.
 
 Date: 2026-06-03.
-
-Owner: [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md).
 
 ## Context
 
@@ -44,11 +40,11 @@ become durable Scopecat Measurement Record identity and do not replace
 storage-backed selected-record export evidence.
 
 Import planning and durable import do not import linked-context payloads.
-DEC-016 keeps them as reviewable package contents, while import planning keeps
+ADR-0012 keeps them as reviewable package contents, while import planning keeps
 the action `keep_reference_only`.
 
 Selected stored Measurement Record export remains a separate authority boundary.
-DEC-014 narrows that path to request-declared record-local linked payloads
+ADR-0010 narrows that path to request-declared record-local linked payloads
 without treating recorded references as file-copy authority.
 
 ## Scope
@@ -56,7 +52,7 @@ without treating recorded references as file-copy authority.
 This decision applies to:
 
 - route-local handoff package writer inputs;
-- DEC-010 directory manifest packages;
+- ADR-0006 directory manifest packages;
 - package open and integrity observation for explicitly packaged linked
   context members;
 - receiving gate and import planning non-claims for linked payload import.
@@ -112,10 +108,10 @@ Revisit this decision when:
 - batch export/import needs package-level context topology;
 - GUI review needs richer packaged-context presentation.
 
-## Related Evidence And Owners
+## Related Evidence
 
-- [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
-- [`DEC-016-defer-linked-context-payload-import.md`](DEC-016-defer-linked-context-payload-import.md)
-- [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
-- [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
-- [`../../../tests/prototypes/handoff/test_handoff_package_writer.py`](../../../tests/prototypes/handoff/test_handoff_package_writer.py)
+- [`ADR-0006-package-format-directory-manifest.md`](ADR-0006-package-format-directory-manifest.md)
+- [`ADR-0012-defer-linked-context-payload-import.md`](ADR-0012-defer-linked-context-payload-import.md)
+- [`../../engineering/prototype-boundaries/handoff.md`](../engineering/prototype-boundaries/handoff.md)
+- [`../../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
+- [`../../../tests/prototypes/handoff/test_handoff_package_writer.py`](../../tests/prototypes/handoff/test_handoff_package_writer.py)
