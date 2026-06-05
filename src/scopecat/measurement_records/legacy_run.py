@@ -37,33 +37,8 @@ from scopecat.measurement_records._storage import (
 LEGACY_RUN_RECEIPT_SCHEMA = "measurement_record_legacy_run_receipt_v0"
 LEGACY_RUN_RECEIPT_NAME = "legacy-run-receipt.json"
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
-LOCATOR_KINDS = {"workspace_relative_path", "package_relative_path", "opaque_reference"}
-LOCATOR_ROLES = {
-    "primary_data",
-    "source_code",
-    "notebook",
-    "configuration",
-    "debug_log",
-    "supporting_evidence",
-    "operator_note",
-    "other",
-}
-LOCATOR_STATES = {"declared_available", "unavailable", "redacted"}
-CONTEXT_FAMILIES = {
-    "parameter_state",
-    "setup_binding",
-    "managed_code_version",
-    "declared_environment",
-    "analysis_choice",
-    "artifact",
-}
-CONTEXT_ROLES = {
-    "run_start_context",
-    "calibration_context",
-    "comparison_reference",
-    "operator_selected_context",
-}
-CONTEXT_STATES = {"declared", "unavailable", "redacted"}
+LOCATOR_KINDS = {"workspace_relative_path", "opaque_reference"}
+LOCATOR_ROLES = {"primary_data", "notebook"}
 
 
 @dataclass(frozen=True)
@@ -74,8 +49,6 @@ class LegacyRunLocator:
     kind: str
     role: str
     value: str
-    state: str = "declared_available"
-    reason: str | None = None
 
     def __post_init__(self) -> None:
         validate_public_identifier(self.locator_id, "legacy locator locator_id")
@@ -83,16 +56,10 @@ class LegacyRunLocator:
             raise ValueError("legacy locator kind is unsupported")
         if self.role not in LOCATOR_ROLES:
             raise ValueError("legacy locator role is unsupported")
-        if self.kind in {"workspace_relative_path", "package_relative_path"}:
+        if self.kind == "workspace_relative_path":
             validate_relative_path(self.value, "legacy locator value")
         else:
             validate_text(self.value, "legacy locator value")
-        if self.state not in LOCATOR_STATES:
-            raise ValueError("legacy locator state is unsupported")
-        if self.state != "declared_available" and not self.reason:
-            raise ValueError("unavailable or redacted legacy locator requires reason")
-        if self.state == "declared_available" and self.reason:
-            raise ValueError("available legacy locator must not carry reason")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -100,41 +67,6 @@ class LegacyRunLocator:
             "kind": self.kind,
             "role": self.role,
             "value": self.value,
-            "state": self.state,
-            "reason": self.reason,
-        }
-
-
-@dataclass(frozen=True)
-class LegacyRunContextReference:
-    """Optional declared context reference associated with a legacy run."""
-
-    context_family: str
-    context_id: str
-    role: str
-    state: str = "declared"
-    reason: str | None = None
-
-    def __post_init__(self) -> None:
-        if self.context_family not in CONTEXT_FAMILIES:
-            raise ValueError("legacy context reference family is unsupported")
-        validate_public_identifier(self.context_id, "legacy context reference context_id")
-        if self.role not in CONTEXT_ROLES:
-            raise ValueError("legacy context reference role is unsupported")
-        if self.state not in CONTEXT_STATES:
-            raise ValueError("legacy context reference state is unsupported")
-        if self.state != "declared" and not self.reason:
-            raise ValueError("unavailable or redacted legacy context requires reason")
-        if self.state == "declared" and self.reason:
-            raise ValueError("declared legacy context must not carry reason")
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "context_family": self.context_family,
-            "context_id": self.context_id,
-            "role": self.role,
-            "state": self.state,
-            "reason": self.reason,
         }
 
 
@@ -155,7 +87,6 @@ class LegacyRunRecordRequest:
     run_started_at: str | None = None
     run_completed_at: str | None = None
     locators: tuple[LegacyRunLocator, ...] = ()
-    context_references: tuple[LegacyRunContextReference, ...] = ()
     operator_notes: str | None = None
 
     def __post_init__(self) -> None:
@@ -188,17 +119,8 @@ class LegacyRunRecordRequest:
                 validate_text(value, owner)
         if not isinstance(self.locators, tuple):
             raise ValueError("legacy run locators must be a tuple")
-        if not isinstance(self.context_references, tuple):
-            raise ValueError("legacy run context_references must be a tuple")
         if len({locator.locator_id for locator in self.locators}) != len(self.locators):
             raise ValueError("legacy run locators must have unique locator_id values")
-        if len(
-            {
-                (reference.context_family, reference.context_id, reference.role)
-                for reference in self.context_references
-            }
-        ) != len(self.context_references):
-            raise ValueError("legacy run context references must be unique")
 
     @property
     def approved(self) -> bool:
@@ -228,7 +150,6 @@ class LegacyRunRecordRequest:
             "run_started_at": self.run_started_at,
             "run_completed_at": self.run_completed_at,
             "locators": [locator.to_dict() for locator in self.locators],
-            "context_references": [reference.to_dict() for reference in self.context_references],
             "operator_notes": self.operator_notes,
         }
 
@@ -405,7 +326,6 @@ def _legacy_receipt(request: LegacyRunRecordRequest) -> dict[str, Any]:
             "operator_notes": request.operator_notes,
         },
         "declared_locators": [locator.to_dict() for locator in request.locators],
-        "context_references": [reference.to_dict() for reference in request.context_references],
         "operation": {
             "request_id": request.request_id,
             "classification": "legacy_run_recorded_for_review",
@@ -503,15 +423,6 @@ def _optional_text(source: dict[str, Any], key: str, *, default: str | None) -> 
     if value is None:
         return None
     validate_text(value, f"legacy run {key}")
-    return value
-
-
-def _optional_list(source: dict[str, Any], key: str) -> list[dict[str, Any]]:
-    value = source.get(key, [])
-    if not isinstance(value, list):
-        raise ValueError(f"legacy run {key} must be a list")
-    if not all(isinstance(item, dict) for item in value):
-        raise ValueError(f"legacy run {key} entries must be objects")
     return value
 
 

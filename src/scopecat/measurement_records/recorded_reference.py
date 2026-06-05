@@ -39,32 +39,18 @@ REFERENCE_FAMILIES = {
     "parameter_state",
     "setup_binding",
     "experiment_code",
-    "managed_code_version",
     "derived_artifact",
-    "supporting_evidence",
 }
 REFERENCE_ROLES = {
     "parameter_file",
-    "parameter_snapshot",
     "setup_binding_file",
-    "setup_binding_snapshot",
-    "code_file",
     "code_directory",
-    "code_snapshot",
     "preliminary_analysis_result",
-    "analysis_summary",
-    "debug_evidence",
-    "operator_selected_context",
-    "run_start_context",
 }
 REFERENCE_KINDS = {
-    "record_reference",
     "workspace_relative_path",
-    "package_relative_path",
     "opaque_reference",
-    "external_reference",
 }
-REFERENCE_STATES = {"declared_available", "unavailable", "redacted"}
 
 
 @dataclass(frozen=True)
@@ -76,12 +62,10 @@ class MeasurementRecordReference:
     role: str
     reference_kind: str
     reference_value: str
-    state: str = "declared_available"
     label: str | None = None
     digest: str | None = None
     size_bytes: int | None = None
     preview: str | None = None
-    reason: str | None = None
 
     def __post_init__(self) -> None:
         validate_public_identifier(self.reference_id, "recorded reference reference_id")
@@ -91,16 +75,10 @@ class MeasurementRecordReference:
             raise ValueError("recorded reference role is unsupported")
         if self.reference_kind not in REFERENCE_KINDS:
             raise ValueError("recorded reference reference_kind is unsupported")
-        if self.reference_kind in {"workspace_relative_path", "package_relative_path"}:
+        if self.reference_kind == "workspace_relative_path":
             validate_relative_path(self.reference_value, "recorded reference reference_value")
         else:
             validate_text(self.reference_value, "recorded reference reference_value")
-        if self.state not in REFERENCE_STATES:
-            raise ValueError("recorded reference state is unsupported")
-        if self.state != "declared_available" and not self.reason:
-            raise ValueError("unavailable or redacted recorded reference requires reason")
-        if self.state == "declared_available" and self.reason:
-            raise ValueError("available recorded reference must not carry reason")
         if self.label is not None:
             validate_text(self.label, "recorded reference label")
         if self.digest is not None:
@@ -117,12 +95,10 @@ class MeasurementRecordReference:
             "role": self.role,
             "reference_kind": self.reference_kind,
             "reference_value": self.reference_value,
-            "state": self.state,
             "label": self.label,
             "digest": self.digest,
             "size_bytes": self.size_bytes,
             "preview": self.preview,
-            "reason": self.reason,
         }
         return result
 
@@ -460,12 +436,10 @@ def _references_from_dict(source: dict[str, Any]) -> MeasurementRecordReference:
         role=_require_text(source, "role"),
         reference_kind=_require_text(source, "reference_kind"),
         reference_value=_require_text(source, "reference_value"),
-        state=_optional_text(source, "state", default="declared_available"),
         label=_optional_text(source, "label", default=None),
         digest=_optional_text(source, "digest", default=None),
         size_bytes=_optional_int(source, "size_bytes"),
         preview=_optional_text(source, "preview", default=None),
-        reason=_optional_text(source, "reason", default=None),
     )
 
 

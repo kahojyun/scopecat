@@ -118,8 +118,6 @@ class RecordedReferenceInput:
     digest: str | None = None
     size_bytes: int | None = None
     preview: str | None = None
-    state: str = "declared_available"
-    reason: str | None = None
 
     def to_reference(self, *, base_id: str, sequence: int) -> MeasurementRecordReference:
         return MeasurementRecordReference(
@@ -132,8 +130,6 @@ class RecordedReferenceInput:
             digest=self.digest,
             size_bytes=self.size_bytes,
             preview=self.preview,
-            state=self.state,
-            reason=self.reason,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -146,8 +142,6 @@ class RecordedReferenceInput:
             "digest": self.digest,
             "size_bytes": self.size_bytes,
             "preview": self.preview,
-            "state": self.state,
-            "reason": self.reason,
         }
 
 

@@ -41,7 +41,7 @@ uses already validated concepts as parts of one storage task:
 
 - Measurement Records creation provides durable record shells.
 - Legacy sidecar discovery supplies pressure for declared legacy system
-  identity, run identity, locators, and context references.
+  identity, run identity, and locators.
 - Selected-record handoff shows that stored records need a compact read model
   that downstream package export can consume.
 
@@ -62,7 +62,7 @@ The live prototype may:
   operation can add converted primary data later;
 - write one record-local `legacy-run-receipt.json`;
 - preserve declared legacy system id, legacy run id, run timing labels,
-  declared locators, optional context references, and operator notes;
+  declared locators, and operator notes;
 - attach reviewed converted normalized primary data to the same legacy record
   after validating record-local legacy receipt continuity and source digest,
   byte size, CSV shape, and row count;
