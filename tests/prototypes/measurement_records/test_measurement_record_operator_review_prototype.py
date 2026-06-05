@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 import shutil
 import tempfile
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 from scopecat.measurement_records import (
@@ -37,7 +35,6 @@ from scopecat.measurement_records import (
     write_created_record_primary_data_from_request,
     write_measurement_record_review_artifact,
 )
-from scopecat.measurement_records.__main__ import main as measurement_records_main
 from scopecat.measurement_records.operator_review import (
     OPERATOR_REVIEW_RECEIPT_SCHEMA,
 )
@@ -567,37 +564,6 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
         self.assertIsNone(payload["selected_record"])
         self.assertEqual(payload["review_findings"][0]["code"], "selected_record_not_visible")
 
-    def test_operator_review_cli_prints_local_review_json(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir) / "storage"
-            content_root = Path(temp_dir) / "content"
-            storage_root.mkdir()
-            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
-            _populate_projected_record(storage_root, content_root)
-
-            stdout = io.StringIO()
-            with redirect_stdout(stdout):
-                exit_code = measurement_records_main(
-                    [
-                        "operator-review",
-                        "--storage-root",
-                        str(storage_root),
-                        "--request-id",
-                        "operator-review-cli",
-                        "--selected-record-id",
-                        "run-3101-rabi",
-                    ]
-                )
-            payload = json.loads(stdout.getvalue())
-
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(payload["artifact_posture"], "local_measurement_record_operator_review")
-        self.assertEqual(
-            payload["classification"],
-            "measurement_record_operator_review_ready",
-        )
-        self.assertEqual(payload["selected_record"]["source"], "catalog")
-
     def test_operator_review_html_renders_catalog_and_selected_record(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root = Path(temp_dir) / "storage"
@@ -692,137 +658,6 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
                     run,
                     output_dir=storage_root / "review",
                 )
-
-    def test_operator_review_cli_can_write_local_html_artifact(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir) / "storage"
-            content_root = Path(temp_dir) / "content"
-            html_dir = Path(temp_dir) / "review"
-            storage_root.mkdir()
-            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
-            _populate_projected_record(storage_root, content_root)
-
-            stdout = io.StringIO()
-            with redirect_stdout(stdout):
-                exit_code = measurement_records_main(
-                    [
-                        "operator-review",
-                        "--storage-root",
-                        str(storage_root),
-                        "--request-id",
-                        "operator-review-cli",
-                        "--selected-record-id",
-                        "run-3101-rabi",
-                        "--html-dir",
-                        str(html_dir),
-                    ]
-                )
-            payload = json.loads(stdout.getvalue())
-            html_path = Path(payload["html_artifact"]["local_path"])
-            self.assertTrue(html_path.is_file())
-            html = html_path.read_text(encoding="utf-8")
-
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(payload["html_artifact"]["filename"], "measurement-record-review.html")
-        self.assertIn("run-3101-rabi", html)
-
-    def test_operator_review_cli_accepts_raw_source_json_for_multiple_running_records(
-        self,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-            storage_root = temp_path / "storage"
-            content_root = temp_path / "content"
-            storage_root.mkdir()
-            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
-            _populate_in_progress_with_append(
-                storage_root,
-                content_root,
-                record_id="run-4101-t1",
-            )
-            _populate_in_progress_with_append(
-                storage_root,
-                content_root,
-                record_id="run-4102-ramsey",
-            )
-            source_path = temp_path / "operator-review-source.json"
-            source_path.write_text(
-                json.dumps(
-                    _operator_source(
-                        selected_record_id="run-4102-ramsey",
-                        running_inspection_requests=(
-                            _running_request(record_id="run-4101-t1"),
-                            _running_request(record_id="run-4102-ramsey"),
-                        ),
-                    )
-                ),
-                encoding="utf-8",
-            )
-
-            stdout = io.StringIO()
-            with redirect_stdout(stdout):
-                exit_code = measurement_records_main(
-                    [
-                        "operator-review",
-                        "--storage-root",
-                        str(storage_root),
-                        "--source",
-                        str(source_path),
-                    ]
-                )
-            payload = json.loads(stdout.getvalue())
-
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(
-            payload["classification"],
-            "measurement_record_operator_review_ready",
-        )
-        self.assertEqual(len(payload["running_inspections"]), 2)
-        self.assertEqual(payload["selected_record"]["source"], "running_inspection")
-        self.assertEqual(payload["selected_record"]["record"]["record_id"], "run-4102-ramsey")
-
-    def test_operator_review_cli_rejects_source_with_conflicting_flags(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-            storage_root = temp_path / "storage"
-            storage_root.mkdir()
-            source_path = temp_path / "operator-review-source.json"
-            source_path.write_text(json.dumps(_operator_source()), encoding="utf-8")
-
-            stderr = io.StringIO()
-            with redirect_stderr(stderr), self.assertRaises(SystemExit):
-                measurement_records_main(
-                    [
-                        "operator-review",
-                        "--storage-root",
-                        str(storage_root),
-                        "--source",
-                        str(source_path),
-                        "--request-id",
-                        "conflicting-request",
-                    ]
-                )
-            self.assertIn("--source cannot be combined", stderr.getvalue())
-
-    def test_operator_review_cli_rejects_partial_running_flags(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir) / "storage"
-            storage_root.mkdir()
-
-            stderr = io.StringIO()
-            with redirect_stderr(stderr), self.assertRaises(SystemExit):
-                measurement_records_main(
-                    [
-                        "operator-review",
-                        "--storage-root",
-                        str(storage_root),
-                        "--request-id",
-                        "operator-review-cli",
-                        "--running-record-dir",
-                        "records/run-3101-rabi",
-                    ]
-                )
-            self.assertIn("--running-record-id is required", stderr.getvalue())
 
     def test_saves_operator_review_receipt_without_mutating_records(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1072,48 +907,6 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "public-safe identifier"):
             summarize_measurement_record_operator_review_receipt(receipt)
-
-    def test_operator_review_receipt_summary_cli_prints_continuation_summary(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir) / "storage"
-            content_root = Path(temp_dir) / "content"
-            storage_root.mkdir()
-            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
-            _populate_projected_record(storage_root, content_root)
-            review_run = review_measurement_records_from_request(
-                _operator_request(),
-                storage_root=storage_root,
-            )
-            save_run = save_measurement_record_operator_review_receipt(
-                _receipt_request(),
-                operator_review=review_run,
-                storage_root=storage_root,
-            )
-            if not save_run.saved:
-                raise AssertionError(save_run.to_dict())
-            receipt_path = storage_root / "operator-reviews" / "review-001.json"
-
-            stdout = io.StringIO()
-            with redirect_stdout(stdout):
-                exit_code = measurement_records_main(
-                    [
-                        "operator-review-receipt-summary",
-                        "--receipt-path",
-                        str(receipt_path),
-                    ]
-                )
-            payload = json.loads(stdout.getvalue())
-
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(
-            payload["summary_schema"],
-            "scopecat.measurement_record_operator_review_receipt_summary.v0",
-        )
-        self.assertEqual(payload["operator_review"]["selected_record_id"], "run-3101-rabi")
-        self.assertEqual(
-            payload["receipt"]["operator_disposition"],
-            "recorded_for_continuation",
-        )
 
 
 if __name__ == "__main__":

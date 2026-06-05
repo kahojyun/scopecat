@@ -254,21 +254,6 @@ the existing manifest, merge or compact primary data, refresh read models,
 scan storage, define stale-lock cleanup or crash recovery, infer schema, or
 make append segments canonical primary data.
 
-The module also exposes a narrow read-only CLI smoke entrypoint:
-
-```sh
-python -m scopecat.measurement_records running-inspection-summary \
-  --storage-root ./storage \
-  --request-id inspect-run-001 \
-  --record-id run-001 \
-  --record-dir records/run-001 \
-  --writer-receipt-path records/run-001/writer-receipt.json \
-  --update-receipt-path records/run-001/updates/update-001-2.json
-```
-
-It prints the compact running-inspection JSON summary. It does not discover
-records, scan update directories, mutate storage, or persist monitor state.
-
 The first operator-review composition is implemented through
 `review_measurement_records_from_request(...)`. It catalogs projected read
 models, optionally runs caller-declared running inspections, and projects a
@@ -281,46 +266,6 @@ a top-level operator-review finding. Catalog entries whose projected read
 model already carries review findings are still promoted into operator-review
 findings, so a stale or incomplete read model does not appear ready merely
 because its detailed finding object was embedded in the projection.
-
-The CLI also exposes:
-
-```sh
-python -m scopecat.measurement_records operator-review \
-  --storage-root ./storage \
-  --request-id operator-review-001 \
-  --selected-record-id run-001
-```
-
-Optional `--running-record-id`, `--running-record-dir`,
-`--running-writer-receipt-path`, and repeated
-`--running-update-receipt-path` arguments add one caller-declared running
-inspection to the local review. For multiple declared running inspections, use
-`--source ./operator-review-source.json` with the raw operator-review source
-schema instead of growing ad hoc flags. Declared running inspections must have
-unique request ids and unique record ids so the selected-record summary is not
-ambiguous. When `--source` is present, request
-shaping flags are rejected rather than silently ignored. Partial running flags
-without `--running-record-id` are also rejected so declared running-inspection
-intent is not dropped. The CLI remains a smoke surface; it does not scan for
-update receipts or run import, refresh, finalization, repair, or GUI state
-persistence.
-
-The CLI can record declared legacy-run information and list local storage:
-
-```sh
-python -m scopecat.measurement_records record-legacy-run \
-  --storage-root ./storage \
-  --source ./legacy-run-source.json
-
-python -m scopecat.measurement_records storage-inventory \
-  --storage-root ./storage \
-  --request-id inventory-001
-```
-
-These commands are smoke surfaces. `record-legacy-run` writes only the record
-shell and record-local legacy receipt described by its source JSON.
-`storage-inventory` scans only the declared records directory and does not
-repair, refresh, import, observe legacy files, or infer primary-data shape.
 
 The first saved operator-review receipt boundary is implemented through
 `save_measurement_record_operator_review_receipt(...)` and
@@ -344,17 +289,6 @@ The saved receipt is a local continuation note only: it does not resolve
 findings, approve import, approve refresh, grant retry authority, mutate
 records, or persist canonical GUI review state.
 
-The CLI can summarize a saved operator-review receipt:
-
-```sh
-python -m scopecat.measurement_records operator-review-receipt-summary \
-  --receipt-path ./storage/operator-reviews/review-001.json
-```
-
-This command reads one caller-declared receipt JSON and prints the compact
-continuation summary. It does not reopen records, re-run review, grant retry
-authority, approve refresh/import, mutate storage, or persist GUI state.
-
 The first local static review artifact is implemented through
 `build_measurement_record_review_html(...)` and
 `write_measurement_record_review_artifact(...)`. It renders an already
@@ -363,13 +297,3 @@ artifact is a review summary, not a durable storage member, public export,
 canonical GUI state, record repair, read-model refresh, import approval, or
 history/audit log. The writer rejects output directories inside the Measurement
 Records storage root so the artifact is not confused with record storage.
-
-The operator-review CLI can write the artifact:
-
-```sh
-python -m scopecat.measurement_records operator-review \
-  --storage-root ./storage \
-  --request-id operator-review-001 \
-  --selected-record-id run-001 \
-  --html-dir ./review
-```

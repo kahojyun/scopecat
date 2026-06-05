@@ -84,22 +84,6 @@ Runtime redaction is required only at declared or effective portable/export
 boundaries. Ordinary local storage, local receipts, and local review surfaces
 are not portable handoff artifacts unless a slice explicitly promotes them.
 
-## CLI Smoke Surfaces
-
-The module exposes narrow local smoke commands:
-
-```sh
-python -m scopecat.measurement_records running-inspection-summary ...
-python -m scopecat.measurement_records operator-review ...
-python -m scopecat.measurement_records record-legacy-run ...
-python -m scopecat.measurement_records storage-inventory ...
-python -m scopecat.measurement_records operator-review-receipt-summary ...
-```
-
-These commands are local review and smoke surfaces. They do not discover
-records broadly, run import/refresh/finalization automatically, repair storage,
-persist GUI state, or become public product CLI contracts.
-
 ## Tests And Fixtures
 
 Module behavior is covered by tests under

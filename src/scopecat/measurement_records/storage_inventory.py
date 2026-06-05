@@ -137,20 +137,6 @@ def list_measurement_record_storage_from_request(
     )
 
 
-def _parse_source(source: dict[str, Any]) -> MeasurementRecordStorageInventoryRequest:
-    request = _require_dict(source, "storage_inventory_request")
-    return MeasurementRecordStorageInventoryRequest(
-        request_id=_require_text(request, "request_id"),
-        records_dir=_optional_text(request, "records_dir", default="records"),
-        include_read_models=_optional_bool(request, "include_read_models", default=True),
-        include_legacy_receipts=_optional_bool(
-            request,
-            "include_legacy_receipts",
-            default=True,
-        ),
-    )
-
-
 def _inventory_record_dir(
     root: Path,
     record_dir: str,

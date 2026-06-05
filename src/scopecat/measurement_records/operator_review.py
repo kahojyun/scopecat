@@ -415,27 +415,6 @@ def summarize_measurement_record_operator_review_receipt(
     }
 
 
-def _parse_source(source: dict[str, Any]) -> MeasurementRecordOperatorReviewRequest:
-    request = _require_dict(source, "operator_review_request")
-    running_sources = request.get("running_inspection_requests", [])
-    if not isinstance(running_sources, list):
-        raise ValueError("operator review running_inspection_requests must be a list")
-    return MeasurementRecordOperatorReviewRequest(
-        request_id=_require_text(request, "request_id"),
-        records_dir=_optional_text(request, "records_dir", default="records"),
-        selected_record_id=_optional_identifier(request, "selected_record_id"),
-        verify_source_digests=_optional_bool(
-            request,
-            "verify_source_digests",
-            default=True,
-        ),
-        running_inspection_requests=tuple(
-            _parse_running_inspection_request(item) for item in running_sources
-        ),
-        latest_row_limit=_optional_positive_int(request, "latest_row_limit", default=3),
-    )
-
-
 def _parse_operator_review_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
     if receipt.get("schema") != OPERATOR_REVIEW_RECEIPT_SCHEMA:
         raise ValueError("operator review receipt schema is unsupported")
@@ -578,25 +557,6 @@ def _validate_saved_operator_review_contract(saved_review: dict[str, Any]) -> No
         "measurement_record_operator_review_needed",
     }:
         raise ValueError("saved operator review classification is unsupported")
-
-
-def _parse_running_inspection_request(
-    source: dict[str, Any],
-) -> MeasurementRecordRunningInspectionRequest:
-    if not isinstance(source, dict):
-        raise ValueError("operator review running inspection request must be an object")
-    paths = source.get("update_receipt_paths", [])
-    if not isinstance(paths, list):
-        raise ValueError("operator review update_receipt_paths must be a list")
-    return MeasurementRecordRunningInspectionRequest(
-        request_id=_require_text(source, "request_id"),
-        record_id=_require_text(source, "record_id"),
-        record_dir=_require_text(source, "record_dir"),
-        writer_receipt_path=_require_text(source, "writer_receipt_path"),
-        update_receipt_paths=tuple(validate_text(path, "update_receipt_path") for path in paths),
-        expected_total_rows=_optional_positive_int_or_none(source, "expected_total_rows"),
-        preview_row_limit=_optional_positive_int(source, "preview_row_limit", default=5),
-    )
 
 
 def _aggregate_findings(

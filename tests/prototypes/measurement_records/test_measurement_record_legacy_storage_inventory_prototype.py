@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import io
 import json
 import tempfile
 import unittest
-from contextlib import redirect_stdout
 from pathlib import Path
 
 from scopecat.measurement_records import (
@@ -16,7 +14,6 @@ from scopecat.measurement_records import (
     list_measurement_record_storage_from_request,
     record_legacy_measurement_run_from_request,
 )
-from scopecat.measurement_records.__main__ import main as measurement_records_main
 from scopecat.measurement_records.legacy_run import (
     LEGACY_RUN_RECEIPT_SCHEMA,
 )
@@ -236,44 +233,6 @@ class MeasurementRecordLegacyStorageInventoryPrototypeTest(unittest.TestCase):
         self.assertEqual(run.review_findings[0]["code"], "legacy_receipt_missing")
         self.assertEqual(run.entries[0]["legacy_run"]["state"], "missing")
         self.assertEqual(run.to_dict()["next_action"], "review_storage_inventory_findings")
-
-    def test_cli_records_legacy_run_and_lists_inventory(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-            storage_root = temp_path / "storage"
-            storage_root.mkdir()
-            source_path = temp_path / "legacy-source.json"
-            source_path.write_text(json.dumps(_legacy_source()), encoding="utf-8")
-
-            record_stdout = io.StringIO()
-            with redirect_stdout(record_stdout):
-                record_status = measurement_records_main(
-                    [
-                        "record-legacy-run",
-                        "--storage-root",
-                        str(storage_root),
-                        "--source",
-                        str(source_path),
-                    ]
-                )
-            inventory_stdout = io.StringIO()
-            with redirect_stdout(inventory_stdout):
-                inventory_status = measurement_records_main(
-                    [
-                        "storage-inventory",
-                        "--storage-root",
-                        str(storage_root),
-                        "--request-id",
-                        "inventory-records",
-                    ]
-                )
-
-        self.assertEqual(record_status, 0)
-        self.assertEqual(inventory_status, 0)
-        record_payload = json.loads(record_stdout.getvalue())
-        inventory_payload = json.loads(inventory_stdout.getvalue())
-        self.assertEqual(record_payload["classification"], "recorded_legacy_run")
-        self.assertEqual(inventory_payload["entries"][0]["record_id"], "legacy-run-001")
 
 
 if __name__ == "__main__":

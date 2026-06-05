@@ -113,5 +113,4 @@ Stop this slice when tests prove:
   artifacts while preserving the legacy record and legacy receipt;
 - a scenario can record multiple legacy measurements through the user-facing
   workflow facade, attach each converted primary data file to its same record,
-  record selected references, and render a measurement-oriented review page;
-- CLI smoke commands can record a legacy run and list storage inventory.
+  record selected references, and render a measurement-oriented review page.

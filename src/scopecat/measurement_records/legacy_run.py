@@ -334,46 +334,6 @@ def record_legacy_measurement_run_from_request(
     )
 
 
-def _parse_source(source: dict[str, Any]) -> LegacyRunRecordRequest:
-    request = _require_dict(source, "legacy_run_record_request")
-    return LegacyRunRecordRequest(
-        request_id=_require_text(request, "request_id"),
-        approval_state=_require_text(request, "approval_state"),
-        record_id=_require_text(request, "record_id"),
-        record_dir=_require_text(request, "record_dir"),
-        legacy_receipt_path=_optional_text(request, "legacy_receipt_path", default=None),
-        legacy_system_id=_require_text(request, "legacy_system_id"),
-        legacy_run_id=_require_text(request, "legacy_run_id"),
-        created_at=_optional_text(request, "created_at", default=None),
-        label=_optional_text(request, "label", default=None),
-        experiment_type=_optional_text(request, "experiment_type", default=None),
-        run_started_at=_optional_text(request, "run_started_at", default=None),
-        run_completed_at=_optional_text(request, "run_completed_at", default=None),
-        locators=tuple(
-            LegacyRunLocator(
-                locator_id=_require_text(locator, "locator_id"),
-                kind=_require_text(locator, "kind"),
-                role=_require_text(locator, "role"),
-                value=_require_text(locator, "value"),
-                state=_optional_text(locator, "state", default="declared_available"),
-                reason=_optional_text(locator, "reason", default=None),
-            )
-            for locator in _optional_list(request, "locators")
-        ),
-        context_references=tuple(
-            LegacyRunContextReference(
-                context_family=_require_text(reference, "context_family"),
-                context_id=_require_text(reference, "context_id"),
-                role=_require_text(reference, "role"),
-                state=_optional_text(reference, "state", default="declared"),
-                reason=_optional_text(reference, "reason", default=None),
-            )
-            for reference in _optional_list(request, "context_references")
-        ),
-        operator_notes=_optional_text(request, "operator_notes", default=None),
-    )
-
-
 def _legacy_receipt(request: LegacyRunRecordRequest) -> dict[str, Any]:
     return {
         "schema": LEGACY_RUN_RECEIPT_SCHEMA,
