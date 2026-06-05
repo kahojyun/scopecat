@@ -286,7 +286,7 @@ Already validated:
 
 - selected-reference comparison discovery evidence;
 - discovery and implementation-candidate evidence for code-context recording;
-- sealed bounded environment-operation evidence for `uv sync` review;
+- retired bounded environment-operation evidence for `uv sync` review;
 - candidate materialization evidence.
 
 Decision gate:

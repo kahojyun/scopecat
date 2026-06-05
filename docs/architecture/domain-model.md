@@ -71,7 +71,7 @@ entities.
 | Durable Audit Record | Process object | Persist a narrow fact that an accepted operation, observation, import, write, or user decision occurred. | Historical `receipt` slice outputs should be classified here only when durable audit value is real. |
 | Import Plan | Integration object | Let a receiver preview what could be imported before storage mutation. | Non-mutating by default; durable import needs explicit acceptance and delegated storage rules. |
 | Operator Acknowledgement | Process object | Capture user acceptance, deferral, note, or continuation choice without claiming run permission. | Should not become an approval bureaucracy or hardware-safety gate by default. |
-| Environment Operation Evidence | Accepted transition boundary | Record bounded local manager-operation intent/result facts for later review. | This is a Scopecat evidence object; it does not prove runnable readiness. |
+| Environment Operation Evidence | Supporting transition concept | Review bounded local manager-operation intent/result facts when a named workflow earns the boundary. | Retired prototype evidence only; does not prove runnable readiness. |
 | Calibration Continuation State | Supporting transition concept | Preserve fit review, proposed writes, blocked downstream work, and continuation decisions. | Should remain grounded in failed-fit and manual-continuation entrypoints, not an invented scheduler. |
 | Reference Comparison Finding | Supporting transition concept | Compare declared facts against a selected reference without explaining causes. | Does not claim setup truth, reproducibility, or user judgment. |
 

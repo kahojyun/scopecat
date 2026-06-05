@@ -34,7 +34,6 @@ Recommended names:
 Current layout:
 
 ```text
-tests/prototypes/environment_operation/
 tests/prototypes/handoff/
 tests/prototypes/measurement_records/
 ```

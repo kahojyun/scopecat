@@ -6,12 +6,9 @@ Frozen engineering prototype readiness checkpoint.
 
 This document records the stop/readiness assessment that justified ending the
 environment-operation prototype line. Do not update it to mirror later API
-additions or route extensions. Current accepted implementation boundaries live
-in
-[`environment-operation.md`](../prototype-boundaries/environment-operation.md).
-Keep routine API inventory in
-[`../../../src/scopecat/environment_operation/README.md`](../../../src/scopecat/environment_operation/README.md)
-and leave the prototype plan as a frozen scope snapshot.
+additions or route extensions. The live Python module and accepted boundary
+note were later retired because the capability no longer had a named
+brownfield entrypoint. Leave the prototype plan as a frozen scope snapshot.
 
 ## Readiness Judgment
 
@@ -46,7 +43,7 @@ hardware readiness, or a shared environment-manager abstraction.
 
 | Criterion | Status | Assessment |
 | --- | --- | --- |
-| Route-local product-shaped API | Met | The route-local sync, result/review projection, runtime-probe, and composed workflow surface exists under `scopecat.environment_operation`; keep the live API list in the module README. |
+| Route-local product-shaped API | Met historically | The route-local sync, result/review projection, runtime-probe, and composed workflow surface existed under the retired `scopecat.environment_operation` prototype. |
 | Actual external interaction boundary | Met | The prototype runs bounded `uv sync` commands through `SubprocessUvRunner` with caller-provided workspace root, relative cwd, explicit executable path, and timeout. |
 | Representative success and failure coverage | Met | Tests cover injected sync success/failure/timeout/launch-failure behavior, real tiny `uv` success and missing-lock failure fixtures, runtime-probe process failure/timeout/launch failure, invalid JSON, output-shape rejection, raw-output rejection, non-virtual-environment findings, and a real post-sync probe fixture. |
 | Review projection and non-claims | Met | Execution records promote to typed local results, which project local result summaries and feed operation reviews with bounded output, findings, alignment checks, and explicit no runtime-readiness/package-state/code-execution claims. |
@@ -55,9 +52,9 @@ hardware readiness, or a shared environment-manager abstraction.
 
 ## Keep As Implementation Shape
 
-These choices are strong enough to carry into PR review:
+These choices were strong enough for the historical prototype review:
 
-- route-local `src/scopecat/environment_operation/` module boundary;
+- route-local module boundary;
 - no runtime dependency on historical `implementation_candidates`;
 - `UvSyncIntent` as the first route-local approved command object;
 - bounded argv shape, currently `uv sync --locked --no-default-groups` plus
@@ -108,15 +105,12 @@ requires it, or if a future route extension explicitly chooses one as evidence.
 ## Recommendation
 
 The approved `uv sync` execution/review boundary plus the bounded post-sync
-runtime probe has been promoted as the accepted local boundary. Future
-environment-operation work should start from
-[`environment-operation.md`](../prototype-boundaries/environment-operation.md).
-
-Future environment-operation work should be triggered by a new boundary
-question: broader review-bundle integration with optional manifest or
-prepared-context references, package-state pressure, Pixi/Conda pressure, or
-selected experiment-code execution. Those should be separate PRs, not
-additional broadening of this prototype line.
+runtime probe remains historical evidence. Future environment-operation work
+should restart from a named brownfield entrypoint and a new boundary question:
+broader review-bundle integration with optional manifest or prepared-context
+references, package-state pressure, Pixi/Conda pressure, or selected
+experiment-code execution. Those should be separate work items, not additional
+broadening of this retired prototype line.
 
 ## Freeze Rule
 

@@ -5,12 +5,11 @@
 Frozen engineering prototype plan.
 
 This document records the prototype objective, scope, non-claims, and stop
-conditions that launched the environment-operation engineering vertical. Do
-not update it to mirror routine API additions. Current implementation-boundary
-guidance lives in
-[`environment-operation-prototype-readiness.md`](environment-operation-prototype-readiness.md);
-the current route-local Python surface lives in
-[`../../../src/scopecat/environment_operation/README.md`](../../../src/scopecat/environment_operation/README.md).
+conditions that launched the environment-operation engineering vertical. The
+live Python module and its prototype-boundary note were later retired because
+the capability no longer had a named brownfield entrypoint. Use
+[`environment-operation-prototype-readiness.md`](environment-operation-prototype-readiness.md)
+as the frozen readiness checkpoint, not as current implementation guidance.
 
 This plan started the engineering prototype for the environment-operation route.
 It follows the validated route posture:

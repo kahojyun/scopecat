@@ -1,9 +1,0 @@
-[project]
-name = "scopecat-missing-lock-uv-project"
-version = "0.0.0"
-description = "Repository-safe missing uv lock fixture."
-requires-python = ">=3.11"
-dependencies = []
-
-[tool.uv]
-package = false

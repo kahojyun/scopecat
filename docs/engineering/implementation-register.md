@@ -17,7 +17,6 @@ brownfield migration document, test inventory, or second module README.
 | --- | --- | --- | --- |
 | `scopecat.measurement_records` | CAP-001 | Durable local Measurement Records storage, read/import/adoption, and declared references. | [`src/scopecat/measurement_records/README.md`](../../src/scopecat/measurement_records/README.md), [`measurement-records-creation-lifecycle.md`](prototype-boundaries/measurement-records-creation-lifecycle.md), [`measurement-records-legacy-run-storage.md`](prototype-boundaries/measurement-records-legacy-run-storage.md) |
 | `scopecat.handoff` | CAP-002 | Scopecat-authored package writing/opening/preview, selected stored-record export, receiving gate, import plan, and durable-import adaptation. | [`src/scopecat/handoff/README.md`](../../src/scopecat/handoff/README.md), [`handoff.md`](prototype-boundaries/handoff.md), [`handoff-durable-import-storage.md`](prototype-boundaries/handoff-durable-import-storage.md) |
-| `scopecat.environment_operation` | CAP-004 | Frozen bounded local `uv sync` operation evidence: approved execution, typed result/review records, optional runtime probe, and route-local composition for that operation only. | [`src/scopecat/environment_operation/README.md`](../../src/scopecat/environment_operation/README.md), [`environment-operation.md`](prototype-boundaries/environment-operation.md) |
 
 ## Update Rule
 
