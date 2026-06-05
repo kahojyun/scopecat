@@ -50,16 +50,9 @@ class MeasurementRecordsPublicApiSurfaceTest(unittest.TestCase):
 
     def test_slice_level_routes_are_not_top_level_exports(self) -> None:
         slice_names = {
-            "MeasurementRecordExistingUpdateRequest",
-            "MeasurementRecordInProgressUpdateRequest",
-            "MeasurementRecordRunningInspectionRequest",
-            "append_existing_measurement_record_from_request",
-            "append_in_progress_measurement_record_from_request",
             "attach_converted_primary_data_to_legacy_record_from_request",
-            "inspect_running_measurement_record_from_request",
             "legacy_measurement_slug",
             "record_legacy_measurement_run_from_request",
-            "summarize_running_measurement_inspection",
         }
 
         self.assertFalse(slice_names.intersection(measurement_records.__all__))

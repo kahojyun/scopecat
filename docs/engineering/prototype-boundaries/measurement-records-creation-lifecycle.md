@@ -49,7 +49,7 @@ record-local artifacts are:
 
 - `record-manifest.json` as the immutable creation shell and origin identity;
 - record-local receipts for writer, finalization, import, legacy-run recording,
-  references, and updates;
+  and references;
 - primary CSV bytes written through approved writer/import paths;
 - derived `record-read-model.json` as a replaceable local convenience
   summary, not canonical storage authority.
@@ -60,8 +60,6 @@ Current authority model:
 
 - import/adoption operations own initial manifest creation;
 - import/attach operations own primary CSV bytes and their receipts;
-- update operations own append receipts and append segments, not primary-data
-  compaction;
 - selected-record export refresh owns derived read models, not canonical
   manifest replacement.
 

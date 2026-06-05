@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import csv
-import io
 import json
 import os
 import shutil
@@ -14,15 +12,19 @@ from types import TracebackType
 from typing import Any
 
 from scopecat.measurement_records._contracts import (
-    FINALIZATION_RECEIPT_SCHEMA,
     MANIFEST_SCHEMA,
     RECORD_MANIFEST_NAME,
-    WRITER_RECEIPT_SCHEMA,
     validate_positive_integer,
     validate_public_identifier,
     validate_relative_path,
     validate_sha256_digest,
     validate_text,
+)
+from scopecat.measurement_records._primary_data_commit import (
+    build_primary_data_commit_artifacts,
+)
+from scopecat.measurement_records._primary_data_source import (
+    read_reviewed_primary_data_source,
 )
 from scopecat.measurement_records._primary_table_summary import (
     summarize_observed_primary_table,
@@ -37,20 +39,16 @@ from scopecat.measurement_records._storage import (
     path_under as _path_under_common,
 )
 from scopecat.measurement_records._storage import (
-    sha256 as _sha256,
-)
-from scopecat.measurement_records._storage import (
     validate_non_overlapping_paths as _validate_non_overlapping_paths_common,
 )
 from scopecat.measurement_records._storage import (
     validate_strict_child_path as _validate_strict_child_path,
 )
-from scopecat.measurement_records.read_model_shared import READ_MODEL_FILENAME, READ_MODEL_SCHEMA
+from scopecat.measurement_records.read_model_shared import READ_MODEL_FILENAME
 
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 SOURCE_KINDS = {
     "adapter_normalized_primary_data",
-    "fixture_normalized_primary_data",
     "handoff_package",
 }
 CREATION_SOURCE_KINDS = {"import", "handoff"}
@@ -304,53 +302,14 @@ def import_measurement_record_from_request(
 
 
 def _preflight_source(request: MeasurementRecordDurableImportRequest, content_root: Path) -> bytes:
-    if request.import_source.primary_data_format != "csv_table":
-        raise _DurableImportFailure("durable import source format is unsupported")
-    path = _path_under(content_root, request.import_source.content_ref)
-    _ensure_no_symlink_parents(
-        content_root,
-        request.import_source.content_ref,
-        "durable import source",
-    )
-    if path.is_symlink():
-        raise _DurableImportFailure("durable import source must not be a symlink")
     try:
-        content = path.read_bytes()
-    except FileNotFoundError as exc:
-        raise _DurableImportFailure("durable import source is unavailable") from exc
-    if _sha256(content) != request.import_source.declared_digest:
-        raise _DurableImportFailure("durable import source digest does not match")
-    if len(content) != request.import_source.size_bytes:
-        raise _DurableImportFailure("durable import source size does not match")
-    rows = _count_normalized_csv_rows(content)
-    if rows != request.import_source.rows_recorded:
-        raise _DurableImportFailure("durable import source row count does not match")
-    return content
-
-
-def _count_normalized_csv_rows(content: bytes) -> int:
-    try:
-        decoded = content.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise _DurableImportFailure("durable import source must be utf-8 CSV") from exc
-    reader = csv.reader(io.StringIO(decoded, newline=""))
-    try:
-        header = next(reader)
-    except StopIteration as exc:
-        raise _DurableImportFailure("durable import source requires a CSV header") from exc
-    if not header:
-        raise _DurableImportFailure("durable import source requires a CSV header")
-    if any(name.strip() == "" for name in header):
-        raise _DurableImportFailure("durable import source CSV headers must be non-blank")
-    if len(set(header)) != len(header):
-        raise _DurableImportFailure("durable import source requires unique CSV headers")
-
-    rows = 0
-    for row in reader:
-        if len(row) != len(header):
-            raise _DurableImportFailure("durable import source rows must match the CSV header")
-        rows += 1
-    return rows
+        return read_reviewed_primary_data_source(
+            request.import_source,
+            content_root=content_root,
+            owner="durable import source",
+        )
+    except ValueError as exc:
+        raise _DurableImportFailure(str(exc)) from exc
 
 
 def _write_imported_record(
@@ -361,42 +320,39 @@ def _write_imported_record(
     *,
     read_model_writer: Callable[[Path, bytes], None],
 ) -> dict[str, Any]:
-    manifest_content = _json_bytes(_record_manifest(request))
-    writer_receipt_content = _json_bytes(
-        _writer_receipt(
-            request,
-            primary_content=primary_content,
-        )
-    )
-    finalization_receipt_content = _json_bytes(
-        _finalization_receipt(
-            request,
-            primary_digest=_sha256(primary_content),
-            table=table,
-        )
-    )
-    read_model_content = _json_bytes(
-        _read_model(
-            request,
-            table=table,
-            manifest_digest=_sha256(manifest_content),
-            writer_receipt_digest=_sha256(writer_receipt_content),
-            finalization_receipt_digest=_sha256(finalization_receipt_content),
-            primary_size=len(primary_content),
-        )
+    manifest = _record_manifest(request)
+    manifest_content = _json_bytes(manifest)
+    artifacts = build_primary_data_commit_artifacts(
+        request_id=request.request_id,
+        record_id=request.record_id,
+        record_dir=request.record_dir,
+        creation_manifest_path=request.creation_manifest_path,
+        primary_data_path=request.primary_data_path,
+        writer_receipt_path=request.writer_receipt_path,
+        finalization_receipt_path=request.finalization_receipt_path,
+        manifest=manifest,
+        import_source=request.import_source,
+        primary_content=primary_content,
+        table=table,
     )
 
     record_dir = _path_under(storage_root, request.record_dir)
     record_dir.mkdir(parents=True)
     _write_new_file(_path_under(storage_root, request.creation_manifest_path), manifest_content)
     _write_new_file(_path_under(storage_root, request.primary_data_path), primary_content)
-    _write_new_file(_path_under(storage_root, request.writer_receipt_path), writer_receipt_content)
+    _write_new_file(
+        _path_under(storage_root, request.writer_receipt_path),
+        artifacts.writer_receipt_content,
+    )
     _write_new_file(
         _path_under(storage_root, request.finalization_receipt_path),
-        finalization_receipt_content,
+        artifacts.finalization_receipt_content,
     )
     try:
-        read_model_writer(_path_under(storage_root, request.read_model_path), read_model_content)
+        read_model_writer(
+            _path_under(storage_root, request.read_model_path),
+            artifacts.read_model_content,
+        )
     except Exception as exc:
         raise _DurableImportFailure(f"durable import read model write failed: {exc}") from exc
 
@@ -408,8 +364,8 @@ def _write_imported_record(
         "writer_receipt_path": request.writer_receipt_path,
         "finalization_receipt_path": request.finalization_receipt_path,
         "read_model_path": request.read_model_path,
-        "primary_data_digest": _sha256(primary_content),
-        "read_model_digest": _sha256(read_model_content),
+        "primary_data_digest": artifacts.primary_digest,
+        "read_model_digest": artifacts.read_model_digest,
     }
 
 
@@ -457,128 +413,6 @@ def _record_manifest(request: MeasurementRecordDurableImportRequest) -> dict[str
         "primary_data": {
             "state": "not_recorded",
             "references": [],
-        },
-    }
-
-
-def _writer_receipt(
-    request: MeasurementRecordDurableImportRequest,
-    *,
-    primary_content: bytes,
-) -> dict[str, Any]:
-    primary_digest = _sha256(primary_content)
-    source = request.import_source
-    return {
-        "schema": WRITER_RECEIPT_SCHEMA,
-        "record": {
-            "record_id": request.record_id,
-            "record_dir": request.record_dir,
-            "creation_manifest_path": request.creation_manifest_path,
-            "creation_lifecycle_state": "created",
-        },
-        "writer_request": {
-            "request_id": f"{request.request_id}-write",
-            "primary_data_path": request.primary_data_path,
-            "writer_receipt_path": request.writer_receipt_path,
-            "primary_data_format": source.primary_data_format,
-            "expected_rows": source.rows_recorded,
-        },
-        "primary_data": {
-            "path": request.primary_data_path,
-            "format": source.primary_data_format,
-            "digest": primary_digest,
-            "size_bytes": len(primary_content),
-            "rows_recorded": source.rows_recorded,
-        },
-        "source": source.to_dict(),
-    }
-
-
-def _finalization_receipt(
-    request: MeasurementRecordDurableImportRequest,
-    *,
-    primary_digest: str,
-    table: dict[str, Any],
-) -> dict[str, Any]:
-    return {
-        "schema": FINALIZATION_RECEIPT_SCHEMA,
-        "record": {
-            "record_id": request.record_id,
-            "record_dir": request.record_dir,
-            "creation_manifest_path": request.creation_manifest_path,
-            "writer_receipt_path": request.writer_receipt_path,
-        },
-        "finalization": {
-            "request_id": f"{request.request_id}-finalize",
-            "final_state": "complete",
-            "operator_reason": None,
-            "evidence": {
-                "primary_table_classification": table["classification"],
-                "primary_data_path": request.primary_data_path,
-                "primary_data_digest": primary_digest,
-                "rows_recorded": request.import_source.rows_recorded,
-                "table_row_count": table["row_count"],
-            },
-        },
-    }
-
-
-def _read_model(
-    request: MeasurementRecordDurableImportRequest,
-    *,
-    table: dict[str, Any],
-    manifest_digest: str,
-    writer_receipt_digest: str,
-    finalization_receipt_digest: str,
-    primary_size: int,
-) -> dict[str, Any]:
-    return {
-        "schema": READ_MODEL_SCHEMA,
-        "record": {
-            "record_id": request.record_id,
-            "record_dir": request.record_dir,
-            "lifecycle_state": "complete",
-            "creation_lifecycle_state": "created",
-        },
-        "sources": {
-            "creation_manifest": {
-                "path": request.creation_manifest_path,
-                "schema": MANIFEST_SCHEMA,
-                "digest": manifest_digest,
-            },
-            "writer_receipt": {
-                "path": request.writer_receipt_path,
-                "schema": WRITER_RECEIPT_SCHEMA,
-                "digest": writer_receipt_digest,
-            },
-            "finalization_receipt": {
-                "path": request.finalization_receipt_path,
-                "schema": FINALIZATION_RECEIPT_SCHEMA,
-                "digest": finalization_receipt_digest,
-            },
-            "primary_table_read": {
-                "classification": table["classification"],
-            },
-        },
-        "primary_data": {
-            "path": request.primary_data_path,
-            "format": table["format"],
-            "digest": request.import_source.declared_digest,
-            "size_bytes": primary_size,
-            "declared_row_count": request.import_source.rows_recorded,
-            "observed_row_count": table["row_count"],
-        },
-        "table": {
-            "classification": table["classification"],
-            "columns": table["columns"],
-            "preview": table["preview"],
-        },
-        "review": {
-            "findings": [],
-        },
-        "finalization": {
-            "final_state": "complete",
-            "operator_reason": None,
         },
     }
 

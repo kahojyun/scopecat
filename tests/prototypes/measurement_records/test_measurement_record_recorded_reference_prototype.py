@@ -52,7 +52,7 @@ def _create_record(storage_root: Path) -> None:
             finalization_receipt_path="records/run-ctx-001/finalization-receipt.json",
             read_model_path="records/run-ctx-001/record-read-model.json",
             import_source=MeasurementRecordImportSource(
-                source_kind="fixture_normalized_primary_data",
+                source_kind="adapter_normalized_primary_data",
                 source_id="reference-fixture",
                 source_item_id="reference-primary",
                 content_ref="source/primary.csv",

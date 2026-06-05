@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import csv
-import io
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -11,12 +9,16 @@ from pathlib import Path
 from typing import Any
 
 from scopecat.measurement_records._contracts import (
-    FINALIZATION_RECEIPT_SCHEMA,
     MANIFEST_SCHEMA,
-    WRITER_RECEIPT_SCHEMA,
     validate_public_identifier,
     validate_relative_path,
     validate_text,
+)
+from scopecat.measurement_records._primary_data_commit import (
+    build_primary_data_commit_artifacts,
+)
+from scopecat.measurement_records._primary_data_source import (
+    read_reviewed_primary_data_source,
 )
 from scopecat.measurement_records._primary_table_summary import (
     summarize_observed_primary_table,
@@ -28,7 +30,6 @@ from scopecat.measurement_records._storage import (
     existing_directory_root as _existing_directory_root,
 )
 from scopecat.measurement_records._storage import path_under as _path_under_common
-from scopecat.measurement_records._storage import sha256 as _sha256
 from scopecat.measurement_records._storage import (
     validate_non_overlapping_paths as _validate_non_overlapping_paths_common,
 )
@@ -39,7 +40,7 @@ from scopecat.measurement_records.durable_import import (
     MeasurementRecordImportSource,
 )
 from scopecat.measurement_records.legacy_run import LEGACY_RUN_RECEIPT_SCHEMA
-from scopecat.measurement_records.read_model_shared import READ_MODEL_FILENAME, READ_MODEL_SCHEMA
+from scopecat.measurement_records.read_model_shared import READ_MODEL_FILENAME
 
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 
@@ -257,49 +258,11 @@ def _validate_existing_legacy_record(
 
 
 def _preflight_source(request: LegacyPrimaryImportRequest, content_root: Path) -> bytes:
-    path = _path_under(content_root, request.import_source.content_ref)
-    _ensure_no_symlink_parents(
-        content_root,
-        request.import_source.content_ref,
-        "legacy primary import source",
+    return read_reviewed_primary_data_source(
+        request.import_source,
+        content_root=content_root,
+        owner="legacy primary import source",
     )
-    if path.is_symlink():
-        raise ValueError("legacy primary import source must not be a symlink")
-    try:
-        content = path.read_bytes()
-    except FileNotFoundError as exc:
-        raise ValueError("legacy primary import source is unavailable") from exc
-    if _sha256(content) != request.import_source.declared_digest:
-        raise ValueError("legacy primary import source digest does not match")
-    if len(content) != request.import_source.size_bytes:
-        raise ValueError("legacy primary import source size does not match")
-    if _count_normalized_csv_rows(content) != request.import_source.rows_recorded:
-        raise ValueError("legacy primary import source row count does not match")
-    return content
-
-
-def _count_normalized_csv_rows(content: bytes) -> int:
-    try:
-        decoded = content.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise ValueError("legacy primary import source must be utf-8 CSV") from exc
-    reader = csv.reader(io.StringIO(decoded, newline=""))
-    try:
-        header = next(reader)
-    except StopIteration as exc:
-        raise ValueError("legacy primary import source requires a CSV header") from exc
-    if not header:
-        raise ValueError("legacy primary import source requires a CSV header")
-    if any(name.strip() == "" for name in header):
-        raise ValueError("legacy primary import source CSV headers must be non-blank")
-    if len(set(header)) != len(header):
-        raise ValueError("legacy primary import source requires unique CSV headers")
-    rows = 0
-    for row in reader:
-        if len(row) != len(header):
-            raise ValueError("legacy primary import source rows must match the CSV header")
-        rows += 1
-    return rows
 
 
 def _write_attached_primary_data(
@@ -312,33 +275,34 @@ def _write_attached_primary_data(
     read_model_writer: Callable[[Path, bytes], None],
 ) -> dict[str, Any]:
     _ensure_new_targets(storage, request)
-    primary_digest = _sha256(primary_content)
-    manifest_content = _json_bytes(manifest)
-    writer_receipt_content = _json_bytes(
-        _writer_receipt(request, manifest=manifest, primary_content=primary_content)
-    )
-    finalization_receipt_content = _json_bytes(
-        _finalization_receipt(request, primary_digest=primary_digest, table=table)
-    )
-    read_model_content = _json_bytes(
-        _read_model(
-            request,
-            manifest=manifest,
-            table=table,
-            manifest_digest=_sha256(manifest_content),
-            writer_receipt_digest=_sha256(writer_receipt_content),
-            finalization_receipt_digest=_sha256(finalization_receipt_content),
-            primary_size=len(primary_content),
-        )
+    artifacts = build_primary_data_commit_artifacts(
+        request_id=request.request_id,
+        record_id=request.record_id,
+        record_dir=request.record_dir,
+        creation_manifest_path=request.creation_manifest_path,
+        primary_data_path=request.primary_data_path,
+        writer_receipt_path=request.writer_receipt_path,
+        finalization_receipt_path=request.finalization_receipt_path,
+        manifest=manifest,
+        import_source=request.import_source,
+        primary_content=primary_content,
+        table=table,
     )
 
     _write_new_file(_path_under(storage, request.primary_data_path), primary_content)
-    _write_new_file(_path_under(storage, request.writer_receipt_path), writer_receipt_content)
     _write_new_file(
-        _path_under(storage, request.finalization_receipt_path), finalization_receipt_content
+        _path_under(storage, request.writer_receipt_path),
+        artifacts.writer_receipt_content,
+    )
+    _write_new_file(
+        _path_under(storage, request.finalization_receipt_path),
+        artifacts.finalization_receipt_content,
     )
     try:
-        read_model_writer(_path_under(storage, request.read_model_path), read_model_content)
+        read_model_writer(
+            _path_under(storage, request.read_model_path),
+            artifacts.read_model_content,
+        )
     except Exception as exc:
         raise ValueError(f"legacy primary import read model write failed: {exc}") from exc
     return {
@@ -348,8 +312,8 @@ def _write_attached_primary_data(
         "writer_receipt_path": request.writer_receipt_path,
         "finalization_receipt_path": request.finalization_receipt_path,
         "read_model_path": request.read_model_path,
-        "primary_data_digest": primary_digest,
-        "read_model_digest": _sha256(read_model_content),
+        "primary_data_digest": artifacts.primary_digest,
+        "read_model_digest": artifacts.read_model_digest,
     }
 
 
@@ -366,131 +330,6 @@ def _ensure_new_targets(storage: Path, request: LegacyPrimaryImportRequest) -> N
             or _path_under(storage, relative_path).is_symlink()
         ):
             raise ValueError("legacy primary import target already exists")
-
-
-def _writer_receipt(
-    request: LegacyPrimaryImportRequest,
-    *,
-    manifest: dict[str, Any],
-    primary_content: bytes,
-) -> dict[str, Any]:
-    record = _require_dict(manifest, "record")
-    source = request.import_source
-    return {
-        "schema": WRITER_RECEIPT_SCHEMA,
-        "record": {
-            "record_id": request.record_id,
-            "record_dir": request.record_dir,
-            "creation_manifest_path": request.creation_manifest_path,
-            "creation_lifecycle_state": record["lifecycle_state"],
-        },
-        "writer_request": {
-            "request_id": f"{request.request_id}-write",
-            "primary_data_path": request.primary_data_path,
-            "writer_receipt_path": request.writer_receipt_path,
-            "primary_data_format": source.primary_data_format,
-            "expected_rows": source.rows_recorded,
-        },
-        "primary_data": {
-            "path": request.primary_data_path,
-            "format": source.primary_data_format,
-            "digest": _sha256(primary_content),
-            "size_bytes": len(primary_content),
-            "rows_recorded": source.rows_recorded,
-        },
-        "source": source.to_dict(),
-    }
-
-
-def _finalization_receipt(
-    request: LegacyPrimaryImportRequest,
-    *,
-    primary_digest: str,
-    table: dict[str, Any],
-) -> dict[str, Any]:
-    return {
-        "schema": FINALIZATION_RECEIPT_SCHEMA,
-        "record": {
-            "record_id": request.record_id,
-            "record_dir": request.record_dir,
-            "creation_manifest_path": request.creation_manifest_path,
-            "writer_receipt_path": request.writer_receipt_path,
-        },
-        "finalization": {
-            "request_id": f"{request.request_id}-finalize",
-            "final_state": "complete",
-            "operator_reason": None,
-            "evidence": {
-                "primary_table_classification": table["classification"],
-                "primary_data_path": request.primary_data_path,
-                "primary_data_digest": primary_digest,
-                "rows_recorded": request.import_source.rows_recorded,
-                "table_row_count": table["row_count"],
-            },
-        },
-    }
-
-
-def _read_model(
-    request: LegacyPrimaryImportRequest,
-    *,
-    manifest: dict[str, Any],
-    table: dict[str, Any],
-    manifest_digest: str,
-    writer_receipt_digest: str,
-    finalization_receipt_digest: str,
-    primary_size: int,
-) -> dict[str, Any]:
-    record = _require_dict(manifest, "record")
-    return {
-        "schema": READ_MODEL_SCHEMA,
-        "record": {
-            "record_id": request.record_id,
-            "record_dir": request.record_dir,
-            "lifecycle_state": "complete",
-            "creation_lifecycle_state": record["lifecycle_state"],
-        },
-        "sources": {
-            "creation_manifest": {
-                "path": request.creation_manifest_path,
-                "schema": MANIFEST_SCHEMA,
-                "digest": manifest_digest,
-            },
-            "writer_receipt": {
-                "path": request.writer_receipt_path,
-                "schema": WRITER_RECEIPT_SCHEMA,
-                "digest": writer_receipt_digest,
-            },
-            "finalization_receipt": {
-                "path": request.finalization_receipt_path,
-                "schema": FINALIZATION_RECEIPT_SCHEMA,
-                "digest": finalization_receipt_digest,
-            },
-            "primary_table_read": {
-                "classification": table["classification"],
-            },
-        },
-        "primary_data": {
-            "path": request.primary_data_path,
-            "format": table["format"],
-            "digest": request.import_source.declared_digest,
-            "size_bytes": primary_size,
-            "declared_row_count": request.import_source.rows_recorded,
-            "observed_row_count": table["row_count"],
-        },
-        "table": {
-            "classification": table["classification"],
-            "columns": table["columns"],
-            "preview": table["preview"],
-        },
-        "review": {
-            "findings": [],
-        },
-        "finalization": {
-            "final_state": "complete",
-            "operator_reason": None,
-        },
-    }
 
 
 def _read_json(root: Path, relative_path: str, owner: str) -> dict[str, Any]:
@@ -535,10 +374,6 @@ def _validate_canonical_read_model_path(read_model_path: str, record_dir: str) -
 def _write_new_file(path: Path, content: bytes) -> None:
     with path.open("xb") as handle:
         handle.write(content)
-
-
-def _json_bytes(content: dict[str, Any]) -> bytes:
-    return (json.dumps(content, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
 
 def _require_dict(value: dict[str, Any], field: str) -> dict[str, Any]:

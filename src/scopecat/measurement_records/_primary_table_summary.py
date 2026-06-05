@@ -64,6 +64,14 @@ def summarize_observed_primary_table(
     )
 
 
+def count_primary_csv_rows(content: bytes, *, owner: str) -> int:
+    """Validate normalized primary CSV bytes and return the observed row count."""
+
+    _validate_owner(owner)
+    _, rows = _load_rows(content, owner=owner)
+    return len(rows)
+
+
 def _load_rows(content: bytes, *, owner: str) -> tuple[list[str], list[dict[str, str]]]:
     decoded = _decode_csv(content, owner=owner)
     reader = csv.reader(io.StringIO(decoded, newline=""))
@@ -110,6 +118,12 @@ def _validate_positive_integer(value: Any, owner: str) -> int:
 def _validate_non_negative_integer(value: Any, owner: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         raise ValueError(f"{owner} must be a non-negative integer")
+    return value
+
+
+def _validate_owner(value: Any) -> str:
+    if not isinstance(value, str) or not value:
+        raise ValueError("primary CSV row count owner must be a non-empty string")
     return value
 
 
