@@ -8,8 +8,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scopecat.handoff import HANDOFF_INSPECTION_ARTIFACT_NAME, run_import_plan, write_package
-from scopecat.handoff.import_plan import HandoffImportPlanRequest
+from scopecat.handoff import write_package
+from scopecat.handoff.import_plan import HandoffImportPlanRequest, build_import_plan
+from scopecat.handoff.receiving import (
+    HandoffReceivingReviewRequest,
+    run_receiving_gate_from_request,
+)
 
 ROOT = Path(__file__).resolve().parents[3]
 PACKAGE = (
@@ -38,32 +42,41 @@ def _sha256_digest(content: bytes) -> str:
     return f"sha256:{hashlib.sha256(content).hexdigest()}"
 
 
-def _receiving_gate_source() -> dict:
-    return {
-        "receiving_review_request": {
-            "request_id": "receive-handoff-package-legacy-rabi-001",
-            "review": {
-                "approval_state": "approved",
-                "reviewed_package_id": "handoff-package-legacy-rabi-001",
-                "reviewed_preview_classification": "needs_review_before_acceptance",
-                "reviewed_integrity_classification": "declared_integrity_verified",
-            },
-        },
+def _receiving_request(**overrides: str) -> HandoffReceivingReviewRequest:
+    values = {
+        "request_id": "receive-handoff-package-legacy-rabi-001",
+        "reviewed_package_id": "handoff-package-legacy-rabi-001",
+        "reviewed_preview_classification": "needs_review_before_acceptance",
+        "reviewed_integrity_classification": "declared_integrity_verified",
     }
+    values.update(overrides)
+    return HandoffReceivingReviewRequest(**values)
 
 
-def _import_plan_source() -> dict:
-    return {
-        "receiving_gate_source": _receiving_gate_source(),
-        "import_plan_request": {
-            "request_id": "plan-import-handoff-package-legacy-rabi-001",
-            "approval_state": "approved",
-            "requested_package_id": "handoff-package-legacy-rabi-001",
-            "measurement_scope": {
-                "selection": "all_measurements",
-            },
-        },
+def _import_plan_request(**overrides: object) -> HandoffImportPlanRequest:
+    values = {
+        "request_id": "plan-import-handoff-package-legacy-rabi-001",
+        "requested_package_id": "handoff-package-legacy-rabi-001",
+        "measurement_selection": "all_measurements",
     }
+    values.update(overrides)
+    return HandoffImportPlanRequest(**values)
+
+
+def _import_plan_run(
+    package_dir: Path,
+    *,
+    receiving_request: HandoffReceivingReviewRequest | None = None,
+    import_plan_request: HandoffImportPlanRequest | None = None,
+):
+    receiving_gate = run_receiving_gate_from_request(
+        _receiving_request() if receiving_request is None else receiving_request,
+        package_dir=package_dir,
+    )
+    return build_import_plan(
+        _import_plan_request() if import_plan_request is None else import_plan_request,
+        receiving_gate=receiving_gate,
+    )
 
 
 def _copy_package(temp_root: Path) -> Path:
@@ -114,7 +127,7 @@ class HandoffEngineeringPrototypeImportPlanTest(unittest.TestCase):
             temp_root = Path(temp_dir)
             package_dir = _copy_package(temp_root)
 
-            run = run_import_plan(_import_plan_source(), package_dir=package_dir)
+            run = _import_plan_run(package_dir)
             summary = run.to_dict()
             records_exist = (temp_root / "records").exists()
 
@@ -124,7 +137,7 @@ class HandoffEngineeringPrototypeImportPlanTest(unittest.TestCase):
         self.assertEqual(summary["classification"], "ready_for_import_acceptance_decision")
         self.assertEqual(
             summary["steps"],
-            ["open_package", "run_receiving_gate", "build_import_plan"],
+            ["open_package", "run_receiving_gate_from_request", "build_import_plan"],
         )
         self.assertEqual(
             summary["receiving_gate"]["classification"],
@@ -162,7 +175,7 @@ class HandoffEngineeringPrototypeImportPlanTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             package_dir = _multi_measurement_package(Path(temp_dir))
 
-            run = run_import_plan(_import_plan_source(), package_dir=package_dir)
+            run = _import_plan_run(package_dir)
             summary = run.to_dict()
 
         self.assertTrue(run.import_plan_allowed)
@@ -179,36 +192,6 @@ class HandoffEngineeringPrototypeImportPlanTest(unittest.TestCase):
         )
         self.assertEqual(run.classification, "ready_for_import_acceptance_decision")
 
-    def test_import_plan_can_write_local_inspection_artifact_outside_package(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_root = Path(temp_dir)
-            package_dir = _copy_package(temp_root)
-            inspection_root = temp_root / "inspection"
-
-            run = run_import_plan(
-                _import_plan_source(),
-                package_dir=package_dir,
-                inspection_output_dir=inspection_root,
-            )
-            summary = run.to_dict()
-            html_path = inspection_root / HANDOFF_INSPECTION_ARTIFACT_NAME
-            html_exists = html_path.is_file()
-
-        self.assertTrue(html_exists)
-        self.assertEqual(
-            summary["steps"],
-            [
-                "open_package",
-                "run_receiving_gate",
-                "write_inspection_artifact",
-                "build_import_plan",
-            ],
-        )
-        self.assertEqual(
-            summary["inspection_receipt"]["html_artifact"]["portable_package_member"],
-            False,
-        )
-
     def test_import_plan_blocks_when_receiving_gate_is_not_ready(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
@@ -217,12 +200,12 @@ class HandoffEngineeringPrototypeImportPlanTest(unittest.TestCase):
                 "drive_frequency,signal\n5.00,0.99\n",
                 encoding="utf-8",
             )
-            source = _import_plan_source()
-            source["receiving_gate_source"]["receiving_review_request"]["review"][
-                "reviewed_integrity_classification"
-            ] = "integrity_review_required"
-
-            run = run_import_plan(source, package_dir=package_dir)
+            run = _import_plan_run(
+                package_dir,
+                receiving_request=_receiving_request(
+                    reviewed_integrity_classification="integrity_review_required",
+                ),
+            )
             summary = run.to_dict()
 
         self.assertEqual(run.classification, "blocked_before_import_acceptance")
@@ -243,24 +226,15 @@ class HandoffEngineeringPrototypeImportPlanTest(unittest.TestCase):
             },
         )
 
-    def test_rejects_import_plan_destination_fields(self) -> None:
-        source = _import_plan_source()
-        source["import_plan_request"]["destination"] = {
-            "storage_root": "must-not-be-accepted-by-import-planning"
-        }
-
-        with self.assertRaisesRegex(ValueError, "fields are unsupported"):
-            run_import_plan(source, package_dir=PACKAGE)
-
     def test_rejects_unknown_selected_measurement(self) -> None:
-        source = _import_plan_source()
-        source["import_plan_request"]["measurement_scope"] = {
-            "selection": "selected_measurements",
-            "measurement_record_ids": ["missing-measurement"],
-        }
-
         with self.assertRaisesRegex(ValueError, "requested measurement ids"):
-            run_import_plan(source, package_dir=PACKAGE)
+            _import_plan_run(
+                PACKAGE,
+                import_plan_request=_import_plan_request(
+                    measurement_selection="selected_measurements",
+                    requested_measurement_ids=("missing-measurement",),
+                ),
+            )
 
     def test_typed_import_plan_request_rejects_unsupported_selection(self) -> None:
         with self.assertRaisesRegex(ValueError, "selection is unsupported"):

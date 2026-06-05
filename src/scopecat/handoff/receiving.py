@@ -106,20 +106,6 @@ class HandoffReceivingGateRun:
         }
 
 
-def run_receiving_gate(
-    source: dict[str, Any],
-    *,
-    package_dir: str | Path,
-) -> HandoffReceivingGateRun:
-    """Open, integrity-observe, and gate a reviewed package without mutation."""
-
-    try:
-        request = _parse_request(source)
-        return _run_receiving_gate_from_request(request, package_dir=package_dir)
-    except ValueError as exc:
-        raise promote_handoff_contract_error(exc, operation="run_receiving_gate") from exc
-
-
 def run_receiving_gate_from_request(
     request: HandoffReceivingReviewRequest,
     *,
@@ -176,60 +162,6 @@ def _review_only_package(integrity_report: HandoffPackageIntegrityReport) -> Han
         linked_context=(),
         findings=(),
         classification="blocked_before_declared_preview_open",
-    )
-
-
-def _require_mapping(value: Any, owner: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError(f"{owner} must be an object")
-    return value
-
-
-def _require_keys(value: dict[str, Any], expected_keys: set[str], owner: str) -> None:
-    if set(value) != expected_keys:
-        raise ValueError(f"{owner} fields are unsupported")
-
-
-def _parse_request(source: dict[str, Any]) -> HandoffReceivingReviewRequest:
-    source = _require_mapping(source, "handoff receiving gate source")
-    _require_keys(
-        source,
-        {"receiving_review_request"},
-        "handoff receiving gate source",
-    )
-    request = _require_mapping(source["receiving_review_request"], "receiving_review_request")
-    _require_keys(request, {"request_id", "review"}, "receiving_review_request")
-    request_id = validate_public_identifier(
-        request["request_id"],
-        "receiving_review_request.request_id",
-    )
-    review = _require_mapping(request["review"], "receiving_review_request.review")
-    _require_keys(
-        review,
-        {
-            "approval_state",
-            "reviewed_package_id",
-            "reviewed_preview_classification",
-            "reviewed_integrity_classification",
-        },
-        "receiving_review_request.review",
-    )
-    if review["approval_state"] != "approved":
-        raise ValueError("handoff receiving gate requires approved review")
-    return HandoffReceivingReviewRequest(
-        request_id=request_id,
-        reviewed_package_id=validate_public_identifier(
-            review["reviewed_package_id"],
-            "receiving_review_request.review.reviewed_package_id",
-        ),
-        reviewed_preview_classification=validate_public_identifier(
-            review["reviewed_preview_classification"],
-            "receiving_review_request.review.reviewed_preview_classification",
-        ),
-        reviewed_integrity_classification=validate_public_identifier(
-            review["reviewed_integrity_classification"],
-            "receiving_review_request.review.reviewed_integrity_classification",
-        ),
     )
 
 

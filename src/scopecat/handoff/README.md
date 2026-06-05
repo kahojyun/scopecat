@@ -39,12 +39,11 @@ Read-only package use and local review:
 Receiving-side read-only planning:
 
 - `observe_package_integrity(package_dir)`
-- `run_receiving_gate(source, package_dir=...)`
-- `run_import_plan(source, package_dir=...)`
+- `run_receiving_gate_from_request(request, package_dir=...)`
+- `build_import_plan(request, receiving_gate=...)`
 
 Durable Measurement Records import adaptation:
 
-- `run_handoff_durable_import(source, package_dir=..., storage_root=...)`
 - `run_handoff_durable_import_from_plan(request, import_plan=..., storage_root=...)`
 - `build_durable_import_request_from_handoff_plan(request, import_plan=...)`
 - `summarize_handoff_durable_import_receipt(receipt)`
@@ -63,8 +62,9 @@ leading underscores are route-private implementation modules.
 Raw manifest dictionaries are validated at the package boundary. After that,
 manifest preview classification, opener internals, review findings, and
 package projections consume typed route-local manifest fragments. Raw workflow
-dictionaries are accepted only at public `run_*` edge adapters; internal
-composition should pass typed route-local request and run objects.
+dictionaries are not accepted as receiving, import-plan, selected-export,
+archive, or durable-import operation inputs; those operations compose typed
+route-local request and run objects.
 
 `write_package(...)` is the route-local writer primitive. It accepts explicit
 caller-declared package ids, measurement ids, source paths, digests, sizes, and
@@ -72,7 +72,7 @@ linked-context facts. Those identifiers are reviewed package-input facts only;
 they are not durable Scopecat Measurement Record identity and do not replace
 record-local read models, creation manifests, or writer receipts.
 
-`run_import_plan(...)` is a non-mutating plan. It names package members that
+`build_import_plan(...)` is a non-mutating plan. It names package members that
 could be considered for later acceptance, but accepts no destination path,
 performs no conflict detection, writes no storage records, and does not decide
 final storage schema or rollback policy. It may list one or more package

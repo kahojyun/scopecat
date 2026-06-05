@@ -18,7 +18,6 @@ from scopecat.handoff import (
     HandoffReceivingReviewRequest,
     build_durable_import_request_from_handoff_plan,
     review_handoff_durable_import_retry,
-    run_handoff_durable_import,
     run_handoff_durable_import_from_plan,
     summarize_handoff_durable_import_receipt,
     write_package,
@@ -48,34 +47,6 @@ WRITER_FIXTURE = (
     / "handoff_engineering_prototype_writer"
     / "basic_package"
 )
-
-
-def _receiving_gate_source() -> dict:
-    return {
-        "receiving_review_request": {
-            "request_id": "receive-handoff-package-legacy-rabi-001",
-            "review": {
-                "approval_state": "approved",
-                "reviewed_package_id": "handoff-package-legacy-rabi-001",
-                "reviewed_preview_classification": "needs_review_before_acceptance",
-                "reviewed_integrity_classification": "declared_integrity_verified",
-            },
-        },
-    }
-
-
-def _import_plan_source() -> dict:
-    return {
-        "receiving_gate_source": _receiving_gate_source(),
-        "import_plan_request": {
-            "request_id": "plan-import-handoff-package-legacy-rabi-001",
-            "approval_state": "approved",
-            "requested_package_id": "handoff-package-legacy-rabi-001",
-            "measurement_scope": {
-                "selection": "all_measurements",
-            },
-        },
-    }
 
 
 def _copy_package(temp_root: Path) -> Path:
@@ -113,13 +84,15 @@ def _multi_measurement_writer_source() -> tuple[dict, bytes]:
     return source, second_content
 
 
-def _receiving_request() -> HandoffReceivingReviewRequest:
-    return HandoffReceivingReviewRequest(
-        request_id="receive-handoff-package-legacy-rabi-001",
-        reviewed_package_id="handoff-package-legacy-rabi-001",
-        reviewed_preview_classification="needs_review_before_acceptance",
-        reviewed_integrity_classification="declared_integrity_verified",
-    )
+def _receiving_request(**overrides: str) -> HandoffReceivingReviewRequest:
+    values = {
+        "request_id": "receive-handoff-package-legacy-rabi-001",
+        "reviewed_package_id": "handoff-package-legacy-rabi-001",
+        "reviewed_preview_classification": "needs_review_before_acceptance",
+        "reviewed_integrity_classification": "declared_integrity_verified",
+    }
+    values.update(overrides)
+    return HandoffReceivingReviewRequest(**values)
 
 
 def _import_plan_request() -> HandoffImportPlanRequest:
@@ -153,16 +126,13 @@ def _request(**overrides: object) -> HandoffDurableImportRequest:
     return HandoffDurableImportRequest(**values)
 
 
-def _raw_source(**request_overrides: object) -> dict:
-    return {
-        "import_plan_source": _import_plan_source(),
-        "handoff_durable_import_request": _request(**request_overrides).to_dict(),
-    }
-
-
-def _import_plan_run(package_dir: Path):
+def _import_plan_run(
+    package_dir: Path,
+    *,
+    receiving_request: HandoffReceivingReviewRequest | None = None,
+):
     receiving_gate = run_receiving_gate_from_request(
-        _receiving_request(),
+        _receiving_request() if receiving_request is None else receiving_request,
         package_dir=package_dir,
     )
     return build_import_plan(
@@ -381,25 +351,6 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
         self.assertEqual(summary["durable_import_classification"], "imported_new_record")
         self.assertTrue(summary["durable_import_performed"])
 
-    def test_raw_source_runs_import_plan_then_durable_import(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_root = Path(temp_dir)
-            package_dir = _copy_package(temp_root)
-            storage_root = temp_root / "storage"
-            storage_root.mkdir()
-
-            run = run_handoff_durable_import(
-                _raw_source(),
-                package_dir=package_dir,
-                storage_root=storage_root,
-            )
-
-        self.assertEqual(run.classification, "imported_handoff_measurement_record")
-        self.assertEqual(
-            run.durable_import_run.classification if run.durable_import_run else None,
-            "imported_new_record",
-        )
-
     def test_blocked_import_plan_does_not_mutate_storage(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
@@ -410,14 +361,15 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
                 "drive_frequency,signal\n5.00,0.99\n",
                 encoding="utf-8",
             )
-            source = _raw_source()
-            source["import_plan_source"]["receiving_gate_source"]["receiving_review_request"][
-                "review"
-            ]["reviewed_integrity_classification"] = "integrity_review_required"
 
-            run = run_handoff_durable_import(
-                source,
-                package_dir=package_dir,
+            run = run_handoff_durable_import_from_plan(
+                _request(),
+                import_plan=_import_plan_run(
+                    package_dir,
+                    receiving_request=_receiving_request(
+                        reviewed_integrity_classification="integrity_review_required",
+                    ),
+                ),
                 storage_root=storage_root,
             )
 
@@ -580,14 +532,15 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
                 "drive_frequency,signal\n5.00,0.99\n",
                 encoding="utf-8",
             )
-            source = _raw_source()
-            source["import_plan_source"]["receiving_gate_source"]["receiving_review_request"][
-                "review"
-            ]["reviewed_integrity_classification"] = "integrity_review_required"
 
-            run = run_handoff_durable_import(
-                source,
-                package_dir=package_dir,
+            run = run_handoff_durable_import_from_plan(
+                _request(),
+                import_plan=_import_plan_run(
+                    package_dir,
+                    receiving_request=_receiving_request(
+                        reviewed_integrity_classification="integrity_review_required",
+                    ),
+                ),
                 storage_root=storage_root,
             )
             summary = summarize_handoff_durable_import_receipt(run.to_dict()).to_dict()
@@ -639,13 +592,14 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
                 "drive_frequency,signal\n5.00,0.99\n",
                 encoding="utf-8",
             )
-            source = _raw_source()
-            source["import_plan_source"]["receiving_gate_source"]["receiving_review_request"][
-                "review"
-            ]["reviewed_integrity_classification"] = "integrity_review_required"
-            blocked_run = run_handoff_durable_import(
-                source,
-                package_dir=blocked_package_dir,
+            blocked_run = run_handoff_durable_import_from_plan(
+                _request(),
+                import_plan=_import_plan_run(
+                    blocked_package_dir,
+                    receiving_request=_receiving_request(
+                        reviewed_integrity_classification="integrity_review_required",
+                    ),
+                ),
                 storage_root=storage_root,
             )
             previous_summary = summarize_handoff_durable_import_receipt(blocked_run.to_dict())

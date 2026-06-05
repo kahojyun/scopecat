@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -15,7 +14,7 @@ from scopecat.handoff._contracts import (
     validate_strict_child_path,
 )
 from scopecat.handoff.errors import promote_handoff_contract_error
-from scopecat.handoff.import_plan import HandoffImportPlanRun, run_import_plan
+from scopecat.handoff.import_plan import HandoffImportPlanRun
 from scopecat.handoff.package import HandoffMeasurement
 from scopecat.measurement_records.durable_import import (
     MeasurementRecordDurableImportRequest,
@@ -163,7 +162,7 @@ class HandoffDurableImportRun:
 
     def to_dict(self) -> dict[str, Any]:
         workflow_steps = [
-            "run_import_plan",
+            "build_import_plan",
             *(
                 [
                     "map_handoff_measurement_to_durable_import_request",
@@ -331,29 +330,6 @@ class HandoffDurableImportRetryReview:
         return tuple(
             plan.measurement.measurement_record_id for plan in self.import_plan.measurement_plans
         )
-
-
-def run_handoff_durable_import(
-    source: dict[str, Any],
-    *,
-    package_dir: str | Path,
-    storage_root: str | Path,
-) -> HandoffDurableImportRun:
-    """Run the full handoff package to durable measurement-record import route."""
-
-    try:
-        request, import_plan_source = _parse_source(source)
-        import_plan = run_import_plan(import_plan_source, package_dir=package_dir)
-        return _run_handoff_durable_import_from_plan(
-            request,
-            import_plan=import_plan,
-            storage_root=storage_root,
-        )
-    except ValueError as exc:
-        raise promote_handoff_contract_error(
-            exc,
-            operation="run_handoff_durable_import",
-        ) from exc
 
 
 def run_handoff_durable_import_from_plan(
@@ -866,69 +842,6 @@ def _durable_import_source_from_measurement(
     )
 
 
-def _parse_source(source: dict[str, Any]) -> tuple[HandoffDurableImportRequest, dict[str, Any]]:
-    source = _require_mapping(source, "handoff durable import source")
-    _require_keys(
-        source,
-        {
-            "import_plan_source",
-            "handoff_durable_import_request",
-        },
-        "handoff durable import source",
-    )
-    request = _parse_request(source["handoff_durable_import_request"])
-    import_plan_source = copy.deepcopy(
-        _require_mapping(source["import_plan_source"], "import_plan_source")
-    )
-    return request, import_plan_source
-
-
-def _parse_request(source: Any) -> HandoffDurableImportRequest:
-    request = _require_mapping(source, "handoff_durable_import_request")
-    _require_keys(
-        request,
-        {
-            "request_id",
-            "approval_state",
-            "requested_package_id",
-            "measurement_record_id",
-            "durable_record_destination",
-        },
-        "handoff_durable_import_request",
-    )
-    return HandoffDurableImportRequest(
-        request_id=_require_text(request, "request_id"),
-        approval_state=_require_text(request, "approval_state"),
-        requested_package_id=_require_text(request, "requested_package_id"),
-        measurement_record_id=_require_text(request, "measurement_record_id"),
-        destination=_parse_destination(request["durable_record_destination"]),
-    )
-
-
-def _parse_destination(source: Any) -> HandoffDurableImportDestination:
-    destination = _require_mapping(source, "durable_record_destination")
-    _require_keys(
-        destination,
-        {
-            "record_id",
-            "record_dir",
-            "primary_data_path",
-            "writer_receipt_path",
-            "finalization_receipt_path",
-            "read_model_path",
-        },
-        "durable_record_destination",
-    )
-    return HandoffDurableImportDestination(
-        record_id=_require_text(destination, "record_id"),
-        record_dir=_require_text(destination, "record_dir"),
-        primary_data_path=_require_text(destination, "primary_data_path"),
-        writer_receipt_path=_require_text(destination, "writer_receipt_path"),
-        finalization_receipt_path=_require_text(destination, "finalization_receipt_path"),
-        read_model_path=_require_text(destination, "read_model_path"),
-    )
-
-
 def _require_mapping(value: Any, owner: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"{owner} must be an object")
@@ -938,13 +851,6 @@ def _require_mapping(value: Any, owner: str) -> dict[str, Any]:
 def _require_keys(value: dict[str, Any], expected_keys: set[str], owner: str) -> None:
     if set(value) != expected_keys:
         raise ValueError(f"{owner} fields are unsupported")
-
-
-def _require_text(source: dict[str, Any], key: str) -> str:
-    value = source.get(key)
-    if not isinstance(value, str):
-        raise ValueError(f"{key} must be text")
-    return value
 
 
 def _read_public_id(source: dict[str, Any], key: str, owner: str) -> str:

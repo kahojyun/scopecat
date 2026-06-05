@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scopecat.handoff import HandoffReceivingReviewRequest, run_receiving_gate
+from scopecat.handoff import HandoffReceivingReviewRequest, run_receiving_gate_from_request
 
 ROOT = Path(__file__).resolve().parents[3]
 PACKAGE = (
@@ -21,18 +21,15 @@ PACKAGE = (
 )
 
 
-def _receiving_gate_source() -> dict:
-    return {
-        "receiving_review_request": {
-            "request_id": "receive-handoff-package-legacy-rabi-001",
-            "review": {
-                "approval_state": "approved",
-                "reviewed_package_id": "handoff-package-legacy-rabi-001",
-                "reviewed_preview_classification": "needs_review_before_acceptance",
-                "reviewed_integrity_classification": "declared_integrity_verified",
-            },
-        },
+def _receiving_request(**overrides: str) -> HandoffReceivingReviewRequest:
+    values = {
+        "request_id": "receive-handoff-package-legacy-rabi-001",
+        "reviewed_package_id": "handoff-package-legacy-rabi-001",
+        "reviewed_preview_classification": "needs_review_before_acceptance",
+        "reviewed_integrity_classification": "declared_integrity_verified",
     }
+    values.update(overrides)
+    return HandoffReceivingReviewRequest(**values)
 
 
 def _copy_package(temp_root: Path) -> Path:
@@ -46,7 +43,7 @@ class HandoffEngineeringPrototypeReceivingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             package_dir = _copy_package(Path(temp_dir))
 
-            run = run_receiving_gate(_receiving_gate_source(), package_dir=package_dir)
+            run = run_receiving_gate_from_request(_receiving_request(), package_dir=package_dir)
             summary = run.to_dict()
             records_exist = (Path(temp_dir) / "records").exists()
 
@@ -80,12 +77,12 @@ class HandoffEngineeringPrototypeReceivingTest(unittest.TestCase):
                 "drive_frequency,signal\n5.00,0.99\n",
                 encoding="utf-8",
             )
-            source = _receiving_gate_source()
-            source["receiving_review_request"]["review"]["reviewed_integrity_classification"] = (
-                "integrity_review_required"
+            run = run_receiving_gate_from_request(
+                _receiving_request(
+                    reviewed_integrity_classification="integrity_review_required",
+                ),
+                package_dir=package_dir,
             )
-
-            run = run_receiving_gate(source, package_dir=package_dir)
             summary = run.to_dict()
             records_exist = (temp_root / "records").exists()
 
@@ -113,12 +110,12 @@ class HandoffEngineeringPrototypeReceivingTest(unittest.TestCase):
             temp_root = Path(temp_dir)
             package_dir = _copy_package(temp_root)
             (package_dir / "measurements" / "legacy-rabi-001" / "primary.csv").unlink()
-            source = _receiving_gate_source()
-            source["receiving_review_request"]["review"]["reviewed_integrity_classification"] = (
-                "integrity_review_required"
+            run = run_receiving_gate_from_request(
+                _receiving_request(
+                    reviewed_integrity_classification="integrity_review_required",
+                ),
+                package_dir=package_dir,
             )
-
-            run = run_receiving_gate(source, package_dir=package_dir)
             summary = run.to_dict()
             records_exist = (temp_root / "records").exists()
 
@@ -138,48 +135,30 @@ class HandoffEngineeringPrototypeReceivingTest(unittest.TestCase):
         )
         self.assertFalse(records_exist)
 
-    def test_rejects_unapproved_request_before_open_or_integrity_observation(self) -> None:
-        source = _receiving_gate_source()
-        source["receiving_review_request"]["review"]["approval_state"] = "needs_review"
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            missing_package = Path(temp_dir) / PACKAGE.name
-            with self.assertRaisesRegex(ValueError, "requires approved review"):
-                run_receiving_gate(source, package_dir=missing_package)
-
     def test_rejects_reviewed_package_id_mismatch(self) -> None:
-        source = _receiving_gate_source()
-        source["receiving_review_request"]["review"]["reviewed_package_id"] = "different-package"
-
         with self.assertRaisesRegex(ValueError, "reviewed package id"):
-            run_receiving_gate(source, package_dir=PACKAGE)
+            run_receiving_gate_from_request(
+                _receiving_request(reviewed_package_id="different-package"),
+                package_dir=PACKAGE,
+            )
 
     def test_rejects_reviewed_preview_classification_mismatch(self) -> None:
-        source = _receiving_gate_source()
-        source["receiving_review_request"]["review"]["reviewed_preview_classification"] = (
-            "preview_ready_for_opening"
-        )
-
         with self.assertRaisesRegex(ValueError, "reviewed preview classification"):
-            run_receiving_gate(source, package_dir=PACKAGE)
+            run_receiving_gate_from_request(
+                _receiving_request(
+                    reviewed_preview_classification="preview_ready_for_opening",
+                ),
+                package_dir=PACKAGE,
+            )
 
     def test_rejects_reviewed_integrity_classification_mismatch(self) -> None:
-        source = _receiving_gate_source()
-        source["receiving_review_request"]["review"]["reviewed_integrity_classification"] = (
-            "integrity_review_required"
-        )
-
         with self.assertRaisesRegex(ValueError, "reviewed integrity classification"):
-            run_receiving_gate(source, package_dir=PACKAGE)
-
-    def test_rejects_source_with_acceptance_destination(self) -> None:
-        source = _receiving_gate_source()
-        source["receiving_review_request"]["acceptance"] = {
-            "destination": "must-not-be-accepted-by-read-only-gate"
-        }
-
-        with self.assertRaisesRegex(ValueError, "fields are unsupported"):
-            run_receiving_gate(source, package_dir=PACKAGE)
+            run_receiving_gate_from_request(
+                _receiving_request(
+                    reviewed_integrity_classification="integrity_review_required",
+                ),
+                package_dir=PACKAGE,
+            )
 
     def test_typed_receiving_review_request_validates_identifiers(self) -> None:
         with self.assertRaisesRegex(ValueError, "public-safe identifier"):

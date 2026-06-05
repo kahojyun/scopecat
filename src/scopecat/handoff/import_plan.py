@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from scopecat.handoff._contracts import validate_public_identifier
 from scopecat.handoff.errors import promote_handoff_contract_error
-from scopecat.handoff.inspect import write_inspection_artifact
 from scopecat.handoff.package import HandoffLinkedContext, HandoffMeasurement, HandoffPackage
-from scopecat.handoff.receiving import HandoffReceivingGateRun, run_receiving_gate
+from scopecat.handoff.receiving import HandoffReceivingGateRun
 
 
 @dataclass(frozen=True)
@@ -135,7 +133,6 @@ class HandoffImportPlanRun:
     receiving_gate: HandoffReceivingGateRun
     measurement_plans: tuple[HandoffMeasurementImportPlan, ...]
     linked_context_plans: tuple[HandoffLinkedContextImportPlan, ...]
-    inspection_receipt: dict[str, Any] | None = None
 
     @property
     def import_plan_allowed(self) -> bool:
@@ -150,8 +147,7 @@ class HandoffImportPlanRun:
     def to_dict(self) -> dict[str, Any]:
         steps = [
             "open_package",
-            "run_receiving_gate",
-            *(["write_inspection_artifact"] if self.inspection_receipt is not None else []),
+            "run_receiving_gate_from_request",
             "build_import_plan",
         ]
         return {
@@ -188,36 +184,7 @@ class HandoffImportPlanRun:
                     self.receiving_gate.to_dict()["receiving_review"]["block_reason"]
                 ),
             ),
-            "inspection_receipt": copy.deepcopy(self.inspection_receipt),
         }
-
-
-def run_import_plan(
-    source: dict[str, Any],
-    *,
-    package_dir: str | Path,
-    inspection_output_dir: str | Path | None = None,
-    overwrite_inspection: bool = False,
-) -> HandoffImportPlanRun:
-    """Build a non-mutating import plan for a reviewed handoff package."""
-
-    try:
-        request, receiving_gate_source = _parse_source(source)
-        receiving_gate = run_receiving_gate(receiving_gate_source, package_dir=package_dir)
-        inspection_receipt = None
-        if inspection_output_dir is not None and receiving_gate.acceptance_allowed:
-            inspection_receipt = write_inspection_artifact(
-                receiving_gate.package,
-                output_dir=Path(inspection_output_dir),
-                overwrite=overwrite_inspection,
-            )
-        return _build_import_plan_run(
-            request,
-            receiving_gate=receiving_gate,
-            inspection_receipt=inspection_receipt,
-        )
-    except ValueError as exc:
-        raise promote_handoff_contract_error(exc, operation="run_import_plan") from exc
 
 
 def build_import_plan(
@@ -237,13 +204,10 @@ def _build_import_plan_run(
     request: HandoffImportPlanRequest,
     *,
     receiving_gate: HandoffReceivingGateRun,
-    inspection_receipt: dict[str, Any] | None = None,
 ) -> HandoffImportPlanRun:
     """Build an import plan result from typed prior state and local receipt."""
 
     package = receiving_gate.package
-    if inspection_receipt is not None:
-        _validate_inspection_receipt(inspection_receipt, package_id=package.package_id)
     measurement_plans: tuple[HandoffMeasurementImportPlan, ...] = ()
     linked_context_plans: tuple[HandoffLinkedContextImportPlan, ...] = ()
     if receiving_gate.acceptance_allowed:
@@ -266,22 +230,7 @@ def _build_import_plan_run(
         receiving_gate=receiving_gate,
         measurement_plans=measurement_plans,
         linked_context_plans=linked_context_plans,
-        inspection_receipt=inspection_receipt,
     )
-
-
-def _validate_inspection_receipt(receipt: dict[str, Any], *, package_id: str) -> None:
-    if not isinstance(receipt, dict):
-        raise ValueError("inspection receipt must be an object")
-    if receipt.get("artifact_posture") != "review_summary":
-        raise ValueError("inspection receipt posture is unsupported")
-    if receipt.get("package_id") != package_id:
-        raise ValueError("inspection receipt package_id must match import plan package")
-    html_artifact = receipt.get("html_artifact")
-    if not isinstance(html_artifact, dict):
-        raise ValueError("inspection receipt html_artifact must be an object")
-    if html_artifact.get("portable_package_member") is not False:
-        raise ValueError("inspection receipt must stay local to review")
 
 
 def _import_plan_review(
@@ -342,89 +291,3 @@ def _import_plan_retry_requirement(block_reason: str | None) -> str | None:
     }:
         return "fresh_ready_receiving_gate"
     return "reviewed_import_plan_request"
-
-
-def _require_mapping(value: Any, owner: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError(f"{owner} must be an object")
-    return value
-
-
-def _require_keys(value: dict[str, Any], expected_keys: set[str], owner: str) -> None:
-    if set(value) != expected_keys:
-        raise ValueError(f"{owner} fields are unsupported")
-
-
-def _parse_source(source: dict[str, Any]) -> tuple[HandoffImportPlanRequest, dict[str, Any]]:
-    source = _require_mapping(source, "handoff import plan source")
-    _require_keys(
-        source,
-        {
-            "receiving_gate_source",
-            "import_plan_request",
-        },
-        "handoff import plan source",
-    )
-    receiving_gate_source = _require_mapping(
-        source["receiving_gate_source"],
-        "receiving_gate_source",
-    )
-    request = _parse_request(source["import_plan_request"])
-    return request, copy.deepcopy(receiving_gate_source)
-
-
-def _parse_request(source: Any) -> HandoffImportPlanRequest:
-    request = _require_mapping(source, "import_plan_request")
-    _require_keys(
-        request,
-        {"request_id", "approval_state", "requested_package_id", "measurement_scope"},
-        "import_plan_request",
-    )
-    if request["approval_state"] != "approved":
-        raise ValueError("handoff import planning requires approved request")
-    scope = _require_mapping(request["measurement_scope"], "import_plan_request.measurement_scope")
-    selection = validate_public_identifier(
-        scope.get("selection"),
-        "import_plan_request.measurement_scope.selection",
-    )
-    if selection == "all_measurements":
-        _require_keys(
-            scope,
-            {"selection"},
-            "import_plan_request.measurement_scope",
-        )
-        requested_measurement_ids: tuple[str, ...] = ()
-    elif selection == "selected_measurements":
-        _require_keys(
-            scope,
-            {"selection", "measurement_record_ids"},
-            "import_plan_request.measurement_scope",
-        )
-        requested_measurement_ids = _parse_measurement_ids(scope["measurement_record_ids"])
-    else:
-        raise ValueError("measurement scope selection is unsupported")
-
-    return HandoffImportPlanRequest(
-        request_id=validate_public_identifier(
-            request["request_id"], "import_plan_request.request_id"
-        ),
-        requested_package_id=validate_public_identifier(
-            request["requested_package_id"],
-            "import_plan_request.requested_package_id",
-        ),
-        measurement_selection=selection,
-        requested_measurement_ids=requested_measurement_ids,
-    )
-
-
-def _parse_measurement_ids(value: Any) -> tuple[str, ...]:
-    if not isinstance(value, list):
-        raise ValueError("measurement_record_ids must be a list")
-    measurement_ids = tuple(
-        validate_public_identifier(item, "measurement_record_ids item") for item in value
-    )
-    if not measurement_ids:
-        raise ValueError("measurement_record_ids must not be empty")
-    if len(set(measurement_ids)) != len(measurement_ids):
-        raise ValueError("measurement_record_ids must be unique")
-    return measurement_ids

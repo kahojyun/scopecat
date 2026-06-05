@@ -44,8 +44,12 @@ class HandoffPublicApiSurfaceTest(unittest.TestCase):
             self.assertIsNone(importlib.util.find_spec(module_name), module_name)
 
     def test_durable_handoff_import_remains_top_level_export(self) -> None:
-        self.assertIn("run_handoff_durable_import", handoff.__all__)
-        self.assertTrue(hasattr(handoff, "run_handoff_durable_import"))
+        self.assertIn("build_import_plan", handoff.__all__)
+        self.assertIn("run_receiving_gate_from_request", handoff.__all__)
+        self.assertIn("run_handoff_durable_import_from_plan", handoff.__all__)
+        self.assertTrue(hasattr(handoff, "build_import_plan"))
+        self.assertTrue(hasattr(handoff, "run_receiving_gate_from_request"))
+        self.assertTrue(hasattr(handoff, "run_handoff_durable_import_from_plan"))
         self.assertIn("summarize_handoff_durable_import_receipt", handoff.__all__)
 
     def test_context_reference_summary_is_top_level_export(self) -> None:

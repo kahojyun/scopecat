@@ -15,12 +15,11 @@ from scopecat.handoff.durable_import import (
     HandoffDurableImportRequest,
     build_durable_import_request_from_handoff_plan,
     review_handoff_durable_import_retry,
-    run_handoff_durable_import,
     run_handoff_durable_import_from_plan,
     summarize_handoff_durable_import_receipt,
 )
 from scopecat.handoff.errors import HandoffContractError, HandoffError
-from scopecat.handoff.import_plan import HandoffImportPlanRequest, run_import_plan
+from scopecat.handoff.import_plan import HandoffImportPlanRequest, build_import_plan
 from scopecat.handoff.inspect import (
     HANDOFF_INSPECTION_ARTIFACT_NAME,
     build_inspection_html,
@@ -29,7 +28,10 @@ from scopecat.handoff.inspect import (
 from scopecat.handoff.integrity import observe_package_integrity
 from scopecat.handoff.package import summarize_package_context_references
 from scopecat.handoff.read_only import open_package
-from scopecat.handoff.receiving import HandoffReceivingReviewRequest, run_receiving_gate
+from scopecat.handoff.receiving import (
+    HandoffReceivingReviewRequest,
+    run_receiving_gate_from_request,
+)
 from scopecat.handoff.selected_record_export import (
     SelectedMeasurementRecordBatchExportRecord,
     SelectedMeasurementRecordBatchExportRequest,
@@ -57,6 +59,7 @@ __all__ = [
     "SelectedMeasurementRecordExportLinkedContext",
     "SelectedMeasurementRecordExportRequest",
     "build_durable_import_request_from_handoff_plan",
+    "build_import_plan",
     "build_inspection_html",
     "create_handoff_archive_package_from_request",
     "export_selected_measurement_record_batch_from_request",
@@ -66,11 +69,9 @@ __all__ = [
     "observe_package_integrity",
     "open_package",
     "review_handoff_durable_import_retry",
-    "run_handoff_durable_import",
     "run_handoff_durable_import_from_plan",
-    "run_import_plan",
     "run_package_workflow",
-    "run_receiving_gate",
+    "run_receiving_gate_from_request",
     "summarize_handoff_durable_import_receipt",
     "summarize_package_context_references",
     "write_inspection_artifact",
