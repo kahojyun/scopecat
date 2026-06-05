@@ -57,7 +57,8 @@ The current adapter:
   `source_kind="handoff_package"`;
 - builds `MeasurementRecordDurableImportRequest` with creation source kind
   `handoff`;
-- delegates creation, primary-data writing, read view, finalization, read-model
+- delegates creation, primary-data writing, primary-table summary,
+  finalization, read-model
   write, no-overwrite handling, and rollback classification to
   `scopecat.measurement_records`;
 - returns a local handoff durable-import receipt that records package,
@@ -148,7 +149,7 @@ Expected classifications include:
 
 | Classification | Meaning |
 | --- | --- |
-| `imported_new_record` | Creation, primary-data write, read view, finalization, and read-model write completed. |
+| `imported_new_record` | Creation, primary-data write, primary-table summary, finalization, and read-model write completed. |
 | `blocked_before_import` | Approval, source facts, destination facts, or preflight validation blocked before storage mutation. |
 | `rolled_back_after_import_failure` | Mutation started, then a synchronous failure occurred before completion and best-effort cleanup ran. |
 | `import_failed_after_partial_commit` | A later synchronous failure occurred after a step that the wrapper cannot safely undo. |

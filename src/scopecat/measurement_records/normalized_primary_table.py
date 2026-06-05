@@ -154,21 +154,21 @@ def _request_ref(request: MeasurementRecordNormalizedPrimaryTableRequest) -> dic
     return result
 
 
-def summarize_observed_primary_table_for_read_view(
+def summarize_observed_primary_table(
     content: bytes,
     *,
     source: str,
     declared_row_count: int,
     preview_row_limit: int,
 ) -> tuple[dict[str, Any], list[dict[str, str]]]:
-    """Build the read-view table shape from normalized primary CSV bytes."""
+    """Build a stored primary-table summary from normalized primary CSV bytes."""
 
     if not isinstance(content, bytes):
-        raise ValueError("read view primary table content must be bytes")
-    source = validate_relative_path(source, "read view primary table source")
-    _validate_non_negative_integer(declared_row_count, "read view declared_row_count")
-    _validate_positive_integer(preview_row_limit, "read view preview_row_limit")
-    columns, rows = _load_rows(content, owner="read view primary table")
+        raise ValueError("primary table summary content must be bytes")
+    source = validate_relative_path(source, "primary table summary source")
+    _validate_non_negative_integer(declared_row_count, "primary table summary declared_row_count")
+    _validate_positive_integer(preview_row_limit, "primary table summary preview_row_limit")
+    columns, rows = _load_rows(content, owner="primary table summary")
     findings: list[dict[str, str]] = []
     if declared_row_count != len(rows):
         findings.append(

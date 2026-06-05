@@ -14,6 +14,11 @@ from scopecat.measurement_records._contracts import (
     validate_relative_path,
     validate_sha256_digest,
 )
+from scopecat.measurement_records._primary_table_read import (
+    PrimaryTableReadRequest,
+    PrimaryTableReadResult,
+    read_record_primary_table,
+)
 from scopecat.measurement_records._storage import path_under
 from scopecat.measurement_records.read_model_shared import (
     READ_MODEL_SCHEMA,
@@ -28,13 +33,8 @@ from scopecat.measurement_records.read_model_shared import (
     _validate_canonical_read_model_path,
     _validate_finalization_receipt,
     _validate_non_overlapping_paths,
-    _validate_request_against_read_view,
+    _validate_request_against_primary_table_read,
     _validate_strict_child_path,
-)
-from scopecat.measurement_records.read_view import (
-    MeasurementRecordReadRequest,
-    MeasurementRecordReadRun,
-    read_created_record_primary_table_from_request,
 )
 
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
@@ -114,7 +114,7 @@ class _SelectedRecordReadModelRefreshRequest:
 @dataclass(frozen=True)
 class SelectedRecordReadModelRefreshRun:
     request: _SelectedRecordReadModelRefreshRequest
-    read_view: MeasurementRecordReadRun
+    primary_table_read: PrimaryTableReadResult
     storage_root: Path
     finalization_receipt: dict[str, Any] | None = None
     previous_read_model_digest: str | None = None
@@ -143,10 +143,10 @@ class SelectedRecordReadModelRefreshRun:
             "artifact_posture": "local_selected_record_read_model_refresh_receipt",
             "classification": self.classification,
             "request": _request_ref(self.request),
-            "read_view": {
-                "classification": self.read_view.classification,
+            "primary_table_read": {
+                "classification": self.primary_table_read.classification,
                 "review_findings": [
-                    copy.deepcopy(finding) for finding in self.read_view.review_findings
+                    copy.deepcopy(finding) for finding in self.primary_table_read.review_findings
                 ],
             },
             "finalization_receipt": _finalization_ref(self.finalization_receipt),
@@ -182,13 +182,13 @@ def refresh_selected_record_read_model_for_export(
         storage_root=storage_root,
         preview_row_limit=preview_row_limit,
     )
-    read_view = read_created_record_primary_table_from_request(
+    primary_table_read = read_record_primary_table(
         read_request,
         storage_root=storage_root,
     )
-    return _refresh_selected_record_read_model_from_read_view(
+    return _refresh_selected_record_read_model_from_primary_table_read(
         refresh_request,
-        read_view=read_view,
+        primary_table_read=primary_table_read,
         storage_root=storage_root,
     )
 
@@ -200,7 +200,7 @@ def _pre_export_refresh_requests(
     read_model_path: str,
     storage_root: Path,
     preview_row_limit: int,
-) -> tuple[_SelectedRecordReadModelRefreshRequest, MeasurementRecordReadRequest]:
+) -> tuple[_SelectedRecordReadModelRefreshRequest, PrimaryTableReadRequest]:
     expected_target_condition = "missing"
     expected_digest = None
     target = path_under(
@@ -224,7 +224,7 @@ def _pre_export_refresh_requests(
             expected_target_condition=expected_target_condition,
             expected_current_read_model_digest=expected_digest,
         ),
-        MeasurementRecordReadRequest(
+        PrimaryTableReadRequest(
             request_id=f"pre-export-read-{record_id}",
             record_id=record_id,
             record_dir=record_dir,
@@ -238,24 +238,28 @@ def _file_digest(path: Path) -> str:
     return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
 
 
-def _refresh_selected_record_read_model_from_read_view(
+def _refresh_selected_record_read_model_from_primary_table_read(
     request: _SelectedRecordReadModelRefreshRequest,
     *,
-    read_view: MeasurementRecordReadRun,
+    primary_table_read: PrimaryTableReadResult,
     storage_root: str | Path,
 ) -> SelectedRecordReadModelRefreshRun:
     root = _existing_directory_root(Path(storage_root), "selected record refresh storage root")
-    _validate_request_against_read_view(request, read_view)
+    _validate_request_against_primary_table_read(request, primary_table_read)
     previous_digest = None
     finalization_receipt = None
     try:
         previous_digest = _validate_target_condition(root, request)
-        model_content, finalization_receipt = _build_refresh_content(root, request, read_view)
+        model_content, finalization_receipt = _build_refresh_content(
+            root,
+            request,
+            primary_table_read,
+        )
         _write_temp_then_replace(root, request, model_content, _write_new_file, _replace_file)
     except _RefreshFailure as exc:
         return SelectedRecordReadModelRefreshRun(
             request=request,
-            read_view=read_view,
+            primary_table_read=primary_table_read,
             storage_root=root,
             finalization_receipt=exc.finalization_receipt or finalization_receipt,
             previous_read_model_digest=exc.previous_read_model_digest or previous_digest,
@@ -265,7 +269,7 @@ def _refresh_selected_record_read_model_from_read_view(
         )
     return SelectedRecordReadModelRefreshRun(
         request=request,
-        read_view=read_view,
+        primary_table_read=primary_table_read,
         storage_root=root,
         finalization_receipt=finalization_receipt,
         previous_read_model_digest=previous_digest,
@@ -318,31 +322,31 @@ def _validate_target_condition(
 def _build_refresh_content(
     root: Path,
     request: _SelectedRecordReadModelRefreshRequest,
-    read_view: MeasurementRecordReadRun,
+    primary_table_read: PrimaryTableReadResult,
 ) -> tuple[bytes, dict[str, Any]]:
     manifest, manifest_digest = _read_json_at(
         root,
         request.creation_manifest_path,
         "selected record refresh creation manifest",
     )
-    if manifest != read_view.record_manifest:
-        raise ValueError("selected record refresh creation manifest must match read view")
+    if manifest != primary_table_read.record_manifest:
+        raise ValueError("selected record refresh creation manifest must match primary table read")
     writer_receipt, writer_digest = _read_json_at(
         root,
         request.writer_receipt_path,
         "selected record refresh writer receipt",
     )
-    if writer_receipt != read_view.writer_receipt:
-        raise ValueError("selected record refresh writer receipt must match read view")
+    if writer_receipt != primary_table_read.writer_receipt:
+        raise ValueError("selected record refresh writer receipt must match primary table read")
     finalization_receipt, finalization_digest = _read_json_at(
         root,
         request.finalization_receipt_path,
         "selected record refresh finalization receipt",
     )
-    _validate_finalization_receipt(request, read_view, finalization_receipt)
+    _validate_finalization_receipt(request, primary_table_read, finalization_receipt)
     model = _read_model(
         request,
-        read_view,
+        primary_table_read,
         manifest_digest=manifest_digest,
         writer_receipt_digest=writer_digest,
         finalization_receipt=finalization_receipt,

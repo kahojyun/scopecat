@@ -12,6 +12,12 @@ from scopecat.measurement_records._contracts import (
     validate_public_identifier,
     validate_text,
 )
+from scopecat.measurement_records._primary_table_read import (
+    PrimaryTableReadRequest,
+    PrimaryTableReadResult,
+    read_record_primary_table,
+    read_result_summary,
+)
 from scopecat.measurement_records.durable_import import MeasurementRecordImportSource
 from scopecat.measurement_records.legacy_primary_import import (
     LegacyPrimaryImportRequest,
@@ -23,11 +29,6 @@ from scopecat.measurement_records.legacy_run import (
     LegacyRunRecordRequest,
     LegacyRunRecordRun,
     record_legacy_measurement_run_from_request,
-)
-from scopecat.measurement_records.read_view import (
-    MeasurementRecordReadRequest,
-    MeasurementRecordReadRun,
-    read_created_record_primary_table_from_request,
 )
 from scopecat.measurement_records.recorded_reference import (
     MeasurementRecordReference,
@@ -193,7 +194,7 @@ class LegacyMeasurementIds:
     primary_attach_request_id: str
     recorded_reference_request_id: str
     recorded_reference_set_id: str
-    read_request_id: str
+    primary_table_read_request_id: str
     primary_locator_id: str
     notebook_locator_id: str
     normalized_source_item_id: str
@@ -206,7 +207,7 @@ class LegacyMeasurementIds:
             "primary_attach_request_id": self.primary_attach_request_id,
             "recorded_reference_request_id": self.recorded_reference_request_id,
             "recorded_reference_set_id": self.recorded_reference_set_id,
-            "read_request_id": self.read_request_id,
+            "primary_table_read_request_id": self.primary_table_read_request_id,
             "primary_locator_id": self.primary_locator_id,
             "notebook_locator_id": self.notebook_locator_id,
             "normalized_source_item_id": self.normalized_source_item_id,
@@ -223,7 +224,7 @@ class LegacyMeasurementRecordRun:
     content_root: Path
     legacy_run: LegacyRunRecordRun
     primary_attach: LegacyPrimaryImportRun | None = None
-    read_view: MeasurementRecordReadRun | None = None
+    primary_table_read: PrimaryTableReadResult | None = None
     recorded_reference: MeasurementRecordReferenceRun | None = None
 
     @property
@@ -233,8 +234,8 @@ class LegacyMeasurementRecordRun:
             self.legacy_run.recorded
             and self.primary_attach is not None
             and self.primary_attach.attached
-            and self.read_view is not None
-            and self.read_view.classification == "primary_table_ready"
+            and self.primary_table_read is not None
+            and self.primary_table_read.classification == "primary_table_ready"
             and references_ready
         )
 
@@ -259,7 +260,9 @@ class LegacyMeasurementRecordRun:
             "recorded_reference": (
                 None if self.recorded_reference is None else self.recorded_reference.to_dict()
             ),
-            "read_view": None if self.read_view is None else self.read_view.to_dict(),
+            "primary_table_read": None
+            if self.primary_table_read is None
+            else read_result_summary(self.primary_table_read),
             "measurement": {
                 "measurement_id": self.generated_ids.measurement_id,
                 "record_id": self.generated_ids.record_id,
@@ -338,9 +341,9 @@ def record_legacy_measurement_from_request(
             _reference_request(request.references, ids),
             storage_root=storage,
         )
-    read_view = read_created_record_primary_table_from_request(
-        MeasurementRecordReadRequest(
-            request_id=ids.read_request_id,
+    primary_table_read = read_record_primary_table(
+        PrimaryTableReadRequest(
+            request_id=ids.primary_table_read_request_id,
             record_id=ids.record_id,
             record_dir=f"records/{ids.record_id}",
             writer_receipt_path=f"records/{ids.record_id}/writer-receipt.json",
@@ -356,7 +359,7 @@ def record_legacy_measurement_from_request(
         legacy_run=legacy_run,
         primary_attach=primary_attach,
         recorded_reference=recorded_reference,
-        read_view=read_view,
+        primary_table_read=primary_table_read,
     )
 
 
@@ -375,7 +378,7 @@ def _legacy_measurement_ids(source: LegacyMeasurementSource) -> LegacyMeasuremen
         primary_attach_request_id=f"attach-{base}-primary",
         recorded_reference_request_id=f"record-{base}-references",
         recorded_reference_set_id=f"references-{base}",
-        read_request_id=f"read-{base}-primary",
+        primary_table_read_request_id=f"read-{base}-primary",
         primary_locator_id=f"loc-{base}-primary",
         notebook_locator_id=f"loc-{base}-notebook",
         normalized_source_item_id=f"normalized-{base}",

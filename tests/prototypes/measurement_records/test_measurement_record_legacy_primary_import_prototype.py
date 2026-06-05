@@ -5,6 +5,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from scopecat.measurement_records._primary_table_read import (
+    PrimaryTableReadRequest,
+    read_record_primary_table,
+)
 from scopecat.measurement_records.durable_import import MeasurementRecordImportSource
 from scopecat.measurement_records.legacy_primary_import import (
     LegacyPrimaryImportRequest,
@@ -14,10 +18,6 @@ from scopecat.measurement_records.legacy_run import (
     LegacyRunLocator,
     LegacyRunRecordRequest,
     record_legacy_measurement_run_from_request,
-)
-from scopecat.measurement_records.read_view import (
-    MeasurementRecordReadRequest,
-    read_created_record_primary_table_from_request,
 )
 
 NORMALIZED_CSV = (
@@ -109,8 +109,8 @@ class MeasurementRecordLegacyPrimaryImportPrototypeTest(unittest.TestCase):
                 storage_root=storage_root,
             )
             record_dir = storage_root / "records" / "legacy-run-001"
-            read_view = read_created_record_primary_table_from_request(
-                MeasurementRecordReadRequest(
+            primary_table_read = read_record_primary_table(
+                PrimaryTableReadRequest(
                     request_id="read-legacy-run-001",
                     record_id="legacy-run-001",
                     record_dir="records/legacy-run-001",
@@ -126,7 +126,7 @@ class MeasurementRecordLegacyPrimaryImportPrototypeTest(unittest.TestCase):
 
         self.assertEqual(run.classification, "attached_legacy_primary_data")
         self.assertTrue(run.attached)
-        self.assertEqual(read_view.table["row_count"], 3)
+        self.assertEqual(primary_table_read.table["row_count"], 3)
         self.assertEqual(
             run.to_dict()["attached_record"]["read_model_path"],
             "records/legacy-run-001/record-read-model.json",

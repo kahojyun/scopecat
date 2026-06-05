@@ -43,7 +43,7 @@ from scopecat.measurement_records._storage import (
     validate_strict_child_path as _validate_strict_child_path,
 )
 from scopecat.measurement_records.normalized_primary_table import (
-    summarize_observed_primary_table_for_read_view,
+    summarize_observed_primary_table,
 )
 from scopecat.measurement_records.read_model_shared import READ_MODEL_FILENAME, READ_MODEL_SCHEMA
 
@@ -264,7 +264,7 @@ def import_measurement_record_from_request(
     with guard:
         guard.stage("preflight")
         primary_content = _preflight_source(request, content)
-        table, findings = summarize_observed_primary_table_for_read_view(
+        table, findings = summarize_observed_primary_table(
             primary_content,
             source=request.primary_data_path,
             declared_row_count=request.import_source.rows_recorded,
@@ -513,7 +513,7 @@ def _finalization_receipt(
             "final_state": "complete",
             "operator_reason": None,
             "evidence": {
-                "read_view_classification": table["classification"],
+                "primary_table_classification": table["classification"],
                 "primary_data_path": request.primary_data_path,
                 "primary_data_digest": primary_digest,
                 "rows_recorded": request.import_source.rows_recorded,
@@ -556,7 +556,7 @@ def _read_model(
                 "schema": FINALIZATION_RECEIPT_SCHEMA,
                 "digest": finalization_receipt_digest,
             },
-            "read_view": {
+            "primary_table_read": {
                 "classification": table["classification"],
             },
         },

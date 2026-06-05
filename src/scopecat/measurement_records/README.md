@@ -4,8 +4,8 @@
 
 Current implementation owner for durable local Measurement Records.
 
-This module owns the live route-local APIs for importing, adopting, reading,
-and linking local measurement records. It is not a final storage architecture,
+This module owns the live route-local APIs for importing, adopting, and linking
+local measurement records. It is not a final storage architecture,
 public SDK contract, maintained product capability, or shared domain model.
 It supports the target journeys for recording/adopting measurements and
 selected-record handoff, but it does not own those full product journeys.
@@ -36,8 +36,9 @@ capabilities:
   to a Measurement Record.
 
 These package-level APIs use typed request/value objects. Slice-level
-operations such as normalized-table summary remain available only from their
-owning submodules for route-local composition, tests, and future cleanup.
+operations such as normalized-table summary and stored-primary reads remain
+available only from their owning internal modules for route-local composition,
+tests, and future cleanup.
 Do not treat those submodule entrypoints as package-level contracts.
 
 ## Artifact Boundaries

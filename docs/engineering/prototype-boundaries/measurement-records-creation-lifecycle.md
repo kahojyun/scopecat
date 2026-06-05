@@ -6,8 +6,9 @@ Accepted engineering-prototype boundary.
 
 This file owns the current durable Measurement Records prototype boundary. The
 filename is historical: the first accepted slice was record creation, but the
-live boundary now includes the route-local storage, read, import, and reference
-surfaces listed below. Keep public entrypoint
+live boundary now includes the route-local storage, import, and reference
+surfaces listed below plus internal primary-table reads used for composition.
+Keep public entrypoint
 orientation in
 [`../../../src/scopecat/measurement_records/README.md`](../../../src/scopecat/measurement_records/README.md).
 
@@ -31,6 +32,10 @@ Accepted surface groups:
 | Primary-data attach flow | Writes reviewed normalized primary CSV, finalization receipt, and `record-read-model.json` for legacy attach paths. |
 | Durable import | Imports one reviewed normalized primary table directly into a new record with synchronous partial-failure rollback. |
 | Recorded references | Writes record-local receipts for user-declared context references while leaving referenced payloads outside Measurement Records ownership. |
+
+Stored primary-table reads are internal composition helpers for the attach,
+import, user-workflow, and selected-record refresh paths. They are not a
+separate package-level API or workflow boundary.
 
 Legacy-run storage and converted-primary attach are owned separately by
 [`measurement-records-legacy-run-storage.md`](measurement-records-legacy-run-storage.md).

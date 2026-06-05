@@ -54,7 +54,6 @@ class MeasurementRecordsPublicApiSurfaceTest(unittest.TestCase):
             "MeasurementRecordExistingUpdateRequest",
             "MeasurementRecordInProgressUpdateRequest",
             "MeasurementRecordNormalizedPrimaryTableRequest",
-            "MeasurementRecordReadRequest",
             "MeasurementRecordRunningInspectionRequest",
             "append_existing_measurement_record_from_request",
             "append_in_progress_measurement_record_from_request",

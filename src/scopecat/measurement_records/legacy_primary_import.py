@@ -37,7 +37,7 @@ from scopecat.measurement_records.durable_import import (
 )
 from scopecat.measurement_records.legacy_run import LEGACY_RUN_RECEIPT_SCHEMA
 from scopecat.measurement_records.normalized_primary_table import (
-    summarize_observed_primary_table_for_read_view,
+    summarize_observed_primary_table,
 )
 from scopecat.measurement_records.read_model_shared import READ_MODEL_FILENAME, READ_MODEL_SCHEMA
 
@@ -177,7 +177,7 @@ def attach_converted_primary_data_to_legacy_record_from_request(
     try:
         manifest = _validate_existing_legacy_record(storage, request)
         primary_content = _preflight_source(request, content)
-        table, findings = summarize_observed_primary_table_for_read_view(
+        table, findings = summarize_observed_primary_table(
             primary_content,
             source=request.primary_data_path,
             declared_row_count=request.import_source.rows_recorded,
@@ -421,7 +421,7 @@ def _finalization_receipt(
             "final_state": "complete",
             "operator_reason": None,
             "evidence": {
-                "read_view_classification": table["classification"],
+                "primary_table_classification": table["classification"],
                 "primary_data_path": request.primary_data_path,
                 "primary_data_digest": primary_digest,
                 "rows_recorded": request.import_source.rows_recorded,
@@ -466,7 +466,7 @@ def _read_model(
                 "schema": FINALIZATION_RECEIPT_SCHEMA,
                 "digest": finalization_receipt_digest,
             },
-            "read_view": {
+            "primary_table_read": {
                 "classification": table["classification"],
             },
         },

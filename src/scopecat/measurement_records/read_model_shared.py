@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from scopecat.measurement_records._contracts import FINALIZATION_RECEIPT_SCHEMA, validate_text
+from scopecat.measurement_records._primary_table_read import PrimaryTableReadResult
 from scopecat.measurement_records._storage import (
     ensure_no_symlink_parents as _ensure_no_symlink_parents,
 )
@@ -26,7 +27,6 @@ from scopecat.measurement_records._storage import (
 from scopecat.measurement_records._storage import (
     validate_strict_child_path as _validate_strict_child_path_common,
 )
-from scopecat.measurement_records.read_view import MeasurementRecordReadRun
 
 READ_MODEL_SCHEMA = "measurement_record_read_model_v0"
 READ_MODEL_FILENAME = "record-read-model.json"
@@ -47,28 +47,28 @@ class ReadModelRequest(Protocol):
         """Path to the record creation manifest."""
 
 
-def _validate_request_against_read_view(
+def _validate_request_against_primary_table_read(
     request: ReadModelRequest,
-    read_view: MeasurementRecordReadRun,
+    primary_table_read: PrimaryTableReadResult,
 ) -> None:
-    if read_view.storage_root != _existing_directory_root(
-        Path(read_view.storage_root),
-        "read model read view storage root",
+    if primary_table_read.storage_root != _existing_directory_root(
+        Path(primary_table_read.storage_root),
+        "read model primary table read storage root",
     ):
-        raise ValueError("read model read view storage root is invalid")
-    if request.record_id != read_view.request.record_id:
-        raise ValueError("read model record_id must match read view")
-    if request.record_dir != read_view.request.record_dir:
-        raise ValueError("read model record_dir must match read view")
-    if request.creation_manifest_path != read_view.request.creation_manifest_path:
-        raise ValueError("read model creation_manifest_path must match read view")
-    if request.writer_receipt_path != read_view.request.writer_receipt_path:
-        raise ValueError("read model writer_receipt_path must match read view")
+        raise ValueError("read model primary table read storage root is invalid")
+    if request.record_id != primary_table_read.request.record_id:
+        raise ValueError("read model record_id must match primary table read")
+    if request.record_dir != primary_table_read.request.record_dir:
+        raise ValueError("read model record_dir must match primary table read")
+    if request.creation_manifest_path != primary_table_read.request.creation_manifest_path:
+        raise ValueError("read model creation_manifest_path must match primary table read")
+    if request.writer_receipt_path != primary_table_read.request.writer_receipt_path:
+        raise ValueError("read model writer_receipt_path must match primary table read")
 
 
 def _validate_finalization_receipt(
     request: ReadModelRequest,
-    read_view: MeasurementRecordReadRun,
+    primary_table_read: PrimaryTableReadResult,
     receipt: dict[str, Any],
 ) -> None:
     if receipt.get("schema") != FINALIZATION_RECEIPT_SCHEMA:
@@ -87,16 +87,16 @@ def _validate_finalization_receipt(
     if final_state not in {"complete", "failed"}:
         raise ValueError("read model finalization state is unsupported")
     evidence = _require_dict(finalization, "evidence")
-    writer_ref = _writer_receipt_ref(read_view.writer_receipt)
-    if evidence.get("read_view_classification") != read_view.classification:
-        raise ValueError("read model read view classification must match finalization")
+    writer_ref = _writer_receipt_ref(primary_table_read.writer_receipt)
+    if evidence.get("primary_table_classification") != primary_table_read.classification:
+        raise ValueError("read model primary table read classification must match finalization")
     if evidence.get("primary_data_path") != writer_ref["primary_data_path"]:
         raise ValueError("read model primary data path must match finalization")
     if evidence.get("primary_data_digest") != writer_ref["primary_data_digest"]:
         raise ValueError("read model primary data digest must match finalization")
     if evidence.get("rows_recorded") != writer_ref["rows_recorded"]:
         raise ValueError("read model rows recorded must match finalization")
-    if evidence.get("table_row_count") != read_view.table["row_count"]:
+    if evidence.get("table_row_count") != primary_table_read.table["row_count"]:
         raise ValueError("read model table row count must match finalization")
     if final_state == "failed":
         validate_text(finalization.get("operator_reason"), "finalization operator_reason")
@@ -104,15 +104,15 @@ def _validate_finalization_receipt(
 
 def _read_model(
     request: ReadModelRequest,
-    read_view: MeasurementRecordReadRun,
+    primary_table_read: PrimaryTableReadResult,
     *,
     manifest_digest: str,
     writer_receipt_digest: str,
     finalization_receipt: dict[str, Any],
     finalization_receipt_digest: str,
 ) -> dict[str, Any]:
-    manifest_ref = _manifest_ref(read_view.record_manifest)
-    writer_ref = _writer_receipt_ref(read_view.writer_receipt)
+    manifest_ref = _manifest_ref(primary_table_read.record_manifest)
+    writer_ref = _writer_receipt_ref(primary_table_read.writer_receipt)
     finalization = _require_dict(finalization_receipt, "finalization")
     final_state = finalization["final_state"]
     finalization_entry = {
@@ -143,25 +143,27 @@ def _read_model(
                 "schema": finalization_receipt.get("schema"),
                 "digest": finalization_receipt_digest,
             },
-            "read_view": {
-                "classification": read_view.classification,
+            "primary_table_read": {
+                "classification": primary_table_read.classification,
             },
         },
         "primary_data": {
             "path": writer_ref["primary_data_path"],
-            "format": read_view.table["format"],
+            "format": primary_table_read.table["format"],
             "digest": writer_ref["primary_data_digest"],
-            "size_bytes": _require_dict(read_view.writer_receipt, "primary_data").get("size_bytes"),
+            "size_bytes": _require_dict(primary_table_read.writer_receipt, "primary_data").get(
+                "size_bytes"
+            ),
             "declared_row_count": writer_ref["rows_recorded"],
-            "observed_row_count": read_view.table["row_count"],
+            "observed_row_count": primary_table_read.table["row_count"],
         },
         "table": {
-            "classification": read_view.table["classification"],
-            "columns": copy.deepcopy(read_view.table["columns"]),
-            "preview": copy.deepcopy(read_view.table["preview"]),
+            "classification": primary_table_read.table["classification"],
+            "columns": copy.deepcopy(primary_table_read.table["columns"]),
+            "preview": copy.deepcopy(primary_table_read.table["preview"]),
         },
         "review": {
-            "findings": [copy.deepcopy(finding) for finding in read_view.review_findings],
+            "findings": [copy.deepcopy(finding) for finding in primary_table_read.review_findings],
         },
         "finalization": finalization_entry,
     }

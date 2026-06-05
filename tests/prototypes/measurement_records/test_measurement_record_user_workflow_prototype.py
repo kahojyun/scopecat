@@ -106,7 +106,7 @@ class MeasurementRecordUserWorkflowPrototypeTest(unittest.TestCase):
             payload["recorded_reference"]["classification"],
             "recorded_measurement_record_references",
         )
-        self.assertEqual(payload["read_view"]["classification"], "primary_table_ready")
+        self.assertEqual(payload["primary_table_read"]["classification"], "primary_table_ready")
         self.assertNotIn("record_id", payload["request"]["source"])
 
     def test_request_entrypoint_matches_direct_facade(self) -> None:
@@ -184,7 +184,7 @@ class MeasurementRecordUserWorkflowPrototypeTest(unittest.TestCase):
         )
         self.assertIsNone(run.primary_attach)
         self.assertIsNone(run.recorded_reference)
-        self.assertIsNone(run.read_view)
+        self.assertIsNone(run.primary_table_read)
         self.assertEqual(payload["classification"], "legacy_measurement_recording_review_needed")
 
     def test_attach_failure_does_not_continue_into_reference_or_read_steps(self) -> None:
@@ -216,7 +216,7 @@ class MeasurementRecordUserWorkflowPrototypeTest(unittest.TestCase):
             "blocked_before_legacy_primary_import",
         )
         self.assertIsNone(run.recorded_reference)
-        self.assertIsNone(run.read_view)
+        self.assertIsNone(run.primary_table_read)
         self.assertEqual(payload["classification"], "legacy_measurement_recording_review_needed")
 
 
