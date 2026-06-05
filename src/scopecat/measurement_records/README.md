@@ -37,7 +37,7 @@ capabilities:
 
 These package-level APIs use typed request/value objects. Slice-level
 operations such as creation, writer integration, finalization, read-model
-projection/refresh, and normalized-table summary remain available only from
+refresh, and normalized-table summary remain available only from
 their owning submodules for route-local composition, tests, and future cleanup.
 Do not treat those submodule entrypoints as package-level contracts.
 
@@ -51,7 +51,7 @@ record-local artifacts include:
   legacy-run recording, and references;
 - primary CSV bytes written through approved writer/import paths;
 - derived `record-read-model.json` as a replaceable local convenience
-  projection, not canonical storage authority.
+  summary, not canonical storage authority.
 
 Runtime redaction is required only at declared or effective portable/export
 boundaries. Ordinary local storage, local receipts, and local review surfaces

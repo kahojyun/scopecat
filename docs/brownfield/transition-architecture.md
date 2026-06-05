@@ -250,7 +250,7 @@ Transition journey:
 - plot selected primary-data or derived-result series;
 - identify missing, stale, or incomplete context;
 - record operator review notes or continuation receipts;
-- project a read model for downstream selection.
+- maintain a derived read model for downstream selection.
 
 Target journey:
 
@@ -266,7 +266,7 @@ Ownership posture:
 
 - records browser, open, filtering, and plotter surfaces: candidate `Review`;
 - operator notes and review receipts: candidate `Record`;
-- read-model projection: `Review` convenience projection, not canonical storage
+- derived read model: `Review` convenience summary, not canonical storage
   authority.
 
 Deferred authority:

@@ -127,7 +127,10 @@ class MeasurementRecordLegacyPrimaryImportPrototypeTest(unittest.TestCase):
         self.assertEqual(run.classification, "attached_legacy_primary_data")
         self.assertTrue(run.attached)
         self.assertEqual(read_view.table["row_count"], 3)
-        self.assertEqual(run.to_dict()["pipeline"]["projection"], "projected_read_model")
+        self.assertEqual(
+            run.to_dict()["attached_record"]["read_model_path"],
+            "records/legacy-run-001/record-read-model.json",
+        )
 
     def test_unapproved_attach_does_not_require_converted_source(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -210,7 +213,7 @@ class MeasurementRecordLegacyPrimaryImportPrototypeTest(unittest.TestCase):
         self.assertEqual(run.classification, "blocked_before_legacy_primary_import")
         self.assertIn("rows must match", run.import_error or "")
 
-    def test_projection_failure_rolls_back_attached_artifacts_only(self) -> None:
+    def test_read_model_write_failure_rolls_back_attached_artifacts_only(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root = Path(temp_dir) / "storage"
             content_root = Path(temp_dir) / "content"
@@ -220,15 +223,15 @@ class MeasurementRecordLegacyPrimaryImportPrototypeTest(unittest.TestCase):
             _write_source(content_root)
             record_dir = storage_root / "records" / "legacy-run-001"
 
-            def failing_projection_writer(path: Path, content: bytes) -> None:
+            def failing_read_model_writer(path: Path, content: bytes) -> None:
                 path.write_bytes(content)
-                raise RuntimeError("simulated projection failure")
+                raise RuntimeError("simulated read model failure")
 
             run = attach_converted_primary_data_to_legacy_record_from_request(
                 _request(),
                 content_root=content_root,
                 storage_root=storage_root,
-                projection_model_writer=failing_projection_writer,
+                read_model_writer=failing_read_model_writer,
             )
 
             self.assertTrue((record_dir / "record-manifest.json").exists())

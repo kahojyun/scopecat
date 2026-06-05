@@ -28,7 +28,7 @@ Accepted surface groups:
 | Surface | Current Boundary |
 | --- | --- |
 | Record creation | Creates one no-overwrite record shell with `record-manifest.json` and a local creation receipt. |
-| Primary-data attach flow | Writes reviewed normalized primary CSV, reads it back, finalizes the record, and projects/refreshes `record-read-model.json` for legacy attach paths. |
+| Primary-data attach flow | Writes reviewed normalized primary CSV, finalization receipt, and `record-read-model.json` for legacy attach paths. |
 | Durable import | Imports one reviewed normalized primary table directly into a new record with synchronous partial-failure rollback. |
 | Recorded references | Writes record-local receipts for user-declared context references while leaving referenced payloads outside Measurement Records ownership. |
 
@@ -47,7 +47,7 @@ record-local artifacts are:
   legacy-run recording, references, and updates;
 - primary CSV bytes written through approved writer/import paths;
 - derived `record-read-model.json` as a replaceable local convenience
-  projection, not canonical storage authority.
+  summary, not canonical storage authority.
 
 ## Storage Authority
 
@@ -57,7 +57,7 @@ Current authority model:
 - writer/import operations own primary CSV bytes and their receipts;
 - update operations own append receipts and append segments, not primary-data
   compaction;
-- read-model projection and refresh own derived read models, not canonical
+- read-model refresh owns derived read models, not canonical
   manifest replacement.
 
 The prototype keeps manifest replacement, existing-record merge import, broad

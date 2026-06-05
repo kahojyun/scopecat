@@ -245,7 +245,7 @@ def import_measurement_record_from_request(
     *,
     content_root: str | Path,
     storage_root: str | Path,
-    projection_model_writer: Callable[[Path, bytes], None] | None = None,
+    read_model_writer: Callable[[Path, bytes], None] | None = None,
 ) -> MeasurementRecordDurableImportRun:
     """Import reviewed normalized data into a new record from a typed request."""
 
@@ -281,7 +281,7 @@ def import_measurement_record_from_request(
             request,
             primary_content,
             table,
-            read_model_writer=projection_model_writer or _write_new_file,
+            read_model_writer=read_model_writer or _write_new_file,
         )
 
     if guard.import_error is not None:
@@ -578,11 +578,6 @@ def _read_model(
         "finalization": {
             "final_state": "complete",
             "operator_reason": None,
-        },
-        "projection": {
-            "request_id": f"{request.request_id}-project",
-            "read_model_path": request.read_model_path,
-            "projection_kind": "derived_local_summary",
         },
     }
 

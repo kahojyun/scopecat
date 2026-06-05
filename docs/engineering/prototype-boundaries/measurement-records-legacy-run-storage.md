@@ -24,14 +24,14 @@ approved legacy run record request
 
 The first operation records declared legacy facts and references only. The
 optional attach operation accepts already converted normalized primary data as
-reviewed input and writes it into the same legacy record through the existing
-writer/read/finalization/projection pipeline. The first user-facing workflow
-facade composes those receipt primitives around legacy system id, legacy run
-id, converted primary data, and selected references, deriving local Scopecat
-ids from the legacy facts instead of asking the caller for receipt request ids
-or record ids. The workflow does not open legacy files, parse old formats,
-execute old code, observe source payloads, import referenced payloads, repair
-references, or decide scientific validity.
+reviewed input and writes primary data, writer receipt, finalization receipt,
+and read model into the same legacy record. The first user-facing workflow
+facade composes legacy system id, legacy run id, converted primary data, and
+selected references, deriving local Scopecat ids from the legacy facts instead
+of asking the caller for receipt request ids or record ids. The workflow does
+not open legacy files, parse old formats, execute old code, observe source
+payloads, import referenced payloads, repair references, or decide scientific
+validity.
 
 ## Why This Boundary
 
@@ -59,7 +59,7 @@ The live prototype may:
 - write the usual `record-manifest.json` with `creation_source_kind` set to
   `legacy_system`;
 - set the initial lifecycle state to `created` so an explicit approved attach
-  operation can reuse the existing writer pipeline;
+  operation can add converted primary data later;
 - write one record-local `legacy-run-receipt.json`;
 - preserve declared legacy system id, legacy run id, run timing labels,
   declared locators, optional context references, and operator notes;

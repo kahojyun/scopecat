@@ -21,7 +21,7 @@ mutation.
 The current handoff durable-import adapter is intentionally one planned
 measurement per operation. It delegates mutation to Measurement Records durable
 import, which already owns per-record destination identity, no-overwrite
-behavior, rollback classification, retry review, and read-model projection.
+behavior, rollback classification, retry review, and read-model maintenance.
 Turning a multi-measurement plan into one durable operation would require new
 contracts for per-record destinations, conflict handling, partial success,
 rollback scope, retry grouping, and review state.

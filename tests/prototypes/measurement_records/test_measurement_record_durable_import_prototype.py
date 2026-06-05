@@ -224,22 +224,22 @@ class MeasurementRecordDurableImportPrototypeTest(unittest.TestCase):
         self.assertFalse(run.partial_commit)
         self.assertIn("rows must match", run.import_error or "")
 
-    def test_projection_failure_rolls_back_new_record(self) -> None:
+    def test_read_model_write_failure_rolls_back_new_record(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root = Path(temp_dir) / "storage"
             content_root = Path(temp_dir) / "content"
             storage_root.mkdir()
             shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
 
-            def failing_projection_writer(path: Path, content: bytes) -> None:
+            def failing_read_model_writer(path: Path, content: bytes) -> None:
                 path.write_bytes(content)
-                raise RuntimeError("simulated projection failure")
+                raise RuntimeError("simulated read model failure")
 
             run = import_measurement_record_from_request(
                 _request(),
                 content_root=content_root,
                 storage_root=storage_root,
-                projection_model_writer=failing_projection_writer,
+                read_model_writer=failing_read_model_writer,
             )
 
             self.assertFalse((storage_root / "records" / "run-3101-rabi").exists())

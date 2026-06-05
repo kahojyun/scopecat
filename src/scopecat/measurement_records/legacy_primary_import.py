@@ -30,30 +30,16 @@ from scopecat.measurement_records._storage import (
 from scopecat.measurement_records._storage import (
     validate_strict_child_path as _validate_strict_child_path,
 )
-from scopecat.measurement_records.durable_import import MeasurementRecordImportSource
-from scopecat.measurement_records.finalization import (
-    MeasurementRecordFinalizationRequest,
-    MeasurementRecordFinalizationRun,
-    finalize_measurement_record_from_read_view,
+from scopecat.measurement_records.durable_import import (
+    FINALIZATION_RECEIPT_SCHEMA,
+    WRITER_RECEIPT_SCHEMA,
+    MeasurementRecordImportSource,
 )
 from scopecat.measurement_records.legacy_run import LEGACY_RUN_RECEIPT_SCHEMA
-from scopecat.measurement_records.read_model_projection import (
-    MeasurementRecordReadModelProjectionRequest,
-    MeasurementRecordReadModelProjectionRun,
-    project_measurement_record_read_model_from_read_view,
+from scopecat.measurement_records.normalized_primary_table import (
+    summarize_observed_primary_table_for_read_view,
 )
-from scopecat.measurement_records.read_model_shared import _validate_canonical_read_model_path
-from scopecat.measurement_records.read_view import (
-    MeasurementRecordReadRequest,
-    MeasurementRecordReadRun,
-    read_created_record_primary_table_from_request,
-)
-from scopecat.measurement_records.writer_integration import (
-    MeasurementRecordWriterChunk,
-    MeasurementRecordWriterRequest,
-    MeasurementRecordWriterRun,
-    write_created_record_primary_data_from_request,
-)
+from scopecat.measurement_records.read_model_shared import READ_MODEL_FILENAME, READ_MODEL_SCHEMA
 
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 
@@ -91,11 +77,7 @@ class LegacyPrimaryImportRequest:
         ):
             validate_relative_path(path, owner)
             _validate_strict_child_path(path, self.record_dir, owner)
-        _validate_canonical_read_model_path(
-            self.read_model_path,
-            self.record_dir,
-            "legacy primary import read_model_path",
-        )
+        _validate_canonical_read_model_path(self.read_model_path, self.record_dir)
         _validate_non_overlapping_paths(
             (
                 self.creation_manifest_path,
@@ -134,15 +116,12 @@ class LegacyPrimaryImportRequest:
 
 @dataclass(frozen=True)
 class LegacyPrimaryImportRun:
-    """Local receipt for attaching converted primary data to a legacy record."""
+    """Local result for attaching converted primary data to a legacy record."""
 
     request: LegacyPrimaryImportRequest
     storage_root: Path
     content_root: Path
-    writer_run: MeasurementRecordWriterRun | None = None
-    read_view_run: MeasurementRecordReadRun | None = None
-    finalization_run: MeasurementRecordFinalizationRun | None = None
-    projection_run: MeasurementRecordReadModelProjectionRun | None = None
+    attached_record: dict[str, Any] | None = None
     rollback_performed: bool = False
     import_error: str | None = None
 
@@ -167,16 +146,13 @@ class LegacyPrimaryImportRun:
             "request": self.request.to_dict(),
             "storage_root": str(self.storage_root),
             "content_root": str(self.content_root),
+            "attached_record": (
+                None if self.attached_record is None else dict(self.attached_record)
+            ),
             "import_result": {
                 "performed": self.attached,
                 "rollback_performed": self.rollback_performed,
                 "import_error": self.import_error,
-            },
-            "pipeline": {
-                "writer": _run_classification(self.writer_run),
-                "read_view": _run_classification(self.read_view_run),
-                "finalization": _run_classification(self.finalization_run),
-                "projection": _run_classification(self.projection_run),
             },
         }
 
@@ -186,7 +162,7 @@ def attach_converted_primary_data_to_legacy_record_from_request(
     *,
     content_root: str | Path,
     storage_root: str | Path,
-    projection_model_writer: Callable[[Path, bytes], None] | None = None,
+    read_model_writer: Callable[[Path, bytes], None] | None = None,
 ) -> LegacyPrimaryImportRun:
     """Attach converted primary data to an existing legacy record."""
 
@@ -199,65 +175,39 @@ def attach_converted_primary_data_to_legacy_record_from_request(
             content_root=content,
         )
     try:
-        _validate_existing_legacy_record(storage, request)
-        _preflight_source(request, content)
+        manifest = _validate_existing_legacy_record(storage, request)
+        primary_content = _preflight_source(request, content)
+        table, findings = summarize_observed_primary_table_for_read_view(
+            primary_content,
+            source=request.primary_data_path,
+            declared_row_count=request.import_source.rows_recorded,
+            preview_row_limit=5,
+        )
+        if findings:
+            raise ValueError("legacy primary import primary table review needed")
+        attached_record = _write_attached_primary_data(
+            storage,
+            request,
+            manifest=manifest,
+            primary_content=primary_content,
+            table=table,
+            read_model_writer=read_model_writer or _write_new_file,
+        )
     except Exception as exc:
+        rollback_performed = _rollback_created_artifacts(
+            storage,
+            [
+                request.primary_data_path,
+                request.writer_receipt_path,
+                request.finalization_receipt_path,
+                request.read_model_path,
+            ],
+        )
         return LegacyPrimaryImportRun(
             request=request,
             storage_root=storage,
             content_root=content,
-            import_error=str(exc),
-        )
-    created_paths = [
-        request.primary_data_path,
-        request.writer_receipt_path,
-        request.finalization_receipt_path,
-        request.read_model_path,
-    ]
-    writer_run = read_view_run = finalization_run = projection_run = None
-    try:
-        writer_run = write_created_record_primary_data_from_request(
-            _writer_request(request),
-            content_root=content,
-            storage_root=storage,
-        )
-        if not writer_run.written:
-            raise _LegacyPrimaryImportFailure(
-                _classification_error("writer", writer_run.classification)
-            )
-        read_view_run = read_created_record_primary_table_from_request(
-            _read_request(request),
-            storage_root=storage,
-        )
-        finalization_run = finalize_measurement_record_from_read_view(
-            _finalization_request(request),
-            read_view=read_view_run,
-            storage_root=storage,
-        )
-        if not finalization_run.finalized:
-            raise _LegacyPrimaryImportFailure(
-                _classification_error("finalization", finalization_run.classification)
-            )
-        projection_run = project_measurement_record_read_model_from_read_view(
-            _projection_request(request),
-            read_view=read_view_run,
-            storage_root=storage,
-            model_writer=projection_model_writer,
-        )
-        if not projection_run.projected:
-            raise _LegacyPrimaryImportFailure(
-                _classification_error("projection", projection_run.classification)
-            )
-    except Exception as exc:
-        return LegacyPrimaryImportRun(
-            request=request,
-            storage_root=storage,
-            content_root=content,
-            writer_run=writer_run,
-            read_view_run=read_view_run,
-            finalization_run=finalization_run,
-            projection_run=projection_run,
-            rollback_performed=_rollback_created_artifacts(storage, created_paths),
+            rollback_performed=rollback_performed,
             import_error=str(exc),
         )
 
@@ -265,17 +215,14 @@ def attach_converted_primary_data_to_legacy_record_from_request(
         request=request,
         storage_root=storage,
         content_root=content,
-        writer_run=writer_run,
-        read_view_run=read_view_run,
-        finalization_run=finalization_run,
-        projection_run=projection_run,
+        attached_record=attached_record,
     )
 
 
 def _validate_existing_legacy_record(
     storage: Path,
     request: LegacyPrimaryImportRequest,
-) -> None:
+) -> dict[str, Any]:
     manifest = _read_json(storage, request.creation_manifest_path, "legacy primary import manifest")
     if manifest.get("schema") != MANIFEST_SCHEMA:
         raise ValueError("legacy primary import manifest schema is unsupported")
@@ -306,9 +253,10 @@ def _validate_existing_legacy_record(
         raise ValueError("legacy primary import legacy receipt record_dir must match request")
     if request.import_source.source_id != request.record_id:
         raise ValueError("legacy primary import source_id must be the legacy record id")
+    return manifest
 
 
-def _preflight_source(request: LegacyPrimaryImportRequest, content_root: Path) -> None:
+def _preflight_source(request: LegacyPrimaryImportRequest, content_root: Path) -> bytes:
     path = _path_under(content_root, request.import_source.content_ref)
     _ensure_no_symlink_parents(
         content_root,
@@ -327,6 +275,7 @@ def _preflight_source(request: LegacyPrimaryImportRequest, content_root: Path) -
         raise ValueError("legacy primary import source size does not match")
     if _count_normalized_csv_rows(content) != request.import_source.rows_recorded:
         raise ValueError("legacy primary import source row count does not match")
+    return content
 
 
 def _count_normalized_csv_rows(content: bytes) -> int:
@@ -353,65 +302,195 @@ def _count_normalized_csv_rows(content: bytes) -> int:
     return rows
 
 
-def _writer_request(request: LegacyPrimaryImportRequest) -> MeasurementRecordWriterRequest:
-    chunk = MeasurementRecordWriterChunk(
-        chunk_id=f"{request.import_source.source_item_id}-chunk",
-        sequence=1,
-        event_id=f"{request.request_id}-source",
-        content_ref=request.import_source.content_ref,
-        declared_digest=request.import_source.declared_digest,
-        size_bytes=request.import_source.size_bytes,
-        rows_recorded=request.import_source.rows_recorded,
-        total_rows_recorded=request.import_source.rows_recorded,
-    )
-    return MeasurementRecordWriterRequest(
-        request_id=f"{request.request_id}-write",
-        approval_state=request.approval_state,
-        record_id=request.record_id,
-        record_dir=request.record_dir,
-        primary_data_path=request.primary_data_path,
-        writer_receipt_path=request.writer_receipt_path,
-        primary_data_format=request.import_source.primary_data_format,
-        expected_rows=request.import_source.rows_recorded,
-        chunks=(chunk,),
-    )
-
-
-def _read_request(request: LegacyPrimaryImportRequest) -> MeasurementRecordReadRequest:
-    return MeasurementRecordReadRequest(
-        request_id=f"{request.request_id}-read",
-        record_id=request.record_id,
-        record_dir=request.record_dir,
-        writer_receipt_path=request.writer_receipt_path,
-    )
-
-
-def _finalization_request(
+def _write_attached_primary_data(
+    storage: Path,
     request: LegacyPrimaryImportRequest,
-) -> MeasurementRecordFinalizationRequest:
-    return MeasurementRecordFinalizationRequest(
-        request_id=f"{request.request_id}-finalize",
-        approval_state=request.approval_state,
-        record_id=request.record_id,
-        record_dir=request.record_dir,
-        writer_receipt_path=request.writer_receipt_path,
-        finalization_receipt_path=request.finalization_receipt_path,
-        final_state="complete",
+    *,
+    manifest: dict[str, Any],
+    primary_content: bytes,
+    table: dict[str, Any],
+    read_model_writer: Callable[[Path, bytes], None],
+) -> dict[str, Any]:
+    _ensure_new_targets(storage, request)
+    primary_digest = _sha256(primary_content)
+    manifest_content = _json_bytes(manifest)
+    writer_receipt_content = _json_bytes(
+        _writer_receipt(request, manifest=manifest, primary_content=primary_content)
+    )
+    finalization_receipt_content = _json_bytes(
+        _finalization_receipt(request, primary_digest=primary_digest, table=table)
+    )
+    read_model_content = _json_bytes(
+        _read_model(
+            request,
+            manifest=manifest,
+            table=table,
+            manifest_digest=_sha256(manifest_content),
+            writer_receipt_digest=_sha256(writer_receipt_content),
+            finalization_receipt_digest=_sha256(finalization_receipt_content),
+            primary_size=len(primary_content),
+        )
     )
 
+    _write_new_file(_path_under(storage, request.primary_data_path), primary_content)
+    _write_new_file(_path_under(storage, request.writer_receipt_path), writer_receipt_content)
+    _write_new_file(
+        _path_under(storage, request.finalization_receipt_path), finalization_receipt_content
+    )
+    try:
+        read_model_writer(_path_under(storage, request.read_model_path), read_model_content)
+    except Exception as exc:
+        raise ValueError(f"legacy primary import read model write failed: {exc}") from exc
+    return {
+        "record_id": request.record_id,
+        "record_dir": request.record_dir,
+        "primary_data_path": request.primary_data_path,
+        "writer_receipt_path": request.writer_receipt_path,
+        "finalization_receipt_path": request.finalization_receipt_path,
+        "read_model_path": request.read_model_path,
+        "primary_data_digest": primary_digest,
+        "read_model_digest": _sha256(read_model_content),
+    }
 
-def _projection_request(
+
+def _ensure_new_targets(storage: Path, request: LegacyPrimaryImportRequest) -> None:
+    for relative_path in (
+        request.primary_data_path,
+        request.writer_receipt_path,
+        request.finalization_receipt_path,
+        request.read_model_path,
+    ):
+        _ensure_no_symlink_parents(storage, relative_path, "legacy primary import target")
+        if (
+            _path_under(storage, relative_path).exists()
+            or _path_under(storage, relative_path).is_symlink()
+        ):
+            raise ValueError("legacy primary import target already exists")
+
+
+def _writer_receipt(
     request: LegacyPrimaryImportRequest,
-) -> MeasurementRecordReadModelProjectionRequest:
-    return MeasurementRecordReadModelProjectionRequest(
-        request_id=f"{request.request_id}-project",
-        approval_state=request.approval_state,
-        record_id=request.record_id,
-        record_dir=request.record_dir,
-        writer_receipt_path=request.writer_receipt_path,
-        finalization_receipt_path=request.finalization_receipt_path,
-        read_model_path=request.read_model_path,
-    )
+    *,
+    manifest: dict[str, Any],
+    primary_content: bytes,
+) -> dict[str, Any]:
+    record = _require_dict(manifest, "record")
+    source = request.import_source
+    return {
+        "schema": WRITER_RECEIPT_SCHEMA,
+        "record": {
+            "record_id": request.record_id,
+            "record_dir": request.record_dir,
+            "creation_manifest_path": request.creation_manifest_path,
+            "creation_lifecycle_state": record["lifecycle_state"],
+        },
+        "writer_request": {
+            "request_id": f"{request.request_id}-write",
+            "primary_data_path": request.primary_data_path,
+            "writer_receipt_path": request.writer_receipt_path,
+            "primary_data_format": source.primary_data_format,
+            "expected_rows": source.rows_recorded,
+        },
+        "primary_data": {
+            "path": request.primary_data_path,
+            "format": source.primary_data_format,
+            "digest": _sha256(primary_content),
+            "size_bytes": len(primary_content),
+            "rows_recorded": source.rows_recorded,
+        },
+        "source": source.to_dict(),
+    }
+
+
+def _finalization_receipt(
+    request: LegacyPrimaryImportRequest,
+    *,
+    primary_digest: str,
+    table: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "schema": FINALIZATION_RECEIPT_SCHEMA,
+        "record": {
+            "record_id": request.record_id,
+            "record_dir": request.record_dir,
+            "creation_manifest_path": request.creation_manifest_path,
+            "writer_receipt_path": request.writer_receipt_path,
+        },
+        "finalization": {
+            "request_id": f"{request.request_id}-finalize",
+            "final_state": "complete",
+            "operator_reason": None,
+            "evidence": {
+                "read_view_classification": table["classification"],
+                "primary_data_path": request.primary_data_path,
+                "primary_data_digest": primary_digest,
+                "rows_recorded": request.import_source.rows_recorded,
+                "table_row_count": table["row_count"],
+            },
+        },
+    }
+
+
+def _read_model(
+    request: LegacyPrimaryImportRequest,
+    *,
+    manifest: dict[str, Any],
+    table: dict[str, Any],
+    manifest_digest: str,
+    writer_receipt_digest: str,
+    finalization_receipt_digest: str,
+    primary_size: int,
+) -> dict[str, Any]:
+    record = _require_dict(manifest, "record")
+    return {
+        "schema": READ_MODEL_SCHEMA,
+        "record": {
+            "record_id": request.record_id,
+            "record_dir": request.record_dir,
+            "lifecycle_state": "complete",
+            "creation_lifecycle_state": record["lifecycle_state"],
+        },
+        "sources": {
+            "creation_manifest": {
+                "path": request.creation_manifest_path,
+                "schema": MANIFEST_SCHEMA,
+                "digest": manifest_digest,
+            },
+            "writer_receipt": {
+                "path": request.writer_receipt_path,
+                "schema": WRITER_RECEIPT_SCHEMA,
+                "digest": writer_receipt_digest,
+            },
+            "finalization_receipt": {
+                "path": request.finalization_receipt_path,
+                "schema": FINALIZATION_RECEIPT_SCHEMA,
+                "digest": finalization_receipt_digest,
+            },
+            "read_view": {
+                "classification": table["classification"],
+            },
+        },
+        "primary_data": {
+            "path": request.primary_data_path,
+            "format": table["format"],
+            "digest": request.import_source.declared_digest,
+            "size_bytes": primary_size,
+            "declared_row_count": request.import_source.rows_recorded,
+            "observed_row_count": table["row_count"],
+        },
+        "table": {
+            "classification": table["classification"],
+            "columns": table["columns"],
+            "preview": table["preview"],
+        },
+        "review": {
+            "findings": [],
+        },
+        "finalization": {
+            "final_state": "complete",
+            "operator_reason": None,
+        },
+    }
 
 
 def _read_json(root: Path, relative_path: str, owner: str) -> dict[str, Any]:
@@ -440,30 +519,26 @@ def _rollback_created_artifacts(root: Path, relative_paths: list[str]) -> bool:
     return removed
 
 
-def _classification_error(owner: str, classification: str) -> str:
-    return f"legacy primary import {owner} step did not complete: {classification}"
-
-
-def _run_classification(
-    run: (
-        MeasurementRecordWriterRun
-        | MeasurementRecordReadRun
-        | MeasurementRecordFinalizationRun
-        | MeasurementRecordReadModelProjectionRun
-        | None
-    ),
-) -> str | None:
-    if run is None:
-        return None
-    return run.classification
-
-
 def _path_under(root: Path, relative_path: str) -> Path:
     return _path_under_common(root, relative_path, "legacy primary import path")
 
 
 def _validate_non_overlapping_paths(paths: tuple[str, ...], owner: str) -> None:
     _validate_non_overlapping_paths_common(paths, owner, reject_parent_child=True)
+
+
+def _validate_canonical_read_model_path(read_model_path: str, record_dir: str) -> None:
+    if read_model_path != f"{record_dir}/{READ_MODEL_FILENAME}":
+        raise ValueError("legacy primary import read_model_path must be the canonical path")
+
+
+def _write_new_file(path: Path, content: bytes) -> None:
+    with path.open("xb") as handle:
+        handle.write(content)
+
+
+def _json_bytes(content: dict[str, Any]) -> bytes:
+    return (json.dumps(content, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
 
 def _require_dict(value: dict[str, Any], field: str) -> dict[str, Any]:
@@ -488,7 +563,3 @@ def _require_int(value: dict[str, Any], field: str) -> int:
     if not isinstance(item, int) or isinstance(item, bool):
         raise ValueError(f"{field} must be an integer")
     return item
-
-
-class _LegacyPrimaryImportFailure(RuntimeError):
-    pass

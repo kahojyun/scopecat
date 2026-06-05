@@ -15,7 +15,7 @@ Read it with:
 - [`handoff.md`](handoff.md) for package writing, opening, receiving gates, and
   non-mutating import plans;
 - [`measurement-records-creation-lifecycle.md`](measurement-records-creation-lifecycle.md)
-  for durable Measurement Records creation, writing, finalization, projection,
+  for durable Measurement Records creation, writing, finalization, read models,
   import, and storage authority;
 - [`../../../src/scopecat/handoff/README.md`](../../../src/scopecat/handoff/README.md)
   for the live handoff API surface;
@@ -58,7 +58,7 @@ The current adapter:
 - builds `MeasurementRecordDurableImportRequest` with creation source kind
   `handoff`;
 - delegates creation, primary-data writing, read view, finalization, read-model
-  projection, no-overwrite handling, and rollback classification to
+  write, no-overwrite handling, and rollback classification to
   `scopecat.measurement_records`;
 - returns a local handoff durable-import receipt that records package,
   selected measurement, destination, and durable-import classification.
@@ -148,9 +148,9 @@ Expected classifications include:
 
 | Classification | Meaning |
 | --- | --- |
-| `imported_new_record` | Creation, primary-data write, read view, finalization, and projection completed. |
+| `imported_new_record` | Creation, primary-data write, read view, finalization, and read-model write completed. |
 | `blocked_before_import` | Approval, source facts, destination facts, or preflight validation blocked before storage mutation. |
-| `rolled_back_after_import_failure` | Mutation started, then a synchronous failure occurred before final projection and best-effort cleanup ran. |
+| `rolled_back_after_import_failure` | Mutation started, then a synchronous failure occurred before completion and best-effort cleanup ran. |
 | `import_failed_after_partial_commit` | A later synchronous failure occurred after a step that the wrapper cannot safely undo. |
 
 Rollback remains best-effort process-local cleanup. It is not crash recovery,

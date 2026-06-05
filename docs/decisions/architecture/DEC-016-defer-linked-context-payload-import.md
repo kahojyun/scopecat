@@ -23,7 +23,7 @@ adapter creates exactly one new Measurement Record by adapting one planned
 package measurement into the Measurement Records durable import pipeline. That
 pipeline currently owns primary-data import only. Linked context has no
 accepted durable storage contract for destination paths, context kind schemas,
-attachment semantics, conflicts, retry behavior, or read-model projection.
+attachment semantics, conflicts, retry behavior, or read-model maintenance.
 
 ## Decision
 
@@ -43,7 +43,7 @@ decision and implementation slice that defines, at minimum:
 - attachment semantics to one or more Measurement Records;
 - digest, byte-size, and package-integrity preflight rules;
 - no-overwrite, conflict, rollback, and retry behavior;
-- read-model projection and local review receipt shape.
+- read-model update and local review receipt shape.
 
 ## Scope
 
@@ -74,7 +74,7 @@ attach arbitrary files to a durable record.
 
 - Option: import linked payloads as loose files beside the durable record.
   Rejected because destination topology, conflict behavior, and read-model
-  projection would be implicit.
+  update behavior would be implicit.
 - Option: attach all packaged linked payloads to the imported Measurement
   Record. Rejected because linked context can target multiple package
   measurements and has no accepted attachment semantics.

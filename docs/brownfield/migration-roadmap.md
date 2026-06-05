@@ -206,7 +206,7 @@ Next validation focus:
 
 Already validated:
 
-- record read-model projection and refresh;
+- record read-model refresh;
 - selected-record export freshness review;
 - local operator review artifacts and receipts.
 

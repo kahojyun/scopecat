@@ -12,9 +12,6 @@ from scopecat.measurement_records._contracts import (
     validate_public_identifier,
     validate_relative_path,
 )
-from scopecat.measurement_records.read_model_projection import (
-    MeasurementRecordReadModelProjectionRequest,
-)
 from scopecat.measurement_records.read_model_shared import (
     _ensure_no_symlink_parents,
     _existing_directory_root,
@@ -189,8 +186,7 @@ def refresh_measurement_record_read_model_from_read_view(
     """Refresh a record read model from an already computed read view."""
 
     root = _existing_directory_root(Path(storage_root), "read model refresh storage root")
-    projection_request = _projection_request_from_refresh(request)
-    _validate_request_against_read_view(projection_request, read_view)
+    _validate_request_against_read_view(request, read_view)
     if not request.approved:
         return MeasurementRecordReadModelRefreshRun(
             request=request,
@@ -205,7 +201,6 @@ def refresh_measurement_record_read_model_from_read_view(
         model_content, finalization_receipt = _build_refresh_content(
             root,
             request,
-            projection_request,
             read_view,
         )
         writer = model_writer or _write_new_file
@@ -238,20 +233,6 @@ def refresh_measurement_record_read_model_from_read_view(
         refreshed_read_model_digest=_sha256(model_content),
         refreshed_read_model_size_bytes=len(model_content),
         replacement_performed=True,
-    )
-
-
-def _projection_request_from_refresh(
-    request: MeasurementRecordReadModelRefreshRequest,
-) -> MeasurementRecordReadModelProjectionRequest:
-    return MeasurementRecordReadModelProjectionRequest(
-        request_id=request.request_id,
-        approval_state=request.approval_state,
-        record_id=request.record_id,
-        record_dir=request.record_dir,
-        writer_receipt_path=request.writer_receipt_path,
-        finalization_receipt_path=request.finalization_receipt_path,
-        read_model_path=request.read_model_path,
     )
 
 
@@ -298,7 +279,6 @@ def _validate_target_condition(
 def _build_refresh_content(
     root: Path,
     request: MeasurementRecordReadModelRefreshRequest,
-    projection_request: MeasurementRecordReadModelProjectionRequest,
     read_view: MeasurementRecordReadRun,
 ) -> tuple[bytes, dict[str, Any]]:
     manifest, manifest_digest = _read_json_at(
@@ -320,10 +300,10 @@ def _build_refresh_content(
         request.finalization_receipt_path,
         "read model refresh finalization receipt",
     )
-    _validate_finalization_receipt(projection_request, read_view, finalization_receipt)
+    _validate_finalization_receipt(request, read_view, finalization_receipt)
 
     model = _read_model(
-        projection_request,
+        request,
         read_view,
         manifest_digest=manifest_digest,
         writer_receipt_digest=writer_digest,

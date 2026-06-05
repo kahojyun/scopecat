@@ -15,15 +15,11 @@ from scopecat.measurement_records.finalization import (
     MeasurementRecordFinalizationRequest,
     finalize_measurement_record_from_read_view,
 )
-from scopecat.measurement_records.read_model_projection import (
-    READ_MODEL_SCHEMA,
-    MeasurementRecordReadModelProjectionRequest,
-    project_measurement_record_read_model_from_read_view,
-)
 from scopecat.measurement_records.read_model_refresh import (
     MeasurementRecordReadModelRefreshRequest,
     refresh_measurement_record_read_model_from_read_view,
 )
+from scopecat.measurement_records.read_model_shared import READ_MODEL_SCHEMA
 from scopecat.measurement_records.read_view import (
     MeasurementRecordReadRequest,
     read_created_record_primary_table_from_request,
@@ -102,18 +98,6 @@ def _finalization_request(**overrides: object) -> MeasurementRecordFinalizationR
     return MeasurementRecordFinalizationRequest(**values)
 
 
-def _projection_request() -> MeasurementRecordReadModelProjectionRequest:
-    return MeasurementRecordReadModelProjectionRequest(
-        request_id="project-read-model-run-3101-rabi",
-        approval_state="approved",
-        record_id="run-3101-rabi",
-        record_dir="records/run-3101-rabi",
-        writer_receipt_path="records/run-3101-rabi/writer-receipt.json",
-        finalization_receipt_path="records/run-3101-rabi/finalization-receipt.json",
-        read_model_path="records/run-3101-rabi/record-read-model.json",
-    )
-
-
 def _refresh_request(**overrides: object) -> MeasurementRecordReadModelRefreshRequest:
     values = {
         "request_id": "refresh-read-model-run-3101-rabi",
@@ -180,13 +164,13 @@ def _finalize(storage_root: Path) -> None:
         raise AssertionError(run.to_dict())
 
 
-def _project(storage_root: Path) -> None:
-    run = project_measurement_record_read_model_from_read_view(
-        _projection_request(),
+def _write_existing_read_model(storage_root: Path) -> None:
+    run = refresh_measurement_record_read_model_from_read_view(
+        _refresh_request(request_id="existing-read-model-run-3101-rabi"),
         read_view=_read_view(storage_root),
         storage_root=storage_root,
     )
-    if not run.projected:
+    if not run.refreshed:
         raise AssertionError(run.to_dict())
 
 
@@ -231,7 +215,6 @@ class MeasurementRecordReadModelRefreshPrototypeTest(unittest.TestCase):
                 "table",
                 "review",
                 "finalization",
-                "projection",
                 "refresh",
             },
         )
@@ -261,7 +244,7 @@ class MeasurementRecordReadModelRefreshPrototypeTest(unittest.TestCase):
             shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
             _populate_record(storage_root, content_root)
             _finalize(storage_root)
-            _project(storage_root)
+            _write_existing_read_model(storage_root)
             read_model_path = storage_root / "records" / "run-3101-rabi" / "record-read-model.json"
             previous_digest = _digest(read_model_path)
 
@@ -288,7 +271,7 @@ class MeasurementRecordReadModelRefreshPrototypeTest(unittest.TestCase):
             shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
             _populate_record(storage_root, content_root)
             _finalize(storage_root)
-            _project(storage_root)
+            _write_existing_read_model(storage_root)
             read_model_path = storage_root / "records" / "run-3101-rabi" / "record-read-model.json"
             previous = read_model_path.read_text(encoding="utf-8")
 
@@ -315,7 +298,7 @@ class MeasurementRecordReadModelRefreshPrototypeTest(unittest.TestCase):
             shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
             _populate_record(storage_root, content_root)
             _finalize(storage_root)
-            _project(storage_root)
+            _write_existing_read_model(storage_root)
 
             run = refresh_measurement_record_read_model_from_read_view(
                 _refresh_request(),
@@ -356,7 +339,7 @@ class MeasurementRecordReadModelRefreshPrototypeTest(unittest.TestCase):
             shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
             _populate_record(storage_root, content_root)
             _finalize(storage_root)
-            _project(storage_root)
+            _write_existing_read_model(storage_root)
             read_model_path = storage_root / "records" / "run-3101-rabi" / "record-read-model.json"
             previous = read_model_path.read_text(encoding="utf-8")
             previous_digest = _digest(read_model_path)
@@ -395,7 +378,7 @@ class MeasurementRecordReadModelRefreshPrototypeTest(unittest.TestCase):
             shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
             _populate_record(storage_root, content_root)
             _finalize(storage_root)
-            _project(storage_root)
+            _write_existing_read_model(storage_root)
             read_model_path = storage_root / "records" / "run-3101-rabi" / "record-read-model.json"
             previous_digest = _digest(read_model_path)
             previous = read_model_path.read_text(encoding="utf-8")
