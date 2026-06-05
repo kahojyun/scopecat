@@ -370,7 +370,7 @@ class EnvironmentOperationEngineeringPrototypeTest(unittest.TestCase):
                     runner=FakeRunner(CommandRunResult(exit_code=0, stdout="", stderr="")),
                 )
 
-    def test_environment_operation_prototype_does_not_import_implementation_candidates(
+    def test_environment_operation_module_does_not_import_implementation_candidates(
         self,
     ) -> None:
         self.assertTrue(ENVIRONMENT_OPERATION_MODULE.is_dir())

@@ -288,10 +288,9 @@ class HandoffPackage:
         }
 
     def as_open_summary(self) -> dict[str, Any]:
-        """Return a copy-safe prototype snapshot.
+        """Return a copy-safe open-package snapshot.
 
-        This is not the discovery candidate summary shape; policy/non-claim
-        details are owned by route docs, tests, and concise runtime fields.
+        The summary mirrors the current route-local projection.
         """
 
         return copy.deepcopy(self.to_dict())

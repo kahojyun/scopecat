@@ -1,4 +1,4 @@
-"""Environment-operation engineering prototype."""
+"""Environment-operation support surface."""
 
 from scopecat.environment_operation.operation_review import (
     EnvironmentOperationFinding,

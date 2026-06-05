@@ -13,7 +13,7 @@ SUCCESS_STATUS = "uv_sync_completed_success"
 
 @dataclass(frozen=True)
 class EnvironmentOperationFinding:
-    """Review finding surfaced by the environment operation review prototype."""
+    """Review finding surfaced by environment operation review."""
 
     code: str
     severity: str

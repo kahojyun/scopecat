@@ -2,8 +2,7 @@
 
 ## Status
 
-Frozen engineering-prototype implementation owner for one approved local `uv`
-operation chain.
+Frozen implementation owner for one approved local `uv` operation chain.
 
 The promoted boundary is owned by
 [`../../../docs/engineering/prototype-boundaries/environment-operation.md`](../../../docs/engineering/prototype-boundaries/environment-operation.md).
@@ -82,7 +81,7 @@ they are not public SDK or cross-route domain APIs.
 ## Artifact Boundaries
 
 Result, review, operation-run, and probe summaries are local review surfaces
-for this frozen prototype boundary. They are not portable/export artifacts
+for this frozen boundary. They are not portable/export artifacts
 unless a later decision explicitly promotes one.
 
 Runtime probe summaries may include local interpreter paths such as
@@ -92,7 +91,7 @@ need a separate artifact boundary and redaction decision.
 
 ## Tests And Fixtures
 
-Module behavior is covered by prototype tests under
+Module behavior is covered by tests under
 [`../../../tests/prototypes/environment_operation/`](../../../tests/prototypes/environment_operation/).
 Repository-safe fixtures live under
 [`../../../tests/fixtures/prototypes/environment_operation/`](../../../tests/fixtures/prototypes/environment_operation/)
@@ -102,6 +101,6 @@ and related environment fixture families under
 ## Boundary
 
 This README owns live API orientation. Detailed scope limits live in the
-prototype-boundary note linked above. Do not expand this module beyond the
+engineering boundary note linked above. Do not expand this module beyond the
 current `uv sync` plus optional interpreter fact-probe chain without a named
 entrypoint and decision.

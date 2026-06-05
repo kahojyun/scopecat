@@ -1,4 +1,4 @@
-"""Approved uv sync execution prototype.
+"""Approved uv sync execution support.
 
 This module crosses the process-execution boundary for one bounded uv command.
 It does not parse dependency files or output, verify installed package state,
@@ -29,7 +29,7 @@ RESULT_STATUS_BY_EXECUTION_STATE = {
 
 @dataclass(frozen=True)
 class UvSyncFinding:
-    """Review finding surfaced by the uv sync execution prototype."""
+    """Review finding surfaced by uv sync execution."""
 
     code: str
     severity: str
@@ -83,7 +83,7 @@ class UvSyncIntent:
         if command.get("working_directory") != working_directory:
             raise ValueError("command_intent working_directory must match sync_request")
         if command.get("environment_variables", []) != []:
-            raise ValueError("uv sync execution prototype does not accept environment overrides")
+            raise ValueError("uv sync execution does not accept environment overrides")
 
         return cls(
             request_id=request_id,
@@ -221,7 +221,7 @@ class UvSyncExecutionRecord:
         """Project execution into a route-local uv sync result summary.
 
         This shape is intended for downstream local review composition. It is
-        route-local prototype output, not a portable/public artifact or a
+        local operation output, not a portable/public artifact or a
         runtime-readiness result.
         """
 

@@ -1,4 +1,4 @@
-"""Command-line smoke entrypoint for the handoff prototype."""
+"""Command-line smoke entrypoint for handoff package operations."""
 
 from __future__ import annotations
 

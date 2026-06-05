@@ -1,4 +1,4 @@
-"""Measurement Records engineering prototypes."""
+"""Measurement Records package API."""
 
 from scopecat.measurement_records.creation import (
     MeasurementRecordCreationRequest,

@@ -1,16 +1,15 @@
-# Handoff Prototype Module
+# Handoff Module
 
 ## Status
 
-Current engineering-prototype implementation owner for Scopecat-authored
-handoff package use and durable Measurement Records handoff import adaptation.
+Current implementation owner for Scopecat-authored handoff package use and
+durable Measurement Records handoff import adaptation.
 This module owns route-local package and receiving behavior for JNY-001 Share A
 Selected Measurement; it does not own Measurement Record creation, run
 recording, running updates, or post-run results review.
 
-This module is route-local prototype code. It exposes production-shaped Python
-entrypoints over validated handoff discovery evidence. Boundary details live in
-the prototype-boundary notes linked below.
+This module exposes route-local Python entrypoints over accepted handoff
+behavior. Boundary details live in the engineering boundary notes linked below.
 
 For workflow and implementation ownership, start from
 [`../../../docs/engineering/workflow-validation-map.md`](../../../docs/engineering/workflow-validation-map.md)
@@ -106,11 +105,10 @@ diagnostic is not a portable/export artifact, retry authorization, package
 acceptance, or public error schema.
 
 `current_handoff_compatibility_contract()` returns a read-only local snapshot
-of the current route schemas, policy fields, local artifact postures, and
-explicit non-claims for this production vertical slice. The snapshot is a
-review contract for the current route-local behavior; it does not publish a
-public SDK, final package format, archive contract, authenticity/trust policy, or
-portable error schema.
+of the current route schemas, policy fields that are still real operational
+inputs, and local artifact postures. The snapshot is a review contract for the
+current route-local behavior; it does not publish a public SDK, final package
+format, archive contract, authenticity/trust policy, or portable error schema.
 
 ## Artifact Boundaries
 
@@ -222,8 +220,8 @@ python -m scopecat.handoff --receipt-summary <receipt.json>
 ```
 
 It opens a package for read-only orientation, optionally writes local
-inspection HTML, and summarizes local candidate or durable-import receipts for
-continuation review. It does not run package import, approve storage
+inspection HTML, and summarizes local durable-import receipts for continuation
+review. It does not run package import, approve storage
 acceptance or durable import, persist review state, or become a public import
 API.
 
@@ -255,4 +253,4 @@ extended as the durable Measurement Records import path.
 ## Boundary
 
 This README owns live API orientation. Detailed scope limits live in the
-prototype-boundary notes linked above.
+engineering boundary notes linked above.

@@ -1,4 +1,4 @@
-"""Current handoff package engineering prototype API."""
+"""Current handoff package API."""
 
 from scopecat.handoff.archive_materialization import (
     ArchiveMaterializationContractReview,

@@ -1,4 +1,4 @@
-"""Durable measurement-record creation prototype."""
+"""Durable measurement-record creation."""
 
 from __future__ import annotations
 

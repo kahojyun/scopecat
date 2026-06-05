@@ -537,7 +537,7 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
             "review_measurement_record_operator_findings",
         )
 
-    def test_raw_operator_review_uses_declared_policy(self) -> None:
+    def test_raw_operator_review_uses_declared_request(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root = Path(temp_dir) / "storage"
             content_root = Path(temp_dir) / "content"

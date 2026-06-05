@@ -1,1 +1,1 @@
-"""Scopecat engineering prototype modules."""
+"""Scopecat package modules."""

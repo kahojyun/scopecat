@@ -2,8 +2,7 @@
 
 ## Status
 
-Current engineering-prototype implementation owner for durable local
-Measurement Records.
+Current implementation owner for durable local Measurement Records.
 
 This module owns the live route-local APIs for creating, importing, reviewing,
 and reading local measurement records. It is not a final storage architecture,
@@ -18,7 +17,7 @@ and
 [`../../../docs/engineering/implementation-register.md`](../../../docs/engineering/implementation-register.md).
 For product capability maturity, use
 [`../../../docs/product/target-capabilities.md`](../../../docs/product/target-capabilities.md).
-For accepted prototype boundaries, use
+For accepted engineering boundaries, use
 [`../../../docs/engineering/prototype-boundaries/measurement-records-creation-lifecycle.md`](../../../docs/engineering/prototype-boundaries/measurement-records-creation-lifecycle.md)
 and
 [`../../../docs/engineering/prototype-boundaries/measurement-records-legacy-run-storage.md`](../../../docs/engineering/prototype-boundaries/measurement-records-legacy-run-storage.md).
@@ -103,7 +102,7 @@ persist GUI state, or become public product CLI contracts.
 
 ## Tests And Fixtures
 
-Module behavior is covered by prototype tests under
+Module behavior is covered by tests under
 [`../../../tests/prototypes/measurement_records/`](../../../tests/prototypes/measurement_records/)
 and selected repository-safe fixture families under
 [`../../../tests/fixtures/`](../../../tests/fixtures/). Run the repository
@@ -118,4 +117,4 @@ uv run ruff format --check .
 ## Boundary
 
 This README owns live API orientation. Detailed scope limits live in the
-prototype-boundary notes linked above.
+engineering boundary notes linked above.

@@ -1,4 +1,4 @@
-"""Post-sync uv runtime probe prototype.
+"""Post-sync uv runtime probe support.
 
 This module probes one bounded Python interpreter fact surface through
 ``uv run --locked --no-sync`` after an approved uv sync result. It does not
@@ -64,7 +64,7 @@ RUNTIME_PROBE_STATUS_BY_EXECUTION_STATE = {
 
 @dataclass(frozen=True)
 class UvRuntimeProbeFinding:
-    """Review finding surfaced by the uv runtime probe prototype."""
+    """Review finding surfaced by a uv runtime probe."""
 
     code: str
     severity: str

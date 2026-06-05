@@ -1,4 +1,4 @@
-"""Command-line smoke entrypoint for Measurement Records prototypes."""
+"""Command-line smoke entrypoint for Measurement Records operations."""
 
 from __future__ import annotations
 
@@ -116,7 +116,7 @@ def _storage_inventory(args: argparse.Namespace) -> dict[str, object]:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m scopecat.measurement_records",
-        description="Run read-only Measurement Records prototype operations.",
+        description="Run read-only Measurement Records operations.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 

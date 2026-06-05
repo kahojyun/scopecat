@@ -1,4 +1,4 @@
-"""Shared storage-path primitives for measurement-record prototypes."""
+"""Shared storage-path primitives for measurement records."""
 
 from __future__ import annotations
 

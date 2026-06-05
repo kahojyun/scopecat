@@ -30,7 +30,7 @@ HANDOFF_ARCHIVE_MATERIALIZATION_POLICY = {
 }
 HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA = "scopecat.handoff_archive_materialization.v0"
 HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY = {
-    "archive_implementation": "zip_materialization_candidate",
+    "archive_implementation": "zip_materialization",
     "archive_creation": "not_performed",
     "archive_extraction": "performed_into_staging_directory",
     "archive_input_opening": "zipfile_read_only",
@@ -45,7 +45,7 @@ HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY = {
 }
 HANDOFF_ARCHIVE_CREATION_SCHEMA = "scopecat.handoff_archive_creation.v0"
 HANDOFF_ARCHIVE_PACKAGE_CREATION_POLICY = {
-    "archive_implementation": "zip_creation_candidate",
+    "archive_implementation": "zip_creation",
     "archive_creation": "performed_from_dec010_directory_manifest_package",
     "archive_output": "zip_transport_container",
     "archive_extraction": "not_performed",
@@ -69,7 +69,7 @@ REQUIRED_RESOURCE_LIMITS = [
 
 @dataclass(frozen=True)
 class ArchiveMaterializationMemberReview:
-    """Review-only classification for one declared archive member candidate."""
+    """Review-only classification for one declared archive member."""
 
     path: str
     member_type: str
@@ -94,7 +94,7 @@ class ArchiveMaterializationMemberReview:
 
 @dataclass(frozen=True)
 class ArchiveMaterializationContractReview:
-    """Review-only archive materialization contract candidate."""
+    """Review-only archive materialization contract."""
 
     review_id: str
     archive_format: str
@@ -385,7 +385,7 @@ def current_handoff_archive_materialization_contract() -> dict[str, Any]:
 def review_handoff_archive_materialization_contract(
     source: dict[str, Any],
 ) -> ArchiveMaterializationContractReview:
-    """Review a future archive materialization contract candidate without extraction."""
+    """Review a future archive materialization contract without extraction."""
 
     try:
         return _review_handoff_archive_materialization_contract(source)

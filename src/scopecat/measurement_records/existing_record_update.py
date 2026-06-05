@@ -1,4 +1,4 @@
-"""Existing measurement-record append update engineering prototype.
+"""Existing measurement-record append update.
 
 This module validates one approved append update for an existing measurement
 record. It writes only new append-segment and update-receipt files under the
