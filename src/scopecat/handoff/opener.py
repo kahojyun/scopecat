@@ -219,7 +219,6 @@ def _opened_measurement(
         declared_digest=primary.digest,
         declared_size_bytes=primary.size_bytes,
         observed_size_bytes=len(content),
-        integrity_check="not_performed",
         declared_preview_metadata_authority=preview.metadata_authority,
         declared_preview_columns=preview.declared_columns,
         declared_preview_shape=preview.data_shape,

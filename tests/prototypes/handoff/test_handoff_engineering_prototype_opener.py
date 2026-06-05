@@ -44,8 +44,8 @@ class HandoffEngineeringPrototypeOpenerTest(unittest.TestCase):
         package = open_handoff_package(PACKAGE)
 
         self.assertEqual(package.package_id, "handoff-package-legacy-rabi-001")
-        self.assertEqual(package.classification, "opened_read_only_for_declared_preview")
-        self.assertEqual(package.measurements[0].integrity_check, "not_performed")
+        self.assertEqual(package.preview_classification, "needs_review_before_acceptance")
+        self.assertEqual(package.measurements[0].primary_table.row_count, 5)
         self.assertEqual(package.linked_context[0].materialization, "reference_only")
 
     def test_degraded_preview_is_rejected_before_primary_file_read(self) -> None:
@@ -101,7 +101,7 @@ class HandoffEngineeringPrototypeOpenerTest(unittest.TestCase):
 
         measurement = package.measurements[0]
         self.assertEqual(measurement.declared_digest, "sha256:" + "0" * 64)
-        self.assertEqual(measurement.integrity_check, "not_performed")
+        self.assertEqual(measurement.primary_table.row_count, 5)
 
     def test_csv_table_checks_reject_duplicate_header(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

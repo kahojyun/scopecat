@@ -155,7 +155,6 @@ def _review_only_package(integrity_report: HandoffPackageIntegrityReport) -> Han
         measurements=(),
         linked_context=(),
         findings=(),
-        classification="blocked_before_declared_preview_open",
     )
 
 

@@ -83,7 +83,6 @@ class HandoffMeasurement:
     declared_digest: str | None
     declared_size_bytes: int | None
     observed_size_bytes: int
-    integrity_check: str
     declared_preview_metadata_authority: str
     declared_preview_columns: tuple[dict[str, str], ...]
     declared_preview_shape: dict[str, Any]
@@ -93,7 +92,6 @@ class HandoffMeasurement:
     plot_series: tuple[HandoffPlotSeries, ...]
     linked_context: tuple[HandoffLinkedContext, ...]
     findings: tuple[HandoffFinding, ...]
-    classification: str = "opened_for_declared_preview"
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -122,9 +120,7 @@ class HandoffMeasurement:
         primary_data = {
             "package_path": self.primary_package_path,
             "format": self.primary_format,
-            "open_state": "opened",
             "observed_size_bytes": self.observed_size_bytes,
-            "integrity_check": self.integrity_check,
         }
         if self.declared_digest is not None:
             primary_data["declared_digest"] = self.declared_digest
@@ -153,7 +149,6 @@ class HandoffMeasurement:
                 "source": self.primary_package_path,
                 "columns": self.primary_table.columns,
                 "rows": self.primary_table.to_records(),
-                "schema_inference": "not_performed",
             },
             "preview_data": {
                 "source": self.primary_package_path,
@@ -168,11 +163,9 @@ class HandoffMeasurement:
                     }
                     for series in self.plot_series
                 ],
-                "schema_inference": "not_performed",
             },
             "linked_context": [item.to_dict() for item in self.linked_context],
             "findings": [finding.to_dict() for finding in self.findings],
-            "classification": self.classification,
         }
 
 
@@ -189,7 +182,6 @@ class HandoffPackage:
     linked_context: tuple[HandoffLinkedContext, ...]
     findings: tuple[HandoffFinding, ...]
     manifest_path: str = "package-manifest.json"
-    classification: str = "opened_read_only_for_declared_preview"
 
     @property
     def measurement_ids(self) -> tuple[str, ...]:
@@ -209,7 +201,6 @@ class HandoffPackage:
                 "created_by": self.created_by,
                 "source_export_summary_id": self.source_export_summary_id,
                 "manifest_path": self.manifest_path,
-                "classification": self.classification,
                 "preview_classification": self.preview_classification,
             },
             "selected_measurements": [measurement.to_dict() for measurement in self.measurements],

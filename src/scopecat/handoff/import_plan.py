@@ -85,7 +85,6 @@ class HandoffMeasurementImportPlan:
                 "package_path": self.measurement.primary_package_path,
                 "format": self.measurement.primary_format,
                 "observed_size_bytes": self.measurement.observed_size_bytes,
-                "integrity_check": self.measurement.integrity_check,
             },
         }
 

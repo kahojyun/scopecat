@@ -74,7 +74,7 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
             measurement.primary_package_path,
             "measurements/legacy-rabi-001/primary.csv",
         )
-        self.assertEqual(measurement.integrity_check, "not_performed")
+        self.assertEqual(measurement.observed_size_bytes, 73)
         self.assertEqual(
             measurement.declared_preview_metadata_authority,
             "scopecat_export_manifest",
