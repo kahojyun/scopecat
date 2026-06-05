@@ -77,13 +77,6 @@ def _read_request(**overrides: object) -> MeasurementRecordReadRequest:
     return MeasurementRecordReadRequest(**values)
 
 
-def _read_source(**overrides: object) -> dict:
-    request = _read_request(**overrides).to_dict()
-    return {
-        "read_request": request,
-    }
-
-
 def _populate_record(storage_root: Path, content_root: Path) -> None:
     create_run = create_measurement_record_from_request(
         MeasurementRecordCreationRequest(

@@ -91,12 +91,6 @@ def _read_request() -> MeasurementRecordReadRequest:
     )
 
 
-def _read_source() -> dict:
-    return {
-        "read_request": _read_request().to_dict(),
-    }
-
-
 def _finalization_request(**overrides: object) -> MeasurementRecordFinalizationRequest:
     values = {
         "request_id": "finalize-run-3101-rabi",
@@ -136,13 +130,6 @@ def _refresh_request(**overrides: object) -> MeasurementRecordReadModelRefreshRe
     }
     values.update(overrides)
     return MeasurementRecordReadModelRefreshRequest(**values)
-
-
-def _refresh_source(**overrides: object) -> dict:
-    return {
-        "refresh_request": _refresh_request(**overrides).to_dict(),
-        "read_view_source": _read_source(),
-    }
 
 
 def _populate_record(storage_root: Path, content_root: Path) -> None:

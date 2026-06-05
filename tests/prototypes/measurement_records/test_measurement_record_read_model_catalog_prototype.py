@@ -125,12 +125,6 @@ def _catalog_request(**overrides: object) -> MeasurementRecordCatalogRequest:
     return MeasurementRecordCatalogRequest(**values)
 
 
-def _catalog_source(**overrides: object) -> dict:
-    return {
-        "catalog_request": _catalog_request(**overrides).to_dict(),
-    }
-
-
 def _populate_record(storage_root: Path, content_root: Path) -> None:
     create_run = create_measurement_record_from_request(
         MeasurementRecordCreationRequest(

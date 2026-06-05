@@ -104,18 +104,6 @@ class MeasurementRecordReadModelProjectionRequest:
     def creation_manifest_path(self) -> str:
         return f"{self.record_dir}/record-manifest.json"
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "request_id": self.request_id,
-            "approval_state": self.approval_state,
-            "record_id": self.record_id,
-            "record_dir": self.record_dir,
-            "creation_manifest_path": self.creation_manifest_path,
-            "writer_receipt_path": self.writer_receipt_path,
-            "finalization_receipt_path": self.finalization_receipt_path,
-            "read_model_path": self.read_model_path,
-        }
-
 
 @dataclass(frozen=True)
 class MeasurementRecordReadModelProjectionRun:
@@ -146,7 +134,7 @@ class MeasurementRecordReadModelProjectionRun:
         return {
             "artifact_posture": "local_record_read_model_projection_receipt",
             "classification": self.classification,
-            "request": self.request.to_dict(),
+            "request": _request_ref(self.request),
             "read_view": {
                 "classification": self.read_view.classification,
                 "review_findings": [
@@ -261,6 +249,19 @@ def _write_read_model(
 def _write_new_file(path: Path, content: bytes) -> None:
     with path.open("xb") as handle:
         handle.write(content)
+
+
+def _request_ref(request: MeasurementRecordReadModelProjectionRequest) -> dict[str, Any]:
+    return {
+        "request_id": request.request_id,
+        "approval_state": request.approval_state,
+        "record_id": request.record_id,
+        "record_dir": request.record_dir,
+        "creation_manifest_path": request.creation_manifest_path,
+        "writer_receipt_path": request.writer_receipt_path,
+        "finalization_receipt_path": request.finalization_receipt_path,
+        "read_model_path": request.read_model_path,
+    }
 
 
 class _ProjectionWriteFailure(RuntimeError):

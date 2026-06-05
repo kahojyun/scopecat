@@ -129,20 +129,6 @@ class MeasurementRecordWriterRequest:
     def manifest_path(self) -> str:
         return f"{self.record_dir}/record-manifest.json"
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "request_id": self.request_id,
-            "approval_state": self.approval_state,
-            "record_id": self.record_id,
-            "record_dir": self.record_dir,
-            "creation_manifest_path": self.manifest_path,
-            "primary_data_path": self.primary_data_path,
-            "writer_receipt_path": self.writer_receipt_path,
-            "primary_data_format": self.primary_data_format,
-            "expected_rows": self.expected_rows,
-            "chunks": [chunk.to_dict() for chunk in self.chunks],
-        }
-
 
 @dataclass(frozen=True)
 class MeasurementRecordWriterRun:
@@ -174,7 +160,7 @@ class MeasurementRecordWriterRun:
         return {
             "artifact_posture": "local_record_writer_integration_receipt",
             "classification": self.classification,
-            "request": self.request.to_dict(),
+            "request": _request_ref(self.request),
             "record_manifest": _manifest_ref(self.record_manifest),
             "writer_integration": {
                 "performed": self.written,
@@ -410,6 +396,21 @@ def _manifest_ref(manifest: dict[str, Any] | None) -> dict[str, Any] | None:
         "lifecycle_state": record.get("lifecycle_state"),
         "record_dir": storage.get("record_dir"),
         "manifest_path": storage.get("manifest_path"),
+    }
+
+
+def _request_ref(request: MeasurementRecordWriterRequest) -> dict[str, Any]:
+    return {
+        "request_id": request.request_id,
+        "approval_state": request.approval_state,
+        "record_id": request.record_id,
+        "record_dir": request.record_dir,
+        "creation_manifest_path": request.manifest_path,
+        "primary_data_path": request.primary_data_path,
+        "writer_receipt_path": request.writer_receipt_path,
+        "primary_data_format": request.primary_data_format,
+        "expected_rows": request.expected_rows,
+        "chunks": [chunk.to_dict() for chunk in request.chunks],
     }
 
 

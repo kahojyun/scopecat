@@ -87,21 +87,6 @@ class MeasurementRecordFinalizationRequest:
     def creation_manifest_path(self) -> str:
         return f"{self.record_dir}/record-manifest.json"
 
-    def to_dict(self) -> dict[str, Any]:
-        request = {
-            "request_id": self.request_id,
-            "approval_state": self.approval_state,
-            "record_id": self.record_id,
-            "record_dir": self.record_dir,
-            "creation_manifest_path": self.creation_manifest_path,
-            "writer_receipt_path": self.writer_receipt_path,
-            "finalization_receipt_path": self.finalization_receipt_path,
-            "final_state": self.final_state,
-        }
-        if self.operator_reason is not None:
-            request["operator_reason"] = self.operator_reason
-        return request
-
 
 @dataclass(frozen=True)
 class MeasurementRecordFinalizationRun:
@@ -129,7 +114,7 @@ class MeasurementRecordFinalizationRun:
         return {
             "artifact_posture": "local_record_finalization_receipt",
             "classification": self.classification,
-            "request": self.request.to_dict(),
+            "request": _request_ref(self.request),
             "read_view": {
                 "classification": self.read_view.classification,
                 "review_findings": [
@@ -257,6 +242,22 @@ def _finalization_receipt(
         },
     }
     return receipt
+
+
+def _request_ref(request: MeasurementRecordFinalizationRequest) -> dict[str, Any]:
+    result = {
+        "request_id": request.request_id,
+        "approval_state": request.approval_state,
+        "record_id": request.record_id,
+        "record_dir": request.record_dir,
+        "creation_manifest_path": request.creation_manifest_path,
+        "writer_receipt_path": request.writer_receipt_path,
+        "finalization_receipt_path": request.finalization_receipt_path,
+        "final_state": request.final_state,
+    }
+    if request.operator_reason is not None:
+        result["operator_reason"] = request.operator_reason
+    return result
 
 
 def _write_finalization_receipt(

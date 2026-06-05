@@ -63,24 +63,6 @@ class MeasurementRecordCreationRequest:
     def manifest_path(self) -> str:
         return f"{self.record_dir}/{RECORD_MANIFEST_NAME}"
 
-    def to_dict(self) -> dict[str, Any]:
-        request = {
-            "request_id": self.request_id,
-            "approval_state": self.approval_state,
-            "record_id": self.record_id,
-            "record_dir": self.record_dir,
-            "manifest_path": self.manifest_path,
-            "initial_lifecycle_state": self.initial_lifecycle_state,
-            "creation_source_kind": self.creation_source_kind,
-        }
-        if self.created_at is not None:
-            request["created_at"] = self.created_at
-        if self.label is not None:
-            request["label"] = self.label
-        if self.experiment_type is not None:
-            request["experiment_type"] = self.experiment_type
-        return request
-
 
 @dataclass(frozen=True)
 class MeasurementRecordCreationRun:
@@ -110,7 +92,7 @@ class MeasurementRecordCreationRun:
         return {
             "artifact_posture": "local_record_creation_receipt",
             "classification": self.classification,
-            "request": self.request.to_dict(),
+            "request": _request_ref(self.request),
             "creation": {
                 "performed": self.created,
                 "rollback_performed": self.rollback_performed,
@@ -184,6 +166,25 @@ def _build_manifest(request: MeasurementRecordCreationRequest) -> dict[str, Any]
             "references": [],
         },
     }
+
+
+def _request_ref(request: MeasurementRecordCreationRequest) -> dict[str, Any]:
+    result = {
+        "request_id": request.request_id,
+        "approval_state": request.approval_state,
+        "record_id": request.record_id,
+        "record_dir": request.record_dir,
+        "manifest_path": request.manifest_path,
+        "initial_lifecycle_state": request.initial_lifecycle_state,
+        "creation_source_kind": request.creation_source_kind,
+    }
+    if request.created_at is not None:
+        result["created_at"] = request.created_at
+    if request.label is not None:
+        result["label"] = request.label
+    if request.experiment_type is not None:
+        result["experiment_type"] = request.experiment_type
+    return result
 
 
 def _existing_storage_root(storage_root: Path) -> Path:

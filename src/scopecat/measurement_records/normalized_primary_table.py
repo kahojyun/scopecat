@@ -79,16 +79,6 @@ class MeasurementRecordNormalizedPrimaryTableRequest:
             "normalized primary table preview_row_limit",
         )
 
-    def to_dict(self) -> dict[str, Any]:
-        request: dict[str, Any] = {
-            "source": self.source,
-            "declared_columns": [column.to_dict() for column in self.declared_columns],
-            "preview_row_limit": self.preview_row_limit,
-        }
-        if self.declared_row_count is not None:
-            request["declared_row_count"] = self.declared_row_count
-        return request
-
 
 @dataclass(frozen=True)
 class MeasurementRecordNormalizedPrimaryTableRun:
@@ -108,7 +98,7 @@ class MeasurementRecordNormalizedPrimaryTableRun:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_normalized_primary_table_summary",
-            "request": self.request.to_dict(),
+            "request": _request_ref(self.request),
             "table": copy.deepcopy(self.table),
             "review_findings": [copy.deepcopy(finding) for finding in self.review_findings],
         }
@@ -151,6 +141,17 @@ def summarize_normalized_primary_table_from_request(
         findings=findings,
     )
     return MeasurementRecordNormalizedPrimaryTableRun(request=request, table=table)
+
+
+def _request_ref(request: MeasurementRecordNormalizedPrimaryTableRequest) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "source": request.source,
+        "declared_columns": [column.to_dict() for column in request.declared_columns],
+        "preview_row_limit": request.preview_row_limit,
+    }
+    if request.declared_row_count is not None:
+        result["declared_row_count"] = request.declared_row_count
+    return result
 
 
 def summarize_observed_primary_table_for_read_view(

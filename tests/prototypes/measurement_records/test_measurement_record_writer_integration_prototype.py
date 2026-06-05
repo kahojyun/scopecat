@@ -90,13 +90,6 @@ def _writer_request(**overrides: object) -> MeasurementRecordWriterRequest:
     return MeasurementRecordWriterRequest(**values)
 
 
-def _writer_source(**overrides: object) -> dict:
-    request = _writer_request(**overrides).to_dict()
-    return {
-        "writer_request": request,
-    }
-
-
 def _create_shell(storage_root: Path, *, state: str = "created") -> None:
     run = create_measurement_record_from_request(
         _creation_request(state=state),

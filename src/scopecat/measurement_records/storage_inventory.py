@@ -49,14 +49,6 @@ class MeasurementRecordStorageInventoryRequest:
         if not isinstance(self.include_legacy_receipts, bool):
             raise ValueError("storage inventory include_legacy_receipts must be boolean")
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "request_id": self.request_id,
-            "records_dir": self.records_dir,
-            "include_read_models": self.include_read_models,
-            "include_legacy_receipts": self.include_legacy_receipts,
-        }
-
 
 @dataclass(frozen=True)
 class MeasurementRecordStorageInventoryRun:
@@ -77,7 +69,7 @@ class MeasurementRecordStorageInventoryRun:
         return {
             "artifact_posture": "local_measurement_record_storage_inventory",
             "classification": self.classification,
-            "request": self.request.to_dict(),
+            "request": _request_ref(self.request),
             "storage_root": str(self.storage_root),
             "entries": [copy.deepcopy(entry) for entry in self.entries],
             "review_findings": [copy.deepcopy(finding) for finding in self.review_findings],
@@ -135,6 +127,15 @@ def list_measurement_record_storage_from_request(
         entries=tuple(entries),
         review_findings=tuple(findings),
     )
+
+
+def _request_ref(request: MeasurementRecordStorageInventoryRequest) -> dict[str, Any]:
+    return {
+        "request_id": request.request_id,
+        "records_dir": request.records_dir,
+        "include_read_models": request.include_read_models,
+        "include_legacy_receipts": request.include_legacy_receipts,
+    }
 
 
 def _inventory_record_dir(

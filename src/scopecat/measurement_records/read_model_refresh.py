@@ -121,23 +121,6 @@ class MeasurementRecordReadModelRefreshRequest:
     def temp_read_model_path(self) -> str:
         return f"{self.record_dir}/record-read-model.refresh-{self.request_id}.tmp"
 
-    def to_dict(self) -> dict[str, Any]:
-        request = {
-            "request_id": self.request_id,
-            "approval_state": self.approval_state,
-            "record_id": self.record_id,
-            "record_dir": self.record_dir,
-            "creation_manifest_path": self.creation_manifest_path,
-            "writer_receipt_path": self.writer_receipt_path,
-            "finalization_receipt_path": self.finalization_receipt_path,
-            "read_model_path": self.read_model_path,
-            "temp_read_model_path": self.temp_read_model_path,
-            "expected_target_condition": self.expected_target_condition,
-        }
-        if self.expected_current_read_model_digest is not None:
-            request["expected_current_read_model_digest"] = self.expected_current_read_model_digest
-        return request
-
 
 @dataclass(frozen=True)
 class MeasurementRecordReadModelRefreshRun:
@@ -172,7 +155,7 @@ class MeasurementRecordReadModelRefreshRun:
         return {
             "artifact_posture": "local_record_read_model_refresh_receipt",
             "classification": self.classification,
-            "request": self.request.to_dict(),
+            "request": _request_ref(self.request),
             "read_view": {
                 "classification": self.read_view.classification,
                 "review_findings": [
@@ -270,6 +253,24 @@ def _projection_request_from_refresh(
         finalization_receipt_path=request.finalization_receipt_path,
         read_model_path=request.read_model_path,
     )
+
+
+def _request_ref(request: MeasurementRecordReadModelRefreshRequest) -> dict[str, Any]:
+    result = {
+        "request_id": request.request_id,
+        "approval_state": request.approval_state,
+        "record_id": request.record_id,
+        "record_dir": request.record_dir,
+        "creation_manifest_path": request.creation_manifest_path,
+        "writer_receipt_path": request.writer_receipt_path,
+        "finalization_receipt_path": request.finalization_receipt_path,
+        "read_model_path": request.read_model_path,
+        "temp_read_model_path": request.temp_read_model_path,
+        "expected_target_condition": request.expected_target_condition,
+    }
+    if request.expected_current_read_model_digest is not None:
+        result["expected_current_read_model_digest"] = request.expected_current_read_model_digest
+    return result
 
 
 def _validate_target_condition(

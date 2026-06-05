@@ -49,13 +49,6 @@ class MeasurementRecordCatalogRequest:
         if not isinstance(self.verify_source_digests, bool):
             raise ValueError("catalog request verify_source_digests must be boolean")
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "request_id": self.request_id,
-            "records_dir": self.records_dir,
-            "verify_source_digests": self.verify_source_digests,
-        }
-
 
 @dataclass(frozen=True)
 class MeasurementRecordCatalogRun:
@@ -76,7 +69,7 @@ class MeasurementRecordCatalogRun:
         return {
             "artifact_posture": "local_record_read_model_catalog",
             "classification": self.classification,
-            "request": self.request.to_dict(),
+            "request": _request_ref(self.request),
             "storage_root": str(self.storage_root),
             "entries": [copy.deepcopy(entry) for entry in self.entries],
             "review_findings": [copy.deepcopy(finding) for finding in self.review_findings],
@@ -137,6 +130,14 @@ def catalog_measurement_record_read_models_from_request(
         entries=tuple(entries),
         review_findings=tuple(findings),
     )
+
+
+def _request_ref(request: MeasurementRecordCatalogRequest) -> dict[str, Any]:
+    return {
+        "request_id": request.request_id,
+        "records_dir": request.records_dir,
+        "verify_source_digests": request.verify_source_digests,
+    }
 
 
 def _catalog_record_dir(

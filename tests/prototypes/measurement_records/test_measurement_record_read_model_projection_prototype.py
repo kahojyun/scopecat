@@ -83,12 +83,6 @@ def _read_request() -> MeasurementRecordReadRequest:
     )
 
 
-def _read_source() -> dict:
-    return {
-        "read_request": _read_request().to_dict(),
-    }
-
-
 def _finalization_request(**overrides: object) -> MeasurementRecordFinalizationRequest:
     values = {
         "request_id": "finalize-run-3101-rabi",
@@ -115,13 +109,6 @@ def _projection_request(**overrides: object) -> MeasurementRecordReadModelProjec
     }
     values.update(overrides)
     return MeasurementRecordReadModelProjectionRequest(**values)
-
-
-def _projection_source(**overrides: object) -> dict:
-    return {
-        "projection_request": _projection_request(**overrides).to_dict(),
-        "read_view_source": _read_source(),
-    }
 
 
 def _populate_record(storage_root: Path, content_root: Path) -> None:

@@ -61,16 +61,6 @@ class MeasurementRecordReadRequest:
     def creation_manifest_path(self) -> str:
         return f"{self.record_dir}/record-manifest.json"
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "request_id": self.request_id,
-            "record_id": self.record_id,
-            "record_dir": self.record_dir,
-            "creation_manifest_path": self.creation_manifest_path,
-            "writer_receipt_path": self.writer_receipt_path,
-            "preview_row_limit": self.preview_row_limit,
-        }
-
 
 @dataclass(frozen=True)
 class MeasurementRecordReadRun:
@@ -93,7 +83,7 @@ class MeasurementRecordReadRun:
         return {
             "artifact_posture": "local_record_read_view",
             "classification": self.classification,
-            "request": self.request.to_dict(),
+            "request": _request_ref(self.request),
             "record_manifest": _manifest_ref(self.record_manifest),
             "writer_receipt": _writer_receipt_ref(self.writer_receipt),
             "table": copy.deepcopy(self.table),
@@ -238,6 +228,17 @@ def _manifest_ref(manifest: dict[str, Any]) -> dict[str, Any]:
         "lifecycle_state": record.get("lifecycle_state"),
         "record_dir": storage.get("record_dir"),
         "manifest_path": storage.get("manifest_path"),
+    }
+
+
+def _request_ref(request: MeasurementRecordReadRequest) -> dict[str, Any]:
+    return {
+        "request_id": request.request_id,
+        "record_id": request.record_id,
+        "record_dir": request.record_dir,
+        "creation_manifest_path": request.creation_manifest_path,
+        "writer_receipt_path": request.writer_receipt_path,
+        "preview_row_limit": request.preview_row_limit,
     }
 
 
