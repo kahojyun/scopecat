@@ -22,18 +22,6 @@
     "package_id": "handoff-package-legacy-rabi-001",
     "source_export_summary_id": "export-summary-legacy-rabi-001"
   },
-  "package_preview_policy": {
-    "archive_extraction": "not_performed",
-    "file_observation": "not_performed",
-    "gui_workflow": "not_defined",
-    "import_acceptance": "not_performed",
-    "package_integrity": "not_claimed",
-    "preview_authority": "scopecat_export_manifest_only",
-    "recursive_relation_traversal": "not_performed",
-    "schema_inference": "not_performed",
-    "shared_measurement_schema": "not_defined",
-    "storage_mutation": "not_performed"
-  },
   "selected_measurements": [
     {
       "declared_preview_metadata": {

@@ -1,21 +1,4 @@
 {
-  "package_write_policy": {
-    "write_authority": "approved_handoff_package_write_request",
-    "source_authority": "caller_provided_storage_root_plus_declared_relative_paths",
-    "destination_authority": "caller_provided_package_root_plus_declared_package_paths",
-    "package_format": "directory_manifest",
-    "overwrite_behavior": "no_overwrite",
-    "checksum_algorithm": "sha256",
-    "primary_data_materialization": "copy_declared_primary_data",
-    "linked_context_materialization": "reference_only",
-    "archive_creation": "not_performed",
-    "package_acceptance": "not_performed",
-    "storage_mutation": "not_performed",
-    "schema_inference": "not_performed",
-    "recursive_relation_traversal": "not_performed",
-    "gui_workflow": "not_defined",
-    "shared_measurement_schema": "not_defined"
-  },
   "package_write_request": {
     "request_id": "write-handoff-package-legacy-rabi-001",
     "approval_state": "approved",
@@ -57,7 +40,10 @@
         "metadata_authority": "scopecat_export_manifest",
         "data_shape": {
           "kind": "declared_1d_table",
-          "axis_order": ["drive_frequency", "signal"]
+          "axis_order": [
+            "drive_frequency",
+            "signal"
+          ]
         },
         "declared_columns": [
           {
@@ -107,7 +93,9 @@
       "authority": "scopecat_export_manifest",
       "package_state": "not_packaged_visible_reference",
       "reason": "The accepted legacy import preserved this linked context as a reference-only fact; the package writer does not include its payload.",
-      "linked_measurement_record_ids": ["legacy-rabi-001"]
+      "linked_measurement_record_ids": [
+        "legacy-rabi-001"
+      ]
     }
   ]
 }

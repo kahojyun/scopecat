@@ -809,26 +809,6 @@ def _read_record_export_evidence(
     )
 
 
-def _package_write_policy() -> dict[str, str]:
-    return {
-        "write_authority": "approved_handoff_package_write_request",
-        "source_authority": "caller_provided_source_root_plus_declared_relative_paths",
-        "destination_authority": "caller_provided_package_root_plus_declared_package_paths",
-        "package_format": "directory_manifest",
-        "overwrite_behavior": "no_overwrite",
-        "checksum_algorithm": "sha256",
-        "primary_data_materialization": "copy_declared_primary_data",
-        "linked_context_materialization": "declared_reference_or_payload",
-        "archive_creation": "not_performed",
-        "package_acceptance": "not_performed",
-        "source_mutation": "not_performed",
-        "schema_inference": "not_performed",
-        "recursive_relation_traversal": "not_performed",
-        "gui_workflow": "not_defined",
-        "shared_measurement_schema": "not_defined",
-    }
-
-
 def _package_write_identity(
     request: SelectedMeasurementRecordExportRequest | SelectedMeasurementRecordBatchExportRequest,
 ) -> dict[str, Any]:
@@ -920,7 +900,6 @@ def _batch_writer_source(
     records: tuple[_SelectedRecordExportEvidence, ...],
 ) -> dict[str, Any]:
     return {
-        "package_write_policy": _package_write_policy(),
         "package_write_request": _package_write_request(request),
         "package_identity": _package_write_identity(request),
         "selected_measurements": [_measurement_writer_item(record) for record in records],
@@ -945,7 +924,6 @@ def _writer_source(
         writer_receipt=writer_receipt,
     )
     return {
-        "package_write_policy": _package_write_policy(),
         "package_write_request": _package_write_request(request),
         "package_identity": _package_write_identity(request),
         "selected_measurements": [_measurement_writer_item(evidence)],

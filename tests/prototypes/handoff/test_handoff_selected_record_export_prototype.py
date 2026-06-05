@@ -544,7 +544,6 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
                 "result": "written",
                 "bytes_written": len(context_content),
                 "digest": context_digest,
-                "does_not_claim": "linked_context_payload_import_or_reference_resolution",
             },
             receipt_summary["package_write"]["write_results"],
         )

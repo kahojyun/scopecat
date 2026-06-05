@@ -30,38 +30,8 @@ from scopecat.handoff._contracts import (
 )
 from scopecat.handoff._manifest_preview import preview_handoff_manifest
 
-_EXPECTED_POLICY = {
-    "write_authority": "approved_handoff_package_write_request",
-    "source_authority": "caller_provided_source_root_plus_declared_relative_paths",
-    "destination_authority": "caller_provided_package_root_plus_declared_package_paths",
-    "package_format": "directory_manifest",
-    "overwrite_behavior": "no_overwrite",
-    "checksum_algorithm": "sha256",
-    "primary_data_materialization": "copy_declared_primary_data",
-    "linked_context_materialization": "declared_reference_or_payload",
-    "archive_creation": "not_performed",
-    "package_acceptance": "not_performed",
-    "source_mutation": "not_performed",
-    "schema_inference": "not_performed",
-    "recursive_relation_traversal": "not_performed",
-    "gui_workflow": "not_defined",
-    "shared_measurement_schema": "not_defined",
-}
-_PACKAGE_PREVIEW_POLICY = {
-    "preview_authority": "scopecat_export_manifest_only",
-    "archive_extraction": "not_performed",
-    "file_observation": "not_performed",
-    "storage_mutation": "not_performed",
-    "import_acceptance": "not_performed",
-    "package_integrity": "not_claimed",
-    "schema_inference": "not_performed",
-    "recursive_relation_traversal": "not_performed",
-    "gui_workflow": "not_defined",
-    "shared_measurement_schema": "not_defined",
-}
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 _SOURCE_KEYS = {
-    "package_write_policy",
     "package_write_request",
     "package_identity",
     "selected_measurements",
@@ -172,7 +142,6 @@ class HandoffPackageWriteReceipt:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_write_receipt",
-            "package_write_policy": copy.deepcopy(_EXPECTED_POLICY),
             "package": {
                 "package_id": self.package_id,
                 "display_name": self.display_name,
@@ -463,15 +432,6 @@ def write_package(
     _write_new_files_transaction(package_root_resolved, files, label="handoff package")
 
     return _write_receipt(write_source, copied_sources, copied_contexts, manifest_content)
-
-
-def _validate_policy(source: dict[str, Any]) -> None:
-    policy = source["package_write_policy"]
-    if set(policy) != set(_EXPECTED_POLICY):
-        raise ValueError("handoff package writer policy must match expected shape")
-    for key, expected in _EXPECTED_POLICY.items():
-        if policy[key] != expected:
-            raise ValueError(f"handoff package writer policy {key} must be {expected}")
 
 
 def _require_mapping(value: Any, owner: str) -> dict[str, Any]:
@@ -766,7 +726,6 @@ def _validate_destination_topology(source: dict[str, Any]) -> None:
 
 def _validate_references(source: dict[str, Any]) -> None:
     _validate_source_shape(source)
-    _validate_policy(source)
     validate_handoff_package_identity(source["package_identity"], display_path="required")
     _validate_write_request(source)
     _validate_selected_measurements(source)
@@ -1166,7 +1125,6 @@ def _manifest_bytes(
     }
     context_size_by_id = {copied.context.link_id: len(copied.content) for copied in copied_contexts}
     manifest = {
-        "package_preview_policy": copy.deepcopy(_PACKAGE_PREVIEW_POLICY),
         "package_identity": source.identity.to_manifest(),
         "selected_measurements": [
             record.to_manifest(
@@ -1243,7 +1201,6 @@ def _write_receipt(
             "result": "written",
             "bytes_written": len(copied_by_id[record.measurement_record_id]),
             "digest": _sha256(copied_by_id[record.measurement_record_id]),
-            "does_not_claim": "schema_or_scientific_validity",
         }
         for record in source.selected_measurements
     ]
@@ -1254,7 +1211,6 @@ def _write_receipt(
             "result": "written",
             "bytes_written": len(copied_context_by_id[context.link_id]),
             "digest": _sha256(copied_context_by_id[context.link_id]),
-            "does_not_claim": "linked_context_payload_import_or_reference_resolution",
         }
         for context in source.linked_context
         if context.package_state == "packaged"
@@ -1266,7 +1222,6 @@ def _write_receipt(
             "result": "written",
             "bytes_written": len(manifest_content),
             "digest": _sha256(manifest_content),
-            "does_not_claim": "package_acceptance_or_archive_integrity",
         }
     )
     selected_measurements = [
@@ -1307,25 +1262,16 @@ def _attention() -> list[dict[str, str]]:
             "code": "handoff_package_written",
             "severity": "review",
             "basis": "Approved input wrote a directory-shaped handoff package.",
-            "does_not_claim": "package_acceptance_or_import_readiness",
         },
         {
             "code": "primary_data_copied",
             "severity": "info",
             "basis": "Declared primary data sha256 and size facts are checked before copying.",
-            "does_not_claim": "schema_or_scientific_validity",
         },
         {
             "code": "linked_context_materialization_declared",
             "severity": "review",
             "basis": "Linked context may be visible reference-only or explicitly packaged from declared source files.",
-            "does_not_claim": "recursive_relation_traversal_or_payload_import",
-        },
-        {
-            "code": "archive_creation_not_performed",
-            "severity": "review",
-            "basis": "The writer creates a package directory and manifest but no archive.",
-            "does_not_claim": "zip_or_archive_package_format",
         },
     ]
 

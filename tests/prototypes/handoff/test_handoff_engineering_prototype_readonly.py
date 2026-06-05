@@ -134,10 +134,6 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
             measurement.findings[0].subject_id,
             "package-legacy-001-parameter-snapshot",
         )
-        self.assertEqual(
-            package.findings[0].does_not_claim,
-            "package_integrity_or_import_acceptance_failure",
-        )
 
     def test_projection_outputs_are_copy_safe(self) -> None:
         package = open_package(PACKAGE)

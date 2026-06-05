@@ -562,7 +562,7 @@ class HandoffArchiveMaterializationContractTest(unittest.TestCase):
 
         self.assertFalse(run.materialized)
         self.assertTrue(run.cleanup_performed)
-        self.assertIn("package_preview_policy", run.materialization_error or "")
+        self.assertIn("package_identity", run.materialization_error or "")
 
 
 if __name__ == "__main__":

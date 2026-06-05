@@ -28,25 +28,10 @@ FIXTURE = (
     / "basic_package"
 )
 SOURCE_ROOT = FIXTURE / "source"
-LEGACY_CANDIDATE_FIXTURE = (
-    ROOT
-    / "tests"
-    / "fixtures"
-    / "prototypes"
-    / "handoff"
-    / "handoff_package_writer"
-    / "basic_package"
-)
 
 
 def _load_input() -> dict:
     return json.loads((FIXTURE / "package-writer-input.json").read_text(encoding="utf-8"))
-
-
-def _load_storage_named_input() -> dict:
-    return json.loads(
-        (LEGACY_CANDIDATE_FIXTURE / "package-writer-input.json").read_text(encoding="utf-8")
-    )
 
 
 def _sha256_digest(content: bytes) -> str:
@@ -104,21 +89,11 @@ class HandoffEngineeringPrototypeWriterTest(unittest.TestCase):
 
         self.assertEqual(manifest_bytes, (FIXTURE / "expected-package-manifest.json").read_bytes())
         self.assertEqual(receipt_summary["artifact_posture"], "local_write_receipt")
-        self.assertEqual(
-            receipt_summary["package_write_policy"]["source_authority"],
-            "caller_provided_source_root_plus_declared_relative_paths",
-        )
-        self.assertEqual(
-            receipt_summary["package_write_policy"]["source_mutation"], "not_performed"
-        )
         self.assertNotIn("storage_root", json.dumps(receipt_summary, sort_keys=True))
         self.assertEqual(
             receipt_summary["write_results"][1]["digest"],
             _sha256_digest(manifest_bytes),
         )
-
-    def test_storage_named_policy_is_rejected_at_promoted_boundary(self) -> None:
-        self.assertRejected(_load_storage_named_input(), "expected shape")
 
     def test_rejects_unsupported_raw_writer_fields(self) -> None:
         cases = [
@@ -346,7 +321,6 @@ class HandoffEngineeringPrototypeWriterTest(unittest.TestCase):
                 "result": "written",
                 "bytes_written": len(context_content),
                 "digest": context_digest,
-                "does_not_claim": "linked_context_payload_import_or_reference_resolution",
             },
             receipt_summary["write_results"],
         )

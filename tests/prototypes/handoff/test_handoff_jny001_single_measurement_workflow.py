@@ -450,12 +450,8 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
 
         self.assertEqual(package_root_entries, ["handoff-package-run-3101-rabi"])
         self.assertEqual(
-            export_summary["package_write"]["package_write_policy"]["package_format"],
-            "directory_manifest",
-        )
-        self.assertEqual(
-            export_summary["package_write"]["package_write_policy"]["archive_creation"],
-            "not_performed",
+            export_summary["package_write"]["package"]["classification"],
+            "package_written_ready_for_transfer_review",
         )
         self.assertEqual(
             creation_summary["artifact_authority"]["archive_bytes"],

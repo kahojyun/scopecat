@@ -22,18 +22,6 @@ from scopecat.handoff._contracts import (
 )
 from scopecat.handoff.package import HandoffFinding
 
-_EXPECTED_POLICY = {
-    "preview_authority": "scopecat_export_manifest_only",
-    "archive_extraction": "not_performed",
-    "file_observation": "not_performed",
-    "storage_mutation": "not_performed",
-    "import_acceptance": "not_performed",
-    "package_integrity": "not_claimed",
-    "schema_inference": "not_performed",
-    "recursive_relation_traversal": "not_performed",
-    "gui_workflow": "not_defined",
-    "shared_measurement_schema": "not_defined",
-}
 _PREVIEW_STATUSES = {
     "preview_ready",
     "degraded_preview",
@@ -240,15 +228,6 @@ def _linked_context_from_manifest(
     )
 
 
-def _validate_policy(source: dict[str, Any]) -> None:
-    policy = source["package_preview_policy"]
-    if set(policy) != set(_EXPECTED_POLICY):
-        raise ValueError("handoff package preview policy must match expected shape")
-    for key, expected in _EXPECTED_POLICY.items():
-        if policy[key] != expected:
-            raise ValueError(f"handoff package preview policy {key} must be {expected}")
-
-
 def _validate_preview_metadata(record: dict[str, Any]) -> None:
     preview = record["declared_preview_metadata"]
     record_id = record["measurement_record_id"]
@@ -389,7 +368,6 @@ def _validate_unique_package_paths(source: dict[str, Any]) -> None:
 
 
 def _validate_manifest(source: dict[str, Any]) -> None:
-    _validate_policy(source)
     validate_handoff_package_identity(source["package_identity"], display_path="optional")
     _validate_measurements(source)
     _validate_linked_context(source)
@@ -427,7 +405,6 @@ def _findings(
                     severity="review",
                     code=preview.warning_code,
                     basis=preview.message,
-                    does_not_claim="packaged_data_unreadable_or_invalid",
                 )
             )
 
@@ -440,7 +417,6 @@ def _findings(
                     severity="review",
                     code=f"linked_context_{item.package_state}",
                     basis=item.reason,
-                    does_not_claim="package_integrity_or_import_acceptance_failure",
                 )
             )
 
