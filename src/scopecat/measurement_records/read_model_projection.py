@@ -31,10 +31,7 @@ from scopecat.measurement_records.read_model_shared import (
     _validate_request_against_read_view,
     _validate_strict_child_path,
 )
-from scopecat.measurement_records.read_view import (
-    MeasurementRecordReadRun,
-    read_created_record_primary_table,
-)
+from scopecat.measurement_records.read_view import MeasurementRecordReadRun
 
 READ_MODEL_SCHEMA = _READ_MODEL_SCHEMA
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
@@ -168,22 +165,6 @@ class MeasurementRecordReadModelProjectionRun:
         }
 
 
-def project_measurement_record_read_model(
-    source: dict[str, Any],
-    *,
-    storage_root: str | Path,
-) -> MeasurementRecordReadModelProjectionRun:
-    """Project a finalized record read model from a raw projection source."""
-
-    request, read_view_source = _parse_source(source)
-    read_view = read_created_record_primary_table(read_view_source, storage_root=storage_root)
-    return project_measurement_record_read_model_from_read_view(
-        request,
-        read_view=read_view,
-        storage_root=storage_root,
-    )
-
-
 def project_measurement_record_read_model_from_read_view(
     request: MeasurementRecordReadModelProjectionRequest,
     *,
@@ -254,25 +235,6 @@ def project_measurement_record_read_model_from_read_view(
         finalization_receipt=finalization_receipt,
         read_model_digest=_sha256(model_content),
         read_model_size_bytes=len(model_content),
-    )
-
-
-def _parse_source(
-    source: dict[str, Any],
-) -> tuple[MeasurementRecordReadModelProjectionRequest, dict[str, Any]]:
-    request = _require_dict(source, "projection_request")
-    read_view_source = _require_dict(source, "read_view_source")
-    return (
-        MeasurementRecordReadModelProjectionRequest(
-            request_id=_require_text(request, "request_id"),
-            approval_state=_require_text(request, "approval_state"),
-            record_id=_require_text(request, "record_id"),
-            record_dir=_require_text(request, "record_dir"),
-            writer_receipt_path=_require_text(request, "writer_receipt_path"),
-            finalization_receipt_path=_require_text(request, "finalization_receipt_path"),
-            read_model_path=_require_text(request, "read_model_path"),
-        ),
-        read_view_source,
     )
 
 

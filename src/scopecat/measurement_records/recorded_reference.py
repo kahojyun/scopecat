@@ -259,17 +259,6 @@ class MeasurementRecordReferenceRun:
         }
 
 
-def record_measurement_record_references(
-    source: dict[str, Any],
-    *,
-    storage_root: str | Path,
-) -> MeasurementRecordReferenceRun:
-    """Record declared measurement references from a raw source."""
-
-    request = _parse_source(source)
-    return record_measurement_record_references_from_request(request, storage_root=storage_root)
-
-
 def record_measurement_record_references_from_request(
     request: MeasurementRecordReferenceRequest,
     *,
@@ -386,44 +375,6 @@ def list_measurement_record_references(
                 continue
             entries.append(entry)
     return _recorded_reference_review(entries, findings)
-
-
-def _parse_source(source: dict[str, Any]) -> MeasurementRecordReferenceRequest:
-    request = _require_dict(source, "recorded_reference_request")
-    return MeasurementRecordReferenceRequest(
-        request_id=_require_text(request, "request_id"),
-        approval_state=_require_text(request, "approval_state"),
-        record_id=_require_text(request, "record_id"),
-        record_dir=_require_text(request, "record_dir"),
-        reference_set_id=_require_text(request, "reference_set_id"),
-        reference_receipt_path=_optional_text(
-            request,
-            "reference_receipt_path",
-            default=None,
-        ),
-        previous_reference_receipt_path=_optional_text(
-            request,
-            "previous_reference_receipt_path",
-            default=None,
-        ),
-        references=tuple(
-            MeasurementRecordReference(
-                reference_id=_require_text(reference, "reference_id"),
-                family=_require_text(reference, "family"),
-                role=_require_text(reference, "role"),
-                reference_kind=_require_text(reference, "reference_kind"),
-                reference_value=_require_text(reference, "reference_value"),
-                state=_optional_text(reference, "state", default="declared_available"),
-                label=_optional_text(reference, "label", default=None),
-                digest=_optional_text(reference, "digest", default=None),
-                size_bytes=_optional_int(reference, "size_bytes"),
-                preview=_optional_text(reference, "preview", default=None),
-                reason=_optional_text(reference, "reason", default=None),
-            )
-            for reference in _require_list(request, "references")
-        ),
-        operator_notes=_optional_text(request, "operator_notes", default=None),
-    )
 
 
 def _read_creation_manifest(

@@ -13,9 +13,7 @@ from scopecat.measurement_records import (
     MeasurementRecordCreationRequest,
     MeasurementRecordStorageInventoryRequest,
     create_measurement_record_from_request,
-    list_measurement_record_storage,
     list_measurement_record_storage_from_request,
-    record_legacy_measurement_run,
     record_legacy_measurement_run_from_request,
 )
 from scopecat.measurement_records.__main__ import main as measurement_records_main
@@ -75,6 +73,17 @@ def _inventory_source(**overrides: object) -> dict:
     return {
         "storage_inventory_request": request,
     }
+
+
+def _inventory_request(**overrides: object) -> MeasurementRecordStorageInventoryRequest:
+    request = {
+        "request_id": "inventory-records",
+        "records_dir": "records",
+        "include_read_models": True,
+        "include_legacy_receipts": True,
+    }
+    request.update(overrides)
+    return MeasurementRecordStorageInventoryRequest(**request)
 
 
 def _write_minimal_projected_record(storage_root: Path) -> None:
@@ -141,17 +150,6 @@ class MeasurementRecordLegacyStorageInventoryPrototypeTest(unittest.TestCase):
             receipt["operation"]["classification"],
             "legacy_run_recorded_for_review",
         )
-
-    def test_raw_source_records_declared_legacy_paths(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir) / "storage"
-            storage_root.mkdir()
-
-            run = record_legacy_measurement_run(_legacy_source(), storage_root=storage_root)
-
-        self.assertEqual(run.classification, "recorded_legacy_run")
-        self.assertTrue(run.recorded)
-        self.assertEqual(run.to_dict()["classification"], "recorded_legacy_run")
 
     def test_unapproved_legacy_run_does_not_mutate_storage(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -226,8 +224,8 @@ class MeasurementRecordLegacyStorageInventoryPrototypeTest(unittest.TestCase):
             )
             (storage_root / "records" / "legacy-run-001" / "legacy-run-receipt.json").unlink()
 
-            run = list_measurement_record_storage(
-                _inventory_source(),
+            run = list_measurement_record_storage_from_request(
+                _inventory_request(),
                 storage_root=storage_root,
             )
 

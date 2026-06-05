@@ -15,7 +15,6 @@ from scopecat.measurement_records import (
     MeasurementRecordReadRequest,
     MeasurementRecordWriterChunk,
     MeasurementRecordWriterRequest,
-    catalog_measurement_record_read_models,
     catalog_measurement_record_read_models_from_request,
     create_measurement_record_from_request,
     finalize_measurement_record_from_read_view,
@@ -219,22 +218,6 @@ class MeasurementRecordReadModelCatalogPrototypeTest(unittest.TestCase):
             },
         )
         self.assertEqual(summary["classification"], "read_model_catalog_ready")
-
-    def test_raw_source_catalogs_projected_read_model(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir) / "storage"
-            content_root = Path(temp_dir) / "content"
-            storage_root.mkdir()
-            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
-            _populate_projected_record(storage_root, content_root)
-
-            run = catalog_measurement_record_read_models(
-                _catalog_source(),
-                storage_root=storage_root,
-            )
-
-        self.assertEqual(run.classification, "read_model_catalog_ready")
-        self.assertEqual(len(run.entries), 1)
 
     def test_missing_read_model_is_review_finding(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

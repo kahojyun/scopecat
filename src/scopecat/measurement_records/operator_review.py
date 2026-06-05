@@ -284,17 +284,6 @@ class MeasurementRecordOperatorReviewReceiptRun:
         }
 
 
-def review_measurement_records(
-    source: dict[str, Any],
-    *,
-    storage_root: str | Path,
-) -> MeasurementRecordOperatorReviewRun:
-    """Compose a read-only operator review from a raw review source."""
-
-    request = _parse_source(source)
-    return review_measurement_records_from_request(request, storage_root=storage_root)
-
-
 def review_measurement_records_from_request(
     request: MeasurementRecordOperatorReviewRequest,
     *,

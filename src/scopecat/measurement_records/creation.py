@@ -123,17 +123,6 @@ class MeasurementRecordCreationRun:
         }
 
 
-def create_measurement_record(
-    source: dict[str, Any],
-    *,
-    storage_root: str | Path,
-) -> MeasurementRecordCreationRun:
-    """Create a measurement-record shell from a raw creation source."""
-
-    request = _parse_source(source)
-    return create_measurement_record_from_request(request, storage_root=storage_root)
-
-
 def create_measurement_record_from_request(
     request: MeasurementRecordCreationRequest,
     *,
@@ -162,25 +151,6 @@ def create_measurement_record_from_request(
         request=request,
         storage_root=root,
         created_paths=tuple(created_paths),
-    )
-
-
-def _parse_source(source: dict[str, Any]) -> MeasurementRecordCreationRequest:
-    request = _require_dict(source, "creation_request")
-    return MeasurementRecordCreationRequest(
-        request_id=_require_text(request, "request_id"),
-        approval_state=_require_text(request, "approval_state"),
-        record_id=_require_text(request, "record_id"),
-        record_dir=_require_text(request, "record_dir"),
-        initial_lifecycle_state=_optional_text(
-            request,
-            "initial_lifecycle_state",
-            default="created",
-        ),
-        creation_source_kind=_optional_text(request, "creation_source_kind", default="manual"),
-        created_at=_optional_text(request, "created_at", default=None),
-        label=_optional_text(request, "label", default=None),
-        experiment_type=_optional_text(request, "experiment_type", default=None),
     )
 
 
@@ -378,25 +348,3 @@ def _validate_public_path_segments(value: str, owner: str) -> None:
             validate_public_identifier(segment, f"{owner} path segment")
         except ValueError as exc:
             raise ValueError(f"{owner} path segments must be public-safe") from exc
-
-
-def _require_dict(value: dict[str, Any], field: str) -> dict[str, Any]:
-    item = value.get(field)
-    if not isinstance(item, dict):
-        raise ValueError(f"{field} must be an object")
-    return item
-
-
-def _require_text(value: dict[str, Any], field: str) -> str:
-    return validate_text(value.get(field), field)
-
-
-def _optional_text(
-    value: dict[str, Any],
-    field: str,
-    *,
-    default: str | None,
-) -> str | None:
-    if field not in value:
-        return default
-    return validate_text(value[field], field)

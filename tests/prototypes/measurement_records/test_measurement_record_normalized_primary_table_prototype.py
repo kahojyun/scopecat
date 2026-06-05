@@ -7,7 +7,6 @@ from pathlib import Path
 from scopecat.measurement_records import (
     MeasurementRecordNormalizedPrimaryColumnDeclaration,
     MeasurementRecordNormalizedPrimaryTableRequest,
-    summarize_normalized_primary_table,
     summarize_normalized_primary_table_from_request,
 )
 
@@ -122,8 +121,8 @@ class MeasurementRecordNormalizedPrimaryTablePrototypeTest(unittest.TestCase):
             )
 
     def test_run_summary_uses_table_facts(self) -> None:
-        summary = summarize_normalized_primary_table(
-            _raw_source(),
+        summary = summarize_normalized_primary_table_from_request(
+            _request(),
             content=_content(),
         ).to_dict()
 

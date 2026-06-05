@@ -277,22 +277,6 @@ class MeasurementRecordDurableImportRun:
         }
 
 
-def import_measurement_record(
-    source: dict[str, Any],
-    *,
-    content_root: str | Path,
-    storage_root: str | Path,
-) -> MeasurementRecordDurableImportRun:
-    """Import reviewed normalized data into a new record from a raw source."""
-
-    request = _parse_source(source)
-    return import_measurement_record_from_request(
-        request,
-        content_root=content_root,
-        storage_root=storage_root,
-    )
-
-
 def import_measurement_record_from_request(
     request: MeasurementRecordDurableImportRequest,
     *,
@@ -382,38 +366,6 @@ def import_measurement_record_from_request(
         read_view_run=read_view_run,
         finalization_run=finalization_run,
         projection_run=projection_run,
-    )
-
-
-def _parse_source(source: dict[str, Any]) -> MeasurementRecordDurableImportRequest:
-    request = _require_dict(source, "durable_import_request")
-    source_facts = _require_dict(request, "import_source")
-    return MeasurementRecordDurableImportRequest(
-        request_id=_require_text(request, "request_id"),
-        approval_state=_require_text(request, "approval_state"),
-        record_id=_require_text(request, "record_id"),
-        record_dir=_require_text(request, "record_dir"),
-        primary_data_path=_require_text(request, "primary_data_path"),
-        writer_receipt_path=_require_text(request, "writer_receipt_path"),
-        finalization_receipt_path=_require_text(request, "finalization_receipt_path"),
-        read_model_path=_require_text(request, "read_model_path"),
-        creation_source_kind=_optional_text(request, "creation_source_kind", default="import"),
-        label=_optional_text(request, "label", default=None),
-        experiment_type=_optional_text(request, "experiment_type", default=None),
-        import_source=MeasurementRecordImportSource(
-            source_kind=_require_text(source_facts, "source_kind"),
-            source_id=_require_text(source_facts, "source_id"),
-            source_item_id=_require_text(source_facts, "source_item_id"),
-            content_ref=_require_text(source_facts, "content_ref"),
-            declared_digest=_require_text(source_facts, "declared_digest"),
-            size_bytes=_require_int(source_facts, "size_bytes"),
-            rows_recorded=_require_int(source_facts, "rows_recorded"),
-            primary_data_format=_optional_text(
-                source_facts,
-                "primary_data_format",
-                default="csv_table",
-            ),
-        ),
     )
 
 

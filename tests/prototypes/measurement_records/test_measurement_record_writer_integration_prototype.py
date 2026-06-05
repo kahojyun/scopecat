@@ -12,7 +12,6 @@ from scopecat.measurement_records import (
     MeasurementRecordWriterChunk,
     MeasurementRecordWriterRequest,
     create_measurement_record_from_request,
-    write_created_record_primary_data,
     write_created_record_primary_data_from_request,
 )
 
@@ -114,8 +113,8 @@ class MeasurementRecordWriterIntegrationPrototypeTest(unittest.TestCase):
             shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
             _create_shell(storage_root)
 
-            run = write_created_record_primary_data(
-                _writer_source(),
+            run = write_created_record_primary_data_from_request(
+                _writer_request(),
                 storage_root=storage_root,
                 content_root=content_root,
             )

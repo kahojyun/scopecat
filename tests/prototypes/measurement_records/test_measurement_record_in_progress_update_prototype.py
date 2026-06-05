@@ -16,10 +16,8 @@ from scopecat.measurement_records import (
     MeasurementRecordRunningInspectionRequest,
     MeasurementRecordWriterChunk,
     MeasurementRecordWriterRequest,
-    append_in_progress_measurement_record,
     append_in_progress_measurement_record_from_request,
     create_measurement_record_from_request,
-    inspect_running_measurement_record,
     inspect_running_measurement_record_from_request,
     summarize_running_measurement_inspection,
     write_created_record_primary_data_from_request,
@@ -166,8 +164,8 @@ class MeasurementRecordInProgressUpdatePrototypeTest(unittest.TestCase):
             primary_path = storage_root / "records" / "run-3101-rabi" / "primary.csv"
             original_primary = primary_path.read_text(encoding="utf-8")
 
-            run = append_in_progress_measurement_record(
-                _update_source(),
+            run = append_in_progress_measurement_record_from_request(
+                _update_request(),
                 storage_root=storage_root,
                 content_root=content_root,
             )
@@ -303,8 +301,8 @@ class MeasurementRecordInProgressUpdatePrototypeTest(unittest.TestCase):
             if not append_run.updated:
                 raise AssertionError(append_run.to_dict())
 
-            run = inspect_running_measurement_record(
-                _inspection_source(),
+            run = inspect_running_measurement_record_from_request(
+                _inspection_request(),
                 storage_root=storage_root,
             )
 

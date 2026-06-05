@@ -85,17 +85,6 @@ class MeasurementRecordStorageInventoryRun:
         }
 
 
-def list_measurement_record_storage(
-    source: dict[str, Any],
-    *,
-    storage_root: str | Path,
-) -> MeasurementRecordStorageInventoryRun:
-    """List Measurement Records storage contents from a raw source."""
-
-    request = _parse_source(source)
-    return list_measurement_record_storage_from_request(request, storage_root=storage_root)
-
-
 def list_measurement_record_storage_from_request(
     request: MeasurementRecordStorageInventoryRequest,
     *,

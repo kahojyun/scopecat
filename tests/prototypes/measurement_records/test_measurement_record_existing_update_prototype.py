@@ -10,7 +10,6 @@ from pathlib import Path
 from scopecat.measurement_records import (
     MeasurementRecordExistingAppendChunk,
     MeasurementRecordExistingUpdateRequest,
-    append_existing_measurement_record,
     append_existing_measurement_record_from_request,
 )
 
@@ -37,6 +36,25 @@ def _source(**overrides: object) -> dict:
     return source
 
 
+def _request(source: dict) -> MeasurementRecordExistingUpdateRequest:
+    return MeasurementRecordExistingUpdateRequest.from_dict(source["update_request"])
+
+
+def _append_chunk(source: dict) -> MeasurementRecordExistingAppendChunk:
+    return MeasurementRecordExistingAppendChunk.from_dict(source["append_chunk"])
+
+
+def _append_existing(source: dict, *, content_root: Path, storage_root: Path):
+    return append_existing_measurement_record_from_request(
+        _request(source),
+        append_chunk=_append_chunk(source),
+        content_root=content_root,
+        current_record=source["current_record"],
+        measurement_record=source["measurement_record"],
+        storage_root=storage_root,
+    )
+
+
 class MeasurementRecordExistingUpdatePrototypeTest(unittest.TestCase):
     def test_approved_append_update_records_append_without_replacing_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -52,7 +70,7 @@ class MeasurementRecordExistingUpdatePrototypeTest(unittest.TestCase):
                 storage_root / "records" / "run-4101-rabi" / "primary.csv"
             ).read_bytes()
 
-            run = append_existing_measurement_record_from_request(
+            run = _append_existing(
                 _source(),
                 content_root=content_root,
                 storage_root=storage_root,
@@ -93,27 +111,10 @@ class MeasurementRecordExistingUpdatePrototypeTest(unittest.TestCase):
             {"path", "kind", "result", "bytes_written", "digest"},
         )
 
-    def test_raw_adapter_returns_summary(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir) / "storage"
-            content_root = Path(temp_dir) / "content"
-            shutil.copytree(FIXTURE / "existing-storage", storage_root)
-            shutil.copytree(FIXTURE / "chunks", content_root / "chunks")
-
-            summary = append_existing_measurement_record(
-                _source(),
-                content_root=content_root,
-                storage_root=storage_root,
-            )
-
-        self.assertEqual(
-            summary["measurement_record"]["classification"], "existing_record_append_recorded"
-        )
-
     def test_typed_request_and_chunk_validate_boundary(self) -> None:
         source = _source()
-        request = MeasurementRecordExistingUpdateRequest.from_dict(source["update_request"])
-        chunk = MeasurementRecordExistingAppendChunk.from_dict(source["append_chunk"])
+        request = _request(source)
+        chunk = _append_chunk(source)
 
         self.assertEqual(request.update_id, "update-4101-2")
         self.assertEqual(chunk.total_rows_recorded, 5)
@@ -128,7 +129,7 @@ class MeasurementRecordExistingUpdatePrototypeTest(unittest.TestCase):
             shutil.copytree(FIXTURE / "chunks", content_root / "chunks")
 
             with self.assertRaisesRegex(ValueError, "must be approved"):
-                append_existing_measurement_record_from_request(
+                _append_existing(
                     source,
                     content_root=content_root,
                     storage_root=storage_root,
@@ -146,7 +147,7 @@ class MeasurementRecordExistingUpdatePrototypeTest(unittest.TestCase):
             lock.write_text("other-writer\n", encoding="utf-8")
 
             with self.assertRaisesRegex(ValueError, "lock target already exists"):
-                append_existing_measurement_record_from_request(
+                _append_existing(
                     _source(),
                     content_root=content_root,
                     storage_root=storage_root,
@@ -165,7 +166,7 @@ class MeasurementRecordExistingUpdatePrototypeTest(unittest.TestCase):
             record_dir = storage_root / "records" / "run-4101-rabi"
 
             with self.assertRaisesRegex(ValueError, "digest does not match"):
-                append_existing_measurement_record_from_request(
+                _append_existing(
                     source,
                     content_root=content_root,
                     storage_root=storage_root,
@@ -180,7 +181,7 @@ class MeasurementRecordExistingUpdatePrototypeTest(unittest.TestCase):
         source["update_request"]["update_receipt_path"] = "records/run-4101-rabi"
 
         with self.assertRaisesRegex(ValueError, "must stay under record_dir|must not overlap"):
-            append_existing_measurement_record_from_request(
+            _append_existing(
                 source,
                 content_root=FIXTURE,
                 storage_root=FIXTURE / "existing-storage",
@@ -195,7 +196,7 @@ class MeasurementRecordExistingUpdatePrototypeTest(unittest.TestCase):
             source = _source()
             original = copy.deepcopy(source)
 
-            run = append_existing_measurement_record_from_request(
+            run = _append_existing(
                 source,
                 content_root=content_root,
                 storage_root=storage_root,

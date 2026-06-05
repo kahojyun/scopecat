@@ -16,7 +16,6 @@ from scopecat.measurement_records import (
     MeasurementRecordWriterRequest,
     create_measurement_record_from_request,
     finalize_measurement_record_from_read_view,
-    project_measurement_record_read_model,
     project_measurement_record_read_model_from_read_view,
     read_created_record_primary_table_from_request,
     write_created_record_primary_data_from_request,
@@ -226,23 +225,6 @@ class MeasurementRecordReadModelProjectionPrototypeTest(unittest.TestCase):
             },
         )
         self.assertEqual(summary["classification"], "projected_read_model")
-
-    def test_raw_source_projection_composes_read_view(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir) / "storage"
-            content_root = Path(temp_dir) / "content"
-            storage_root.mkdir()
-            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
-            _populate_record(storage_root, content_root)
-            _finalize(storage_root)
-
-            run = project_measurement_record_read_model(
-                _projection_source(),
-                storage_root=storage_root,
-            )
-
-        self.assertEqual(run.classification, "projected_read_model")
-        self.assertTrue(run.projected)
 
     def test_failed_finalization_projection_records_operator_reason(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -7,13 +7,12 @@ from pathlib import Path
 
 from scopecat.measurement_records import (
     MeasurementRecordCreationRequest,
-    create_measurement_record,
     create_measurement_record_from_request,
 )
 
 
-def _request_source(**overrides: object) -> dict:
-    request = {
+def _request(**overrides: object) -> MeasurementRecordCreationRequest:
+    values = {
         "request_id": "create-record-rabi-001",
         "approval_state": "approved",
         "record_id": "rabi-001",
@@ -24,10 +23,8 @@ def _request_source(**overrides: object) -> dict:
         "label": "Rabi 001",
         "experiment_type": "rabi",
     }
-    request.update(overrides)
-    return {
-        "creation_request": request,
-    }
+    values.update(overrides)
+    return MeasurementRecordCreationRequest(**values)
 
 
 class MeasurementRecordCreationPrototypeTest(unittest.TestCase):
@@ -36,7 +33,7 @@ class MeasurementRecordCreationPrototypeTest(unittest.TestCase):
             storage_root = Path(temp_dir) / "storage"
             storage_root.mkdir()
 
-            run = create_measurement_record(_request_source(), storage_root=storage_root)
+            run = create_measurement_record_from_request(_request(), storage_root=storage_root)
             manifest_path = storage_root / "records" / "rabi-001" / "record-manifest.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
@@ -74,8 +71,8 @@ class MeasurementRecordCreationPrototypeTest(unittest.TestCase):
             storage_root = Path(temp_dir) / "storage"
             storage_root.mkdir()
 
-            run = create_measurement_record(
-                _request_source(approval_state="needs_review"),
+            run = create_measurement_record_from_request(
+                _request(approval_state="needs_review"),
                 storage_root=storage_root,
             )
 
@@ -91,7 +88,7 @@ class MeasurementRecordCreationPrototypeTest(unittest.TestCase):
             record_dir = storage_root / "records" / "rabi-001"
             record_dir.mkdir(parents=True)
 
-            run = create_measurement_record(_request_source(), storage_root=storage_root)
+            run = create_measurement_record_from_request(_request(), storage_root=storage_root)
 
             self.assertFalse((record_dir / "record-manifest.json").exists())
 
@@ -105,8 +102,8 @@ class MeasurementRecordCreationPrototypeTest(unittest.TestCase):
             storage_root.mkdir()
 
             with self.assertRaisesRegex(ValueError, "record_id"):
-                create_measurement_record(
-                    _request_source(record_id="../private"),
+                create_measurement_record_from_request(
+                    _request(record_id="../private"),
                     storage_root=storage_root,
                 )
 
@@ -118,8 +115,8 @@ class MeasurementRecordCreationPrototypeTest(unittest.TestCase):
             storage_root.mkdir()
 
             with self.assertRaisesRegex(ValueError, "record_dir"):
-                create_measurement_record(
-                    _request_source(record_dir="../records/rabi-001"),
+                create_measurement_record_from_request(
+                    _request(record_dir="../records/rabi-001"),
                     storage_root=storage_root,
                 )
 
@@ -134,7 +131,7 @@ class MeasurementRecordCreationPrototypeTest(unittest.TestCase):
             (storage_root / "records").symlink_to(external)
 
             with self.assertRaisesRegex(ValueError, "parent is a symlink"):
-                create_measurement_record(_request_source(), storage_root=storage_root)
+                create_measurement_record_from_request(_request(), storage_root=storage_root)
 
             self.assertEqual(list(external.iterdir()), [])
 

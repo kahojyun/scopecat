@@ -31,7 +31,6 @@ from scopecat.measurement_records import (
     project_measurement_record_read_model_from_read_view,
     read_created_record_primary_table_from_request,
     record_measurement_record_references_from_request,
-    review_measurement_records,
     review_measurement_records_from_request,
     save_measurement_record_operator_review_receipt,
     summarize_measurement_record_operator_review_receipt,
@@ -534,22 +533,6 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
             payload["next_action"],
             "review_measurement_record_operator_findings",
         )
-
-    def test_raw_operator_review_uses_declared_request(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir) / "storage"
-            content_root = Path(temp_dir) / "content"
-            storage_root.mkdir()
-            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
-            _populate_projected_record(storage_root, content_root)
-
-            run = review_measurement_records(
-                _operator_source(),
-                storage_root=storage_root,
-            )
-
-        self.assertEqual(run.classification, "measurement_record_operator_review_ready")
-        self.assertEqual(run.to_dict()["selected_record"]["record"]["record_id"], "run-3101-rabi")
 
     def test_operator_review_rejects_duplicate_running_record_snapshots(self) -> None:
         with self.assertRaisesRegex(ValueError, "unique record_id"):

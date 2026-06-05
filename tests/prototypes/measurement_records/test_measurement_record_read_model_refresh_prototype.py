@@ -21,7 +21,6 @@ from scopecat.measurement_records import (
     finalize_measurement_record_from_read_view,
     project_measurement_record_read_model_from_read_view,
     read_created_record_primary_table_from_request,
-    refresh_measurement_record_read_model,
     refresh_measurement_record_read_model_from_read_view,
     write_created_record_primary_data_from_request,
 )
@@ -257,23 +256,6 @@ class MeasurementRecordReadModelRefreshPrototypeTest(unittest.TestCase):
             },
         )
         self.assertEqual(summary["classification"], "refreshed_read_model")
-
-    def test_raw_source_refresh_composes_read_view(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir) / "storage"
-            content_root = Path(temp_dir) / "content"
-            storage_root.mkdir()
-            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
-            _populate_record(storage_root, content_root)
-            _finalize(storage_root)
-
-            run = refresh_measurement_record_read_model(
-                _refresh_source(),
-                storage_root=storage_root,
-            )
-
-        self.assertEqual(run.classification, "refreshed_read_model")
-        self.assertTrue(run.refreshed)
 
     def test_refresh_replaces_existing_read_model_when_digest_matches(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

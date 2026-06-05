@@ -26,10 +26,7 @@ from scopecat.measurement_records.creation import (
     validate_relative_path,
     validate_text,
 )
-from scopecat.measurement_records.read_view import (
-    MeasurementRecordReadRun,
-    read_created_record_primary_table,
-)
+from scopecat.measurement_records.read_view import MeasurementRecordReadRun
 
 FINALIZATION_RECEIPT_SCHEMA = "measurement_record_finalization_receipt_v0"
 FINALIZATION_STATES = {"complete", "failed"}
@@ -149,22 +146,6 @@ class MeasurementRecordFinalizationRun:
         }
 
 
-def finalize_measurement_record(
-    source: dict[str, Any],
-    *,
-    storage_root: str | Path,
-) -> MeasurementRecordFinalizationRun:
-    """Finalize a measurement record from a raw finalization source."""
-
-    request, read_view_source = _parse_source(source)
-    read_view = read_created_record_primary_table(read_view_source, storage_root=storage_root)
-    return finalize_measurement_record_from_read_view(
-        request,
-        read_view=read_view,
-        storage_root=storage_root,
-    )
-
-
 def finalize_measurement_record_from_read_view(
     request: MeasurementRecordFinalizationRequest,
     *,
@@ -212,29 +193,6 @@ def finalize_measurement_record_from_read_view(
         read_view=read_view,
         storage_root=root,
         finalization_receipt_path=request.finalization_receipt_path,
-    )
-
-
-def _parse_source(
-    source: dict[str, Any],
-) -> tuple[MeasurementRecordFinalizationRequest, dict[str, Any]]:
-    request = _require_dict(source, "finalization_request")
-    read_view_source = _require_dict(source, "read_view_source")
-    return (
-        MeasurementRecordFinalizationRequest(
-            request_id=_require_text(request, "request_id"),
-            approval_state=_require_text(request, "approval_state"),
-            record_id=_require_text(request, "record_id"),
-            record_dir=_require_text(request, "record_dir"),
-            writer_receipt_path=_require_text(request, "writer_receipt_path"),
-            finalization_receipt_path=_require_text(
-                request,
-                "finalization_receipt_path",
-            ),
-            final_state=_require_text(request, "final_state"),
-            operator_reason=_optional_text(request, "operator_reason"),
-        ),
-        read_view_source,
     )
 
 

@@ -11,7 +11,6 @@ from scopecat.measurement_records import (
     MeasurementRecordReferenceRequest,
     create_measurement_record_from_request,
     list_measurement_record_references,
-    record_measurement_record_references,
     record_measurement_record_references_from_request,
 )
 
@@ -132,16 +131,6 @@ class MeasurementRecordReferencePrototypeTest(unittest.TestCase):
             "measurement_record_recorded_reference_review_ready",
         )
         self.assertEqual(review["entries"][0]["reference_count"], 4)
-
-    def test_raw_source_records_declared_references(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir) / "storage"
-            storage_root.mkdir()
-            _create_record(storage_root)
-
-            run = record_measurement_record_references(_source(), storage_root=storage_root)
-
-        self.assertTrue(run.recorded)
 
     def test_unapproved_request_does_not_write(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

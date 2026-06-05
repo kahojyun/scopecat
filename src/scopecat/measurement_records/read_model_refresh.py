@@ -30,10 +30,7 @@ from scopecat.measurement_records.read_model_shared import (
     _validate_request_against_read_view,
     _validate_strict_child_path,
 )
-from scopecat.measurement_records.read_view import (
-    MeasurementRecordReadRun,
-    read_created_record_primary_table,
-)
+from scopecat.measurement_records.read_view import MeasurementRecordReadRun
 from scopecat.measurement_records.writer_integration import validate_sha256_digest
 
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
@@ -198,22 +195,6 @@ class MeasurementRecordReadModelRefreshRun:
         }
 
 
-def refresh_measurement_record_read_model(
-    source: dict[str, Any],
-    *,
-    storage_root: str | Path,
-) -> MeasurementRecordReadModelRefreshRun:
-    """Refresh a record read model from a raw refresh source."""
-
-    request, read_view_source = _parse_source(source)
-    read_view = read_created_record_primary_table(read_view_source, storage_root=storage_root)
-    return refresh_measurement_record_read_model_from_read_view(
-        request,
-        read_view=read_view,
-        storage_root=storage_root,
-    )
-
-
 def refresh_measurement_record_read_model_from_read_view(
     request: MeasurementRecordReadModelRefreshRequest,
     *,
@@ -274,30 +255,6 @@ def refresh_measurement_record_read_model_from_read_view(
         refreshed_read_model_digest=_sha256(model_content),
         refreshed_read_model_size_bytes=len(model_content),
         replacement_performed=True,
-    )
-
-
-def _parse_source(
-    source: dict[str, Any],
-) -> tuple[MeasurementRecordReadModelRefreshRequest, dict[str, Any]]:
-    request = _require_dict(source, "refresh_request")
-    read_view_source = _require_dict(source, "read_view_source")
-    return (
-        MeasurementRecordReadModelRefreshRequest(
-            request_id=_require_text(request, "request_id"),
-            approval_state=_require_text(request, "approval_state"),
-            record_id=_require_text(request, "record_id"),
-            record_dir=_require_text(request, "record_dir"),
-            writer_receipt_path=_require_text(request, "writer_receipt_path"),
-            finalization_receipt_path=_require_text(request, "finalization_receipt_path"),
-            read_model_path=_require_text(request, "read_model_path"),
-            expected_target_condition=_require_text(request, "expected_target_condition"),
-            expected_current_read_model_digest=_optional_text(
-                request,
-                "expected_current_read_model_digest",
-            ),
-        ),
-        read_view_source,
     )
 
 

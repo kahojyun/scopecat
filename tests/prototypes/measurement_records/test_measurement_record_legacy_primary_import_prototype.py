@@ -11,7 +11,6 @@ from scopecat.measurement_records import (
     LegacyRunRecordRequest,
     MeasurementRecordImportSource,
     MeasurementRecordReadRequest,
-    attach_converted_primary_data_to_legacy_record,
     attach_converted_primary_data_to_legacy_record_from_request,
     read_created_record_primary_table_from_request,
     record_legacy_measurement_run_from_request,
@@ -125,23 +124,6 @@ class MeasurementRecordLegacyPrimaryImportPrototypeTest(unittest.TestCase):
         self.assertTrue(run.attached)
         self.assertEqual(read_view.table["row_count"], 3)
         self.assertEqual(run.to_dict()["pipeline"]["projection"], "projected_read_model")
-
-    def test_raw_source_attach_converted_primary_data(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir) / "storage"
-            content_root = Path(temp_dir) / "content"
-            storage_root.mkdir()
-            content_root.mkdir()
-            _record_legacy(storage_root)
-            _write_source(content_root)
-
-            run = attach_converted_primary_data_to_legacy_record(
-                _raw_source(),
-                content_root=content_root,
-                storage_root=storage_root,
-            )
-
-        self.assertEqual(run.classification, "attached_legacy_primary_data")
 
     def test_unapproved_attach_does_not_require_converted_source(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

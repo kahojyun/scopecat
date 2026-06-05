@@ -114,17 +114,6 @@ class MeasurementRecordNormalizedPrimaryTableRun:
         }
 
 
-def summarize_normalized_primary_table(
-    source: dict[str, Any],
-    *,
-    content: bytes,
-) -> MeasurementRecordNormalizedPrimaryTableRun:
-    """Summarize normalized primary CSV bytes from a raw route source."""
-
-    request = _parse_source(source)
-    return summarize_normalized_primary_table_from_request(request, content=content)
-
-
 def summarize_normalized_primary_table_from_request(
     request: MeasurementRecordNormalizedPrimaryTableRequest,
     *,
@@ -215,32 +204,6 @@ def summarize_observed_primary_table_for_read_view(
             },
         },
         findings,
-    )
-
-
-def _parse_source(source: dict[str, Any]) -> MeasurementRecordNormalizedPrimaryTableRequest:
-    return MeasurementRecordNormalizedPrimaryTableRequest(
-        source=_require_text(source, "source"),
-        declared_columns=tuple(
-            _parse_declared_column(column, index)
-            for index, column in enumerate(_require_list(source, "declared_columns"))
-        ),
-        declared_row_count=_optional_non_negative_int(source, "declared_row_count"),
-        preview_row_limit=_optional_positive_int(source, "preview_row_limit", default=5),
-    )
-
-
-def _parse_declared_column(
-    column: Any,
-    index: int,
-) -> MeasurementRecordNormalizedPrimaryColumnDeclaration:
-    if not isinstance(column, dict):
-        raise ValueError("normalized primary table declared column must be an object")
-    return MeasurementRecordNormalizedPrimaryColumnDeclaration(
-        name=_require_text(column, "name"),
-        label=_optional_text(column, "label"),
-        role=_optional_text(column, "role") or "undeclared",
-        unit=_optional_text(column, "unit"),
     )
 
 

@@ -27,30 +27,30 @@ Historical slice-by-slice promotion notes live in [`HISTORY.md`](HISTORY.md).
 
 Durable record creation and primary-data pipeline:
 
-- `create_measurement_record(...)`
-- `write_created_record_primary_data(...)`
-- `summarize_normalized_primary_table(...)`
-- `read_created_record_primary_table(...)`
-- `finalize_measurement_record(...)`
-- `project_measurement_record_read_model(...)`
-- `catalog_measurement_record_read_models(...)`
-- `refresh_measurement_record_read_model(...)`
-- `import_measurement_record(...)`
+- `create_measurement_record_from_request(...)`
+- `write_created_record_primary_data_from_request(...)`
+- `summarize_normalized_primary_table_from_request(...)`
+- `read_created_record_primary_table_from_request(...)`
+- `finalize_measurement_record_from_read_view(...)`
+- `project_measurement_record_read_model_from_read_view(...)`
+- `catalog_measurement_record_read_models_from_request(...)`
+- `refresh_measurement_record_read_model_from_read_view(...)`
+- `import_measurement_record_from_request(...)`
 
 Legacy and brownfield storage review:
 
-- `record_legacy_measurement_run(...)`
-- `attach_converted_primary_data_to_legacy_record(...)`
-- `record_measurement_record_references(...)`
+- `record_legacy_measurement_run_from_request(...)`
+- `attach_converted_primary_data_to_legacy_record_from_request(...)`
+- `record_measurement_record_references_from_request(...)`
 - `record_legacy_measurement(...)`
-- `list_measurement_record_storage(...)`
+- `list_measurement_record_storage_from_request(...)`
 
 In-progress and existing-record local review:
 
-- `append_in_progress_measurement_record(...)`
-- `inspect_running_measurement_record(...)`
-- `append_existing_measurement_record(...)`
-- `review_measurement_records(...)`
+- `append_in_progress_measurement_record_from_request(...)`
+- `inspect_running_measurement_record_from_request(...)`
+- `append_existing_measurement_record_from_request(...)`
+- `review_measurement_records_from_request(...)`
 - `save_measurement_record_operator_review_receipt(...)`
 - `summarize_measurement_record_operator_review_receipt(...)`
 - `build_measurement_record_review_html(...)`
@@ -61,9 +61,9 @@ Supporting projection helpers:
 - `summarize_running_measurement_inspection(...)`
 - `legacy_measurement_slug(...)`
 
-Dictionary/request adapter functions with `_from_request` suffix mirror the
-main mutation and review entrypoints where raw request parsing belongs at the
-module boundary. Treat lower-level helpers and private modules as route-local
+Current entrypoints take typed request objects. Raw dictionaries belong at
+explicit adapter boundaries such as CLI JSON loading, not as parallel domain
+APIs. Treat lower-level helpers and private modules as route-local
 implementation details, not shared APIs.
 
 ## Artifact Boundaries

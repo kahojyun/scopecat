@@ -83,20 +83,6 @@ class MeasurementRecordCatalogRun:
         }
 
 
-def catalog_measurement_record_read_models(
-    source: dict[str, Any],
-    *,
-    storage_root: str | Path,
-) -> MeasurementRecordCatalogRun:
-    """Scan projected read models from a raw catalog source."""
-
-    request = _parse_source(source)
-    return catalog_measurement_record_read_models_from_request(
-        request,
-        storage_root=storage_root,
-    )
-
-
 def catalog_measurement_record_read_models_from_request(
     request: MeasurementRecordCatalogRequest,
     *,
@@ -150,19 +136,6 @@ def catalog_measurement_record_read_models_from_request(
         storage_root=root,
         entries=tuple(entries),
         review_findings=tuple(findings),
-    )
-
-
-def _parse_source(source: dict[str, Any]) -> MeasurementRecordCatalogRequest:
-    request = _require_dict(source, "catalog_request")
-    return MeasurementRecordCatalogRequest(
-        request_id=_require_text(request, "request_id"),
-        records_dir=_optional_text(request, "records_dir", default="records"),
-        verify_source_digests=_optional_bool(
-            request,
-            "verify_source_digests",
-            default=True,
-        ),
     )
 
 

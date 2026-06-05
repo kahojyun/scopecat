@@ -44,7 +44,6 @@ complete or failed, merge existing primary data, or define final storage
 schema.
 
 The normalized primary table contract is implemented through
-`summarize_normalized_primary_table(...)` and
 `summarize_normalized_primary_table_from_request(...)`:
 
 ```text
@@ -113,14 +112,12 @@ must not replace the manifest, mutate receipts, refresh an existing read
 model, or define final storage schema.
 
 This projection slice is now implemented through
-`project_measurement_record_read_model(...)` and
 `project_measurement_record_read_model_from_read_view(...)`. It writes one
 record-local `record-read-model.json` from the creation manifest, writer
 receipt, read view, and finalization receipt, leaving all source artifacts
 unchanged.
 
 The first read-only catalog slice is implemented through
-`catalog_measurement_record_read_models(...)` and
 `catalog_measurement_record_read_models_from_request(...)`. It scans projected
 read models under a caller-declared records directory, returns compact catalog
 entries, and reports missing, malformed, conflicting, or source-digest-stale
@@ -135,7 +132,6 @@ guard, not source evidence. Refresh must not replace manifests, mutate
 receipts, repair primary data, or define canonical storage authority.
 
 This refresh slice is now implemented through
-`refresh_measurement_record_read_model(...)` and
 `refresh_measurement_record_read_model_from_read_view(...)`. It supports
 caller-declared `missing` and `replace_existing` target conditions; replacing
 an existing read model requires the expected current digest.
@@ -146,7 +142,7 @@ identity. Current lifecycle state, primary-data facts, and compact consumer
 summaries are carried by receipts and refreshed read models instead.
 
 The first durable import slice is implemented through
-`import_measurement_record(...)` and `import_measurement_record_from_request(...)`.
+`import_measurement_record_from_request(...)`.
 It consumes reviewed normalized primary-data facts, creates a new record,
 writes primary data through the writer integration, finalizes the record,
 projects a read model, and returns a local durable import receipt. It does not
@@ -159,7 +155,6 @@ best-effort removes the new record directory rather than leaving a partial
 new-record import.
 
 The first legacy-run storage slice is implemented through
-`record_legacy_measurement_run(...)` and
 `record_legacy_measurement_run_from_request(...)`. It records declared facts
 about an externally executed legacy run by creating a Measurement Records shell
 with `creation_source_kind: legacy_system` and writing one record-local
@@ -171,7 +166,6 @@ availability, refresh read models, finalize lifecycle state, or decide
 measurement validity.
 
 The first legacy primary-data attach slice is implemented through
-`attach_converted_primary_data_to_legacy_record(...)` and
 `attach_converted_primary_data_to_legacy_record_from_request(...)`. It consumes
 an approved request for an existing `legacy_system` record plus reviewed
 normalized primary-data facts whose `source_id` is that same legacy record id.
@@ -185,7 +179,6 @@ merge primary data, define adapter transport, define record-id generation, or
 define final storage schema.
 
 The first recorded-references slice is implemented through
-`record_measurement_record_references(...)` and
 `record_measurement_record_references_from_request(...)`. It consumes an approved
 request for an existing record and writes one no-overwrite record-local receipt
 under `recorded-references/`. The receipt carries explicit user-declared
@@ -222,7 +215,6 @@ code or analysis, persist GUI state, define shared id policy, or replace
 lower-level receipt APIs.
 
 The first storage-inventory slice is implemented through
-`list_measurement_record_storage(...)` and
 `list_measurement_record_storage_from_request(...)`. It scans a caller-declared
 `records/` directory and lists visible record manifests, projected read models
 when present, and record-local legacy receipts when present. It reports missing
@@ -231,7 +223,6 @@ It is read-only: it does not repair storage, refresh read models, observe
 primary data, import legacy payloads, replace manifests, or persist GUI state.
 
 The first in-progress update slice is implemented through
-`append_in_progress_measurement_record(...)` and
 `append_in_progress_measurement_record_from_request(...)`. It consumes an
 existing `in_progress` creation manifest plus a record-local writer receipt,
 then writes one append segment and one update receipt under no-overwrite
@@ -242,7 +233,6 @@ manifest, refresh the read model, finalize lifecycle state, or define crash
 recovery.
 
 The first running-inspection slice is implemented through
-`inspect_running_measurement_record(...)` and
 `inspect_running_measurement_record_from_request(...)`. It reads the base
 writer-receipt-declared primary data plus caller-declared update receipts and
 append segments, then returns a visible string-row table and progress summary
@@ -255,7 +245,6 @@ inspection; repeated headers, empty segments, or row-width mismatches block the
 inspection view rather than being shown as visible data rows.
 
 The first existing-record append update slice is implemented through
-`append_existing_measurement_record(...)` and
 `append_existing_measurement_record_from_request(...)`. It consumes an
 approved update request for a caller-declared existing record directory,
 preflights the current manifest and primary-data digest/size facts, reads only
@@ -281,7 +270,6 @@ It prints the compact running-inspection JSON summary. It does not discover
 records, scan update directories, mutate storage, or persist monitor state.
 
 The first operator-review composition is implemented through
-`review_measurement_records(...)` and
 `review_measurement_records_from_request(...)`. It catalogs projected read
 models, optionally runs caller-declared running inspections, and projects a
 selected local record summary for operator review. It is read-only: it does

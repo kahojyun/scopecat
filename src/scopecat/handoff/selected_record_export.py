@@ -33,10 +33,15 @@ from scopecat.measurement_records._storage import (
     validate_strict_child_path as _validate_strict_child_path,
 )
 from scopecat.measurement_records.read_model_refresh import (
+    MeasurementRecordReadModelRefreshRequest,
     MeasurementRecordReadModelRefreshRun,
-    refresh_measurement_record_read_model,
+    refresh_measurement_record_read_model_from_read_view,
 )
 from scopecat.measurement_records.read_model_shared import READ_MODEL_SCHEMA
+from scopecat.measurement_records.read_view import (
+    MeasurementRecordReadRequest,
+    read_created_record_primary_table_from_request,
+)
 
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 
@@ -587,8 +592,14 @@ def export_selected_measurement_record_with_preflight_refresh(
         )
 
     try:
-        refresh_run = refresh_measurement_record_read_model(
-            _pre_export_refresh_source(request, storage),
+        refresh_request, read_request = _pre_export_refresh_requests(request, storage)
+        read_view = read_created_record_primary_table_from_request(
+            read_request,
+            storage_root=storage,
+        )
+        refresh_run = refresh_measurement_record_read_model_from_read_view(
+            refresh_request,
+            read_view=read_view,
             storage_root=storage,
         )
     except ValueError as exc:
@@ -1186,10 +1197,10 @@ def _should_refresh_before_export(run: SelectedMeasurementRecordExportRun) -> bo
     }
 
 
-def _pre_export_refresh_source(
+def _pre_export_refresh_requests(
     request: SelectedMeasurementRecordExportRequest,
     storage: Path,
-) -> dict[str, Any]:
+) -> tuple[MeasurementRecordReadModelRefreshRequest, MeasurementRecordReadRequest]:
     expected_target_condition = "missing"
     expected_digest = None
     read_model_path = _path_under(
@@ -1201,30 +1212,26 @@ def _pre_export_refresh_source(
         expected_target_condition = "replace_existing"
         expected_digest = _file_digest(read_model_path)
 
-    refresh_request = {
-        "request_id": f"pre-export-refresh-{request.record_id}",
-        "approval_state": "approved",
-        "record_id": request.record_id,
-        "record_dir": request.record_dir,
-        "writer_receipt_path": f"{request.record_dir}/writer-receipt.json",
-        "finalization_receipt_path": f"{request.record_dir}/finalization-receipt.json",
-        "read_model_path": request.read_model_path,
-        "expected_target_condition": expected_target_condition,
-    }
-    if expected_digest is not None:
-        refresh_request["expected_current_read_model_digest"] = expected_digest
-    return {
-        "refresh_request": refresh_request,
-        "read_view_source": {
-            "read_request": {
-                "request_id": f"pre-export-read-{request.record_id}",
-                "record_id": request.record_id,
-                "record_dir": request.record_dir,
-                "writer_receipt_path": f"{request.record_dir}/writer-receipt.json",
-                "preview_row_limit": 2,
-            },
-        },
-    }
+    return (
+        MeasurementRecordReadModelRefreshRequest(
+            request_id=f"pre-export-refresh-{request.record_id}",
+            approval_state="approved",
+            record_id=request.record_id,
+            record_dir=request.record_dir,
+            writer_receipt_path=f"{request.record_dir}/writer-receipt.json",
+            finalization_receipt_path=f"{request.record_dir}/finalization-receipt.json",
+            read_model_path=request.read_model_path,
+            expected_target_condition=expected_target_condition,
+            expected_current_read_model_digest=expected_digest,
+        ),
+        MeasurementRecordReadRequest(
+            request_id=f"pre-export-read-{request.record_id}",
+            record_id=request.record_id,
+            record_dir=request.record_dir,
+            writer_receipt_path=f"{request.record_dir}/writer-receipt.json",
+            preview_row_limit=2,
+        ),
+    )
 
 
 def _file_digest(path: Path) -> str:

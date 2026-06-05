@@ -14,7 +14,6 @@ from scopecat.measurement_records import (
     MeasurementRecordWriterChunk,
     MeasurementRecordWriterRequest,
     create_measurement_record_from_request,
-    finalize_measurement_record,
     finalize_measurement_record_from_read_view,
     read_created_record_primary_table_from_request,
     write_created_record_primary_data_from_request,
@@ -175,22 +174,6 @@ class MeasurementRecordFinalizationPrototypeTest(unittest.TestCase):
             {"artifact_posture", "classification", "request", "read_view", "finalization"},
         )
         self.assertEqual(summary["classification"], "finalized_complete")
-
-    def test_raw_source_finalization_composes_read_view(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir) / "storage"
-            content_root = Path(temp_dir) / "content"
-            storage_root.mkdir()
-            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
-            _populate_record(storage_root, content_root)
-
-            run = finalize_measurement_record(
-                _finalization_source(),
-                storage_root=storage_root,
-            )
-
-        self.assertEqual(run.classification, "finalized_complete")
-        self.assertTrue(run.finalized)
 
     def test_failed_finalization_requires_and_records_operator_reason(self) -> None:
         with self.assertRaisesRegex(ValueError, "operator_reason"):

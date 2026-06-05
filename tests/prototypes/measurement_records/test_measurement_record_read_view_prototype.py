@@ -13,7 +13,6 @@ from scopecat.measurement_records import (
     MeasurementRecordWriterChunk,
     MeasurementRecordWriterRequest,
     create_measurement_record_from_request,
-    read_created_record_primary_table,
     read_created_record_primary_table_from_request,
     write_created_record_primary_data_from_request,
 )
@@ -124,8 +123,8 @@ class MeasurementRecordReadViewPrototypeTest(unittest.TestCase):
             shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
             _populate_record(storage_root, content_root)
 
-            run = read_created_record_primary_table(
-                _read_source(),
+            run = read_created_record_primary_table_from_request(
+                _read_request(),
                 storage_root=storage_root,
             )
             creation_manifest = json.loads(

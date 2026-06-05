@@ -11,7 +11,6 @@ from unittest.mock import patch
 from scopecat.measurement_records import (
     MeasurementRecordDurableImportRequest,
     MeasurementRecordImportSource,
-    import_measurement_record,
     import_measurement_record_from_request,
 )
 
@@ -114,21 +113,6 @@ class MeasurementRecordDurableImportPrototypeTest(unittest.TestCase):
         )
         self.assertEqual(summary["classification"], "imported_new_record")
         self.assertEqual(summary["pipeline"]["projection"], "projected_read_model")
-
-    def test_raw_source_imports_record(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir) / "storage"
-            content_root = Path(temp_dir) / "content"
-            storage_root.mkdir()
-            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
-
-            run = import_measurement_record(
-                _raw_source(),
-                content_root=content_root,
-                storage_root=storage_root,
-            )
-
-        self.assertEqual(run.classification, "imported_new_record")
 
     def test_unapproved_import_does_not_mutate_storage(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -187,22 +187,6 @@ class MeasurementRecordWriterRun:
         }
 
 
-def write_created_record_primary_data(
-    source: dict[str, Any],
-    *,
-    content_root: str | Path,
-    storage_root: str | Path,
-) -> MeasurementRecordWriterRun:
-    """Write primary data into an existing created record from a raw source."""
-
-    request = _parse_source(source)
-    return write_created_record_primary_data_from_request(
-        request,
-        content_root=content_root,
-        storage_root=storage_root,
-    )
-
-
 def write_created_record_primary_data_from_request(
     request: MeasurementRecordWriterRequest,
     *,
@@ -275,37 +259,6 @@ def write_created_record_primary_data_from_request(
                 "digest": writer_receipt_digest,
             },
         ),
-    )
-
-
-def _parse_source(source: dict[str, Any]) -> MeasurementRecordWriterRequest:
-    request = _require_dict(source, "writer_request")
-    chunks = _require_list(request, "chunks")
-    return MeasurementRecordWriterRequest(
-        request_id=_require_text(request, "request_id"),
-        approval_state=_require_text(request, "approval_state"),
-        record_id=_require_text(request, "record_id"),
-        record_dir=_require_text(request, "record_dir"),
-        primary_data_path=_require_text(request, "primary_data_path"),
-        writer_receipt_path=_require_text(request, "writer_receipt_path"),
-        primary_data_format=_require_text(request, "primary_data_format"),
-        expected_rows=_require_int(request, "expected_rows"),
-        chunks=tuple(_parse_chunk(chunk) for chunk in chunks),
-    )
-
-
-def _parse_chunk(value: Any) -> MeasurementRecordWriterChunk:
-    if not isinstance(value, dict):
-        raise ValueError("writer chunk must be an object")
-    return MeasurementRecordWriterChunk(
-        chunk_id=_require_text(value, "chunk_id"),
-        sequence=_require_int(value, "sequence"),
-        event_id=_require_text(value, "event_id"),
-        content_ref=_require_text(value, "content_ref"),
-        declared_digest=_require_text(value, "declared_digest"),
-        size_bytes=_require_int(value, "size_bytes"),
-        rows_recorded=_require_int(value, "rows_recorded"),
-        total_rows_recorded=_require_int(value, "total_rows_recorded"),
     )
 
 

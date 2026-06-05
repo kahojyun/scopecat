@@ -133,17 +133,6 @@ class MeasurementRecordRunningInspectionRun:
         }
 
 
-def inspect_running_measurement_record(
-    source: dict[str, Any],
-    *,
-    storage_root: str | Path,
-) -> MeasurementRecordRunningInspectionRun:
-    """Inspect visible rows from a raw running-inspection source."""
-
-    request = _parse_source(source)
-    return inspect_running_measurement_record_from_request(request, storage_root=storage_root)
-
-
 def inspect_running_measurement_record_from_request(
     request: MeasurementRecordRunningInspectionRequest,
     *,
@@ -236,22 +225,6 @@ def summarize_running_measurement_inspection(
             "next_action": _summary_next_action(run),
         },
     }
-
-
-def _parse_source(source: dict[str, Any]) -> MeasurementRecordRunningInspectionRequest:
-    request = _require_dict(source, "running_inspection_request")
-    paths = request.get("update_receipt_paths", [])
-    if not isinstance(paths, list):
-        raise ValueError("running inspection update_receipt_paths must be a list")
-    return MeasurementRecordRunningInspectionRequest(
-        request_id=_require_text(request, "request_id"),
-        record_id=_require_text(request, "record_id"),
-        record_dir=_require_text(request, "record_dir"),
-        writer_receipt_path=_require_text(request, "writer_receipt_path"),
-        update_receipt_paths=tuple(validate_text(path, "update_receipt_path") for path in paths),
-        expected_total_rows=_optional_positive_int(request, "expected_total_rows"),
-        preview_row_limit=_optional_positive_int(request, "preview_row_limit") or 5,
-    )
 
 
 def _read_creation_manifest(

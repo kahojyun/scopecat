@@ -7,13 +7,20 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
-from scopecat.measurement_records.legacy_run import record_legacy_measurement_run
+from scopecat.measurement_records.legacy_run import (
+    _parse_source as _parse_legacy_run_source,
+)
+from scopecat.measurement_records.legacy_run import (
+    record_legacy_measurement_run_from_request,
+)
 from scopecat.measurement_records.operator_review import (
     MeasurementRecordOperatorReviewRequest,
     MeasurementRecordOperatorReviewRun,
-    review_measurement_records,
     review_measurement_records_from_request,
     summarize_measurement_record_operator_review_receipt,
+)
+from scopecat.measurement_records.operator_review import (
+    _parse_source as _parse_operator_review_source,
 )
 from scopecat.measurement_records.review_artifact import (
     write_measurement_record_review_artifact,
@@ -25,8 +32,10 @@ from scopecat.measurement_records.running_inspection import (
 )
 from scopecat.measurement_records.storage_inventory import (
     MeasurementRecordStorageInventoryRequest,
-    list_measurement_record_storage,
     list_measurement_record_storage_from_request,
+)
+from scopecat.measurement_records.storage_inventory import (
+    _parse_source as _parse_storage_inventory_source,
 )
 
 
@@ -55,7 +64,10 @@ def _operator_review(args: argparse.Namespace) -> MeasurementRecordOperatorRevie
         source = json.loads(args.source.read_text(encoding="utf-8"))
         if not isinstance(source, dict):
             raise ValueError("operator review source JSON must be an object")
-        return review_measurement_records(source, storage_root=args.storage_root)
+        return review_measurement_records_from_request(
+            _parse_operator_review_source(source),
+            storage_root=args.storage_root,
+        )
     running_request = None
     if args.running_record_id is not None:
         running_request = MeasurementRecordRunningInspectionRequest(
@@ -92,7 +104,10 @@ def _record_legacy_run(args: argparse.Namespace) -> dict[str, object]:
     source = json.loads(args.source.read_text(encoding="utf-8"))
     if not isinstance(source, dict):
         raise ValueError("legacy run source JSON must be an object")
-    return record_legacy_measurement_run(source, storage_root=args.storage_root).to_dict()
+    return record_legacy_measurement_run_from_request(
+        _parse_legacy_run_source(source),
+        storage_root=args.storage_root,
+    ).to_dict()
 
 
 def _storage_inventory(args: argparse.Namespace) -> dict[str, object]:
@@ -100,7 +115,10 @@ def _storage_inventory(args: argparse.Namespace) -> dict[str, object]:
         source = json.loads(args.source.read_text(encoding="utf-8"))
         if not isinstance(source, dict):
             raise ValueError("storage inventory source JSON must be an object")
-        return list_measurement_record_storage(source, storage_root=args.storage_root).to_dict()
+        return list_measurement_record_storage_from_request(
+            _parse_storage_inventory_source(source),
+            storage_root=args.storage_root,
+        ).to_dict()
     request = MeasurementRecordStorageInventoryRequest(
         request_id=args.request_id,
         records_dir=args.records_dir,

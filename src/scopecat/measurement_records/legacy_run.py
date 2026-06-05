@@ -276,17 +276,6 @@ class LegacyRunRecordRun:
         }
 
 
-def record_legacy_measurement_run(
-    source: dict[str, Any],
-    *,
-    storage_root: str | Path,
-) -> LegacyRunRecordRun:
-    """Record declared legacy-run facts from a raw source."""
-
-    request = _parse_source(source)
-    return record_legacy_measurement_run_from_request(request, storage_root=storage_root)
-
-
 def record_legacy_measurement_run_from_request(
     request: LegacyRunRecordRequest,
     *,

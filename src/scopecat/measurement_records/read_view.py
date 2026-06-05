@@ -101,17 +101,6 @@ class MeasurementRecordReadRun:
         }
 
 
-def read_created_record_primary_table(
-    source: dict[str, Any],
-    *,
-    storage_root: str | Path,
-) -> MeasurementRecordReadRun:
-    """Read primary table facts from a raw read-view source."""
-
-    request = _parse_source(source)
-    return read_created_record_primary_table_from_request(request, storage_root=storage_root)
-
-
 def read_created_record_primary_table_from_request(
     request: MeasurementRecordReadRequest,
     *,
@@ -136,17 +125,6 @@ def read_created_record_primary_table_from_request(
         writer_receipt=writer_receipt,
         table=table,
         review_findings=tuple(findings),
-    )
-
-
-def _parse_source(source: dict[str, Any]) -> MeasurementRecordReadRequest:
-    request = _require_dict(source, "read_request")
-    return MeasurementRecordReadRequest(
-        request_id=_require_text(request, "request_id"),
-        record_id=_require_text(request, "record_id"),
-        record_dir=_require_text(request, "record_dir"),
-        writer_receipt_path=_require_text(request, "writer_receipt_path"),
-        preview_row_limit=_optional_positive_int(request, "preview_row_limit", default=5),
     )
 
 

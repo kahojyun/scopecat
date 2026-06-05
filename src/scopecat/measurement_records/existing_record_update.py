@@ -187,16 +187,24 @@ class MeasurementRecordExistingUpdateRun:
 
 
 def append_existing_measurement_record_from_request(
-    source: dict[str, Any],
+    request: MeasurementRecordExistingUpdateRequest,
     *,
+    append_chunk: MeasurementRecordExistingAppendChunk,
     content_root: Path,
+    current_record: dict[str, Any],
+    measurement_record: dict[str, Any],
     storage_root: Path,
 ) -> MeasurementRecordExistingUpdateRun:
     """Append one new update segment and receipt under an existing record."""
+    source = {
+        "append_chunk": append_chunk.to_dict(),
+        "current_record": current_record,
+        "measurement_record": measurement_record,
+        "update_request": request.to_dict(),
+    }
     _validate_source(source)
     content_root_resolved = existing_directory_root(content_root, "existing record update content")
     storage_root_resolved = existing_directory_root(storage_root, "existing record update storage")
-    request = MeasurementRecordExistingUpdateRequest.from_dict(source["update_request"])
     _ensure_existing_record_dir(source, storage_root_resolved)
     lock_content = _acquire_lock(storage_root_resolved, request)
     try:
@@ -215,20 +223,6 @@ def append_existing_measurement_record_from_request(
     return MeasurementRecordExistingUpdateRun(
         summary=_build_summary(source, request, current, write_results)
     )
-
-
-def append_existing_measurement_record(
-    source: dict[str, Any],
-    *,
-    content_root: Path,
-    storage_root: Path,
-) -> dict[str, Any]:
-    """Raw-dictionary adapter for existing measurement-record append updates."""
-    return append_existing_measurement_record_from_request(
-        source,
-        content_root=content_root,
-        storage_root=storage_root,
-    ).to_dict()
 
 
 def _validate_source(source: dict[str, Any]) -> None:

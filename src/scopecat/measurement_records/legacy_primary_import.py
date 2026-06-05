@@ -181,22 +181,6 @@ class LegacyPrimaryImportRun:
         }
 
 
-def attach_converted_primary_data_to_legacy_record(
-    source: dict[str, Any],
-    *,
-    content_root: str | Path,
-    storage_root: str | Path,
-) -> LegacyPrimaryImportRun:
-    """Attach converted primary data to an existing legacy record from raw input."""
-
-    request = _parse_source(source)
-    return attach_converted_primary_data_to_legacy_record_from_request(
-        request,
-        content_root=content_root,
-        storage_root=storage_root,
-    )
-
-
 def attach_converted_primary_data_to_legacy_record_from_request(
     request: LegacyPrimaryImportRequest,
     *,
@@ -285,36 +269,6 @@ def attach_converted_primary_data_to_legacy_record_from_request(
         read_view_run=read_view_run,
         finalization_run=finalization_run,
         projection_run=projection_run,
-    )
-
-
-def _parse_source(source: dict[str, Any]) -> LegacyPrimaryImportRequest:
-    request = _require_dict(source, "legacy_primary_import_request")
-    source_facts = _require_dict(request, "import_source")
-    return LegacyPrimaryImportRequest(
-        request_id=_require_text(request, "request_id"),
-        approval_state=_require_text(request, "approval_state"),
-        record_id=_require_text(request, "record_id"),
-        record_dir=_require_text(request, "record_dir"),
-        legacy_receipt_path=_require_text(request, "legacy_receipt_path"),
-        primary_data_path=_require_text(request, "primary_data_path"),
-        writer_receipt_path=_require_text(request, "writer_receipt_path"),
-        finalization_receipt_path=_require_text(request, "finalization_receipt_path"),
-        read_model_path=_require_text(request, "read_model_path"),
-        import_source=MeasurementRecordImportSource(
-            source_kind=_require_text(source_facts, "source_kind"),
-            source_id=_require_text(source_facts, "source_id"),
-            source_item_id=_require_text(source_facts, "source_item_id"),
-            content_ref=_require_text(source_facts, "content_ref"),
-            declared_digest=_require_text(source_facts, "declared_digest"),
-            size_bytes=_require_int(source_facts, "size_bytes"),
-            rows_recorded=_require_int(source_facts, "rows_recorded"),
-            primary_data_format=_optional_text(
-                source_facts,
-                "primary_data_format",
-                default="csv_table",
-            ),
-        ),
     )
 
 

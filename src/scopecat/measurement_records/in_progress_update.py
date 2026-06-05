@@ -231,22 +231,6 @@ class MeasurementRecordInProgressUpdateRun:
         }
 
 
-def append_in_progress_measurement_record(
-    source: dict[str, Any],
-    *,
-    content_root: str | Path,
-    storage_root: str | Path,
-) -> MeasurementRecordInProgressUpdateRun:
-    """Append one segment to an in-progress record from a raw source."""
-
-    request = _parse_source(source)
-    return append_in_progress_measurement_record_from_request(
-        request,
-        content_root=content_root,
-        storage_root=storage_root,
-    )
-
-
 def append_in_progress_measurement_record_from_request(
     request: MeasurementRecordInProgressUpdateRequest,
     *,
@@ -327,42 +311,6 @@ def append_in_progress_measurement_record_from_request(
                 "digest": receipt_digest,
             },
         ),
-    )
-
-
-def _parse_source(source: dict[str, Any]) -> MeasurementRecordInProgressUpdateRequest:
-    request = _require_dict(source, "in_progress_update_request")
-    return MeasurementRecordInProgressUpdateRequest(
-        request_id=_require_text(request, "request_id"),
-        approval_state=_require_text(request, "approval_state"),
-        update_id=_require_text(request, "update_id"),
-        record_id=_require_text(request, "record_id"),
-        record_dir=_require_text(request, "record_dir"),
-        writer_receipt_path=_require_text(request, "writer_receipt_path"),
-        previous_update_receipt_path=_optional_text(
-            request,
-            "previous_update_receipt_path",
-            default=None,
-        ),
-        append_segment_path=_require_text(request, "append_segment_path"),
-        update_receipt_path=_require_text(request, "update_receipt_path"),
-        primary_data_format=_require_text(request, "primary_data_format"),
-        expected_total_rows=_require_int(request, "expected_total_rows"),
-        append_chunk=_parse_append_chunk(_require_dict(request, "append_chunk")),
-    )
-
-
-def _parse_append_chunk(value: dict[str, Any]) -> MeasurementRecordAppendChunk:
-    return MeasurementRecordAppendChunk(
-        chunk_id=_require_text(value, "chunk_id"),
-        sequence=_require_int(value, "sequence"),
-        event_id=_require_text(value, "event_id"),
-        content_ref=_require_text(value, "content_ref"),
-        declared_digest=_require_text(value, "declared_digest"),
-        size_bytes=_require_int(value, "size_bytes"),
-        rows_recorded=_require_int(value, "rows_recorded"),
-        previous_total_rows_recorded=_require_int(value, "previous_total_rows_recorded"),
-        total_rows_recorded=_require_int(value, "total_rows_recorded"),
     )
 
 
