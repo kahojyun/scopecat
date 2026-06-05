@@ -123,7 +123,7 @@ def _write_zip(archive_path: Path, members: dict[str, str]) -> None:
 
 
 class HandoffArchiveMaterializationContractTest(unittest.TestCase):
-    def test_current_contract_keeps_directory_manifest_as_artifact_of_record(self) -> None:
+    def test_current_contract_records_archive_materialization_requirements(self) -> None:
         contract = current_handoff_archive_materialization_contract()
 
         self.assertEqual(contract["artifact_posture"], "local_archive_materialization_contract")
@@ -232,6 +232,21 @@ class HandoffArchiveMaterializationContractTest(unittest.TestCase):
         self.assertIn("member_count_limit_required", review["blocked_reasons"])
         self.assertIn("compression_ratio_limit_required", review["blocked_reasons"])
         self.assertIn("extraction_time_limit_required", review["blocked_reasons"])
+
+    def test_blocks_unsupported_archive_format(self) -> None:
+        source = _source(archive_format="tar")
+
+        with self.assertRaises(HandoffContractError) as context:
+            review_handoff_archive_materialization_contract(source)
+
+        self.assertEqual(
+            context.exception.to_diagnostic().to_dict()["error"],
+            {
+                "code": "handoff_contract_error",
+                "operation": "review_handoff_archive_materialization_contract",
+                "message": "archive_format is unsupported",
+            },
+        )
 
     def test_extra_review_source_field_is_a_contract_error(self) -> None:
         source = _source()

@@ -81,9 +81,8 @@ The current implementation exposes that composition as
 `project_handoff_receiving_review_state()`. The projection accepts typed local
 receiving-gate, import-plan, durable-import summary, retry-review, and error
 diagnostic evidence; validates package continuity across supplied receipts; and
-returns a `local_receiving_review_state_projection` summary with explicit
-non-claims. It remains a read-only local review surface, not a persisted GUI
-store.
+returns a `local_receiving_review_state_projection` summary. It remains a
+read-only local review surface, not a persisted GUI store.
 
 Future GUI work must still decide where GUI-owned review state lives, how
 freshness is checked across sessions, how user acknowledgement is recorded, and

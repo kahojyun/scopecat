@@ -77,12 +77,12 @@ Public durable-import API functions promote route contract failures to
 portable/export artifact, retry authorization, storage mutation authority, or
 public error schema.
 
-The current durable-import schema, policy, local receipt postures, and
-non-claims are included in `current_handoff_compatibility_contract()` as a
-route-local compatibility review surface. That snapshot preserves the current
-production vertical slice expectations without accepting final storage schema,
-public SDK, archive-backed durable import, authenticity/trust, batch durable
-import, or linked-context payload import contracts.
+The current durable-import schema and local receipt postures are included in
+`current_handoff_compatibility_contract()` as a route-local compatibility
+review surface. That snapshot preserves the current production vertical slice
+expectations without accepting final storage schema, public SDK,
+archive-backed durable import, authenticity/trust, batch durable import, or
+linked-context payload import contracts.
 
 DEC-017 keeps multi-measurement package plans as review and coordination
 evidence only. They do not authorize one durable batch mutation until a

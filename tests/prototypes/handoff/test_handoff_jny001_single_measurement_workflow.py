@@ -418,7 +418,7 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
             "created_record",
         )
 
-    def test_workflow_uses_zip_transport_without_making_archive_bytes_authoritative(
+    def test_workflow_creates_and_materializes_zip_transport(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

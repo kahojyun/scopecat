@@ -15,9 +15,9 @@ from scopecat.handoff._contracts import validate_public_identifier, validate_rel
 from scopecat.handoff.errors import promote_handoff_contract_error
 from scopecat.handoff.read_only import open_package
 
-HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA = "scopecat.handoff_archive_materialization_review.v1"
-HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA = "scopecat.handoff_archive_materialization.v1"
-HANDOFF_ARCHIVE_CREATION_SCHEMA = "scopecat.handoff_archive_creation.v1"
+HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA = "scopecat.handoff_archive_materialization_review.v2"
+HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA = "scopecat.handoff_archive_materialization.v2"
+HANDOFF_ARCHIVE_CREATION_SCHEMA = "scopecat.handoff_archive_creation.v2"
 REQUIRED_RESOURCE_LIMITS = [
     "archive_size_bytes",
     "extracted_size_bytes",
@@ -505,6 +505,8 @@ def _review_handoff_archive_materialization_contract(
         raise ValueError("archive_materialization_review_schema is unsupported")
     review_id = validate_public_identifier(source["review_id"], "archive review_id")
     archive_format = validate_public_identifier(source["archive_format"], "archive_format")
+    if archive_format != "zip":
+        raise ValueError("archive_format is unsupported")
     staging_requirements = _parse_string_mapping(
         source["staging_requirements"],
         "staging_requirements",

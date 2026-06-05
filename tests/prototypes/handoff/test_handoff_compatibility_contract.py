@@ -59,10 +59,10 @@ class HandoffCompatibilityContractTest(unittest.TestCase):
                 "import_plan": "scopecat.handoff_import_plan.v1",
                 "handoff_durable_import": "scopecat.handoff_durable_import.v1",
                 "archive_materialization_review": (
-                    "scopecat.handoff_archive_materialization_review.v1"
+                    "scopecat.handoff_archive_materialization_review.v2"
                 ),
-                "archive_materialization": "scopecat.handoff_archive_materialization.v1",
-                "archive_creation": "scopecat.handoff_archive_creation.v1",
+                "archive_materialization": "scopecat.handoff_archive_materialization.v2",
+                "archive_creation": "scopecat.handoff_archive_creation.v2",
             },
         )
         self.assertNotIn("policies", contract)
