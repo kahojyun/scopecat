@@ -182,7 +182,6 @@ class LegacyRunRecordRun:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "artifact_posture": "local_legacy_run_record_receipt",
             "classification": self.classification,
             "request": self.request.to_dict(),
             "creation": {

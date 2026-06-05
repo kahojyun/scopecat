@@ -220,7 +220,6 @@ class MeasurementRecordReferenceRun:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "artifact_posture": "local_measurement_record_recorded_reference_receipt_run",
             "classification": self.classification,
             "request": self.request.to_dict(),
             "receipt": {
@@ -321,7 +320,6 @@ def _recorded_reference_receipt(
         }
     return {
         "schema": RECORDED_REFERENCE_RECEIPT_SCHEMA,
-        "artifact_posture": "local_measurement_record_recorded_reference_receipt",
         "record": {
             "record_id": request.record_id,
             "record_dir": request.record_dir,
@@ -367,8 +365,6 @@ def _write_new_file(path: Path, content: bytes) -> None:
 def _validate_recorded_reference_receipt(receipt: dict[str, Any]) -> None:
     if receipt.get("schema") != RECORDED_REFERENCE_RECEIPT_SCHEMA:
         raise ValueError("Recorded reference receipt schema is unsupported.")
-    if receipt.get("artifact_posture") != "local_measurement_record_recorded_reference_receipt":
-        raise ValueError("Recorded reference receipt posture is unsupported.")
     operation = _require_dict(receipt, "operation")
     validate_public_identifier(operation.get("request_id"), "recorded reference request_id")
     if operation.get("classification") != "measurement_record_references_recorded_for_review":

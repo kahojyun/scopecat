@@ -78,7 +78,6 @@ class HandoffReceivingGateRun:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "artifact_posture": "local_receiving_gate_receipt",
             "classification": self.classification,
             "block_reason": self.block_reason,
             "request": self.request.to_dict(),

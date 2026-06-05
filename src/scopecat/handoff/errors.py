@@ -16,7 +16,6 @@ class HandoffErrorDiagnostic:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "artifact_posture": "local_handoff_error_diagnostic",
             "error": {
                 "code": self.code,
                 "operation": self.operation,

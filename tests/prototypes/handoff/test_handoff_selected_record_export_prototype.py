@@ -187,7 +187,6 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
         )
         self.assertEqual(measurement.linked_context[0].materialization, "reference_only")
         payload = run.to_dict()
-        self.assertEqual(payload["artifact_posture"], "local_selected_record_export_receipt")
         self.assertEqual(payload["classification"], "exported_selected_measurement_record")
         self.assertIsNone(payload["block_reason"])
         self.assertEqual(

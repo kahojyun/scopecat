@@ -130,7 +130,6 @@ class HandoffEngineeringPrototypeImportPlanTest(unittest.TestCase):
 
         self.assertEqual(run.classification, "ready_for_import_acceptance_decision")
         self.assertTrue(run.import_plan_allowed)
-        self.assertEqual(summary["artifact_posture"], "local_import_plan_receipt")
         self.assertEqual(summary["classification"], "ready_for_import_acceptance_decision")
         self.assertEqual(
             summary["receiving_gate"]["classification"],

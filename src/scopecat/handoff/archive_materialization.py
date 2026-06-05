@@ -136,7 +136,6 @@ class HandoffArchiveCreationRun:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "artifact_posture": "local_archive_creation_receipt",
             "classification": self.classification,
             "block_reason": self.block_reason,
             "request": self.request.to_dict(),
@@ -185,7 +184,6 @@ class HandoffArchiveMaterializationRun:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "artifact_posture": "local_archive_materialization_receipt",
             "classification": self.classification,
             "block_reason": self.block_reason,
             "request": self.request.to_dict(),

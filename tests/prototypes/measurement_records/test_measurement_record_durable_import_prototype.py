@@ -68,12 +68,6 @@ def _request(**overrides: object) -> MeasurementRecordDurableImportRequest:
     return MeasurementRecordDurableImportRequest(**values)
 
 
-def _raw_source(**overrides: object) -> dict:
-    return {
-        "durable_import_request": _request(**overrides).to_dict(),
-    }
-
-
 class MeasurementRecordDurableImportPrototypeTest(unittest.TestCase):
     def test_approved_import_creates_new_record_storage_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -101,7 +95,6 @@ class MeasurementRecordDurableImportPrototypeTest(unittest.TestCase):
         self.assertEqual(
             set(summary),
             {
-                "artifact_posture",
                 "classification",
                 "request",
                 "storage_root",

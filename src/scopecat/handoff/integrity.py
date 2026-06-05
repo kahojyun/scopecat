@@ -100,7 +100,6 @@ class HandoffPackageIntegrityReport:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "artifact_posture": "local_review_summary",
             "classification": self.classification,
             "package": {
                 "package_id": self.package_id,

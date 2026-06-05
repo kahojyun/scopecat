@@ -87,12 +87,6 @@ def _request(**overrides: object) -> LegacyPrimaryImportRequest:
     return LegacyPrimaryImportRequest(**values)
 
 
-def _raw_source(**overrides: object) -> dict:
-    return {
-        "legacy_primary_import_request": _request(**overrides).to_dict(),
-    }
-
-
 class MeasurementRecordLegacyPrimaryImportPrototypeTest(unittest.TestCase):
     def test_attach_converted_primary_data_to_existing_legacy_record(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

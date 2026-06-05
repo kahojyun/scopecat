@@ -49,7 +49,6 @@ class HandoffEngineeringPrototypeReceivingTest(unittest.TestCase):
 
         self.assertEqual(run.classification, "ready_for_acceptance_mutation")
         self.assertTrue(run.acceptance_allowed)
-        self.assertEqual(summary["artifact_posture"], "local_receiving_gate_receipt")
         self.assertEqual(summary["classification"], "ready_for_acceptance_mutation")
         self.assertIsNone(summary["block_reason"])
         self.assertEqual(summary["package"]["package_id"], "handoff-package-legacy-rabi-001")

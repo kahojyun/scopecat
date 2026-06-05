@@ -120,12 +120,6 @@ def _request(**overrides: object) -> MeasurementRecordReferenceRequest:
     return MeasurementRecordReferenceRequest(**values)
 
 
-def _source(**overrides: object) -> dict:
-    return {
-        "recorded_reference_request": _request(**overrides).to_dict(),
-    }
-
-
 class MeasurementRecordReferencePrototypeTest(unittest.TestCase):
     def test_records_references_without_rewriting_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

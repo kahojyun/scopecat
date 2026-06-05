@@ -85,7 +85,6 @@ class HandoffEngineeringPrototypeWriterTest(unittest.TestCase):
         )
 
         self.assertEqual(manifest_bytes, (FIXTURE / "expected-package-manifest.json").read_bytes())
-        self.assertEqual(receipt_summary["artifact_posture"], "local_write_receipt")
         self.assertNotIn("storage_root", json.dumps(receipt_summary, sort_keys=True))
         self.assertEqual(
             receipt_summary["write_results"][1]["digest"],

@@ -140,7 +140,6 @@ class SelectedRecordReadModelRefreshRun:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "artifact_posture": "local_selected_record_read_model_refresh_receipt",
             "classification": self.classification,
             "request": _request_ref(self.request),
             "primary_table_read": {

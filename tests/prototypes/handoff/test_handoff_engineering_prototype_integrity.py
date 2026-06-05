@@ -59,7 +59,6 @@ class HandoffEngineeringPrototypeIntegrityTest(unittest.TestCase):
             member.observed_digest,
             "sha256:e7407c74b4bb35e1cc350ae2cc4829981c5b48ac7db4364366f0b30802eab887",
         )
-        self.assertEqual(summary["artifact_posture"], "local_review_summary")
         self.assertEqual(summary["classification"], "declared_integrity_verified")
 
     def test_reports_changed_package_member_as_integrity_mismatch(self) -> None:

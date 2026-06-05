@@ -142,7 +142,6 @@ class LegacyPrimaryImportRun:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "artifact_posture": "local_legacy_primary_import_receipt",
             "classification": self.classification,
             "request": self.request.to_dict(),
             "storage_root": str(self.storage_root),

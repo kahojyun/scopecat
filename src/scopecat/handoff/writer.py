@@ -57,7 +57,6 @@ class HandoffPackageWriteReceipt:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "artifact_posture": "local_write_receipt",
             "package": {
                 "package_id": self.package_id,
                 "display_name": self.display_name,
