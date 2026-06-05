@@ -19,7 +19,6 @@ from scopecat.handoff import (
     export_selected_measurement_record_from_request,
     materialize_handoff_archive_package_from_request,
     open_package,
-    review_handoff_durable_import_retry,
     run_handoff_durable_import_from_plan,
     summarize_handoff_durable_import_receipt,
 )
@@ -470,7 +469,7 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
                     package_dir=workflow["package_dir"],
                 )
 
-    def test_import_retry_summary_requires_fresh_ready_plan_after_destination_conflict(
+    def test_import_summary_reports_destination_conflict_without_authorizing_retry(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -485,15 +484,9 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
                 storage_root=receiving_storage,
             )
             summary = summarize_handoff_durable_import_receipt(durable_import.to_dict())
-            retry_review = review_handoff_durable_import_retry(
-                summary,
-                fresh_import_plan=workflow["import_plan"],
-            )
 
         self.assertEqual(durable_import.classification, "blocked_before_handoff_durable_import")
         self.assertEqual(summary.block_reason, "durable_import_blocked_before_import")
-        self.assertEqual(retry_review.classification, "fresh_import_plan_ready_for_retry")
-        self.assertTrue(retry_review.retry_allowed)
 
 
 if __name__ == "__main__":

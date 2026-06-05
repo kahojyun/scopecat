@@ -160,6 +160,26 @@ class HandoffDurableImportRun:
             return "blocked_before_handoff_durable_import"
         return "ready_for_handoff_durable_import"
 
+    @property
+    def block_reason(self) -> str | None:
+        return _durable_import_block_reason(
+            final_state=self.classification,
+            approval_state=self.request.approval_state,
+            import_plan_allowed=self.import_plan.import_plan_allowed,
+            import_plan_block_reason=self.import_plan.block_reason,
+            durable_import_classification=(
+                None if self.durable_import_run is None else self.durable_import_run.classification
+            ),
+            rollback_performed=(
+                False
+                if self.durable_import_run is None
+                else self.durable_import_run.rollback_performed
+            ),
+            partial_commit=(
+                False if self.durable_import_run is None else self.durable_import_run.partial_commit
+            ),
+        )
+
     def to_dict(self) -> dict[str, Any]:
         workflow_steps = [
             "build_import_plan",
@@ -175,6 +195,7 @@ class HandoffDurableImportRun:
         return {
             "artifact_posture": "local_handoff_durable_import_receipt",
             "classification": self.classification,
+            "block_reason": self.block_reason,
             "steps": workflow_steps,
             "request": self.request.to_dict(),
             "import_plan": {
@@ -196,27 +217,6 @@ class HandoffDurableImportRun:
             ),
             "durable_import_result": (
                 None if self.durable_import_run is None else self.durable_import_run.to_dict()
-            ),
-            "durable_import_review": _durable_import_review(
-                final_state=self.classification,
-                approval_state=self.request.approval_state,
-                import_plan_allowed=self.import_plan.import_plan_allowed,
-                import_plan_block_reason=self.import_plan.block_reason,
-                durable_import_classification=(
-                    None
-                    if self.durable_import_run is None
-                    else self.durable_import_run.classification
-                ),
-                rollback_performed=(
-                    False
-                    if self.durable_import_run is None
-                    else self.durable_import_run.rollback_performed
-                ),
-                partial_commit=(
-                    False
-                    if self.durable_import_run is None
-                    else self.durable_import_run.partial_commit
-                ),
             ),
         }
 
@@ -250,75 +250,6 @@ class HandoffDurableImportReceiptSummary:
             "partial_commit": self.partial_commit,
             "import_error": self.import_error,
         }
-
-
-@dataclass(frozen=True)
-class HandoffDurableImportRetryReview:
-    """Read-only review of a retry attempt against a fresh handoff import plan."""
-
-    previous_summary: HandoffDurableImportReceiptSummary
-    import_plan: HandoffImportPlanRun
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.previous_summary, HandoffDurableImportReceiptSummary):
-            raise ValueError("retry review requires typed handoff durable import summary")
-        if not isinstance(self.import_plan, HandoffImportPlanRun):
-            raise ValueError("retry review requires a fresh handoff import plan")
-        if self.previous_summary.package_id != self.import_plan.package.package_id:
-            raise ValueError("retry review package id must match fresh import plan")
-        if self.import_plan.import_plan_allowed:
-            planned_ids = self._planned_measurement_ids()
-            if (
-                len(planned_ids) == 1
-                and planned_ids[0] != self.previous_summary.measurement_record_id
-            ):
-                raise ValueError("retry review measurement id must match fresh import plan")
-
-    @property
-    def retry_allowed(self) -> bool:
-        return self.classification == "fresh_import_plan_ready_for_retry"
-
-    @property
-    def classification(self) -> str:
-        if self.previous_summary.final_state == "imported_handoff_measurement_record":
-            return "retry_not_applicable_after_import"
-        if self.previous_summary.partial_commit:
-            return "retry_blocked_until_partial_commit_reviewed"
-        if not self.import_plan.import_plan_allowed:
-            return f"retry_blocked_by_{self.import_plan.classification}"
-        if len(self.import_plan.measurement_plans) != 1:
-            return "retry_blocked_by_fresh_import_plan_measurement_scope"
-        return "fresh_import_plan_ready_for_retry"
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "artifact_posture": "local_handoff_durable_import_retry_review",
-            "classification": self.classification,
-            "retry_allowed": self.retry_allowed,
-            "package_id": self.previous_summary.package_id,
-            "measurement_record_id": self.previous_summary.measurement_record_id,
-            "destination_record_id": self.previous_summary.destination_record_id,
-            "previous": {
-                "final_state": self.previous_summary.final_state,
-                "block_reason": self.previous_summary.block_reason,
-                "durable_import_classification": (
-                    self.previous_summary.durable_import_classification
-                ),
-                "rollback_performed": self.previous_summary.rollback_performed,
-                "partial_commit": self.previous_summary.partial_commit,
-                "import_error": self.previous_summary.import_error,
-            },
-            "fresh_import_plan": {
-                "classification": self.import_plan.classification,
-                "allowed": self.import_plan.import_plan_allowed,
-                "planned_measurement_ids": list(self._planned_measurement_ids()),
-            },
-        }
-
-    def _planned_measurement_ids(self) -> tuple[str, ...]:
-        return tuple(
-            plan.measurement.measurement_record_id for plan in self.import_plan.measurement_plans
-        )
 
 
 def run_handoff_durable_import_from_plan(
@@ -368,25 +299,6 @@ def _run_handoff_durable_import_from_plan(
     )
 
 
-def review_handoff_durable_import_retry(
-    previous_summary: HandoffDurableImportReceiptSummary,
-    *,
-    fresh_import_plan: HandoffImportPlanRun,
-) -> HandoffDurableImportRetryReview:
-    """Review a durable-import retry against a fresh import plan without mutation."""
-
-    try:
-        return HandoffDurableImportRetryReview(
-            previous_summary=previous_summary,
-            import_plan=fresh_import_plan,
-        )
-    except ValueError as exc:
-        raise promote_handoff_contract_error(
-            exc,
-            operation="review_handoff_durable_import_retry",
-        ) from exc
-
-
 def summarize_handoff_durable_import_receipt(
     receipt: dict[str, Any],
 ) -> HandoffDurableImportReceiptSummary:
@@ -415,7 +327,7 @@ def _summarize_handoff_durable_import_receipt(
             "import_plan",
             "durable_import_request",
             "durable_import_result",
-            "durable_import_review",
+            "block_reason",
         },
         "handoff durable import receipt",
     )
@@ -534,41 +446,10 @@ def _summarize_handoff_durable_import_receipt(
     elif durable_import_performed:
         raise ValueError("blocked handoff durable receipt must not report performed import")
 
-    durable_import_review = _require_mapping(
-        receipt["durable_import_review"],
-        "handoff durable import receipt.durable_import_review",
-    )
-    _require_keys(
-        durable_import_review,
-        {
-            "classification",
-            "durable_import_performed",
-            "block_reason",
-        },
-        "handoff durable import receipt.durable_import_review",
-    )
-    if (
-        _read_public_id(
-            durable_import_review,
-            "classification",
-            "durable_import_review.classification",
-        )
-        != final_state
-    ):
-        raise ValueError("handoff durable import review classification is inconsistent")
-    if (
-        _read_bool(
-            durable_import_review,
-            "durable_import_performed",
-            "durable_import_review.durable_import_performed",
-        )
-        != durable_import_performed
-    ):
-        raise ValueError("handoff durable import review performed state is inconsistent")
     block_reason = _read_optional_text(
-        durable_import_review,
+        receipt,
         "block_reason",
-        "durable_import_review.block_reason",
+        "block_reason",
     )
 
     return HandoffDurableImportReceiptSummary(
@@ -583,32 +464,6 @@ def _summarize_handoff_durable_import_receipt(
         import_error=import_error,
         block_reason=block_reason,
     )
-
-
-def _durable_import_review(
-    *,
-    final_state: str,
-    approval_state: str,
-    import_plan_allowed: bool,
-    import_plan_block_reason: str | None,
-    durable_import_classification: str | None,
-    rollback_performed: bool,
-    partial_commit: bool,
-) -> dict[str, str | None | bool]:
-    block_reason = _durable_import_block_reason(
-        final_state=final_state,
-        approval_state=approval_state,
-        import_plan_allowed=import_plan_allowed,
-        import_plan_block_reason=import_plan_block_reason,
-        durable_import_classification=durable_import_classification,
-        rollback_performed=rollback_performed,
-        partial_commit=partial_commit,
-    )
-    return {
-        "classification": final_state,
-        "durable_import_performed": final_state == "imported_handoff_measurement_record",
-        "block_reason": block_reason,
-    }
 
 
 def _durable_import_block_reason(

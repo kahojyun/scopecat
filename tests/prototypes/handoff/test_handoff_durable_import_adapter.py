@@ -5,7 +5,6 @@ import json
 import shutil
 import tempfile
 import unittest
-from dataclasses import replace
 from pathlib import Path
 
 from scopecat.handoff import (
@@ -13,14 +12,10 @@ from scopecat.handoff import (
     HandoffDurableImportRequest,
     HandoffImportPlanRequest,
     HandoffReceivingReviewRequest,
-    review_handoff_durable_import_retry,
     run_handoff_durable_import_from_plan,
     summarize_handoff_durable_import_receipt,
 )
-from scopecat.handoff.durable_import import (
-    HandoffDurableImportReceiptSummary,
-    build_durable_import_request_from_handoff_plan,
-)
+from scopecat.handoff.durable_import import build_durable_import_request_from_handoff_plan
 from scopecat.handoff.import_plan import build_import_plan
 from scopecat.handoff.receiving import run_receiving_gate_from_request
 from scopecat.handoff.writer import write_package
@@ -258,14 +253,7 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
 
         self.assertEqual(run.classification, "imported_handoff_measurement_record")
         self.assertTrue(run.imported)
-        self.assertEqual(
-            summary["durable_import_review"],
-            {
-                "classification": "imported_handoff_measurement_record",
-                "durable_import_performed": True,
-                "block_reason": None,
-            },
-        )
+        self.assertIsNone(summary["block_reason"])
         self.assertEqual(manifest["creation"]["source_kind"], "handoff")
         self.assertEqual(manifest["record"]["label"], "Rabi calibration follow-up")
         self.assertEqual(read_model["primary_data"]["observed_row_count"], 5)
@@ -407,12 +395,8 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
         self.assertFalse(records_exist)
         self.assertEqual(summary["classification"], "blocked_before_handoff_durable_import")
         self.assertEqual(
-            summary["durable_import_review"],
-            {
-                "classification": "blocked_before_handoff_durable_import",
-                "durable_import_performed": False,
-                "block_reason": "durable_import_blocked_before_import",
-            },
+            summary["block_reason"],
+            "durable_import_blocked_before_import",
         )
         self.assertEqual(
             summary["durable_import_result"]["classification"], "blocked_before_import"
@@ -505,156 +489,6 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
         self.assertEqual(summary["final_state"], "blocked_before_handoff_durable_import")
         self.assertEqual(summary["block_reason"], "request_not_approved")
         self.assertFalse(summary["durable_import_performed"])
-
-    def test_retry_review_allows_fresh_ready_plan_after_blocked_plan(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_root = Path(temp_dir)
-            blocked_root = temp_root / "blocked"
-            fresh_root = temp_root / "fresh"
-            blocked_root.mkdir()
-            fresh_root.mkdir()
-            blocked_package_dir = _copy_package(blocked_root)
-            fresh_package_dir = _copy_package(fresh_root)
-            storage_root = temp_root / "storage"
-            storage_root.mkdir()
-            (blocked_package_dir / "measurements" / "legacy-rabi-001" / "primary.csv").write_text(
-                "drive_frequency,signal\n5.00,0.99\n",
-                encoding="utf-8",
-            )
-            blocked_run = run_handoff_durable_import_from_plan(
-                _request(),
-                import_plan=_import_plan_run(
-                    blocked_package_dir,
-                    receiving_request=_receiving_request(
-                        reviewed_integrity_classification="integrity_review_required",
-                    ),
-                ),
-                storage_root=storage_root,
-            )
-            previous_summary = summarize_handoff_durable_import_receipt(blocked_run.to_dict())
-
-            retry_review = review_handoff_durable_import_retry(
-                previous_summary,
-                fresh_import_plan=_import_plan_run(fresh_package_dir),
-            )
-            retry_summary = retry_review.to_dict()
-
-        self.assertEqual(retry_review.classification, "fresh_import_plan_ready_for_retry")
-        self.assertTrue(retry_review.retry_allowed)
-        self.assertEqual(retry_summary["measurement_record_id"], "legacy-rabi-001")
-        self.assertEqual(
-            retry_summary["previous"]["block_reason"],
-            "package_integrity_review_required",
-        )
-        self.assertEqual(
-            retry_summary["fresh_import_plan"]["classification"],
-            "ready_for_import_acceptance_decision",
-        )
-
-    def test_retry_review_is_not_applicable_after_successful_import(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_root = Path(temp_dir)
-            package_dir = _copy_package(temp_root)
-            storage_root = temp_root / "storage"
-            storage_root.mkdir()
-            run = run_handoff_durable_import_from_plan(
-                _request(),
-                import_plan=_import_plan_run(package_dir),
-                storage_root=storage_root,
-            )
-            previous_summary = summarize_handoff_durable_import_receipt(run.to_dict())
-
-            retry_review = review_handoff_durable_import_retry(
-                previous_summary,
-                fresh_import_plan=_import_plan_run(package_dir),
-            )
-
-        self.assertEqual(retry_review.classification, "retry_not_applicable_after_import")
-        self.assertFalse(retry_review.retry_allowed)
-
-    def test_retry_review_blocks_after_partial_commit(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            package_dir = _copy_package(Path(temp_dir))
-            previous_summary = HandoffDurableImportReceiptSummary(
-                package_id="handoff-package-legacy-rabi-001",
-                measurement_record_id="legacy-rabi-001",
-                destination_record_id="imported-legacy-rabi-001",
-                final_state="blocked_before_handoff_durable_import",
-                durable_import_performed=False,
-                durable_import_classification="import_failed_after_partial_commit",
-                rollback_performed=False,
-                partial_commit=True,
-                import_error="simulated partial commit",
-                block_reason="durable_import_partial_commit",
-            )
-
-            retry_review = review_handoff_durable_import_retry(
-                previous_summary,
-                fresh_import_plan=_import_plan_run(package_dir),
-            )
-
-        self.assertEqual(
-            retry_review.classification,
-            "retry_blocked_until_partial_commit_reviewed",
-        )
-        self.assertFalse(retry_review.retry_allowed)
-
-    def test_retry_review_reports_ready_multi_measurement_scope(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            package_dir = _copy_package(Path(temp_dir))
-            previous_summary = HandoffDurableImportReceiptSummary(
-                package_id="handoff-package-legacy-rabi-001",
-                measurement_record_id="legacy-rabi-001",
-                destination_record_id="imported-legacy-rabi-001",
-                final_state="blocked_before_handoff_durable_import",
-                durable_import_performed=False,
-                durable_import_classification="blocked_before_import",
-                rollback_performed=False,
-                partial_commit=False,
-                import_error="simulated block",
-                block_reason="durable_import_blocked_before_import",
-            )
-            fresh_plan = _import_plan_run(package_dir)
-            multi_measurement_plan = replace(
-                fresh_plan,
-                measurement_plans=(
-                    fresh_plan.measurement_plans[0],
-                    fresh_plan.measurement_plans[0],
-                ),
-            )
-
-            retry_review = review_handoff_durable_import_retry(
-                previous_summary,
-                fresh_import_plan=multi_measurement_plan,
-            )
-
-        self.assertEqual(
-            retry_review.classification,
-            "retry_blocked_by_fresh_import_plan_measurement_scope",
-        )
-        self.assertFalse(retry_review.retry_allowed)
-
-    def test_retry_review_rejects_measurement_mismatch(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            package_dir = _copy_package(Path(temp_dir))
-            previous_summary = HandoffDurableImportReceiptSummary(
-                package_id="handoff-package-legacy-rabi-001",
-                measurement_record_id="other-measurement",
-                destination_record_id="imported-legacy-rabi-001",
-                final_state="blocked_before_handoff_durable_import",
-                durable_import_performed=False,
-                durable_import_classification="blocked_before_import",
-                rollback_performed=False,
-                partial_commit=False,
-                import_error="simulated block",
-                block_reason="durable_import_blocked_before_import",
-            )
-
-            with self.assertRaisesRegex(ValueError, "measurement id"):
-                review_handoff_durable_import_retry(
-                    previous_summary,
-                    fresh_import_plan=_import_plan_run(package_dir),
-                )
 
     def test_receipt_summary_rejects_inconsistent_imported_state(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

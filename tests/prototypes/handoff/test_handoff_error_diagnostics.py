@@ -20,7 +20,7 @@ class HandoffErrorDiagnosticsTest(unittest.TestCase):
                     "import_plan": {},
                     "durable_import_request": None,
                     "durable_import_result": None,
-                    "durable_import_review": {},
+                    "block_reason": None,
                 }
             )
 

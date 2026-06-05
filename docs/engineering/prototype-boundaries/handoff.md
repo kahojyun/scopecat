@@ -207,8 +207,8 @@ integrity may gate receiving/import planning, but external authenticity, sender
 trust, and scientific validity remain unclaimed.
 
 Local writer receipts, workflow receipts, inspection HTML, receiving-gate
-results, import-plan objects, and retry reviews are local review surfaces unless
-a later slice explicitly promotes one as a portable/export artifact.
+results, and import-plan objects are local review surfaces unless a later slice
+explicitly promotes one as a portable/export artifact.
 
 Selected stored Measurement Record export may package request-declared
 record-local linked-context payloads under `context/`. The package-use route
@@ -283,8 +283,7 @@ Acceptance for that candidate is intentionally narrow:
 - declared digest integrity remains separate from external authenticity, sender
   trust, and scientific validity;
 - receiving review facts must match the opened package and observed integrity;
-- blocked durable imports expose block reasons without authorizing mutation and
-  require a fresh import plan for retry review;
+- blocked durable imports expose block reasons without authorizing mutation;
 - receiving review and import planning remain non-mutating;
 - durable storage mutation remains delegated to Measurement Records import;
 - durable import receipts and summaries expose block reasons without

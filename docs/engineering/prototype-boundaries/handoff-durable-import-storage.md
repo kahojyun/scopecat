@@ -41,7 +41,7 @@ open read-only handoff package
   -> select one package measurement
   -> build approved durable import request
   -> delegate mutation to Measurement Records durable import
-  -> return local handoff import receipt and retry review inputs
+  -> return local handoff import receipt
 ```
 
 Handoff adapts package review facts into Measurement Records import inputs. It
@@ -124,10 +124,9 @@ Durable Measurement Records storage is owned by
 `scopecat.measurement_records`. The handoff durable-import adapter owns request
 adaptation and local review continuity only.
 
-Local handoff durable-import receipts, receipt summaries, and retry reviews are
-local review surfaces. They are not portable handoff artifacts, retry approval,
-persistent GUI state, destination freshness proof, or storage mutation
-authority.
+Local handoff durable-import receipts and receipt summaries are local review
+surfaces. They are not portable handoff artifacts, retry approval, persistent
+GUI state, destination freshness proof, or storage mutation authority.
 
 The durable-import adapter may consume declared digest integrity from the
 reviewed package path, but it does not verify external authenticity, trusted
@@ -197,8 +196,8 @@ Relevant regression expectations:
 - package-id and selected-measurement mismatches block before mutation;
 - stale package bytes are revalidated by the delegated durable-import operation;
 - linked context remains reference-only review context;
-- receipt summaries and retry reviews expose stable local review guidance but
-  do not authorize mutation.
+- receipt summaries expose compact local block reasons but do not authorize
+  mutation.
 
 Run repository checks with:
 

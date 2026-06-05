@@ -41,7 +41,6 @@ Durable Measurement Records import adaptation:
 
 - `run_handoff_durable_import_from_plan(request, import_plan=..., storage_root=...)`
 - `summarize_handoff_durable_import_receipt(receipt)`
-- `review_handoff_durable_import_retry(previous_summary, fresh_import_plan=...)`
 
 The top-level module exports active operation entrypoints and caller-supplied
 request/value objects needed to invoke those operations. Route projection,
@@ -125,9 +124,8 @@ adapter or engineering route for already-reviewed normalized data, not a
 user-facing shortcut around Measurement Records storage.
 
 Local writer receipts, inspection HTML, function return values, import-plan
-objects, durable-import adapter receipts, and retry reviews are local review
-surfaces unless a later slice explicitly promotes one as a portable/export
-artifact.
+objects, and durable-import adapter receipts are local review surfaces unless a
+later slice explicitly promotes one as a portable/export artifact.
 
 Selected-record export receipts keep compact `block_reason` state for blocked
 local runs. The lower-level export path checks that the selected read model

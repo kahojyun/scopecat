@@ -13,7 +13,6 @@ from scopecat.handoff.archive_materialization import (
 from scopecat.handoff.durable_import import (
     HandoffDurableImportDestination,
     HandoffDurableImportRequest,
-    review_handoff_durable_import_retry,
     run_handoff_durable_import_from_plan,
     summarize_handoff_durable_import_receipt,
 )
@@ -56,7 +55,6 @@ __all__ = [
     "materialize_handoff_archive_package_from_request",
     "observe_package_integrity",
     "open_package",
-    "review_handoff_durable_import_retry",
     "run_handoff_durable_import_from_plan",
     "run_receiving_gate_from_request",
     "summarize_handoff_durable_import_receipt",

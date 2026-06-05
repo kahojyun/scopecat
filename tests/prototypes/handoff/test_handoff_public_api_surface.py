@@ -74,7 +74,6 @@ class HandoffPublicApiSurfaceTest(unittest.TestCase):
             "HandoffArchiveMaterializationRun",
             "HandoffContextReferenceSummary",
             "HandoffDurableImportReceiptSummary",
-            "HandoffDurableImportRetryReview",
             "HandoffDurableImportRun",
             "HandoffErrorDiagnostic",
             "HandoffImportPlanRun",
