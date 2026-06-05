@@ -63,8 +63,6 @@ class HandoffEngineeringPrototypeReceivingTest(unittest.TestCase):
                 "classification": "ready_for_acceptance_mutation",
                 "acceptance_allowed": True,
                 "block_reason": None,
-                "next_action": "build_import_plan_for_reviewed_package",
-                "retry_requires": None,
             },
         )
         self.assertFalse(records_exist)
@@ -99,8 +97,6 @@ class HandoffEngineeringPrototypeReceivingTest(unittest.TestCase):
                 "classification": "blocked_before_acceptance",
                 "acceptance_allowed": False,
                 "block_reason": "package_integrity_review_required",
-                "next_action": "review_package_integrity_before_import_planning",
-                "retry_requires": "fresh_matching_package_open_and_integrity_observation",
             },
         )
         self.assertFalse(records_exist)

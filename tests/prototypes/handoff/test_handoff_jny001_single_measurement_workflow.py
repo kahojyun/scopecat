@@ -491,7 +491,7 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
             )
 
         self.assertEqual(durable_import.classification, "blocked_before_handoff_durable_import")
-        self.assertEqual(summary.next_action, "review_durable_import_block_before_retry")
+        self.assertEqual(summary.block_reason, "durable_import_blocked_before_import")
         self.assertEqual(retry_review.classification, "fresh_import_plan_ready_for_retry")
         self.assertTrue(retry_review.retry_allowed)
 

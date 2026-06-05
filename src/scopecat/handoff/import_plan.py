@@ -93,13 +93,6 @@ class HandoffMeasurementImportPlan:
                 "storage_path": "not_assigned",
                 "conflict_resolution": "not_decided",
             },
-            "requires_next_decision": [
-                "storage_schema",
-                "destination_record_identity",
-                "conflict_policy",
-                "acceptance_mutation",
-                "rollback_policy",
-            ],
         }
 
 
@@ -170,11 +163,6 @@ class HandoffImportPlanRun:
                 "allowed": self.import_plan_allowed,
                 "planned_measurement_imports": [plan.to_dict() for plan in self.measurement_plans],
                 "linked_context": [plan.to_dict() for plan in self.linked_context_plans],
-                "next_required_decision": (
-                    "choose_storage_acceptance_conflict_and_rollback_policy"
-                    if self.import_plan_allowed
-                    else "resolve_receiving_gate_before_import_acceptance"
-                ),
             },
             "import_plan_review": _import_plan_review(
                 classification=self.classification,
@@ -249,8 +237,6 @@ def _import_plan_review(
         "classification": classification,
         "import_plan_allowed": import_plan_allowed,
         "block_reason": block_reason,
-        "next_action": _import_plan_next_action(block_reason),
-        "retry_requires": _import_plan_retry_requirement(block_reason),
     }
 
 
@@ -267,27 +253,3 @@ def _import_plan_block_reason(
     if receiving_gate_classification != "ready_for_acceptance_mutation":
         return "receiving_gate_not_ready"
     return "import_plan_not_ready"
-
-
-def _import_plan_next_action(block_reason: str | None) -> str:
-    if block_reason is None:
-        return "review_storage_acceptance_destination_before_durable_import"
-    if block_reason in {
-        "package_integrity_review_required",
-        "undeclared_package_members_review_required",
-        "receiving_gate_not_ready",
-    }:
-        return "resolve_receiving_gate_before_import_acceptance"
-    return "review_import_plan_block_before_retry"
-
-
-def _import_plan_retry_requirement(block_reason: str | None) -> str | None:
-    if block_reason is None:
-        return None
-    if block_reason in {
-        "package_integrity_review_required",
-        "undeclared_package_members_review_required",
-        "receiving_gate_not_ready",
-    }:
-        return "fresh_ready_receiving_gate"
-    return "reviewed_import_plan_request"

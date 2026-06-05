@@ -418,8 +418,6 @@ class SelectedMeasurementRecordPreflightExportRun:
                 "refresh_performed": refresh_performed,
                 "package_written": self.exported,
                 "block_reason": _preflight_block_reason(self),
-                "next_action": _preflight_next_action(self),
-                "retry_requires": _preflight_retry_requirement(self),
                 "preflight_error": self.preflight_error,
             },
             "export": {
@@ -868,11 +866,6 @@ def _export_review(
         "classification": classification,
         "package_written": package_written,
         "block_reason": block_reason,
-        "next_action": _export_next_action(
-            classification=classification,
-            block_reason=block_reason,
-        ),
-        "retry_requires": _export_retry_requirement(block_reason),
     }
 
 
@@ -890,43 +883,6 @@ def _export_block_reason(*, approved: bool, export_error: str | None) -> str | N
     if "must stay under record_dir" in export_error:
         return "record_path_scope_violation"
     return "export_validation_error"
-
-
-def _export_next_action(*, classification: str, block_reason: str | None) -> str:
-    if classification in {
-        "exported_selected_measurement_record",
-        "exported_selected_measurement_record_batch",
-    }:
-        return "transfer_package_for_receiving_review"
-    if block_reason == "request_not_approved":
-        return "approve_selected_record_export_request"
-    if block_reason == "package_destination_collision":
-        return "choose_new_package_destination_before_retry"
-    if block_reason in {
-        "missing_record_evidence",
-        "record_evidence_mismatch",
-        "record_not_complete",
-        "record_path_scope_violation",
-    }:
-        return "review_record_evidence_before_export_retry"
-    return "review_selected_record_export_error_before_retry"
-
-
-def _export_retry_requirement(block_reason: str | None) -> str | None:
-    if block_reason is None:
-        return None
-    if block_reason == "request_not_approved":
-        return "approved_selected_record_export_request"
-    if block_reason == "package_destination_collision":
-        return "fresh_package_destination_or_removed_collision"
-    if block_reason in {
-        "missing_record_evidence",
-        "record_evidence_mismatch",
-        "record_not_complete",
-        "record_path_scope_violation",
-    }:
-        return "fresh_matching_record_read_model_manifest_and_writer_receipt"
-    return "reviewed_export_input_correction"
 
 
 def _read_model_freshness_review(
@@ -948,11 +904,6 @@ def _read_model_freshness_review(
         ),
         "read_model_refresh": "not_performed",
         "block_reason": block_reason,
-        "next_action": _read_model_freshness_next_action(
-            classification=classification,
-            block_reason=block_reason,
-        ),
-        "retry_requires": _read_model_freshness_retry_requirement(block_reason),
     }
 
 
@@ -1024,51 +975,6 @@ def _read_model_freshness_classification(
     return "read_model_freshness_unresolved"
 
 
-def _read_model_freshness_next_action(
-    *,
-    classification: str,
-    block_reason: str | None,
-) -> str:
-    if classification in {
-        "exported_selected_measurement_record",
-        "exported_selected_measurement_record_batch",
-    }:
-        return "continue_selected_record_export"
-    if block_reason == "request_not_approved":
-        return "approve_selected_record_export_request"
-    if block_reason == "package_destination_collision":
-        return "choose_new_package_destination_before_retry"
-    if block_reason in {"missing_read_model", "invalid_read_model", "stale_read_model"}:
-        return "project_or_refresh_read_model_before_selected_record_export"
-    if block_reason in {
-        "read_model_not_complete",
-        "missing_record_evidence",
-        "read_model_scope_invalid",
-        "record_evidence_mismatch",
-    }:
-        return "review_record_evidence_before_export_retry"
-    return "review_selected_record_export_error_before_retry"
-
-
-def _read_model_freshness_retry_requirement(block_reason: str | None) -> str | None:
-    if block_reason is None:
-        return None
-    if block_reason == "request_not_approved":
-        return "approved_selected_record_export_request"
-    if block_reason == "package_destination_collision":
-        return "fresh_package_destination_or_removed_collision"
-    if block_reason in {"missing_read_model", "invalid_read_model", "stale_read_model"}:
-        return "fresh_projected_record_read_model"
-    if block_reason in {
-        "read_model_not_complete",
-        "missing_record_evidence",
-        "read_model_scope_invalid",
-        "record_evidence_mismatch",
-    }:
-        return "fresh_matching_record_read_model_manifest_and_writer_receipt"
-    return "reviewed_export_input_correction"
-
-
 def _should_refresh_before_export(run: SelectedMeasurementRecordExportRun) -> bool:
     review = run.to_dict()["read_model_freshness_review"]
     return review["block_reason"] in {
@@ -1086,28 +992,6 @@ def _preflight_block_reason(run: SelectedMeasurementRecordPreflightExportRun) ->
     if run.refresh_run is not None and not run.refresh_run.refreshed:
         return "read_model_refresh_failed"
     return run.export_run.to_dict()["export_review"]["block_reason"]
-
-
-def _preflight_next_action(run: SelectedMeasurementRecordPreflightExportRun) -> str:
-    if run.exported:
-        return "transfer_package_for_receiving_review"
-    if run.preflight_error is not None:
-        return "review_read_model_refresh_error_before_export_retry"
-    if run.refresh_run is not None and not run.refresh_run.refreshed:
-        return "review_read_model_refresh_error_before_export_retry"
-    return run.export_run.to_dict()["export_review"]["next_action"]
-
-
-def _preflight_retry_requirement(
-    run: SelectedMeasurementRecordPreflightExportRun,
-) -> str | None:
-    if run.exported:
-        return None
-    if run.preflight_error is not None:
-        return "successful_read_model_refresh_then_export_retry"
-    if run.refresh_run is not None and not run.refresh_run.refreshed:
-        return "successful_read_model_refresh_then_export_retry"
-    return run.export_run.to_dict()["export_review"]["retry_requires"]
 
 
 def _record_ref(

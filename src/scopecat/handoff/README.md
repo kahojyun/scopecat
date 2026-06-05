@@ -90,9 +90,8 @@ Under DEC-025 this path creates a new Measurement Record only; it does not
 update existing records, merge primary data, replace manifests, or publish a
 final storage schema.
 
-Durable-import receipts and summaries include local `durable_import_review`
-guidance, plus summary `block_reason` and `retry_requires` fields. This is
-local review guidance only; it does not approve retry, reuse stale plans, skip
+Durable-import receipts and summaries include compact local state and
+`block_reason` fields. They do not approve retry, reuse stale plans, skip
 destination checks, or bypass package revalidation.
 
 Public receiving, import-planning, and durable-import API functions promote

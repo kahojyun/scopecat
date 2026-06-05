@@ -92,11 +92,6 @@ class HandoffReceivingGateRun:
             "acceptance_gate": {
                 "required_integrity_classification": "declared_integrity_verified",
                 "allowed": self.acceptance_allowed,
-                "basis": (
-                    "Approved review facts match package and integrity observations."
-                    if self.acceptance_allowed
-                    else "Integrity observation must be reviewed before acceptance mutation."
-                ),
             },
             "receiving_review": _receiving_review(
                 classification=self.classification,
@@ -195,8 +190,6 @@ def _receiving_review(
         "classification": classification,
         "acceptance_allowed": acceptance_allowed,
         "block_reason": block_reason,
-        "next_action": _receiving_next_action(block_reason),
-        "retry_requires": _receiving_retry_requirement(block_reason),
     }
 
 
@@ -212,25 +205,3 @@ def _receiving_block_reason(
     if integrity_classification == "integrity_observed_with_undeclared_members":
         return "undeclared_package_members_review_required"
     return "receiving_gate_not_ready"
-
-
-def _receiving_next_action(block_reason: str | None) -> str:
-    if block_reason is None:
-        return "build_import_plan_for_reviewed_package"
-    if block_reason in {
-        "package_integrity_review_required",
-        "undeclared_package_members_review_required",
-    }:
-        return "review_package_integrity_before_import_planning"
-    return "review_receiving_gate_before_import_planning"
-
-
-def _receiving_retry_requirement(block_reason: str | None) -> str | None:
-    if block_reason is None:
-        return None
-    if block_reason in {
-        "package_integrity_review_required",
-        "undeclared_package_members_review_required",
-    }:
-        return "fresh_matching_package_open_and_integrity_observation"
-    return "fresh_receiving_review_request"

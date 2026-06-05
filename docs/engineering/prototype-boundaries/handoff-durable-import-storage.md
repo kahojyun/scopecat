@@ -63,11 +63,11 @@ The current adapter:
 - returns a local handoff durable-import receipt that records package,
   selected measurement, destination, and durable-import classification.
 
-Durable-import receipts and summaries include local review guidance for
+Durable-import receipts and summaries include compact local state for
 successful import, blocked import-plan handoff, durable source-preflight
-blocks, rollback, and partial-commit cases. That guidance exposes stable
-`block_reason`, `next_action`, and `retry_requires` fields without authorizing
-retry, reusing stale plans, or bypassing destination/package rechecks.
+blocks, rollback, and partial-commit cases. They expose `block_reason` without
+authorizing retry, reusing stale plans, or bypassing destination/package
+rechecks.
 
 Public durable-import API functions promote route contract failures to
 `HandoffContractError`, which remains `ValueError`-compatible. The

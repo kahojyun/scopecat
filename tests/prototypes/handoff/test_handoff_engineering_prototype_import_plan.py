@@ -144,17 +144,11 @@ class HandoffEngineeringPrototypeImportPlanTest(unittest.TestCase):
             "ready_for_acceptance_mutation",
         )
         self.assertEqual(
-            summary["import_plan"]["next_required_decision"],
-            "choose_storage_acceptance_conflict_and_rollback_policy",
-        )
-        self.assertEqual(
             summary["import_plan_review"],
             {
                 "classification": "ready_for_import_acceptance_decision",
                 "import_plan_allowed": True,
                 "block_reason": None,
-                "next_action": "review_storage_acceptance_destination_before_durable_import",
-                "retry_requires": None,
             },
         )
         self.assertEqual(
@@ -212,17 +206,11 @@ class HandoffEngineeringPrototypeImportPlanTest(unittest.TestCase):
         self.assertFalse(run.import_plan_allowed)
         self.assertEqual(summary["import_plan"]["planned_measurement_imports"], [])
         self.assertEqual(
-            summary["import_plan"]["next_required_decision"],
-            "resolve_receiving_gate_before_import_acceptance",
-        )
-        self.assertEqual(
             summary["import_plan_review"],
             {
                 "classification": "blocked_before_import_acceptance",
                 "import_plan_allowed": False,
                 "block_reason": "package_integrity_review_required",
-                "next_action": "resolve_receiving_gate_before_import_acceptance",
-                "retry_requires": "fresh_ready_receiving_gate",
             },
         )
 

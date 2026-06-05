@@ -265,8 +265,6 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
                 "classification": "imported_handoff_measurement_record",
                 "durable_import_performed": True,
                 "block_reason": None,
-                "next_action": "use_durable_measurement_record",
-                "retry_requires": None,
             },
         )
         self.assertEqual(manifest["creation"]["source_kind"], "handoff")
@@ -344,9 +342,7 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
         self.assertEqual(summary["measurement_record_id"], "legacy-rabi-001")
         self.assertEqual(summary["destination_record_id"], "imported-legacy-rabi-001")
         self.assertEqual(summary["final_state"], "imported_handoff_measurement_record")
-        self.assertEqual(summary["next_action"], "use_durable_measurement_record")
         self.assertIsNone(summary["block_reason"])
-        self.assertIsNone(summary["retry_requires"])
         self.assertTrue(summary["durable_import_performed"])
         self.assertEqual(summary["durable_import_classification"], "imported_new_record")
         self.assertTrue(summary["durable_import_performed"])
@@ -417,8 +413,6 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
                 "classification": "blocked_before_handoff_durable_import",
                 "durable_import_performed": False,
                 "block_reason": "durable_import_blocked_before_import",
-                "next_action": "review_durable_import_block_before_retry",
-                "retry_requires": "fresh_import_plan_and_destination_recheck",
             },
         )
         self.assertEqual(
@@ -512,8 +506,6 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
                 "classification": "blocked_before_handoff_durable_import",
                 "durable_import_performed": False,
                 "block_reason": "durable_import_rolled_back",
-                "next_action": "review_rollback_and_retry_with_fresh_handoff_plan",
-                "retry_requires": "fresh_import_plan_and_destination_recheck",
             },
         )
         self.assertEqual(receipt_summary.block_reason, "durable_import_rolled_back")
@@ -546,9 +538,7 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
             summary = summarize_handoff_durable_import_receipt(run.to_dict()).to_dict()
 
         self.assertEqual(summary["final_state"], "blocked_before_handoff_durable_import")
-        self.assertEqual(summary["next_action"], "resolve_import_plan_before_durable_import")
         self.assertEqual(summary["block_reason"], "package_integrity_review_required")
-        self.assertEqual(summary["retry_requires"], "fresh_ready_import_plan")
         self.assertFalse(summary["durable_import_performed"])
         self.assertIsNone(summary["durable_import_classification"])
 
@@ -567,14 +557,7 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
             summary = summarize_handoff_durable_import_receipt(run.to_dict()).to_dict()
 
         self.assertEqual(summary["final_state"], "blocked_before_handoff_durable_import")
-        self.assertEqual(
-            summary["next_action"], "complete_handoff_durable_import_review_before_mutation"
-        )
         self.assertEqual(summary["block_reason"], "request_not_approved")
-        self.assertEqual(
-            summary["retry_requires"],
-            "approved_handoff_durable_import_request",
-        )
         self.assertFalse(summary["durable_import_performed"])
 
     def test_retry_review_allows_fresh_ready_plan_after_blocked_plan(self) -> None:
@@ -617,7 +600,6 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
             retry_summary["previous"]["block_reason"],
             "package_integrity_review_required",
         )
-        self.assertEqual(retry_summary["previous"]["retry_requires"], "fresh_ready_import_plan")
         self.assertEqual(
             retry_summary["fresh_import_plan"]["classification"],
             "ready_for_import_acceptance_decision",
@@ -652,7 +634,6 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
                 measurement_record_id="legacy-rabi-001",
                 destination_record_id="imported-legacy-rabi-001",
                 final_state="blocked_before_handoff_durable_import",
-                next_action="inspect_partial_commit_before_retry",
                 durable_import_performed=False,
                 durable_import_classification="import_failed_after_partial_commit",
                 rollback_performed=False,
@@ -680,7 +661,6 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
                 measurement_record_id="legacy-rabi-001",
                 destination_record_id="imported-legacy-rabi-001",
                 final_state="blocked_before_handoff_durable_import",
-                next_action="review_durable_import_block_before_retry",
                 durable_import_performed=False,
                 durable_import_classification="blocked_before_import",
                 rollback_performed=False,
@@ -716,7 +696,6 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
                 measurement_record_id="other-measurement",
                 destination_record_id="imported-legacy-rabi-001",
                 final_state="blocked_before_handoff_durable_import",
-                next_action="review_durable_import_block_before_retry",
                 durable_import_performed=False,
                 durable_import_classification="blocked_before_import",
                 rollback_performed=False,
@@ -769,7 +748,6 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
         self.assertEqual(summary["measurement_record_id"], "legacy-rabi-001")
         self.assertEqual(summary["destination_record_id"], "imported-legacy-rabi-001")
         self.assertEqual(summary["final_state"], "imported_handoff_measurement_record")
-        self.assertEqual(summary["next_action"], "use_durable_measurement_record")
 
     def test_module_cli_reports_local_diagnostic_for_unsupported_receipt_posture(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

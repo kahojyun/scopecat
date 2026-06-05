@@ -157,8 +157,6 @@ class HandoffArchiveCreationRun:
             },
             "creation_review": {
                 "block_reason": _creation_block_reason(self),
-                "next_action": _creation_next_action(self),
-                "retry_requires": _creation_retry_requirement(self),
             },
         }
 
@@ -218,8 +216,6 @@ class HandoffArchiveMaterializationRun:
             "member_reviews": [member.to_dict() for member in self.member_reviews],
             "materialization_review": {
                 "block_reason": _materialization_block_reason(self),
-                "next_action": _materialization_next_action(self),
-                "retry_requires": _materialization_retry_requirement(self),
             },
         }
 
@@ -515,34 +511,6 @@ def _creation_block_reason(run: HandoffArchiveCreationRun) -> str | None:
     return "archive_creation_not_performed"
 
 
-def _creation_next_action(run: HandoffArchiveCreationRun) -> str:
-    block_reason = _creation_block_reason(run)
-    if block_reason is None:
-        return "transfer_zip_archive_to_receiving_side"
-    if block_reason == "request_not_approved":
-        return "approve_archive_creation_request"
-    if block_reason == "archive_destination_collision":
-        return "choose_unused_archive_path_before_retry"
-    if block_reason in {
-        "archive_creation_symlink_blocked",
-        "archive_creation_metadata_member_blocked",
-        "missing_package_manifest",
-    }:
-        return "provide_openable_dec010_package_before_retry"
-    return "review_archive_creation_error_before_retry"
-
-
-def _creation_retry_requirement(run: HandoffArchiveCreationRun) -> str | None:
-    block_reason = _creation_block_reason(run)
-    if block_reason is None:
-        return None
-    if block_reason == "request_not_approved":
-        return "approved_archive_creation_request"
-    if block_reason == "archive_destination_collision":
-        return "unused_archive_destination"
-    return "openable_dec010_package_and_reviewed_archive_creation_request"
-
-
 def _materialization_block_reason(run: HandoffArchiveMaterializationRun) -> str | None:
     if run.materialized:
         return None
@@ -561,42 +529,6 @@ def _materialization_block_reason(run: HandoffArchiveMaterializationRun) -> str 
             return "unsupported_archive_input"
         return "archive_materialization_error"
     return "archive_materialization_not_performed"
-
-
-def _materialization_next_action(run: HandoffArchiveMaterializationRun) -> str:
-    block_reason = _materialization_block_reason(run)
-    if block_reason is None:
-        return "open_materialized_package_for_receiving_review"
-    if block_reason == "request_not_approved":
-        return "approve_archive_materialization_request"
-    if block_reason == "package_destination_collision":
-        return "choose_empty_materialization_destination_before_retry"
-    if block_reason in {
-        "archive_member_review_blocked",
-        "archive_member_scope_violation",
-        "missing_package_manifest",
-        "unsupported_archive_input",
-    }:
-        return "provide_safe_dec010_archive_before_retry"
-    return "review_archive_materialization_error_before_retry"
-
-
-def _materialization_retry_requirement(run: HandoffArchiveMaterializationRun) -> str | None:
-    block_reason = _materialization_block_reason(run)
-    if block_reason is None:
-        return None
-    if block_reason == "request_not_approved":
-        return "approved_archive_materialization_request"
-    if block_reason == "package_destination_collision":
-        return "fresh_empty_materialization_destination"
-    if block_reason in {
-        "archive_member_review_blocked",
-        "archive_member_scope_violation",
-        "missing_package_manifest",
-        "unsupported_archive_input",
-    }:
-        return "safe_zip_archive_with_dec010_package_members"
-    return "reviewed_archive_materialization_input_correction"
 
 
 def _existing_directory_root(path: Path, label: str) -> Path:
