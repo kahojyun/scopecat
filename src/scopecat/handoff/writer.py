@@ -29,6 +29,15 @@ from scopecat.handoff._contracts import (
     validate_text,
     validate_unique_reference_targets,
 )
+from scopecat.handoff._declared_preview import (
+    HandoffPackagePreviewColumn as HandoffPackagePreviewColumn,
+)
+from scopecat.handoff._declared_preview import (
+    HandoffPackagePreviewMetadata,
+)
+from scopecat.handoff._declared_preview import (
+    HandoffPackagePreviewPlotCandidate as HandoffPackagePreviewPlotCandidate,
+)
 from scopecat.handoff._manifest_preview import preview_handoff_manifest
 
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
@@ -130,58 +139,6 @@ class HandoffPackagePrimaryData:
             "reason": self.reason,
             "digest": digest,
             "size_bytes": size,
-        }
-
-
-@dataclass(frozen=True)
-class HandoffPackagePreviewColumn:
-    name: str
-    role: str
-    label: str
-    unit: str
-
-    def to_manifest(self) -> dict[str, str]:
-        return {
-            "name": self.name,
-            "role": self.role,
-            "label": self.label,
-            "unit": self.unit,
-        }
-
-
-@dataclass(frozen=True)
-class HandoffPackagePreviewPlotCandidate:
-    x: str
-    y: str
-    source: str
-
-    def to_manifest(self) -> dict[str, str]:
-        return {
-            "x": self.x,
-            "y": self.y,
-            "source": self.source,
-        }
-
-
-@dataclass(frozen=True)
-class HandoffPackagePreviewMetadata:
-    status: str
-    metadata_authority: str
-    data_shape_kind: str
-    data_shape_axis_order: tuple[str, ...]
-    declared_columns: tuple[HandoffPackagePreviewColumn, ...]
-    plot_candidates: tuple[HandoffPackagePreviewPlotCandidate, ...]
-
-    def to_manifest(self) -> dict[str, Any]:
-        return {
-            "status": self.status,
-            "metadata_authority": self.metadata_authority,
-            "data_shape": {
-                "kind": self.data_shape_kind,
-                "axis_order": list(self.data_shape_axis_order),
-            },
-            "declared_columns": [column.to_manifest() for column in self.declared_columns],
-            "plot_candidates": [candidate.to_manifest() for candidate in self.plot_candidates],
         }
 
 

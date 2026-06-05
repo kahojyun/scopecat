@@ -12,7 +12,6 @@ from scopecat.handoff._contracts import (
     HANDOFF_PACKAGE_CREATED_BY,
     MANIFEST_AUTHORITY,
     validate_handoff_package_identity,
-    validate_handoff_preview_ready_metadata,
     validate_positive_integer,
     validate_public_identifier,
     validate_relative_path,
@@ -20,13 +19,14 @@ from scopecat.handoff._contracts import (
     validate_strict_child_path,
     validate_text,
 )
+from scopecat.handoff._declared_preview import (
+    HandoffPackagePreviewMetadata,
+    coerce_handoff_package_preview_metadata,
+)
 from scopecat.handoff.writer import (
     HandoffPackageBundleItem,
     HandoffPackageIdentity,
     HandoffPackageLinkedContext,
-    HandoffPackagePreviewColumn,
-    HandoffPackagePreviewMetadata,
-    HandoffPackagePreviewPlotCandidate,
     HandoffPackagePrimaryData,
     HandoffPackageSelectedMeasurement,
     HandoffPackageWriteReceipt,
@@ -158,7 +158,7 @@ class SelectedMeasurementRecordBatchExportRecord:
     read_model_path: str
     legacy_data_id: int
     target: str
-    declared_preview_metadata: dict[str, Any]
+    declared_preview_metadata: HandoffPackagePreviewMetadata
     linked_context: tuple[SelectedMeasurementRecordExportLinkedContext, ...] = ()
 
     def __post_init__(self) -> None:
@@ -172,12 +172,13 @@ class SelectedMeasurementRecordBatchExportRecord:
         if self.legacy_data_id < 0:
             raise ValueError("selected record export legacy_data_id must be non-negative")
         validate_public_identifier(self.target, "selected record export target")
-        if not isinstance(self.declared_preview_metadata, dict):
-            raise ValueError("selected record export declared_preview_metadata must be an object")
-        validate_handoff_preview_ready_metadata(
-            self.declared_preview_metadata,
-            primary_path=f"measurements/{self.record_id}/primary.csv",
-            owner="selected record export preview",
+        object.__setattr__(
+            self,
+            "declared_preview_metadata",
+            _coerce_declared_preview_metadata(
+                self.declared_preview_metadata,
+                record_id=self.record_id,
+            ),
         )
         for item in self.linked_context:
             if item.source_path is not None:
@@ -198,7 +199,7 @@ class SelectedMeasurementRecordBatchExportRecord:
             "read_model_path": self.read_model_path,
             "legacy_data_id": self.legacy_data_id,
             "target": self.target,
-            "declared_preview_metadata": copy.deepcopy(self.declared_preview_metadata),
+            "declared_preview_metadata": self.declared_preview_metadata.to_manifest(),
             "linked_context": [item.to_request_item() for item in self.linked_context],
         }
 
@@ -218,7 +219,7 @@ class SelectedMeasurementRecordExportRequest:
     read_model_path: str
     legacy_data_id: int
     target: str
-    declared_preview_metadata: dict[str, Any]
+    declared_preview_metadata: HandoffPackagePreviewMetadata
     linked_context: tuple[SelectedMeasurementRecordExportLinkedContext, ...] = ()
 
     def __post_init__(self) -> None:
@@ -230,6 +231,14 @@ class SelectedMeasurementRecordExportRequest:
             source_export_summary_id=self.source_export_summary_id,
             display_path=self.display_path,
         )
+        object.__setattr__(
+            self,
+            "declared_preview_metadata",
+            _coerce_declared_preview_metadata(
+                self.declared_preview_metadata,
+                record_id=self.record_id,
+            ),
+        )
         self.to_batch_record()
 
     def to_batch_record(self) -> SelectedMeasurementRecordBatchExportRecord:
@@ -239,7 +248,7 @@ class SelectedMeasurementRecordExportRequest:
             read_model_path=self.read_model_path,
             legacy_data_id=self.legacy_data_id,
             target=self.target,
-            declared_preview_metadata=copy.deepcopy(self.declared_preview_metadata),
+            declared_preview_metadata=self.declared_preview_metadata,
             linked_context=self.linked_context,
         )
 
@@ -268,7 +277,7 @@ class SelectedMeasurementRecordExportRequest:
             "read_model_path": self.read_model_path,
             "legacy_data_id": self.legacy_data_id,
             "target": self.target,
-            "declared_preview_metadata": copy.deepcopy(self.declared_preview_metadata),
+            "declared_preview_metadata": self.declared_preview_metadata.to_manifest(),
             "linked_context": [item.to_request_item() for item in self.linked_context],
         }
 
@@ -759,9 +768,7 @@ def _measurement_writer_item(
         experiment_type=experiment_type,
         target=evidence.record.target,
         primary_data=primary,
-        declared_preview_metadata=_preview_metadata(
-            evidence.record.declared_preview_metadata,
-        ),
+        declared_preview_metadata=evidence.record.declared_preview_metadata,
         default_bundle=(
             HandoffPackageBundleItem(
                 item_id=f"{evidence.record.record_id}-primary",
@@ -778,46 +785,15 @@ def _measurement_writer_item(
     )
 
 
-def _preview_metadata(source: dict[str, Any]) -> HandoffPackagePreviewMetadata:
-    data_shape = _require_dict(source, "data_shape")
-    declared_columns = source.get("declared_columns")
-    if not isinstance(declared_columns, list):
-        raise ValueError("selected record export declared_columns must be a list")
-    plot_candidates = source.get("plot_candidates")
-    if not isinstance(plot_candidates, list):
-        raise ValueError("selected record export plot_candidates must be a list")
-    axis_order = data_shape.get("axis_order")
-    if not isinstance(axis_order, list):
-        raise ValueError("selected record export data_shape axis_order must be a list")
-    return HandoffPackagePreviewMetadata(
-        status=_require_text(source, "status"),
-        metadata_authority=_require_text(source, "metadata_authority"),
-        data_shape_kind=_require_text(data_shape, "kind"),
-        data_shape_axis_order=tuple(
-            validate_public_identifier(item, "selected record export data_shape axis")
-            for item in axis_order
-        ),
-        declared_columns=tuple(_preview_column(column) for column in declared_columns),
-        plot_candidates=tuple(_preview_plot_candidate(candidate) for candidate in plot_candidates),
-    )
-
-
-def _preview_column(source: Any) -> HandoffPackagePreviewColumn:
-    column = _require_mapping(source, "selected record export preview column")
-    return HandoffPackagePreviewColumn(
-        name=_require_text(column, "name"),
-        role=_require_text(column, "role"),
-        label=_require_text(column, "label"),
-        unit=_require_text(column, "unit"),
-    )
-
-
-def _preview_plot_candidate(source: Any) -> HandoffPackagePreviewPlotCandidate:
-    candidate = _require_mapping(source, "selected record export preview plot candidate")
-    return HandoffPackagePreviewPlotCandidate(
-        x=_require_text(candidate, "x"),
-        y=_require_text(candidate, "y"),
-        source=_require_text(candidate, "source"),
+def _coerce_declared_preview_metadata(
+    source: object,
+    *,
+    record_id: str,
+) -> HandoffPackagePreviewMetadata:
+    return coerce_handoff_package_preview_metadata(
+        source,
+        primary_path=f"measurements/{record_id}/primary.csv",
+        owner="selected record export preview",
     )
 
 

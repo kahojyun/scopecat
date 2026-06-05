@@ -15,6 +15,7 @@ from scopecat.handoff._contracts import (
 from scopecat.handoff._contracts import (
     validate_public_identifier,
 )
+from scopecat.handoff._declared_preview import coerce_handoff_package_preview_metadata
 from scopecat.handoff._manifest_preview import (
     HandoffManifestMeasurement,
     HandoffManifestPreviewMetadata,
@@ -219,10 +220,17 @@ def _opened_measurement(
         declared_digest=primary.digest,
         declared_size_bytes=primary.size_bytes,
         observed_size_bytes=len(content),
-        declared_preview_metadata_authority=preview.metadata_authority,
-        declared_preview_columns=preview.declared_columns,
-        declared_preview_shape=preview.data_shape,
-        declared_preview_plot_candidates=preview.plot_candidates,
+        declared_preview_metadata=coerce_handoff_package_preview_metadata(
+            {
+                "status": preview.status,
+                "metadata_authority": preview.metadata_authority,
+                "data_shape": preview.data_shape,
+                "declared_columns": list(preview.declared_columns),
+                "plot_candidates": list(preview.plot_candidates),
+            },
+            primary_path=primary.package_path,
+            owner="handoff opened package preview",
+        ),
         primary_table=HandoffTable.from_records(columns, rows),
         preview_table=HandoffTable.from_records(
             declared_names, _preview_rows(rows, declared_names)

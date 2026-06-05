@@ -6,6 +6,7 @@ import copy
 from dataclasses import dataclass
 from typing import Any
 
+from scopecat.handoff._declared_preview import HandoffPackagePreviewMetadata
 from scopecat.handoff.tables import HandoffPlotSeries, HandoffTable
 
 
@@ -83,31 +84,34 @@ class HandoffMeasurement:
     declared_digest: str | None
     declared_size_bytes: int | None
     observed_size_bytes: int
-    declared_preview_metadata_authority: str
-    declared_preview_columns: tuple[dict[str, str], ...]
-    declared_preview_shape: dict[str, Any]
-    declared_preview_plot_candidates: tuple[dict[str, Any], ...]
+    declared_preview_metadata: HandoffPackagePreviewMetadata
     primary_table: HandoffTable
     preview_table: HandoffTable
     plot_series: tuple[HandoffPlotSeries, ...]
     linked_context: tuple[HandoffLinkedContext, ...]
     findings: tuple[HandoffFinding, ...]
 
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "declared_preview_columns",
-            tuple(copy.deepcopy(column) for column in self.declared_preview_columns),
+    @property
+    def declared_preview_metadata_authority(self) -> str:
+        return self.declared_preview_metadata.metadata_authority
+
+    @property
+    def declared_preview_columns(self) -> tuple[dict[str, str], ...]:
+        return tuple(
+            column.to_manifest() for column in self.declared_preview_metadata.declared_columns
         )
-        object.__setattr__(
-            self,
-            "declared_preview_shape",
-            copy.deepcopy(self.declared_preview_shape),
-        )
-        object.__setattr__(
-            self,
-            "declared_preview_plot_candidates",
-            tuple(copy.deepcopy(candidate) for candidate in self.declared_preview_plot_candidates),
+
+    @property
+    def declared_preview_shape(self) -> dict[str, Any]:
+        return {
+            "kind": self.declared_preview_metadata.data_shape_kind,
+            "axis_order": list(self.declared_preview_metadata.data_shape_axis_order),
+        }
+
+    @property
+    def declared_preview_plot_candidates(self) -> tuple[dict[str, str], ...]:
+        return tuple(
+            candidate.to_manifest() for candidate in self.declared_preview_metadata.plot_candidates
         )
 
     def plot_series_by_columns(self, *, x: str, y: str) -> HandoffPlotSeries:
@@ -136,14 +140,10 @@ class HandoffMeasurement:
             "primary_data": primary_data,
             "declared_preview": {
                 "status": "preview_ready",
-                "metadata_authority": self.declared_preview_metadata_authority,
-                "data_shape": copy.deepcopy(self.declared_preview_shape),
-                "declared_columns": tuple(
-                    copy.deepcopy(column) for column in self.declared_preview_columns
-                ),
-                "plot_candidates": tuple(
-                    copy.deepcopy(candidate) for candidate in self.declared_preview_plot_candidates
-                ),
+                "metadata_authority": self.declared_preview_metadata.metadata_authority,
+                "data_shape": self.declared_preview_shape,
+                "declared_columns": self.declared_preview_columns,
+                "plot_candidates": self.declared_preview_plot_candidates,
             },
             "primary_table": {
                 "source": self.primary_package_path,
