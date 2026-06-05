@@ -25,13 +25,13 @@ approved legacy run record request
 The first operation records declared legacy facts and references only. The
 optional attach operation accepts already converted normalized primary data as
 reviewed input and writes primary data, writer receipt, finalization receipt,
-and read model into the same legacy record. The first user-facing workflow
-facade composes legacy system id, legacy run id, converted primary data, and
-selected references, deriving local Scopecat ids from the legacy facts instead
-of asking the caller for receipt request ids or record ids. The workflow does
-not open legacy files, parse old formats, execute old code, observe source
-payloads, import referenced payloads, repair references, or decide scientific
-validity.
+and read model into the same legacy record. Earlier workflow-facade code that
+composed these primitives for a scenario has been retired from the active
+package surface. The active boundary remains the lower-level storage
+operations until a named JNY-007 route earns a user-facing orchestration shape.
+These operations do not open legacy files, parse old formats, execute old code,
+observe source payloads, import referenced payloads, repair references, or
+decide scientific validity.
 
 ## Why This Boundary
 
@@ -69,10 +69,7 @@ The live prototype may:
 - finalize and project that same record through existing receipts/read-models
   without replacing the creation manifest;
 - record explicit parameter, setup-binding, code, preliminary-analysis, and
-  supporting-evidence references as record-local reference receipts;
-- compose the above primitives through a prototype user-facing facade that
-  accepts legacy facts and converted primary-data facts without requiring the
-  user to supply Scopecat ids.
+  supporting-evidence references as record-local reference receipts.
 
 ## Out Of Scope
 
@@ -103,7 +100,4 @@ Stop this slice when tests prove:
 - attach requests whose source id does not match the legacy record block before
   mutation;
 - attach failures after primary-data mutation roll back only newly attached
-  artifacts while preserving the legacy record and legacy receipt;
-- a scenario can record multiple legacy measurements through the user-facing
-  workflow facade, attach each converted primary data file to its same record,
-  and record selected references.
+  artifacts while preserving the legacy record and legacy receipt.

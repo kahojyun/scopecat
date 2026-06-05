@@ -28,14 +28,12 @@ capabilities:
 
 - `import_measurement_record_from_request(...)` for importing reviewed
   normalized primary data into durable local storage;
-- `record_legacy_measurement(...)` and
-  `record_legacy_measurement_from_request(...)` for adopting one legacy or
-  externally executed measurement behind user-facing facts;
 - `record_measurement_record_references_from_request(...)` for declared
   context links attached to a Measurement Record.
 
 These package-level APIs use typed request/value objects. Slice-level
-operations such as normalized-table summary and stored-primary reads remain
+operations such as legacy-run recording, converted-primary attach,
+normalized-table summary, and stored-primary reads remain
 available only from their owning internal modules for route-local composition,
 tests, and future cleanup.
 Do not treat those submodule entrypoints as package-level contracts.
