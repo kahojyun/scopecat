@@ -87,27 +87,44 @@ class MeasurementRecordUserWorkflowPrototypeTest(unittest.TestCase):
         self.assertTrue(run.recorded)
         self.assertEqual(run.classification, "recorded_legacy_measurement")
         self.assertEqual(
-            payload["generated_ids"]["record_id"],
+            run.generated_ids.record_id,
             "rec-legacy-labview-lv-run-001",
         )
         self.assertEqual(
-            payload["generated_ids"]["recorded_reference_set_id"],
+            run.generated_ids.recorded_reference_set_id,
             "references-legacy-labview-lv-run-001",
         )
+        self.assertEqual(run.legacy_run.classification, "recorded_legacy_run")
+        self.assertIsNotNone(run.primary_attach)
+        self.assertEqual(run.primary_attach.classification, "attached_legacy_primary_data")
+        self.assertIsNotNone(run.recorded_reference)
         self.assertEqual(
-            payload["legacy_run"]["classification"],
-            "recorded_legacy_run",
-        )
-        self.assertEqual(
-            payload["primary_attach"]["classification"],
-            "attached_legacy_primary_data",
-        )
-        self.assertEqual(
-            payload["recorded_reference"]["classification"],
+            run.recorded_reference.classification,
             "recorded_measurement_record_references",
         )
-        self.assertEqual(payload["primary_table_read"]["classification"], "primary_table_ready")
-        self.assertNotIn("record_id", payload["request"]["source"])
+        self.assertIsNotNone(run.primary_table_read)
+        self.assertEqual(run.primary_table_read.classification, "primary_table_ready")
+        self.assertEqual(
+            payload,
+            {
+                "classification": "recorded_legacy_measurement",
+                "recorded": True,
+                "measurement": {
+                    "measurement_id": "meas-legacy-labview-lv-run-001",
+                    "record_id": "rec-legacy-labview-lv-run-001",
+                    "record_dir": "records/rec-legacy-labview-lv-run-001",
+                    "title": "Legacy LabVIEW Run 001",
+                    "legacy_system_id": "legacy-labview",
+                    "legacy_run_id": "lv-run-001",
+                },
+                "steps": {
+                    "legacy_run": "recorded_legacy_run",
+                    "primary_attach": "attached_legacy_primary_data",
+                    "recorded_reference": "recorded_measurement_record_references",
+                    "primary_table_read": "primary_table_ready",
+                },
+            },
+        )
 
     def test_request_entrypoint_matches_direct_facade(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -175,17 +192,19 @@ class MeasurementRecordUserWorkflowPrototypeTest(unittest.TestCase):
             record_dir = storage_root / "records" / "rec-legacy-labview-lv-run-001"
             self.assertFalse((record_dir / "recorded-references").exists())
 
-        payload = run.to_dict()
         self.assertEqual(run.classification, "legacy_measurement_recording_review_needed")
         self.assertFalse(run.recorded)
-        self.assertEqual(
-            payload["legacy_run"]["classification"],
-            "blocked_before_legacy_run_record",
-        )
+        self.assertEqual(run.legacy_run.classification, "blocked_before_legacy_run_record")
         self.assertIsNone(run.primary_attach)
         self.assertIsNone(run.recorded_reference)
         self.assertIsNone(run.primary_table_read)
+        payload = run.to_dict()
         self.assertEqual(payload["classification"], "legacy_measurement_recording_review_needed")
+        self.assertFalse(payload["recorded"])
+        self.assertEqual(payload["steps"]["legacy_run"], "blocked_before_legacy_run_record")
+        self.assertIsNone(payload["steps"]["primary_attach"])
+        self.assertIsNone(payload["steps"]["recorded_reference"])
+        self.assertIsNone(payload["steps"]["primary_table_read"])
 
     def test_attach_failure_does_not_continue_into_reference_or_read_steps(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -208,16 +227,25 @@ class MeasurementRecordUserWorkflowPrototypeTest(unittest.TestCase):
             self.assertTrue((record_dir / "legacy-run-receipt.json").exists())
             self.assertFalse((record_dir / "recorded-references").exists())
 
-        payload = run.to_dict()
         self.assertEqual(run.classification, "legacy_measurement_recording_review_needed")
         self.assertFalse(run.recorded)
+        self.assertIsNotNone(run.primary_attach)
         self.assertEqual(
-            payload["primary_attach"]["classification"],
+            run.primary_attach.classification,
             "blocked_before_legacy_primary_import",
         )
         self.assertIsNone(run.recorded_reference)
         self.assertIsNone(run.primary_table_read)
+        payload = run.to_dict()
         self.assertEqual(payload["classification"], "legacy_measurement_recording_review_needed")
+        self.assertFalse(payload["recorded"])
+        self.assertEqual(payload["steps"]["legacy_run"], "recorded_legacy_run")
+        self.assertEqual(
+            payload["steps"]["primary_attach"],
+            "blocked_before_legacy_primary_import",
+        )
+        self.assertIsNone(payload["steps"]["recorded_reference"])
+        self.assertIsNone(payload["steps"]["primary_table_read"])
 
 
 if __name__ == "__main__":

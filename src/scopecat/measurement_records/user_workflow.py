@@ -16,7 +16,6 @@ from scopecat.measurement_records._primary_table_read import (
     PrimaryTableReadRequest,
     PrimaryTableReadResult,
     read_record_primary_table,
-    read_result_summary,
 )
 from scopecat.measurement_records.durable_import import MeasurementRecordImportSource
 from scopecat.measurement_records.legacy_primary_import import (
@@ -69,20 +68,6 @@ class LegacyMeasurementSource:
             if value is not None:
                 validate_text(value, owner)
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "legacy_system_id": self.legacy_system_id,
-            "legacy_run_id": self.legacy_run_id,
-            "label": self.label,
-            "experiment_type": self.experiment_type,
-            "primary_locator": self.primary_locator,
-            "notebook_locator": self.notebook_locator,
-            "run_started_at": self.run_started_at,
-            "run_completed_at": self.run_completed_at,
-            "created_at": self.created_at,
-            "operator_notes": self.operator_notes,
-        }
-
 
 @dataclass(frozen=True)
 class ConvertedPrimaryData:
@@ -98,12 +83,6 @@ class ConvertedPrimaryData:
             raise ValueError("converted primary data rows_recorded must be an integer")
         if self.rows_recorded < 0:
             raise ValueError("converted primary data rows_recorded must be non-negative")
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "path": str(self.path),
-            "rows_recorded": self.rows_recorded,
-        }
 
 
 @dataclass(frozen=True)
@@ -132,18 +111,6 @@ class RecordedReferenceInput:
             preview=self.preview,
         )
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "family": self.family,
-            "role": self.role,
-            "reference_kind": self.reference_kind,
-            "reference_value": self.reference_value,
-            "label": self.label,
-            "digest": self.digest,
-            "size_bytes": self.size_bytes,
-            "preview": self.preview,
-        }
-
 
 @dataclass(frozen=True)
 class LegacyMeasurementRecordRequest:
@@ -169,14 +136,6 @@ class LegacyMeasurementRecordRequest:
         if self.preview_row_limit <= 0:
             raise ValueError("legacy measurement request preview_row_limit must be positive")
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "source": self.source.to_dict(),
-            "primary_data": self.primary_data.to_dict(),
-            "references": [reference.to_dict() for reference in self.references],
-            "preview_row_limit": self.preview_row_limit,
-        }
-
 
 @dataclass(frozen=True)
 class LegacyMeasurementIds:
@@ -192,20 +151,6 @@ class LegacyMeasurementIds:
     primary_locator_id: str
     notebook_locator_id: str
     normalized_source_item_id: str
-
-    def to_dict(self) -> dict[str, str]:
-        return {
-            "measurement_id": self.measurement_id,
-            "record_id": self.record_id,
-            "legacy_record_request_id": self.legacy_record_request_id,
-            "primary_attach_request_id": self.primary_attach_request_id,
-            "recorded_reference_request_id": self.recorded_reference_request_id,
-            "recorded_reference_set_id": self.recorded_reference_set_id,
-            "primary_table_read_request_id": self.primary_table_read_request_id,
-            "primary_locator_id": self.primary_locator_id,
-            "notebook_locator_id": self.notebook_locator_id,
-            "normalized_source_item_id": self.normalized_source_item_id,
-        }
 
 
 @dataclass(frozen=True)
@@ -241,22 +186,8 @@ class LegacyMeasurementRecordRun:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "artifact_posture": "local_legacy_measurement_user_workflow",
             "classification": self.classification,
-            "request": self.request.to_dict(),
-            "generated_ids": self.generated_ids.to_dict(),
-            "storage_root": str(self.storage_root),
-            "content_root": str(self.content_root),
-            "legacy_run": self.legacy_run.to_dict(),
-            "primary_attach": None
-            if self.primary_attach is None
-            else self.primary_attach.to_dict(),
-            "recorded_reference": (
-                None if self.recorded_reference is None else self.recorded_reference.to_dict()
-            ),
-            "primary_table_read": None
-            if self.primary_table_read is None
-            else read_result_summary(self.primary_table_read),
+            "recorded": self.recorded,
             "measurement": {
                 "measurement_id": self.generated_ids.measurement_id,
                 "record_id": self.generated_ids.record_id,
@@ -264,6 +195,18 @@ class LegacyMeasurementRecordRun:
                 "title": self.request.source.label or self.request.source.legacy_run_id,
                 "legacy_system_id": self.request.source.legacy_system_id,
                 "legacy_run_id": self.request.source.legacy_run_id,
+            },
+            "steps": {
+                "legacy_run": self.legacy_run.classification,
+                "primary_attach": None
+                if self.primary_attach is None
+                else self.primary_attach.classification,
+                "recorded_reference": None
+                if self.recorded_reference is None
+                else self.recorded_reference.classification,
+                "primary_table_read": None
+                if self.primary_table_read is None
+                else self.primary_table_read.classification,
             },
         }
 
