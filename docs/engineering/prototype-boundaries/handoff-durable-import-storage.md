@@ -19,14 +19,14 @@ Read it with:
   import, and storage authority;
 - [`../../../src/scopecat/handoff/README.md`](../../../src/scopecat/handoff/README.md)
   for the live handoff API surface;
-- [`../../decisions/architecture/DEC-016-defer-linked-context-payload-import.md`](../../decisions/architecture/DEC-016-defer-linked-context-payload-import.md)
+- [`../../decisions/DEC-016-defer-linked-context-payload-import.md`](../../decisions/DEC-016-defer-linked-context-payload-import.md)
   for the current linked-context payload import deferral;
-- [`../../decisions/architecture/DEC-017-defer-batch-durable-import.md`](../../decisions/architecture/DEC-017-defer-batch-durable-import.md)
+- [`../../decisions/DEC-017-defer-batch-durable-import.md`](../../decisions/DEC-017-defer-batch-durable-import.md)
   for the current batch durable import deferral;
-- [`../../decisions/architecture/DEC-020-defer-archive-package-implementation.md`](../../decisions/architecture/DEC-020-defer-archive-package-implementation.md)
+- [`../../decisions/DEC-020-defer-archive-package-implementation.md`](../../decisions/DEC-020-defer-archive-package-implementation.md)
   for the current archive-backed durable import and archive-authority
   deferral;
-- [`../../decisions/architecture/DEC-025-defer-existing-record-update-and-final-storage-schema.md`](../../decisions/architecture/DEC-025-defer-existing-record-update-and-final-storage-schema.md)
+- [`../../decisions/DEC-025-defer-existing-record-update-and-final-storage-schema.md`](../../decisions/DEC-025-defer-existing-record-update-and-final-storage-schema.md)
   for the current new-record-only durable import and storage-schema deferral.
 
 ## Current Boundary

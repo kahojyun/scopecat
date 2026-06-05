@@ -49,8 +49,8 @@ For product vision, outcomes, and implementation direction:
    register.
 7. [`architecture/README.md`](architecture/README.md) for the initial
    architecture model, domain concepts, context map, and boundary lens.
-8. [`decisions/README.md`](decisions/README.md) for decision type rules,
-   current decision status, and decision-record templates.
+8. [`decisions/README.md`](decisions/README.md) for decision classification,
+   flat record layout, current decision status, and decision-record templates.
 9. [`traceability.md`](traceability.md) for current-state to target journey,
    capability, validation, and implementation traceability.
 10. [`engineering/README.md`](engineering/README.md) for delivery maturity,

@@ -232,9 +232,9 @@ Create or update a decision record when a branch:
 - promotes a legacy-specific artifact shape into a target product object;
 - extracts a shared domain model across capabilities.
 
-Use [`../decisions/README.md`](../decisions/README.md) to decide whether the
-record is an architecture decision record, product decision, engineering
-decision, discovery decision, or operational decision.
+Use [`../decisions/README.md`](../decisions/README.md) to classify the decision
+as architecture, product, engineering, discovery, or operational while keeping
+standalone records in the flat decisions directory.
 
 ## Update Rule
 

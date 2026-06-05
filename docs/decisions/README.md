@@ -6,10 +6,9 @@ Decision-record navigation and governance.
 
 ## Purpose
 
-Provide one entry point for durable Scopecat decisions without moving every
-historical decision document into one directory. This directory owns the
-decision taxonomy, the decision register, and the template for new decision
-records.
+Provide one flat entry point for durable Scopecat decisions. This directory
+owns the decision taxonomy, the decision register, and the template for new
+decision records.
 
 Use this directory when a change needs to answer:
 
@@ -22,15 +21,20 @@ Use this directory when a change needs to answer:
 Use [`register.md`](register.md) as the current index. Use
 [`template.md`](template.md) when creating a new decision record.
 
+Standalone decision records live directly in this directory as
+`DEC-*-short-title.md` files. Do not create type-specific subdirectories such
+as `architecture/`, `product/`, or `engineering/`; keep the type in the record
+metadata and register row instead.
+
 ## Decision Types
 
 | Type | Use For | Typical Owner |
 | --- | --- | --- |
-| Architecture | System boundaries, integration patterns, authority transfer, shared models, execution/runtime/hardware ownership, storage or artifact architecture. | `docs/decisions/architecture/` or the owning architecture document linked from the register. |
-| Product | Target journeys, adoption scope, deferred umbrella journeys, non-goals, user-facing product boundaries. | `docs/decisions/product/` or the owning product document linked from the register. |
-| Engineering | Implementation strategy, prototype promotion, module boundary, test strategy, compatibility policy, live owner-local technical tradeoff. | `docs/decisions/engineering/` or the owning engineering document linked from the register. |
-| Discovery | Discovery closeout, stop rule, reopen trigger, accepted-for-now evidence interpretation that has not yet become architecture, product, or engineering scope. | The narrowest discovery evidence owner, or a promoted decision record when future work must obey it. |
-| Operational | Development process, tooling, release, CI, package-management, or documentation workflow choices. | Project governance or tooling document linked from the register. |
+| Architecture | System boundaries, integration patterns, authority transfer, shared models, execution/runtime/hardware ownership, storage or artifact architecture. | A flat `docs/decisions/DEC-*.md` record, or the owning architecture document linked from the register. |
+| Product | Target journeys, adoption scope, deferred umbrella journeys, non-goals, user-facing product boundaries. | A flat `docs/decisions/DEC-*.md` record, or the owning product document linked from the register. |
+| Engineering | Implementation strategy, prototype promotion, module boundary, test strategy, compatibility policy, live owner-local technical tradeoff. | A flat `docs/decisions/DEC-*.md` record, or the owning engineering document linked from the register. |
+| Discovery | Discovery closeout, stop rule, reopen trigger, accepted-for-now evidence interpretation that has not yet become architecture, product, or engineering scope. | The narrowest discovery evidence owner, or a flat decision record when future work must obey it. |
+| Operational | Development process, tooling, release, CI, package-management, or documentation workflow choices. | Project governance, tooling document, or flat decision record linked from the register. |
 
 ## ADR Usage
 
