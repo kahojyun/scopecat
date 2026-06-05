@@ -8,7 +8,7 @@ from pathlib import Path
 
 from scopecat.handoff import open_package
 from scopecat.handoff.inspect import HANDOFF_INSPECTION_ARTIFACT_NAME, write_inspection_artifact
-from scopecat.handoff.package import HandoffPackage, summarize_package_context_references
+from scopecat.handoff.package import HandoffPackage
 from scopecat.handoff.tables import HandoffPlotSeries, HandoffTable
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -133,7 +133,7 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
         package = open_package(PACKAGE)
         measurement = package.measurement("legacy-rabi-001")
 
-        package_summary = package.as_open_summary()
+        package_summary = package.to_dict()
         package_findings = [finding.to_dict() for finding in package.findings]
         measurement_context = [context.to_dict() for context in measurement.linked_context]
         table_records = measurement.primary_table.to_records()
@@ -234,11 +234,18 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
             )
             _write_manifest(package_dir, manifest)
 
-            summary = summarize_package_context_references(open_package(package_dir)).to_dict()
+            package = open_package(package_dir)
 
-        self.assertEqual(summary["artifact_posture"], "local_context_reference_summary")
+        references = tuple(item.context_reference for item in package.linked_context)
+        self.assertTrue(all(reference is not None for reference in references))
+        family_counts = {}
+        for reference in references:
+            assert reference is not None
+            family = reference["reference_family"]
+            family_counts[family] = family_counts.get(family, 0) + 1
+
         self.assertEqual(
-            summary["reference_family_counts"],
+            dict(sorted(family_counts.items())),
             {
                 "environment_operation": 1,
                 "experiment_code": 1,
@@ -246,16 +253,16 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
                 "prepared_run": 1,
             },
         )
-        self.assertEqual(summary["untyped_linked_context_ids"], [])
-        self.assertEqual(summary["context_reference_count"], 4)
+        self.assertEqual(len(references), 4)
         self.assertEqual(
-            summary["prepared_run_context_ids"],
+            [
+                reference["reference_id"]
+                for reference in references
+                if reference is not None and reference["reference_family"] == "prepared_run"
+            ],
             ["prepared-run-context-rabi-001"],
         )
-        self.assertEqual(
-            summary["context_references"][1]["reference_id"],
-            "managed-code-version-rabi-001",
-        )
+        self.assertEqual(references[1]["reference_id"], "managed-code-version-rabi-001")
 
     def test_local_html_inspection_artifact_can_be_written(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

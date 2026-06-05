@@ -71,7 +71,6 @@ class HandoffPublicApiSurfaceTest(unittest.TestCase):
             "HANDOFF_INSPECTION_ARTIFACT_NAME",
             "HandoffArchiveCreationRun",
             "HandoffArchiveMaterializationRun",
-            "HandoffContextReferenceSummary",
             "HandoffDurableImportRun",
             "HandoffErrorDiagnostic",
             "HandoffImportPlanRun",
@@ -102,7 +101,6 @@ class HandoffPublicApiSurfaceTest(unittest.TestCase):
             "SelectedMeasurementRecordPreflightExportRun",
             "build_durable_import_request_from_handoff_plan",
             "build_inspection_html",
-            "summarize_package_context_references",
             "write_inspection_artifact",
             "write_package_from_source",
         }

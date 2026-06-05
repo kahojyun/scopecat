@@ -20,17 +20,6 @@ class HandoffFinding:
     measurement_record_id: str | None = None
     basis: str | None = None
 
-    @classmethod
-    def from_manifest_finding(cls, finding: dict[str, Any]) -> HandoffFinding:
-        return cls(
-            code=finding["finding"],
-            severity=finding["severity"],
-            subject_type=finding["subject_type"],
-            subject_id=finding["subject_id"],
-            measurement_record_id=finding.get("measurement_record_id"),
-            basis=finding.get("basis"),
-        )
-
     def to_dict(self) -> dict[str, Any]:
         result = {
             "finding": self.code,
@@ -60,23 +49,6 @@ class HandoffLinkedContext:
     declared_size_bytes: int | None = None
     context_reference: dict[str, str] | None = None
 
-    @classmethod
-    def from_manifest_item(cls, item: dict[str, Any]) -> HandoffLinkedContext:
-        return cls(
-            link_id=item["link_id"],
-            kind=item["kind"],
-            label=item["label"],
-            package_state=item["package_state"],
-            materialization=(
-                "packaged_payload" if item["package_state"] == "packaged" else "reference_only"
-            ),
-            linked_measurement_record_ids=tuple(item["linked_measurement_record_ids"]),
-            package_path=item.get("package_path"),
-            declared_digest=item.get("digest"),
-            declared_size_bytes=item.get("size_bytes"),
-            context_reference=copy.deepcopy(item.get("context_reference")),
-        )
-
     def to_dict(self) -> dict[str, Any]:
         result = {
             "link_id": self.link_id,
@@ -95,48 +67,6 @@ class HandoffLinkedContext:
         if self.context_reference is not None:
             result["context_reference"] = copy.deepcopy(self.context_reference)
         return result
-
-
-@dataclass(frozen=True)
-class HandoffContextReferenceSummary:
-    """Read-only summary of package context references."""
-
-    package_id: str
-    measurement_ids: tuple[str, ...]
-    context_references: tuple[dict[str, Any], ...]
-    untyped_linked_context_ids: tuple[str, ...]
-
-    @property
-    def context_reference_count(self) -> int:
-        return len(self.context_references)
-
-    @property
-    def family_counts(self) -> dict[str, int]:
-        counts: dict[str, int] = {}
-        for item in self.context_references:
-            family = item["reference_family"]
-            counts[family] = counts.get(family, 0) + 1
-        return dict(sorted(counts.items()))
-
-    @property
-    def prepared_run_context_ids(self) -> tuple[str, ...]:
-        return tuple(
-            item["reference_id"]
-            for item in self.context_references
-            if item["reference_family"] == "prepared_run"
-        )
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "artifact_posture": "local_context_reference_summary",
-            "package_id": self.package_id,
-            "measurement_ids": list(self.measurement_ids),
-            "context_reference_count": self.context_reference_count,
-            "reference_family_counts": self.family_counts,
-            "prepared_run_context_ids": list(self.prepared_run_context_ids),
-            "context_references": [copy.deepcopy(item) for item in self.context_references],
-            "untyped_linked_context_ids": list(self.untyped_linked_context_ids),
-        }
 
 
 @dataclass(frozen=True)
@@ -286,47 +216,3 @@ class HandoffPackage:
             "linked_context": [item.to_dict() for item in self.linked_context],
             "findings": [finding.to_dict() for finding in self.findings],
         }
-
-    def as_open_summary(self) -> dict[str, Any]:
-        """Return a copy-safe open-package snapshot.
-
-        The summary mirrors the current route-local projection.
-        """
-
-        return copy.deepcopy(self.to_dict())
-
-
-def summarize_package_context_references(
-    package: HandoffPackage,
-) -> HandoffContextReferenceSummary:
-    """Summarize reference-only context visible in an opened handoff package."""
-
-    context_references = []
-    untyped_context_ids = []
-    for item in package.linked_context:
-        if item.context_reference is None:
-            untyped_context_ids.append(item.link_id)
-            continue
-        reference = item.context_reference
-        context_references.append(
-            {
-                "link_id": item.link_id,
-                "kind": item.kind,
-                "label": item.label,
-                "package_state": item.package_state,
-                "materialization": item.materialization,
-                "package_path": item.package_path,
-                "linked_measurement_record_ids": list(item.linked_measurement_record_ids),
-                "reference_id": reference["reference_id"],
-                "reference_kind": reference["reference_kind"],
-                "reference_family": reference["reference_family"],
-                "reference_materialization": reference["materialization"],
-                "payload_import": reference["payload_import"],
-            }
-        )
-    return HandoffContextReferenceSummary(
-        package_id=package.package_id,
-        measurement_ids=package.measurement_ids,
-        context_references=tuple(context_references),
-        untyped_linked_context_ids=tuple(untyped_context_ids),
-    )
