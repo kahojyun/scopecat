@@ -54,7 +54,6 @@ class MeasurementRecordsPublicApiSurfaceTest(unittest.TestCase):
             "MeasurementRecordExistingUpdateRequest",
             "MeasurementRecordInProgressUpdateRequest",
             "MeasurementRecordNormalizedPrimaryTableRequest",
-            "MeasurementRecordReadModelRefreshRequest",
             "MeasurementRecordReadRequest",
             "MeasurementRecordRunningInspectionRequest",
             "append_existing_measurement_record_from_request",
@@ -63,7 +62,6 @@ class MeasurementRecordsPublicApiSurfaceTest(unittest.TestCase):
             "inspect_running_measurement_record_from_request",
             "legacy_measurement_slug",
             "record_legacy_measurement_run_from_request",
-            "refresh_measurement_record_read_model_from_read_view",
             "summarize_normalized_primary_table_from_request",
             "summarize_running_measurement_inspection",
         }

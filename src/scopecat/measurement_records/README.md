@@ -36,9 +36,8 @@ capabilities:
   to a Measurement Record.
 
 These package-level APIs use typed request/value objects. Slice-level
-operations such as read-model refresh and normalized-table summary remain
-available only from their owning submodules for route-local composition, tests,
-and future cleanup.
+operations such as normalized-table summary remain available only from their
+owning submodules for route-local composition, tests, and future cleanup.
 Do not treat those submodule entrypoints as package-level contracts.
 
 ## Artifact Boundaries

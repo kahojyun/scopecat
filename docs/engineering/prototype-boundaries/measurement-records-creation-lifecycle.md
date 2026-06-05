@@ -57,7 +57,7 @@ Current authority model:
 - import/attach operations own primary CSV bytes and their receipts;
 - update operations own append receipts and append segments, not primary-data
   compaction;
-- read-model refresh owns derived read models, not canonical
+- selected-record export refresh owns derived read models, not canonical
   manifest replacement.
 
 The prototype keeps manifest replacement, existing-record merge import, broad
