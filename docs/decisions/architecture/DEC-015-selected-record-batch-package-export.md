@@ -30,9 +30,10 @@ handoff package containing multiple selected stored records.
 
 Each selected record is validated independently from its record-local read
 model, creation manifest, writer receipt, primary-data path, digest, size, and
-explicit preview metadata. The batch export adapter delegates package-member
-copying, no-overwrite behavior, manifest writing, package opening, and package
-integrity to the existing handoff package writer and reader.
+explicit declared table-preview metadata. The batch export adapter delegates
+package-member copying, no-overwrite behavior, manifest writing, package
+opening, and package integrity to the existing handoff package writer and
+reader.
 
 The batch export request is package-level write authority. It may include
 multiple record selections, but it does not authorize durable batch import.

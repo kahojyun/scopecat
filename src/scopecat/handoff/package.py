@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from scopecat.handoff._declared_preview import HandoffPackagePreviewMetadata
-from scopecat.handoff.tables import HandoffPlotSeries, HandoffTable
+from scopecat.handoff.tables import HandoffTable
 
 
 @dataclass(frozen=True)
@@ -87,7 +87,6 @@ class HandoffMeasurement:
     declared_preview_metadata: HandoffPackagePreviewMetadata
     primary_table: HandoffTable
     preview_table: HandoffTable
-    plot_series: tuple[HandoffPlotSeries, ...]
     linked_context: tuple[HandoffLinkedContext, ...]
     findings: tuple[HandoffFinding, ...]
 
@@ -100,25 +99,6 @@ class HandoffMeasurement:
         return tuple(
             column.to_manifest() for column in self.declared_preview_metadata.declared_columns
         )
-
-    @property
-    def declared_preview_shape(self) -> dict[str, Any]:
-        return {
-            "kind": self.declared_preview_metadata.data_shape_kind,
-            "axis_order": list(self.declared_preview_metadata.data_shape_axis_order),
-        }
-
-    @property
-    def declared_preview_plot_candidates(self) -> tuple[dict[str, str], ...]:
-        return tuple(
-            candidate.to_manifest() for candidate in self.declared_preview_metadata.plot_candidates
-        )
-
-    def plot_series_by_columns(self, *, x: str, y: str) -> HandoffPlotSeries:
-        for series in self.plot_series:
-            if series.x_name == x and series.y_name == y:
-                return series
-        raise KeyError(f"{x}:{y}")
 
     def to_dict(self) -> dict[str, Any]:
         primary_data = {
@@ -141,9 +121,7 @@ class HandoffMeasurement:
             "declared_preview": {
                 "status": "preview_ready",
                 "metadata_authority": self.declared_preview_metadata.metadata_authority,
-                "data_shape": self.declared_preview_shape,
                 "declared_columns": self.declared_preview_columns,
-                "plot_candidates": self.declared_preview_plot_candidates,
             },
             "primary_table": {
                 "source": self.primary_package_path,
@@ -154,15 +132,6 @@ class HandoffMeasurement:
                 "source": self.primary_package_path,
                 "row_count": self.preview_table.row_count,
                 "preview_rows": self.preview_table.to_records(),
-                "plot_series": [
-                    {
-                        "source": series.source,
-                        "x": series.x_name,
-                        "y": series.y_name,
-                        "points": series.to_records(),
-                    }
-                    for series in self.plot_series
-                ],
             },
             "linked_context": [item.to_dict() for item in self.linked_context],
             "findings": [finding.to_dict() for finding in self.findings],

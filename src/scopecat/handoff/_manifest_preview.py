@@ -50,13 +50,11 @@ class HandoffManifestPrimaryData:
 
 @dataclass(frozen=True, init=False)
 class HandoffManifestPreviewMetadata:
-    """Validated declared preview metadata for one selected measurement."""
+    """Validated declared table-preview metadata for one selected measurement."""
 
     status: str
     metadata_authority: str
-    _data_shape: dict[str, Any] | None
     _declared_columns: tuple[dict[str, str], ...]
-    _plot_candidates: tuple[dict[str, str], ...]
     warning_code: str | None = None
     message: str | None = None
 
@@ -65,39 +63,23 @@ class HandoffManifestPreviewMetadata:
         *,
         status: str,
         metadata_authority: str,
-        data_shape: dict[str, Any] | None,
         declared_columns: tuple[dict[str, str], ...],
-        plot_candidates: tuple[dict[str, str], ...],
         warning_code: str | None = None,
         message: str | None = None,
     ) -> None:
         object.__setattr__(self, "status", status)
         object.__setattr__(self, "metadata_authority", metadata_authority)
-        object.__setattr__(self, "_data_shape", copy.deepcopy(data_shape))
         object.__setattr__(
             self,
             "_declared_columns",
             tuple(copy.deepcopy(column) for column in declared_columns),
         )
-        object.__setattr__(
-            self,
-            "_plot_candidates",
-            tuple(copy.deepcopy(candidate) for candidate in plot_candidates),
-        )
         object.__setattr__(self, "warning_code", warning_code)
         object.__setattr__(self, "message", message)
 
     @property
-    def data_shape(self) -> dict[str, Any] | None:
-        return copy.deepcopy(self._data_shape)
-
-    @property
     def declared_columns(self) -> tuple[dict[str, str], ...]:
         return tuple(copy.deepcopy(column) for column in self._declared_columns)
-
-    @property
-    def plot_candidates(self) -> tuple[dict[str, str], ...]:
-        return tuple(copy.deepcopy(candidate) for candidate in self._plot_candidates)
 
     @property
     def declared_column_names(self) -> tuple[str, ...]:
@@ -185,9 +167,7 @@ def _preview_metadata_from_record(record: dict[str, Any]) -> HandoffManifestPrev
     return HandoffManifestPreviewMetadata(
         status=preview["status"],
         metadata_authority=preview["metadata_authority"],
-        data_shape=preview["data_shape"],
         declared_columns=tuple(preview["declared_columns"]),
-        plot_candidates=tuple(preview["plot_candidates"]),
         warning_code=preview.get("warning_code"),
         message=preview.get("message"),
     )
@@ -244,10 +224,8 @@ def _validate_preview_metadata(record: dict[str, Any]) -> None:
         )
         return
 
-    if preview["data_shape"] is not None:
-        raise ValueError("degraded preview must not carry data_shape")
-    if preview["declared_columns"] or preview["plot_candidates"]:
-        raise ValueError("degraded preview must not carry declared columns or plot candidates")
+    if preview["declared_columns"]:
+        raise ValueError("degraded preview must not carry declared columns")
     if not preview.get("warning_code") or not preview.get("message"):
         raise ValueError("degraded preview requires warning_code and message")
     validate_public_identifier(

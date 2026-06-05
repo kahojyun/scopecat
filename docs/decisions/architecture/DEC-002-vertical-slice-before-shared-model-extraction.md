@@ -35,7 +35,7 @@ measurement/data-shape fixtures:
 - measurement record;
 - source identity;
 - primary data reference;
-- declared preview metadata;
+- declared table-preview metadata;
 - linked context;
 - lifecycle or progress state;
 - intervention or operation;
@@ -100,8 +100,8 @@ Useful triggers include:
 
 - two or more implementation candidates need the same reference-validation
   behavior, with matching failure semantics and tests;
-- export and running inspection both need the same declared preview metadata
-  structure in production-shaped code;
+- export and running inspection both need the same declared table-preview
+  metadata structure in production-shaped code;
 - linked context include states need to be consumed by more than one slice with
   the same user-visible meaning;
 - warning or attention states need shared ordering, severity, suppression, or

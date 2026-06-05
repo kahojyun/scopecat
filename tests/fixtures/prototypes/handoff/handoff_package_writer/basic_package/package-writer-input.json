@@ -38,13 +38,6 @@
       "declared_preview_metadata": {
         "status": "preview_ready",
         "metadata_authority": "scopecat_export_manifest",
-        "data_shape": {
-          "kind": "declared_1d_table",
-          "axis_order": [
-            "drive_frequency",
-            "signal"
-          ]
-        },
         "declared_columns": [
           {
             "name": "drive_frequency",
@@ -57,13 +50,6 @@
             "role": "response",
             "label": "Signal",
             "unit": "a.u."
-          }
-        ],
-        "plot_candidates": [
-          {
-            "x": "drive_frequency",
-            "y": "signal",
-            "source": "measurements/legacy-rabi-001/primary.csv"
           }
         ]
       },

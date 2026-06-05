@@ -25,13 +25,6 @@
   "selected_measurements": [
     {
       "declared_preview_metadata": {
-        "data_shape": {
-          "axis_order": [
-            "drive_frequency",
-            "signal"
-          ],
-          "kind": "declared_1d_table"
-        },
         "declared_columns": [
           {
             "label": "Drive frequency",
@@ -47,13 +40,6 @@
           }
         ],
         "metadata_authority": "scopecat_export_manifest",
-        "plot_candidates": [
-          {
-            "source": "measurements/legacy-rabi-001/primary.csv",
-            "x": "drive_frequency",
-            "y": "signal"
-          }
-        ],
         "status": "preview_ready"
       },
       "default_bundle": [

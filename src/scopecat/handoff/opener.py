@@ -27,7 +27,7 @@ from scopecat.handoff.package import (
     HandoffMeasurement,
     HandoffPackage,
 )
-from scopecat.handoff.tables import HandoffPlotSeries, HandoffTable
+from scopecat.handoff.tables import HandoffTable
 
 _MANIFEST_NAME = "package-manifest.json"
 
@@ -128,29 +128,6 @@ def _preview_rows(rows: list[dict[str, str]], declared_names: list[str]) -> list
     return [{name: row[name] for name in declared_names} for row in rows[:5]]
 
 
-def _plot_series(
-    rows: list[dict[str, str]],
-    plot_candidates: tuple[dict[str, str], ...],
-) -> tuple[HandoffPlotSeries, ...]:
-    series = []
-    for candidate in plot_candidates:
-        series.append(
-            HandoffPlotSeries.from_points(
-                source=candidate["source"],
-                x_name=candidate["x"],
-                y_name=candidate["y"],
-                points=[
-                    {
-                        "x": row[candidate["x"]],
-                        "y": row[candidate["y"]],
-                    }
-                    for row in rows
-                ],
-            )
-        )
-    return tuple(series)
-
-
 def _findings_for_measurement(
     *,
     measurement_record_id: str,
@@ -224,9 +201,7 @@ def _opened_measurement(
             {
                 "status": preview.status,
                 "metadata_authority": preview.metadata_authority,
-                "data_shape": preview.data_shape,
                 "declared_columns": list(preview.declared_columns),
-                "plot_candidates": list(preview.plot_candidates),
             },
             primary_path=primary.package_path,
             owner="handoff opened package preview",
@@ -235,7 +210,6 @@ def _opened_measurement(
         preview_table=HandoffTable.from_records(
             declared_names, _preview_rows(rows, declared_names)
         ),
-        plot_series=_plot_series(rows, preview.plot_candidates),
         linked_context=tuple(
             item for item in linked_context if measurement_id in item.linked_measurement_record_ids
         ),

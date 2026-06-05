@@ -65,7 +65,7 @@ The selected stored-record export adapter composes with that package writer:
 
 ```text
 complete Measurement Record read model and record-local receipts
-  -> selected-record export request with explicit preview metadata
+  -> selected-record export request with explicit declared table-preview metadata
   -> package writer request
   -> directory-shaped selected-measurement package
   -> optional zip transport creation and materialization
@@ -105,8 +105,8 @@ The selected stored-record export adapter:
   and writer receipts;
 - preserves record id, record-local primary-data path, digest, size, label,
   and experiment type into the package writer request;
-- requires explicit preview metadata and does not infer plot semantics from CSV
-  headers;
+- requires explicit declared table-preview metadata and does not infer plot
+  semantics from CSV headers;
 - can package explicitly declared record-local linked-context payloads under
   `context/` after digest and size preflight;
 - writes one package through the package writer: single-measurement for a
@@ -141,10 +141,10 @@ The current read-only package use:
 
 - validates raw manifest dictionaries at the package boundary;
 - uses typed route-local manifest fragments after validation;
-- projects package, measurement, table, declared plot, finding, and
+- projects package, measurement, table, finding, and
   linked-context review facts;
 - opens package-local primary CSV data for `preview_ready` measurements;
-- treats declared preview metadata as preview authority;
+- treats declared table-preview metadata as table-orientation authority only;
 - preserves package id and package-directory continuity;
 - uses `measurements/{measurement_record_id}/primary.csv` as the canonical
   primary-data package topology.

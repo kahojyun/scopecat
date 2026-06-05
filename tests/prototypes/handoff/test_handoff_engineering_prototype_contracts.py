@@ -72,15 +72,15 @@ class HandoffEngineeringPrototypeContractsTest(unittest.TestCase):
             "the package writer does not include its payload.",
         )
 
-    def test_preview_contract_rejects_plot_candidates_outside_declared_columns(self) -> None:
+    def test_preview_contract_rejects_duplicate_declared_columns(self) -> None:
         manifest = _load_manifest()
         measurement = manifest["selected_measurements"][0]
         measurement["declared_preview_metadata"] = copy.deepcopy(
             measurement["declared_preview_metadata"]
         )
-        measurement["declared_preview_metadata"]["plot_candidates"][0]["y"] = "missing_signal"
+        measurement["declared_preview_metadata"]["declared_columns"][1]["name"] = "drive_frequency"
 
-        with self.assertRaisesRegex(ValueError, "axes must reference declared columns"):
+        with self.assertRaisesRegex(ValueError, "declared columns must have unique names"):
             preview_handoff_manifest(manifest)
 
     def test_manifest_preview_rejects_non_packaged_primary_data(self) -> None:

@@ -10,11 +10,9 @@
   "selected_measurements": [
     {
       "declared_preview_metadata": {
-        "data_shape": null,
         "declared_columns": [],
         "message": "Declared preview metadata is not available for this package member.",
         "metadata_authority": "scopecat_export_manifest",
-        "plot_candidates": [],
         "status": "degraded_preview",
         "warning_code": "preview_metadata_missing"
       },

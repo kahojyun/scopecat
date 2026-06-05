@@ -103,8 +103,8 @@ validated managed references at the package/export boundary.
 
 Selected stored-record export is a route-local adapter over the existing
 Measurement Records read model and record-local receipts. It reads one complete
-stored record, requires explicit preview metadata, delegates package writing to
-the package writer, may package explicitly declared record-local linked-context
+stored record, requires explicit declared table-preview metadata, delegates
+package writing to the package writer, may package explicitly declared record-local linked-context
 payloads under `context/`, and does not mutate Measurement Records storage,
 repair source records, infer schema, create archives, or accept/import
 packages. The preflight composition may delegate read-model refresh, but export

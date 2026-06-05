@@ -80,11 +80,8 @@ class HandoffEngineeringPrototypeWriterTest(unittest.TestCase):
         measurement = package.measurement("legacy-rabi-001")
         self.assertEqual(measurement.primary_table.row_count, 5)
         self.assertEqual(
-            [
-                (series.x_name, series.y_name, len(series.points))
-                for series in measurement.plot_series
-            ],
-            [("drive_frequency", "signal", 5)],
+            measurement.preview_table.columns,
+            ("drive_frequency", "signal"),
         )
 
         self.assertEqual(manifest_bytes, (FIXTURE / "expected-package-manifest.json").read_bytes())
@@ -161,9 +158,6 @@ class HandoffEngineeringPrototypeWriterTest(unittest.TestCase):
         second_record["primary_data"]["expected_digest"] = _sha256_digest(second_content)
         second_record["primary_data"]["expected_size_bytes"] = len(second_content)
         second_record["primary_data"]["package_path"] = f"measurements/{second_id}/primary.csv"
-        second_record["declared_preview_metadata"]["plot_candidates"][0]["source"] = (
-            f"measurements/{second_id}/primary.csv"
-        )
         second_record["default_bundle"][0]["item_id"] = f"{second_id}-primary"
         second_record["default_bundle"][0]["package_path"] = f"measurements/{second_id}/primary.csv"
         source["selected_measurements"].append(second_record)

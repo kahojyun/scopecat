@@ -75,14 +75,9 @@ def _import_request(
 
 
 def _preview_metadata(*, record_id: str = "run-3101-rabi") -> dict:
-    primary_path = f"measurements/{record_id}/primary.csv"
     return {
         "status": "preview_ready",
         "metadata_authority": "scopecat_export_manifest",
-        "data_shape": {
-            "kind": "declared_1d_table",
-            "axis_order": ["drive_amplitude", "excited_state_probability"],
-        },
         "declared_columns": [
             {
                 "name": "drive_amplitude",
@@ -96,13 +91,6 @@ def _preview_metadata(*, record_id: str = "run-3101-rabi") -> dict:
                 "label": "Excited state probability",
                 "unit": "probability",
             },
-        ],
-        "plot_candidates": [
-            {
-                "x": "drive_amplitude",
-                "y": "excited_state_probability",
-                "source": primary_path,
-            }
         ],
     }
 
@@ -194,11 +182,8 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
         self.assertEqual(measurement.label, "Imported Rabi run")
         self.assertEqual(measurement.primary_table.row_count, 3)
         self.assertEqual(
-            [
-                (series.x_name, series.y_name, len(series.points))
-                for series in measurement.plot_series
-            ],
-            [("drive_amplitude", "excited_state_probability", 3)],
+            measurement.preview_table.columns,
+            ("drive_amplitude", "excited_state_probability"),
         )
         self.assertEqual(measurement.linked_context[0].materialization, "reference_only")
         payload = run.to_dict()

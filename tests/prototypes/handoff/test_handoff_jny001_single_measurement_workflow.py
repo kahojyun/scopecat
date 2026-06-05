@@ -76,10 +76,6 @@ def _preview_metadata() -> dict:
     return {
         "status": "preview_ready",
         "metadata_authority": "scopecat_export_manifest",
-        "data_shape": {
-            "kind": "declared_1d_table",
-            "axis_order": ["drive_amplitude", "excited_state_probability"],
-        },
         "declared_columns": [
             {
                 "name": "drive_amplitude",
@@ -93,13 +89,6 @@ def _preview_metadata() -> dict:
                 "label": "Excited state probability",
                 "unit": "probability",
             },
-        ],
-        "plot_candidates": [
-            {
-                "x": "drive_amplitude",
-                "y": "excited_state_probability",
-                "source": "measurements/run-3101-rabi/primary.csv",
-            }
         ],
     }
 

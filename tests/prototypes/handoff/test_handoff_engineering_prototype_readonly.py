@@ -8,7 +8,7 @@ from pathlib import Path
 
 from scopecat.handoff import open_package
 from scopecat.handoff.package import HandoffPackage
-from scopecat.handoff.tables import HandoffPlotSeries, HandoffTable
+from scopecat.handoff.tables import HandoffTable
 
 ROOT = Path(__file__).resolve().parents[3]
 PACKAGE = (
@@ -80,21 +80,16 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
             "scopecat_export_manifest",
         )
 
-    def test_primary_table_and_declared_plot_series_are_available_without_dataframe(self) -> None:
+    def test_primary_table_is_available_without_dataframe(self) -> None:
         measurement = open_package(PACKAGE).measurement("legacy-rabi-001")
 
         table = measurement.primary_table
-        series = measurement.plot_series_by_columns(x="drive_frequency", y="signal")
 
         self.assertIsInstance(table, HandoffTable)
-        self.assertIsInstance(series, HandoffPlotSeries)
         self.assertEqual(table.columns, ("drive_frequency", "signal"))
         self.assertEqual(table.row_count, 5)
         self.assertEqual(table.row(2), {"drive_frequency": "5.02", "signal": "0.81"})
         self.assertEqual(table.column("signal"), ("0.12", "0.44", "0.81", "0.45", "0.13"))
-        self.assertEqual(series.source, "measurements/legacy-rabi-001/primary.csv")
-        self.assertEqual(series.x, ("4.98", "5.00", "5.02", "5.04", "5.06"))
-        self.assertEqual(series.y, ("0.12", "0.44", "0.81", "0.45", "0.13"))
 
     def test_preview_table_is_declared_column_projection(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -136,13 +131,11 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
         package_findings = [finding.to_dict() for finding in package.findings]
         measurement_context = [context.to_dict() for context in measurement.linked_context]
         table_records = measurement.primary_table.to_records()
-        plot_points = measurement.plot_series[0].points
 
         package_summary["package"]["package_id"] = "mutated"
         package_findings[0]["finding"] = "mutated"
         measurement_context[0]["materialization"] = "mutated"
         table_records[0]["signal"] = "mutated"
-        plot_points[0]["y"] = "mutated"
 
         self.assertEqual(package.package_id, "handoff-package-legacy-rabi-001")
         self.assertEqual(
@@ -151,7 +144,6 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
         )
         self.assertEqual(measurement.linked_context[0].materialization, "reference_only")
         self.assertEqual(measurement.primary_table.row(0)["signal"], "0.12")
-        self.assertEqual(measurement.plot_series[0].points[0]["y"], "0.12")
 
     def test_degraded_preview_rejects_open_before_primary_file_read(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -159,9 +151,7 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
             manifest = _load_manifest(package_dir)
             preview = manifest["selected_measurements"][0]["declared_preview_metadata"]
             preview["status"] = "degraded_preview"
-            preview["data_shape"] = None
             preview["declared_columns"] = []
-            preview["plot_candidates"] = []
             preview["warning_code"] = "preview_metadata_missing"
             preview["message"] = "Declared preview metadata is not available."
             _write_manifest(package_dir, manifest)
@@ -263,7 +253,7 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
         )
         self.assertEqual(references[1]["reference_id"], "managed-code-version-rabi-001")
 
-    def test_route_pressure_fixture_exposes_multi_plot_and_table_only_measurements(self) -> None:
+    def test_route_pressure_fixture_exposes_table_measurements(self) -> None:
         package = open_package(RICHER_PACKAGE)
         rabi = package.measurement("pressure-rabi-001")
         check = package.measurement("pressure-check-001")
@@ -271,13 +261,11 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
         self.assertEqual(package.package_id, "handoff-package-reader-pressure-001")
         self.assertEqual(package.measurement_ids, ("pressure-rabi-001", "pressure-check-001"))
         self.assertEqual(rabi.primary_table.columns, ("drive_frequency", "signal", "residual"))
-        self.assertEqual(len(rabi.plot_series), 2)
         self.assertEqual(
-            rabi.plot_series_by_columns(x="drive_frequency", y="residual").y[2],
-            "0.01",
+            rabi.primary_table.row(2),
+            {"drive_frequency": "5.02", "signal": "0.81", "residual": "0.01"},
         )
         self.assertEqual(check.primary_table.columns, ("delay", "contrast"))
-        self.assertEqual(check.plot_series, ())
         self.assertEqual(check.preview_table.row_count, 4)
 
     def test_route_pressure_fixture_associates_shared_context_with_each_measurement(self) -> None:
@@ -306,9 +294,7 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
             manifest = _load_manifest(package_dir)
             later_preview = manifest["selected_measurements"][1]["declared_preview_metadata"]
             later_preview["status"] = "degraded_preview"
-            later_preview["data_shape"] = None
             later_preview["declared_columns"] = []
-            later_preview["plot_candidates"] = []
             later_preview["warning_code"] = "preview_metadata_missing"
             later_preview["message"] = "Declared preview metadata is not available."
             _write_manifest(package_dir, manifest)

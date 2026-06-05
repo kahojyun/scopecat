@@ -109,7 +109,7 @@ The target handoff experience is open-before-import. A Scopecat-authored
 handoff package should be useful as a standalone portable artifact: a future
 Python SDK or GUI should be able to open the package read-only, inspect package
 contents, load declared primary data, show package metadata and linked context
-references, and make basic declared-preview plots. Users should not need to
+references, and show basic declared table previews. Users should not need to
 accept, import, or organize the package into local Scopecat-managed storage
 before quick review or analysis.
 

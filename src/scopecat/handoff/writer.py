@@ -35,9 +35,6 @@ from scopecat.handoff._declared_preview import (
 from scopecat.handoff._declared_preview import (
     HandoffPackagePreviewMetadata,
 )
-from scopecat.handoff._declared_preview import (
-    HandoffPackagePreviewPlotCandidate as HandoffPackagePreviewPlotCandidate,
-)
 from scopecat.handoff._manifest_preview import preview_handoff_manifest
 
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)

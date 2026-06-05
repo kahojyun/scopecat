@@ -98,9 +98,6 @@ def _multi_measurement_package(temp_root: Path) -> Path:
     second_record["primary_data"]["expected_digest"] = _sha256_digest(second_content)
     second_record["primary_data"]["expected_size_bytes"] = len(second_content)
     second_record["primary_data"]["package_path"] = f"measurements/{second_id}/primary.csv"
-    second_record["declared_preview_metadata"]["plot_candidates"][0]["source"] = (
-        f"measurements/{second_id}/primary.csv"
-    )
     second_record["default_bundle"][0]["item_id"] = f"{second_id}-primary"
     second_record["default_bundle"][0]["package_path"] = f"measurements/{second_id}/primary.csv"
     source["selected_measurements"].append(second_record)

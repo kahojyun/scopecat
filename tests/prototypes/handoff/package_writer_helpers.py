@@ -10,7 +10,6 @@ from scopecat.handoff.writer import (
     HandoffPackageLinkedContext,
     HandoffPackagePreviewColumn,
     HandoffPackagePreviewMetadata,
-    HandoffPackagePreviewPlotCandidate,
     HandoffPackagePrimaryData,
     HandoffPackageSelectedMeasurement,
     HandoffPackageWriteReceipt,
@@ -85,12 +84,9 @@ def _selected_measurement(source: dict[str, Any]) -> HandoffPackageSelectedMeasu
 
 
 def _preview_metadata(source: dict[str, Any]) -> HandoffPackagePreviewMetadata:
-    data_shape = source["data_shape"]
     return HandoffPackagePreviewMetadata(
         status=source["status"],
         metadata_authority=source["metadata_authority"],
-        data_shape_kind=data_shape["kind"],
-        data_shape_axis_order=tuple(data_shape["axis_order"]),
         declared_columns=tuple(
             HandoffPackagePreviewColumn(
                 name=column["name"],
@@ -99,14 +95,6 @@ def _preview_metadata(source: dict[str, Any]) -> HandoffPackagePreviewMetadata:
                 unit=column["unit"],
             )
             for column in source["declared_columns"]
-        ),
-        plot_candidates=tuple(
-            HandoffPackagePreviewPlotCandidate(
-                x=candidate["x"],
-                y=candidate["y"],
-                source=candidate["source"],
-            )
-            for candidate in source["plot_candidates"]
         ),
     )
 

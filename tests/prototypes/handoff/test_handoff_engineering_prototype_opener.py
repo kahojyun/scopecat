@@ -54,9 +54,7 @@ class HandoffEngineeringPrototypeOpenerTest(unittest.TestCase):
             manifest = _load_manifest(package_dir)
             preview = manifest["selected_measurements"][0]["declared_preview_metadata"]
             preview["status"] = "degraded_preview"
-            preview["data_shape"] = None
             preview["declared_columns"] = []
-            preview["plot_candidates"] = []
             preview["warning_code"] = "preview_metadata_missing"
             preview["message"] = "Declared preview metadata is not available."
             _write_manifest(package_dir, manifest)
