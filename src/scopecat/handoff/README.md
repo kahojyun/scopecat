@@ -30,7 +30,6 @@ Package writer and local package workflow:
 - `export_selected_measurement_record(source, storage_root=..., package_root=...)`
 - `export_selected_measurement_record_batch_from_request(request, storage_root=..., package_root=...)`
 - `export_selected_measurement_record_batch(source, storage_root=..., package_root=...)`
-- `current_handoff_compatibility_contract()`
 
 Read-only package use and local review:
 
@@ -106,12 +105,6 @@ local operator error diagnostic with operation, code, and message. That
 diagnostic is not a portable/export artifact, retry authorization, package
 acceptance, or public error schema.
 
-`current_handoff_compatibility_contract()` returns a read-only local snapshot
-of local artifact postures and diagnostic posture. The snapshot is a review
-contract for the current route-local behavior; it does not publish a public
-SDK, final package format, archive contract, authenticity/trust policy, or
-portable error schema.
-
 ## Artifact Boundaries
 
 The generated package directory and `package-manifest.json` are portable
@@ -171,15 +164,6 @@ Receiving gate and import-plan receipts include `receiving_review` and
 blocked retry review. This is local review guidance only; it does not approve
 retry, accept packages, or mutate storage.
 
-Receiving review state is currently a derived local projection over those
-receipts under DEC-018. `project_handoff_receiving_review_state()` composes
-typed receiving-gate, import-plan, durable-import summary, retry-review, and
-error diagnostic evidence into a `local_receiving_review_state_projection`.
-DEC-023 allows `write_handoff_receiving_review_state_receipt()` to persist that
-projection as a no-overwrite local JSON receipt for review continuity. This
-module still does not create GUI-owned review state, package acceptance, retry
-authorization, or mutation authority.
-
 This module observes declared digest integrity, but it does not verify external
 authenticity, package provenance, trusted source, or trust-gated import policy.
 That limitation is documented in the accepted decisions rather than repeated
@@ -227,14 +211,6 @@ inspection HTML, and summarizes local durable-import receipts for continuation
 review. It does not run package import, approve storage
 acceptance or durable import, persist review state, or become a public import
 API.
-
-`summarize_jny001_operator_smoke()` provides a compact read-only operator
-summary over the current JNY-001 vertical slice receipts: selected stored-record
-export, zip transport creation, zip materialization, receiving review, import
-planning, receiving review-state receipt materialization, and durable new-record
-import. It is a local smoke summary only; it does not execute the workflow,
-grant mutation authority, create a portable artifact, or define a public SDK
-contract.
 
 When `--receipt-summary` sees a handoff contract error, the CLI writes the
 local `HandoffErrorDiagnostic` JSON to stderr and exits nonzero. This is local

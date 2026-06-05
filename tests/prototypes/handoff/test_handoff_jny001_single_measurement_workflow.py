@@ -3,8 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
-import subprocess
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,18 +14,14 @@ from scopecat.handoff import (
     HandoffDurableImportRequest,
     HandoffImportPlanRequest,
     HandoffReceivingReviewRequest,
-    HandoffReceivingReviewStateReceiptRequest,
     SelectedMeasurementRecordExportRequest,
     create_handoff_archive_package_from_request,
     export_selected_measurement_record_from_request,
     materialize_handoff_archive_package_from_request,
     open_package,
-    project_handoff_receiving_review_state,
     review_handoff_durable_import_retry,
     run_handoff_durable_import_from_plan,
     summarize_handoff_durable_import_receipt,
-    summarize_jny001_operator_smoke,
-    write_handoff_receiving_review_state_receipt,
 )
 from scopecat.handoff.import_plan import build_import_plan
 from scopecat.handoff.receiving import run_receiving_gate_from_request
@@ -184,13 +178,6 @@ def _durable_import_request(package_id: str) -> HandoffDurableImportRequest:
     )
 
 
-def _review_state_receipt_request() -> HandoffReceivingReviewStateReceiptRequest:
-    return HandoffReceivingReviewStateReceiptRequest(
-        request_id="persist-receiving-review-state-run-3101-rabi",
-        receipt_path="receiving-review-state-run-3101-rabi.json",
-    )
-
-
 class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
     """Integration/workflow coverage for the JNY-001 single-measurement path."""
 
@@ -201,13 +188,11 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
         archive_root = temp_root / "archives"
         materialization_root = temp_root / "materialized-packages"
         receiving_storage = temp_root / "receiving-storage"
-        receiving_state_root = temp_root / "receiving-state"
         source_storage.mkdir()
         package_root.mkdir()
         archive_root.mkdir()
         materialization_root.mkdir()
         receiving_storage.mkdir()
-        receiving_state_root.mkdir()
         shutil.copytree(CHUNK_FIXTURE / "chunks", source_content / "chunks")
 
         source_import = import_measurement_record_from_request(
@@ -243,15 +228,6 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
             _import_plan_request(package.package_id),
             receiving_gate=receiving_gate,
         )
-        receiving_review_state = project_handoff_receiving_review_state(
-            receiving_gate=receiving_gate,
-            import_plan=import_plan,
-        )
-        receiving_review_state_receipt = write_handoff_receiving_review_state_receipt(
-            _review_state_receipt_request(),
-            projection=receiving_review_state,
-            state_root=receiving_state_root,
-        )
         return {
             "source_import": source_import,
             "export_run": export_run,
@@ -266,9 +242,6 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
             "package": package,
             "receiving_gate": receiving_gate,
             "import_plan": import_plan,
-            "receiving_review_state": receiving_review_state,
-            "receiving_review_state_receipt": receiving_review_state_receipt,
-            "receiving_state_root": receiving_state_root,
             "receiving_storage": receiving_storage,
         }
 
@@ -299,124 +272,10 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
         self.assertEqual(package.measurement_ids, ("run-3101-rabi",))
         self.assertTrue(workflow["receiving_gate"].acceptance_allowed)
         self.assertTrue(import_plan.import_plan_allowed)
-        self.assertEqual(
-            workflow["receiving_review_state"].classification,
-            "ready_for_import_acceptance_decision",
-        )
-        self.assertTrue(workflow["receiving_review_state_receipt"].written)
         self.assertEqual(durable_import.classification, "imported_handoff_measurement_record")
         self.assertEqual(received_read_model["record"]["lifecycle_state"], "complete")
         self.assertEqual(received_read_model["record"]["record_id"], "received-run-3101-rabi")
         self.assertEqual(received_read_model["primary_data"]["observed_row_count"], 3)
-
-    def test_operator_smoke_summary_covers_complete_jny001_path(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            workflow = self._prepare_ready_handoff(Path(temp_dir))
-            package = workflow["package"]
-            durable_import = run_handoff_durable_import_from_plan(
-                _durable_import_request(package.package_id),
-                import_plan=workflow["import_plan"],
-                storage_root=workflow["receiving_storage"],
-            )
-            smoke_summary = summarize_jny001_operator_smoke(
-                selected_export=workflow["export_run"],
-                archive_creation=workflow["archive_creation"],
-                archive_materialization=workflow["archive_materialization"],
-                receiving_gate=workflow["receiving_gate"],
-                import_plan=workflow["import_plan"],
-                receiving_review_state_receipt=workflow["receiving_review_state_receipt"],
-                durable_import=durable_import,
-            ).to_dict()
-
-        self.assertEqual(
-            smoke_summary,
-            {
-                "artifact_posture": "local_jny001_operator_smoke_summary",
-                "journey_id": "JNY-001",
-                "workflow_scope": "jny001_vertical_slice_smoke",
-                "use_case_ids": ["UC-006", "UC-004", "UC-002"],
-                "classification": "completed_jny001_operator_smoke",
-                "package_id": "handoff-package-run-3101-rabi",
-                "source_record_id": "run-3101-rabi",
-                "destination_record_id": "received-run-3101-rabi",
-                "stage_sequence": [
-                    "selected_record_export",
-                    "archive_creation",
-                    "archive_materialization",
-                    "receiving_review",
-                    "import_plan",
-                    "receiving_review_state_receipt",
-                    "durable_import",
-                ],
-                "stages": {
-                    "selected_record_export": "exported_selected_measurement_record",
-                    "archive_creation": "created_zip_transport_archive",
-                    "archive_materialization": "materialized_dec010_package_from_archive",
-                    "receiving_review": "ready_for_acceptance_mutation",
-                    "import_plan": "ready_for_import_acceptance_decision",
-                    "receiving_review_state_receipt": "ready_for_import_acceptance_decision",
-                    "durable_import": "imported_handoff_measurement_record",
-                },
-                "operator_result": {
-                    "final_state": "imported_handoff_measurement_record",
-                    "next_action": "use_durable_measurement_record",
-                    "retry_requires": None,
-                    "durable_import_performed": True,
-                    "durable_record_creation": "created_record",
-                },
-            },
-        )
-
-    def test_module_cli_summarizes_local_jny001_operator_smoke_summary(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_root = Path(temp_dir)
-            workflow = self._prepare_ready_handoff(temp_root)
-            package = workflow["package"]
-            durable_import = run_handoff_durable_import_from_plan(
-                _durable_import_request(package.package_id),
-                import_plan=workflow["import_plan"],
-                storage_root=workflow["receiving_storage"],
-            )
-            smoke_summary = summarize_jny001_operator_smoke(
-                selected_export=workflow["export_run"],
-                archive_creation=workflow["archive_creation"],
-                archive_materialization=workflow["archive_materialization"],
-                receiving_gate=workflow["receiving_gate"],
-                import_plan=workflow["import_plan"],
-                receiving_review_state_receipt=workflow["receiving_review_state_receipt"],
-                durable_import=durable_import,
-            ).to_dict()
-            receipt_path = temp_root / "jny001-operator-smoke-summary.json"
-            receipt_path.write_text(json.dumps(smoke_summary), encoding="utf-8")
-
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "scopecat.handoff",
-                    "--receipt-summary",
-                    str(receipt_path),
-                ],
-                check=True,
-                cwd=ROOT,
-                capture_output=True,
-                text=True,
-            )
-
-        summary = json.loads(result.stdout)
-
-        self.assertEqual(summary["artifact_posture"], "local_jny001_operator_smoke_summary")
-        self.assertEqual(summary["workflow_scope"], "jny001_vertical_slice_smoke")
-        self.assertEqual(summary["use_case_ids"], ["UC-006", "UC-004", "UC-002"])
-        self.assertEqual(summary["classification"], "completed_jny001_operator_smoke")
-        self.assertEqual(
-            summary["operator_result"]["next_action"], "use_durable_measurement_record"
-        )
-        self.assertEqual(summary["operator_result"]["retry_requires"], None)
-        self.assertEqual(
-            summary["operator_result"]["durable_record_creation"],
-            "created_record",
-        )
 
     def test_workflow_creates_and_materializes_zip_transport(
         self,

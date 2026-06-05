@@ -32,7 +32,7 @@ distribution, or GUI download/upload flows. But archive support is not a small
 format toggle. It introduces archive-member topology, extraction authority,
 staging directories, overwrite policy, path traversal protection, duplicate
 member handling, symlink behavior, compression/resource limits, integrity
-timing, and receiving review state.
+timing, and receiving review outcomes.
 
 The current package directory remains useful as inspectable local-review
 evidence. Implementing archive support before those contracts exist would add
@@ -72,7 +72,7 @@ Any future archive implementation must first define:
   ratio, and extraction time;
 - integrity timing before and after extraction, including which facts are
   observed before package open;
-- receiving review state for archive received, extracted, blocked, retried,
+- receiving review outcomes for archive received, extracted, blocked, retried,
   and opened states;
 - durable-import gating rules after archive materialization.
 
@@ -83,7 +83,7 @@ This decision applies to:
 - JNY-001 Share A Selected Measurement production vertical slice candidate;
 - selected stored-record export and route-local package writing;
 - package open, integrity observation, receiving gate, import planning,
-  receiving review state, and durable-import adaptation;
+  receiving review outcomes, and durable-import adaptation;
 - CLI and local review surfaces that report archive handling posture;
 - workflow documentation and tests that state package format posture.
 
@@ -114,7 +114,7 @@ The current implementation exposes
 surfaces. They do not create archives, open archive inputs, extract bytes, or
 authorize durable import. They only classify future archive materialization
 contract candidates against the required staging, path-safety,
-resource-limit, review-state, and artifact-authority posture above.
+resource-limit, receiving-review, and artifact-authority posture above.
 
 ## Alternatives Considered
 

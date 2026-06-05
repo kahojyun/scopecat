@@ -34,8 +34,6 @@ Read it with:
   for the current durable linked-context payload import deferral;
 - [`../../decisions/architecture/DEC-017-defer-batch-durable-import.md`](../../decisions/architecture/DEC-017-defer-batch-durable-import.md)
   for the current batch durable import deferral;
-- [`../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md`](../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md)
-  for the current receiving review state projection boundary;
 - [`../../decisions/architecture/DEC-020-defer-archive-package-implementation.md`](../../decisions/architecture/DEC-020-defer-archive-package-implementation.md)
   for the current archive-backed durable import and archive-authority
   deferral;
@@ -185,27 +183,10 @@ message. That diagnostic is a local review surface only; it is not a
 portable/export artifact, retry authorization, package acceptance, storage
 mutation authority, or public error schema.
 
-`current_handoff_compatibility_contract()` exposes a local snapshot of local
-artifact postures and error diagnostic posture. It is a route-local
-compatibility review surface for this production vertical slice only. It does
-not define a public SDK, final package format, archive contract,
-authenticity/trust policy, or portable error schema.
-
 The CLI may print `HandoffErrorDiagnostic` JSON to stderr for handoff
 receipt-summary contract failures. That CLI output is local operator guidance
 only. It is not a portable/export artifact, retry authorization, package
 acceptance, or public CLI error contract.
-
-Receiving review state is a local projection over package-open, integrity,
-receiving-gate, import-plan, optional inspection, durable-import receipt, and
-retry-summary facts. `project_handoff_receiving_review_state()` implements
-that DEC-018 projection as a read-only local summary over typed receipts and
-diagnostics. It validates supplied receipt continuity and keeps GUI-owned state
-deferred. DEC-023 accepts
-`write_handoff_receiving_review_state_receipt()` for no-overwrite local receipt
-materialization of that projection; the receipt is review-continuity evidence,
-not package acceptance, retry authorization, storage mutation, or a GUI state
-store.
 
 ## Artifact Authority
 
@@ -275,14 +256,6 @@ keeps batch durable import deferred. Multi-measurement packages may be reviewed
 and planned together, but durable import remains one planned measurement per
 storage mutation.
 
-[`DEC-018`](../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md)
-defines receiving review state as a derived local projection. The current
-projection implementation is local review evidence only; it does not add a
-frontend, durable GUI store, or mutation authority.
-[`DEC-023`](../../decisions/architecture/DEC-023-accept-local-receiving-review-state-receipts.md)
-allows that projection to be materialized as a local no-overwrite review-state
-receipt for workflow continuity without making the receipt a GUI-owned store.
-
 [`DEC-025`](../../decisions/architecture/DEC-025-defer-existing-record-update-and-final-storage-schema.md)
 keeps selected stored-record export source-storage-read-only and receiving
 durable import new-record-only. Existing-record update, merge import, manifest
@@ -303,7 +276,6 @@ source-side durable Measurement Record
   -> read-only receiving package open
   -> receiving gate
   -> non-mutating import plan
-  -> local receiving review-state receipt materialization
   -> durable import into a second storage root
 ```
 
@@ -327,8 +299,6 @@ Acceptance for that candidate is intentionally narrow:
 - blocked durable imports summarize the next action without authorizing mutation
   and require a fresh import plan for retry review;
 - receiving review and import planning remain non-mutating;
-- local receiving review-state receipts may be materialized for review
-  continuity without becoming GUI-owned state;
 - durable storage mutation remains delegated to Measurement Records import;
 - durable import receipts and summaries expose reviewable block reasons,
   next actions, and retry requirements without authorizing retry;
@@ -361,8 +331,6 @@ Linked-context payload import deferral is governed by
 [`DEC-016`](../../decisions/architecture/DEC-016-defer-linked-context-payload-import.md).
 Batch durable import deferral is governed by
 [`DEC-017`](../../decisions/architecture/DEC-017-defer-batch-durable-import.md).
-Receiving review state projection is governed by
-[`DEC-018`](../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md).
 Archive-backed durable import and archive-authority deferral are governed by
 [`DEC-020`](../../decisions/architecture/DEC-020-defer-archive-package-implementation.md).
 Safe zip archive materialization is governed by
@@ -396,7 +364,7 @@ This boundary does not accept:
 - hard pandas/numpy dependency;
 - production plotting or publication-grade rendering;
 - live GUI components, routing, interaction model, or GUI-owned persisted
-  review state beyond DEC-018 and DEC-023;
+  review state;
 - numeric dtype conversion, unit conversion, schema inference, scan-shape
   inference, trace opening, or array API;
 - archive-backed durable import or compressed package format beyond DEC-021 and
@@ -434,8 +402,7 @@ behavior. Current likely separate decisions include:
 
 - production readiness hardening for selected stored Measurement Record export;
 - existing-record update/import or final storage schema beyond DEC-025;
-- GUI-owned persisted review beyond the DEC-018 projection and DEC-023 local
-  receipt boundary;
+- GUI-owned persisted receiving review state;
 - archive-backed durable import or broader archive semantics beyond DEC-021 and
   DEC-024;
 - durable linked-context payload import beyond DEC-016 or batch durable import

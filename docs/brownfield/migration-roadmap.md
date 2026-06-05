@@ -116,8 +116,8 @@ Already validated:
 - local package writing/opening from declared source-root data;
 - safe zip archive creation and materialization around the DEC-010 package of
   record;
-- receiving-side read-only package review, import plan, review-state receipt,
-  and accepted new-record durable import.
+- receiving-side read-only package review, import plan, and accepted new-record
+  durable import.
 
 Decision gate:
 

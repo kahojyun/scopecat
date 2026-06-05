@@ -16,8 +16,7 @@ JNY-001 Share A Selected Measurement now has a production vertical slice
 candidate: source-side durable Measurement Record, selected stored-record
 export, zip transport creation, zip transport materialization back into the
 directory package of record, read-only package open, receiving gate, import
-plan, local receiving review-state receipt materialization, and durable import
-into a second storage root.
+plan, and durable import into a second storage root.
 
 This decision resolves whether that candidate should introduce an archive file
 as the portable package format, or continue to use the current directory-shaped

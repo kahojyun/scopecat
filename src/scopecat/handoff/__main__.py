@@ -11,7 +11,6 @@ from pathlib import Path
 from scopecat.handoff.durable_import import summarize_handoff_durable_import_receipt
 from scopecat.handoff.errors import HandoffContractError, HandoffError
 from scopecat.handoff.inspect import write_inspection_artifact
-from scopecat.handoff.operator_smoke import summarize_jny001_operator_smoke_receipt
 from scopecat.handoff.package import summarize_package_context_references
 from scopecat.handoff.read_only import open_package
 
@@ -56,11 +55,6 @@ def _receipt_summary(receipt_path: Path) -> dict[str, object]:
     posture = receipt.get("artifact_posture")
     if posture == "local_handoff_durable_import_receipt":
         return summarize_handoff_durable_import_receipt(receipt).to_dict()
-    if posture == "local_jny001_operator_smoke_summary":
-        try:
-            return summarize_jny001_operator_smoke_receipt(receipt)
-        except ValueError as exc:
-            raise HandoffContractError(str(exc), operation="receipt_summary_cli") from exc
     raise HandoffContractError(
         "receipt artifact_posture is unsupported",
         operation="receipt_summary_cli",
@@ -81,10 +75,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--receipt-summary",
         type=Path,
-        help=(
-            "Read a handoff durable-import receipt or JNY-001 operator smoke summary "
-            "JSON file and print a continuation summary."
-        ),
+        help=("Read a handoff durable-import receipt JSON file and print a continuation summary."),
     )
     args = parser.parse_args(argv)
     if args.receipt_summary is not None:

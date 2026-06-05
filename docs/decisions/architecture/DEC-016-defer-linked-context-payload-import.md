@@ -106,7 +106,6 @@ Revisit this decision when:
 
 - [`DEC-012-linked-context-payload-packaging.md`](DEC-012-linked-context-payload-packaging.md)
 - [`DEC-014-selected-record-linked-context-payload-export.md`](DEC-014-selected-record-linked-context-payload-export.md)
-- [`DEC-018-define-receiving-review-state-contract.md`](DEC-018-define-receiving-review-state-contract.md)
 - [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
 - [`../../engineering/prototype-boundaries/handoff-durable-import-storage.md`](../../engineering/prototype-boundaries/handoff-durable-import-storage.md)
 - [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)

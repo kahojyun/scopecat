@@ -23,8 +23,6 @@ Read it with:
   for the current linked-context payload import deferral;
 - [`../../decisions/architecture/DEC-017-defer-batch-durable-import.md`](../../decisions/architecture/DEC-017-defer-batch-durable-import.md)
   for the current batch durable import deferral;
-- [`../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md`](../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md)
-  for the receiving review state projection boundary;
 - [`../../decisions/architecture/DEC-020-defer-archive-package-implementation.md`](../../decisions/architecture/DEC-020-defer-archive-package-implementation.md)
   for the current archive-backed durable import and archive-authority
   deferral;
@@ -76,13 +74,6 @@ Public durable-import API functions promote route contract failures to
 `to_diagnostic()` output is local operator error guidance only; it is not a
 portable/export artifact, retry authorization, storage mutation authority, or
 public error schema.
-
-The current durable-import local receipt postures are included in
-`current_handoff_compatibility_contract()` as a route-local compatibility
-review surface. That snapshot preserves the current production vertical slice
-expectations without accepting final storage schema, public SDK,
-archive-backed durable import, authenticity/trust, batch durable import, or
-linked-context payload import contracts.
 
 DEC-017 keeps multi-measurement package plans as review and coordination
 evidence only. They do not authorize one durable batch mutation until a
@@ -137,9 +128,6 @@ CLI summaries are local review surfaces. They are not portable handoff
 artifacts, retry approval, persistent GUI state, destination freshness proof,
 or storage mutation authority.
 
-DEC-018 allows future GUI receiving surfaces to project these local review
-facts, but does not make the durable-import adapter own persisted GUI state.
-
 The durable-import adapter may consume declared digest integrity from the
 reviewed package path, but it does not verify external authenticity, trusted
 source, package provenance, or trust-gated mutation policy.
@@ -189,7 +177,7 @@ This boundary does not accept:
 - lock identity, stale-lock cleanup, crash recovery, or concurrent writer
   behavior;
 - public storage schema, export schema, database index, or GUI import review
-  state beyond DEC-018.
+  state.
 
 ## Tests And Fixtures
 
@@ -228,5 +216,5 @@ Likely separate decisions include:
 - package archive format beyond DEC-020;
 - linked-context payload import beyond DEC-016;
 - existing-record update/import conflict behavior beyond DEC-025;
-- persisted receiving review state or GUI durable review workflow beyond DEC-018;
+- persisted receiving review state or GUI durable review workflow;
 - stronger recovery, locking, or concurrent storage behavior.
