@@ -465,13 +465,10 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
             materialization_summary["artifact_authority"]["package_of_record"],
             "materialized_dec010_directory_manifest_package",
         )
-        self.assertIn(
-            "archive_bytes_as_package_artifact_of_record",
-            creation_summary["workflow"]["does_not_claim"],
-        )
-        self.assertIn(
-            "archive_bytes_as_package_artifact_of_record",
-            materialization_summary["workflow"]["does_not_claim"],
+        self.assertEqual(creation_summary["classification"], "created_zip_transport_archive")
+        self.assertEqual(
+            materialization_summary["classification"],
+            "materialized_dec010_package_from_archive",
         )
         self.assertEqual(receiving_summary["classification"], "ready_for_acceptance_mutation")
         self.assertEqual(
@@ -493,22 +490,12 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
             export_summary = workflow["export_run"].to_dict()
             integrity_summary = workflow["receiving_gate"].integrity_report.to_dict()
             durable_import_summary = durable_import.to_dict()
-            integrity_non_claims = {
-                item["does_not_claim"] for item in integrity_summary["attention"]
-            }
 
-        self.assertEqual(
-            integrity_summary["integrity_observation_policy"]["external_authenticity_validation"],
-            "not_performed",
-        )
         self.assertEqual(export_summary["classification"], "exported_selected_measurement_record")
-        self.assertIn(
-            "external_authenticity_or_trust_validation",
-            integrity_non_claims,
-        )
-        self.assertIn(
-            "package_authenticity_or_trust",
-            durable_import_summary["workflow"]["does_not_claim"],
+        self.assertEqual(integrity_summary["classification"], "declared_integrity_verified")
+        self.assertEqual(
+            durable_import_summary["classification"],
+            "imported_handoff_measurement_record",
         )
 
     def test_export_collision_blocks_without_rewriting_existing_package(self) -> None:

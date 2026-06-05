@@ -25,27 +25,7 @@ from scopecat.measurement_records.durable_import import (
 )
 
 HANDOFF_DURABLE_IMPORT_SCHEMA = "scopecat.handoff_durable_import.v0"
-HANDOFF_DURABLE_IMPORT_POLICY = {
-    "workflow_authority": "approved_handoff_durable_import_request",
-    "import_plan": "required_ready_single_measurement_import_plan",
-    "destination_authority": "caller_declared_durable_record_destination",
-    "source_mapping": "handoff_package_measurement_primary_data",
-    "durable_source_preflight": "delegated_to_measurement_record_durable_import",
-    "durable_import": "delegated_to_measurement_record_durable_import",
-    "candidate_storage_acceptance": "not_performed",
-    "batch_import": "not_performed",
-    "linked_context_payload_import": "not_performed",
-}
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
-DOES_NOT_CLAIM = [
-    "candidate_storage_acceptance_route",
-    "batch_measurement_import",
-    "existing_record_update",
-    "linked_context_payload_import",
-    "package_authenticity_or_trust",
-    "conflict_resolution_beyond_durable_import_no_overwrite",
-    "durable_schema_publication",
-]
 
 
 @dataclass(frozen=True)
@@ -196,12 +176,8 @@ class HandoffDurableImportRun:
         ]
         return {
             "artifact_posture": "local_handoff_durable_import_receipt",
-            "handoff_durable_import_policy": copy.deepcopy(HANDOFF_DURABLE_IMPORT_POLICY),
-            "workflow": {
-                "classification": self.classification,
-                "steps": workflow_steps,
-                "does_not_claim": list(DOES_NOT_CLAIM),
-            },
+            "classification": self.classification,
+            "steps": workflow_steps,
             "request": self.request.to_dict(),
             "import_plan": {
                 "classification": self.import_plan.classification,
@@ -272,13 +248,6 @@ class HandoffDurableImportReceiptSummary:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_handoff_durable_import_receipt_summary",
-            "summary_policy": {
-                "source": "local_handoff_durable_import_receipt",
-                "authority": "read_only_operator_continuation_summary",
-                "storage_mutation": "not_performed",
-                "continuation_authority": "fresh_handoff_durable_import_request_required",
-                "portable_export": "not_produced",
-            },
             "package_id": self.package_id,
             "measurement_record_id": self.measurement_record_id,
             "destination_record_id": self.destination_record_id,
@@ -291,15 +260,6 @@ class HandoffDurableImportReceiptSummary:
             "rollback_performed": self.rollback_performed,
             "partial_commit": self.partial_commit,
             "import_error": self.import_error,
-            "does_not_claim": [
-                "storage_mutation",
-                "continuation_authorization",
-                "fresh_import_plan",
-                "destination_recheck",
-                "package_reopen",
-                "durable_review_state",
-                "public_import_api",
-            ],
         }
 
 
@@ -344,14 +304,6 @@ class HandoffDurableImportRetryReview:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_handoff_durable_import_retry_review",
-            "retry_review_policy": {
-                "source": "local_handoff_durable_import_receipt_summary",
-                "fresh_import_plan": "required",
-                "storage_mutation": "not_performed",
-                "durable_import_request": "not_created",
-                "continuation_authority": "not_granted",
-                "prior_receipt_reuse": "not_allowed",
-            },
             "classification": self.classification,
             "retry_allowed": self.retry_allowed,
             "package_id": self.previous_summary.package_id,
@@ -374,17 +326,6 @@ class HandoffDurableImportRetryReview:
                 "allowed": self.import_plan.import_plan_allowed,
                 "planned_measurement_ids": list(self._planned_measurement_ids()),
             },
-            "does_not_claim": [
-                "storage_mutation",
-                "durable_import_approval",
-                "durable_import_request_creation",
-                "reuse_prior_import_plan",
-                "reuse_prior_durable_import_request",
-                "destination_freshness_proof",
-                "package_reopen",
-                "durable_review_state",
-                "public_import_api",
-            ],
         }
 
     def _planned_measurement_ids(self) -> tuple[str, ...]:
@@ -504,8 +445,8 @@ def _summarize_handoff_durable_import_receipt(
         receipt,
         {
             "artifact_posture",
-            "handoff_durable_import_policy",
-            "workflow",
+            "classification",
+            "steps",
             "request",
             "import_plan",
             "durable_import_request",
@@ -516,10 +457,7 @@ def _summarize_handoff_durable_import_receipt(
     )
     if receipt["artifact_posture"] != "local_handoff_durable_import_receipt":
         raise ValueError("handoff durable import receipt posture is unsupported")
-    if receipt["handoff_durable_import_policy"] != HANDOFF_DURABLE_IMPORT_POLICY:
-        raise ValueError("handoff durable import receipt policy is unsupported")
 
-    workflow = _require_mapping(receipt["workflow"], "handoff durable import receipt.workflow")
     request = _require_mapping(receipt["request"], "handoff durable import receipt.request")
     import_plan = _require_mapping(
         receipt["import_plan"],
@@ -530,7 +468,7 @@ def _summarize_handoff_durable_import_receipt(
         "handoff durable import receipt.request.durable_record_destination",
     )
 
-    final_state = _read_public_id(workflow, "classification", "workflow.classification")
+    final_state = _read_public_id(receipt, "classification", "classification")
     package_id = _read_public_id(import_plan, "package_id", "import_plan.package_id")
     requested_package_id = _read_public_id(request, "requested_package_id", "request.package_id")
     if requested_package_id != package_id:
@@ -935,7 +873,6 @@ def _parse_source(source: dict[str, Any]) -> tuple[HandoffDurableImportRequest, 
         source,
         {
             "handoff_durable_import_schema",
-            "handoff_durable_import_policy",
             "import_plan_source",
             "handoff_durable_import_request",
         },
@@ -943,8 +880,6 @@ def _parse_source(source: dict[str, Any]) -> tuple[HandoffDurableImportRequest, 
     )
     if source["handoff_durable_import_schema"] != HANDOFF_DURABLE_IMPORT_SCHEMA:
         raise ValueError("handoff durable import schema is unsupported")
-    if source["handoff_durable_import_policy"] != HANDOFF_DURABLE_IMPORT_POLICY:
-        raise ValueError("handoff durable import policy is unsupported")
     request = _parse_request(source["handoff_durable_import_request"])
     import_plan_source = copy.deepcopy(
         _require_mapping(source["import_plan_source"], "import_plan_source")

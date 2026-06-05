@@ -31,16 +31,14 @@ class HandoffErrorDiagnosticsTest(unittest.TestCase):
             diagnostic["error"]["message"],
             "receiving_gate_schema is unsupported",
         )
-        self.assertEqual(diagnostic["summary_policy"]["portable_export"], "not_produced")
-        self.assertIn("retry_authorization", diagnostic["does_not_claim"])
 
     def test_public_durable_summary_boundary_reports_operation(self) -> None:
         with self.assertRaises(HandoffContractError) as context:
             summarize_handoff_durable_import_receipt(
                 {
                     "artifact_posture": "unsupported",
-                    "handoff_durable_import_policy": {},
-                    "workflow": {},
+                    "classification": "unsupported",
+                    "steps": [],
                     "request": {},
                     "import_plan": {},
                     "durable_import_request": None,

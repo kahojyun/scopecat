@@ -13,10 +13,6 @@ from scopecat.handoff.archive_materialization import (
     HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY,
 )
 from scopecat.handoff.durable_import import (
-    DOES_NOT_CLAIM as _DURABLE_IMPORT_DOES_NOT_CLAIM,
-)
-from scopecat.handoff.durable_import import (
-    HANDOFF_DURABLE_IMPORT_POLICY,
     HANDOFF_DURABLE_IMPORT_SCHEMA,
 )
 from scopecat.handoff.import_plan import (
@@ -51,7 +47,6 @@ def current_handoff_compatibility_contract() -> dict[str, Any]:
         },
         "policies": {
             "selected_record_export": copy.deepcopy(SELECTED_RECORD_EXPORT_POLICY),
-            "handoff_durable_import": copy.deepcopy(HANDOFF_DURABLE_IMPORT_POLICY),
             "archive_materialization": copy.deepcopy(HANDOFF_ARCHIVE_MATERIALIZATION_POLICY),
             "archive_package_materialization": copy.deepcopy(
                 HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY
@@ -86,15 +81,4 @@ def current_handoff_compatibility_contract() -> dict[str, Any]:
             "value_error_compatible": True,
             "diagnostic_posture": "local_handoff_error_diagnostic",
         },
-        "does_not_claim": [
-            "public_sdk",
-            "final_package_format",
-            "archive_backed_durable_import",
-            "external_authenticity_or_trust_validation",
-            "trusted_source_policy",
-            "batch_durable_import",
-            "linked_context_payload_import",
-            "persisted_gui_state",
-            *_DURABLE_IMPORT_DOES_NOT_CLAIM,
-        ],
     }

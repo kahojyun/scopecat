@@ -25,7 +25,6 @@ from scopecat.handoff import (
     write_package,
 )
 from scopecat.handoff.durable_import import (
-    HANDOFF_DURABLE_IMPORT_POLICY,
     HANDOFF_DURABLE_IMPORT_SCHEMA,
 )
 from scopecat.handoff.import_plan import build_import_plan
@@ -162,7 +161,6 @@ def _request(**overrides: object) -> HandoffDurableImportRequest:
 def _raw_source(**request_overrides: object) -> dict:
     return {
         "handoff_durable_import_schema": HANDOFF_DURABLE_IMPORT_SCHEMA,
-        "handoff_durable_import_policy": HANDOFF_DURABLE_IMPORT_POLICY,
         "import_plan_source": _import_plan_source(),
         "handoff_durable_import_request": _request(**request_overrides).to_dict(),
     }
@@ -276,7 +274,7 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
             "context_reference",
             json.dumps(summary["durable_import_request"], sort_keys=True),
         )
-        self.assertIn("linked_context_payload_import", summary["workflow"]["does_not_claim"])
+        self.assertEqual(summary["classification"], "imported_handoff_measurement_record")
 
     def test_imports_ready_single_measurement_plan_as_durable_record(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -325,7 +323,7 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
                 "primary_data_format": "csv_table",
             },
         )
-        self.assertIn("linked_context_payload_import", summary["workflow"]["does_not_claim"])
+        self.assertEqual(summary["classification"], "imported_handoff_measurement_record")
 
     def test_batch_import_plan_is_not_durable_batch_mutation_authority(self) -> None:
         source, second_content = _multi_measurement_writer_source()
@@ -387,7 +385,7 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
         self.assertIsNone(summary["retry_requires"])
         self.assertTrue(summary["durable_import_performed"])
         self.assertEqual(summary["durable_import_classification"], "imported_new_record")
-        self.assertIn("continuation_authorization", summary["does_not_claim"])
+        self.assertTrue(summary["durable_import_performed"])
 
     def test_raw_source_runs_import_plan_then_durable_import(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -466,10 +464,7 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
             run.durable_import_run.import_error if run.durable_import_run else "",
         )
         self.assertFalse(records_exist)
-        self.assertEqual(
-            summary["handoff_durable_import_policy"]["durable_source_preflight"],
-            "delegated_to_measurement_record_durable_import",
-        )
+        self.assertEqual(summary["classification"], "blocked_before_handoff_durable_import")
         self.assertEqual(
             summary["durable_import_review"],
             {
@@ -517,7 +512,7 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
             "already exists",
             run.durable_import_run.import_error if run.durable_import_run else "",
         )
-        self.assertIn("existing_record_update", summary["workflow"]["does_not_claim"])
+        self.assertEqual(summary["classification"], "blocked_before_handoff_durable_import")
         self.assertEqual(
             summary["durable_import_result"]["classification"], "blocked_before_import"
         )
@@ -676,10 +671,9 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
         )
         self.assertEqual(retry_summary["previous"]["retry_requires"], "fresh_ready_import_plan")
         self.assertEqual(
-            retry_summary["retry_review_policy"]["prior_receipt_reuse"],
-            "not_allowed",
+            retry_summary["fresh_import_plan"]["classification"],
+            "ready_for_import_acceptance_decision",
         )
-        self.assertIn("durable_import_request_creation", retry_summary["does_not_claim"])
 
     def test_retry_review_is_not_applicable_after_successful_import(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -864,7 +858,6 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
                 "message": "receipt artifact_posture is unsupported",
             },
         )
-        self.assertEqual(diagnostic["summary_policy"]["portable_export"], "not_produced")
 
     def test_module_cli_reports_local_diagnostic_for_malformed_handoff_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -873,8 +866,8 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
                 json.dumps(
                     {
                         "artifact_posture": "local_handoff_durable_import_receipt",
-                        "handoff_durable_import_policy": {},
-                        "workflow": {},
+                        "classification": "unsupported",
+                        "steps": [],
                         "request": {},
                         "import_plan": {},
                         "durable_import_request": None,
@@ -909,7 +902,7 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
         )
         self.assertEqual(
             diagnostic["error"]["message"],
-            "handoff durable import receipt policy is unsupported",
+            "handoff durable import receipt.request.durable_record_destination must be an object",
         )
 
     def test_module_cli_reports_local_diagnostic_for_invalid_json_receipt(self) -> None:

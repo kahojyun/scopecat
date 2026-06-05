@@ -289,7 +289,6 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
             summary["context_references"][1]["reference_id"],
             "managed-code-version-rabi-001",
         )
-        self.assertIn("reference_resolution", summary["does_not_claim"])
 
     def test_module_cli_can_write_local_html_inspection_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

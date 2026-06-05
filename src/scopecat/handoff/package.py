@@ -19,7 +19,6 @@ class HandoffFinding:
     subject_id: str
     measurement_record_id: str | None = None
     basis: str | None = None
-    does_not_claim: str | None = None
 
     @classmethod
     def from_manifest_finding(cls, finding: dict[str, Any]) -> HandoffFinding:
@@ -30,7 +29,6 @@ class HandoffFinding:
             subject_id=finding["subject_id"],
             measurement_record_id=finding.get("measurement_record_id"),
             basis=finding.get("basis"),
-            does_not_claim=finding.get("does_not_claim"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -44,8 +42,6 @@ class HandoffFinding:
             result["measurement_record_id"] = self.measurement_record_id
         if self.basis is not None:
             result["basis"] = self.basis
-        if self.does_not_claim is not None:
-            result["does_not_claim"] = self.does_not_claim
         return result
 
 
@@ -133,16 +129,6 @@ class HandoffContextReferenceSummary:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_context_reference_summary",
-            "summary_policy": {
-                "source": "read_only_handoff_package",
-                "authority": "operator_review_summary",
-                "payload_import": "not_performed",
-                "reference_resolution": "not_performed",
-                "environment_restoration": "not_performed",
-                "code_materialization": "not_performed",
-                "storage_mutation": "not_performed",
-                "portable_export": "not_produced",
-            },
             "package_id": self.package_id,
             "measurement_ids": list(self.measurement_ids),
             "context_reference_count": self.context_reference_count,
@@ -150,14 +136,6 @@ class HandoffContextReferenceSummary:
             "prepared_run_context_ids": list(self.prepared_run_context_ids),
             "context_references": [copy.deepcopy(item) for item in self.context_references],
             "untyped_linked_context_ids": list(self.untyped_linked_context_ids),
-            "does_not_claim": [
-                "linked_context_payload_import",
-                "reference_resolution",
-                "environment_restoration",
-                "code_materialization",
-                "prepared_run_reconstruction",
-                "durable_review_state",
-            ],
         }
 
 

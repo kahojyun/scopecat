@@ -11,7 +11,6 @@ from scopecat.handoff import (
     run_receiving_gate,
     summarize_handoff_durable_import_receipt,
 )
-from scopecat.handoff.durable_import import HANDOFF_DURABLE_IMPORT_POLICY
 
 
 def _receiving_gate_source() -> dict:
@@ -67,10 +66,7 @@ class HandoffCompatibilityContractTest(unittest.TestCase):
         )
         self.assertNotIn("receiving_gate", contract["policies"])
         self.assertNotIn("import_plan", contract["policies"])
-        self.assertEqual(
-            contract["policies"]["handoff_durable_import"],
-            HANDOFF_DURABLE_IMPORT_POLICY,
-        )
+        self.assertNotIn("handoff_durable_import", contract["policies"])
         self.assertEqual(
             contract["policies"]["archive_materialization"]["archive_extraction"],
             "not_performed",
@@ -115,21 +111,15 @@ class HandoffCompatibilityContractTest(unittest.TestCase):
         self.assertIn("local_workflow_receipt", contract["local_artifact_postures"])
         self.assertIn("review_summary", contract["local_artifact_postures"])
         self.assertTrue(contract["public_error_contract"]["value_error_compatible"])
-        self.assertIn("public_sdk", contract["does_not_claim"])
-        self.assertIn("final_package_format", contract["does_not_claim"])
-        self.assertIn("archive_backed_durable_import", contract["does_not_claim"])
-        self.assertIn("durable_schema_publication", contract["does_not_claim"])
-        self.assertIn("existing_record_update", contract["does_not_claim"])
-        self.assertIn("candidate_storage_acceptance_route", contract["does_not_claim"])
 
     def test_contract_returns_copy_safe_policy_snapshots(self) -> None:
         contract = current_handoff_compatibility_contract()
-        contract["policies"]["handoff_durable_import"]["batch_import"] = "mutated"
+        contract["policies"]["archive_materialization"]["archive_extraction"] = "mutated"
 
         fresh_contract = current_handoff_compatibility_contract()
 
         self.assertEqual(
-            fresh_contract["policies"]["handoff_durable_import"]["batch_import"],
+            fresh_contract["policies"]["archive_materialization"]["archive_extraction"],
             "not_performed",
         )
 
@@ -166,8 +156,8 @@ class HandoffCompatibilityContractTest(unittest.TestCase):
             summarize_handoff_durable_import_receipt(
                 {
                     "artifact_posture": "portable_handoff_import_receipt",
-                    "handoff_durable_import_policy": HANDOFF_DURABLE_IMPORT_POLICY,
-                    "workflow": {},
+                    "classification": "unsupported",
+                    "steps": [],
                     "request": {},
                     "import_plan": {},
                     "durable_import_request": None,

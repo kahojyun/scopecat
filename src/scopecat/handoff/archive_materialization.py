@@ -65,17 +65,6 @@ REQUIRED_RESOURCE_LIMITS = [
     "compression_ratio",
     "extraction_time",
 ]
-DOES_NOT_CLAIM = [
-    "archive_creation",
-    "archive_extraction",
-    "archive_input_opening",
-    "archive_backed_durable_import",
-    "archive_bytes_as_package_artifact_of_record",
-    "external_authenticity_or_trust_validation",
-    "safe_to_extract_archive",
-    "package_acceptance",
-    "storage_mutation",
-]
 
 
 @dataclass(frozen=True)
@@ -152,7 +141,6 @@ class ArchiveMaterializationContractReview:
                 "package_of_record": "dec010_directory_manifest_package",
                 "opened_package_authority": "materialized_directory_after_future_safe_extraction",
             },
-            "does_not_claim": list(DOES_NOT_CLAIM),
         }
 
 
@@ -252,26 +240,16 @@ class HandoffArchiveCreationRun:
             "artifact_posture": "local_archive_creation_receipt",
             "archive_creation_schema": HANDOFF_ARCHIVE_CREATION_SCHEMA,
             "archive_creation_policy": copy.deepcopy(HANDOFF_ARCHIVE_PACKAGE_CREATION_POLICY),
-            "workflow": {
-                "classification": self.classification,
-                "steps": [
-                    "validate_archive_creation_request",
-                    *([] if not self.request.approved else ["open_dec010_package"]),
-                    *(
-                        []
-                        if not self.created
-                        else ["review_package_members", "create_zip_transport_archive"]
-                    ),
-                ],
-                "does_not_claim": [
-                    "archive_bytes_as_package_artifact_of_record",
-                    "archive_extraction",
-                    "archive_backed_durable_import",
-                    "external_authenticity_or_trust_validation",
-                    "package_acceptance",
-                    "storage_mutation",
-                ],
-            },
+            "classification": self.classification,
+            "steps": [
+                "validate_archive_creation_request",
+                *([] if not self.request.approved else ["open_dec010_package"]),
+                *(
+                    []
+                    if not self.created
+                    else ["review_package_members", "create_zip_transport_archive"]
+                ),
+            ],
             "request": self.request.to_dict(),
             "package": {
                 "package_root": str(self.package_root),
@@ -328,27 +306,17 @@ class HandoffArchiveMaterializationRun:
             "archive_materialization_policy": copy.deepcopy(
                 HANDOFF_ARCHIVE_PACKAGE_MATERIALIZATION_POLICY
             ),
-            "workflow": {
-                "classification": self.classification,
-                "steps": [
-                    "validate_archive_materialization_request",
-                    *([] if not self.request.approved else ["open_zip_archive"]),
-                    *([] if not self.member_reviews else ["review_archive_members"]),
-                    *(
-                        []
-                        if not self.materialized
-                        else ["materialize_archive_members", "open_materialized_package"]
-                    ),
-                ],
-                "does_not_claim": [
-                    "archive_creation",
-                    "archive_bytes_as_package_artifact_of_record",
-                    "external_authenticity_or_trust_validation",
-                    "package_acceptance",
-                    "durable_import",
-                    "storage_mutation",
-                ],
-            },
+            "classification": self.classification,
+            "steps": [
+                "validate_archive_materialization_request",
+                *([] if not self.request.approved else ["open_zip_archive"]),
+                *([] if not self.member_reviews else ["review_archive_members"]),
+                *(
+                    []
+                    if not self.materialized
+                    else ["materialize_archive_members", "open_materialized_package"]
+                ),
+            ],
             "request": self.request.to_dict(),
             "archive": {
                 "archive_root": str(self.archive_root),
@@ -411,7 +379,6 @@ def current_handoff_archive_materialization_contract() -> dict[str, Any]:
                 "materialized_for_package_open_after_future_safe_extraction",
             ],
         },
-        "does_not_claim": list(DOES_NOT_CLAIM),
     }
 
 

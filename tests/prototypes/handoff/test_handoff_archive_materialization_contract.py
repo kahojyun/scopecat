@@ -149,7 +149,6 @@ class HandoffArchiveMaterializationContractTest(unittest.TestCase):
             "compression_ratio",
             contract["future_materialization_requirements"]["resource_limits"],
         )
-        self.assertIn("archive_extraction", contract["does_not_claim"])
 
     def test_review_clean_candidate_still_does_not_extract_or_accept_archive(self) -> None:
         review = review_handoff_archive_materialization_contract(_source()).to_dict()
@@ -170,8 +169,6 @@ class HandoffArchiveMaterializationContractTest(unittest.TestCase):
             review["artifact_authority"]["package_of_record"],
             "dec010_directory_manifest_package",
         )
-        self.assertIn("archive_extraction", review["does_not_claim"])
-        self.assertIn("safe_to_extract_archive", review["does_not_claim"])
 
     def test_blocks_parent_traversal_and_absolute_member_paths(self) -> None:
         source = _source(
