@@ -12,8 +12,6 @@ from scopecat.handoff.integrity import HandoffPackageIntegrityReport, observe_pa
 from scopecat.handoff.package import HandoffPackage
 from scopecat.handoff.read_only import open_package
 
-_EXPECTED_SCHEMA = "scopecat.handoff_receiving_gate.v1"
-
 
 @dataclass(frozen=True)
 class HandoffReceivingReviewRequest:
@@ -196,12 +194,9 @@ def _parse_request(source: dict[str, Any]) -> HandoffReceivingReviewRequest:
     source = _require_mapping(source, "handoff receiving gate source")
     _require_keys(
         source,
-        {"receiving_gate_schema", "receiving_review_request"},
+        {"receiving_review_request"},
         "handoff receiving gate source",
     )
-    if source["receiving_gate_schema"] != _EXPECTED_SCHEMA:
-        raise ValueError("receiving_gate_schema is unsupported")
-
     request = _require_mapping(source["receiving_review_request"], "receiving_review_request")
     _require_keys(request, {"request_id", "review"}, "receiving_review_request")
     request_id = validate_public_identifier(

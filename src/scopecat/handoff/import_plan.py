@@ -13,8 +13,6 @@ from scopecat.handoff.inspect import write_inspection_artifact
 from scopecat.handoff.package import HandoffLinkedContext, HandoffMeasurement, HandoffPackage
 from scopecat.handoff.receiving import HandoffReceivingGateRun, run_receiving_gate
 
-_EXPECTED_SCHEMA = "scopecat.handoff_import_plan.v1"
-
 
 @dataclass(frozen=True)
 class HandoffImportPlanRequest:
@@ -362,15 +360,11 @@ def _parse_source(source: dict[str, Any]) -> tuple[HandoffImportPlanRequest, dic
     _require_keys(
         source,
         {
-            "import_plan_schema",
             "receiving_gate_source",
             "import_plan_request",
         },
         "handoff import plan source",
     )
-    if source["import_plan_schema"] != _EXPECTED_SCHEMA:
-        raise ValueError("import_plan_schema is unsupported")
-
     receiving_gate_source = _require_mapping(
         source["receiving_gate_source"],
         "receiving_gate_source",

@@ -24,7 +24,6 @@ from scopecat.measurement_records.durable_import import (
     import_measurement_record_from_request,
 )
 
-HANDOFF_DURABLE_IMPORT_SCHEMA = "scopecat.handoff_durable_import.v1"
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 
 
@@ -872,14 +871,11 @@ def _parse_source(source: dict[str, Any]) -> tuple[HandoffDurableImportRequest, 
     _require_keys(
         source,
         {
-            "handoff_durable_import_schema",
             "import_plan_source",
             "handoff_durable_import_request",
         },
         "handoff durable import source",
     )
-    if source["handoff_durable_import_schema"] != HANDOFF_DURABLE_IMPORT_SCHEMA:
-        raise ValueError("handoff durable import schema is unsupported")
     request = _parse_request(source["handoff_durable_import_request"])
     import_plan_source = copy.deepcopy(
         _require_mapping(source["import_plan_source"], "import_plan_source")

@@ -16,7 +16,7 @@ class HandoffErrorDiagnosticsTest(unittest.TestCase):
         with self.assertRaises(HandoffContractError) as context:
             run_receiving_gate(
                 {
-                    "receiving_gate_schema": "unsupported",
+                    "unexpected_contract_snapshot": "unsupported",
                     "receiving_review_request": {},
                 },
                 package_dir=Path("unused-package"),
@@ -29,7 +29,7 @@ class HandoffErrorDiagnosticsTest(unittest.TestCase):
         self.assertEqual(diagnostic["error"]["operation"], "run_receiving_gate")
         self.assertEqual(
             diagnostic["error"]["message"],
-            "receiving_gate_schema is unsupported",
+            "handoff receiving gate source fields are unsupported",
         )
 
     def test_public_durable_summary_boundary_reports_operation(self) -> None:
@@ -61,9 +61,8 @@ class HandoffErrorDiagnosticsTest(unittest.TestCase):
         with self.assertRaises(HandoffContractError) as context:
             run_import_plan(
                 {
-                    "import_plan_schema": "scopecat.handoff_import_plan.v1",
                     "receiving_gate_source": {
-                        "receiving_gate_schema": "unsupported",
+                        "unexpected_contract_snapshot": "unsupported",
                         "receiving_review_request": {},
                     },
                     "import_plan_request": {
@@ -78,7 +77,10 @@ class HandoffErrorDiagnosticsTest(unittest.TestCase):
 
         diagnostic = context.exception.to_diagnostic().to_dict()
         self.assertEqual(diagnostic["error"]["operation"], "run_import_plan")
-        self.assertEqual(diagnostic["error"]["message"], "receiving_gate_schema is unsupported")
+        self.assertEqual(
+            diagnostic["error"]["message"],
+            "handoff receiving gate source fields are unsupported",
+        )
         self.assertIsNot(context.exception.__cause__, context.exception)
 
 

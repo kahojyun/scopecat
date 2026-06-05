@@ -77,7 +77,7 @@ Public durable-import API functions promote route contract failures to
 portable/export artifact, retry authorization, storage mutation authority, or
 public error schema.
 
-The current durable-import schema and local receipt postures are included in
+The current durable-import local receipt postures are included in
 `current_handoff_compatibility_contract()` as a route-local compatibility
 review surface. That snapshot preserves the current production vertical slice
 expectations without accepting final storage schema, public SDK,

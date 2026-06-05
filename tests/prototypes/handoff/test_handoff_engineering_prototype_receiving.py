@@ -23,7 +23,6 @@ PACKAGE = (
 
 def _receiving_gate_source() -> dict:
     return {
-        "receiving_gate_schema": "scopecat.handoff_receiving_gate.v1",
         "receiving_review_request": {
             "request_id": "receive-handoff-package-legacy-rabi-001",
             "review": {

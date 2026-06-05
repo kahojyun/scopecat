@@ -105,10 +105,10 @@ diagnostic is not a portable/export artifact, retry authorization, package
 acceptance, or public error schema.
 
 `current_handoff_compatibility_contract()` returns a read-only local snapshot
-of the current route schemas and local artifact postures. The snapshot is a
-review contract for the current route-local behavior; it does not publish a
-public SDK, final package format, archive contract, authenticity/trust policy,
-or portable error schema.
+of local artifact postures and diagnostic posture. The snapshot is a review
+contract for the current route-local behavior; it does not publish a public
+SDK, final package format, archive contract, authenticity/trust policy, or
+portable error schema.
 
 ## Artifact Boundaries
 

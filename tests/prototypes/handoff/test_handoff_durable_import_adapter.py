@@ -24,9 +24,6 @@ from scopecat.handoff import (
     summarize_handoff_durable_import_receipt,
     write_package,
 )
-from scopecat.handoff.durable_import import (
-    HANDOFF_DURABLE_IMPORT_SCHEMA,
-)
 from scopecat.handoff.import_plan import build_import_plan
 from scopecat.handoff.receiving import run_receiving_gate_from_request
 
@@ -55,7 +52,6 @@ WRITER_FIXTURE = (
 
 def _receiving_gate_source() -> dict:
     return {
-        "receiving_gate_schema": "scopecat.handoff_receiving_gate.v1",
         "receiving_review_request": {
             "request_id": "receive-handoff-package-legacy-rabi-001",
             "review": {
@@ -70,7 +66,6 @@ def _receiving_gate_source() -> dict:
 
 def _import_plan_source() -> dict:
     return {
-        "import_plan_schema": "scopecat.handoff_import_plan.v1",
         "receiving_gate_source": _receiving_gate_source(),
         "import_plan_request": {
             "request_id": "plan-import-handoff-package-legacy-rabi-001",
@@ -160,7 +155,6 @@ def _request(**overrides: object) -> HandoffDurableImportRequest:
 
 def _raw_source(**request_overrides: object) -> dict:
     return {
-        "handoff_durable_import_schema": HANDOFF_DURABLE_IMPORT_SCHEMA,
         "import_plan_source": _import_plan_source(),
         "handoff_durable_import_request": _request(**request_overrides).to_dict(),
     }

@@ -15,9 +15,6 @@ from scopecat.handoff._contracts import validate_public_identifier, validate_rel
 from scopecat.handoff.errors import promote_handoff_contract_error
 from scopecat.handoff.read_only import open_package
 
-HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA = "scopecat.handoff_archive_materialization_review.v2"
-HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA = "scopecat.handoff_archive_materialization.v2"
-HANDOFF_ARCHIVE_CREATION_SCHEMA = "scopecat.handoff_archive_creation.v2"
 REQUIRED_RESOURCE_LIMITS = [
     "archive_size_bytes",
     "extracted_size_bytes",
@@ -192,7 +189,6 @@ class HandoffArchiveCreationRun:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_archive_creation_receipt",
-            "archive_creation_schema": HANDOFF_ARCHIVE_CREATION_SCHEMA,
             "classification": self.classification,
             "steps": [
                 "validate_archive_creation_request",
@@ -251,7 +247,6 @@ class HandoffArchiveMaterializationRun:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_archive_materialization_receipt",
-            "archive_materialization_schema": HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA,
             "classification": self.classification,
             "steps": [
                 "validate_archive_materialization_request",
@@ -290,7 +285,6 @@ def current_handoff_archive_materialization_contract() -> dict[str, Any]:
 
     return {
         "artifact_posture": "local_archive_materialization_contract",
-        "contract_version": HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA,
         "future_materialization_requirements": {
             "staging_directory": "required_unique_empty_scopecat_owned_directory",
             "cleanup": "required_explicit_success_and_failure_cleanup",
@@ -489,7 +483,6 @@ def _review_handoff_archive_materialization_contract(
     _require_keys(
         source,
         {
-            "archive_materialization_review_schema",
             "review_id",
             "archive_format",
             "staging_requirements",
@@ -498,11 +491,6 @@ def _review_handoff_archive_materialization_contract(
         },
         "archive materialization review source",
     )
-    if (
-        source["archive_materialization_review_schema"]
-        != HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA
-    ):
-        raise ValueError("archive_materialization_review_schema is unsupported")
     review_id = validate_public_identifier(source["review_id"], "archive review_id")
     archive_format = validate_public_identifier(source["archive_format"], "archive_format")
     if archive_format != "zip":
@@ -527,13 +515,10 @@ def _parse_creation_source(source: dict[str, Any]) -> HandoffArchiveCreationRequ
     _require_keys(
         source,
         {
-            "archive_creation_schema",
             "archive_creation_request",
         },
         "archive creation source",
     )
-    if source["archive_creation_schema"] != HANDOFF_ARCHIVE_CREATION_SCHEMA:
-        raise ValueError("archive_creation_schema is unsupported")
     request = _require_mapping(
         source["archive_creation_request"],
         "archive_creation_request",
@@ -556,13 +541,10 @@ def _parse_materialization_source(source: dict[str, Any]) -> HandoffArchiveMater
     _require_keys(
         source,
         {
-            "archive_materialization_schema",
             "archive_materialization_request",
         },
         "archive materialization source",
     )
-    if source["archive_materialization_schema"] != HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA:
-        raise ValueError("archive_materialization_schema is unsupported")
     request = _require_mapping(
         source["archive_materialization_request"],
         "archive_materialization_request",

@@ -18,11 +18,6 @@ from scopecat.handoff import (
     open_package,
     review_handoff_archive_materialization_contract,
 )
-from scopecat.handoff.archive_materialization import (
-    HANDOFF_ARCHIVE_CREATION_SCHEMA,
-    HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA,
-    HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA,
-)
 
 ROOT = Path(__file__).resolve().parents[3]
 PACKAGE_FIXTURE = (
@@ -40,7 +35,6 @@ PACKAGE_FIXTURE = (
 
 def _source(**overrides: object) -> dict:
     source = {
-        "archive_materialization_review_schema": (HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA),
         "review_id": "archive-materialization-contract-review-001",
         "archive_format": "zip",
         "staging_requirements": {
@@ -94,14 +88,12 @@ def _creation_request(**overrides: object) -> HandoffArchiveCreationRequest:
 
 def _raw_source(**overrides: object) -> dict:
     return {
-        "archive_materialization_schema": HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA,
         "archive_materialization_request": _request(**overrides).to_dict(),
     }
 
 
 def _raw_creation_source(**overrides: object) -> dict:
     return {
-        "archive_creation_schema": HANDOFF_ARCHIVE_CREATION_SCHEMA,
         "archive_creation_request": _creation_request(**overrides).to_dict(),
     }
 
@@ -297,7 +289,7 @@ class HandoffArchiveMaterializationContractTest(unittest.TestCase):
         )
         self.assertEqual(creation_payload["creation_review"]["block_reason"], None)
 
-    def test_raw_source_archive_creation_uses_schema_and_request(self) -> None:
+    def test_raw_source_archive_creation_uses_request_payload(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
             package_root = temp_root / "packages"
@@ -417,7 +409,7 @@ class HandoffArchiveMaterializationContractTest(unittest.TestCase):
         )
         self.assertEqual(payload["materialization_review"]["block_reason"], None)
 
-    def test_raw_source_materialization_uses_schema_and_request(self) -> None:
+    def test_raw_source_materialization_uses_request_payload(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
             archive_root = temp_root / "archives"

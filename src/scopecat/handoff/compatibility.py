@@ -4,21 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from scopecat.handoff.archive_materialization import (
-    HANDOFF_ARCHIVE_CREATION_SCHEMA,
-    HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA,
-    HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA,
-)
-from scopecat.handoff.durable_import import (
-    HANDOFF_DURABLE_IMPORT_SCHEMA,
-)
-from scopecat.handoff.import_plan import (
-    _EXPECTED_SCHEMA as _IMPORT_PLAN_SCHEMA,
-)
-from scopecat.handoff.receiving import (
-    _EXPECTED_SCHEMA as _RECEIVING_GATE_SCHEMA,
-)
-
 HANDOFF_COMPATIBILITY_CONTRACT_VERSION = "scopecat.handoff.compatibility.v0"
 
 
@@ -33,14 +18,6 @@ def current_handoff_compatibility_contract() -> dict[str, Any]:
             "stability": "route_local_current_slice",
             "public_sdk": "not_defined",
             "final_package_format": "not_claimed",
-        },
-        "schemas": {
-            "receiving_gate": _RECEIVING_GATE_SCHEMA,
-            "import_plan": _IMPORT_PLAN_SCHEMA,
-            "handoff_durable_import": HANDOFF_DURABLE_IMPORT_SCHEMA,
-            "archive_materialization_review": (HANDOFF_ARCHIVE_MATERIALIZATION_REVIEW_SCHEMA),
-            "archive_materialization": HANDOFF_ARCHIVE_MATERIALIZATION_SCHEMA,
-            "archive_creation": HANDOFF_ARCHIVE_CREATION_SCHEMA,
         },
         "local_artifact_postures": [
             "local_write_receipt",
