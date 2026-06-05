@@ -37,7 +37,7 @@ discovery evidence
   -> named use case, workflow, user journey, or capability question
   -> scenario or operation evidence when needed
   -> chosen validation method
-  -> engineering prototype when live route-local behavior is needed
+  -> engineering prototype when live implementation-owner behavior is needed
   -> production vertical slice
   -> production readiness
   -> maintained product capability
@@ -78,8 +78,8 @@ maturity owners by themselves.
 
 | Maturity | Purpose | Exit Criteria | Typical Deliverables |
 | --- | --- | --- | --- |
-| Discovery | Understand the problem, user job, workflow pressure, and evidence-backed boundaries. | The next question is specific enough to test with a candidate, prototype, or explicit deferral. | Problem briefs, route notes, validation plans/results, repository-safe fixtures, expected outputs. |
-| Engineering prototype | Validate production-shaped route-local behavior for one use case, workflow step, workflow seam, capability risk, or technical risk. Scenario and operation evidence may be used, but they do not become maturity owners. | The prototype has a clear entrypoint, typed or explicit contracts, workflow/failure tests, and a documented boundary. | `src/scopecat/<route>/`, module README, route-local typed objects, acceptance/failure tests, local review artifacts. |
+| Discovery | Understand the problem, user job, workflow pressure, and evidence-backed boundaries. | The next question is specific enough to test with a candidate, prototype, or explicit deferral. | Problem briefs, owner-local validation notes when needed, repository-safe fixtures, expected outputs. |
+| Engineering prototype | Validate production-shaped implementation-owner behavior for one use case, workflow step, workflow seam, capability risk, or technical risk. Scenario and operation evidence may be used, but they do not become maturity owners. | The prototype has a clear entrypoint, typed or explicit contracts, workflow/failure tests, and a documented boundary. | `src/scopecat/<owner>/`, module README, owner-local typed objects, acceptance/failure tests, local review artifacts. |
 | Production vertical slice | Deliver one end-to-end user workflow from entrypoint to durable state or output with defined failure behavior. | The slice can be used as a coherent product path and has acceptance tests, compatibility expectations, and documented user-visible behavior. | Owned module, acceptance/scenario tests, storage/output authority docs, route decision, compatibility and failure rules. |
 | Production readiness | Prepare a vertical slice for reliable use beyond prototype conditions. | Operational, compatibility, migration, diagnostics, documentation, and support risks are reviewed and either closed or explicitly accepted. | Readiness checklist, release criteria, compatibility notes, migration/upgrade notes, diagnostic expectations. |
 | Maintained product capability | Maintain a stable capability inside the Scopecat product. A capability may support multiple user workflows; it is not a separate product. | Changes are handled through normal product maintenance: compatibility, regression coverage, support expectations, and documented deprecation or migration when needed. | User docs, support policy, compatibility guarantees, migration/upgrade notes, operational diagnostics. |
@@ -119,7 +119,7 @@ prototype boundary, update or reference:
   boundary and live API.
 
 Promotion changes the work item from exploration to managed scope. After a
-prototype boundary is accepted, future work on that route should be one of:
+prototype boundary is accepted, future work on that owner should be one of:
 
 - maintenance on the accepted boundary;
 - promotion toward a named production vertical slice;
@@ -128,12 +128,12 @@ prototype boundary is accepted, future work on that route should be one of:
 ## Code, Test, And Fixture Rules
 
 Discovery code and implementation candidates may depend on discovery fixtures,
-but live route modules should not depend on historical candidate modules unless
-a promotion decision explicitly accepts that dependency.
+but live modules should not depend on historical candidate modules unless a
+promotion decision explicitly accepts that dependency.
 
 Engineering prototypes should test workflow behavior and failure behavior, not
 only expected JSON parity. Dictionary-shaped edge adapters are acceptable for
-compatibility with existing fixtures, but route-local internals should use
+compatibility with existing fixtures, but owner-local internals should use
 typed objects or equivalent explicit contracts.
 
 Production vertical slices must define:

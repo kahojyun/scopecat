@@ -22,18 +22,6 @@ from scopecat.handoff._contracts import (
 )
 from scopecat.handoff.package import HandoffFinding
 
-_EXPECTED_POLICY = {
-    "preview_authority": "scopecat_export_manifest_only",
-    "archive_extraction": "not_performed",
-    "file_observation": "not_performed",
-    "storage_mutation": "not_performed",
-    "import_acceptance": "not_performed",
-    "package_integrity": "not_claimed",
-    "schema_inference": "not_performed",
-    "recursive_relation_traversal": "not_performed",
-    "gui_workflow": "not_defined",
-    "shared_measurement_schema": "not_defined",
-}
 _PREVIEW_STATUSES = {
     "preview_ready",
     "degraded_preview",
@@ -62,13 +50,11 @@ class HandoffManifestPrimaryData:
 
 @dataclass(frozen=True, init=False)
 class HandoffManifestPreviewMetadata:
-    """Validated declared preview metadata for one selected measurement."""
+    """Validated declared table-preview metadata for one selected measurement."""
 
     status: str
     metadata_authority: str
-    _data_shape: dict[str, Any] | None
     _declared_columns: tuple[dict[str, str], ...]
-    _plot_candidates: tuple[dict[str, str], ...]
     warning_code: str | None = None
     message: str | None = None
 
@@ -77,39 +63,23 @@ class HandoffManifestPreviewMetadata:
         *,
         status: str,
         metadata_authority: str,
-        data_shape: dict[str, Any] | None,
         declared_columns: tuple[dict[str, str], ...],
-        plot_candidates: tuple[dict[str, str], ...],
         warning_code: str | None = None,
         message: str | None = None,
     ) -> None:
         object.__setattr__(self, "status", status)
         object.__setattr__(self, "metadata_authority", metadata_authority)
-        object.__setattr__(self, "_data_shape", copy.deepcopy(data_shape))
         object.__setattr__(
             self,
             "_declared_columns",
             tuple(copy.deepcopy(column) for column in declared_columns),
         )
-        object.__setattr__(
-            self,
-            "_plot_candidates",
-            tuple(copy.deepcopy(candidate) for candidate in plot_candidates),
-        )
         object.__setattr__(self, "warning_code", warning_code)
         object.__setattr__(self, "message", message)
 
     @property
-    def data_shape(self) -> dict[str, Any] | None:
-        return copy.deepcopy(self._data_shape)
-
-    @property
     def declared_columns(self) -> tuple[dict[str, str], ...]:
         return tuple(copy.deepcopy(column) for column in self._declared_columns)
-
-    @property
-    def plot_candidates(self) -> tuple[dict[str, str], ...]:
-        return tuple(copy.deepcopy(candidate) for candidate in self._plot_candidates)
 
     @property
     def declared_column_names(self) -> tuple[str, ...]:
@@ -197,9 +167,7 @@ def _preview_metadata_from_record(record: dict[str, Any]) -> HandoffManifestPrev
     return HandoffManifestPreviewMetadata(
         status=preview["status"],
         metadata_authority=preview["metadata_authority"],
-        data_shape=preview["data_shape"],
         declared_columns=tuple(preview["declared_columns"]),
-        plot_candidates=tuple(preview["plot_candidates"]),
         warning_code=preview.get("warning_code"),
         message=preview.get("message"),
     )
@@ -240,15 +208,6 @@ def _linked_context_from_manifest(
     )
 
 
-def _validate_policy(source: dict[str, Any]) -> None:
-    policy = source["package_preview_policy"]
-    if set(policy) != set(_EXPECTED_POLICY):
-        raise ValueError("handoff package preview policy must match expected shape")
-    for key, expected in _EXPECTED_POLICY.items():
-        if policy[key] != expected:
-            raise ValueError(f"handoff package preview policy {key} must be {expected}")
-
-
 def _validate_preview_metadata(record: dict[str, Any]) -> None:
     preview = record["declared_preview_metadata"]
     record_id = record["measurement_record_id"]
@@ -260,15 +219,12 @@ def _validate_preview_metadata(record: dict[str, Any]) -> None:
     if preview["status"] == "preview_ready":
         validate_handoff_preview_ready_metadata(
             preview,
-            primary_path=record["primary_data"]["package_path"],
             owner=f"measurement {record_id} preview",
         )
         return
 
-    if preview["data_shape"] is not None:
-        raise ValueError("degraded preview must not carry data_shape")
-    if preview["declared_columns"] or preview["plot_candidates"]:
-        raise ValueError("degraded preview must not carry declared columns or plot candidates")
+    if preview["declared_columns"]:
+        raise ValueError("degraded preview must not carry declared columns")
     if not preview.get("warning_code") or not preview.get("message"):
         raise ValueError("degraded preview requires warning_code and message")
     validate_public_identifier(
@@ -389,7 +345,6 @@ def _validate_unique_package_paths(source: dict[str, Any]) -> None:
 
 
 def _validate_manifest(source: dict[str, Any]) -> None:
-    _validate_policy(source)
     validate_handoff_package_identity(source["package_identity"], display_path="optional")
     _validate_measurements(source)
     _validate_linked_context(source)
@@ -427,7 +382,6 @@ def _findings(
                     severity="review",
                     code=preview.warning_code,
                     basis=preview.message,
-                    does_not_claim="packaged_data_unreadable_or_invalid",
                 )
             )
 
@@ -440,7 +394,6 @@ def _findings(
                     severity="review",
                     code=f"linked_context_{item.package_state}",
                     basis=item.reason,
-                    does_not_claim="package_integrity_or_import_acceptance_failure",
                 )
             )
 

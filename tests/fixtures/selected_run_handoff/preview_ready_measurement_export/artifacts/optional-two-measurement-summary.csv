@@ -1,2 +1,0 @@
-source_legacy_data_ids,artifact_label,metric_name,metric_value,claim_guard
-"1001;1002",qA_summary_candidate,example_summary_metric,0.734,user-declared optional artifact; not proof of analysis lineage

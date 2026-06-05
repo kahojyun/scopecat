@@ -136,4 +136,4 @@ Revisit this decision when:
 - [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
 - [`../../../src/scopecat/handoff/selected_record_export.py`](../../../src/scopecat/handoff/selected_record_export.py)
 - [`../../../src/scopecat/handoff/durable_import.py`](../../../src/scopecat/handoff/durable_import.py)
-- [`../../../tests/prototypes/handoff/test_handoff_jny001_single_measurement_workflow.py`](../../../tests/prototypes/handoff/test_handoff_jny001_single_measurement_workflow.py)
+- [`../../../tests/integration/handoff/test_jny001_single_measurement_handoff.py`](../../../tests/integration/handoff/test_jny001_single_measurement_handoff.py)

@@ -21,7 +21,7 @@ mutation.
 The current handoff durable-import adapter is intentionally one planned
 measurement per operation. It delegates mutation to Measurement Records durable
 import, which already owns per-record destination identity, no-overwrite
-behavior, rollback classification, retry review, and read-model projection.
+behavior, rollback classification, retry review, and read-model maintenance.
 Turning a multi-measurement plan into one durable operation would require new
 contracts for per-record destinations, conflict handling, partial success,
 rollback scope, retry grouping, and review state.
@@ -45,7 +45,7 @@ and implementation slice that defines, at minimum:
 - rollback scope and failure classification for each planned measurement;
 - retry summary shape for partial and total failures;
 - ordering, idempotency, and stale-review requirements;
-- receipt and review-state shape for users.
+- receipt and review surface shape for users.
 
 ## Scope
 
@@ -108,7 +108,6 @@ Revisit this decision when:
 
 - [`DEC-013-batch-receiving-import-planning.md`](DEC-013-batch-receiving-import-planning.md)
 - [`DEC-015-selected-record-batch-package-export.md`](DEC-015-selected-record-batch-package-export.md)
-- [`DEC-018-define-receiving-review-state-contract.md`](DEC-018-define-receiving-review-state-contract.md)
 - [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
 - [`../../engineering/prototype-boundaries/handoff-durable-import-storage.md`](../../engineering/prototype-boundaries/handoff-durable-import-storage.md)
 - [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)

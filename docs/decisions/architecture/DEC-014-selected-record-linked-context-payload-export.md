@@ -113,4 +113,4 @@ Revisit this decision when:
 - [`DEC-016-defer-linked-context-payload-import.md`](DEC-016-defer-linked-context-payload-import.md)
 - [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
 - [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
-- [`../../../tests/prototypes/handoff/test_handoff_selected_record_export_prototype.py`](../../../tests/prototypes/handoff/test_handoff_selected_record_export_prototype.py)
+- [`../../../tests/prototypes/handoff/test_handoff_selected_record_export.py`](../../../tests/prototypes/handoff/test_handoff_selected_record_export.py)

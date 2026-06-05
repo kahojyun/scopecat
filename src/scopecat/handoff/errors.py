@@ -16,25 +16,11 @@ class HandoffErrorDiagnostic:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "artifact_posture": "local_handoff_error_diagnostic",
-            "summary_policy": {
-                "source": "handoff_public_api_exception",
-                "authority": "operator_error_review",
-                "storage_mutation": "not_performed",
-                "continuation_authority": "not_granted",
-                "portable_export": "not_produced",
-            },
             "error": {
                 "code": self.code,
                 "operation": self.operation,
                 "message": self.message,
             },
-            "does_not_claim": [
-                "retry_authorization",
-                "package_acceptance",
-                "storage_mutation",
-                "public_error_schema",
-            ],
         }
 
 

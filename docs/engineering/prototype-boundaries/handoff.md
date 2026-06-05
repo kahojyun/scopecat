@@ -15,7 +15,7 @@ building non-mutating import plans.
 Read it with:
 
 - [`../../../src/scopecat/handoff/README.md`](../../../src/scopecat/handoff/README.md)
-  for live API and CLI orientation;
+  for live API orientation;
 - [`handoff-durable-import-storage.md`](handoff-durable-import-storage.md) for
   the separate durable Measurement Records import adapter boundary;
 - [`../../decisions/architecture/DEC-010-package-format-directory-manifest.md`](../../decisions/architecture/DEC-010-package-format-directory-manifest.md)
@@ -23,7 +23,7 @@ Read it with:
 - [`../../decisions/architecture/DEC-011-package-trust-authenticity-posture.md`](../../decisions/architecture/DEC-011-package-trust-authenticity-posture.md)
   for the current package trust/authenticity posture;
 - [`../../decisions/architecture/DEC-012-linked-context-payload-packaging.md`](../../decisions/architecture/DEC-012-linked-context-payload-packaging.md)
-  for the current route-local linked-context payload boundary;
+  for the current package-writer linked-context payload boundary;
 - [`../../decisions/architecture/DEC-013-batch-receiving-import-planning.md`](../../decisions/architecture/DEC-013-batch-receiving-import-planning.md)
   for the current batch receiving/import planning boundary;
 - [`../../decisions/architecture/DEC-014-selected-record-linked-context-payload-export.md`](../../decisions/architecture/DEC-014-selected-record-linked-context-payload-export.md)
@@ -34,8 +34,6 @@ Read it with:
   for the current durable linked-context payload import deferral;
 - [`../../decisions/architecture/DEC-017-defer-batch-durable-import.md`](../../decisions/architecture/DEC-017-defer-batch-durable-import.md)
   for the current batch durable import deferral;
-- [`../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md`](../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md)
-  for the current receiving review state projection boundary;
 - [`../../decisions/architecture/DEC-020-defer-archive-package-implementation.md`](../../decisions/architecture/DEC-020-defer-archive-package-implementation.md)
   for the current archive-backed durable import and archive-authority
   deferral;
@@ -59,7 +57,6 @@ caller-declared source root and package write request
   -> directory-shaped package subset
   -> manifest validation and preview classification
   -> read-only package open
-  -> local inspection or workflow receipt
   -> receiving gate
   -> non-mutating import plan
 ```
@@ -68,7 +65,7 @@ The selected stored-record export adapter composes with that package writer:
 
 ```text
 complete Measurement Record read model and record-local receipts
-  -> selected-record export request with explicit preview metadata
+  -> selected-record export request with explicit declared table-preview metadata
   -> package writer request
   -> directory-shaped selected-measurement package
   -> optional zip transport creation and materialization
@@ -95,11 +92,12 @@ The current package writer:
 - returns a local write receipt;
 - proves generated packages open through the read-only opener.
 
-The package writer is a route-local capability, not the normal JNY-001 Share A
-Selected Measurement entrypoint. Caller-declared package ids, measurement ids,
-and linked-context ids are reviewed package-input facts. They are not durable
-Scopecat Measurement Record identity and do not replace storage lifecycle
-evidence, record-local read models, creation manifests, or writer receipts.
+The package writer is an owner-local capability, not the normal JNY-001 Share
+A Selected Measurement entrypoint. Caller-declared package ids, measurement
+ids, and linked-context ids are reviewed package-input facts. They are not
+durable Scopecat Measurement Record identity and do not replace storage
+lifecycle evidence, record-local read models, creation manifests, or writer
+receipts.
 
 The selected stored-record export adapter:
 
@@ -108,8 +106,8 @@ The selected stored-record export adapter:
   and writer receipts;
 - preserves record id, record-local primary-data path, digest, size, label,
   and experiment type into the package writer request;
-- requires explicit preview metadata and does not infer plot semantics from CSV
-  headers;
+- requires explicit declared table-preview metadata and does not infer plot
+  semantics from CSV headers;
 - can package explicitly declared record-local linked-context payloads under
   `context/` after digest and size preflight;
 - writes one package through the package writer: single-measurement for a
@@ -119,46 +117,38 @@ The selected stored-record export adapter:
   references as payload authority;
 - does not mutate Measurement Records storage or refresh read models.
 
-Selected-record export receipts include local `export_review` guidance for
-successful transfer review or blocked retry review. That guidance classifies
-request approval gaps, package destination collisions, missing record evidence,
-record evidence mismatches, incomplete records, and record path scope
-violations. It does not authorize retry or mutate storage.
-
-Selected-record export receipts also include local
-`read_model_freshness_review` guidance. The export path checks that the
-selected read model matches the request, record-local creation manifest, and
-writer receipt before writing a package. Missing, invalid, stale, incomplete, or
-out-of-scope read-model evidence blocks export and reports the required retry
-input, but selected export does not project, refresh, repair, or otherwise
-mutate Measurement Records storage.
+Selected-record export receipts keep compact `block_reason` state for blocked
+local runs. The export path checks that the selected read model matches the
+request, record-local creation manifest, and writer receipt before writing a
+package. Missing, invalid, stale, incomplete, or out-of-scope read-model
+evidence blocks export, but selected export does not project, refresh, repair,
+or otherwise mutate Measurement Records storage.
 
 The preflight selected-record export composition makes read-model refresh
 user-transparent while keeping ownership explicit. It runs selected export as a
 freshness preflight, delegates missing, invalid, or stale read-model recovery to
 the Measurement Records read-model refresh route, and retries export only after
 successful refresh. Its receipt records the initial export review, refresh
-receipt or refresh contract error, final export, and preflight review. The
+receipt or refresh contract error, final export, and compact `block_reason`. The
 composition does not repair primary data, replace record manifests, mutate
 writer/finalization receipts, or accept/import packages.
 
 For JNY-001 Share A Selected Measurement, this storage-backed selected-record
-export path is the production vertical slice candidate. Direct package-writer
-input remains an adapter or engineering route for already-reviewed normalized
+export path is the production vertical slice backbone. Direct package-writer
+input remains an adapter or engineering path for already-reviewed normalized
 data, not a user-facing bypass around Measurement Records storage.
 
 The current read-only package use:
 
 - validates raw manifest dictionaries at the package boundary;
-- uses typed route-local manifest fragments after validation;
-- projects package, measurement, table, declared plot, finding, and
+- uses typed owner-local manifest fragments after validation;
+- projects package, measurement, table, finding, and
   linked-context review facts;
 - opens package-local primary CSV data for `preview_ready` measurements;
-- treats declared preview metadata as preview authority;
+- treats declared table-preview metadata as table-orientation authority only;
 - preserves package id and package-directory continuity;
 - uses `measurements/{measurement_record_id}/primary.csv` as the canonical
-  primary-data package topology;
-- can write local static inspection HTML outside the package tree.
+  primary-data package topology.
 
 The receiving path:
 
@@ -172,11 +162,10 @@ The receiving path:
 - records blocked plans without destination, storage mutation, conflict policy,
   or rollback behavior.
 
-Receiving gate and import-plan receipts include local review guidance for
-successful continuation or blocked retry review. That guidance classifies
-integrity-review blocks and receiving-gate readiness before durable import is
-considered. It does not authorize retry, package acceptance, or storage
-mutation.
+Receiving gate and import-plan receipts keep compact `block_reason` state for
+blocked local runs. That state reflects integrity-review blocks and
+receiving-gate readiness before durable import is considered. It does not
+authorize retry, package acceptance, or storage mutation.
 
 Public receiving and import-planning API functions promote route contract
 failures to `HandoffContractError`, which remains `ValueError`-compatible.
@@ -184,29 +173,6 @@ failures to `HandoffContractError`, which remains `ValueError`-compatible.
 message. That diagnostic is a local review surface only; it is not a
 portable/export artifact, retry authorization, package acceptance, storage
 mutation authority, or public error schema.
-
-`current_handoff_compatibility_contract()` exposes a copy-safe local snapshot
-of current route schemas, policy fields, local artifact postures, error
-diagnostic posture, and explicit non-claims. It is a route-local compatibility
-review surface for this production vertical slice only. It does not define a
-public SDK, final package format, archive contract, authenticity/trust policy, or
-portable error schema.
-
-The CLI may print `HandoffErrorDiagnostic` JSON to stderr for handoff
-receipt-summary contract failures. That CLI output is local operator guidance
-only. It is not a portable/export artifact, retry authorization, package
-acceptance, or public CLI error contract.
-
-Receiving review state is a local projection over package-open, integrity,
-receiving-gate, import-plan, optional inspection, durable-import receipt, and
-retry-summary facts. `project_handoff_receiving_review_state()` implements
-that DEC-018 projection as a read-only local summary over typed receipts and
-diagnostics. It validates supplied receipt continuity and keeps GUI-owned state
-deferred. DEC-023 accepts
-`write_handoff_receiving_review_state_receipt()` for no-overwrite local receipt
-materialization of that projection; the receipt is review-continuity evidence,
-not package acceptance, retry authorization, storage mutation, or a GUI state
-store.
 
 ## Artifact Authority
 
@@ -223,25 +189,25 @@ containers; the materialized directory package remains the package of record.
 kept archive implementation deferred until archive artifact authority,
 extraction safety, staging, and materialization review contracts existed.
 [`DEC-021`](../../decisions/architecture/DEC-021-accept-safe-archive-materialization.md)
-accepts a narrow zip materialization candidate. `materialize_handoff_archive_package()`
-and `materialize_handoff_archive_package_from_request()` materialize a zip
+accepts a narrow zip materialization candidate.
+`materialize_handoff_archive_package_from_request()` materializes a zip
 transport archive into a DEC-010 directory-manifest package after path,
 duplicate-member, symlink, metadata-member, manifest, collision, cleanup, and
-package-open checks. [`DEC-024`](../../decisions/architecture/DEC-024-accept-safe-archive-creation.md)
-accepts `create_handoff_archive_package()` and
-`create_handoff_archive_package_from_request()` for creating zip transport
-archives from openable DEC-010 packages under no-overwrite. Signature/trust
-validation and archive-backed durable import remain out of scope.
+package-open checks.
+[`DEC-024`](../../decisions/architecture/DEC-024-accept-safe-archive-creation.md)
+accepts `create_handoff_archive_package_from_request()` for creating zip
+transport archives from openable DEC-010 packages under no-overwrite.
+Signature/trust validation and archive-backed durable import remain out of
+scope.
 
 [`DEC-011`](../../decisions/architecture/DEC-011-package-trust-authenticity-posture.md)
 keeps this package as declared-integrity local-review evidence. Declared digest
 integrity may gate receiving/import planning, but external authenticity, sender
 trust, and scientific validity remain unclaimed.
 
-Local writer receipts, workflow receipts, inspection HTML, receiving-gate
-results, import-plan objects, CLI summaries, and retry reviews are local review
-surfaces unless a later slice explicitly promotes one as a portable/export
-artifact.
+Local writer receipts, workflow receipts, receiving-gate results, and
+import-plan objects are local review surfaces unless a later slice explicitly
+promotes one as a portable/export artifact.
 
 Selected stored Measurement Record export may package request-declared
 record-local linked-context payloads under `context/`. The package-use route
@@ -276,14 +242,6 @@ keeps batch durable import deferred. Multi-measurement packages may be reviewed
 and planned together, but durable import remains one planned measurement per
 storage mutation.
 
-[`DEC-018`](../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md)
-defines receiving review state as a derived local projection. The current
-projection implementation is local review evidence only; it does not add a
-frontend, durable GUI store, or mutation authority.
-[`DEC-023`](../../decisions/architecture/DEC-023-accept-local-receiving-review-state-receipts.md)
-allows that projection to be materialized as a local no-overwrite review-state
-receipt for workflow continuity without making the receipt a GUI-owned store.
-
 [`DEC-025`](../../decisions/architecture/DEC-025-defer-existing-record-update-and-final-storage-schema.md)
 keeps selected stored-record export source-storage-read-only and receiving
 durable import new-record-only. Existing-record update, merge import, manifest
@@ -291,9 +249,9 @@ replacement, primary-data compaction, post-run results review, and final storage
 schema publication remain outside the current JNY-001 production readiness
 boundary.
 
-## Production Vertical Slice Candidate
+## Production Vertical Slice
 
-JNY-001 Share A Selected Measurement is a production vertical slice candidate
+JNY-001 Share A Selected Measurement has a production vertical slice smoke path
 when one workflow-level regression proves this full path:
 
 ```text
@@ -304,11 +262,10 @@ source-side durable Measurement Record
   -> read-only receiving package open
   -> receiving gate
   -> non-mutating import plan
-  -> local receiving review-state receipt materialization
   -> durable import into a second storage root
 ```
 
-Acceptance for that candidate is intentionally narrow:
+Acceptance for that slice is intentionally narrow:
 
 - exactly one selected, complete Measurement Record is exported;
 - primary CSV bytes, digest, size, label, experiment type, and record identity
@@ -317,22 +274,18 @@ Acceptance for that candidate is intentionally narrow:
 - stale or missing source-side record evidence blocks export before producing a
   new package;
 - existing package destinations use no-overwrite behavior;
-- blocked selected-record exports summarize a reviewable next action without
+- blocked selected-record exports expose compact block reasons without
   authorizing retry;
 - corrupted package bytes block receiving/import through integrity review;
-- blocked receiving and import planning summarize reviewable next actions
-  without authorizing retry;
+- blocked receiving and import planning expose compact block reasons without
+  authorizing retry;
 - declared digest integrity remains separate from external authenticity, sender
   trust, and scientific validity;
 - receiving review facts must match the opened package and observed integrity;
-- blocked durable imports summarize the next action without authorizing mutation
-  and require a fresh import plan for retry review;
+- blocked durable imports expose block reasons without authorizing mutation;
 - receiving review and import planning remain non-mutating;
-- local receiving review-state receipts may be materialized for review
-  continuity without becoming GUI-owned state;
 - durable storage mutation remains delegated to Measurement Records import;
-- durable import receipts and summaries expose reviewable block reasons,
-  next actions, and retry requirements without authorizing retry;
+- durable import receipts expose block reasons without authorizing mutation;
 - local receipts remain review surfaces, not portable package artifacts;
 - selected stored Measurement Record export may package explicitly declared
   record-local linked-context payloads, while durable import keeps linked
@@ -341,7 +294,7 @@ Acceptance for that candidate is intentionally narrow:
   storage, and receiving durable import creates a new record rather than
   updating an existing one.
 
-This candidate is not production readiness for the whole handoff capability.
+This slice is not production readiness for the whole handoff capability.
 Persisted GUI/review state, public SDK contracts, and final storage schemas
 remain separate decisions. Zip transport archive materialization into the
 DEC-010 directory package of record is governed by
@@ -362,8 +315,6 @@ Linked-context payload import deferral is governed by
 [`DEC-016`](../../decisions/architecture/DEC-016-defer-linked-context-payload-import.md).
 Batch durable import deferral is governed by
 [`DEC-017`](../../decisions/architecture/DEC-017-defer-batch-durable-import.md).
-Receiving review state projection is governed by
-[`DEC-018`](../../decisions/architecture/DEC-018-define-receiving-review-state-contract.md).
 Archive-backed durable import and archive-authority deferral are governed by
 [`DEC-020`](../../decisions/architecture/DEC-020-defer-archive-package-implementation.md).
 Safe zip archive materialization is governed by
@@ -379,14 +330,13 @@ are governed by
 Discovery candidates and the older
 `measurement_record_directory_candidate_v0` storage-acceptance route remain
 historical evidence only. They are useful for review order, approval, receipt,
-and rollback pressure, but they are not live runtime dependencies and should
-not be extended as the durable Measurement Records import path.
+and rollback pressure, but they are not live runtime dependencies, no longer
+exist as installable `src` modules, and should not be extended as the durable
+Measurement Records import path.
 
-Archived context lives in:
-
-- [`../archive/handoff-prototype-readiness.md`](../archive/handoff-prototype-readiness.md);
-- [`../archive/handoff-candidate-storage-acceptance.md`](../archive/handoff-candidate-storage-acceptance.md);
-- [`../archive/handoff-storage-import-requirements-synthesis.md`](../archive/handoff-storage-import-requirements-synthesis.md).
+The detailed historical notes were removed from active docs and are indexed in
+[`../archive/README.md`](../archive/README.md). Recover narrow facts from Git
+history only when current handoff or Measurement Records owners need them.
 
 ## Out Of Scope
 
@@ -396,7 +346,7 @@ This boundary does not accept:
 - hard pandas/numpy dependency;
 - production plotting or publication-grade rendering;
 - live GUI components, routing, interaction model, or GUI-owned persisted
-  review state beyond DEC-018 and DEC-023;
+  review state;
 - numeric dtype conversion, unit conversion, schema inference, scan-shape
   inference, trace opening, or array API;
 - archive-backed durable import or compressed package format beyond DEC-021 and
@@ -415,9 +365,7 @@ This boundary does not accept:
 Active prototype tests live under
 [`../../../tests/prototypes/handoff/`](../../../tests/prototypes/handoff/).
 Handoff fixtures live under
-[`../../../tests/fixtures/prototypes/handoff/`](../../../tests/fixtures/prototypes/handoff/)
-and selected handoff fixture families under
-[`../../../tests/fixtures/`](../../../tests/fixtures/).
+[`../../../tests/fixtures/prototypes/handoff/`](../../../tests/fixtures/prototypes/handoff/).
 
 Run repository checks with:
 
@@ -434,8 +382,7 @@ behavior. Current likely separate decisions include:
 
 - production readiness hardening for selected stored Measurement Record export;
 - existing-record update/import or final storage schema beyond DEC-025;
-- GUI-owned persisted review beyond the DEC-018 projection and DEC-023 local
-  receipt boundary;
+- GUI-owned persisted receiving review state;
 - archive-backed durable import or broader archive semantics beyond DEC-021 and
   DEC-024;
 - durable linked-context payload import beyond DEC-016 or batch durable import

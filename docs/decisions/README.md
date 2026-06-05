@@ -28,8 +28,8 @@ Use [`register.md`](register.md) as the current index. Use
 | --- | --- | --- |
 | Architecture | System boundaries, integration patterns, authority transfer, shared models, execution/runtime/hardware ownership, storage or artifact architecture. | `docs/decisions/architecture/` or the owning architecture document linked from the register. |
 | Product | Target journeys, adoption scope, deferred umbrella journeys, non-goals, user-facing product boundaries. | `docs/decisions/product/` or the owning product document linked from the register. |
-| Engineering | Implementation strategy, prototype promotion, module boundary, test strategy, compatibility policy, live route-local technical tradeoff. | `docs/decisions/engineering/` or the owning engineering document linked from the register. |
-| Discovery | Discovery track closeout, stop rule, reopen trigger, accepted-for-now evidence interpretation. | Discovery route or slice owner linked from the register. |
+| Engineering | Implementation strategy, prototype promotion, module boundary, test strategy, compatibility policy, live owner-local technical tradeoff. | `docs/decisions/engineering/` or the owning engineering document linked from the register. |
+| Discovery | Discovery closeout, stop rule, reopen trigger, accepted-for-now evidence interpretation that has not yet become architecture, product, or engineering scope. | The narrowest discovery evidence owner, or a promoted decision record when future work must obey it. |
 | Operational | Development process, tooling, release, CI, package-management, or documentation workflow choices. | Project governance or tooling document linked from the register. |
 
 ## ADR Usage
@@ -68,7 +68,7 @@ change only records:
 - validation status, next validation questions, or open advancement options;
 - hardening checklists, review findings, or retry/error case inventory;
 - wording clarification that does not change the accepted contract;
-- route-local implementation detail already owned by a prototype-boundary or
+- owner-local implementation detail already owned by a prototype-boundary or
   module README.
 
 Roadmap and "what next" content belongs in the workflow validation map, product
@@ -82,3 +82,7 @@ triggers, and related owners.
 Update the register when a branch creates, supersedes, retires, or materially
 changes a durable decision. Do not use this directory for task lists, open
 questions without a decision, or validation evidence.
+
+Keep the register as a compact index. During documentation cleanup, retire,
+supersede, or fold stale active entries into their owners instead of adding
+summary columns or preserving decisions that no longer guide future work.

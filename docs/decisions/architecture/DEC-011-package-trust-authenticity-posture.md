@@ -40,9 +40,10 @@ present that observation as authenticity validation, sender trust,
 trusted-source acceptance, or scientific validity.
 
 Current export, package open, integrity observation, receiving gate,
-import-plan, and durable-import receipts must continue to expose this
-separation with explicit `not_performed` policy fields or `does_not_claim`
-entries.
+import-plan, and durable-import receipts must expose positive operation facts
+only. Boundary and decision documents own the trust/authenticity limitation;
+receipts must not carry fixture-era policy disclaimers just to restate that
+limitation.
 
 ## Scope
 
@@ -104,4 +105,4 @@ Revisit this decision when:
 - [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
 - [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
 - [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
-- [`../../../tests/prototypes/handoff/test_handoff_jny001_single_measurement_workflow.py`](../../../tests/prototypes/handoff/test_handoff_jny001_single_measurement_workflow.py)
+- [`../../../tests/integration/handoff/test_jny001_single_measurement_handoff.py`](../../../tests/integration/handoff/test_jny001_single_measurement_handoff.py)

@@ -1,6 +1,6 @@
 {
   "fixture_id": "scan-shape-ragged-observed-only-table",
-  "fixture_status": "synthetic_public_safe",
+  "fixture_classification": "repository_safe_synthetic_discovery_input",
   "validation_goal": "Check whether a completed adaptive scan can summarize observed ragged coverage when expected group point counts were not declared.",
   "measurement": {
     "measurement_id": "synthetic-meas-02004",

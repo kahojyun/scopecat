@@ -1,6 +1,6 @@
 {
   "fixture_id": "fixed_vector_response_table",
-  "fixture_status": "synthetic_public_safe",
+  "fixture_classification": "repository_safe_synthetic_discovery_input",
   "validation_goal": "Check whether a declared fixed-shape per-row vector response can expose a reader ndarray shape without implying a general ndarray or storage API.",
   "measurement": {
     "measurement_id": "synthetic-single-shot-iq-001",

@@ -7,8 +7,7 @@ Current as-is assessment for Scopecat's brownfield adoption context.
 ## Purpose
 
 Describe the existing lab workflow and artifact reality that Scopecat must
-adopt around. This is an as-is assessment, not a target journey map, transition
-architecture, migration plan, implementation register, or evidence archive.
+adopt around.
 
 This document intentionally records patterns, not private local file listings.
 The local sample corpus is used as a current-state reference, but stable docs

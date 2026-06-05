@@ -23,7 +23,7 @@ adapter creates exactly one new Measurement Record by adapting one planned
 package measurement into the Measurement Records durable import pipeline. That
 pipeline currently owns primary-data import only. Linked context has no
 accepted durable storage contract for destination paths, context kind schemas,
-attachment semantics, conflicts, retry behavior, or read-model projection.
+attachment semantics, conflicts, retry behavior, or read-model maintenance.
 
 ## Decision
 
@@ -32,8 +32,9 @@ in the current JNY-001 handoff slice.
 
 Packaged linked-context payloads remain reviewable handoff package contents.
 Receiving/import planning may list them and preserve managed context-reference
-metadata, but the action remains `keep_reference_only` and the durable-import
-adapter must keep the `linked_context_payload_import` non-claim.
+metadata, but the action remains `keep_reference_only`. The durable-import
+adapter must not materialize linked-context payloads into Measurement Records
+storage until a later accepted boundary defines that behavior.
 
 Any future linked-context payload import must be promoted through a separate
 decision and implementation slice that defines, at minimum:
@@ -43,7 +44,7 @@ decision and implementation slice that defines, at minimum:
 - attachment semantics to one or more Measurement Records;
 - digest, byte-size, and package-integrity preflight rules;
 - no-overwrite, conflict, rollback, and retry behavior;
-- read-model projection and local review receipt shape.
+- read-model update and local review receipt shape.
 
 ## Scope
 
@@ -74,7 +75,7 @@ attach arbitrary files to a durable record.
 
 - Option: import linked payloads as loose files beside the durable record.
   Rejected because destination topology, conflict behavior, and read-model
-  projection would be implicit.
+  update behavior would be implicit.
 - Option: attach all packaged linked payloads to the imported Measurement
   Record. Rejected because linked context can target multiple package
   measurements and has no accepted attachment semantics.
@@ -106,7 +107,6 @@ Revisit this decision when:
 
 - [`DEC-012-linked-context-payload-packaging.md`](DEC-012-linked-context-payload-packaging.md)
 - [`DEC-014-selected-record-linked-context-payload-export.md`](DEC-014-selected-record-linked-context-payload-export.md)
-- [`DEC-018-define-receiving-review-state-contract.md`](DEC-018-define-receiving-review-state-contract.md)
 - [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
 - [`../../engineering/prototype-boundaries/handoff-durable-import-storage.md`](../../engineering/prototype-boundaries/handoff-durable-import-storage.md)
 - [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)

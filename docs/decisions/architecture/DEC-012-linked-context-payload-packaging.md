@@ -45,8 +45,7 @@ storage-backed selected-record export evidence.
 
 Import planning and durable import do not import linked-context payloads.
 DEC-016 keeps them as reviewable package contents, while import planning keeps
-the action `keep_reference_only` with a `linked_context_payload_import`
-non-claim.
+the action `keep_reference_only`.
 
 Selected stored Measurement Record export remains a separate authority boundary.
 DEC-014 narrows that path to request-declared record-local linked payloads
@@ -119,4 +118,4 @@ Revisit this decision when:
 - [`DEC-016-defer-linked-context-payload-import.md`](DEC-016-defer-linked-context-payload-import.md)
 - [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
 - [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
-- [`../../../tests/prototypes/handoff/test_handoff_engineering_prototype_writer.py`](../../../tests/prototypes/handoff/test_handoff_engineering_prototype_writer.py)
+- [`../../../tests/prototypes/handoff/test_handoff_package_writer.py`](../../../tests/prototypes/handoff/test_handoff_package_writer.py)

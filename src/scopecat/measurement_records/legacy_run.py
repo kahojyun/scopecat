@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
-import copy
 import json
+import os
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from scopecat.measurement_records._contracts import (
+    MANIFEST_SCHEMA,
+    RECORD_MANIFEST_NAME,
+    validate_public_identifier,
+    validate_relative_path,
+    validate_text,
+)
 from scopecat.measurement_records._storage import (
     ensure_no_symlink_parents as _ensure_no_symlink_parents,
 )
@@ -26,72 +33,12 @@ from scopecat.measurement_records._storage import (
 from scopecat.measurement_records._storage import (
     validate_strict_child_path as _validate_strict_child_path,
 )
-from scopecat.measurement_records.creation import (
-    MeasurementRecordCreationRequest,
-    MeasurementRecordCreationRun,
-    create_measurement_record_from_request,
-    validate_public_identifier,
-    validate_relative_path,
-    validate_text,
-)
 
-LEGACY_RUN_RECORD_SCHEMA = "scopecat.measurement_record_legacy_run_record.v0"
-LEGACY_RUN_RECEIPT_SCHEMA = "measurement_record_legacy_run_receipt_candidate_v0"
+LEGACY_RUN_RECEIPT_SCHEMA = "measurement_record_legacy_run_receipt_v0"
 LEGACY_RUN_RECEIPT_NAME = "legacy-run-receipt.json"
-LEGACY_RUN_RECORD_POLICY = {
-    "workflow_authority": "approved_legacy_run_record_request",
-    "record_creation": "create_measurement_record_shell",
-    "legacy_run_authority": "caller_declared_legacy_run_facts",
-    "legacy_locator_handling": "declared_references_only",
-    "receipt_materialization": "record_local_no_overwrite_receipt",
-    "primary_data_import": "not_performed",
-    "legacy_payload_observation": "not_performed",
-    "storage_mutation": "create_record_shell_and_legacy_receipt_only",
-    "read_model_projection": "not_performed",
-    "final_storage_schema": "not_defined",
-}
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
-LOCATOR_KINDS = {"workspace_relative_path", "package_relative_path", "opaque_reference"}
-LOCATOR_ROLES = {
-    "primary_data",
-    "source_code",
-    "notebook",
-    "configuration",
-    "debug_log",
-    "supporting_evidence",
-    "operator_note",
-    "other",
-}
-LOCATOR_STATES = {"declared_available", "unavailable", "redacted"}
-CONTEXT_FAMILIES = {
-    "parameter_state",
-    "setup_binding",
-    "managed_code_version",
-    "declared_environment",
-    "analysis_choice",
-    "artifact",
-}
-CONTEXT_ROLES = {
-    "run_start_context",
-    "calibration_context",
-    "comparison_reference",
-    "operator_selected_context",
-}
-CONTEXT_STATES = {"declared", "unavailable", "redacted"}
-DOES_NOT_CLAIM = [
-    "legacy_code_execution",
-    "legacy_file_observation",
-    "legacy_payload_import",
-    "primary_data_import",
-    "primary_data_schema_inference",
-    "scientific_validity",
-    "context_payload_import",
-    "hardware_control",
-    "parameter_write_back",
-    "read_model_projection",
-    "final_storage_schema",
-    "gui_review_state",
-]
+LOCATOR_KINDS = {"workspace_relative_path", "opaque_reference"}
+LOCATOR_ROLES = {"primary_data", "notebook"}
 
 
 @dataclass(frozen=True)
@@ -102,8 +49,6 @@ class LegacyRunLocator:
     kind: str
     role: str
     value: str
-    state: str = "declared_available"
-    reason: str | None = None
 
     def __post_init__(self) -> None:
         validate_public_identifier(self.locator_id, "legacy locator locator_id")
@@ -111,16 +56,10 @@ class LegacyRunLocator:
             raise ValueError("legacy locator kind is unsupported")
         if self.role not in LOCATOR_ROLES:
             raise ValueError("legacy locator role is unsupported")
-        if self.kind in {"workspace_relative_path", "package_relative_path"}:
+        if self.kind == "workspace_relative_path":
             validate_relative_path(self.value, "legacy locator value")
         else:
             validate_text(self.value, "legacy locator value")
-        if self.state not in LOCATOR_STATES:
-            raise ValueError("legacy locator state is unsupported")
-        if self.state != "declared_available" and not self.reason:
-            raise ValueError("unavailable or redacted legacy locator requires reason")
-        if self.state == "declared_available" and self.reason:
-            raise ValueError("available legacy locator must not carry reason")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -128,41 +67,6 @@ class LegacyRunLocator:
             "kind": self.kind,
             "role": self.role,
             "value": self.value,
-            "state": self.state,
-            "reason": self.reason,
-        }
-
-
-@dataclass(frozen=True)
-class LegacyRunContextReference:
-    """Optional declared context reference associated with a legacy run."""
-
-    context_family: str
-    context_id: str
-    role: str
-    state: str = "declared"
-    reason: str | None = None
-
-    def __post_init__(self) -> None:
-        if self.context_family not in CONTEXT_FAMILIES:
-            raise ValueError("legacy context reference family is unsupported")
-        validate_public_identifier(self.context_id, "legacy context reference context_id")
-        if self.role not in CONTEXT_ROLES:
-            raise ValueError("legacy context reference role is unsupported")
-        if self.state not in CONTEXT_STATES:
-            raise ValueError("legacy context reference state is unsupported")
-        if self.state != "declared" and not self.reason:
-            raise ValueError("unavailable or redacted legacy context requires reason")
-        if self.state == "declared" and self.reason:
-            raise ValueError("declared legacy context must not carry reason")
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "context_family": self.context_family,
-            "context_id": self.context_id,
-            "role": self.role,
-            "state": self.state,
-            "reason": self.reason,
         }
 
 
@@ -183,7 +87,6 @@ class LegacyRunRecordRequest:
     run_started_at: str | None = None
     run_completed_at: str | None = None
     locators: tuple[LegacyRunLocator, ...] = ()
-    context_references: tuple[LegacyRunContextReference, ...] = ()
     operator_notes: str | None = None
 
     def __post_init__(self) -> None:
@@ -216,17 +119,8 @@ class LegacyRunRecordRequest:
                 validate_text(value, owner)
         if not isinstance(self.locators, tuple):
             raise ValueError("legacy run locators must be a tuple")
-        if not isinstance(self.context_references, tuple):
-            raise ValueError("legacy run context_references must be a tuple")
         if len({locator.locator_id for locator in self.locators}) != len(self.locators):
             raise ValueError("legacy run locators must have unique locator_id values")
-        if len(
-            {
-                (reference.context_family, reference.context_id, reference.role)
-                for reference in self.context_references
-            }
-        ) != len(self.context_references):
-            raise ValueError("legacy run context references must be unique")
 
     @property
     def approved(self) -> bool:
@@ -234,7 +128,7 @@ class LegacyRunRecordRequest:
 
     @property
     def creation_manifest_path(self) -> str:
-        return f"{self.record_dir}/record-manifest.json"
+        return f"{self.record_dir}/{RECORD_MANIFEST_NAME}"
 
     @property
     def receipt_path(self) -> str:
@@ -256,7 +150,6 @@ class LegacyRunRecordRequest:
             "run_started_at": self.run_started_at,
             "run_completed_at": self.run_completed_at,
             "locators": [locator.to_dict() for locator in self.locators],
-            "context_references": [reference.to_dict() for reference in self.context_references],
             "operator_notes": self.operator_notes,
         }
 
@@ -267,7 +160,7 @@ class LegacyRunRecordRun:
 
     request: LegacyRunRecordRequest
     storage_root: Path
-    creation_run: MeasurementRecordCreationRun | None = None
+    created_paths: tuple[str, ...] = ()
     legacy_receipt_digest: str | None = None
     legacy_receipt_size_bytes: int | None = None
     rollback_performed: bool = False
@@ -289,19 +182,15 @@ class LegacyRunRecordRun:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "artifact_posture": "local_legacy_run_record_receipt",
-            "legacy_run_record_policy": copy.deepcopy(LEGACY_RUN_RECORD_POLICY),
-            "workflow": {
-                "classification": self.classification,
-                "steps": [
-                    "validate_legacy_run_request",
-                    *([] if not self.request.approved else ["create_measurement_record_shell"]),
-                    *([] if not self.recorded else ["write_legacy_run_receipt"]),
-                ],
-                "does_not_claim": list(DOES_NOT_CLAIM),
-            },
+            "classification": self.classification,
             "request": self.request.to_dict(),
-            "creation": None if self.creation_run is None else self.creation_run.to_dict(),
+            "creation": {
+                "performed": bool(self.created_paths),
+                "record_id": self.request.record_id,
+                "record_dir": self.request.record_dir,
+                "manifest_path": self.request.creation_manifest_path,
+                "created_paths": list(self.created_paths),
+            },
             "legacy_receipt": {
                 "performed": self.recorded,
                 "path": self.request.receipt_path,
@@ -311,17 +200,6 @@ class LegacyRunRecordRun:
                 "record_error": self.record_error,
             },
         }
-
-
-def record_legacy_measurement_run(
-    source: dict[str, Any],
-    *,
-    storage_root: str | Path,
-) -> LegacyRunRecordRun:
-    """Record declared legacy-run facts from a raw source."""
-
-    request = _parse_source(source)
-    return record_legacy_measurement_run_from_request(request, storage_root=storage_root)
 
 
 def record_legacy_measurement_run_from_request(
@@ -336,27 +214,14 @@ def record_legacy_measurement_run_from_request(
     if not request.approved:
         return LegacyRunRecordRun(request=request, storage_root=root)
 
-    creation_request = MeasurementRecordCreationRequest(
-        request_id=request.request_id,
-        approval_state=request.approval_state,
-        record_id=request.record_id,
-        record_dir=request.record_dir,
-        initial_lifecycle_state="created",
-        creation_source_kind="legacy_system",
-        created_at=request.created_at,
-        label=request.label,
-        experiment_type=request.experiment_type,
-    )
-    creation_run = create_measurement_record_from_request(
-        creation_request,
-        storage_root=root,
-    )
-    if not creation_run.created:
+    try:
+        created_paths = _write_record_shell(root, request)
+    except _LegacyRecordShellFailure as exc:
         return LegacyRunRecordRun(
             request=request,
             storage_root=root,
-            creation_run=creation_run,
-            record_error=creation_run.creation_error or "record shell was not created",
+            rollback_performed=exc.rollback_performed,
+            record_error=str(exc),
         )
 
     content = _json_bytes(_legacy_receipt(request))
@@ -368,7 +233,7 @@ def record_legacy_measurement_run_from_request(
         return LegacyRunRecordRun(
             request=request,
             storage_root=root,
-            creation_run=creation_run,
+            created_paths=tuple(created_paths),
             rollback_performed=rollback_performed,
             record_error=str(exc),
         )
@@ -376,60 +241,76 @@ def record_legacy_measurement_run_from_request(
     return LegacyRunRecordRun(
         request=request,
         storage_root=root,
-        creation_run=creation_run,
+        created_paths=tuple(created_paths),
         legacy_receipt_digest=_sha256(content),
         legacy_receipt_size_bytes=len(content),
     )
 
 
-def _parse_source(source: dict[str, Any]) -> LegacyRunRecordRequest:
-    if source.get("legacy_run_record_schema") != LEGACY_RUN_RECORD_SCHEMA:
-        raise ValueError(f"legacy run source schema must be {LEGACY_RUN_RECORD_SCHEMA}")
-    if source.get("legacy_run_record_policy") != LEGACY_RUN_RECORD_POLICY:
-        raise ValueError("legacy run source policy is unsupported")
-    request = _require_dict(source, "legacy_run_record_request")
-    return LegacyRunRecordRequest(
-        request_id=_require_text(request, "request_id"),
-        approval_state=_require_text(request, "approval_state"),
-        record_id=_require_text(request, "record_id"),
-        record_dir=_require_text(request, "record_dir"),
-        legacy_receipt_path=_optional_text(request, "legacy_receipt_path", default=None),
-        legacy_system_id=_require_text(request, "legacy_system_id"),
-        legacy_run_id=_require_text(request, "legacy_run_id"),
-        created_at=_optional_text(request, "created_at", default=None),
-        label=_optional_text(request, "label", default=None),
-        experiment_type=_optional_text(request, "experiment_type", default=None),
-        run_started_at=_optional_text(request, "run_started_at", default=None),
-        run_completed_at=_optional_text(request, "run_completed_at", default=None),
-        locators=tuple(
-            LegacyRunLocator(
-                locator_id=_require_text(locator, "locator_id"),
-                kind=_require_text(locator, "kind"),
-                role=_require_text(locator, "role"),
-                value=_require_text(locator, "value"),
-                state=_optional_text(locator, "state", default="declared_available"),
-                reason=_optional_text(locator, "reason", default=None),
-            )
-            for locator in _optional_list(request, "locators")
-        ),
-        context_references=tuple(
-            LegacyRunContextReference(
-                context_family=_require_text(reference, "context_family"),
-                context_id=_require_text(reference, "context_id"),
-                role=_require_text(reference, "role"),
-                state=_optional_text(reference, "state", default="declared"),
-                reason=_optional_text(reference, "reason", default=None),
-            )
-            for reference in _optional_list(request, "context_references")
-        ),
-        operator_notes=_optional_text(request, "operator_notes", default=None),
-    )
+def _write_record_shell(root: Path, request: LegacyRunRecordRequest) -> list[str]:
+    if os.path.lexists(_path_under(root, request.record_dir)):
+        raise _LegacyRecordShellFailure(
+            "legacy run record_dir target already exists",
+            rollback_performed=False,
+        )
+    _ensure_no_symlink_parents(root, request.record_dir, "legacy run record_dir")
+
+    created_dirs: list[str] = []
+    created_manifest = False
+    try:
+        created_dirs = _create_directory_chain(root, request.record_dir)
+        manifest_path = _path_under(root, request.creation_manifest_path)
+        _write_new_file(manifest_path, _json_bytes(_record_manifest(request)))
+        created_manifest = True
+    except Exception as exc:
+        if created_manifest:
+            try:
+                _path_under(root, request.creation_manifest_path).unlink()
+            except FileNotFoundError:
+                pass
+        _remove_created_dirs(root, created_dirs)
+        if isinstance(exc, _LegacyRecordShellFailure):
+            raise exc
+        raise _LegacyRecordShellFailure(
+            f"legacy run record shell write failed: {exc}",
+            rollback_performed=bool(created_dirs) or created_manifest,
+        ) from exc
+    return [*created_dirs, request.creation_manifest_path]
+
+
+def _record_manifest(request: LegacyRunRecordRequest) -> dict[str, Any]:
+    record: dict[str, Any] = {
+        "record_id": request.record_id,
+        "lifecycle_state": "created",
+    }
+    if request.created_at is not None:
+        record["created_at"] = request.created_at
+    if request.label is not None:
+        record["label"] = request.label
+    if request.experiment_type is not None:
+        record["experiment_type"] = request.experiment_type
+    return {
+        "schema": MANIFEST_SCHEMA,
+        "record": record,
+        "creation": {
+            "request_id": request.request_id,
+            "source_kind": "legacy_system",
+            "source_kind_authority": "declared_provenance_only",
+        },
+        "storage": {
+            "record_dir": request.record_dir,
+            "manifest_path": request.creation_manifest_path,
+        },
+        "primary_data": {
+            "state": "not_recorded",
+            "references": [],
+        },
+    }
 
 
 def _legacy_receipt(request: LegacyRunRecordRequest) -> dict[str, Any]:
     return {
         "schema": LEGACY_RUN_RECEIPT_SCHEMA,
-        "legacy_run_record_policy": copy.deepcopy(LEGACY_RUN_RECORD_POLICY),
         "record": {
             "record_id": request.record_id,
             "record_dir": request.record_dir,
@@ -444,11 +325,9 @@ def _legacy_receipt(request: LegacyRunRecordRequest) -> dict[str, Any]:
             "operator_notes": request.operator_notes,
         },
         "declared_locators": [locator.to_dict() for locator in request.locators],
-        "context_references": [reference.to_dict() for reference in request.context_references],
-        "workflow": {
+        "operation": {
             "request_id": request.request_id,
             "classification": "legacy_run_recorded_for_review",
-            "does_not_claim": list(DOES_NOT_CLAIM),
         },
     }
 
@@ -473,6 +352,36 @@ def _write_legacy_receipt(
 def _write_new_file(path: Path, content: bytes) -> None:
     with path.open("xb") as handle:
         handle.write(content)
+
+
+def _create_directory_chain(root: Path, relative_dir: str) -> list[str]:
+    current = root
+    created_dirs: list[str] = []
+    current_parts: list[str] = []
+    try:
+        for part in Path(validate_relative_path(relative_dir, "legacy run record_dir")).parts:
+            current_parts.append(part)
+            current = current / part
+            if current.is_symlink():
+                raise ValueError("legacy run record_dir parent is a symlink")
+            if current.exists():
+                if not current.is_dir():
+                    raise ValueError("legacy run record_dir parent is not a directory")
+                continue
+            current.mkdir()
+            created_dirs.append("/".join(current_parts))
+    except Exception:
+        _remove_created_dirs(root, created_dirs)
+        raise
+    return created_dirs
+
+
+def _remove_created_dirs(root: Path, created_dirs: list[str]) -> None:
+    for relative_path in reversed(created_dirs):
+        try:
+            _path_under(root, relative_path).rmdir()
+        except OSError:
+            pass
 
 
 def _remove_record_dir(root: Path, record_dir: str) -> bool:
@@ -516,14 +425,11 @@ def _optional_text(source: dict[str, Any], key: str, *, default: str | None) -> 
     return value
 
 
-def _optional_list(source: dict[str, Any], key: str) -> list[dict[str, Any]]:
-    value = source.get(key, [])
-    if not isinstance(value, list):
-        raise ValueError(f"legacy run {key} must be a list")
-    if not all(isinstance(item, dict) for item in value):
-        raise ValueError(f"legacy run {key} entries must be objects")
-    return value
-
-
 class _LegacyReceiptWriteFailure(RuntimeError):
     """Receipt write failed after record shell creation."""
+
+
+class _LegacyRecordShellFailure(RuntimeError):
+    def __init__(self, message: str, *, rollback_performed: bool) -> None:
+        super().__init__(message)
+        self.rollback_performed = rollback_performed

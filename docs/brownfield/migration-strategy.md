@@ -7,8 +7,7 @@ Current brownfield migration strategy.
 ## Purpose
 
 Define how Scopecat should migrate around existing lab systems without forcing
-a rewrite. This is a modernization strategy document, not a current-state
-inventory, target journey map, implementation plan, or issue tracker.
+a rewrite.
 
 Use this document when deciding whether a slice should bridge, shadow, assist,
 replace, or retire a legacy path.

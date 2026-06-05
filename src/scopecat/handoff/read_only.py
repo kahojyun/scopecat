@@ -1,8 +1,7 @@
-"""Read-only handoff package engineering prototype.
+"""Read-only handoff package operations.
 
-The prototype owns the read-only opener and exposes route-local projection
-objects. That keeps the first prototype focused on module shape and user-facing
-read actions without promoting a shared measurement-record domain model.
+This module owns the read-only opener and exposes route-local projection
+objects for user-facing read actions.
 """
 
 from pathlib import Path

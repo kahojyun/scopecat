@@ -41,7 +41,3 @@ Read in this order when aligning migration work:
 4. `migration-roadmap.md` for design validation sequence. Actual adoption may
    start from any high-value pain point, but the roadmap preserves dependency
    and authority order.
-
-Use product docs for target journeys, adoption strategy, and target
-capabilities. Use engineering docs for validation maturity and implementation
-ownership.

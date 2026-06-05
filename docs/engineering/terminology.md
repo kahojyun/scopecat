@@ -16,8 +16,8 @@ product and software-delivery vocabulary over project-local category names.
 | Concept | Preferred Term | Use For | Avoid Using For |
 | --- | --- | --- | --- |
 | Broad user path | User journey | A user's end-to-end path across one or more workflows or capabilities. | Code modules, fixture families, or implementation-candidate counts. |
-| Ordered user process | Workflow | A user-visible sequence of activities that completes a goal. | A single operation, route-local receipt, code module, or capability. |
-| Product ability | Capability | A product ability that may support one or more workflows. | A separate product, a route-local module name, or a validation method. |
+| Ordered user process | Workflow | A user-visible sequence of activities that completes a goal. | A single operation, owner-local receipt, code module, or capability. |
+| Product ability | Capability | A product ability that may support one or more workflows. | A separate product, owner-local module name, or a validation method. |
 | Delivery maturity | Maturity | Discovery, engineering prototype, production vertical slice, production readiness, or maintained product capability for user journeys, workflows, use cases, vertical slices, and product capabilities. | Project-wide phase gates, validation method counts, scenarios, operations, modules, or artifact boundaries. |
 | Validation technique | Validation method | Candidate, spike, prototype, scenario, dogfood run, fixture validation, or readiness review. | Product progress unless it advances a named maturity owner. |
 | Implementation location | Module | Code package or module that implements behavior. | Product capability unless the product concept and code boundary intentionally match. |
@@ -31,7 +31,7 @@ Use these terms from largest to smallest scope:
 
 | Term | Use For | Do Not Mix With |
 | --- | --- | --- |
-| User journey | A broad end-to-end user path across one or more product capabilities, such as moving selected measurement data between computers. | A single API call, storage mutation, or route-local receipt. |
+| User journey | A broad end-to-end user path across one or more product capabilities, such as moving selected measurement data between computers. | A single API call, storage mutation, or owner-local receipt. |
 | Workflow | A user-visible sequence of activities that completes a goal. Use this only when order, state, and handoff between steps matter. | Code modules, implementation candidates, or evidence counts. |
 | Use case | A scoped user goal or workflow segment that can be validated independently. | Product capability ownership. |
 | Scenario | A concrete situation used for validation, review, or acceptance testing. | A stable product capability or broad user journey. |
@@ -57,7 +57,6 @@ Titles may change, but IDs should not be reused.
 | `CAND-*` | [`../product/target-capabilities.md`](../product/target-capabilities.md) | Candidate feature areas that are not product capabilities yet. |
 | `DEC-*` | [`../decisions/register.md`](../decisions/register.md) | Durable product, architecture, engineering, discovery, or operational decisions. |
 | `BR-RISK-*` | [`../brownfield/risk-register.md`](../brownfield/risk-register.md) | Brownfield risks that need ongoing management. |
-| `EV-*` | [`../evidence/evidence-register.md`](../evidence/evidence-register.md) | Stable evidence claims. |
 
 Cross-document references may include `ID + short label` in headings or first
 mentions when the label helps readers orient themselves. In compact tables,

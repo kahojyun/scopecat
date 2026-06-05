@@ -1,0 +1,78 @@
+{
+  "linked_context": [
+    {
+      "authority": "scopecat_export_manifest",
+      "include_status": "visible_excluded",
+      "kind": "parameter_state",
+      "label": "Run-local parameter snapshot",
+      "link_id": "package-legacy-001-parameter-snapshot",
+      "linked_measurement_record_ids": [
+        "legacy-rabi-001"
+      ],
+      "package_path": null,
+      "package_state": "not_packaged_visible_reference",
+      "reason": "The accepted legacy import preserved this linked context as a reference-only fact; the package writer does not include its payload.",
+      "relation": "run_start_context"
+    }
+  ],
+  "package_identity": {
+    "created_by": "scopecat_selected_measurement_export",
+    "display_name": "Legacy Rabi selected measurement handoff",
+    "local_path_redacted": true,
+    "package_id": "handoff-package-legacy-rabi-001",
+    "source_export_summary_id": "export-summary-legacy-rabi-001"
+  },
+  "selected_measurements": [
+    {
+      "declared_preview_metadata": {
+        "declared_columns": [
+          {
+            "label": "Drive frequency",
+            "name": "drive_frequency",
+            "role": "sweep_axis",
+            "unit": "GHz"
+          },
+          {
+            "label": "Signal",
+            "name": "signal",
+            "role": "response",
+            "unit": "a.u."
+          }
+        ],
+        "metadata_authority": "scopecat_export_manifest",
+        "status": "preview_ready"
+      },
+      "default_bundle": [
+        {
+          "authority": "scopecat_export_manifest",
+          "include_status": "included_by_default",
+          "item_id": "legacy-rabi-001-primary",
+          "kind": "primary_data",
+          "label": "Accepted primary data",
+          "package_path": "measurements/legacy-rabi-001/primary.csv",
+          "package_state": "packaged",
+          "reason": null,
+          "relation": "selected_measurement_source"
+        }
+      ],
+      "experiment_type": "rabi",
+      "label": "Rabi calibration follow-up",
+      "legacy_data_id": 1001,
+      "measurement_record_id": "legacy-rabi-001",
+      "primary_data": {
+        "authority": "scopecat_export_manifest",
+        "digest": "sha256:e7407c74b4bb35e1cc350ae2cc4829981c5b48ac7db4364366f0b30802eab887",
+        "format": "csv_table",
+        "include_status": "included_by_default",
+        "kind": "primary_data",
+        "label": "Accepted primary data",
+        "package_path": "measurements/legacy-rabi-001/primary.csv",
+        "package_state": "packaged",
+        "reason": null,
+        "relation": "selected_measurement_source",
+        "size_bytes": 73
+      },
+      "target": "qA"
+    }
+  ]
+}

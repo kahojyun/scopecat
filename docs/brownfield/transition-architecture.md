@@ -7,8 +7,7 @@ Current brownfield transition architecture.
 ## Purpose
 
 Describe how Scopecat bridges from current lab workflows to target product
-journeys. This is a transition architecture document, not a target journey map,
-adoption strategy, implementation plan, or validation map.
+journeys.
 
 Use this document to separate:
 
@@ -101,9 +100,8 @@ Current journey:
 
 Transition journey:
 
-- import adapter-authored parameter state for review;
-- store/read selected parameter-state facts locally;
-- capture bounded environment-operation evidence when useful;
+- reuse historical parameter-state evidence as domain input only when useful;
+- reuse sealed bounded environment-operation evidence when useful;
 - compose prepared-run context evidence without granting run-start authority.
 
 Target journey:
@@ -118,11 +116,10 @@ Target journey:
 
 Ownership posture:
 
-- adapter-authored parameter-state intake: `Bridge`;
-- parameter-state storage and read view: `Partial owner`;
-- source-agnostic parameter-state selection and review chain: `Review`;
-- bounded environment-operation evidence: `Assist` or `Shadow`, depending on
-  the later use case that consumes it;
+- parameter-state intake, storage, selection, and review chain: retired
+  prototype evidence, not an active owner;
+- bounded environment-operation evidence: sealed supporting evidence until a
+  later use case chooses an `Assist` or `Shadow` posture;
 - prepared-run review receipt: candidate `Record` and `Review` evidence.
 
 Deferred authority:
@@ -141,7 +138,8 @@ Current journey:
 Transition journey:
 
 - record reviewable fit, evidence, action, and continuation summaries;
-- hand accepted calibration writes into parameter-state review;
+- preserve accepted calibration write pressure for future parameter-state
+  review if a real entrypoint earns it;
 - keep execution and write-back outside Scopecat.
 
 Target journey:
@@ -154,8 +152,8 @@ Target journey:
 Ownership posture:
 
 - reviewable fit, action, and continuation summaries: `Record` and `Review`;
-- accepted calibration write handoff to parameter-state review: candidate
-  `Bridge` evidence.
+- accepted calibration write handoff to parameter-state review: historical
+  pressure, not an active bridge.
 
 Deferred authority:
 
@@ -251,7 +249,7 @@ Transition journey:
 - plot selected primary-data or derived-result series;
 - identify missing, stale, or incomplete context;
 - record operator review notes or continuation receipts;
-- project a read model for downstream selection.
+- maintain a derived read model for downstream selection.
 
 Target journey:
 
@@ -267,7 +265,7 @@ Ownership posture:
 
 - records browser, open, filtering, and plotter surfaces: candidate `Review`;
 - operator notes and review receipts: candidate `Record`;
-- read-model projection: `Review` convenience projection, not canonical storage
+- derived read model: `Review` convenience summary, not canonical storage
   authority.
 
 Deferred authority:
@@ -289,7 +287,8 @@ Transition journey:
 
 - mark or select reference records;
 - compare declared measurement, code, parameter, or setup context;
-- capture selected code-context and environment-operation evidence when useful;
+- capture selected code-context evidence and reuse sealed environment-operation
+  evidence when useful;
 - surface objective findings without claiming domain judgment.
 
 Target journey:

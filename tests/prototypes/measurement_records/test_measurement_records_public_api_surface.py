@@ -12,9 +12,6 @@ class MeasurementRecordsPublicApiSurfaceTest(unittest.TestCase):
 
     def test_private_helpers_are_not_top_level_exports(self) -> None:
         private_names = {
-            "DURABLE_IMPORT_POLICY",
-            "READ_MODEL_PROJECTION_POLICY",
-            "READ_MODEL_REFRESH_POLICY",
             "READ_MODEL_SCHEMA",
             "_path_under",
             "_read_model",
@@ -30,42 +27,30 @@ class MeasurementRecordsPublicApiSurfaceTest(unittest.TestCase):
         for name in private_symbols:
             self.assertFalse(hasattr(measurement_records, name), name)
 
-    def test_durable_import_and_read_model_routes_remain_top_level_exports(self) -> None:
+    def test_caller_facing_capabilities_remain_top_level_exports(self) -> None:
         expected_names = {
             "MeasurementRecordDurableImportRequest",
-            "MeasurementRecordExistingUpdateRequest",
+            "MeasurementRecordDurableImportRun",
+            "MeasurementRecordImportSource",
+            "MeasurementRecordReference",
             "MeasurementRecordReferenceRequest",
-            "MeasurementRecordNormalizedPrimaryTableRequest",
-            "MeasurementRecordReadModelProjectionRequest",
-            "MeasurementRecordReadModelRefreshRequest",
-            "MeasurementRecordStorageInventoryRequest",
-            "MEASUREMENT_RECORD_REVIEW_ARTIFACT_NAME",
-            "ConvertedPrimaryData",
-            "LegacyMeasurementRecordRequest",
-            "LegacyMeasurementSource",
-            "LegacyPrimaryImportRequest",
-            "LegacyRunRecordRequest",
-            "RecordedReferenceInput",
-            "MeasurementRecordCatalogRequest",
-            "attach_converted_primary_data_to_legacy_record_from_request",
-            "record_measurement_record_references_from_request",
-            "append_existing_measurement_record_from_request",
-            "build_measurement_record_review_html",
+            "MeasurementRecordReferenceRun",
             "import_measurement_record_from_request",
-            "list_measurement_record_storage_from_request",
-            "list_measurement_record_references",
-            "legacy_measurement_slug",
-            "project_measurement_record_read_model_from_read_view",
-            "record_legacy_measurement",
-            "record_legacy_measurement_from_request",
-            "record_legacy_measurement_run_from_request",
-            "refresh_measurement_record_read_model_from_read_view",
-            "catalog_measurement_record_read_models_from_request",
-            "summarize_normalized_primary_table_from_request",
-            "write_measurement_record_review_artifact",
+            "record_measurement_record_references_from_request",
         }
 
-        self.assertTrue(expected_names.issubset(measurement_records.__all__))
+        self.assertEqual(set(measurement_records.__all__), expected_names)
+
+    def test_slice_level_routes_are_not_top_level_exports(self) -> None:
+        slice_names = {
+            "attach_converted_primary_data_to_legacy_record_from_request",
+            "legacy_measurement_slug",
+            "record_legacy_measurement_run_from_request",
+        }
+
+        self.assertFalse(slice_names.intersection(measurement_records.__all__))
+        for name in slice_names:
+            self.assertFalse(hasattr(measurement_records, name), name)
 
 
 if __name__ == "__main__":

@@ -7,8 +7,7 @@ Current use-case-driven migration roadmap.
 ## Purpose
 
 Sequence brownfield migration by validated use cases implemented as thin
-slices. This is a roadmap for product and architecture sequencing, not an
-implementation task list, release plan, or issue tracker.
+slices.
 
 ## Sequencing Principles
 
@@ -116,8 +115,8 @@ Already validated:
 - local package writing/opening from declared source-root data;
 - safe zip archive creation and materialization around the DEC-010 package of
   record;
-- receiving-side read-only package review, import plan, review-state receipt,
-  and accepted new-record durable import.
+- receiving-side read-only package review, import plan, and accepted new-record
+  durable import.
 
 Decision gate:
 
@@ -140,13 +139,10 @@ Next validation focus:
 - decide whether prepared-run context review becomes a live route owner or
   remains discovery evidence.
 
-Already validated:
+Evidence status:
 
-- adapter-authored parameter-state intake;
-- parameter-state storage and read view;
-- source-agnostic parameter-state selection;
-- route-local pre-run parameter-state consumption;
-- bounded environment-operation evidence.
+- parameter-state and environment-operation evidence remains historical input;
+  no active implementation owner is accepted for prepared-run context review.
 
 Decision gate:
 
@@ -157,9 +153,9 @@ Decision gate:
 ### 4. Maintain Parameter And Setup Files
 
 Target boundary: CAP-003 Parameter State Review, setup-binding support, and
-JNY-002 supporting workflow coverage. This is not promoted to a target journey
-until the work has an independent user goal beyond prepared-run context review
-or calibration continuation support.
+JNY-002 supporting workflow coverage. Keep this as supporting work until it has
+an independent user goal beyond prepared-run context review or calibration
+continuation support.
 
 Target use case: candidate to define from parameter-history, parameter-plot,
 setup-binding, or review-summary pressure.
@@ -174,14 +170,10 @@ Next validation focus:
   prepared-run review: history, comparison, plotting, setup-binding snapshot,
   adapter summary, or accepted-write review.
 
-Already validated:
+Evidence status:
 
-- adapter-authored parameter-state intake;
-- parameter-state storage and read view;
-- source-agnostic parameter-state selection;
-- route-local pre-run parameter-state consumption;
-- reviewable calibration action and continuation summaries that create
-  accepted-write pressure.
+- parameter-state evidence remains historical input; reviewable calibration
+  action and continuation summaries create accepted-write pressure.
 
 Decision gate:
 
@@ -207,7 +199,7 @@ Next validation focus:
 
 Already validated:
 
-- record read-model projection and refresh;
+- record read-model refresh;
 - selected-record export freshness review;
 - local operator review artifacts and receipts.
 
@@ -288,8 +280,8 @@ Already validated:
 
 - selected-reference comparison discovery evidence;
 - discovery and implementation-candidate evidence for code-context recording;
-- bounded environment-operation evidence for `uv sync` review;
-- candidate materialization and environment-readiness evidence.
+- retired bounded environment-operation evidence for `uv sync` review;
+- candidate materialization evidence.
 
 Decision gate:
 

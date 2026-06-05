@@ -29,10 +29,10 @@ nearest owner and avoid turning candidates or future plans into current truth.
   details; or discovery docs for evidence.
 - **No duplicate state**: avoid copying the same current state, owner table,
   next work, or non-goal into multiple README files.
-- **Candidate promotion**: if discovery results or `implementation_candidates/`
-  shaped the work, say whether they remain evidence or were promoted because
-  they close a named use case, scenario, operation, workflow step, seam, or
-  risk question.
+- **Candidate promotion**: if historical discovery results or retained
+  candidate-shaped fixtures shaped the work, say whether they remain prior
+  evidence or were promoted because they close a named use case, scenario,
+  operation, workflow step, seam, or risk question.
 - **Artifact boundary**: classify new or changed fixtures, expected outputs,
   receipts, review artifacts, packages, or exports as repository-safe fixture,
   local/review surface, or portable/export artifact.

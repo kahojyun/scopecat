@@ -6,8 +6,9 @@ Accepted engineering-prototype boundary.
 
 This file owns the current durable Measurement Records prototype boundary. The
 filename is historical: the first accepted slice was record creation, but the
-live boundary now includes the route-local storage, read, update, import,
-reference, and local-review surfaces listed below. Keep public entrypoint
+live boundary now includes the owner-local storage, import, and reference
+surfaces listed below plus internal primary-table reads used for composition.
+Keep public entrypoint
 orientation in
 [`../../../src/scopecat/measurement_records/README.md`](../../../src/scopecat/measurement_records/README.md).
 
@@ -18,23 +19,23 @@ The prototype validates caller-rooted local Measurement Records storage:
 ```text
 approved request
   -> caller-provided storage root
-  -> record-local manifest, receipts, primary data, or review artifact
+  -> record-local manifest, receipts, primary data, or read model
   -> no-overwrite or read-only behavior appropriate to the operation
-  -> local result or review summary
+  -> local result
 ```
 
 Accepted surface groups:
 
 | Surface | Current Boundary |
 | --- | --- |
-| Record creation | Creates one no-overwrite record shell with `record-manifest.json` and a local creation receipt. |
-| Primary-data pipeline | Writes reviewed normalized primary CSV, reads it back, finalizes the record, and projects/catalogs/refreshes `record-read-model.json`. |
-| Durable import | Imports one reviewed normalized primary table into a new record with synchronous partial-failure rollback. |
-| Existing and in-progress updates | Appends explicit update evidence without replacing the creation manifest or merging append segments into canonical primary data. |
-| Running inspection | Reads caller-declared in-progress data and update receipts for local progress review without persisting GUI state. |
+| Record adoption/import | Creates one no-overwrite record shell with `record-manifest.json` as part of a durable import or legacy-run adoption operation. |
+| Primary-data attach flow | Writes reviewed normalized primary CSV, finalization receipt, and `record-read-model.json` for legacy attach paths. |
+| Durable import | Imports one reviewed normalized primary table directly into a new record with synchronous partial-failure rollback. |
 | Recorded references | Writes record-local receipts for user-declared context references while leaving referenced payloads outside Measurement Records ownership. |
-| Operator review | Composes cataloged read models, recorded references, and optional running inspections into read-only local review summaries. |
-| Local review artifacts and receipts | Writes local static review HTML and operator-review continuation receipts as caller-rooted review artifacts outside durable record storage authority. |
+
+Stored primary-table reads are internal composition helpers for the attach,
+import, user-workflow, and selected-record refresh paths. They are not a
+separate package-level API or workflow boundary.
 
 Legacy-run storage and converted-primary attach are owned separately by
 [`measurement-records-legacy-run-storage.md`](measurement-records-legacy-run-storage.md).
@@ -47,29 +48,20 @@ Measurement Records storage is local, caller-rooted durable storage. Current
 record-local artifacts are:
 
 - `record-manifest.json` as the immutable creation shell and origin identity;
-- record-local receipts for creation, writer integration, finalization, import,
-  legacy-run recording, references, and updates;
+- record-local receipts for writer, finalization, import, legacy-run recording,
+  and references;
 - primary CSV bytes written through approved writer/import paths;
 - derived `record-read-model.json` as a replaceable local convenience
-  projection, not canonical storage authority.
-
-Local review HTML and operator-review continuation receipts are caller-rooted
-local review artifacts, not record-local mutation authority. They do not become
-portable/export artifacts unless a later workflow explicitly promotes that
-boundary.
+  summary, not canonical storage authority.
 
 ## Storage Authority
 
 Current authority model:
 
-- record creation owns the initial manifest;
-- writer/import operations own primary CSV bytes and their receipts;
-- update operations own append receipts and append segments, not primary-data
-  compaction;
-- read-model projection and refresh own derived read models, not canonical
-  manifest replacement;
-- review operations own local projections and caller-rooted review artifacts,
-  not record mutation authority.
+- import/adoption operations own initial manifest creation;
+- import/attach operations own primary CSV bytes and their receipts;
+- selected-record export refresh owns derived read models, not canonical
+  manifest replacement.
 
 The prototype keeps manifest replacement, existing-record merge import, broad
 conflict resolution, stale-lock cleanup, crash recovery, and concurrent storage
@@ -84,15 +76,12 @@ publication.
 
 The active prototype tests live under
 [`../../../tests/prototypes/measurement_records/`](../../../tests/prototypes/measurement_records/).
-Relevant fixture families live under [`../../../tests/fixtures/`](../../../tests/fixtures/)
-and include:
+Relevant fixture families live under
+[`../../../tests/fixtures/prototypes/measurement_records/`](../../../tests/fixtures/prototypes/measurement_records/).
+The active Measurement Records tests currently use `durable_import/`.
 
-- `normalized_primary_table/`
-- `existing_record_update/`
-- `running_measurement_inspection/`
-- `measurement_record_review_inbox/`
-- `measurement_record_handoff_flow/`
-- `adapter_authored_legacy_import/`
+The retained scan/data-shape discovery fixtures live separately under
+[`../../../tests/fixtures/scan_data_shapes/`](../../../tests/fixtures/scan_data_shapes/).
 
 Run repository checks with:
 

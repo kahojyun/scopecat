@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
-import copy
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from scopecat.measurement_records._contracts import (
+    MANIFEST_SCHEMA,
+    RECORD_MANIFEST_NAME,
+    validate_public_identifier,
+    validate_relative_path,
+    validate_text,
+)
 from scopecat.measurement_records._storage import (
     ensure_no_symlink_parents as _ensure_no_symlink_parents,
 )
@@ -25,84 +31,26 @@ from scopecat.measurement_records._storage import (
 from scopecat.measurement_records._storage import (
     validate_strict_child_path as _validate_strict_child_path,
 )
-from scopecat.measurement_records.creation import (
-    CANDIDATE_MANIFEST_SCHEMA,
-    RECORD_MANIFEST_NAME,
-    validate_public_identifier,
-    validate_relative_path,
-    validate_text,
-)
 
-RECORDED_REFERENCE_SCHEMA = "scopecat.measurement_record_recorded_reference.v0"
 RECORDED_REFERENCE_RECEIPT_SCHEMA = "measurement_record_recorded_reference_receipt_v0"
 RECORDED_REFERENCE_RECEIPT_DIR = "recorded-references"
-RECORDED_REFERENCE_POLICY = {
-    "workflow_authority": "approved_measurement_record_recorded_reference_request",
-    "record_authority": "existing_measurement_record_creation_manifest",
-    "reference_authority": "caller_declared_record_references",
-    "payload_handling": "references_only",
-    "receipt_materialization": "record_local_no_overwrite_receipt",
-    "storage_mutation": "append_record_local_recorded_reference_receipt_only",
-    "read_model_refresh": "not_performed",
-    "manifest_replacement": "not_performed",
-    "final_storage_schema": "not_defined",
-}
-RECORDED_REFERENCE_REVIEW_POLICY = {
-    "input_authority": "record_local_recorded_reference_receipts",
-    "payload_handling": "references_only",
-    "storage_mutation": "not_performed",
-    "read_model_refresh": "not_performed",
-    "manifest_replacement": "not_performed",
-    "final_storage_schema": "not_defined",
-}
-DOES_NOT_CLAIM = [
-    "referenced_payload_import",
-    "file_observation",
-    "checksum_verification_against_target",
-    "parameter_file_parsing",
-    "setup_binding_payload_parsing",
-    "code_snapshot_capture",
-    "code_execution",
-    "analysis_execution",
-    "analysis_validity",
-    "parameter_write_back",
-    "hardware_control",
-    "read_model_refresh",
-    "manifest_replacement",
-    "final_storage_schema",
-    "gui_review_state",
-]
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 REFERENCE_FAMILIES = {
     "parameter_state",
     "setup_binding",
     "experiment_code",
-    "managed_code_version",
     "derived_artifact",
-    "supporting_evidence",
 }
 REFERENCE_ROLES = {
     "parameter_file",
-    "parameter_snapshot",
     "setup_binding_file",
-    "setup_binding_snapshot",
-    "code_file",
     "code_directory",
-    "code_snapshot",
     "preliminary_analysis_result",
-    "analysis_summary",
-    "debug_evidence",
-    "operator_selected_context",
-    "run_start_context",
 }
 REFERENCE_KINDS = {
-    "record_reference",
     "workspace_relative_path",
-    "package_relative_path",
     "opaque_reference",
-    "external_reference",
 }
-REFERENCE_STATES = {"declared_available", "unavailable", "redacted"}
 
 
 @dataclass(frozen=True)
@@ -114,12 +62,10 @@ class MeasurementRecordReference:
     role: str
     reference_kind: str
     reference_value: str
-    state: str = "declared_available"
     label: str | None = None
     digest: str | None = None
     size_bytes: int | None = None
     preview: str | None = None
-    reason: str | None = None
 
     def __post_init__(self) -> None:
         validate_public_identifier(self.reference_id, "recorded reference reference_id")
@@ -129,16 +75,10 @@ class MeasurementRecordReference:
             raise ValueError("recorded reference role is unsupported")
         if self.reference_kind not in REFERENCE_KINDS:
             raise ValueError("recorded reference reference_kind is unsupported")
-        if self.reference_kind in {"workspace_relative_path", "package_relative_path"}:
+        if self.reference_kind == "workspace_relative_path":
             validate_relative_path(self.reference_value, "recorded reference reference_value")
         else:
             validate_text(self.reference_value, "recorded reference reference_value")
-        if self.state not in REFERENCE_STATES:
-            raise ValueError("recorded reference state is unsupported")
-        if self.state != "declared_available" and not self.reason:
-            raise ValueError("unavailable or redacted recorded reference requires reason")
-        if self.state == "declared_available" and self.reason:
-            raise ValueError("available recorded reference must not carry reason")
         if self.label is not None:
             validate_text(self.label, "recorded reference label")
         if self.digest is not None:
@@ -155,12 +95,10 @@ class MeasurementRecordReference:
             "role": self.role,
             "reference_kind": self.reference_kind,
             "reference_value": self.reference_value,
-            "state": self.state,
             "label": self.label,
             "digest": self.digest,
             "size_bytes": self.size_bytes,
             "preview": self.preview,
-            "reason": self.reason,
         }
         return result
 
@@ -282,25 +220,7 @@ class MeasurementRecordReferenceRun:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "artifact_posture": "local_measurement_record_recorded_reference_receipt_run",
-            "recorded_reference_policy": copy.deepcopy(RECORDED_REFERENCE_POLICY),
-            "workflow": {
-                "classification": self.classification,
-                "steps": [
-                    "validate_recorded_reference_request",
-                    *([] if not self.request.approved else ["read_creation_manifest"]),
-                    *(
-                        []
-                        if (
-                            not self.request.approved
-                            or not self.request.previous_reference_receipt_path
-                        )
-                        else ["read_previous_recorded_reference_receipt"]
-                    ),
-                    *([] if not self.recorded else ["write_recorded_reference_receipt"]),
-                ],
-                "does_not_claim": list(DOES_NOT_CLAIM),
-            },
+            "classification": self.classification,
             "request": self.request.to_dict(),
             "receipt": {
                 "saved": self.recorded,
@@ -311,17 +231,6 @@ class MeasurementRecordReferenceRun:
                 "references_error": self.references_error,
             },
         }
-
-
-def record_measurement_record_references(
-    source: dict[str, Any],
-    *,
-    storage_root: str | Path,
-) -> MeasurementRecordReferenceRun:
-    """Record declared measurement references from a raw source."""
-
-    request = _parse_source(source)
-    return record_measurement_record_references_from_request(request, storage_root=storage_root)
 
 
 def record_measurement_record_references_from_request(
@@ -357,139 +266,12 @@ def record_measurement_record_references_from_request(
     )
 
 
-def list_measurement_record_references(
-    *,
-    storage_root: str | Path,
-    records_dir: str = "records",
-) -> dict[str, Any]:
-    """Read record-local recorded reference receipts for local review."""
-
-    validate_relative_path(records_dir, "recorded reference review records_dir")
-    root = _existing_directory_root(Path(storage_root), "recorded reference review storage root")
-    records_path = _path_under(root, records_dir)
-    _ensure_no_symlink_parents(root, records_dir, "recorded reference review records dir")
-    entries: list[dict[str, Any]] = []
-    findings: list[dict[str, str]] = []
-    if not records_path.exists():
-        return _recorded_reference_review(entries, findings)
-    if records_path.is_symlink():
-        raise ValueError("recorded reference review records dir must not be a symlink")
-    if not records_path.is_dir():
-        raise ValueError("recorded reference review records dir must be a directory")
-
-    for record_path in sorted(records_path.iterdir(), key=lambda item: item.name):
-        record_rel = _relative_to_root(root, record_path)
-        if record_path.is_symlink() or not record_path.is_dir():
-            continue
-        references_dir = record_path / RECORDED_REFERENCE_RECEIPT_DIR
-        if not references_dir.exists():
-            continue
-        references_dir_rel = _relative_to_root(root, references_dir)
-        if references_dir.is_symlink():
-            findings.append(
-                _finding(
-                    "recorded_reference_dir_symlink_ignored",
-                    references_dir_rel,
-                    "Recorded reference directory is a symlink.",
-                )
-            )
-            continue
-        if not references_dir.is_dir():
-            findings.append(
-                _finding(
-                    "recorded_reference_dir_invalid",
-                    references_dir_rel,
-                    "Recorded reference path is not a directory.",
-                )
-            )
-            continue
-        for receipt_path in sorted(references_dir.iterdir(), key=lambda item: item.name):
-            receipt_rel = _relative_to_root(root, receipt_path)
-            if receipt_path.is_symlink():
-                findings.append(
-                    _finding(
-                        "recorded_reference_receipt_symlink_ignored",
-                        receipt_rel,
-                        "Recorded reference receipt is a symlink.",
-                    )
-                )
-                continue
-            if not receipt_path.is_file():
-                findings.append(
-                    _finding(
-                        "recorded_reference_receipt_invalid",
-                        receipt_rel,
-                        "Recorded reference receipt candidate is not a file.",
-                    )
-                )
-                continue
-            try:
-                content = receipt_path.read_bytes()
-                receipt = _parse_recorded_reference_receipt(content)
-                entry = _entry_from_receipt(receipt, receipt_rel, _sha256(content), len(content))
-                if entry["record_dir"] != record_rel:
-                    raise ValueError("Recorded reference receipt record_dir conflicts with scan.")
-            except ValueError as exc:
-                findings.append(
-                    _finding(
-                        "recorded_reference_receipt_invalid",
-                        receipt_rel,
-                        str(exc),
-                    )
-                )
-                continue
-            entries.append(entry)
-    return _recorded_reference_review(entries, findings)
-
-
-def _parse_source(source: dict[str, Any]) -> MeasurementRecordReferenceRequest:
-    if source.get("recorded_reference_schema") != RECORDED_REFERENCE_SCHEMA:
-        raise ValueError(f"recorded reference source schema must be {RECORDED_REFERENCE_SCHEMA}")
-    if source.get("recorded_reference_policy") != RECORDED_REFERENCE_POLICY:
-        raise ValueError("recorded reference source policy is unsupported")
-    request = _require_dict(source, "recorded_reference_request")
-    return MeasurementRecordReferenceRequest(
-        request_id=_require_text(request, "request_id"),
-        approval_state=_require_text(request, "approval_state"),
-        record_id=_require_text(request, "record_id"),
-        record_dir=_require_text(request, "record_dir"),
-        reference_set_id=_require_text(request, "reference_set_id"),
-        reference_receipt_path=_optional_text(
-            request,
-            "reference_receipt_path",
-            default=None,
-        ),
-        previous_reference_receipt_path=_optional_text(
-            request,
-            "previous_reference_receipt_path",
-            default=None,
-        ),
-        references=tuple(
-            MeasurementRecordReference(
-                reference_id=_require_text(reference, "reference_id"),
-                family=_require_text(reference, "family"),
-                role=_require_text(reference, "role"),
-                reference_kind=_require_text(reference, "reference_kind"),
-                reference_value=_require_text(reference, "reference_value"),
-                state=_optional_text(reference, "state", default="declared_available"),
-                label=_optional_text(reference, "label", default=None),
-                digest=_optional_text(reference, "digest", default=None),
-                size_bytes=_optional_int(reference, "size_bytes"),
-                preview=_optional_text(reference, "preview", default=None),
-                reason=_optional_text(reference, "reason", default=None),
-            )
-            for reference in _require_list(request, "references")
-        ),
-        operator_notes=_optional_text(request, "operator_notes", default=None),
-    )
-
-
 def _read_creation_manifest(
     root: Path,
     request: MeasurementRecordReferenceRequest,
 ) -> dict[str, Any]:
     manifest = _read_json(root, request.creation_manifest_path, "recorded reference manifest")
-    if manifest.get("schema") != CANDIDATE_MANIFEST_SCHEMA:
+    if manifest.get("schema") != MANIFEST_SCHEMA:
         raise ValueError("recorded reference manifest schema is unsupported")
     record = _require_dict(manifest, "record")
     storage = _require_dict(manifest, "storage")
@@ -538,8 +320,6 @@ def _recorded_reference_receipt(
         }
     return {
         "schema": RECORDED_REFERENCE_RECEIPT_SCHEMA,
-        "artifact_posture": "local_measurement_record_recorded_reference_receipt",
-        "recorded_reference_policy": copy.deepcopy(RECORDED_REFERENCE_POLICY),
         "record": {
             "record_id": request.record_id,
             "record_dir": request.record_dir,
@@ -553,10 +333,9 @@ def _recorded_reference_receipt(
             "operator_notes": request.operator_notes,
         },
         "references": [references.to_dict() for references in request.references],
-        "workflow": {
+        "operation": {
             "request_id": request.request_id,
             "classification": "measurement_record_references_recorded_for_review",
-            "does_not_claim": list(DOES_NOT_CLAIM),
         },
     }
 
@@ -583,28 +362,13 @@ def _write_new_file(path: Path, content: bytes) -> None:
         handle.write(content)
 
 
-def _parse_recorded_reference_receipt(content: bytes) -> dict[str, Any]:
-    try:
-        receipt = json.loads(content.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError("Recorded reference receipt must be utf-8 JSON.") from exc
-    if not isinstance(receipt, dict):
-        raise ValueError("Recorded reference receipt must be a JSON object.")
-    _validate_recorded_reference_receipt(receipt)
-    return receipt
-
-
 def _validate_recorded_reference_receipt(receipt: dict[str, Any]) -> None:
     if receipt.get("schema") != RECORDED_REFERENCE_RECEIPT_SCHEMA:
         raise ValueError("Recorded reference receipt schema is unsupported.")
-    if receipt.get("artifact_posture") != "local_measurement_record_recorded_reference_receipt":
-        raise ValueError("Recorded reference receipt posture is unsupported.")
-    if receipt.get("recorded_reference_policy") != RECORDED_REFERENCE_POLICY:
-        raise ValueError("Recorded reference receipt policy is unsupported.")
-    workflow = _require_dict(receipt, "workflow")
-    if workflow.get("does_not_claim") != DOES_NOT_CLAIM:
-        raise ValueError("Recorded reference receipt non-claims are unsupported.")
-    validate_public_identifier(workflow.get("request_id"), "recorded reference workflow request_id")
+    operation = _require_dict(receipt, "operation")
+    validate_public_identifier(operation.get("request_id"), "recorded reference request_id")
+    if operation.get("classification") != "measurement_record_references_recorded_for_review":
+        raise ValueError("Recorded reference receipt classification is unsupported.")
     record = _require_dict(receipt, "record")
     validate_public_identifier(record.get("record_id"), "recorded reference record_id")
     record_dir = validate_relative_path(record.get("record_dir"), "recorded reference record_dir")
@@ -668,75 +432,11 @@ def _references_from_dict(source: dict[str, Any]) -> MeasurementRecordReference:
         role=_require_text(source, "role"),
         reference_kind=_require_text(source, "reference_kind"),
         reference_value=_require_text(source, "reference_value"),
-        state=_optional_text(source, "state", default="declared_available"),
         label=_optional_text(source, "label", default=None),
         digest=_optional_text(source, "digest", default=None),
         size_bytes=_optional_int(source, "size_bytes"),
         preview=_optional_text(source, "preview", default=None),
-        reason=_optional_text(source, "reason", default=None),
     )
-
-
-def _entry_from_receipt(
-    receipt: dict[str, Any],
-    receipt_path: str,
-    receipt_digest: str,
-    receipt_size_bytes: int,
-) -> dict[str, Any]:
-    record = _require_dict(receipt, "record")
-    reference_set = _require_dict(receipt, "reference_set")
-    references = _require_list(receipt, "references")
-    return {
-        "record_id": validate_public_identifier(
-            record.get("record_id"),
-            "recorded reference record_id",
-        ),
-        "record_dir": validate_relative_path(
-            record.get("record_dir"),
-            "recorded reference record_dir",
-        ),
-        "receipt": {
-            "path": receipt_path,
-            "digest": receipt_digest,
-            "size_bytes": receipt_size_bytes,
-        },
-        "reference_set": {
-            "reference_set_id": validate_public_identifier(
-                reference_set.get("reference_set_id"),
-                "recorded reference reference_set_id",
-            ),
-            "previous_reference_receipt": copy.deepcopy(
-                reference_set.get("previous_reference_receipt")
-            ),
-            "operator_notes": reference_set.get("operator_notes"),
-        },
-        "references": [copy.deepcopy(reference) for reference in references],
-        "reference_count": len(references),
-    }
-
-
-def _recorded_reference_review(
-    entries: list[dict[str, Any]],
-    findings: list[dict[str, str]],
-) -> dict[str, Any]:
-    return {
-        "artifact_posture": "local_measurement_record_recorded_reference_review",
-        "recorded_reference_review_policy": copy.deepcopy(RECORDED_REFERENCE_REVIEW_POLICY),
-        "workflow": {
-            "classification": (
-                "measurement_record_recorded_reference_review_needed"
-                if findings
-                else "measurement_record_recorded_reference_review_ready"
-            ),
-            "steps": [
-                "scan_record_local_recorded_reference_receipts",
-                "project_recorded_reference_references",
-            ],
-            "does_not_claim": list(DOES_NOT_CLAIM),
-        },
-        "entries": entries,
-        "review_findings": findings,
-    }
 
 
 def _read_json(root: Path, relative_path: str, owner: str) -> dict[str, Any]:
@@ -755,22 +455,8 @@ def _read_json(root: Path, relative_path: str, owner: str) -> dict[str, Any]:
     return value
 
 
-def _finding(code: str, target: str, message: str) -> dict[str, str]:
-    return {
-        "code": code,
-        "severity": "review",
-        "target": target,
-        "message": message,
-        "does_not_claim": "record_repair_or_payload_observation",
-    }
-
-
 def _path_under(root: Path, relative_path: str) -> Path:
     return _path_under_common(root, relative_path, "recorded reference path")
-
-
-def _relative_to_root(root: Path, path: Path) -> str:
-    return path.relative_to(root).as_posix()
 
 
 def _validate_non_overlapping_paths(paths: tuple[str, ...], owner: str) -> None:

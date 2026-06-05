@@ -348,7 +348,6 @@ def validate_context_reference(
         "reference_kind",
         "reference_family",
         "materialization",
-        "payload_import",
     }
     if set(reference) != expected_keys:
         raise ValueError(f"{owner} context_reference fields are unsupported")
@@ -359,23 +358,17 @@ def validate_context_reference(
         raise ValueError(f"{owner} reference_kind must match kind")
     if reference["materialization"] != "reference_only":
         raise ValueError(f"{owner} context_reference materialization must be reference_only")
-    if reference["payload_import"] != "not_performed":
-        raise ValueError(f"{owner} context_reference payload_import must be not_performed")
-    if reference["reference_family"] == "prepared_run" and item_kind != "prepared_run_context":
-        raise ValueError(f"{owner} prepared_run references must use prepared_run_context kind")
     return {
         "reference_id": reference["reference_id"],
         "reference_kind": reference["reference_kind"],
         "reference_family": reference["reference_family"],
         "materialization": reference["materialization"],
-        "payload_import": reference["payload_import"],
     }
 
 
 def validate_handoff_preview_ready_metadata(
     preview: dict[str, Any],
     *,
-    primary_path: str,
     owner: str,
 ) -> set[str]:
     """Validate preview-ready metadata and return declared column names."""
@@ -384,11 +377,6 @@ def validate_handoff_preview_ready_metadata(
         raise ValueError(f"{owner} authority must stay manifest declared")
     if preview["status"] != "preview_ready":
         raise ValueError(f"{owner} requires preview_ready metadata")
-    if preview["data_shape"] is None:
-        raise ValueError(f"{owner} requires data_shape")
-    if not isinstance(preview["data_shape"], dict):
-        raise ValueError(f"{owner} data_shape must be an object")
-    validate_public_identifier(preview["data_shape"]["kind"], f"{owner} shape kind")
     if not isinstance(preview["declared_columns"], list):
         raise ValueError(f"{owner} declared columns must be a list")
     for column in preview["declared_columns"]:
@@ -398,23 +386,4 @@ def validate_handoff_preview_ready_metadata(
     declared_names = [column["name"] for column in preview["declared_columns"]]
     if not declared_names or len(set(declared_names)) != len(declared_names):
         raise ValueError(f"{owner} declared columns must have unique names")
-    declared_name_set = set(declared_names)
-    axis_order = preview["data_shape"]["axis_order"]
-    if not isinstance(axis_order, list):
-        raise ValueError(f"{owner} axis order must be a list")
-    for axis in axis_order:
-        validate_public_identifier(axis, f"{owner} axis_order entry")
-    if not axis_order or any(axis not in declared_name_set for axis in axis_order):
-        raise ValueError(f"{owner} axis order must reference declared columns")
-    if not isinstance(preview["plot_candidates"], list):
-        raise ValueError(f"{owner} plot candidates must be a list")
-    for candidate in preview["plot_candidates"]:
-        if not isinstance(candidate, dict):
-            raise ValueError(f"{owner} plot candidate must be an object")
-        validate_public_identifier(candidate["x"], f"{owner} plot x")
-        validate_public_identifier(candidate["y"], f"{owner} plot y")
-        if candidate["source"] != primary_path:
-            raise ValueError(f"{owner} plot candidate source must match primary data")
-        if candidate["x"] not in declared_name_set or candidate["y"] not in declared_name_set:
-            raise ValueError(f"{owner} plot candidate axes must reference declared columns")
-    return declared_name_set
+    return set(declared_names)

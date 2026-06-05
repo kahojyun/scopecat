@@ -4,8 +4,8 @@
 
 Evidence-backed problem brief.
 
-Related spike summary:
-[`../selected-run-handoff-spike-summary.md`](../slices/measurement-records/selected-run-handoff-spike-summary.md).
+Related historical validation is summarized in
+[`slice-inventory.md`](../archive/slice-inventory.md).
 
 ## User-Facing Failure
 

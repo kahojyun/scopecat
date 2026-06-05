@@ -20,7 +20,7 @@ Use these documents before adding or promoting live code:
 | [`implementation-register.md`](implementation-register.md) | Track live implementation owners and route readers to module and prototype-boundary detail. |
 | [`../product/target-capabilities.md`](../product/target-capabilities.md) | Track product capabilities, maturity, evidence state, and open advancement questions. |
 | [`terminology.md`](terminology.md) | Use standard terms for workflows, capabilities, maturity, validation methods, decisions, evidence, artifact boundaries, and ownership. |
-| [`prototype-boundaries/README.md`](prototype-boundaries/README.md) | Find current route-local engineering prototype boundaries and next decision gates. |
+| [`prototype-boundaries/README.md`](prototype-boundaries/README.md) | Find current implementation-owner prototype boundaries and next decision gates. |
 | [`pr-documentation-drift-checklist.md`](pr-documentation-drift-checklist.md) | Lightweight PR checklist for avoiding documentation drift without freezing future decisions. |
 
 ## Planning Inputs
@@ -46,31 +46,7 @@ Roadmap questions, PR scope, hardening inventories, and review findings should
 stay in the active owner unless they accept, reject, supersede, or defer a
 durable boundary that future work must obey.
 
-## Historical Reference
+## Scope
 
-Use [`archive/README.md`](archive/README.md) only when an active owner points to
-retired prototype plans, readiness checkpoints, or historical engineering
-decisions.
-
-## Boundary
-
-This directory does not replace:
-
-- product direction, target journey, target capability, or adoption-strategy
-  docs;
-- brownfield current-state, transition architecture, migration strategy, or
-  migration roadmap docs;
-- issue, PR, or branch-specific execution plans;
-- discovery validation plans or results;
-- route-specific prototype boundary notes;
-- module READMEs that own live API details;
-- public user documentation.
-
-It defines the project-level rules for when those narrower owners should be
-created, updated, promoted, or left as historical evidence.
-
-Artifact/export boundary labels belong on generated fixtures, expected outputs,
-review artifacts, packages, public docs, or other generated artifacts only when
-they are part of a validation, review, portable/export, or public boundary.
-They are not required for ordinary internal engineering governance documents in
-this directory.
+Engineering governance defines the project-level rules for when narrower
+owners should be created, updated, promoted, or left as historical evidence.

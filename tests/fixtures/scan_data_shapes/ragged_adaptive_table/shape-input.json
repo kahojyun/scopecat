@@ -1,6 +1,6 @@
 {
   "fixture_id": "scan-shape-ragged-adaptive-table",
-  "fixture_status": "synthetic_public_safe",
+  "fixture_classification": "repository_safe_synthetic_discovery_input",
   "validation_goal": "Check whether a clean declaration can represent adaptive inner-axis coverage without treating missing rectangular grid points as validation failures.",
   "measurement": {
     "measurement_id": "synthetic-meas-02003",

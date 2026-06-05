@@ -7,9 +7,7 @@ Current target product journey map.
 ## Purpose
 
 Own Scopecat's target product-facing user journeys and the first decomposition
-from discovery evidence into workflows and use cases. This is a product
-planning document, not a brownfield migration document, implementation
-register, scenario inventory, or engineering task plan.
+from discovery evidence into workflows and use cases.
 
 ## Reading Rules
 
@@ -36,7 +34,7 @@ context family or implementation capability. A journey should have:
 
 - an actor-facing trigger;
 - a clear done state or review outcome;
-- a product surface that composes more than one route-local capability or
+- a product surface that composes more than one owner-local capability or
   authority boundary;
 - brownfield migration pressure that is hard to solve as a single capability
   use case.
@@ -132,7 +130,7 @@ post-run results review are separate journeys or workflow segments that feed
 this journey.
 
 The DEC-010 directory manifest package format is accepted for the current
-production vertical slice candidate. DEC-011 keeps that package as local
+production vertical slice path. DEC-011 keeps that package as local
 declared-integrity evidence: digest integrity is observed, but external
 authenticity, sender trust, and scientific validity are not claimed.
 DEC-021 accepts safe zip materialization into the DEC-010 package of record,
@@ -148,11 +146,11 @@ selected stored-record batch package export without adding batch durable
 import. DEC-016 keeps linked-context payload import deferred until Measurement
 Records has an accepted context artifact storage contract. DEC-017 keeps batch
 durable import deferred until a destination and partial-success contract
-exists. DEC-018 defines receiving review state as a derived local projection
-without accepting a persisted GUI state store. DEC-025 keeps the JNY-001
-handoff vertical slice source-storage-read-only on export and new-record-only
-on durable import; existing-record update, merge import, manifest replacement,
-and final storage schema publication remain separate validation questions.
+exists. GUI-owned receiving review state remains unaccepted. DEC-025 keeps the
+JNY-001 handoff vertical slice source-storage-read-only on export and
+new-record-only on durable import; existing-record update, merge import,
+manifest replacement, and final storage schema publication remain separate
+validation questions.
 
 Source evidence:
 
@@ -169,7 +167,7 @@ hardware-control authority.
 
 Primary workflows:
 
-- parameter-state intake and review;
+- parameter/context intake and review;
 - context selection;
 - prepared-run review;
 - optional environment-operation evidence;
@@ -177,10 +175,7 @@ Primary workflows:
 
 Use cases to prove:
 
-- import and review adapter-authored parameter state;
-- store and read reviewed parameter state;
-- select source-agnostic parameter state for run preparation;
-- consume parameter-state facts in a prepared-run review chain;
+- review selected parameter/context facts for run preparation;
 - capture bounded environment-operation evidence;
 - record code context for a run or step;
 - record operator acknowledgement, deferral, or note;
@@ -196,12 +191,12 @@ Supporting capabilities:
 - Measurement Records context links;
 - setup-binding candidate workflow.
 
-Validation orientation: parameter-state review has live engineering prototype
-coverage. Prepared-run context and acknowledgement remain scenario evidence
-without a live route owner. Environment operation is operation evidence for
-later readiness/context use, not a standalone journey. This journey should
-compose review-ready summaries from supporting capabilities; it should not own
-all parameter, code, environment, or setup management UX.
+Validation orientation: prepared-run context and acknowledgement remain
+scenario evidence without a live implementation owner. Parameter-state and
+environment-operation evidence is historical input for later readiness/context
+use, not standalone journey ownership. This journey should compose review-ready
+summaries from supporting capabilities; it should not own all parameter, code,
+environment, or setup management UX.
 
 Source evidence:
 

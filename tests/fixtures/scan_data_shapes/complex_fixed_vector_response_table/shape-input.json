@@ -1,6 +1,6 @@
 {
   "fixture_id": "complex_fixed_vector_response_table",
-  "fixture_status": "synthetic_public_safe",
+  "fixture_classification": "repository_safe_synthetic_discovery_input",
   "validation_goal": "Check whether a declared two-component vector can carry complex logical metadata without accepting a primitive complex storage type or transform engine.",
   "measurement": {
     "measurement_id": "synthetic-complex-iq-001",

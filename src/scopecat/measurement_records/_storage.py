@@ -1,11 +1,11 @@
-"""Shared storage-path primitives for measurement-record prototypes."""
+"""Shared storage-path primitives for measurement records."""
 
 from __future__ import annotations
 
 import hashlib
 from pathlib import Path
 
-from scopecat.measurement_records.creation import validate_relative_path
+from scopecat.measurement_records._contracts import validate_relative_path
 
 
 def existing_directory_root(root: Path, owner: str) -> Path:

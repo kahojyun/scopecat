@@ -1,9 +1,0 @@
-[project]
-name = "scopecat-tiny-uv-project"
-version = "0.0.0"
-description = "Repository-safe tiny uv sync fixture."
-requires-python = ">=3.11"
-dependencies = []
-
-[tool.uv]
-package = false

@@ -24,20 +24,6 @@ _MANIFEST_NAME = "package-manifest.json"
 _HASH_CHUNK_SIZE = 1024 * 1024
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 _NONBLOCK = getattr(os, "O_NONBLOCK", 0)
-_EXPECTED_POLICY = {
-    "observation_authority": "caller_provided_package_directory",
-    "manifest_name": _MANIFEST_NAME,
-    "manifest_preview": "scopecat_export_manifest_contract_reused",
-    "file_observation": "package_local_declared_members",
-    "checksum_algorithm": "sha256",
-    "size_observation": "byte_count",
-    "archive_extraction": "not_performed",
-    "external_authenticity_validation": "not_performed",
-    "storage_mutation": "not_performed",
-    "import_acceptance": "not_performed",
-    "schema_inference": "not_performed",
-    "gui_workflow": "not_defined",
-}
 
 
 @dataclass(frozen=True)
@@ -114,8 +100,6 @@ class HandoffPackageIntegrityReport:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "artifact_posture": "local_review_summary",
-            "integrity_observation_policy": copy.deepcopy(_EXPECTED_POLICY),
             "classification": self.classification,
             "package": {
                 "package_id": self.package_id,
@@ -127,7 +111,6 @@ class HandoffPackageIntegrityReport:
                 observation.to_dict() for observation in self.member_observations
             ],
             "integrity_findings": [copy.deepcopy(finding) for finding in self.integrity_findings],
-            "attention": _attention(self.classification),
         }
 
 
@@ -436,7 +419,6 @@ def _findings(
                     "finding": "declared_integrity_mismatch",
                     "basis": "Observed package-local bytes do not match declared digest or size.",
                     "mismatches": list(member.mismatches),
-                    "does_not_claim": "authenticity_or_external_validation_failure",
                 }
             )
             continue
@@ -448,7 +430,6 @@ def _findings(
                     "severity": "review",
                     "finding": "declared_integrity_not_available",
                     "basis": "The member was observed, but no paired digest and size facts were declared for comparison.",
-                    "does_not_claim": "member_corruption_or_validity",
                 }
             )
             continue
@@ -459,7 +440,6 @@ def _findings(
                 "severity": "error" if member.observation_state == "unavailable" else "review",
                 "finding": member.observation_state,
                 "basis": "The member could not be read as a regular package-local file.",
-                "does_not_claim": "schema_or_payload_validity",
             }
         )
     return findings
@@ -477,20 +457,3 @@ def _classification(member_observations: tuple[HandoffIntegrityMemberObservation
     if "not_declared" in comparisons:
         return "integrity_observed_with_undeclared_members"
     return "integrity_not_observed"
-
-
-def _attention(classification: str) -> list[dict[str, str]]:
-    return [
-        {
-            "code": "package_integrity_observed",
-            "severity": "info" if classification == "declared_integrity_verified" else "review",
-            "basis": "Package-local files were compared to paired manifest-declared digest and size facts where available.",
-            "does_not_claim": "external_authenticity_or_trust_validation",
-        },
-        {
-            "code": "receiving_acceptance_not_performed",
-            "severity": "review",
-            "basis": "Integrity observation is read-only and does not import, accept, or mutate storage.",
-            "does_not_claim": "package_import_or_storage_acceptance",
-        },
-    ]

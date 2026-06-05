@@ -1,4 +1,4 @@
-# DEC-010: Use Directory Manifest Packages For JNY-001 Production Vertical Slice Candidate
+# DEC-010: Use Directory Manifest Packages For The JNY-001 Production Vertical Slice Path
 
 ## Status
 
@@ -12,26 +12,29 @@ Owner: [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/p
 
 ## Context
 
-JNY-001 Share A Selected Measurement now has a production vertical slice
-candidate: source-side durable Measurement Record, selected stored-record
+JNY-001 Share A Selected Measurement now has a production vertical slice path:
+source-side durable Measurement Record, selected stored-record
 export, zip transport creation, zip transport materialization back into the
 directory package of record, read-only package open, receiving gate, import
-plan, local receiving review-state receipt materialization, and durable import
-into a second storage root.
+plan, and durable import into a second storage root.
 
-This decision resolves whether that candidate should introduce an archive file
+This decision resolves whether that path should introduce an archive file
 as the portable package format, or continue to use the current directory-shaped
-package with `package-manifest.json`.
+package with `package-manifest.json`. The package purpose is analysis/review:
+carry selected measurement data, declared package members, and visible review
+facts for open-before-import inspection.
 
 The slice still needs visible, inspectable artifacts while linked-context
 payload import, batch durable import, and final storage schema remain unsettled.
 Later DEC-021 and DEC-024 accepted narrow zip transport
 materialization and creation, but they keep the DEC-010 directory manifest
 package as the package of record rather than making archive bytes authoritative.
+It is not an offline execution migration artifact, environment restore, code
+restore, or shared lab storage policy.
 
 ## Decision
 
-For the JNY-001 single-measurement production vertical slice candidate, the
+For the JNY-001 single-measurement production vertical slice path, the
 portable handoff package remains a directory-shaped package rooted at
 `{package_id}/` with `package-manifest.json` at the package root and
 package-relative primary data under `measurements/{measurement_record_id}/`.
@@ -52,7 +55,7 @@ creation boundaries.
 
 This decision applies to:
 
-- JNY-001 Share A Selected Measurement production vertical slice candidate;
+- JNY-001 Share A Selected Measurement production vertical slice path;
 - `scopecat.handoff` package writing/opening/receiving/import-plan behavior;
 - selected stored Measurement Record export into handoff packages;
 - workflow-level tests that validate package format posture.
@@ -64,11 +67,13 @@ This decision does not apply to:
 - linked-context payload packaging;
 - batch export/import package shape;
 - offline execution migration packages;
+- code or environment restoration;
+- shared lab storage semantics;
 - GUI or SDK packaging contracts.
 
 ## Consequences
 
-This makes the current production vertical slice candidate easier to inspect,
+This makes the current production vertical slice path easier to inspect,
 test, debug, and review after archive transport because the materialized
 directory remains the reviewed package of record. It keeps checksum and
 integrity behavior focused on declared package members.

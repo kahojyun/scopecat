@@ -32,12 +32,14 @@ distribution, or GUI download/upload flows. But archive support is not a small
 format toggle. It introduces archive-member topology, extraction authority,
 staging directories, overwrite policy, path traversal protection, duplicate
 member handling, symlink behavior, compression/resource limits, integrity
-timing, and receiving review state.
+timing, and receiving review outcomes.
 
 The current package directory remains useful as inspectable local-review
 evidence. Implementing archive support before those contracts exist would add
 failure modes without closing a user-visible acceptance gap in the current
-production vertical slice candidate.
+production vertical slice candidate. Archive transport is also separate from
+offline execution migration: carrying or restoring code, environment, settings,
+hardware context, or runnable entrypoints requires narrower ownership decisions.
 
 ## Decision
 
@@ -47,7 +49,7 @@ vertical slice candidate beyond the DEC-021 materialization and DEC-024
 creation boundaries.
 
 The current portable package remains the directory manifest package accepted by
-DEC-010. Export, writer, open, receiving, import-plan, durable-import, CLI, and
+DEC-010. Export, writer, open, receiving, import-plan, durable-import, and
 review surfaces must continue to state archive-backed durable import and archive
 bytes as package authority as `not_performed` or equivalent explicit
 non-claims.
@@ -70,7 +72,7 @@ Any future archive implementation must first define:
   ratio, and extraction time;
 - integrity timing before and after extraction, including which facts are
   observed before package open;
-- receiving review state for archive received, extracted, blocked, retried,
+- receiving review outcomes for archive received, extracted, blocked, retried,
   and opened states;
 - durable-import gating rules after archive materialization.
 
@@ -81,8 +83,8 @@ This decision applies to:
 - JNY-001 Share A Selected Measurement production vertical slice candidate;
 - selected stored-record export and route-local package writing;
 - package open, integrity observation, receiving gate, import planning,
-  receiving review state, and durable-import adaptation;
-- CLI and local review surfaces that report archive handling posture;
+  receiving review outcomes, and durable-import adaptation;
+- local review surfaces that report archive handling posture;
 - workflow documentation and tests that state package format posture.
 
 This decision does not apply to:
@@ -91,6 +93,8 @@ This decision does not apply to:
 - public package publication or SDK download/upload workflows;
 - external transport security;
 - external authenticity or trusted-source policy;
+- code, environment, settings, hardware-context, or runnable-entrypoint
+  migration;
 - GUI file-picker, drag/drop, or upload interaction design.
 
 ## Consequences
@@ -104,13 +108,10 @@ The tradeoff is that directory packages are less convenient for transfer than a
 single file. Users who need single-file transfer still need external packaging
 outside Scopecat until an archive contract is accepted.
 
-The current implementation exposes
-`current_handoff_archive_materialization_contract()` and
-`review_handoff_archive_materialization_contract()` as local contract-review
-surfaces. They do not create archives, open archive inputs, extract bytes, or
-authorize durable import. They only classify future archive materialization
-contract candidates against the required staging, path-safety,
-resource-limit, review-state, and artifact-authority posture above.
+This decision is historical for the deferred state. Archive creation and
+materialization moved forward under DEC-021 and DEC-024 as narrow typed-request
+helpers. The earlier local contract-review prototype is no longer kept as an
+active implementation surface.
 
 ## Alternatives Considered
 
