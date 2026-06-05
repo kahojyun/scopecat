@@ -204,25 +204,10 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
         payload = run.to_dict()
         self.assertEqual(payload["artifact_posture"], "local_selected_record_export_receipt")
         self.assertEqual(payload["classification"], "exported_selected_measurement_record")
+        self.assertIsNone(payload["block_reason"])
         self.assertEqual(
             payload["package_write"]["package"]["classification"],
             "package_written_ready_for_transfer_review",
-        )
-        self.assertEqual(
-            payload["export_review"],
-            {
-                "classification": "exported_selected_measurement_record",
-                "package_written": True,
-                "block_reason": None,
-            },
-        )
-        self.assertEqual(
-            payload["read_model_freshness_review"],
-            {
-                "classification": "fresh_read_model_evidence",
-                "read_model_refresh": "not_performed",
-                "block_reason": None,
-            },
         )
 
     def test_selected_record_export_leaves_source_record_artifacts_unchanged(self) -> None:
@@ -271,8 +256,7 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
             payload["classification"],
             "exported_selected_measurement_record_after_preflight",
         )
-        self.assertEqual(payload["preflight_review"]["refresh_performed"], False)
-        self.assertEqual(payload["preflight_review"]["block_reason"], None)
+        self.assertIsNone(payload["block_reason"])
 
     def test_preflight_export_refreshes_missing_read_model_then_exports(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -290,15 +274,11 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
         payload = run.to_dict()
         self.assertTrue(run.exported)
         self.assertEqual(package.measurement_ids, ("run-3101-rabi",))
-        self.assertEqual(
-            payload["initial_export"]["read_model_freshness_review"]["classification"],
-            "missing_read_model_requires_projection",
-        )
+        self.assertEqual(payload["initial_export"]["block_reason"], "missing_record_evidence")
         self.assertEqual(payload["refresh"]["classification"], "refreshed_read_model")
         self.assertEqual(payload["refresh"]["request"]["expected_target_condition"], "missing")
         self.assertEqual(payload["final_export"]["export"]["performed"], True)
-        self.assertEqual(payload["preflight_review"]["refresh_performed"], True)
-        self.assertEqual(payload["preflight_review"]["block_reason"], None)
+        self.assertIsNone(payload["block_reason"])
 
     def test_preflight_export_refreshes_stale_read_model_then_exports(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -321,10 +301,7 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
         payload = run.to_dict()
         self.assertTrue(run.exported)
         self.assertNotEqual(stale_digest, previous_digest)
-        self.assertEqual(
-            payload["initial_export"]["read_model_freshness_review"]["classification"],
-            "stale_read_model_requires_refresh",
-        )
+        self.assertEqual(payload["initial_export"]["block_reason"], "record_evidence_mismatch")
         self.assertEqual(
             payload["refresh"]["request"]["expected_current_read_model_digest"],
             stale_digest,
@@ -353,11 +330,8 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
         self.assertEqual(run.classification, "blocked_before_export_refresh_failed")
         self.assertEqual(payload["refresh"], None)
         self.assertEqual(payload["final_export"], None)
-        self.assertEqual(payload["preflight_review"]["block_reason"], "read_model_refresh_failed")
-        self.assertIn(
-            "finalization receipt is required",
-            payload["preflight_review"]["preflight_error"],
-        )
+        self.assertEqual(payload["block_reason"], "read_model_refresh_failed")
+        self.assertIn("finalization receipt is required", payload["preflight_error"])
 
     def test_exports_selected_stored_record_batch_to_one_openable_package(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -531,18 +505,7 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
 
         self.assertFalse(run.exported)
         self.assertIsNone(run.package_write)
-        self.assertEqual(
-            run.to_dict()["export_review"],
-            {
-                "classification": "blocked_before_export",
-                "package_written": False,
-                "block_reason": "request_not_approved",
-            },
-        )
-        self.assertEqual(
-            run.to_dict()["read_model_freshness_review"]["classification"],
-            "not_checked_before_approval",
-        )
+        self.assertEqual(run.to_dict()["block_reason"], "request_not_approved")
 
     def test_export_requires_complete_read_model_before_package_write(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -564,11 +527,7 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
 
         self.assertEqual(run.classification, "blocked_before_export")
         self.assertIn("requires complete", run.export_error or "")
-        self.assertEqual(run.to_dict()["export_review"]["block_reason"], "record_not_complete")
-        self.assertEqual(
-            run.to_dict()["read_model_freshness_review"]["classification"],
-            "read_model_not_complete_for_export",
-        )
+        self.assertEqual(run.to_dict()["block_reason"], "record_not_complete")
 
     def test_export_rejects_primary_data_outside_selected_record_dir(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -593,10 +552,7 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
 
         self.assertEqual(run.classification, "blocked_before_export")
         self.assertIn("must stay under record_dir", run.export_error or "")
-        self.assertEqual(
-            run.to_dict()["export_review"]["block_reason"],
-            "record_path_scope_violation",
-        )
+        self.assertEqual(run.to_dict()["block_reason"], "record_path_scope_violation")
 
     def test_export_blocks_stale_read_model_before_package_write(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -616,12 +572,9 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
 
             self.assertFalse((package_root / "handoff-package-run-3101-rabi").exists())
 
-        review = run.to_dict()["read_model_freshness_review"]
         self.assertFalse(run.exported)
         self.assertIn("must match writer receipt", run.export_error or "")
-        self.assertEqual(review["classification"], "stale_read_model_requires_refresh")
-        self.assertEqual(review["read_model_refresh"], "not_performed")
-        self.assertEqual(review["block_reason"], "stale_read_model")
+        self.assertEqual(run.to_dict()["block_reason"], "record_evidence_mismatch")
 
     def test_export_blocks_missing_read_model_before_package_write(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -636,13 +589,10 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
 
             self.assertFalse((package_root / "handoff-package-run-3101-rabi").exists())
 
-        review = run.to_dict()["read_model_freshness_review"]
         self.assertFalse(run.exported)
-        self.assertEqual(review["classification"], "missing_read_model_requires_projection")
-        self.assertEqual(review["read_model_refresh"], "not_performed")
-        self.assertEqual(review["block_reason"], "missing_read_model")
+        self.assertEqual(run.to_dict()["block_reason"], "missing_record_evidence")
 
-    def test_export_review_summarizes_missing_evidence_block(self) -> None:
+    def test_export_summarizes_missing_evidence_block(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root, package_root = self._create_imported_record(Path(temp_dir))
             (storage_root / "records" / "run-3101-rabi" / "writer-receipt.json").unlink()
@@ -653,11 +603,10 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
                 package_root=package_root,
             )
 
-        review = run.to_dict()["export_review"]
         self.assertEqual(run.classification, "blocked_before_export")
-        self.assertEqual(review["block_reason"], "missing_record_evidence")
+        self.assertEqual(run.to_dict()["block_reason"], "missing_record_evidence")
 
-    def test_export_review_summarizes_package_collision_block(self) -> None:
+    def test_export_summarizes_package_collision_block(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root, package_root = self._create_imported_record(Path(temp_dir))
             first = export_selected_measurement_record_from_request(
@@ -672,18 +621,7 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
             )
 
         self.assertTrue(first.exported)
-        self.assertEqual(
-            second.to_dict()["export_review"],
-            {
-                "classification": "blocked_before_export",
-                "package_written": False,
-                "block_reason": "package_destination_collision",
-            },
-        )
-        self.assertEqual(
-            second.to_dict()["read_model_freshness_review"]["classification"],
-            "fresh_read_model_evidence_not_exported",
-        )
+        self.assertEqual(second.to_dict()["block_reason"], "package_destination_collision")
 
 
 if __name__ == "__main__":

@@ -129,16 +129,10 @@ objects, durable-import adapter receipts, and retry reviews are local review
 surfaces unless a later slice explicitly promotes one as a portable/export
 artifact.
 
-Selected-record export receipts include `export_review` guidance that
-classifies successful transfer review or blocked retry review. This is local
-review guidance only; it does not approve retry, mutate storage, or refresh
-read models.
-
-Selected-record export receipts also include `read_model_freshness_review`
-guidance. This review records whether read-model evidence was fresh enough for
-export, blocked because it was missing, invalid, stale, incomplete, or
-out-of-scope, or was not checked before approval. The export path reports the
-required retry evidence but does not project, refresh, repair, or mutate
+Selected-record export receipts keep compact `block_reason` state for blocked
+local runs. The lower-level export path checks that the selected read model
+matches the request, record-local creation manifest, and writer receipt before
+writing a package, but it does not project, refresh, repair, or mutate
 Measurement Records storage.
 
 `export_selected_measurement_record_with_preflight_refresh()` composes that
@@ -146,10 +140,10 @@ lower-level export check with the Measurement Records read-model refresh route.
 It first runs selected export as a freshness preflight; when the read model is
 missing, invalid, or stale, it delegates an approved read-model refresh and then
 retries export if refresh succeeds. The composed receipt records the initial
-export review, refresh receipt or refresh contract error, final export, and
-preflight review. This is the product-shaped path for a user-transparent cache
-refresh; it still does not repair primary data, replace record manifests, mutate
-writer/finalization receipts, or import/accept packages.
+export, refresh receipt or refresh contract error, final export, and compact
+`block_reason` state. This is the product-shaped path for a user-transparent
+cache refresh; it still does not repair primary data, replace record manifests,
+mutate writer/finalization receipts, or import/accept packages.
 
 Receiving gate and import-plan receipts keep compact `block_reason` state for
 blocked local runs. They do not approve retry, accept packages, or mutate

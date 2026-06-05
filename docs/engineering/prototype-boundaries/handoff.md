@@ -117,26 +117,19 @@ The selected stored-record export adapter:
   references as payload authority;
 - does not mutate Measurement Records storage or refresh read models.
 
-Selected-record export receipts include local `export_review` guidance for
-successful transfer review or blocked retry review. That guidance classifies
-request approval gaps, package destination collisions, missing record evidence,
-record evidence mismatches, incomplete records, and record path scope
-violations. It does not authorize retry or mutate storage.
-
-Selected-record export receipts also include local
-`read_model_freshness_review` guidance. The export path checks that the
-selected read model matches the request, record-local creation manifest, and
-writer receipt before writing a package. Missing, invalid, stale, incomplete, or
-out-of-scope read-model evidence blocks export and reports the required retry
-input, but selected export does not project, refresh, repair, or otherwise
-mutate Measurement Records storage.
+Selected-record export receipts keep compact `block_reason` state for blocked
+local runs. The export path checks that the selected read model matches the
+request, record-local creation manifest, and writer receipt before writing a
+package. Missing, invalid, stale, incomplete, or out-of-scope read-model
+evidence blocks export, but selected export does not project, refresh, repair,
+or otherwise mutate Measurement Records storage.
 
 The preflight selected-record export composition makes read-model refresh
 user-transparent while keeping ownership explicit. It runs selected export as a
 freshness preflight, delegates missing, invalid, or stale read-model recovery to
 the Measurement Records read-model refresh route, and retries export only after
 successful refresh. Its receipt records the initial export review, refresh
-receipt or refresh contract error, final export, and preflight review. The
+receipt or refresh contract error, final export, and compact `block_reason`. The
 composition does not repair primary data, replace record manifests, mutate
 writer/finalization receipts, or accept/import packages.
 
@@ -282,20 +275,20 @@ Acceptance for that candidate is intentionally narrow:
 - stale or missing source-side record evidence blocks export before producing a
   new package;
 - existing package destinations use no-overwrite behavior;
-- blocked selected-record exports summarize a reviewable next action without
+- blocked selected-record exports expose compact block reasons without
   authorizing retry;
 - corrupted package bytes block receiving/import through integrity review;
-- blocked receiving and import planning summarize reviewable next actions
-  without authorizing retry;
+- blocked receiving and import planning expose compact block reasons without
+  authorizing retry;
 - declared digest integrity remains separate from external authenticity, sender
   trust, and scientific validity;
 - receiving review facts must match the opened package and observed integrity;
-- blocked durable imports summarize the next action without authorizing mutation
-  and require a fresh import plan for retry review;
+- blocked durable imports expose block reasons without authorizing mutation and
+  require a fresh import plan for retry review;
 - receiving review and import planning remain non-mutating;
 - durable storage mutation remains delegated to Measurement Records import;
-- durable import receipts and summaries expose reviewable block reasons,
-  next actions, and retry requirements without authorizing retry;
+- durable import receipts and summaries expose block reasons without
+  authorizing retry;
 - local receipts remain review surfaces, not portable package artifacts;
 - selected stored Measurement Record export may package explicitly declared
   record-local linked-context payloads, while durable import keeps linked

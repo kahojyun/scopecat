@@ -343,25 +343,21 @@ class SelectedMeasurementRecordExportRun:
             return "blocked_before_export"
         return "exported_selected_measurement_record"
 
+    @property
+    def block_reason(self) -> str | None:
+        return _export_block_reason(
+            approved=self.request.approved,
+            export_error=self.export_error,
+        )
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_selected_record_export_receipt",
             "classification": self.classification,
+            "block_reason": self.block_reason,
             "request": self.request.to_dict(),
             "record": _record_ref(self.read_model, self.record_manifest, self.writer_receipt),
             "package_write": None if self.package_write is None else self.package_write.to_dict(),
-            "export_review": _export_review(
-                classification=self.classification,
-                approved=self.request.approved,
-                export_error=self.export_error,
-                package_written=self.package_write is not None,
-            ),
-            "read_model_freshness_review": _read_model_freshness_review(
-                classification=self.classification,
-                approved=self.request.approved,
-                export_error=self.export_error,
-                package_written=self.package_write is not None,
-            ),
             "export": {
                 "performed": self.exported,
                 "storage_root": str(self.storage_root),
@@ -404,22 +400,20 @@ class SelectedMeasurementRecordPreflightExportRun:
             return "blocked_or_exported_without_preflight_refresh"
         return "blocked_before_export_after_preflight_refresh"
 
+    @property
+    def block_reason(self) -> str | None:
+        return _preflight_block_reason(self)
+
     def to_dict(self) -> dict[str, Any]:
-        refresh_performed = self.refresh_run is not None and self.refresh_run.refreshed
         return {
             "artifact_posture": "local_selected_record_preflight_export_receipt",
             "classification": self.classification,
+            "block_reason": self.block_reason,
             "request": self.request.to_dict(),
             "initial_export": self.initial_export.to_dict(),
             "refresh": None if self.refresh_run is None else self.refresh_run.to_dict(),
             "final_export": None if self.final_export is None else self.final_export.to_dict(),
-            "preflight_review": {
-                "classification": self.classification,
-                "refresh_performed": refresh_performed,
-                "package_written": self.exported,
-                "block_reason": _preflight_block_reason(self),
-                "preflight_error": self.preflight_error,
-            },
+            "preflight_error": self.preflight_error,
             "export": {
                 "performed": self.exported,
                 "storage_root": str(self.storage_root),
@@ -461,28 +455,24 @@ class SelectedMeasurementRecordBatchExportRun:
             return "blocked_before_export"
         return "exported_selected_measurement_record_batch"
 
+    @property
+    def block_reason(self) -> str | None:
+        return _export_block_reason(
+            approved=self.request.approved,
+            export_error=self.export_error,
+        )
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_selected_record_batch_export_receipt",
             "classification": self.classification,
+            "block_reason": self.block_reason,
             "request": self.request.to_dict(),
             "records": [
                 _record_ref(record.read_model, record.record_manifest, record.writer_receipt)
                 for record in self.records
             ],
             "package_write": None if self.package_write is None else self.package_write.to_dict(),
-            "export_review": _export_review(
-                classification=self.classification,
-                approved=self.request.approved,
-                export_error=self.export_error,
-                package_written=self.package_write is not None,
-            ),
-            "read_model_freshness_review": _read_model_freshness_review(
-                classification=self.classification,
-                approved=self.request.approved,
-                export_error=self.export_error,
-                package_written=self.package_write is not None,
-            ),
             "export": {
                 "performed": self.exported,
                 "storage_root": str(self.storage_root),
@@ -854,21 +844,6 @@ def _writer_receipt_path(read_model: dict[str, Any]) -> str:
     return _require_text(writer, "path")
 
 
-def _export_review(
-    *,
-    classification: str,
-    approved: bool,
-    export_error: str | None,
-    package_written: bool,
-) -> dict[str, Any]:
-    block_reason = _export_block_reason(approved=approved, export_error=export_error)
-    return {
-        "classification": classification,
-        "package_written": package_written,
-        "block_reason": block_reason,
-    }
-
-
 def _export_block_reason(*, approved: bool, export_error: str | None) -> str | None:
     if export_error is None:
         return None if approved else "request_not_approved"
@@ -885,29 +860,7 @@ def _export_block_reason(*, approved: bool, export_error: str | None) -> str | N
     return "export_validation_error"
 
 
-def _read_model_freshness_review(
-    *,
-    classification: str,
-    approved: bool,
-    export_error: str | None,
-    package_written: bool,
-) -> dict[str, Any]:
-    block_reason = _read_model_freshness_block_reason(
-        approved=approved,
-        export_error=export_error,
-    )
-    return {
-        "classification": _read_model_freshness_classification(
-            classification=classification,
-            block_reason=block_reason,
-            package_written=package_written,
-        ),
-        "read_model_refresh": "not_performed",
-        "block_reason": block_reason,
-    }
-
-
-def _read_model_freshness_block_reason(
+def _read_model_refresh_block_reason(
     *,
     approved: bool,
     export_error: str | None,
@@ -938,46 +891,15 @@ def _read_model_freshness_block_reason(
         return "read_model_scope_invalid"
     if "must match request" in export_error:
         return "record_evidence_mismatch"
-    return "read_model_freshness_unresolved"
-
-
-def _read_model_freshness_classification(
-    *,
-    classification: str,
-    block_reason: str | None,
-    package_written: bool,
-) -> str:
-    if package_written:
-        return "fresh_read_model_evidence"
-    if block_reason is None and classification in {
-        "exported_selected_measurement_record",
-        "exported_selected_measurement_record_batch",
-    }:
-        return "fresh_read_model_evidence"
-    if block_reason == "request_not_approved":
-        return "not_checked_before_approval"
-    if block_reason == "package_destination_collision":
-        return "fresh_read_model_evidence_not_exported"
-    if block_reason == "missing_read_model":
-        return "missing_read_model_requires_projection"
-    if block_reason == "invalid_read_model":
-        return "invalid_read_model_requires_projection"
-    if block_reason == "stale_read_model":
-        return "stale_read_model_requires_refresh"
-    if block_reason == "read_model_not_complete":
-        return "read_model_not_complete_for_export"
-    if block_reason in {
-        "missing_record_evidence",
-        "read_model_scope_invalid",
-        "record_evidence_mismatch",
-    }:
-        return "read_model_freshness_not_exportable"
-    return "read_model_freshness_unresolved"
+    return "read_model_refresh_unresolved"
 
 
 def _should_refresh_before_export(run: SelectedMeasurementRecordExportRun) -> bool:
-    review = run.to_dict()["read_model_freshness_review"]
-    return review["block_reason"] in {
+    refresh_reason = _read_model_refresh_block_reason(
+        approved=run.request.approved,
+        export_error=run.export_error,
+    )
+    return refresh_reason in {
         "missing_read_model",
         "invalid_read_model",
         "stale_read_model",
@@ -991,7 +913,7 @@ def _preflight_block_reason(run: SelectedMeasurementRecordPreflightExportRun) ->
         return "read_model_refresh_failed"
     if run.refresh_run is not None and not run.refresh_run.refreshed:
         return "read_model_refresh_failed"
-    return run.export_run.to_dict()["export_review"]["block_reason"]
+    return run.export_run.block_reason
 
 
 def _record_ref(
