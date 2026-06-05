@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import tempfile
 import unittest
@@ -11,25 +12,60 @@ from scopecat.measurement_records import (
     list_measurement_record_references,
     record_measurement_record_references_from_request,
 )
-from scopecat.measurement_records.creation import (
-    MeasurementRecordCreationRequest,
-    create_measurement_record_from_request,
+from scopecat.measurement_records.durable_import import (
+    MeasurementRecordDurableImportRequest,
+    MeasurementRecordImportSource,
+    import_measurement_record_from_request,
+)
+
+ROOT = Path(__file__).resolve().parents[3]
+SOURCE_FIXTURE = (
+    ROOT
+    / "tests"
+    / "fixtures"
+    / "prototypes"
+    / "measurement_records"
+    / "normalized_primary_table"
+    / "basic_table"
+    / "source"
+    / "primary.csv"
 )
 
 
+def _digest(path: Path) -> str:
+    return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
+
+
 def _create_record(storage_root: Path) -> None:
-    run = create_measurement_record_from_request(
-        MeasurementRecordCreationRequest(
-            request_id="create-run-ctx",
+    content_root = storage_root.parent / "content"
+    content_root.mkdir()
+    source_path = content_root / "source" / "primary.csv"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_bytes(SOURCE_FIXTURE.read_bytes())
+    run = import_measurement_record_from_request(
+        MeasurementRecordDurableImportRequest(
+            request_id="import-run-ctx",
             approval_state="approved",
             record_id="run-ctx-001",
             record_dir="records/run-ctx-001",
-            initial_lifecycle_state="created",
-            creation_source_kind="legacy_system",
+            primary_data_path="records/run-ctx-001/primary.csv",
+            writer_receipt_path="records/run-ctx-001/writer-receipt.json",
+            finalization_receipt_path="records/run-ctx-001/finalization-receipt.json",
+            read_model_path="records/run-ctx-001/record-read-model.json",
+            import_source=MeasurementRecordImportSource(
+                source_kind="fixture_normalized_primary_data",
+                source_id="reference-fixture",
+                source_item_id="reference-primary",
+                content_ref="source/primary.csv",
+                declared_digest=_digest(source_path),
+                size_bytes=source_path.stat().st_size,
+                rows_recorded=5,
+            ),
         ),
+        content_root=content_root,
         storage_root=storage_root,
     )
-    if not run.created:
+    if not run.imported:
         raise AssertionError(run.to_dict())
 
 

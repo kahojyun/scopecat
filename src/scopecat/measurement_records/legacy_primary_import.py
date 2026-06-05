@@ -11,7 +11,9 @@ from pathlib import Path
 from typing import Any
 
 from scopecat.measurement_records._contracts import (
+    FINALIZATION_RECEIPT_SCHEMA,
     MANIFEST_SCHEMA,
+    WRITER_RECEIPT_SCHEMA,
     validate_public_identifier,
     validate_relative_path,
     validate_text,
@@ -31,8 +33,6 @@ from scopecat.measurement_records._storage import (
     validate_strict_child_path as _validate_strict_child_path,
 )
 from scopecat.measurement_records.durable_import import (
-    FINALIZATION_RECEIPT_SCHEMA,
-    WRITER_RECEIPT_SCHEMA,
     MeasurementRecordImportSource,
 )
 from scopecat.measurement_records.legacy_run import LEGACY_RUN_RECEIPT_SCHEMA

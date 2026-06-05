@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -10,6 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from scopecat.measurement_records._contracts import (
+    MANIFEST_SCHEMA,
+    RECORD_MANIFEST_NAME,
     validate_public_identifier,
     validate_relative_path,
     validate_text,
@@ -29,11 +32,6 @@ from scopecat.measurement_records._storage import (
 )
 from scopecat.measurement_records._storage import (
     validate_strict_child_path as _validate_strict_child_path,
-)
-from scopecat.measurement_records.creation import (
-    MeasurementRecordCreationRequest,
-    MeasurementRecordCreationRun,
-    create_measurement_record_from_request,
 )
 
 LEGACY_RUN_RECEIPT_SCHEMA = "measurement_record_legacy_run_receipt_v0"
@@ -208,7 +206,7 @@ class LegacyRunRecordRequest:
 
     @property
     def creation_manifest_path(self) -> str:
-        return f"{self.record_dir}/record-manifest.json"
+        return f"{self.record_dir}/{RECORD_MANIFEST_NAME}"
 
     @property
     def receipt_path(self) -> str:
@@ -241,7 +239,7 @@ class LegacyRunRecordRun:
 
     request: LegacyRunRecordRequest
     storage_root: Path
-    creation_run: MeasurementRecordCreationRun | None = None
+    created_paths: tuple[str, ...] = ()
     legacy_receipt_digest: str | None = None
     legacy_receipt_size_bytes: int | None = None
     rollback_performed: bool = False
@@ -266,7 +264,13 @@ class LegacyRunRecordRun:
             "artifact_posture": "local_legacy_run_record_receipt",
             "classification": self.classification,
             "request": self.request.to_dict(),
-            "creation": None if self.creation_run is None else self.creation_run.to_dict(),
+            "creation": {
+                "performed": bool(self.created_paths),
+                "record_id": self.request.record_id,
+                "record_dir": self.request.record_dir,
+                "manifest_path": self.request.creation_manifest_path,
+                "created_paths": list(self.created_paths),
+            },
             "legacy_receipt": {
                 "performed": self.recorded,
                 "path": self.request.receipt_path,
@@ -290,27 +294,14 @@ def record_legacy_measurement_run_from_request(
     if not request.approved:
         return LegacyRunRecordRun(request=request, storage_root=root)
 
-    creation_request = MeasurementRecordCreationRequest(
-        request_id=request.request_id,
-        approval_state=request.approval_state,
-        record_id=request.record_id,
-        record_dir=request.record_dir,
-        initial_lifecycle_state="created",
-        creation_source_kind="legacy_system",
-        created_at=request.created_at,
-        label=request.label,
-        experiment_type=request.experiment_type,
-    )
-    creation_run = create_measurement_record_from_request(
-        creation_request,
-        storage_root=root,
-    )
-    if not creation_run.created:
+    try:
+        created_paths = _write_record_shell(root, request)
+    except _LegacyRecordShellFailure as exc:
         return LegacyRunRecordRun(
             request=request,
             storage_root=root,
-            creation_run=creation_run,
-            record_error=creation_run.creation_error or "record shell was not created",
+            rollback_performed=exc.rollback_performed,
+            record_error=str(exc),
         )
 
     content = _json_bytes(_legacy_receipt(request))
@@ -322,7 +313,7 @@ def record_legacy_measurement_run_from_request(
         return LegacyRunRecordRun(
             request=request,
             storage_root=root,
-            creation_run=creation_run,
+            created_paths=tuple(created_paths),
             rollback_performed=rollback_performed,
             record_error=str(exc),
         )
@@ -330,10 +321,71 @@ def record_legacy_measurement_run_from_request(
     return LegacyRunRecordRun(
         request=request,
         storage_root=root,
-        creation_run=creation_run,
+        created_paths=tuple(created_paths),
         legacy_receipt_digest=_sha256(content),
         legacy_receipt_size_bytes=len(content),
     )
+
+
+def _write_record_shell(root: Path, request: LegacyRunRecordRequest) -> list[str]:
+    if os.path.lexists(_path_under(root, request.record_dir)):
+        raise _LegacyRecordShellFailure(
+            "legacy run record_dir target already exists",
+            rollback_performed=False,
+        )
+    _ensure_no_symlink_parents(root, request.record_dir, "legacy run record_dir")
+
+    created_dirs: list[str] = []
+    created_manifest = False
+    try:
+        created_dirs = _create_directory_chain(root, request.record_dir)
+        manifest_path = _path_under(root, request.creation_manifest_path)
+        _write_new_file(manifest_path, _json_bytes(_record_manifest(request)))
+        created_manifest = True
+    except Exception as exc:
+        if created_manifest:
+            try:
+                _path_under(root, request.creation_manifest_path).unlink()
+            except FileNotFoundError:
+                pass
+        _remove_created_dirs(root, created_dirs)
+        if isinstance(exc, _LegacyRecordShellFailure):
+            raise exc
+        raise _LegacyRecordShellFailure(
+            f"legacy run record shell write failed: {exc}",
+            rollback_performed=bool(created_dirs) or created_manifest,
+        ) from exc
+    return [*created_dirs, request.creation_manifest_path]
+
+
+def _record_manifest(request: LegacyRunRecordRequest) -> dict[str, Any]:
+    record: dict[str, Any] = {
+        "record_id": request.record_id,
+        "lifecycle_state": "created",
+    }
+    if request.created_at is not None:
+        record["created_at"] = request.created_at
+    if request.label is not None:
+        record["label"] = request.label
+    if request.experiment_type is not None:
+        record["experiment_type"] = request.experiment_type
+    return {
+        "schema": MANIFEST_SCHEMA,
+        "record": record,
+        "creation": {
+            "request_id": request.request_id,
+            "source_kind": "legacy_system",
+            "source_kind_authority": "declared_provenance_only",
+        },
+        "storage": {
+            "record_dir": request.record_dir,
+            "manifest_path": request.creation_manifest_path,
+        },
+        "primary_data": {
+            "state": "not_recorded",
+            "references": [],
+        },
+    }
 
 
 def _legacy_receipt(request: LegacyRunRecordRequest) -> dict[str, Any]:
@@ -381,6 +433,36 @@ def _write_legacy_receipt(
 def _write_new_file(path: Path, content: bytes) -> None:
     with path.open("xb") as handle:
         handle.write(content)
+
+
+def _create_directory_chain(root: Path, relative_dir: str) -> list[str]:
+    current = root
+    created_dirs: list[str] = []
+    current_parts: list[str] = []
+    try:
+        for part in Path(validate_relative_path(relative_dir, "legacy run record_dir")).parts:
+            current_parts.append(part)
+            current = current / part
+            if current.is_symlink():
+                raise ValueError("legacy run record_dir parent is a symlink")
+            if current.exists():
+                if not current.is_dir():
+                    raise ValueError("legacy run record_dir parent is not a directory")
+                continue
+            current.mkdir()
+            created_dirs.append("/".join(current_parts))
+    except Exception:
+        _remove_created_dirs(root, created_dirs)
+        raise
+    return created_dirs
+
+
+def _remove_created_dirs(root: Path, created_dirs: list[str]) -> None:
+    for relative_path in reversed(created_dirs):
+        try:
+            _path_under(root, relative_path).rmdir()
+        except OSError:
+            pass
 
 
 def _remove_record_dir(root: Path, record_dir: str) -> bool:
@@ -435,3 +517,9 @@ def _optional_list(source: dict[str, Any], key: str) -> list[dict[str, Any]]:
 
 class _LegacyReceiptWriteFailure(RuntimeError):
     """Receipt write failed after record shell creation."""
+
+
+class _LegacyRecordShellFailure(RuntimeError):
+    def __init__(self, message: str, *, rollback_performed: bool) -> None:
+        super().__init__(message)
+        self.rollback_performed = rollback_performed

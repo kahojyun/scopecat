@@ -36,9 +36,9 @@ capabilities:
   to a Measurement Record.
 
 These package-level APIs use typed request/value objects. Slice-level
-operations such as creation, writer integration, finalization, read-model
-refresh, and normalized-table summary remain available only from
-their owning submodules for route-local composition, tests, and future cleanup.
+operations such as read-model refresh and normalized-table summary remain
+available only from their owning submodules for route-local composition, tests,
+and future cleanup.
 Do not treat those submodule entrypoints as package-level contracts.
 
 ## Artifact Boundaries
@@ -47,8 +47,8 @@ Measurement Records storage is caller-rooted local storage. Current accepted
 record-local artifacts include:
 
 - `record-manifest.json` as the immutable creation shell and origin identity;
-- record-local receipts for creation, writer integration, finalization, import,
-  legacy-run recording, and references;
+- record-local receipts for writer, finalization, import, legacy-run recording,
+  and references;
 - primary CSV bytes written through approved writer/import paths;
 - derived `record-read-model.json` as a replaceable local convenience
   summary, not canonical storage authority.

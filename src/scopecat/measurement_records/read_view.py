@@ -10,8 +10,10 @@ from typing import Any
 
 from scopecat.measurement_records._contracts import (
     MANIFEST_SCHEMA,
+    WRITER_RECEIPT_SCHEMA,
     validate_public_identifier,
     validate_relative_path,
+    validate_sha256_digest,
     validate_text,
 )
 from scopecat.measurement_records._storage import (
@@ -32,7 +34,6 @@ from scopecat.measurement_records._storage import (
 from scopecat.measurement_records.normalized_primary_table import (
     summarize_observed_primary_table_for_read_view,
 )
-from scopecat.measurement_records.writer_integration import WRITER_RECEIPT_SCHEMA
 
 
 @dataclass(frozen=True)
@@ -169,7 +170,7 @@ def _read_writer_receipt(root: Path, request: MeasurementRecordReadRequest) -> d
     )
     if primary_data.get("format") != "csv_table":
         raise ValueError("read view primary_data format is unsupported")
-    _validate_sha256_digest(primary_data.get("digest"), "writer receipt primary_data digest")
+    validate_sha256_digest(primary_data.get("digest"), "writer receipt primary_data digest")
     _validate_non_negative_integer(
         primary_data.get("size_bytes"),
         "writer receipt primary_data size_bytes",
@@ -269,17 +270,6 @@ def _validate_positive_integer(value: Any, owner: str) -> int:
 def _validate_non_negative_integer(value: Any, owner: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         raise ValueError(f"{owner} must be a non-negative integer")
-    return value
-
-
-def _validate_sha256_digest(value: Any, owner: str) -> str:
-    if (
-        not isinstance(value, str)
-        or not value.startswith("sha256:")
-        or len(value) != 71
-        or any(character not in "0123456789abcdef" for character in value.removeprefix("sha256:"))
-    ):
-        raise ValueError(f"{owner} must be a sha256-prefixed hex digest")
     return value
 
 

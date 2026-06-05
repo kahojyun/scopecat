@@ -8,6 +8,8 @@ from typing import Any
 
 PUBLIC_IDENTIFIER_MAX_LENGTH = 128
 MANIFEST_SCHEMA = "measurement_record_creation_v0"
+WRITER_RECEIPT_SCHEMA = "measurement_record_writer_receipt_v0"
+FINALIZATION_RECEIPT_SCHEMA = "measurement_record_finalization_receipt_v0"
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 INITIAL_LIFECYCLE_STATES = {"created", "in_progress", "review_needed"}
 CREATION_SOURCE_KINDS = {"manual", "writer", "import", "handoff", "legacy_system"}
@@ -48,6 +50,23 @@ def relative_path_parts(value: Any, owner: str = "path") -> tuple[str, ...]:
 def validate_text(value: Any, owner: str) -> str:
     if not isinstance(value, str):
         raise ValueError(f"{owner} must be text")
+    return value
+
+
+def validate_positive_integer(value: Any, owner: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise ValueError(f"{owner} must be positive")
+    return value
+
+
+def validate_sha256_digest(value: Any, owner: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not value.startswith("sha256:")
+        or len(value) != 71
+        or any(character not in "0123456789abcdef" for character in value.removeprefix("sha256:"))
+    ):
+        raise ValueError(f"{owner} must be a sha256-prefixed hex digest")
     return value
 
 

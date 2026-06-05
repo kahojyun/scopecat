@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any, Protocol
 
-from scopecat.measurement_records._contracts import validate_text
+from scopecat.measurement_records._contracts import FINALIZATION_RECEIPT_SCHEMA, validate_text
 from scopecat.measurement_records._storage import (
     ensure_no_symlink_parents as _ensure_no_symlink_parents,
 )
@@ -26,7 +26,6 @@ from scopecat.measurement_records._storage import (
 from scopecat.measurement_records._storage import (
     validate_strict_child_path as _validate_strict_child_path_common,
 )
-from scopecat.measurement_records.finalization import FINALIZATION_RECEIPT_SCHEMA
 from scopecat.measurement_records.read_view import MeasurementRecordReadRun
 
 READ_MODEL_SCHEMA = "measurement_record_read_model_v0"

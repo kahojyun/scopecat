@@ -2,67 +2,36 @@ from __future__ import annotations
 
 import hashlib
 import json
-import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
-from scopecat.measurement_records.creation import (
-    MeasurementRecordCreationRequest,
-    create_measurement_record_from_request,
+from scopecat.measurement_records.durable_import import (
+    MeasurementRecordDurableImportRequest,
+    MeasurementRecordImportSource,
+    import_measurement_record_from_request,
 )
 from scopecat.measurement_records.read_view import (
     MeasurementRecordReadRequest,
     read_created_record_primary_table_from_request,
 )
-from scopecat.measurement_records.writer_integration import (
-    MeasurementRecordWriterChunk,
-    MeasurementRecordWriterRequest,
-    write_created_record_primary_data_from_request,
-)
 
 ROOT = Path(__file__).resolve().parents[3]
-CHUNK_FIXTURE = (
+SOURCE_FIXTURE = (
     ROOT
     / "tests"
     / "fixtures"
     / "prototypes"
     / "measurement_records"
-    / "measurement_storage_writer"
-    / "basic_append"
+    / "normalized_primary_table"
+    / "basic_table"
+    / "source"
+    / "primary.csv"
 )
 
 
 def _digest(path: Path) -> str:
     return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
-
-
-def _chunk_one() -> MeasurementRecordWriterChunk:
-    path = CHUNK_FIXTURE / "chunks" / "chunk-1.csv"
-    return MeasurementRecordWriterChunk(
-        chunk_id="chunk-3101-1",
-        sequence=1,
-        event_id="evt-3101-data-1",
-        content_ref="chunks/chunk-1.csv",
-        declared_digest=_digest(path),
-        size_bytes=path.stat().st_size,
-        rows_recorded=3,
-        total_rows_recorded=3,
-    )
-
-
-def _chunk_two() -> MeasurementRecordWriterChunk:
-    path = CHUNK_FIXTURE / "chunks" / "chunk-2.csv"
-    return MeasurementRecordWriterChunk(
-        chunk_id="chunk-3101-2",
-        sequence=2,
-        event_id="evt-3101-data-2",
-        content_ref="chunks/chunk-2.csv",
-        declared_digest=_digest(path),
-        size_bytes=path.stat().st_size,
-        rows_recorded=2,
-        total_rows_recorded=5,
-    )
 
 
 def _read_request(**overrides: object) -> MeasurementRecordReadRequest:
@@ -78,37 +47,36 @@ def _read_request(**overrides: object) -> MeasurementRecordReadRequest:
 
 
 def _populate_record(storage_root: Path, content_root: Path) -> None:
-    create_run = create_measurement_record_from_request(
-        MeasurementRecordCreationRequest(
-            request_id="create-record-run-3101-rabi",
-            approval_state="approved",
-            record_id="run-3101-rabi",
-            record_dir="records/run-3101-rabi",
-            initial_lifecycle_state="created",
-            creation_source_kind="writer",
-        ),
-        storage_root=storage_root,
-    )
-    if not create_run.created:
-        raise AssertionError(create_run.to_dict())
-
-    write_run = write_created_record_primary_data_from_request(
-        MeasurementRecordWriterRequest(
-            request_id="write-primary-run-3101-rabi",
+    source_path = content_root / "source" / "primary.csv"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_bytes(SOURCE_FIXTURE.read_bytes())
+    run = import_measurement_record_from_request(
+        MeasurementRecordDurableImportRequest(
+            request_id="import-run-3101-rabi",
             approval_state="approved",
             record_id="run-3101-rabi",
             record_dir="records/run-3101-rabi",
             primary_data_path="records/run-3101-rabi/primary.csv",
             writer_receipt_path="records/run-3101-rabi/writer-receipt.json",
-            primary_data_format="csv_table",
-            expected_rows=5,
-            chunks=(_chunk_one(), _chunk_two()),
+            finalization_receipt_path="records/run-3101-rabi/finalization-receipt.json",
+            read_model_path="records/run-3101-rabi/record-read-model.json",
+            import_source=MeasurementRecordImportSource(
+                source_kind="fixture_normalized_primary_data",
+                source_id="read-view-fixture",
+                source_item_id="read-view-primary",
+                content_ref="source/primary.csv",
+                declared_digest=_digest(source_path),
+                size_bytes=source_path.stat().st_size,
+                rows_recorded=5,
+            ),
+            label="Stored Rabi run 3101",
+            experiment_type="rabi_amplitude",
         ),
-        storage_root=storage_root,
         content_root=content_root,
+        storage_root=storage_root,
     )
-    if not write_run.written:
-        raise AssertionError(write_run.to_dict())
+    if not run.imported:
+        raise AssertionError(run.to_dict())
 
 
 class MeasurementRecordReadViewPrototypeTest(unittest.TestCase):
@@ -117,7 +85,7 @@ class MeasurementRecordReadViewPrototypeTest(unittest.TestCase):
             storage_root = Path(temp_dir) / "storage"
             content_root = Path(temp_dir) / "content"
             storage_root.mkdir()
-            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            content_root.mkdir()
             _populate_record(storage_root, content_root)
 
             run = read_created_record_primary_table_from_request(
@@ -149,10 +117,10 @@ class MeasurementRecordReadViewPrototypeTest(unittest.TestCase):
         )
         self.assertEqual(
             [column["name"] for column in run.table["columns"]],
-            ["drive_amplitude", "excited_state_probability"],
+            ["drive_frequency", "signal", "comment"],
         )
         self.assertEqual(len(run.table["preview"]["rows"]), 2)
-        self.assertEqual(run.table["preview"]["rows"][0]["drive_amplitude"], "0.00")
+        self.assertEqual(run.table["preview"]["rows"][0]["drive_frequency"], "5.00")
         self.assertEqual(creation_manifest["primary_data"]["state"], "not_recorded")
 
         summary = run.to_dict()
@@ -180,7 +148,7 @@ class MeasurementRecordReadViewPrototypeTest(unittest.TestCase):
             storage_root = Path(temp_dir) / "storage"
             content_root = Path(temp_dir) / "content"
             storage_root.mkdir()
-            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            content_root.mkdir()
             _populate_record(storage_root, content_root)
             receipt_path = storage_root / "records" / "run-3101-rabi" / "writer-receipt.json"
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
@@ -198,10 +166,10 @@ class MeasurementRecordReadViewPrototypeTest(unittest.TestCase):
             storage_root = Path(temp_dir) / "storage"
             content_root = Path(temp_dir) / "content"
             storage_root.mkdir()
-            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            content_root.mkdir()
             _populate_record(storage_root, content_root)
             primary_path = storage_root / "records" / "run-3101-rabi" / "primary.csv"
-            primary_path.write_text("drive_amplitude,excited_state_probability\n0.0,broken\n")
+            primary_path.write_text("drive_frequency,signal,comment\n5.00,broken,start\n")
 
             with self.assertRaisesRegex(ValueError, "digest"):
                 read_created_record_primary_table_from_request(
@@ -214,7 +182,7 @@ class MeasurementRecordReadViewPrototypeTest(unittest.TestCase):
             storage_root = Path(temp_dir) / "storage"
             content_root = Path(temp_dir) / "content"
             storage_root.mkdir()
-            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            content_root.mkdir()
             _populate_record(storage_root, content_root)
             (storage_root / "records" / "run-3101-rabi" / "writer-receipt.json").unlink()
 
@@ -229,7 +197,7 @@ class MeasurementRecordReadViewPrototypeTest(unittest.TestCase):
             storage_root = Path(temp_dir) / "storage"
             content_root = Path(temp_dir) / "content"
             storage_root.mkdir()
-            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            content_root.mkdir()
             _populate_record(storage_root, content_root)
             receipt_path = storage_root / "records" / "run-3101-rabi" / "writer-receipt.json"
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
@@ -252,10 +220,10 @@ class MeasurementRecordReadViewPrototypeTest(unittest.TestCase):
             storage_root = Path(temp_dir) / "storage"
             content_root = Path(temp_dir) / "content"
             storage_root.mkdir()
-            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            content_root.mkdir()
             _populate_record(storage_root, content_root)
             primary_path = storage_root / "records" / "run-3101-rabi" / "primary.csv"
-            content = b"drive_amplitude,excited_state_probability\n0.0,0.1,extra\n"
+            content = b"drive_frequency,signal,comment\n5.00,0.44,start,extra\n"
             primary_path.write_bytes(content)
             receipt_path = storage_root / "records" / "run-3101-rabi" / "writer-receipt.json"
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
@@ -274,7 +242,7 @@ class MeasurementRecordReadViewPrototypeTest(unittest.TestCase):
             storage_root = Path(temp_dir) / "storage"
             content_root = Path(temp_dir) / "content"
             storage_root.mkdir()
-            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
+            content_root.mkdir()
             _populate_record(storage_root, content_root)
             primary_path = storage_root / "records" / "run-3101-rabi" / "primary.csv"
             primary_path.unlink()

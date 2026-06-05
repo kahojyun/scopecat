@@ -14,10 +14,14 @@ from types import TracebackType
 from typing import Any
 
 from scopecat.measurement_records._contracts import (
+    FINALIZATION_RECEIPT_SCHEMA,
     MANIFEST_SCHEMA,
     RECORD_MANIFEST_NAME,
+    WRITER_RECEIPT_SCHEMA,
+    validate_positive_integer,
     validate_public_identifier,
     validate_relative_path,
+    validate_sha256_digest,
     validate_text,
 )
 from scopecat.measurement_records._storage import (
@@ -42,9 +46,6 @@ from scopecat.measurement_records.normalized_primary_table import (
     summarize_observed_primary_table_for_read_view,
 )
 from scopecat.measurement_records.read_model_shared import READ_MODEL_FILENAME, READ_MODEL_SCHEMA
-
-WRITER_RECEIPT_SCHEMA = "measurement_record_writer_receipt_v0"
-FINALIZATION_RECEIPT_SCHEMA = "measurement_record_finalization_receipt_v0"
 
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 SOURCE_KINDS = {
@@ -682,23 +683,6 @@ def _write_new_file(path: Path, content: bytes) -> None:
 
 def _json_bytes(content: dict[str, Any]) -> bytes:
     return (json.dumps(content, indent=2, sort_keys=True) + "\n").encode("utf-8")
-
-
-def validate_positive_integer(value: Any, owner: str) -> int:
-    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
-        raise ValueError(f"{owner} must be positive")
-    return value
-
-
-def validate_sha256_digest(value: Any, owner: str) -> str:
-    if (
-        not isinstance(value, str)
-        or not value.startswith("sha256:")
-        or len(value) != 71
-        or any(character not in "0123456789abcdef" for character in value.removeprefix("sha256:"))
-    ):
-        raise ValueError(f"{owner} must be a sha256-prefixed hex digest")
-    return value
 
 
 def _require_dict(value: dict[str, Any], field: str) -> dict[str, Any]:

@@ -13,10 +13,6 @@ from scopecat.measurement_records import (
     record_legacy_measurement,
     record_legacy_measurement_from_request,
 )
-from scopecat.measurement_records.creation import (
-    MeasurementRecordCreationRequest,
-    create_measurement_record_from_request,
-)
 from scopecat.measurement_records.user_workflow import legacy_measurement_slug
 
 
@@ -166,16 +162,7 @@ class MeasurementRecordUserWorkflowPrototypeTest(unittest.TestCase):
             content_root.mkdir()
             primary_path = content_root / "normalized" / "lv-run-001.csv"
             _write_csv(primary_path)
-            create_measurement_record_from_request(
-                MeasurementRecordCreationRequest(
-                    request_id="existing-record",
-                    approval_state="approved",
-                    record_id="rec-legacy-labview-lv-run-001",
-                    record_dir="records/rec-legacy-labview-lv-run-001",
-                    creation_source_kind="legacy_system",
-                ),
-                storage_root=storage_root,
-            )
+            (storage_root / "records" / "rec-legacy-labview-lv-run-001").mkdir(parents=True)
 
             run = record_legacy_measurement(
                 source=_source(),

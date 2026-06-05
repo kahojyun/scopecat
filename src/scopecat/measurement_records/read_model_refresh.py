@@ -11,6 +11,7 @@ from typing import Any
 from scopecat.measurement_records._contracts import (
     validate_public_identifier,
     validate_relative_path,
+    validate_sha256_digest,
 )
 from scopecat.measurement_records.read_model_shared import (
     _ensure_no_symlink_parents,
@@ -28,7 +29,6 @@ from scopecat.measurement_records.read_model_shared import (
     _validate_strict_child_path,
 )
 from scopecat.measurement_records.read_view import MeasurementRecordReadRun
-from scopecat.measurement_records.writer_integration import validate_sha256_digest
 
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 TARGET_CONDITIONS = {"missing", "replace_existing"}

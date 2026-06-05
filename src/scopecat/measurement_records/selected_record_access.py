@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+from scopecat.measurement_records._contracts import validate_sha256_digest
 from scopecat.measurement_records._storage import path_under
 from scopecat.measurement_records.read_model_refresh import (
     MeasurementRecordReadModelRefreshRequest,
@@ -16,7 +17,6 @@ from scopecat.measurement_records.read_view import (
     MeasurementRecordReadRequest,
     read_created_record_primary_table_from_request,
 )
-from scopecat.measurement_records.writer_integration import validate_sha256_digest
 
 SELECTED_RECORD_READ_MODEL_SCHEMA = READ_MODEL_SCHEMA
 SelectedRecordReadModelRefreshRun = MeasurementRecordReadModelRefreshRun
