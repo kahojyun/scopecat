@@ -193,7 +193,6 @@ class HandoffEngineeringPrototypeWriterTest(unittest.TestCase):
             "reference_kind": "parameter_state",
             "reference_family": "parameter_state",
             "materialization": "reference_only",
-            "payload_import": "not_performed",
         }
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -213,7 +212,6 @@ class HandoffEngineeringPrototypeWriterTest(unittest.TestCase):
                 "reference_kind": "parameter_state",
                 "reference_family": "parameter_state",
                 "materialization": "reference_only",
-                "payload_import": "not_performed",
             },
         )
         self.assertEqual(context["materialization"], "reference_only")
@@ -310,18 +308,6 @@ class HandoffEngineeringPrototypeWriterTest(unittest.TestCase):
             receipt_summary["write_results"],
         )
 
-    def test_linked_context_reference_metadata_cannot_claim_payload_import(self) -> None:
-        source = _load_input()
-        source["linked_context"][0]["context_reference"] = {
-            "reference_id": "parameter-state-rabi-001",
-            "reference_kind": "parameter_state",
-            "reference_family": "parameter_state",
-            "materialization": "reference_only",
-            "payload_import": "copy_payload",
-        }
-
-        self.assertRejected(source, "payload_import")
-
     def test_prepared_run_context_reference_family_requires_prepared_run_kind(self) -> None:
         source = _load_input()
         source["linked_context"][0]["context_reference"] = {
@@ -329,7 +315,6 @@ class HandoffEngineeringPrototypeWriterTest(unittest.TestCase):
             "reference_kind": "parameter_state",
             "reference_family": "prepared_run",
             "materialization": "reference_only",
-            "payload_import": "not_performed",
         }
 
         self.assertRejected(source, "prepared_run references")

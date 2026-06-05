@@ -348,7 +348,6 @@ def validate_context_reference(
         "reference_kind",
         "reference_family",
         "materialization",
-        "payload_import",
     }
     if set(reference) != expected_keys:
         raise ValueError(f"{owner} context_reference fields are unsupported")
@@ -359,8 +358,6 @@ def validate_context_reference(
         raise ValueError(f"{owner} reference_kind must match kind")
     if reference["materialization"] != "reference_only":
         raise ValueError(f"{owner} context_reference materialization must be reference_only")
-    if reference["payload_import"] != "not_performed":
-        raise ValueError(f"{owner} context_reference payload_import must be not_performed")
     if reference["reference_family"] == "prepared_run" and item_kind != "prepared_run_context":
         raise ValueError(f"{owner} prepared_run references must use prepared_run_context kind")
     return {
@@ -368,7 +365,6 @@ def validate_context_reference(
         "reference_kind": reference["reference_kind"],
         "reference_family": reference["reference_family"],
         "materialization": reference["materialization"],
-        "payload_import": reference["payload_import"],
     }
 
 

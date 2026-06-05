@@ -155,7 +155,6 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
                         "reference_kind": "managed_code_version",
                         "reference_family": "experiment_code",
                         "materialization": "reference_only",
-                        "payload_import": "not_performed",
                     },
                 },
                 {
@@ -178,7 +177,6 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
                         "reference_kind": "uv_sync_operation_review",
                         "reference_family": "environment_operation",
                         "materialization": "reference_only",
-                        "payload_import": "not_performed",
                     },
                 },
             ]
@@ -215,7 +213,6 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
                 "reference_kind": "managed_code_version",
                 "reference_family": "experiment_code",
                 "materialization": "reference_only",
-                "payload_import": "not_performed",
             },
         )
         self.assertEqual(

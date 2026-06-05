@@ -32,8 +32,9 @@ in the current JNY-001 handoff slice.
 
 Packaged linked-context payloads remain reviewable handoff package contents.
 Receiving/import planning may list them and preserve managed context-reference
-metadata, but the action remains `keep_reference_only` and the durable-import
-adapter must keep the `linked_context_payload_import` non-claim.
+metadata, but the action remains `keep_reference_only`. The durable-import
+adapter must not materialize linked-context payloads into Measurement Records
+storage until a later accepted boundary defines that behavior.
 
 Any future linked-context payload import must be promoted through a separate
 decision and implementation slice that defines, at minimum:

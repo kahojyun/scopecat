@@ -176,7 +176,6 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
                 "reference_kind": "parameter_state",
                 "reference_family": "parameter_state",
                 "materialization": "reference_only",
-                "payload_import": "not_performed",
             }
             manifest["linked_context"].extend(
                 [
@@ -190,7 +189,6 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
                             "reference_kind": "managed_code_version",
                             "reference_family": "experiment_code",
                             "materialization": "reference_only",
-                            "payload_import": "not_performed",
                         },
                     },
                     {
@@ -203,7 +201,6 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
                             "reference_kind": "prepared_run_context",
                             "reference_family": "prepared_run",
                             "materialization": "reference_only",
-                            "payload_import": "not_performed",
                         },
                     },
                     {
@@ -216,7 +213,6 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
                             "reference_kind": "uv_sync_operation_review",
                             "reference_family": "environment_operation",
                             "materialization": "reference_only",
-                            "payload_import": "not_performed",
                         },
                     },
                 ]
