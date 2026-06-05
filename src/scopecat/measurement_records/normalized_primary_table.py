@@ -10,9 +10,6 @@ from typing import Any
 
 from scopecat.measurement_records.creation import validate_relative_path, validate_text
 
-NORMALIZED_PRIMARY_TABLE_REQUEST_SCHEMA = (
-    "scopecat.measurement_record_normalized_primary_table_request.v0"
-)
 NORMALIZED_PRIMARY_TABLE_SCHEMA = "scopecat.normalized_primary_table.v0"
 DECLARED_COLUMN_ROLES = {
     "annotation",
@@ -222,11 +219,6 @@ def summarize_observed_primary_table_for_read_view(
 
 
 def _parse_source(source: dict[str, Any]) -> MeasurementRecordNormalizedPrimaryTableRequest:
-    if source.get("normalized_table_request_schema") != NORMALIZED_PRIMARY_TABLE_REQUEST_SCHEMA:
-        raise ValueError(
-            "normalized primary table source schema must be "
-            f"{NORMALIZED_PRIMARY_TABLE_REQUEST_SCHEMA}"
-        )
     return MeasurementRecordNormalizedPrimaryTableRequest(
         source=_require_text(source, "source"),
         declared_columns=tuple(

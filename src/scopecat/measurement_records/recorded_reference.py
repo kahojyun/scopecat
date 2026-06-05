@@ -33,7 +33,6 @@ from scopecat.measurement_records.creation import (
     validate_text,
 )
 
-RECORDED_REFERENCE_SCHEMA = "scopecat.measurement_record_recorded_reference.v0"
 RECORDED_REFERENCE_RECEIPT_SCHEMA = "measurement_record_recorded_reference_receipt_v0"
 RECORDED_REFERENCE_RECEIPT_DIR = "recorded-references"
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
@@ -390,8 +389,6 @@ def list_measurement_record_references(
 
 
 def _parse_source(source: dict[str, Any]) -> MeasurementRecordReferenceRequest:
-    if source.get("recorded_reference_schema") != RECORDED_REFERENCE_SCHEMA:
-        raise ValueError(f"recorded reference source schema must be {RECORDED_REFERENCE_SCHEMA}")
     request = _require_dict(source, "recorded_reference_request")
     return MeasurementRecordReferenceRequest(
         request_id=_require_text(request, "request_id"),

@@ -41,7 +41,6 @@ from scopecat.measurement_records import (
 from scopecat.measurement_records.__main__ import main as measurement_records_main
 from scopecat.measurement_records.operator_review import (
     OPERATOR_REVIEW_RECEIPT_SCHEMA,
-    OPERATOR_REVIEW_SCHEMA,
 )
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -203,7 +202,6 @@ def _recorded_reference_request(
 
 def _operator_source(**overrides: object) -> dict:
     return {
-        "operator_review_schema": OPERATOR_REVIEW_SCHEMA,
         "operator_review_request": _operator_request(**overrides).to_dict(),
     }
 

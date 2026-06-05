@@ -34,7 +34,6 @@ from scopecat.measurement_records.creation import (
     validate_text,
 )
 
-LEGACY_RUN_RECORD_SCHEMA = "scopecat.measurement_record_legacy_run_record.v0"
 LEGACY_RUN_RECEIPT_SCHEMA = "measurement_record_legacy_run_receipt_v0"
 LEGACY_RUN_RECEIPT_NAME = "legacy-run-receipt.json"
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
@@ -347,8 +346,6 @@ def record_legacy_measurement_run_from_request(
 
 
 def _parse_source(source: dict[str, Any]) -> LegacyRunRecordRequest:
-    if source.get("legacy_run_record_schema") != LEGACY_RUN_RECORD_SCHEMA:
-        raise ValueError(f"legacy run source schema must be {LEGACY_RUN_RECORD_SCHEMA}")
     request = _require_dict(source, "legacy_run_record_request")
     return LegacyRunRecordRequest(
         request_id=_require_text(request, "request_id"),

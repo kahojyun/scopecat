@@ -25,10 +25,6 @@ from scopecat.measurement_records import (
     refresh_measurement_record_read_model_from_read_view,
     write_created_record_primary_data_from_request,
 )
-from scopecat.measurement_records.read_model_refresh import (
-    READ_MODEL_REFRESH_SCHEMA,
-)
-from scopecat.measurement_records.read_view import READ_VIEW_SCHEMA
 
 ROOT = Path(__file__).resolve().parents[3]
 CHUNK_FIXTURE = (
@@ -86,7 +82,6 @@ def _read_request() -> MeasurementRecordReadRequest:
 
 def _read_source() -> dict:
     return {
-        "read_view_schema": READ_VIEW_SCHEMA,
         "read_request": _read_request().to_dict(),
     }
 
@@ -134,7 +129,6 @@ def _refresh_request(**overrides: object) -> MeasurementRecordReadModelRefreshRe
 
 def _refresh_source(**overrides: object) -> dict:
     return {
-        "read_model_refresh_schema": READ_MODEL_REFRESH_SCHEMA,
         "refresh_request": _refresh_request(**overrides).to_dict(),
         "read_view_source": _read_source(),
     }

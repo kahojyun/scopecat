@@ -55,7 +55,6 @@ from scopecat.measurement_records.writer_integration import (
     write_created_record_primary_data_from_request,
 )
 
-LEGACY_PRIMARY_IMPORT_SCHEMA = "scopecat.measurement_record_legacy_primary_import.v0"
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 
 
@@ -290,10 +289,6 @@ def attach_converted_primary_data_to_legacy_record_from_request(
 
 
 def _parse_source(source: dict[str, Any]) -> LegacyPrimaryImportRequest:
-    if source.get("legacy_primary_import_schema") != LEGACY_PRIMARY_IMPORT_SCHEMA:
-        raise ValueError(
-            f"legacy primary import source schema must be {LEGACY_PRIMARY_IMPORT_SCHEMA}"
-        )
     request = _require_dict(source, "legacy_primary_import_request")
     source_facts = _require_dict(request, "import_source")
     return LegacyPrimaryImportRequest(

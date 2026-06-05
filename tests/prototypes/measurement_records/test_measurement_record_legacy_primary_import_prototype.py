@@ -16,9 +16,6 @@ from scopecat.measurement_records import (
     read_created_record_primary_table_from_request,
     record_legacy_measurement_run_from_request,
 )
-from scopecat.measurement_records.legacy_primary_import import (
-    LEGACY_PRIMARY_IMPORT_SCHEMA,
-)
 
 NORMALIZED_CSV = (
     b"time_s,signal_counts,detuning_mhz\n0.000,101,-2.0\n0.100,128,-1.0\n0.200,155,0.0\n"
@@ -89,7 +86,6 @@ def _request(**overrides: object) -> LegacyPrimaryImportRequest:
 
 def _raw_source(**overrides: object) -> dict:
     return {
-        "legacy_primary_import_schema": LEGACY_PRIMARY_IMPORT_SCHEMA,
         "legacy_primary_import_request": _request(**overrides).to_dict(),
     }
 

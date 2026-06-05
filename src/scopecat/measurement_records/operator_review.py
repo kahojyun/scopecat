@@ -41,7 +41,6 @@ from scopecat.measurement_records.running_inspection import (
     summarize_running_measurement_inspection,
 )
 
-OPERATOR_REVIEW_SCHEMA = "scopecat.measurement_record_operator_review.v0"
 OPERATOR_REVIEW_RECEIPT_SCHEMA = "measurement_record_operator_review_receipt_v0"
 OPERATOR_REVIEW_RECEIPT_SUMMARY_SCHEMA = (
     "scopecat.measurement_record_operator_review_receipt_summary.v0"
@@ -428,8 +427,6 @@ def summarize_measurement_record_operator_review_receipt(
 
 
 def _parse_source(source: dict[str, Any]) -> MeasurementRecordOperatorReviewRequest:
-    if source.get("operator_review_schema") != OPERATOR_REVIEW_SCHEMA:
-        raise ValueError(f"operator review source schema must be {OPERATOR_REVIEW_SCHEMA}")
     request = _require_dict(source, "operator_review_request")
     running_sources = request.get("running_inspection_requests", [])
     if not isinstance(running_sources, list):

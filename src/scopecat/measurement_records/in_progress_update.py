@@ -39,7 +39,6 @@ from scopecat.measurement_records.writer_integration import (
     validate_sha256_digest,
 )
 
-IN_PROGRESS_UPDATE_SCHEMA = "scopecat.measurement_record_in_progress_update.v0"
 UPDATE_RECEIPT_SCHEMA = "measurement_record_update_receipt_v0"
 
 
@@ -332,8 +331,6 @@ def append_in_progress_measurement_record_from_request(
 
 
 def _parse_source(source: dict[str, Any]) -> MeasurementRecordInProgressUpdateRequest:
-    if source.get("in_progress_update_schema") != IN_PROGRESS_UPDATE_SCHEMA:
-        raise ValueError(f"in-progress update source schema must be {IN_PROGRESS_UPDATE_SCHEMA}")
     request = _require_dict(source, "in_progress_update_request")
     return MeasurementRecordInProgressUpdateRequest(
         request_id=_require_text(request, "request_id"),

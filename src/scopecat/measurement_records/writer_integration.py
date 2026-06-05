@@ -34,7 +34,6 @@ from scopecat.measurement_records.creation import (
     validate_text,
 )
 
-WRITER_INTEGRATION_SCHEMA = "scopecat.measurement_record_writer_integration.v0"
 WRITER_RECEIPT_SCHEMA = "measurement_record_writer_receipt_v0"
 
 _SHA256_PREFIX = "sha256:"
@@ -280,8 +279,6 @@ def write_created_record_primary_data_from_request(
 
 
 def _parse_source(source: dict[str, Any]) -> MeasurementRecordWriterRequest:
-    if source.get("writer_integration_schema") != WRITER_INTEGRATION_SCHEMA:
-        raise ValueError(f"writer integration source schema must be {WRITER_INTEGRATION_SCHEMA}")
     request = _require_dict(source, "writer_request")
     chunks = _require_list(request, "chunks")
     return MeasurementRecordWriterRequest(

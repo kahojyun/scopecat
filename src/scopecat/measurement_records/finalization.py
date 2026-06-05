@@ -31,7 +31,6 @@ from scopecat.measurement_records.read_view import (
     read_created_record_primary_table,
 )
 
-FINALIZATION_SCHEMA = "scopecat.measurement_record_finalization.v0"
 FINALIZATION_RECEIPT_SCHEMA = "measurement_record_finalization_receipt_v0"
 FINALIZATION_STATES = {"complete", "failed"}
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
@@ -219,8 +218,6 @@ def finalize_measurement_record_from_read_view(
 def _parse_source(
     source: dict[str, Any],
 ) -> tuple[MeasurementRecordFinalizationRequest, dict[str, Any]]:
-    if source.get("finalization_schema") != FINALIZATION_SCHEMA:
-        raise ValueError(f"finalization source schema must be {FINALIZATION_SCHEMA}")
     request = _require_dict(source, "finalization_request")
     read_view_source = _require_dict(source, "read_view_source")
     return (

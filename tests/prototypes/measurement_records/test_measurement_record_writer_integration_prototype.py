@@ -15,7 +15,6 @@ from scopecat.measurement_records import (
     write_created_record_primary_data,
     write_created_record_primary_data_from_request,
 )
-from scopecat.measurement_records.writer_integration import WRITER_INTEGRATION_SCHEMA
 
 ROOT = Path(__file__).resolve().parents[3]
 CHUNK_FIXTURE = (
@@ -93,7 +92,6 @@ def _writer_request(**overrides: object) -> MeasurementRecordWriterRequest:
 def _writer_source(**overrides: object) -> dict:
     request = _writer_request(**overrides).to_dict()
     return {
-        "writer_integration_schema": WRITER_INTEGRATION_SCHEMA,
         "writer_request": request,
     }
 

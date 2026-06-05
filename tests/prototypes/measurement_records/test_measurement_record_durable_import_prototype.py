@@ -14,7 +14,6 @@ from scopecat.measurement_records import (
     import_measurement_record,
     import_measurement_record_from_request,
 )
-from scopecat.measurement_records.durable_import import DURABLE_IMPORT_SCHEMA
 
 ROOT = Path(__file__).resolve().parents[3]
 CHUNK_FIXTURE = (
@@ -73,7 +72,6 @@ def _request(**overrides: object) -> MeasurementRecordDurableImportRequest:
 
 def _raw_source(**overrides: object) -> dict:
     return {
-        "durable_import_schema": DURABLE_IMPORT_SCHEMA,
         "durable_import_request": _request(**overrides).to_dict(),
     }
 

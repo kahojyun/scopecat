@@ -14,9 +14,6 @@ from scopecat.measurement_records import (
     record_measurement_record_references,
     record_measurement_record_references_from_request,
 )
-from scopecat.measurement_records.recorded_reference import (
-    RECORDED_REFERENCE_SCHEMA,
-)
 
 
 def _create_record(storage_root: Path) -> None:
@@ -89,7 +86,6 @@ def _request(**overrides: object) -> MeasurementRecordReferenceRequest:
 
 def _source(**overrides: object) -> dict:
     return {
-        "recorded_reference_schema": RECORDED_REFERENCE_SCHEMA,
         "recorded_reference_request": _request(**overrides).to_dict(),
     }
 

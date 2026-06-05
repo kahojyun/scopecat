@@ -33,12 +33,10 @@ from scopecat.measurement_records._storage import (
     validate_strict_child_path as _validate_strict_child_path,
 )
 from scopecat.measurement_records.read_model_refresh import (
-    READ_MODEL_REFRESH_SCHEMA,
     MeasurementRecordReadModelRefreshRun,
     refresh_measurement_record_read_model,
 )
 from scopecat.measurement_records.read_model_shared import READ_MODEL_SCHEMA
-from scopecat.measurement_records.read_view import READ_VIEW_SCHEMA
 
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 
@@ -1216,10 +1214,8 @@ def _pre_export_refresh_source(
     if expected_digest is not None:
         refresh_request["expected_current_read_model_digest"] = expected_digest
     return {
-        "read_model_refresh_schema": READ_MODEL_REFRESH_SCHEMA,
         "refresh_request": refresh_request,
         "read_view_source": {
-            "read_view_schema": READ_VIEW_SCHEMA,
             "read_request": {
                 "request_id": f"pre-export-read-{request.record_id}",
                 "record_id": request.record_id,

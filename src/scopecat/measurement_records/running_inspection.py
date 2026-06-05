@@ -37,7 +37,6 @@ from scopecat.measurement_records.writer_integration import (
     validate_sha256_digest,
 )
 
-RUNNING_INSPECTION_SCHEMA = "scopecat.measurement_record_running_inspection.v0"
 RUNNING_INSPECTION_SUMMARY_SCHEMA = "scopecat.measurement_record_running_inspection_summary.v0"
 
 
@@ -240,8 +239,6 @@ def summarize_running_measurement_inspection(
 
 
 def _parse_source(source: dict[str, Any]) -> MeasurementRecordRunningInspectionRequest:
-    if source.get("running_inspection_schema") != RUNNING_INSPECTION_SCHEMA:
-        raise ValueError(f"running inspection source schema must be {RUNNING_INSPECTION_SCHEMA}")
     request = _require_dict(source, "running_inspection_request")
     paths = request.get("update_receipt_paths", [])
     if not isinstance(paths, list):

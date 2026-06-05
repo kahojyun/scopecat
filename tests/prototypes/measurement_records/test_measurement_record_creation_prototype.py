@@ -10,7 +10,6 @@ from scopecat.measurement_records import (
     create_measurement_record,
     create_measurement_record_from_request,
 )
-from scopecat.measurement_records.creation import CREATION_SCHEMA
 
 
 def _request_source(**overrides: object) -> dict:
@@ -27,7 +26,6 @@ def _request_source(**overrides: object) -> dict:
     }
     request.update(overrides)
     return {
-        "creation_schema": CREATION_SCHEMA,
         "creation_request": request,
     }
 

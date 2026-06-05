@@ -36,7 +36,6 @@ from scopecat.measurement_records.read_view import (
     read_created_record_primary_table,
 )
 
-READ_MODEL_PROJECTION_SCHEMA = "scopecat.measurement_record_read_model_projection.v0"
 READ_MODEL_SCHEMA = _READ_MODEL_SCHEMA
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 
@@ -261,10 +260,6 @@ def project_measurement_record_read_model_from_read_view(
 def _parse_source(
     source: dict[str, Any],
 ) -> tuple[MeasurementRecordReadModelProjectionRequest, dict[str, Any]]:
-    if source.get("read_model_projection_schema") != READ_MODEL_PROJECTION_SCHEMA:
-        raise ValueError(
-            f"read model projection source schema must be {READ_MODEL_PROJECTION_SCHEMA}"
-        )
     request = _require_dict(source, "projection_request")
     read_view_source = _require_dict(source, "read_view_source")
     return (

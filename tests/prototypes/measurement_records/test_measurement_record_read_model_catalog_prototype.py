@@ -23,9 +23,6 @@ from scopecat.measurement_records import (
     read_created_record_primary_table_from_request,
     write_created_record_primary_data_from_request,
 )
-from scopecat.measurement_records.read_model_catalog import (
-    READ_MODEL_CATALOG_SCHEMA,
-)
 
 ROOT = Path(__file__).resolve().parents[3]
 CHUNK_FIXTURE = (
@@ -121,7 +118,6 @@ def _catalog_request(**overrides: object) -> MeasurementRecordCatalogRequest:
 
 def _catalog_source(**overrides: object) -> dict:
     return {
-        "read_model_catalog_schema": READ_MODEL_CATALOG_SCHEMA,
         "catalog_request": _catalog_request(**overrides).to_dict(),
     }
 

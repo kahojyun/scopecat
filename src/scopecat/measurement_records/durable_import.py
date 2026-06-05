@@ -62,7 +62,6 @@ from scopecat.measurement_records.writer_integration import (
     write_created_record_primary_data_from_request,
 )
 
-DURABLE_IMPORT_SCHEMA = "scopecat.measurement_record_durable_import.v0"
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 SOURCE_KINDS = {
     "adapter_normalized_primary_data",
@@ -387,8 +386,6 @@ def import_measurement_record_from_request(
 
 
 def _parse_source(source: dict[str, Any]) -> MeasurementRecordDurableImportRequest:
-    if source.get("durable_import_schema") != DURABLE_IMPORT_SCHEMA:
-        raise ValueError(f"durable import source schema must be {DURABLE_IMPORT_SCHEMA}")
     request = _require_dict(source, "durable_import_request")
     source_facts = _require_dict(request, "import_source")
     return MeasurementRecordDurableImportRequest(

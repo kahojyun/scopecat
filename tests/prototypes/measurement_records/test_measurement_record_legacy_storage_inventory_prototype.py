@@ -21,9 +21,7 @@ from scopecat.measurement_records import (
 from scopecat.measurement_records.__main__ import main as measurement_records_main
 from scopecat.measurement_records.legacy_run import (
     LEGACY_RUN_RECEIPT_SCHEMA,
-    LEGACY_RUN_RECORD_SCHEMA,
 )
-from scopecat.measurement_records.storage_inventory import STORAGE_INVENTORY_SCHEMA
 
 
 def _legacy_request(**overrides: object) -> LegacyRunRecordRequest:
@@ -62,7 +60,6 @@ def _legacy_request(**overrides: object) -> LegacyRunRecordRequest:
 
 def _legacy_source(**overrides: object) -> dict:
     return {
-        "legacy_run_record_schema": LEGACY_RUN_RECORD_SCHEMA,
         "legacy_run_record_request": _legacy_request(**overrides).to_dict(),
     }
 
@@ -76,7 +73,6 @@ def _inventory_source(**overrides: object) -> dict:
     }
     request.update(overrides)
     return {
-        "storage_inventory_schema": STORAGE_INVENTORY_SCHEMA,
         "storage_inventory_request": request,
     }
 

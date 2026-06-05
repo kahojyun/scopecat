@@ -25,12 +25,6 @@ from scopecat.measurement_records import (
     write_created_record_primary_data_from_request,
 )
 from scopecat.measurement_records.__main__ import main as measurement_records_main
-from scopecat.measurement_records.in_progress_update import (
-    IN_PROGRESS_UPDATE_SCHEMA,
-)
-from scopecat.measurement_records.running_inspection import (
-    RUNNING_INSPECTION_SCHEMA,
-)
 
 ROOT = Path(__file__).resolve().parents[3]
 CHUNK_FIXTURE = (
@@ -104,7 +98,6 @@ def _update_request(**overrides: object) -> MeasurementRecordInProgressUpdateReq
 
 def _update_source(**overrides: object) -> dict:
     return {
-        "in_progress_update_schema": IN_PROGRESS_UPDATE_SCHEMA,
         "in_progress_update_request": _update_request(**overrides).to_dict(),
     }
 
@@ -125,7 +118,6 @@ def _inspection_request(**overrides: object) -> MeasurementRecordRunningInspecti
 
 def _inspection_source(**overrides: object) -> dict:
     return {
-        "running_inspection_schema": RUNNING_INSPECTION_SCHEMA,
         "running_inspection_request": _inspection_request(**overrides).to_dict(),
     }
 

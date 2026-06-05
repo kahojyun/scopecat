@@ -21,10 +21,6 @@ from scopecat.measurement_records import (
     read_created_record_primary_table_from_request,
     write_created_record_primary_data_from_request,
 )
-from scopecat.measurement_records.read_model_projection import (
-    READ_MODEL_PROJECTION_SCHEMA,
-)
-from scopecat.measurement_records.read_view import READ_VIEW_SCHEMA
 
 ROOT = Path(__file__).resolve().parents[3]
 CHUNK_FIXTURE = (
@@ -82,7 +78,6 @@ def _read_request() -> MeasurementRecordReadRequest:
 
 def _read_source() -> dict:
     return {
-        "read_view_schema": READ_VIEW_SCHEMA,
         "read_request": _read_request().to_dict(),
     }
 
@@ -117,7 +112,6 @@ def _projection_request(**overrides: object) -> MeasurementRecordReadModelProjec
 
 def _projection_source(**overrides: object) -> dict:
     return {
-        "read_model_projection_schema": READ_MODEL_PROJECTION_SCHEMA,
         "projection_request": _projection_request(**overrides).to_dict(),
         "read_view_source": _read_source(),
     }

@@ -31,7 +31,6 @@ from scopecat.measurement_records.creation import (
 from scopecat.measurement_records.read_model_projection import READ_MODEL_SCHEMA
 from scopecat.measurement_records.read_model_shared import READ_MODEL_FILENAME
 
-READ_MODEL_CATALOG_SCHEMA = "scopecat.measurement_record_read_model_catalog.v0"
 LIFECYCLE_STATES = {"complete", "failed"}
 SOURCE_KINDS = ("creation_manifest", "writer_receipt", "finalization_receipt")
 
@@ -155,8 +154,6 @@ def catalog_measurement_record_read_models_from_request(
 
 
 def _parse_source(source: dict[str, Any]) -> MeasurementRecordCatalogRequest:
-    if source.get("read_model_catalog_schema") != READ_MODEL_CATALOG_SCHEMA:
-        raise ValueError(f"read model catalog source schema must be {READ_MODEL_CATALOG_SCHEMA}")
     request = _require_dict(source, "catalog_request")
     return MeasurementRecordCatalogRequest(
         request_id=_require_text(request, "request_id"),

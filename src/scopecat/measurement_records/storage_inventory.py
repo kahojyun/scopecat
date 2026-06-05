@@ -31,8 +31,6 @@ from scopecat.measurement_records.read_model_shared import (
     READ_MODEL_SCHEMA,
 )
 
-STORAGE_INVENTORY_SCHEMA = "scopecat.measurement_record_storage_inventory.v0"
-
 
 @dataclass(frozen=True)
 class MeasurementRecordStorageInventoryRequest:
@@ -151,8 +149,6 @@ def list_measurement_record_storage_from_request(
 
 
 def _parse_source(source: dict[str, Any]) -> MeasurementRecordStorageInventoryRequest:
-    if source.get("storage_inventory_schema") != STORAGE_INVENTORY_SCHEMA:
-        raise ValueError(f"storage inventory source schema must be {STORAGE_INVENTORY_SCHEMA}")
     request = _require_dict(source, "storage_inventory_request")
     return MeasurementRecordStorageInventoryRequest(
         request_id=_require_text(request, "request_id"),

@@ -10,9 +10,6 @@ from scopecat.measurement_records import (
     summarize_normalized_primary_table,
     summarize_normalized_primary_table_from_request,
 )
-from scopecat.measurement_records.normalized_primary_table import (
-    NORMALIZED_PRIMARY_TABLE_REQUEST_SCHEMA,
-)
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURE = (
@@ -52,7 +49,6 @@ def _raw_source(**overrides: object) -> dict:
     source = _fixture_input()
     source.update(overrides)
     return {
-        "normalized_table_request_schema": NORMALIZED_PRIMARY_TABLE_REQUEST_SCHEMA,
         "source": source["source"],
         "declared_columns": [dict(column) for column in source["declared_columns"]],
         "declared_row_count": source.get("declared_row_count"),

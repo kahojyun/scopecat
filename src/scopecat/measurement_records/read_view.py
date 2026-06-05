@@ -34,8 +34,6 @@ from scopecat.measurement_records.normalized_primary_table import (
 )
 from scopecat.measurement_records.writer_integration import WRITER_RECEIPT_SCHEMA
 
-READ_VIEW_SCHEMA = "scopecat.measurement_record_read_view.v0"
-
 
 @dataclass(frozen=True)
 class MeasurementRecordReadRequest:
@@ -142,8 +140,6 @@ def read_created_record_primary_table_from_request(
 
 
 def _parse_source(source: dict[str, Any]) -> MeasurementRecordReadRequest:
-    if source.get("read_view_schema") != READ_VIEW_SCHEMA:
-        raise ValueError(f"read view source schema must be {READ_VIEW_SCHEMA}")
     request = _require_dict(source, "read_request")
     return MeasurementRecordReadRequest(
         request_id=_require_text(request, "request_id"),

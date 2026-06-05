@@ -36,7 +36,6 @@ from scopecat.measurement_records.read_view import (
 )
 from scopecat.measurement_records.writer_integration import validate_sha256_digest
 
-READ_MODEL_REFRESH_SCHEMA = "scopecat.measurement_record_read_model_refresh.v0"
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 TARGET_CONDITIONS = {"missing", "replace_existing"}
 
@@ -281,8 +280,6 @@ def refresh_measurement_record_read_model_from_read_view(
 def _parse_source(
     source: dict[str, Any],
 ) -> tuple[MeasurementRecordReadModelRefreshRequest, dict[str, Any]]:
-    if source.get("read_model_refresh_schema") != READ_MODEL_REFRESH_SCHEMA:
-        raise ValueError(f"read model refresh source schema must be {READ_MODEL_REFRESH_SCHEMA}")
     request = _require_dict(source, "refresh_request")
     read_view_source = _require_dict(source, "read_view_source")
     return (

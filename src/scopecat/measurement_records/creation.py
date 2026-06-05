@@ -11,7 +11,6 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 PUBLIC_IDENTIFIER_MAX_LENGTH = 128
-CREATION_SCHEMA = "scopecat.measurement_record_creation.v0"
 MANIFEST_SCHEMA = "measurement_record_creation_v0"
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 INITIAL_LIFECYCLE_STATES = {"created", "in_progress", "review_needed"}
@@ -167,8 +166,6 @@ def create_measurement_record_from_request(
 
 
 def _parse_source(source: dict[str, Any]) -> MeasurementRecordCreationRequest:
-    if source.get("creation_schema") != CREATION_SCHEMA:
-        raise ValueError(f"creation source schema must be {CREATION_SCHEMA}")
     request = _require_dict(source, "creation_request")
     return MeasurementRecordCreationRequest(
         request_id=_require_text(request, "request_id"),
