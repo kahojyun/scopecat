@@ -82,3 +82,7 @@ triggers, and related owners.
 Update the register when a branch creates, supersedes, retires, or materially
 changes a durable decision. Do not use this directory for task lists, open
 questions without a decision, or validation evidence.
+
+Keep the register as a compact index. During documentation cleanup, retire,
+supersede, or fold stale active entries into their owners instead of adding
+summary columns or preserving decisions that no longer guide future work.
