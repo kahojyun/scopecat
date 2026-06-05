@@ -7,7 +7,6 @@ import unittest
 from pathlib import Path
 
 from scopecat.handoff import open_package
-from scopecat.handoff.inspect import HANDOFF_INSPECTION_ARTIFACT_NAME, write_inspection_artifact
 from scopecat.handoff.package import HandoffPackage
 from scopecat.handoff.tables import HandoffPlotSeries, HandoffTable
 
@@ -263,16 +262,6 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
             ["prepared-run-context-rabi-001"],
         )
         self.assertEqual(references[1]["reference_id"], "managed-code-version-rabi-001")
-
-    def test_local_html_inspection_artifact_can_be_written(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            summary = write_inspection_artifact(open_package(PACKAGE), output_dir=Path(temp_dir))
-            artifact_path = Path(temp_dir) / HANDOFF_INSPECTION_ARTIFACT_NAME
-            html = artifact_path.read_text(encoding="utf-8")
-
-        self.assertEqual(summary["html_artifact"]["filename"], HANDOFF_INSPECTION_ARTIFACT_NAME)
-        self.assertEqual(summary["html_artifact"]["portable_package_member"], False)
-        self.assertIn("Rabi calibration follow-up", html)
 
     def test_route_pressure_fixture_exposes_multi_plot_and_table_only_measurements(self) -> None:
         package = open_package(RICHER_PACKAGE)

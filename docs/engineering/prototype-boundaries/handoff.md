@@ -57,7 +57,6 @@ caller-declared source root and package write request
   -> directory-shaped package subset
   -> manifest validation and preview classification
   -> read-only package open
-  -> local inspection or workflow receipt
   -> receiving gate
   -> non-mutating import plan
 ```
@@ -148,8 +147,7 @@ The current read-only package use:
 - treats declared preview metadata as preview authority;
 - preserves package id and package-directory continuity;
 - uses `measurements/{measurement_record_id}/primary.csv` as the canonical
-  primary-data package topology;
-- can write local static inspection HTML outside the package tree.
+  primary-data package topology.
 
 The receiving path:
 
@@ -206,9 +204,9 @@ keeps this package as declared-integrity local-review evidence. Declared digest
 integrity may gate receiving/import planning, but external authenticity, sender
 trust, and scientific validity remain unclaimed.
 
-Local writer receipts, workflow receipts, inspection HTML, receiving-gate
-results, and import-plan objects are local review surfaces unless a later slice
-explicitly promotes one as a portable/export artifact.
+Local writer receipts, workflow receipts, receiving-gate results, and
+import-plan objects are local review surfaces unless a later slice explicitly
+promotes one as a portable/export artifact.
 
 Selected stored Measurement Record export may package request-declared
 record-local linked-context payloads under `context/`. The package-use route

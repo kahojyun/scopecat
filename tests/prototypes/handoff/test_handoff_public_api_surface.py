@@ -68,7 +68,6 @@ class HandoffPublicApiSurfaceTest(unittest.TestCase):
     def test_route_local_result_and_projection_types_are_not_top_level_exports(self) -> None:
         route_local_types = {
             "ArchiveMaterializationMemberReview",
-            "HANDOFF_INSPECTION_ARTIFACT_NAME",
             "HandoffArchiveCreationRun",
             "HandoffArchiveMaterializationRun",
             "HandoffDurableImportRun",
@@ -100,8 +99,6 @@ class HandoffPublicApiSurfaceTest(unittest.TestCase):
             "SelectedMeasurementRecordExportRun",
             "SelectedMeasurementRecordPreflightExportRun",
             "build_durable_import_request_from_handoff_plan",
-            "build_inspection_html",
-            "write_inspection_artifact",
             "write_package_from_source",
         }
 

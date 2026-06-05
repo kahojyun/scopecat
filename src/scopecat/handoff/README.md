@@ -43,10 +43,9 @@ Durable Measurement Records import adaptation:
 
 The top-level module exports active operation entrypoints and caller-supplied
 request/value objects needed to invoke those operations. Route projection,
-run/result, direct writer, context-summary, durable-request builder, and
-inspection helpers remain importable from their owning submodules when tests or
-route-local integrations need them, but they are not package-root contracts.
-`HandoffError` and
+run/result, direct writer, and durable-request builder helpers remain
+importable from their owning submodules when tests or route-local integrations
+need them, but they are not package-root contracts. `HandoffError` and
 `HandoffContractError` remain the package-root error types. Modules with
 leading underscores are route-private implementation modules.
 
@@ -123,9 +122,9 @@ export is the storage-backed entrypoint. Direct package-writer input remains an
 adapter or engineering route for already-reviewed normalized data, not a
 user-facing shortcut around Measurement Records storage.
 
-Local writer receipts, inspection HTML, function return values, import-plan
-objects, and durable-import adapter receipts are local review surfaces unless a
-later slice explicitly promotes one as a portable/export artifact.
+Local writer receipts, function return values, import-plan objects, and
+durable-import adapter receipts are local review surfaces unless a later slice
+explicitly promotes one as a portable/export artifact.
 
 Selected-record export receipts keep compact `block_reason` state for blocked
 local runs. The lower-level export path checks that the selected read model
