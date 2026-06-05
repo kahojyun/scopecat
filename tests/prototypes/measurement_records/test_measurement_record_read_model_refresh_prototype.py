@@ -15,11 +15,8 @@ from scopecat.measurement_records.finalization import (
     MeasurementRecordFinalizationRequest,
     finalize_measurement_record_from_read_view,
 )
-from scopecat.measurement_records.read_model_catalog import (
-    MeasurementRecordCatalogRequest,
-    catalog_measurement_record_read_models_from_request,
-)
 from scopecat.measurement_records.read_model_projection import (
+    READ_MODEL_SCHEMA,
     MeasurementRecordReadModelProjectionRequest,
     project_measurement_record_read_model_from_read_view,
 )
@@ -423,7 +420,7 @@ class MeasurementRecordReadModelRefreshPrototypeTest(unittest.TestCase):
         self.assertFalse(run.cleanup_performed)
         self.assertNotEqual(read_model_after, previous)
 
-    def test_refreshed_model_remains_catalog_valid(self) -> None:
+    def test_refreshed_model_remains_readable(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root = Path(temp_dir) / "storage"
             content_root = Path(temp_dir) / "content"
@@ -437,17 +434,15 @@ class MeasurementRecordReadModelRefreshPrototypeTest(unittest.TestCase):
                 storage_root=storage_root,
             )
 
-            catalog = catalog_measurement_record_read_models_from_request(
-                MeasurementRecordCatalogRequest(
-                    request_id="catalog-after-refresh",
-                    records_dir="records",
-                    verify_source_digests=True,
-                ),
-                storage_root=storage_root,
+            read_model = json.loads(
+                (storage_root / "records" / "run-3101-rabi" / "record-read-model.json").read_text(
+                    encoding="utf-8"
+                )
             )
 
-        self.assertEqual(catalog.classification, "read_model_catalog_ready")
-        self.assertEqual(len(catalog.entries), 1)
+        self.assertEqual(read_model["schema"], READ_MODEL_SCHEMA)
+        self.assertEqual(read_model["record"]["record_id"], "run-3101-rabi")
+        self.assertEqual(read_model["primary_data"]["observed_row_count"], 5)
 
     def test_replace_existing_requires_expected_digest(self) -> None:
         with self.assertRaisesRegex(ValueError, "expected_current_read_model_digest"):

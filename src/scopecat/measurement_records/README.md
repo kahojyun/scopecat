@@ -4,12 +4,11 @@
 
 Current implementation owner for durable local Measurement Records.
 
-This module owns the live route-local APIs for creating, importing, reviewing,
-and reading local measurement records. It is not a final storage architecture,
+This module owns the live route-local APIs for importing, adopting, reading,
+and linking local measurement records. It is not a final storage architecture,
 public SDK contract, maintained product capability, or shared domain model.
-It supports the target journeys for recording/adopting measurements,
-post-run results review, and selected-record handoff, but it does not own those
-full product journeys.
+It supports the target journeys for recording/adopting measurements and
+selected-record handoff, but it does not own those full product journeys.
 
 For workflow and implementation ownership, start from
 [`../../../docs/engineering/workflow-validation-map.md`](../../../docs/engineering/workflow-validation-map.md)
@@ -34,17 +33,13 @@ capabilities:
   externally executed measurement behind user-facing facts;
 - `record_measurement_record_references_from_request(...)` and
   `list_measurement_record_references(...)` for declared context links attached
-  to a Measurement Record;
-- `review_measurement_records_from_request(...)` for local Measurement Records
-  review.
+  to a Measurement Record.
 
 These package-level APIs use typed request/value objects. Slice-level
 operations such as creation, writer integration, finalization, read-model
-projection/refresh/catalog, normalized-table summary, storage inventory,
-in-progress update, existing-record update, operator-review receipt writing,
-and static review artifact writing remain available only from their owning
-submodules for route-local composition, tests, and future cleanup. Do not treat
-those submodule entrypoints as package-level contracts.
+projection/refresh, and normalized-table summary remain available only from
+their owning submodules for route-local composition, tests, and future cleanup.
+Do not treat those submodule entrypoints as package-level contracts.
 
 ## Artifact Boundaries
 
@@ -56,9 +51,7 @@ record-local artifacts include:
   legacy-run recording, and references;
 - primary CSV bytes written through approved writer/import paths;
 - derived `record-read-model.json` as a replaceable local convenience
-  projection, not canonical storage authority;
-- local review HTML and operator-review continuation receipts written outside
-  durable record storage authority.
+  projection, not canonical storage authority.
 
 Runtime redaction is required only at declared or effective portable/export
 boundaries. Ordinary local storage, local receipts, and local review surfaces

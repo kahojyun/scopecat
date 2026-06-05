@@ -1,7 +1,8 @@
 """Measurement Records package API.
 
 The package root exposes caller-facing Measurement Records capabilities.
-Prototype slice entrypoints remain available from their owning submodules.
+Route-local helpers remain available from their owning submodules without
+becoming package-root contracts.
 """
 
 from scopecat.measurement_records.durable_import import (
@@ -9,11 +10,6 @@ from scopecat.measurement_records.durable_import import (
     MeasurementRecordDurableImportRun,
     MeasurementRecordImportSource,
     import_measurement_record_from_request,
-)
-from scopecat.measurement_records.operator_review import (
-    MeasurementRecordOperatorReviewRequest,
-    MeasurementRecordOperatorReviewRun,
-    review_measurement_records_from_request,
 )
 from scopecat.measurement_records.recorded_reference import (
     MeasurementRecordReference,
@@ -40,8 +36,6 @@ __all__ = [
     "MeasurementRecordDurableImportRequest",
     "MeasurementRecordDurableImportRun",
     "MeasurementRecordImportSource",
-    "MeasurementRecordOperatorReviewRequest",
-    "MeasurementRecordOperatorReviewRun",
     "MeasurementRecordReference",
     "MeasurementRecordReferenceRequest",
     "MeasurementRecordReferenceRun",
@@ -51,5 +45,4 @@ __all__ = [
     "record_legacy_measurement",
     "record_legacy_measurement_from_request",
     "record_measurement_record_references_from_request",
-    "review_measurement_records_from_request",
 ]
