@@ -165,7 +165,7 @@ class HandoffPackageWriteReceipt:
 
 
 @dataclass(frozen=True)
-class _PackageIdentity:
+class HandoffPackageIdentity:
     package_id: str
     display_name: str
     created_by: str
@@ -184,7 +184,7 @@ class _PackageIdentity:
 
 
 @dataclass(frozen=True)
-class _WriteRequest:
+class HandoffPackageWriteRequest:
     request_id: str
     package_dir: str
     manifest_path: str
@@ -194,7 +194,7 @@ class _WriteRequest:
 
 
 @dataclass(frozen=True)
-class _PrimaryData:
+class HandoffPackagePrimaryData:
     kind: str
     label: str
     source_path: str
@@ -225,7 +225,7 @@ class _PrimaryData:
 
 
 @dataclass(frozen=True)
-class _PreviewColumn:
+class HandoffPackagePreviewColumn:
     name: str
     role: str
     label: str
@@ -241,7 +241,7 @@ class _PreviewColumn:
 
 
 @dataclass(frozen=True)
-class _PreviewPlotCandidate:
+class HandoffPackagePreviewPlotCandidate:
     x: str
     y: str
     source: str
@@ -255,13 +255,13 @@ class _PreviewPlotCandidate:
 
 
 @dataclass(frozen=True)
-class _PreviewMetadata:
+class HandoffPackagePreviewMetadata:
     status: str
     metadata_authority: str
     data_shape_kind: str
     data_shape_axis_order: tuple[str, ...]
-    declared_columns: tuple[_PreviewColumn, ...]
-    plot_candidates: tuple[_PreviewPlotCandidate, ...]
+    declared_columns: tuple[HandoffPackagePreviewColumn, ...]
+    plot_candidates: tuple[HandoffPackagePreviewPlotCandidate, ...]
 
     def to_manifest(self) -> dict[str, Any]:
         return {
@@ -277,7 +277,7 @@ class _PreviewMetadata:
 
 
 @dataclass(frozen=True)
-class _BundleItem:
+class HandoffPackageBundleItem:
     item_id: str
     kind: str
     label: str
@@ -303,15 +303,15 @@ class _BundleItem:
 
 
 @dataclass(frozen=True)
-class _SelectedMeasurement:
+class HandoffPackageSelectedMeasurement:
     measurement_record_id: str
     legacy_data_id: int
     label: str
     experiment_type: str
     target: str
-    primary_data: _PrimaryData
-    declared_preview_metadata: _PreviewMetadata
-    default_bundle: tuple[_BundleItem, ...]
+    primary_data: HandoffPackagePrimaryData
+    declared_preview_metadata: HandoffPackagePreviewMetadata
+    default_bundle: tuple[HandoffPackageBundleItem, ...]
 
     def to_manifest(self, *, digest: str, size: int) -> dict[str, Any]:
         return {
@@ -327,7 +327,7 @@ class _SelectedMeasurement:
 
 
 @dataclass(frozen=True)
-class _LinkedContext:
+class HandoffPackageLinkedContext:
     link_id: str
     kind: str
     label: str
@@ -367,26 +367,26 @@ class _LinkedContext:
 
 
 @dataclass(frozen=True)
-class _PackageWriteSource:
-    identity: _PackageIdentity
-    request: _WriteRequest
-    selected_measurements: tuple[_SelectedMeasurement, ...]
-    linked_context: tuple[_LinkedContext, ...]
+class HandoffPackageWriteSource:
+    identity: HandoffPackageIdentity
+    request: HandoffPackageWriteRequest
+    selected_measurements: tuple[HandoffPackageSelectedMeasurement, ...]
+    linked_context: tuple[HandoffPackageLinkedContext, ...]
 
 
 @dataclass(frozen=True)
 class _CopiedSource:
-    record: _SelectedMeasurement
+    record: HandoffPackageSelectedMeasurement
     content: bytes
 
 
 @dataclass(frozen=True)
 class _CopiedLinkedContext:
-    context: _LinkedContext
+    context: HandoffPackageLinkedContext
     content: bytes
 
 
-def _linked_context_package_path(context: _LinkedContext) -> str:
+def _linked_context_package_path(context: HandoffPackageLinkedContext) -> str:
     if context.package_path is None:
         raise ValueError("packaged linked context requires package_path")
     return context.package_path
@@ -398,9 +398,25 @@ def write_package(
     source_root: Path,
     package_root: Path,
 ) -> HandoffPackageWriteReceipt:
-    """Write a directory-shaped handoff package from declared normalized sources."""
+    """Compatibility adapter for raw package-writer dictionaries."""
 
     write_source = _parse_write_source(source)
+    return write_package_from_source(
+        write_source,
+        source_root=source_root,
+        package_root=package_root,
+    )
+
+
+def write_package_from_source(
+    source: HandoffPackageWriteSource,
+    *,
+    source_root: Path,
+    package_root: Path,
+) -> HandoffPackageWriteReceipt:
+    """Write a directory-shaped handoff package from typed selected-record sources."""
+
+    _validate_references(_write_source_to_dict(source))
     source_root_resolved = _existing_directory_root(source_root, "handoff package source")
     package_root_resolved = _existing_directory_root(package_root, "handoff package destination")
     _validate_package_root_outside_source(
@@ -409,29 +425,29 @@ def write_package(
         owner="handoff package writer",
     )
 
-    copied_sources = _preflight_sources(write_source, source_root_resolved)
-    copied_contexts = _preflight_linked_context(write_source, source_root_resolved)
-    _ensure_new_targets(write_source, package_root_resolved)
-    manifest_content = _manifest_bytes(write_source, copied_sources, copied_contexts)
+    copied_sources = _preflight_sources(source, source_root_resolved)
+    copied_contexts = _preflight_linked_context(source, source_root_resolved)
+    _ensure_new_targets(source, package_root_resolved)
+    manifest_content = _manifest_bytes(source, copied_sources, copied_contexts)
 
     files = [
         (
-            write_source.request.actual_package_path(copied.record.primary_data.package_path),
+            source.request.actual_package_path(copied.record.primary_data.package_path),
             copied.content,
         )
         for copied in copied_sources
     ]
     files.extend(
         (
-            write_source.request.actual_package_path(_linked_context_package_path(copied.context)),
+            source.request.actual_package_path(_linked_context_package_path(copied.context)),
             copied.content,
         )
         for copied in copied_contexts
     )
-    files.append((write_source.request.manifest_path, manifest_content))
+    files.append((source.request.manifest_path, manifest_content))
     _write_new_files_transaction(package_root_resolved, files, label="handoff package")
 
-    return _write_receipt(write_source, copied_sources, copied_contexts, manifest_content)
+    return _write_receipt(source, copied_sources, copied_contexts, manifest_content)
 
 
 def _require_mapping(value: Any, owner: str) -> dict[str, Any]:
@@ -733,12 +749,87 @@ def _validate_references(source: dict[str, Any]) -> None:
     _validate_destination_topology(source)
 
 
-def _parse_write_source(source: dict[str, Any]) -> _PackageWriteSource:
+def _write_source_to_dict(source: HandoffPackageWriteSource) -> dict[str, Any]:
+    return {
+        "package_write_request": {
+            "request_id": source.request.request_id,
+            "approval_state": "approved",
+            "package_dir": source.request.package_dir,
+            "manifest_path": source.request.manifest_path,
+            "collision_policy": "no_overwrite",
+        },
+        "package_identity": {
+            "package_id": source.identity.package_id,
+            "display_name": source.identity.display_name,
+            "created_by": source.identity.created_by,
+            "source_export_summary_id": source.identity.source_export_summary_id,
+            "display_path": source.identity.display_path,
+            "local_path_redacted": source.identity.local_path_redacted,
+        },
+        "selected_measurements": [
+            _selected_measurement_to_dict(record) for record in source.selected_measurements
+        ],
+        "linked_context": [_linked_context_to_dict(item) for item in source.linked_context],
+    }
+
+
+def _selected_measurement_to_dict(record: HandoffPackageSelectedMeasurement) -> dict[str, Any]:
+    primary = record.primary_data
+    return {
+        "measurement_record_id": record.measurement_record_id,
+        "legacy_data_id": record.legacy_data_id,
+        "label": record.label,
+        "experiment_type": record.experiment_type,
+        "target": record.target,
+        "primary_data": {
+            "kind": primary.kind,
+            "label": primary.label,
+            "source_path": primary.source_path,
+            "expected_digest": primary.expected_digest,
+            "expected_size_bytes": primary.expected_size_bytes,
+            "package_path": primary.package_path,
+            "include_status": primary.include_status,
+            "relation": primary.relation,
+            "authority": primary.authority,
+            "format": primary.format,
+            "package_state": primary.package_state,
+            "reason": primary.reason,
+        },
+        "declared_preview_metadata": record.declared_preview_metadata.to_manifest(),
+        "default_bundle": [item.to_manifest() for item in record.default_bundle],
+    }
+
+
+def _linked_context_to_dict(item: HandoffPackageLinkedContext) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "link_id": item.link_id,
+        "kind": item.kind,
+        "label": item.label,
+        "package_path": item.package_path,
+        "include_status": item.include_status,
+        "relation": item.relation,
+        "authority": item.authority,
+        "package_state": item.package_state,
+        "reason": item.reason,
+        "linked_measurement_record_ids": list(item.linked_measurement_record_ids),
+    }
+    if item.context_reference is not None:
+        result["context_reference"] = dict(item.context_reference)
+    if item.source_path is not None:
+        result["source_path"] = item.source_path
+    if item.expected_digest is not None:
+        result["expected_digest"] = item.expected_digest
+    if item.expected_size_bytes is not None:
+        result["expected_size_bytes"] = item.expected_size_bytes
+    return result
+
+
+def _parse_write_source(source: dict[str, Any]) -> HandoffPackageWriteSource:
     _validate_references(source)
     identity = source["package_identity"]
     request = source["package_write_request"]
-    return _PackageWriteSource(
-        identity=_PackageIdentity(
+    return HandoffPackageWriteSource(
+        identity=HandoffPackageIdentity(
             package_id=identity["package_id"],
             display_name=identity["display_name"],
             created_by=identity["created_by"],
@@ -746,7 +837,7 @@ def _parse_write_source(source: dict[str, Any]) -> _PackageWriteSource:
             display_path=identity["display_path"],
             local_path_redacted=identity["local_path_redacted"],
         ),
-        request=_WriteRequest(
+        request=HandoffPackageWriteRequest(
             request_id=request["request_id"],
             package_dir=request["package_dir"],
             manifest_path=request["manifest_path"],
@@ -758,17 +849,17 @@ def _parse_write_source(source: dict[str, Any]) -> _PackageWriteSource:
     )
 
 
-def _parse_selected_measurement(record: dict[str, Any]) -> _SelectedMeasurement:
+def _parse_selected_measurement(record: dict[str, Any]) -> HandoffPackageSelectedMeasurement:
     primary = record["primary_data"]
     preview = record["declared_preview_metadata"]
     shape = preview["data_shape"]
-    return _SelectedMeasurement(
+    return HandoffPackageSelectedMeasurement(
         measurement_record_id=record["measurement_record_id"],
         legacy_data_id=record["legacy_data_id"],
         label=record["label"],
         experiment_type=record["experiment_type"],
         target=record["target"],
-        primary_data=_PrimaryData(
+        primary_data=HandoffPackagePrimaryData(
             kind=primary["kind"],
             label=primary["label"],
             source_path=primary["source_path"],
@@ -782,13 +873,13 @@ def _parse_selected_measurement(record: dict[str, Any]) -> _SelectedMeasurement:
             package_state=primary["package_state"],
             reason=primary["reason"],
         ),
-        declared_preview_metadata=_PreviewMetadata(
+        declared_preview_metadata=HandoffPackagePreviewMetadata(
             status=preview["status"],
             metadata_authority=preview["metadata_authority"],
             data_shape_kind=shape["kind"],
             data_shape_axis_order=tuple(shape["axis_order"]),
             declared_columns=tuple(
-                _PreviewColumn(
+                HandoffPackagePreviewColumn(
                     name=column["name"],
                     role=column["role"],
                     label=column["label"],
@@ -797,7 +888,7 @@ def _parse_selected_measurement(record: dict[str, Any]) -> _SelectedMeasurement:
                 for column in preview["declared_columns"]
             ),
             plot_candidates=tuple(
-                _PreviewPlotCandidate(
+                HandoffPackagePreviewPlotCandidate(
                     x=candidate["x"],
                     y=candidate["y"],
                     source=candidate["source"],
@@ -806,7 +897,7 @@ def _parse_selected_measurement(record: dict[str, Any]) -> _SelectedMeasurement:
             ),
         ),
         default_bundle=tuple(
-            _BundleItem(
+            HandoffPackageBundleItem(
                 item_id=item["item_id"],
                 kind=item["kind"],
                 label=item["label"],
@@ -822,9 +913,9 @@ def _parse_selected_measurement(record: dict[str, Any]) -> _SelectedMeasurement:
     )
 
 
-def _parse_linked_context(item: dict[str, Any]) -> _LinkedContext:
+def _parse_linked_context(item: dict[str, Any]) -> HandoffPackageLinkedContext:
     context_reference = item.get("context_reference")
-    return _LinkedContext(
+    return HandoffPackageLinkedContext(
         link_id=item["link_id"],
         kind=item["kind"],
         label=item["label"],
@@ -919,7 +1010,7 @@ def _open_parent_dir_fd(root: Path, relative_path: str, *, create: bool) -> tupl
         raise
 
 
-def _read_source_file(source_root: Path, record: _SelectedMeasurement) -> bytes:
+def _read_source_file(source_root: Path, record: HandoffPackageSelectedMeasurement) -> bytes:
     primary = record.primary_data
     source_path = primary.source_path
     _ensure_no_symlink_parents(source_root, source_path, "source")
@@ -953,7 +1044,7 @@ def _read_source_file(source_root: Path, record: _SelectedMeasurement) -> bytes:
     return content
 
 
-def _read_linked_context_file(source_root: Path, context: _LinkedContext) -> bytes:
+def _read_linked_context_file(source_root: Path, context: HandoffPackageLinkedContext) -> bytes:
     source_path = context.source_path
     if (
         context.package_state != "packaged"
@@ -993,7 +1084,7 @@ def _read_linked_context_file(source_root: Path, context: _LinkedContext) -> byt
     return content
 
 
-def _preflight_sources(source: _PackageWriteSource, source_root: Path) -> list[_CopiedSource]:
+def _preflight_sources(source: HandoffPackageWriteSource, source_root: Path) -> list[_CopiedSource]:
     return [
         _CopiedSource(record=record, content=_read_source_file(source_root, record))
         for record in source.selected_measurements
@@ -1001,7 +1092,7 @@ def _preflight_sources(source: _PackageWriteSource, source_root: Path) -> list[_
 
 
 def _preflight_linked_context(
-    source: _PackageWriteSource, source_root: Path
+    source: HandoffPackageWriteSource, source_root: Path
 ) -> list[_CopiedLinkedContext]:
     return [
         _CopiedLinkedContext(
@@ -1024,7 +1115,7 @@ def _reject_existing_paths(root: Path, relative_paths: list[str], label: str) ->
         _ensure_no_symlink_parents(root, relative_path, label)
 
 
-def _ensure_new_targets(source: _PackageWriteSource, package_root: Path) -> None:
+def _ensure_new_targets(source: HandoffPackageWriteSource, package_root: Path) -> None:
     request = source.request
     if _target_exists(package_root, request.package_dir):
         raise ValueError("handoff package target already exists")
@@ -1110,7 +1201,7 @@ def _write_new_files_transaction(
 
 
 def _manifest_bytes(
-    source: _PackageWriteSource,
+    source: HandoffPackageWriteSource,
     copied_sources: list[_CopiedSource],
     copied_contexts: list[_CopiedLinkedContext],
 ) -> bytes:
@@ -1145,7 +1236,7 @@ def _manifest_bytes(
     return json.dumps(manifest, indent=2, sort_keys=True).encode("utf-8") + b"\n"
 
 
-def _package_contents(source: _PackageWriteSource) -> list[dict[str, Any]]:
+def _package_contents(source: HandoffPackageWriteSource) -> list[dict[str, Any]]:
     contents = []
     for record in source.selected_measurements:
         item = record.default_bundle[0]
@@ -1184,7 +1275,7 @@ def _package_contents(source: _PackageWriteSource) -> list[dict[str, Any]]:
 
 
 def _write_receipt(
-    source: _PackageWriteSource,
+    source: HandoffPackageWriteSource,
     copied_sources: list[_CopiedSource],
     copied_contexts: list[_CopiedLinkedContext],
     manifest_content: bytes,

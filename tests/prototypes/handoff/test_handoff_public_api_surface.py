@@ -81,9 +81,19 @@ class HandoffPublicApiSurfaceTest(unittest.TestCase):
             "HandoffLinkedContextImportPlan",
             "HandoffMeasurement",
             "HandoffMeasurementImportPlan",
+            "HandoffPackageBundleItem",
             "HandoffPackage",
+            "HandoffPackageIdentity",
             "HandoffPackageIntegrityReport",
+            "HandoffPackageLinkedContext",
+            "HandoffPackagePreviewColumn",
+            "HandoffPackagePreviewMetadata",
+            "HandoffPackagePreviewPlotCandidate",
+            "HandoffPackagePrimaryData",
+            "HandoffPackageSelectedMeasurement",
+            "HandoffPackageWriteRequest",
             "HandoffPackageWriteReceipt",
+            "HandoffPackageWriteSource",
             "HandoffPlotSeries",
             "HandoffReceivingGateRun",
             "HandoffTable",
@@ -95,6 +105,7 @@ class HandoffPublicApiSurfaceTest(unittest.TestCase):
             "summarize_package_context_references",
             "write_inspection_artifact",
             "write_package",
+            "write_package_from_source",
         }
 
         self.assertFalse(route_local_types.intersection(handoff.__all__))

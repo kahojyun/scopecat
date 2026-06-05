@@ -59,11 +59,13 @@ dictionaries are not accepted as receiving, import-plan, selected-export,
 archive, or durable-import operation inputs; those operations compose typed
 route-local request and run objects.
 
-`write_package(...)` is the route-local writer primitive. It accepts explicit
-caller-declared package ids, measurement ids, source paths, digests, sizes, and
-linked-context facts. Those identifiers are reviewed package-input facts only;
-they are not durable Scopecat Measurement Record identity and do not replace
-record-local read models, creation manifests, or writer receipts.
+`write_package_from_source(...)` is the route-local typed writer primitive.
+`write_package(...)` remains a compatibility adapter for raw package-writer
+input. The writer accepts explicit caller-declared package ids, measurement
+ids, source paths, digests, sizes, and linked-context facts. Those identifiers
+are reviewed package-input facts only; they are not durable Scopecat
+Measurement Record identity and do not replace record-local read models,
+creation manifests, or writer receipts.
 
 `build_import_plan(...)` is a non-mutating plan. It names package members that
 could be considered for later acceptance, but accepts no destination path,

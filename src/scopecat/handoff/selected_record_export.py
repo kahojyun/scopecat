@@ -20,7 +20,20 @@ from scopecat.handoff._contracts import (
     validate_strict_child_path,
     validate_text,
 )
-from scopecat.handoff.writer import HandoffPackageWriteReceipt, write_package
+from scopecat.handoff.writer import (
+    HandoffPackageBundleItem,
+    HandoffPackageIdentity,
+    HandoffPackageLinkedContext,
+    HandoffPackagePreviewColumn,
+    HandoffPackagePreviewMetadata,
+    HandoffPackagePreviewPlotCandidate,
+    HandoffPackagePrimaryData,
+    HandoffPackageSelectedMeasurement,
+    HandoffPackageWriteReceipt,
+    HandoffPackageWriteRequest,
+    HandoffPackageWriteSource,
+    write_package_from_source,
+)
 from scopecat.measurement_records._storage import (
     ensure_no_symlink_parents as _ensure_no_symlink_parents,
 )
@@ -115,28 +128,25 @@ class SelectedMeasurementRecordExportLinkedContext:
             item["expected_size_bytes"] = self.expected_size_bytes
         return item
 
-    def to_writer_item(self, *, measurement_record_id: str) -> dict[str, Any]:
-        item = {
-            "link_id": self.link_id,
-            "kind": self.kind,
-            "label": self.label,
-            "package_path": self.package_path,
-            "include_status": "included_by_user" if self.packages_payload else "visible_excluded",
-            "relation": self.relation,
-            "authority": MANIFEST_AUTHORITY,
-            "package_state": "packaged"
-            if self.packages_payload
-            else "not_packaged_visible_reference",
-            "reason": None if self.packages_payload else self.reason,
-            "linked_measurement_record_ids": [measurement_record_id],
-        }
-        if self.packages_payload:
-            item["source_path"] = self.source_path
-            item["expected_digest"] = self.expected_digest
-            item["expected_size_bytes"] = self.expected_size_bytes
-        if self.context_reference is not None:
-            item["context_reference"] = copy.deepcopy(self.context_reference)
-        return item
+    def to_writer_item(self, *, measurement_record_id: str) -> HandoffPackageLinkedContext:
+        return HandoffPackageLinkedContext(
+            link_id=self.link_id,
+            kind=self.kind,
+            label=self.label,
+            package_path=self.package_path,
+            include_status="included_by_user" if self.packages_payload else "visible_excluded",
+            relation=self.relation,
+            authority=MANIFEST_AUTHORITY,
+            package_state="packaged" if self.packages_payload else "not_packaged_visible_reference",
+            reason=None if self.packages_payload else self.reason,
+            linked_measurement_record_ids=(measurement_record_id,),
+            source_path=self.source_path,
+            expected_digest=self.expected_digest,
+            expected_size_bytes=self.expected_size_bytes,
+            context_reference=(
+                None if self.context_reference is None else copy.deepcopy(self.context_reference)
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -508,7 +518,11 @@ def export_selected_measurement_record_from_request(
         writer_receipt_path = _writer_receipt_path(read_model)
         writer_receipt = _read_json(storage, writer_receipt_path, "writer receipt")
         writer_source = _writer_source(request, read_model, manifest, writer_receipt)
-        package_write = write_package(writer_source, source_root=storage, package_root=packages)
+        package_write = write_package_from_source(
+            writer_source,
+            source_root=storage,
+            package_root=packages,
+        )
     except ValueError as exc:
         return SelectedMeasurementRecordExportRun(
             request=request,
@@ -616,7 +630,11 @@ def export_selected_measurement_record_batch_from_request(
     try:
         records = tuple(_read_record_export_evidence(storage, record) for record in request.records)
         writer_source = _batch_writer_source(request, records)
-        package_write = write_package(writer_source, source_root=storage, package_root=packages)
+        package_write = write_package_from_source(
+            writer_source,
+            source_root=storage,
+            package_root=packages,
+        )
     except ValueError as exc:
         return SelectedMeasurementRecordBatchExportRun(
             request=request,
@@ -675,30 +693,30 @@ def _read_record_export_evidence(
 
 def _package_write_identity(
     request: SelectedMeasurementRecordExportRequest | SelectedMeasurementRecordBatchExportRequest,
-) -> dict[str, Any]:
-    return {
-        "package_id": request.package_id,
-        "display_name": request.display_name,
-        "created_by": HANDOFF_PACKAGE_CREATED_BY,
-        "source_export_summary_id": request.source_export_summary_id,
-        "display_path": request.display_path,
-        "local_path_redacted": True,
-    }
+) -> HandoffPackageIdentity:
+    return HandoffPackageIdentity(
+        package_id=request.package_id,
+        display_name=request.display_name,
+        created_by=HANDOFF_PACKAGE_CREATED_BY,
+        source_export_summary_id=request.source_export_summary_id,
+        display_path=request.display_path,
+        local_path_redacted=True,
+    )
 
 
 def _package_write_request(
     request: SelectedMeasurementRecordExportRequest | SelectedMeasurementRecordBatchExportRequest,
-) -> dict[str, str]:
-    return {
-        "request_id": request.request_id,
-        "approval_state": "approved",
-        "package_dir": request.package_dir,
-        "manifest_path": request.manifest_path,
-        "collision_policy": "no_overwrite",
-    }
+) -> HandoffPackageWriteRequest:
+    return HandoffPackageWriteRequest(
+        request_id=request.request_id,
+        package_dir=request.package_dir,
+        manifest_path=request.manifest_path,
+    )
 
 
-def _measurement_writer_item(evidence: _SelectedRecordExportEvidence) -> dict[str, Any]:
+def _measurement_writer_item(
+    evidence: _SelectedRecordExportEvidence,
+) -> HandoffPackageSelectedMeasurement:
     record = _require_dict(evidence.record_manifest, "record")
     primary_data = _require_dict(evidence.read_model, "primary_data")
     primary_path = _require_text(primary_data, "path")
@@ -721,58 +739,103 @@ def _measurement_writer_item(evidence: _SelectedRecordExportEvidence) -> dict[st
     )
 
     package_primary_path = evidence.record.package_primary_path
-    primary = {
-        "kind": "primary_data",
-        "label": "Stored primary data",
-        "source_path": primary_path,
-        "expected_digest": digest,
-        "expected_size_bytes": size_bytes,
-        "package_path": package_primary_path,
-        "include_status": "included_by_default",
-        "relation": "selected_measurement_source",
-        "authority": MANIFEST_AUTHORITY,
-        "format": "csv_table",
-        "package_state": "packaged",
-        "reason": None,
-    }
-    return {
-        "measurement_record_id": evidence.record.record_id,
-        "legacy_data_id": evidence.record.legacy_data_id,
-        "label": label,
-        "experiment_type": experiment_type,
-        "target": evidence.record.target,
-        "primary_data": primary,
-        "declared_preview_metadata": copy.deepcopy(evidence.record.declared_preview_metadata),
-        "default_bundle": [
-            {
-                "item_id": f"{evidence.record.record_id}-primary",
-                "kind": "primary_data",
-                "label": primary["label"],
-                "package_path": package_primary_path,
-                "include_status": "included_by_default",
-                "relation": "selected_measurement_source",
-                "authority": MANIFEST_AUTHORITY,
-                "package_state": "packaged",
-                "reason": None,
-            }
-        ],
-    }
+    primary = HandoffPackagePrimaryData(
+        kind="primary_data",
+        label="Stored primary data",
+        source_path=primary_path,
+        expected_digest=digest,
+        expected_size_bytes=size_bytes,
+        package_path=package_primary_path,
+        include_status="included_by_default",
+        relation="selected_measurement_source",
+        authority=MANIFEST_AUTHORITY,
+        format="csv_table",
+        package_state="packaged",
+        reason=None,
+    )
+    return HandoffPackageSelectedMeasurement(
+        measurement_record_id=evidence.record.record_id,
+        legacy_data_id=evidence.record.legacy_data_id,
+        label=label,
+        experiment_type=experiment_type,
+        target=evidence.record.target,
+        primary_data=primary,
+        declared_preview_metadata=_preview_metadata(
+            evidence.record.declared_preview_metadata,
+        ),
+        default_bundle=(
+            HandoffPackageBundleItem(
+                item_id=f"{evidence.record.record_id}-primary",
+                kind="primary_data",
+                label=primary.label,
+                package_path=package_primary_path,
+                include_status="included_by_default",
+                relation="selected_measurement_source",
+                authority=MANIFEST_AUTHORITY,
+                package_state="packaged",
+                reason=None,
+            ),
+        ),
+    )
+
+
+def _preview_metadata(source: dict[str, Any]) -> HandoffPackagePreviewMetadata:
+    data_shape = _require_dict(source, "data_shape")
+    declared_columns = source.get("declared_columns")
+    if not isinstance(declared_columns, list):
+        raise ValueError("selected record export declared_columns must be a list")
+    plot_candidates = source.get("plot_candidates")
+    if not isinstance(plot_candidates, list):
+        raise ValueError("selected record export plot_candidates must be a list")
+    axis_order = data_shape.get("axis_order")
+    if not isinstance(axis_order, list):
+        raise ValueError("selected record export data_shape axis_order must be a list")
+    return HandoffPackagePreviewMetadata(
+        status=_require_text(source, "status"),
+        metadata_authority=_require_text(source, "metadata_authority"),
+        data_shape_kind=_require_text(data_shape, "kind"),
+        data_shape_axis_order=tuple(
+            validate_public_identifier(item, "selected record export data_shape axis")
+            for item in axis_order
+        ),
+        declared_columns=tuple(_preview_column(column) for column in declared_columns),
+        plot_candidates=tuple(_preview_plot_candidate(candidate) for candidate in plot_candidates),
+    )
+
+
+def _preview_column(source: Any) -> HandoffPackagePreviewColumn:
+    column = _require_mapping(source, "selected record export preview column")
+    return HandoffPackagePreviewColumn(
+        name=_require_text(column, "name"),
+        role=_require_text(column, "role"),
+        label=_require_text(column, "label"),
+        unit=_require_text(column, "unit"),
+    )
+
+
+def _preview_plot_candidate(source: Any) -> HandoffPackagePreviewPlotCandidate:
+    candidate = _require_mapping(source, "selected record export preview plot candidate")
+    return HandoffPackagePreviewPlotCandidate(
+        x=_require_text(candidate, "x"),
+        y=_require_text(candidate, "y"),
+        source=_require_text(candidate, "source"),
+    )
 
 
 def _batch_writer_source(
     request: SelectedMeasurementRecordBatchExportRequest,
     records: tuple[_SelectedRecordExportEvidence, ...],
-) -> dict[str, Any]:
-    return {
-        "package_write_request": _package_write_request(request),
-        "package_identity": _package_write_identity(request),
-        "selected_measurements": [_measurement_writer_item(record) for record in records],
-        "linked_context": [
+) -> HandoffPackageWriteSource:
+    return HandoffPackageWriteSource(
+        request=_package_write_request(request),
+        identity=_package_write_identity(request),
+        selected_measurements=tuple(_measurement_writer_item(record) for record in records),
+        linked_context=tuple(
             item.to_writer_item(measurement_record_id=record.record.record_id)
             for record in records
             for item in record.record.linked_context
-        ],
-    }
+        ),
+    )
 
 
 def _writer_source(
@@ -780,22 +843,22 @@ def _writer_source(
     read_model: dict[str, Any],
     manifest: dict[str, Any],
     writer_receipt: dict[str, Any],
-) -> dict[str, Any]:
+) -> HandoffPackageWriteSource:
     evidence = _SelectedRecordExportEvidence(
         record=request.to_batch_record(),
         read_model=read_model,
         record_manifest=manifest,
         writer_receipt=writer_receipt,
     )
-    return {
-        "package_write_request": _package_write_request(request),
-        "package_identity": _package_write_identity(request),
-        "selected_measurements": [_measurement_writer_item(evidence)],
-        "linked_context": [
+    return HandoffPackageWriteSource(
+        request=_package_write_request(request),
+        identity=_package_write_identity(request),
+        selected_measurements=(_measurement_writer_item(evidence),),
+        linked_context=tuple(
             item.to_writer_item(measurement_record_id=evidence.record.record_id)
             for item in evidence.record.linked_context
-        ],
-    }
+        ),
+    )
 
 
 def _validate_record_continuity(
