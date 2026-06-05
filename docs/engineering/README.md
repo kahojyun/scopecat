@@ -41,7 +41,7 @@ new durable source of truth:
 - discovery docs only as evidence, not as live implementation ownership.
 
 Before promoting planning or validation material into a new decision, apply the
-decision granularity rule in [`../decisions/README.md`](../decisions/README.md).
+decision granularity rule in [`../adr/README.md`](../adr/README.md).
 Roadmap questions, PR scope, hardening inventories, and review findings should
 stay in the active owner unless they accept, reject, supersede, or defer a
 durable boundary that future work must obey.

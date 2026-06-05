@@ -1,8 +1,8 @@
-# DEC-008: Keep Experiment Code Context Separate From Runtime And Execution Ownership
+# ADR-0005: Keep Experiment Code Context Separate From Runtime And Execution Ownership
 
 ## Status
 
-Decision status: accepted.
+ADR status: accepted.
 
 Date: not recorded.
 

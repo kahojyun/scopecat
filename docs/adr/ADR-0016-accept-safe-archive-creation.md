@@ -1,45 +1,45 @@
-# DEC-024: Accept Safe Archive Creation
+# ADR-0016: Accept Safe Archive Creation
 
 ## Status
 
-Decision status: accepted.
+ADR status: accepted.
 
 Date: 2026-06-04.
 
 ## Context
 
-DEC-021 accepts safe zip archive materialization into a DEC-010
+ADR-0015 accepts safe zip archive materialization into a ADR-0006
 directory-manifest package of record. That gives the receiving side a safe
 staging path, but users still need an external tool to create the zip transport
 archive from an existing package directory.
 
-Archive creation should not change artifact authority. The DEC-010 directory
+Archive creation should not change artifact authority. The ADR-0006 directory
 package remains the package of record, archive bytes remain transport only, and
 receiving must still materialize and open the package before review or import.
 
 ## Decision
 
-Accept narrow zip archive creation from an already-openable DEC-010
+Accept narrow zip archive creation from an already-openable ADR-0006
 directory-manifest package:
 
 - only zip archive output is created;
 - archive bytes remain a transport container only;
-- the source DEC-010 directory-manifest package remains the package of record;
+- the source ADR-0006 directory-manifest package remains the package of record;
 - creation writes to a caller-provided archive path under `no_overwrite`;
-- the source package must open through the DEC-010 package opener before archive
+- the source package must open through the ADR-0006 package opener before archive
   creation;
 - archived member paths must be package-relative under the package id root;
 - symlink package members, metadata member paths, unsafe member paths, missing
   manifests, and archive destination collisions block creation;
-- a created archive should round-trip through DEC-021 materialization into an
-  openable DEC-010 package.
+- a created archive should round-trip through ADR-0015 materialization into an
+  openable ADR-0006 package.
 
 ## Scope
 
 This decision applies to:
 
 - JNY-001 handoff package transfer ergonomics;
-- zip transport archive creation from DEC-010 directory-manifest packages;
+- zip transport archive creation from ADR-0006 directory-manifest packages;
 - route-local compatibility and prototype tests for archive creation receipts.
 
 This decision does not apply to:
@@ -55,7 +55,7 @@ This decision does not apply to:
 ## Consequences
 
 Users can produce one zip file for transfer without making that file the package
-authority. Receiving workflows still materialize the archive into the DEC-010
+authority. Receiving workflows still materialize the archive into the ADR-0006
 directory package before package open, integrity review, receiving gate, import
 planning, or durable import.
 
@@ -72,7 +72,7 @@ unclaimed.
 - Treat the zip file as the package artifact of record. Rejected because that
   would require archive-byte authority not accepted here.
 - Create archives without opening the package first. Rejected because archive
-  creation must start from an openable DEC-010 package, not arbitrary folders.
+  creation must start from an openable ADR-0006 package, not arbitrary folders.
 
 ## Supersession
 
@@ -96,8 +96,8 @@ Revisit this decision when:
 
 ## Related Evidence
 
-- [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
-- [`DEC-021-accept-safe-archive-materialization.md`](DEC-021-accept-safe-archive-materialization.md)
+- [`ADR-0006-package-format-directory-manifest.md`](ADR-0006-package-format-directory-manifest.md)
+- [`ADR-0015-accept-safe-archive-materialization.md`](ADR-0015-accept-safe-archive-materialization.md)
 - [`../../engineering/prototype-boundaries/handoff.md`](../engineering/prototype-boundaries/handoff.md)
 - [`../../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
 - [`../../../src/scopecat/handoff/archive_materialization.py`](../../src/scopecat/handoff/archive_materialization.py)

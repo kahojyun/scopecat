@@ -19,14 +19,14 @@ Read it with:
   import, and storage authority;
 - [`../../../src/scopecat/handoff/README.md`](../../../src/scopecat/handoff/README.md)
   for the live handoff API surface;
-- [`../../decisions/DEC-016-defer-linked-context-payload-import.md`](../../decisions/DEC-016-defer-linked-context-payload-import.md)
+- [`../../adr/ADR-0012-defer-linked-context-payload-import.md`](../../adr/ADR-0012-defer-linked-context-payload-import.md)
   for the current linked-context payload import deferral;
-- [`../../decisions/DEC-017-defer-batch-durable-import.md`](../../decisions/DEC-017-defer-batch-durable-import.md)
+- [`../../adr/ADR-0013-defer-batch-durable-import.md`](../../adr/ADR-0013-defer-batch-durable-import.md)
   for the current batch durable import deferral;
-- [`../../decisions/DEC-020-defer-archive-package-implementation.md`](../../decisions/DEC-020-defer-archive-package-implementation.md)
+- [`../../adr/ADR-0014-defer-archive-authority-and-archive-backed-durable-import.md`](../../adr/ADR-0014-defer-archive-authority-and-archive-backed-durable-import.md)
   for the current archive-backed durable import and archive-authority
   deferral;
-- [`../../decisions/DEC-025-defer-existing-record-update-and-final-storage-schema.md`](../../decisions/DEC-025-defer-existing-record-update-and-final-storage-schema.md)
+- [`../../adr/ADR-0017-defer-existing-record-update-and-final-storage-schema.md`](../../adr/ADR-0017-defer-existing-record-update-and-final-storage-schema.md)
   for the current new-record-only durable import and storage-schema deferral.
 
 ## Current Boundary
@@ -75,12 +75,12 @@ Public durable-import API functions promote route contract failures to
 portable/export artifact, retry authorization, storage mutation authority, or
 public error schema.
 
-DEC-017 keeps multi-measurement package plans as review and coordination
+ADR-0013 keeps multi-measurement package plans as review and coordination
 evidence only. They do not authorize one durable batch mutation until a
 separate destination, conflict, partial-success, rollback, and retry contract
 exists.
 
-DEC-025 keeps handoff durable import new-record-only. The adapter does not
+ADR-0017 keeps handoff durable import new-record-only. The adapter does not
 import into existing records, attach to pre-created shells, replace manifests,
 merge primary data, or publish a final storage schema for Measurement Records.
 
@@ -109,7 +109,7 @@ package and ready import-plan path:
 
 Linked context remains review context. Optional managed context-reference
 metadata may be preserved in local package, import-plan, and handoff
-durable-import review surfaces. DEC-016 keeps packaged linked-context payloads
+durable-import review surfaces. ADR-0012 keeps packaged linked-context payloads
 out of Measurement Records storage until a separate context artifact import
 contract exists.
 
@@ -131,8 +131,8 @@ The durable-import adapter may consume declared digest integrity from the
 reviewed package path, but it does not verify external authenticity, trusted
 source, package provenance, or trust-gated mutation policy.
 
-DEC-021 and DEC-024 accept zip archive materialization and creation as transport
-steps around the DEC-010 package of record. The durable-import adapter consumes
+ADR-0015 and ADR-0016 accept zip archive materialization and creation as transport
+steps around the ADR-0006 package of record. The durable-import adapter consumes
 an already-opened directory manifest package; it does not extract archives,
 treat archive bytes as durable-import authority, or own archive materialization
 cleanup.
@@ -159,15 +159,15 @@ protection.
 
 This boundary does not accept:
 
-- importing multiple measurements in one durable operation beyond DEC-017;
+- importing multiple measurements in one durable operation beyond ADR-0013;
 - importing into an existing record or attaching to a pre-created shell;
 - using the older `measurement_record_directory_candidate_v0` storage layout;
 - primary-data merge, compaction, or append visibility as canonical import
   behavior;
 - final record-id generation policy;
 - manifest replacement or canonical-current-state manifest updates;
-- linked-context payload materialization beyond DEC-016;
-- archive extraction beyond DEC-020;
+- linked-context payload materialization beyond ADR-0012;
+- archive extraction beyond ADR-0014;
 - external authenticity or package trust policy;
 - adapter discovery, drop-folder protocol, service API, or stable public
   adapter API;
@@ -208,9 +208,9 @@ uv run ruff format --check .
 Advance this boundary only when a named workflow requires a broader behavior.
 Likely separate decisions include:
 
-- batch package receiving/import and partial-success policy beyond DEC-017;
-- package archive format beyond DEC-020;
-- linked-context payload import beyond DEC-016;
-- existing-record update/import conflict behavior beyond DEC-025;
+- batch package receiving/import and partial-success policy beyond ADR-0013;
+- package archive format beyond ADR-0014;
+- linked-context payload import beyond ADR-0012;
+- existing-record update/import conflict behavior beyond ADR-0017;
 - persisted receiving review state or GUI durable review workflow;
 - stronger recovery, locking, or concurrent storage behavior.

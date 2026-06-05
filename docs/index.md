@@ -14,7 +14,7 @@ docs/
   brownfield/ current-state assessment, transition architecture, migration
               strategy, and migration roadmap
   architecture/ initial domain model, context map, and architecture boundaries
-  decisions/  decision register, decision taxonomy, and template
+  adr/       architecture decision records, register, and template
   engineering/ delivery maturity model, workflow validation map,
                implementation register, and prototype boundaries
   testing/    fixture and expected-output policy
@@ -44,9 +44,9 @@ docs/
 | [`architecture/domain-model.md`](architecture/domain-model.md) | Initial candidate domain model and concept maturity labels. |
 | [`architecture/context-map.md`](architecture/context-map.md) | Bounded contexts, ownership posture, and anti-corruption relationships. |
 | [`architecture/artifact-boundary-and-redaction.md`](architecture/artifact-boundary-and-redaction.md) | Artifact boundary and redaction architecture policy. |
-| [`decisions/README.md`](decisions/README.md) | Decision-record navigation and governance. |
-| [`decisions/register.md`](decisions/register.md) | Current product, architecture, engineering, discovery, and operational decision index. |
-| [`decisions/template.md`](decisions/template.md) | Template for new decision records. |
+| [`adr/README.md`](adr/README.md) | Architecture decision record navigation and governance. |
+| [`adr/register.md`](adr/register.md) | Current architecture decision record index. |
+| [`adr/template.md`](adr/template.md) | Template for new architecture decision records. |
 | [`engineering/README.md`](engineering/README.md) | Engineering governance navigation for maturity, workflow, capability, and promotion rules. |
 | [`engineering/delivery-maturity-model.md`](engineering/delivery-maturity-model.md) | Product objects, maturity states, validation methods, promotion rules, and drift control. |
 | [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md) | Use case validation state, evidence scopes, missing seams, and next validation questions. |

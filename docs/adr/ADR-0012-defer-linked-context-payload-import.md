@@ -1,15 +1,15 @@
-# DEC-016: Defer Linked Context Payload Import
+# ADR-0012: Defer Linked Context Payload Import
 
 ## Status
 
-Decision status: accepted.
+ADR status: accepted.
 
 Date: 2026-06-03.
 
 ## Context
 
-DEC-012 allows explicitly declared linked-context payload files to be packaged
-under `context/`. DEC-014 extends that package-member path to selected stored
+ADR-0008 allows explicitly declared linked-context payload files to be packaged
+under `context/`. ADR-0010 extends that package-member path to selected stored
 Measurement Record export when the export request declares record-local source
 bytes. Package opening and integrity observation can therefore review linked
 payloads as package contents.
@@ -46,9 +46,9 @@ decision and implementation slice that defines, at minimum:
 
 This decision applies to:
 
-- DEC-010 directory manifest packages;
-- DEC-012 linked-context package members;
-- DEC-014 selected-record linked-context payload export;
+- ADR-0006 directory manifest packages;
+- ADR-0008 linked-context package members;
+- ADR-0010 selected-record linked-context payload export;
 - receiving gate and import-plan output;
 - handoff durable-import adaptation to Measurement Records storage.
 
@@ -101,8 +101,8 @@ Revisit this decision when:
 
 ## Related Evidence
 
-- [`DEC-012-linked-context-payload-packaging.md`](DEC-012-linked-context-payload-packaging.md)
-- [`DEC-014-selected-record-linked-context-payload-export.md`](DEC-014-selected-record-linked-context-payload-export.md)
+- [`ADR-0008-linked-context-payload-packaging.md`](ADR-0008-linked-context-payload-packaging.md)
+- [`ADR-0010-selected-record-linked-context-payload-export.md`](ADR-0010-selected-record-linked-context-payload-export.md)
 - [`../../engineering/prototype-boundaries/handoff.md`](../engineering/prototype-boundaries/handoff.md)
 - [`../../engineering/prototype-boundaries/handoff-durable-import-storage.md`](../engineering/prototype-boundaries/handoff-durable-import-storage.md)
 - [`../../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)

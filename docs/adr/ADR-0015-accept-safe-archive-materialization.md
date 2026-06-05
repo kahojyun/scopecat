@@ -1,18 +1,18 @@
-# DEC-021: Accept Safe Archive Materialization
+# ADR-0015: Accept Safe Archive Materialization
 
 ## Status
 
-Decision status: accepted.
+ADR status: accepted.
 
 ## Context
 
-DEC-020 deferred archive package implementation until archive artifact authority,
+ADR-0014 deferred archive package implementation until archive artifact authority,
 safe staging, and materialization review contracts existed. JNY-001 now has a
 directory-manifest package of record, receiving review, import planning, durable
 import, and selected-record export hardening. Moving a package between machines
 as one archive file must not treat archive bytes as the package of record.
 
-DEC-024 later accepts safe zip archive creation from an openable DEC-010
+ADR-0016 later accepts safe zip archive creation from an openable ADR-0006
 directory package. This decision remains the receiving-side materialization
 boundary.
 
@@ -22,7 +22,7 @@ Accept a narrow archive materialization implementation candidate:
 
 - only zip archive input is materialized;
 - archive bytes remain a transport container only;
-- the materialized DEC-010 directory-manifest package remains the package of
+- the materialized ADR-0006 directory-manifest package remains the package of
   record;
 - materialization writes into a caller-provided empty destination under
   `no_overwrite`;
@@ -31,14 +31,14 @@ Accept a narrow archive materialization implementation candidate:
   members, hidden metadata members, missing manifests, and destination
   collisions block materialization;
 - failed materialization removes the partial package directory when possible;
-- the materialized package must open through the DEC-010 package opener before
+- the materialized package must open through the ADR-0006 package opener before
   the receipt reports success.
 
 ## Non-Goals
 
 This decision does not implement:
 
-- archive creation, which is accepted separately by DEC-024;
+- archive creation, which is accepted separately by ADR-0016;
 - external authenticity or trusted-source validation;
 - archive-backed durable import;
 - package acceptance;
@@ -47,7 +47,7 @@ This decision does not implement:
 
 ## Consequences
 
-Receiving workflows may now stage a zip transport archive into a DEC-010 package
+Receiving workflows may now stage a zip transport archive into a ADR-0006 package
 directory before package open and integrity review. Existing directory package
 flows remain valid. Durable import still operates on reviewed package/import-plan
 evidence rather than archive bytes.
@@ -64,6 +64,6 @@ evidence rather than archive bytes.
 
 ## Related
 
-- [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
-- [`DEC-020-defer-archive-package-implementation.md`](DEC-020-defer-archive-package-implementation.md)
-- [`DEC-024-accept-safe-archive-creation.md`](DEC-024-accept-safe-archive-creation.md)
+- [`ADR-0006-package-format-directory-manifest.md`](ADR-0006-package-format-directory-manifest.md)
+- [`ADR-0014-defer-archive-authority-and-archive-backed-durable-import.md`](ADR-0014-defer-archive-authority-and-archive-backed-durable-import.md)
+- [`ADR-0016-accept-safe-archive-creation.md`](ADR-0016-accept-safe-archive-creation.md)

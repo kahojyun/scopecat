@@ -20,9 +20,9 @@ for active implementation ownership.
 | --- | --- | --- |
 | `environment-operation-prototype-plan.md` | Environment-operation prototype objective, scope, non-claims, and stop conditions. | Workflow validation map and product capability map until a named brownfield entrypoint reopens the capability. |
 | `environment-operation-prototype-readiness.md` | Readiness checkpoint that ended the broad environment-operation prototype line. | Workflow validation map and product capability map. |
-| `handoff-prototype-plan.md` | Handoff prototype objective, scope, fixture policy, stop conditions, and promotion criteria. | Handoff module README, handoff prototype-boundary note, and DEC-010 through DEC-025. |
+| `handoff-prototype-plan.md` | Handoff prototype objective, scope, fixture policy, stop conditions, and promotion criteria. | Handoff module README, handoff prototype-boundary note, and ADR-0006 through ADR-0017. |
 | `handoff-prototype-readiness.md` | Readiness checkpoint that ended the broad handoff prototype line. | Handoff module README and handoff prototype-boundary note. |
-| `handoff-candidate-storage-acceptance.md` | Retired first candidate storage acceptance mutation and rollback decision. | Handoff durable-import boundary, Measurement Records boundary, and DEC-025. |
+| `handoff-candidate-storage-acceptance.md` | Retired first candidate storage acceptance mutation and rollback decision. | Handoff durable-import boundary, Measurement Records boundary, and ADR-0017. |
 | `handoff-storage-import-requirements-synthesis.md` | Pre-durable-import storage/import requirements synthesis. | Handoff durable-import boundary and Measurement Records module README. |
 | `parameter-state-prototype-retirement.md` | Retired parameter-state prototype, overfit fixture shape, and retained domain concepts. | Domain model, context map, and future entrypoint-specific design if parameter state is reopened. |
 

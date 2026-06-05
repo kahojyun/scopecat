@@ -1,8 +1,8 @@
-# DEC-006: Separate Pre-Run Context Review From Run-Start Authority
+# ADR-0004: Separate Pre-Run Context Review From Run-Start Authority
 
 ## Status
 
-Decision status: accepted.
+ADR status: accepted.
 
 Date: not recorded.
 

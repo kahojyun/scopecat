@@ -1,8 +1,8 @@
-# DEC-003: Import Source Anti-Corruption Boundary
+# ADR-0002: Import Source Anti-Corruption Boundary
 
 ## Status
 
-Decision status: accepted.
+ADR status: accepted.
 
 This note records the current measurement import/source-reference boundary
 earned by the validated adapter-authored

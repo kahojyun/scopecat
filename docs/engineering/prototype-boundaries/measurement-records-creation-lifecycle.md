@@ -66,7 +66,7 @@ Current authority model:
 The prototype keeps manifest replacement, existing-record merge import, broad
 conflict resolution, stale-lock cleanup, crash recovery, and concurrent storage
 mutation outside the current boundary.
-For JNY-001 Share A Selected Measurement production readiness, DEC-025 keeps
+For JNY-001 Share A Selected Measurement production readiness, ADR-0017 keeps
 selected-record export source-storage-read-only and handoff durable import
 new-record-only; it does not promote existing-record merge import, completed
 record finalization, manifest replacement, or final public storage schema
@@ -98,7 +98,7 @@ file. Create or update a narrower boundary note when a workflow needs one of:
 
 - selected stored Measurement Record to single-measurement handoff package
   export;
-- existing-record merge import or manifest replacement beyond DEC-025;
+- existing-record merge import or manifest replacement beyond ADR-0017;
 - stronger storage recovery, locking, or concurrency behavior;
 - durable running-monitor decisions such as saved selections, saved fit
   results, or GUI state persistence;

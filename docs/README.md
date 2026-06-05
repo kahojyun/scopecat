@@ -16,8 +16,8 @@ flat navigation map when you already know which owner you need.
   [`brownfield/README.md`](brownfield/README.md)
 - Initial domain model, context map, and architecture boundaries:
   [`architecture/README.md`](architecture/README.md)
-- Decision index and decision-record rules:
-  [`decisions/README.md`](decisions/README.md)
+- Architecture decision record index and rules:
+  [`adr/README.md`](adr/README.md)
 - Cross-document current-state to implementation traceability:
   [`traceability.md`](traceability.md)
 - Engineering maturity, validation, and implementation ownership:
@@ -49,8 +49,8 @@ For product vision, outcomes, and implementation direction:
    register.
 7. [`architecture/README.md`](architecture/README.md) for the initial
    architecture model, domain concepts, context map, and boundary lens.
-8. [`decisions/README.md`](decisions/README.md) for decision-record admission
-   rules, flat record layout, current decision status, and templates.
+8. [`adr/README.md`](adr/README.md) for ADR admission rules, flat record
+   layout, current ADR status, and templates.
 9. [`traceability.md`](traceability.md) for current-state to target journey,
    capability, validation, and implementation traceability.
 10. [`engineering/README.md`](engineering/README.md) for delivery maturity,

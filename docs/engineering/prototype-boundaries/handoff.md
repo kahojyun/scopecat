@@ -18,30 +18,30 @@ Read it with:
   for live API orientation;
 - [`handoff-durable-import-storage.md`](handoff-durable-import-storage.md) for
   the separate durable Measurement Records import adapter boundary;
-- [`../../decisions/DEC-010-package-format-directory-manifest.md`](../../decisions/DEC-010-package-format-directory-manifest.md)
+- [`../../adr/ADR-0006-package-format-directory-manifest.md`](../../adr/ADR-0006-package-format-directory-manifest.md)
   for the current package format decision;
-- [`../../decisions/DEC-011-package-trust-authenticity-posture.md`](../../decisions/DEC-011-package-trust-authenticity-posture.md)
+- [`../../adr/ADR-0007-package-trust-authenticity-posture.md`](../../adr/ADR-0007-package-trust-authenticity-posture.md)
   for the current package trust/authenticity posture;
-- [`../../decisions/DEC-012-linked-context-payload-packaging.md`](../../decisions/DEC-012-linked-context-payload-packaging.md)
+- [`../../adr/ADR-0008-linked-context-payload-packaging.md`](../../adr/ADR-0008-linked-context-payload-packaging.md)
   for the current package-writer linked-context payload boundary;
-- [`../../decisions/DEC-013-batch-receiving-import-planning.md`](../../decisions/DEC-013-batch-receiving-import-planning.md)
+- [`../../adr/ADR-0009-batch-receiving-import-planning.md`](../../adr/ADR-0009-batch-receiving-import-planning.md)
   for the current batch receiving/import planning boundary;
-- [`../../decisions/DEC-014-selected-record-linked-context-payload-export.md`](../../decisions/DEC-014-selected-record-linked-context-payload-export.md)
+- [`../../adr/ADR-0010-selected-record-linked-context-payload-export.md`](../../adr/ADR-0010-selected-record-linked-context-payload-export.md)
   for the current selected-record linked-context payload export boundary;
-- [`../../decisions/DEC-015-selected-record-batch-package-export.md`](../../decisions/DEC-015-selected-record-batch-package-export.md)
+- [`../../adr/ADR-0011-selected-record-batch-package-export.md`](../../adr/ADR-0011-selected-record-batch-package-export.md)
   for the current selected-record batch export boundary;
-- [`../../decisions/DEC-016-defer-linked-context-payload-import.md`](../../decisions/DEC-016-defer-linked-context-payload-import.md)
+- [`../../adr/ADR-0012-defer-linked-context-payload-import.md`](../../adr/ADR-0012-defer-linked-context-payload-import.md)
   for the current durable linked-context payload import deferral;
-- [`../../decisions/DEC-017-defer-batch-durable-import.md`](../../decisions/DEC-017-defer-batch-durable-import.md)
+- [`../../adr/ADR-0013-defer-batch-durable-import.md`](../../adr/ADR-0013-defer-batch-durable-import.md)
   for the current batch durable import deferral;
-- [`../../decisions/DEC-020-defer-archive-package-implementation.md`](../../decisions/DEC-020-defer-archive-package-implementation.md)
+- [`../../adr/ADR-0014-defer-archive-authority-and-archive-backed-durable-import.md`](../../adr/ADR-0014-defer-archive-authority-and-archive-backed-durable-import.md)
   for the current archive-backed durable import and archive-authority
   deferral;
-- [`../../decisions/DEC-021-accept-safe-archive-materialization.md`](../../decisions/DEC-021-accept-safe-archive-materialization.md)
+- [`../../adr/ADR-0015-accept-safe-archive-materialization.md`](../../adr/ADR-0015-accept-safe-archive-materialization.md)
   for the current safe archive materialization boundary;
-- [`../../decisions/DEC-024-accept-safe-archive-creation.md`](../../decisions/DEC-024-accept-safe-archive-creation.md)
+- [`../../adr/ADR-0016-accept-safe-archive-creation.md`](../../adr/ADR-0016-accept-safe-archive-creation.md)
   for the current safe archive creation boundary;
-- [`../../decisions/DEC-025-defer-existing-record-update-and-final-storage-schema.md`](../../decisions/DEC-025-defer-existing-record-update-and-final-storage-schema.md)
+- [`../../adr/ADR-0017-defer-existing-record-update-and-final-storage-schema.md`](../../adr/ADR-0017-defer-existing-record-update-and-final-storage-schema.md)
   for the current source-storage-read-only export and new-record-only durable
   import boundary;
 - [`../workflow-validation-map.md`](../workflow-validation-map.md) for the
@@ -180,27 +180,27 @@ The package directory and `package-manifest.json` are portable handoff
 artifacts. Package contents must use package-relative paths and validated
 managed references at the package/export boundary.
 
-[`DEC-010`](../../decisions/DEC-010-package-format-directory-manifest.md) keeps this
+[`ADR-0006`](../../adr/ADR-0006-package-format-directory-manifest.md) keeps this
 directory manifest package as the current JNY-001 Share A Selected Measurement
 production vertical slice package format. Archive bytes are transport
 containers; the materialized directory package remains the package of record.
 
-[`DEC-020`](../../decisions/DEC-020-defer-archive-package-implementation.md)
+[`ADR-0014`](../../adr/ADR-0014-defer-archive-authority-and-archive-backed-durable-import.md)
 kept archive implementation deferred until archive artifact authority,
 extraction safety, staging, and materialization review contracts existed.
-[`DEC-021`](../../decisions/DEC-021-accept-safe-archive-materialization.md)
+[`ADR-0015`](../../adr/ADR-0015-accept-safe-archive-materialization.md)
 accepts a narrow zip materialization candidate.
 `materialize_handoff_archive_package_from_request()` materializes a zip
-transport archive into a DEC-010 directory-manifest package after path,
+transport archive into a ADR-0006 directory-manifest package after path,
 duplicate-member, symlink, metadata-member, manifest, collision, cleanup, and
 package-open checks.
-[`DEC-024`](../../decisions/DEC-024-accept-safe-archive-creation.md)
+[`ADR-0016`](../../adr/ADR-0016-accept-safe-archive-creation.md)
 accepts `create_handoff_archive_package_from_request()` for creating zip
-transport archives from openable DEC-010 packages under no-overwrite.
+transport archives from openable ADR-0006 packages under no-overwrite.
 Signature/trust validation and archive-backed durable import remain out of
 scope.
 
-[`DEC-011`](../../decisions/DEC-011-package-trust-authenticity-posture.md)
+[`ADR-0007`](../../adr/ADR-0007-package-trust-authenticity-posture.md)
 keeps this package as declared-integrity local-review evidence. Declared digest
 integrity may gate receiving/import planning, but external authenticity, sender
 trust, and scientific validity remain unclaimed.
@@ -215,34 +215,34 @@ may expose linked-context references for review, but it does not recursively
 traverse references, restore environments, or import linked context into
 durable Measurement Records storage.
 
-[`DEC-012`](../../decisions/DEC-012-linked-context-payload-packaging.md)
+[`ADR-0008`](../../adr/ADR-0008-linked-context-payload-packaging.md)
 narrows that posture for the generic package writer: explicitly declared
 linked-context payload files may be packaged under `context/`, opened as
 `packaged_payload`, and integrity-observed. Import planning and durable import
 still do not import linked-context payloads.
 
-[`DEC-014`](../../decisions/DEC-014-selected-record-linked-context-payload-export.md)
+[`ADR-0010`](../../adr/ADR-0010-selected-record-linked-context-payload-export.md)
 extends that posture to selected stored Measurement Record export only when the
 export request explicitly declares a record-local source path, `context/`
 package path, digest, and byte size. Recorded linked references remain
 reference-only review facts unless the request carries that payload authority.
 
-[`DEC-013`](../../decisions/DEC-013-batch-receiving-import-planning.md)
+[`ADR-0009`](../../adr/ADR-0009-batch-receiving-import-planning.md)
 allows non-mutating import plans to list multiple package measurements. Durable
 handoff import remains one planned measurement per storage mutation.
 
-[`DEC-016`](../../decisions/DEC-016-defer-linked-context-payload-import.md)
+[`ADR-0012`](../../adr/ADR-0012-defer-linked-context-payload-import.md)
 keeps linked-context payload import deferred. Packaged linked context remains
 reviewable package content; import planning keeps `keep_reference_only` and
 durable import does not materialize linked payloads into Measurement Records
 storage.
 
-[`DEC-017`](../../decisions/DEC-017-defer-batch-durable-import.md)
+[`ADR-0013`](../../adr/ADR-0013-defer-batch-durable-import.md)
 keeps batch durable import deferred. Multi-measurement packages may be reviewed
 and planned together, but durable import remains one planned measurement per
 storage mutation.
 
-[`DEC-025`](../../decisions/DEC-025-defer-existing-record-update-and-final-storage-schema.md)
+[`ADR-0017`](../../adr/ADR-0017-defer-existing-record-update-and-final-storage-schema.md)
 keeps selected stored-record export source-storage-read-only and receiving
 durable import new-record-only. Existing-record update, merge import, manifest
 replacement, primary-data compaction, post-run results review, and final storage
@@ -257,8 +257,8 @@ when one workflow-level regression proves this full path:
 ```text
 source-side durable Measurement Record
   -> selected stored-record package export
-  -> safe zip archive creation from the DEC-010 package of record
-  -> safe zip archive materialization back into the DEC-010 package of record
+  -> safe zip archive creation from the ADR-0006 package of record
+  -> safe zip archive materialization back into the ADR-0006 package of record
   -> read-only receiving package open
   -> receiving gate
   -> non-mutating import plan
@@ -297,33 +297,33 @@ Acceptance for that slice is intentionally narrow:
 This slice is not production readiness for the whole handoff capability.
 Persisted GUI/review state, public SDK contracts, and final storage schemas
 remain separate decisions. Zip transport archive materialization into the
-DEC-010 directory package of record is governed by
-[`DEC-021`](../../decisions/DEC-021-accept-safe-archive-materialization.md),
+ADR-0006 directory package of record is governed by
+[`ADR-0015`](../../adr/ADR-0015-accept-safe-archive-materialization.md),
 while archive creation is governed by
-[`DEC-024`](../../decisions/DEC-024-accept-safe-archive-creation.md).
+[`ADR-0016`](../../adr/ADR-0016-accept-safe-archive-creation.md).
 Archive-backed durable import and broader archive semantics remain outside this
 boundary.
 Generic writer linked-context payload packaging without import is governed by
-[`DEC-012`](../../decisions/DEC-012-linked-context-payload-packaging.md).
+[`ADR-0008`](../../adr/ADR-0008-linked-context-payload-packaging.md).
 Batch import planning without batch durable mutation is governed by
-[`DEC-013`](../../decisions/DEC-013-batch-receiving-import-planning.md).
+[`ADR-0009`](../../adr/ADR-0009-batch-receiving-import-planning.md).
 Selected-record linked-context payload export is governed by
-[`DEC-014`](../../decisions/DEC-014-selected-record-linked-context-payload-export.md).
+[`ADR-0010`](../../adr/ADR-0010-selected-record-linked-context-payload-export.md).
 Selected-record batch export without batch durable import is governed by
-[`DEC-015`](../../decisions/DEC-015-selected-record-batch-package-export.md).
+[`ADR-0011`](../../adr/ADR-0011-selected-record-batch-package-export.md).
 Linked-context payload import deferral is governed by
-[`DEC-016`](../../decisions/DEC-016-defer-linked-context-payload-import.md).
+[`ADR-0012`](../../adr/ADR-0012-defer-linked-context-payload-import.md).
 Batch durable import deferral is governed by
-[`DEC-017`](../../decisions/DEC-017-defer-batch-durable-import.md).
+[`ADR-0013`](../../adr/ADR-0013-defer-batch-durable-import.md).
 Archive-backed durable import and archive-authority deferral are governed by
-[`DEC-020`](../../decisions/DEC-020-defer-archive-package-implementation.md).
+[`ADR-0014`](../../adr/ADR-0014-defer-archive-authority-and-archive-backed-durable-import.md).
 Safe zip archive materialization is governed by
-[`DEC-021`](../../decisions/DEC-021-accept-safe-archive-materialization.md).
+[`ADR-0015`](../../adr/ADR-0015-accept-safe-archive-materialization.md).
 Safe zip archive creation is governed by
-[`DEC-024`](../../decisions/DEC-024-accept-safe-archive-creation.md).
+[`ADR-0016`](../../adr/ADR-0016-accept-safe-archive-creation.md).
 Existing-record update and final storage schema deferral for this handoff slice
 are governed by
-[`DEC-025`](../../decisions/DEC-025-defer-existing-record-update-and-final-storage-schema.md).
+[`ADR-0017`](../../adr/ADR-0017-defer-existing-record-update-and-final-storage-schema.md).
 
 ## Historical Context
 
@@ -349,13 +349,13 @@ This boundary does not accept:
   review state;
 - numeric dtype conversion, unit conversion, schema inference, scan-shape
   inference, trace opening, or array API;
-- archive-backed durable import or compressed package format beyond DEC-021 and
-  DEC-024;
+- archive-backed durable import or compressed package format beyond ADR-0015 and
+  ADR-0016;
 - external authenticity validation or trusted-source policy;
-- package acceptance, existing-record update or merge import beyond DEC-025,
-  durable multi-measurement batch import beyond DEC-017, rollback policy, or
+- package acceptance, existing-record update or merge import beyond ADR-0017,
+  durable multi-measurement batch import beyond ADR-0013, rollback policy, or
   storage conflict policy;
-- recursive traversal or linked-context payload import beyond DEC-016;
+- recursive traversal or linked-context payload import beyond ADR-0012;
 - analysis/fit result model, fit execution, uncertainty, write-back, or result
   import;
 - shared measurement-record domain model or cross-route object lifecycle.
@@ -381,12 +381,12 @@ Advance this boundary only when a named workflow requires broader package-use
 behavior. Current likely separate decisions include:
 
 - production readiness hardening for selected stored Measurement Record export;
-- existing-record update/import or final storage schema beyond DEC-025;
+- existing-record update/import or final storage schema beyond ADR-0017;
 - GUI-owned persisted receiving review state;
-- archive-backed durable import or broader archive semantics beyond DEC-021 and
-  DEC-024;
-- durable linked-context payload import beyond DEC-016 or batch durable import
-  beyond DEC-017;
+- archive-backed durable import or broader archive semantics beyond ADR-0015 and
+  ADR-0016;
+- durable linked-context payload import beyond ADR-0012 or batch durable import
+  beyond ADR-0013;
 - analysis or fit results as first-class package display facts;
 - shared lifecycle or domain model extraction justified by more than one
   accepted route.

@@ -1,8 +1,8 @@
-# DEC-025: Defer Existing-Record Update And Final Storage Schema For JNY-001
+# ADR-0017: Defer Existing-Record Update And Final Storage Schema For JNY-001
 
 ## Status
 
-Decision status: accepted.
+ADR status: accepted.
 
 Date: 2026-06-04.
 
@@ -10,7 +10,7 @@ Date: 2026-06-04.
 
 JNY-001 Share A Selected Measurement now has a production vertical slice
 candidate for portable measurement handoff: export one complete stored
-Measurement Record, transfer it as a DEC-010 directory manifest package with
+Measurement Record, transfer it as a ADR-0006 directory manifest package with
 optional zip transport, review it on the receiving side, plan import, and
 durably import exactly one package measurement into a second storage root.
 

@@ -1,8 +1,8 @@
-# Decision Title
+# ADR-0000: Decision Title
 
 ## Status
 
-Decision status: proposed | accepted | superseded | retired.
+ADR status: proposed | accepted | superseded | retired.
 
 Date: YYYY-MM-DD.
 

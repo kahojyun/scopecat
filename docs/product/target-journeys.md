@@ -129,24 +129,24 @@ Records lifecycle. Record creation, run recording, running updates, and
 post-run results review are separate journeys or workflow segments that feed
 this journey.
 
-The DEC-010 directory manifest package format is accepted for the current
-production vertical slice path. DEC-011 keeps that package as local
+The ADR-0006 directory manifest package format is accepted for the current
+production vertical slice path. ADR-0007 keeps that package as local
 declared-integrity evidence: digest integrity is observed, but external
 authenticity, sender trust, and scientific validity are not claimed.
-DEC-021 accepts safe zip materialization into the DEC-010 package of record,
-and DEC-024 accepts safe zip creation from the DEC-010 package of record.
+ADR-0015 accepts safe zip materialization into the ADR-0006 package of record,
+and ADR-0016 accepts safe zip creation from the ADR-0006 package of record.
 Archive-backed durable import remains a separate validation question. Batch
-durable import remains a separate validation question. DEC-012 allows generic
+durable import remains a separate validation question. ADR-0008 allows generic
 handoff writer inputs to package explicitly declared linked-context payloads
-for review. DEC-014 allows selected stored-record export to package explicitly
+for review. ADR-0010 allows selected stored-record export to package explicitly
 declared record-local linked-context payloads without treating recorded
-references as file-copy authority. DEC-013 allows multi-measurement import
-planning, while durable import remains one-record-at-a-time. DEC-015 allows
+references as file-copy authority. ADR-0009 allows multi-measurement import
+planning, while durable import remains one-record-at-a-time. ADR-0011 allows
 selected stored-record batch package export without adding batch durable
-import. DEC-016 keeps linked-context payload import deferred until Measurement
-Records has an accepted context artifact storage contract. DEC-017 keeps batch
+import. ADR-0012 keeps linked-context payload import deferred until Measurement
+Records has an accepted context artifact storage contract. ADR-0013 keeps batch
 durable import deferred until a destination and partial-success contract
-exists. GUI-owned receiving review state remains unaccepted. DEC-025 keeps the
+exists. GUI-owned receiving review state remains unaccepted. ADR-0017 keeps the
 JNY-001 handoff vertical slice source-storage-read-only on export and
 new-record-only on durable import; existing-record update, merge import,
 manifest replacement, and final storage schema publication remain separate

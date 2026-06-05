@@ -80,7 +80,7 @@ Measurement Records durable import operation. The adapter does not treat the
 import plan as sufficient write authority for bytes on disk; the delegated
 operation reopens the package member and preflights digest, byte size,
 normalized CSV shape, and row count before any storage mutation.
-Under DEC-025 this path creates a new Measurement Record only; it does not
+Under ADR-0017 this path creates a new Measurement Record only; it does not
 update existing records, merge primary data, replace manifests, or publish a
 final storage schema.
 
@@ -108,14 +108,14 @@ package writing to the package writer, may package explicitly declared record-lo
 payloads under `context/`, and does not mutate Measurement Records storage,
 repair source records, infer schema, create archives, or accept/import
 packages. The preflight composition may delegate read-model refresh, but export
-itself remains source-storage-read-only under DEC-025.
+itself remains source-storage-read-only under ADR-0017.
 Recorded linked references remain review references; they are not file-copy
 authority by themselves.
 
 Selected stored-record batch export uses the same storage-backed authority for
 each selected record and writes one multi-measurement package. Batch export is
 source-side package creation only; durable handoff import remains one planned
-measurement per storage mutation under DEC-017.
+measurement per storage mutation under ADR-0013.
 
 For the normal JNY-001 Share A Selected Measurement path, selected stored-record
 export is the storage-backed entrypoint. Direct package-writer input remains an
@@ -152,9 +152,9 @@ That limitation is documented in the accepted decisions rather than repeated
 as receipt fields.
 
 Archive-backed durable import, archive bytes as package authority, and broader
-archive semantics remain deferred under DEC-020, while DEC-021 accepts safe zip
-archive materialization into a DEC-010 directory package of record and DEC-024
-accepts safe zip archive creation from an openable DEC-010 directory package.
+archive semantics remain deferred under ADR-0014, while ADR-0015 accepts safe zip
+archive materialization into a ADR-0006 directory package of record and ADR-0016
+accepts safe zip archive creation from an openable ADR-0006 directory package.
 This module writes and opens directory manifest packages, can create a zip
 transport archive from one, and can materialize a zip transport archive into a
 staging directory; it still does not verify authenticity or trust, import
@@ -169,7 +169,7 @@ The generic package writer can package explicitly declared linked-context
 payload files under `context/` after source digest and size preflight. Opened
 packages expose those entries as `packaged_payload`, and integrity observation
 checks them as declared package members. Import planning and durable import
-still do not import linked-context payloads under DEC-016. Selected
+still do not import linked-context payloads under ADR-0012. Selected
 stored-record export uses the same package-member path only when its export
 request declares a source path under the selected record directory, a
 `context/` package path, digest, and byte size.
