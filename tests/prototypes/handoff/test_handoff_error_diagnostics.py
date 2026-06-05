@@ -17,7 +17,6 @@ class HandoffErrorDiagnosticsTest(unittest.TestCase):
             run_receiving_gate(
                 {
                     "receiving_gate_schema": "unsupported",
-                    "receiving_gate_policy": {},
                     "receiving_review_request": {},
                 },
                 package_dir=Path("unused-package"),
@@ -65,23 +64,8 @@ class HandoffErrorDiagnosticsTest(unittest.TestCase):
             run_import_plan(
                 {
                     "import_plan_schema": "scopecat.handoff_import_plan.v0",
-                    "import_plan_policy": {
-                        "workflow_authority": "approved_import_planning_request",
-                        "package_open": "read_only_declared_preview",
-                        "inspection_artifact": "optional_local_static_review_artifact",
-                        "receiving_gate": "required_before_import_plan",
-                        "import_plan": "non_mutating_measurement_acceptance_plan",
-                        "storage_mutation": "not_performed",
-                        "import_acceptance": "not_performed",
-                        "archive_handling": "not_performed",
-                        "external_authenticity_validation": "not_performed",
-                        "conflict_detection": "not_performed",
-                        "final_storage_schema": "not_defined",
-                        "rollback": "not_defined",
-                    },
                     "receiving_gate_source": {
                         "receiving_gate_schema": "unsupported",
-                        "receiving_gate_policy": {},
                         "receiving_review_request": {},
                     },
                     "import_plan_request": {

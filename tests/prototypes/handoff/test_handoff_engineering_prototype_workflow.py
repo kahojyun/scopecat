@@ -41,17 +41,14 @@ class HandoffEngineeringPrototypeWorkflowTest(unittest.TestCase):
         self.assertEqual(run.measurement_ids, ("legacy-rabi-001",))
         self.assertEqual(run.package.measurement("legacy-rabi-001").primary_table.row_count, 5)
         self.assertEqual(summary["artifact_posture"], "local_workflow_receipt")
+        self.assertEqual(summary["classification"], "package_written_opened_for_local_review")
         self.assertEqual(
-            summary["workflow"]["steps"],
+            summary["steps"],
             ["write_package", "open_package"],
         )
         self.assertEqual(
             summary["package"]["preview_classification"],
             "needs_review_before_acceptance",
-        )
-        self.assertIn(
-            "package_import_or_acceptance",
-            summary["workflow"]["does_not_claim"],
         )
         self.assertIsNone(summary["inspection_receipt"])
 
@@ -76,7 +73,7 @@ class HandoffEngineeringPrototypeWorkflowTest(unittest.TestCase):
         self.assertTrue(html_exists)
         self.assertIn("Rabi calibration follow-up", html)
         self.assertEqual(
-            summary["workflow"]["steps"],
+            summary["steps"],
             ["write_package", "open_package", "write_inspection_artifact"],
         )
         self.assertEqual(

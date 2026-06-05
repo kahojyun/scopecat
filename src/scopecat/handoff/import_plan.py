@@ -14,20 +14,6 @@ from scopecat.handoff.package import HandoffLinkedContext, HandoffMeasurement, H
 from scopecat.handoff.receiving import HandoffReceivingGateRun, run_receiving_gate
 
 _EXPECTED_SCHEMA = "scopecat.handoff_import_plan.v0"
-_EXPECTED_POLICY = {
-    "workflow_authority": "approved_import_planning_request",
-    "package_open": "read_only_declared_preview",
-    "inspection_artifact": "optional_local_static_review_artifact",
-    "receiving_gate": "required_before_import_plan",
-    "import_plan": "non_mutating_measurement_acceptance_plan",
-    "storage_mutation": "not_performed",
-    "import_acceptance": "not_performed",
-    "archive_handling": "not_performed",
-    "external_authenticity_validation": "not_performed",
-    "conflict_detection": "not_performed",
-    "final_storage_schema": "not_defined",
-    "rollback": "not_defined",
-}
 
 
 @dataclass(frozen=True)
@@ -136,7 +122,6 @@ class HandoffLinkedContextImportPlan:
             "linked_measurement_record_ids": list(
                 self.linked_context.linked_measurement_record_ids
             ),
-            "does_not_claim": "linked_context_payload_import",
         }
         if self.linked_context.context_reference is not None:
             result["context_reference"] = copy.deepcopy(self.linked_context.context_reference)
@@ -173,21 +158,8 @@ class HandoffImportPlanRun:
         ]
         return {
             "artifact_posture": "local_import_plan_receipt",
-            "import_plan_policy": copy.deepcopy(_EXPECTED_POLICY),
-            "workflow": {
-                "classification": self.classification,
-                "steps": steps,
-                "does_not_claim": [
-                    "storage_mutation",
-                    "package_import_or_acceptance",
-                    "archive_extraction",
-                    "external_authenticity_or_trust_validation",
-                    "conflict_detection",
-                    "batch_durable_import",
-                    "final_storage_schema",
-                    "rollback_policy",
-                ],
-            },
+            "classification": self.classification,
+            "steps": steps,
             "request": self.request.to_dict(),
             "package": {
                 "package_id": self.package.package_id,
@@ -391,7 +363,6 @@ def _parse_source(source: dict[str, Any]) -> tuple[HandoffImportPlanRequest, dic
         source,
         {
             "import_plan_schema",
-            "import_plan_policy",
             "receiving_gate_source",
             "import_plan_request",
         },
@@ -399,8 +370,6 @@ def _parse_source(source: dict[str, Any]) -> tuple[HandoffImportPlanRequest, dic
     )
     if source["import_plan_schema"] != _EXPECTED_SCHEMA:
         raise ValueError("import_plan_schema is unsupported")
-    if source["import_plan_policy"] != _EXPECTED_POLICY:
-        raise ValueError("import_plan_policy is unsupported")
 
     receiving_gate_source = _require_mapping(
         source["receiving_gate_source"],

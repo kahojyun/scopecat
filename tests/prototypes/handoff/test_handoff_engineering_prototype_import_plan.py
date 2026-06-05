@@ -41,21 +41,6 @@ def _sha256_digest(content: bytes) -> str:
 def _receiving_gate_source() -> dict:
     return {
         "receiving_gate_schema": "scopecat.handoff_receiving_gate.v0",
-        "receiving_gate_policy": {
-            "workflow_authority": "approved_receiving_review_request",
-            "package_open": "read_only_declared_preview",
-            "integrity_observation": "read_only_package_local_member_observation",
-            "acceptance_gate": "require_approved_review_and_declared_integrity_verified",
-            "storage_mutation": "not_performed",
-            "import_acceptance": "not_performed",
-            "archive_handling": "not_performed",
-            "external_authenticity_validation": "not_performed",
-            "package_root_concurrency": "not_supported",
-            "schema_inference": "not_performed",
-            "dataframe_adapter": "not_defined",
-            "interactive_gui": "not_defined",
-            "shared_measurement_schema": "not_defined",
-        },
         "receiving_review_request": {
             "request_id": "receive-handoff-package-legacy-rabi-001",
             "review": {
@@ -71,20 +56,6 @@ def _receiving_gate_source() -> dict:
 def _import_plan_source() -> dict:
     return {
         "import_plan_schema": "scopecat.handoff_import_plan.v0",
-        "import_plan_policy": {
-            "workflow_authority": "approved_import_planning_request",
-            "package_open": "read_only_declared_preview",
-            "inspection_artifact": "optional_local_static_review_artifact",
-            "receiving_gate": "required_before_import_plan",
-            "import_plan": "non_mutating_measurement_acceptance_plan",
-            "storage_mutation": "not_performed",
-            "import_acceptance": "not_performed",
-            "archive_handling": "not_performed",
-            "external_authenticity_validation": "not_performed",
-            "conflict_detection": "not_performed",
-            "final_storage_schema": "not_defined",
-            "rollback": "not_defined",
-        },
         "receiving_gate_source": _receiving_gate_source(),
         "import_plan_request": {
             "request_id": "plan-import-handoff-package-legacy-rabi-001",
@@ -152,8 +123,9 @@ class HandoffEngineeringPrototypeImportPlanTest(unittest.TestCase):
         self.assertEqual(run.classification, "ready_for_import_acceptance_decision")
         self.assertTrue(run.import_plan_allowed)
         self.assertEqual(summary["artifact_posture"], "local_import_plan_receipt")
+        self.assertEqual(summary["classification"], "ready_for_import_acceptance_decision")
         self.assertEqual(
-            summary["workflow"]["steps"],
+            summary["steps"],
             ["open_package", "run_receiving_gate", "build_import_plan"],
         )
         self.assertEqual(
@@ -186,7 +158,6 @@ class HandoffEngineeringPrototypeImportPlanTest(unittest.TestCase):
                 "conflict_resolution": "not_decided",
             },
         )
-        self.assertIn("storage_mutation", summary["workflow"]["does_not_claim"])
         self.assertFalse(records_exist)
 
     def test_import_plan_can_list_multiple_measurements_without_batch_mutation(self) -> None:
@@ -208,8 +179,7 @@ class HandoffEngineeringPrototypeImportPlanTest(unittest.TestCase):
             summary["package"]["measurement_ids"],
             ["legacy-rabi-001", "legacy-rabi-002"],
         )
-        self.assertIn("storage_mutation", summary["workflow"]["does_not_claim"])
-        self.assertIn("batch_durable_import", summary["workflow"]["does_not_claim"])
+        self.assertEqual(run.classification, "ready_for_import_acceptance_decision")
 
     def test_import_plan_can_write_local_inspection_artifact_outside_package(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -228,7 +198,7 @@ class HandoffEngineeringPrototypeImportPlanTest(unittest.TestCase):
 
         self.assertTrue(html_exists)
         self.assertEqual(
-            summary["workflow"]["steps"],
+            summary["steps"],
             [
                 "open_package",
                 "run_receiving_gate",

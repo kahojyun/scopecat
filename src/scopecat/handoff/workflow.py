@@ -33,20 +33,12 @@ class HandoffPackageWorkflowRun:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_workflow_receipt",
-            "workflow": {
-                "classification": "package_written_opened_for_local_review",
-                "steps": [
-                    "write_package",
-                    "open_package",
-                    *(["write_inspection_artifact"] if self.inspection_receipt is not None else []),
-                ],
-                "does_not_claim": [
-                    "archive_creation",
-                    "package_import_or_acceptance",
-                    "final_storage_schema",
-                    "package_integrity_verification",
-                ],
-            },
+            "classification": "package_written_opened_for_local_review",
+            "steps": [
+                "write_package",
+                "open_package",
+                *(["write_inspection_artifact"] if self.inspection_receipt is not None else []),
+            ],
             "package": {
                 "package_id": self.package.package_id,
                 "display_name": self.package.display_name,

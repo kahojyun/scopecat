@@ -57,21 +57,6 @@ WRITER_FIXTURE = (
 def _receiving_gate_source() -> dict:
     return {
         "receiving_gate_schema": "scopecat.handoff_receiving_gate.v0",
-        "receiving_gate_policy": {
-            "workflow_authority": "approved_receiving_review_request",
-            "package_open": "read_only_declared_preview",
-            "integrity_observation": "read_only_package_local_member_observation",
-            "acceptance_gate": "require_approved_review_and_declared_integrity_verified",
-            "storage_mutation": "not_performed",
-            "import_acceptance": "not_performed",
-            "archive_handling": "not_performed",
-            "external_authenticity_validation": "not_performed",
-            "package_root_concurrency": "not_supported",
-            "schema_inference": "not_performed",
-            "dataframe_adapter": "not_defined",
-            "interactive_gui": "not_defined",
-            "shared_measurement_schema": "not_defined",
-        },
         "receiving_review_request": {
             "request_id": "receive-handoff-package-legacy-rabi-001",
             "review": {
@@ -87,20 +72,6 @@ def _receiving_gate_source() -> dict:
 def _import_plan_source() -> dict:
     return {
         "import_plan_schema": "scopecat.handoff_import_plan.v0",
-        "import_plan_policy": {
-            "workflow_authority": "approved_import_planning_request",
-            "package_open": "read_only_declared_preview",
-            "inspection_artifact": "optional_local_static_review_artifact",
-            "receiving_gate": "required_before_import_plan",
-            "import_plan": "non_mutating_measurement_acceptance_plan",
-            "storage_mutation": "not_performed",
-            "import_acceptance": "not_performed",
-            "archive_handling": "not_performed",
-            "external_authenticity_validation": "not_performed",
-            "conflict_detection": "not_performed",
-            "final_storage_schema": "not_defined",
-            "rollback": "not_defined",
-        },
         "receiving_gate_source": _receiving_gate_source(),
         "import_plan_request": {
             "request_id": "plan-import-handoff-package-legacy-rabi-001",
@@ -384,7 +355,10 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
                     storage_root=temp_root / "storage",
                 )
 
-        self.assertIn("batch_durable_import", import_plan.to_dict()["workflow"]["does_not_claim"])
+        self.assertEqual(
+            import_plan.to_dict()["classification"],
+            "ready_for_import_acceptance_decision",
+        )
 
     def test_summarizes_successful_durable_import_receipt_for_continuation(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

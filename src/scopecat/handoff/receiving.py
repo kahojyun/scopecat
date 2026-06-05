@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -14,21 +13,6 @@ from scopecat.handoff.package import HandoffPackage
 from scopecat.handoff.read_only import open_package
 
 _EXPECTED_SCHEMA = "scopecat.handoff_receiving_gate.v0"
-_EXPECTED_POLICY = {
-    "workflow_authority": "approved_receiving_review_request",
-    "package_open": "read_only_declared_preview",
-    "integrity_observation": "read_only_package_local_member_observation",
-    "acceptance_gate": "require_approved_review_and_declared_integrity_verified",
-    "storage_mutation": "not_performed",
-    "import_acceptance": "not_performed",
-    "archive_handling": "not_performed",
-    "external_authenticity_validation": "not_performed",
-    "package_root_concurrency": "not_supported",
-    "schema_inference": "not_performed",
-    "dataframe_adapter": "not_defined",
-    "interactive_gui": "not_defined",
-    "shared_measurement_schema": "not_defined",
-}
 
 
 @dataclass(frozen=True)
@@ -91,8 +75,7 @@ class HandoffReceivingGateRun:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_receiving_gate_receipt",
-            "receiving_gate_policy": copy.deepcopy(_EXPECTED_POLICY),
-            "workflow_classification": self.classification,
+            "classification": self.classification,
             "request": self.request.to_dict(),
             "package": {
                 "package_id": self.package.package_id,
@@ -122,13 +105,6 @@ class HandoffReceivingGateRun:
                 acceptance_allowed=self.acceptance_allowed,
                 integrity_classification=self.integrity_report.classification,
             ),
-            "does_not_claim": [
-                "storage_mutation",
-                "package_import_or_acceptance",
-                "archive_extraction",
-                "external_authenticity_or_trust_validation",
-                "final_storage_schema",
-            ],
         }
 
 
@@ -220,13 +196,11 @@ def _parse_request(source: dict[str, Any]) -> HandoffReceivingReviewRequest:
     source = _require_mapping(source, "handoff receiving gate source")
     _require_keys(
         source,
-        {"receiving_gate_schema", "receiving_gate_policy", "receiving_review_request"},
+        {"receiving_gate_schema", "receiving_review_request"},
         "handoff receiving gate source",
     )
     if source["receiving_gate_schema"] != _EXPECTED_SCHEMA:
         raise ValueError("receiving_gate_schema is unsupported")
-    if source["receiving_gate_policy"] != _EXPECTED_POLICY:
-        raise ValueError("receiving_gate_policy is unsupported")
 
     request = _require_mapping(source["receiving_review_request"], "receiving_review_request")
     _require_keys(request, {"request_id", "review"}, "receiving_review_request")

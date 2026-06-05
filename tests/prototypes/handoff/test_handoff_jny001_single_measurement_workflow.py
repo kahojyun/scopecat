@@ -473,10 +473,10 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
             "archive_bytes_as_package_artifact_of_record",
             materialization_summary["workflow"]["does_not_claim"],
         )
-        self.assertIn("archive_extraction", receiving_summary["does_not_claim"])
-        self.assertIn(
-            "archive_extraction",
-            import_plan_summary["workflow"]["does_not_claim"],
+        self.assertEqual(receiving_summary["classification"], "ready_for_acceptance_mutation")
+        self.assertEqual(
+            import_plan_summary["classification"],
+            "ready_for_import_acceptance_decision",
         )
 
     def test_workflow_treats_package_integrity_as_external_authenticity_agnostic(self) -> None:
@@ -492,8 +492,6 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
             )
             export_summary = workflow["export_run"].to_dict()
             integrity_summary = workflow["receiving_gate"].integrity_report.to_dict()
-            receiving_summary = workflow["receiving_gate"].to_dict()
-            import_plan_summary = import_plan.to_dict()
             durable_import_summary = durable_import.to_dict()
             integrity_non_claims = {
                 item["does_not_claim"] for item in integrity_summary["attention"]
@@ -503,23 +501,7 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
             integrity_summary["integrity_observation_policy"]["external_authenticity_validation"],
             "not_performed",
         )
-        self.assertEqual(
-            receiving_summary["receiving_gate_policy"]["external_authenticity_validation"],
-            "not_performed",
-        )
-        self.assertEqual(
-            import_plan_summary["import_plan_policy"]["external_authenticity_validation"],
-            "not_performed",
-        )
         self.assertEqual(export_summary["classification"], "exported_selected_measurement_record")
-        self.assertIn(
-            "external_authenticity_or_trust_validation",
-            receiving_summary["does_not_claim"],
-        )
-        self.assertIn(
-            "external_authenticity_or_trust_validation",
-            import_plan_summary["workflow"]["does_not_claim"],
-        )
         self.assertIn(
             "external_authenticity_or_trust_validation",
             integrity_non_claims,

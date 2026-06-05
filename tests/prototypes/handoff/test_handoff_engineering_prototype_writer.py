@@ -313,7 +313,6 @@ class HandoffEngineeringPrototypeWriterTest(unittest.TestCase):
         )
         self.assertEqual(context_plan["action"], "keep_reference_only")
         self.assertEqual(context_plan["materialization"], "packaged_payload")
-        self.assertEqual(context_plan["does_not_claim"], "linked_context_payload_import")
         self.assertIn(
             {
                 "path": "handoff-package-legacy-rabi-001/context/package-legacy-001-parameter-snapshot.json",

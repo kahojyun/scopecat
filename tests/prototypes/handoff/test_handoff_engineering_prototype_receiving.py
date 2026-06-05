@@ -24,21 +24,6 @@ PACKAGE = (
 def _receiving_gate_source() -> dict:
     return {
         "receiving_gate_schema": "scopecat.handoff_receiving_gate.v0",
-        "receiving_gate_policy": {
-            "workflow_authority": "approved_receiving_review_request",
-            "package_open": "read_only_declared_preview",
-            "integrity_observation": "read_only_package_local_member_observation",
-            "acceptance_gate": "require_approved_review_and_declared_integrity_verified",
-            "storage_mutation": "not_performed",
-            "import_acceptance": "not_performed",
-            "archive_handling": "not_performed",
-            "external_authenticity_validation": "not_performed",
-            "package_root_concurrency": "not_supported",
-            "schema_inference": "not_performed",
-            "dataframe_adapter": "not_defined",
-            "interactive_gui": "not_defined",
-            "shared_measurement_schema": "not_defined",
-        },
         "receiving_review_request": {
             "request_id": "receive-handoff-package-legacy-rabi-001",
             "review": {
@@ -69,6 +54,7 @@ class HandoffEngineeringPrototypeReceivingTest(unittest.TestCase):
         self.assertEqual(run.classification, "ready_for_acceptance_mutation")
         self.assertTrue(run.acceptance_allowed)
         self.assertEqual(summary["artifact_posture"], "local_receiving_gate_receipt")
+        self.assertEqual(summary["classification"], "ready_for_acceptance_mutation")
         self.assertEqual(summary["package"]["package_id"], "handoff-package-legacy-rabi-001")
         self.assertEqual(
             summary["package"]["integrity_classification"],
@@ -85,7 +71,6 @@ class HandoffEngineeringPrototypeReceivingTest(unittest.TestCase):
                 "retry_requires": None,
             },
         )
-        self.assertIn("storage_mutation", summary["does_not_claim"])
         self.assertFalse(records_exist)
 
     def test_receiving_gate_blocks_when_integrity_requires_review(self) -> None:

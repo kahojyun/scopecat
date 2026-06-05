@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import unittest
 from pathlib import Path
 
@@ -18,21 +17,6 @@ from scopecat.handoff.durable_import import HANDOFF_DURABLE_IMPORT_POLICY
 def _receiving_gate_source() -> dict:
     return {
         "receiving_gate_schema": "scopecat.handoff_receiving_gate.v0",
-        "receiving_gate_policy": {
-            "workflow_authority": "approved_receiving_review_request",
-            "package_open": "read_only_declared_preview",
-            "integrity_observation": "read_only_package_local_member_observation",
-            "acceptance_gate": "require_approved_review_and_declared_integrity_verified",
-            "storage_mutation": "not_performed",
-            "import_acceptance": "not_performed",
-            "archive_handling": "not_performed",
-            "external_authenticity_validation": "not_performed",
-            "package_root_concurrency": "not_supported",
-            "schema_inference": "not_performed",
-            "dataframe_adapter": "not_defined",
-            "interactive_gui": "not_defined",
-            "shared_measurement_schema": "not_defined",
-        },
         "receiving_review_request": {
             "request_id": "receive-handoff-package-legacy-rabi-001",
             "review": {
@@ -48,20 +32,6 @@ def _receiving_gate_source() -> dict:
 def _import_plan_source() -> dict:
     return {
         "import_plan_schema": "scopecat.handoff_import_plan.v0",
-        "import_plan_policy": {
-            "workflow_authority": "approved_import_planning_request",
-            "package_open": "read_only_declared_preview",
-            "inspection_artifact": "optional_local_static_review_artifact",
-            "receiving_gate": "required_before_import_plan",
-            "import_plan": "non_mutating_measurement_acceptance_plan",
-            "storage_mutation": "not_performed",
-            "import_acceptance": "not_performed",
-            "archive_handling": "not_performed",
-            "external_authenticity_validation": "not_performed",
-            "conflict_detection": "not_performed",
-            "final_storage_schema": "not_defined",
-            "rollback": "not_defined",
-        },
         "receiving_gate_source": _receiving_gate_source(),
         "import_plan_request": {
             "request_id": "plan-import-handoff-package-legacy-rabi-001",
@@ -95,14 +65,8 @@ class HandoffCompatibilityContractTest(unittest.TestCase):
                 "archive_materialization": "scopecat.handoff_archive_materialization.v0",
             },
         )
-        self.assertEqual(
-            contract["policies"]["receiving_gate"]["archive_handling"],
-            "not_performed",
-        )
-        self.assertEqual(
-            contract["policies"]["import_plan"]["storage_mutation"],
-            "not_performed",
-        )
+        self.assertNotIn("receiving_gate", contract["policies"])
+        self.assertNotIn("import_plan", contract["policies"])
         self.assertEqual(
             contract["policies"]["handoff_durable_import"],
             HANDOFF_DURABLE_IMPORT_POLICY,
@@ -181,10 +145,9 @@ class HandoffCompatibilityContractTest(unittest.TestCase):
         self.assertEqual(diagnostic["error"]["code"], "handoff_contract_error")
         self.assertEqual(diagnostic["error"]["message"], "receiving_gate_schema is unsupported")
 
-    def test_import_plan_policy_drift_is_rejected_as_contract_error(self) -> None:
+    def test_import_plan_schema_drift_is_rejected_as_contract_error(self) -> None:
         source = _import_plan_source()
-        source["import_plan_policy"] = copy.deepcopy(source["import_plan_policy"])
-        source["import_plan_policy"]["archive_handling"] = "extract_zip"
+        source["import_plan_schema"] = "scopecat.handoff_import_plan.v1"
 
         with self.assertRaises(HandoffContractError) as context:
             run_import_plan(source, package_dir=Path("unused-package"))
@@ -194,7 +157,7 @@ class HandoffCompatibilityContractTest(unittest.TestCase):
             {
                 "code": "handoff_contract_error",
                 "operation": "run_import_plan",
-                "message": "import_plan_policy is unsupported",
+                "message": "import_plan_schema is unsupported",
             },
         )
 

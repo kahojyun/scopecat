@@ -20,13 +20,7 @@ from scopecat.handoff.durable_import import (
     HANDOFF_DURABLE_IMPORT_SCHEMA,
 )
 from scopecat.handoff.import_plan import (
-    _EXPECTED_POLICY as _IMPORT_PLAN_POLICY,
-)
-from scopecat.handoff.import_plan import (
     _EXPECTED_SCHEMA as _IMPORT_PLAN_SCHEMA,
-)
-from scopecat.handoff.receiving import (
-    _EXPECTED_POLICY as _RECEIVING_GATE_POLICY,
 )
 from scopecat.handoff.receiving import (
     _EXPECTED_SCHEMA as _RECEIVING_GATE_SCHEMA,
@@ -57,8 +51,6 @@ def current_handoff_compatibility_contract() -> dict[str, Any]:
         },
         "policies": {
             "selected_record_export": copy.deepcopy(SELECTED_RECORD_EXPORT_POLICY),
-            "receiving_gate": copy.deepcopy(_RECEIVING_GATE_POLICY),
-            "import_plan": copy.deepcopy(_IMPORT_PLAN_POLICY),
             "handoff_durable_import": copy.deepcopy(HANDOFF_DURABLE_IMPORT_POLICY),
             "archive_materialization": copy.deepcopy(HANDOFF_ARCHIVE_MATERIALIZATION_POLICY),
             "archive_package_materialization": copy.deepcopy(

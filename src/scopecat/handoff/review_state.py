@@ -17,36 +17,7 @@ from scopecat.handoff.errors import HandoffErrorDiagnostic, promote_handoff_cont
 from scopecat.handoff.import_plan import HandoffImportPlanRun
 from scopecat.handoff.receiving import HandoffReceivingGateRun
 
-RECEIVING_REVIEW_STATE_POLICY = {
-    "source": "local_handoff_receipts_and_diagnostics",
-    "authority": "derived_local_receiving_review_state",
-    "storage_mutation": "not_performed",
-    "package_mutation": "not_performed",
-    "gui_state_persistence": "not_performed",
-    "portable_export": "not_produced",
-}
 RECEIVING_REVIEW_STATE_RECEIPT_SCHEMA = "scopecat.handoff_receiving_review_state_receipt.v0"
-RECEIVING_REVIEW_STATE_RECEIPT_POLICY = {
-    "source": "local_receiving_review_state_projection",
-    "authority": "local_review_continuity_receipt",
-    "receipt_materialization": "local_no_overwrite_json_receipt",
-    "storage_mutation": "not_performed",
-    "package_mutation": "not_performed",
-    "gui_state_store": "not_created",
-    "portable_export": "not_produced",
-}
-
-DOES_NOT_CLAIM = [
-    "package_acceptance",
-    "storage_mutation",
-    "persisted_gui_state",
-    "external_authenticity_or_trust_validation",
-    "archive_extraction",
-    "batch_durable_import",
-    "linked_context_payload_import",
-    "retry_authorization",
-    "public_view_model_schema",
-]
 
 
 @dataclass(frozen=True)
@@ -180,7 +151,6 @@ class HandoffReceivingReviewStateProjection:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_receiving_review_state_projection",
-            "review_state_policy": copy.deepcopy(RECEIVING_REVIEW_STATE_POLICY),
             "classification": self.classification,
             "package": _package_summary(self.receiving_gate, self.import_plan, self.package_id),
             "integrity": _integrity_summary(self.receiving_gate, self.import_plan),
@@ -195,7 +165,6 @@ class HandoffReceivingReviewStateProjection:
                 "next_action": self.next_action,
                 "retry_requires": self.retry_requires,
             },
-            "does_not_claim": list(DOES_NOT_CLAIM),
         }
 
 
@@ -239,22 +208,11 @@ class HandoffReceivingReviewStateReceipt:
         return {
             "artifact_posture": "local_receiving_review_state_receipt",
             "receipt_schema": RECEIVING_REVIEW_STATE_RECEIPT_SCHEMA,
-            "receipt_policy": copy.deepcopy(RECEIVING_REVIEW_STATE_RECEIPT_POLICY),
             "request": self.request.to_dict(),
             "written": self.written,
             "classification": self.classification,
             "package_id": self.projection.package_id,
             "projection": self.projection.to_dict(),
-            "does_not_claim": [
-                "gui_state_store",
-                "package_acceptance",
-                "storage_mutation",
-                "package_mutation",
-                "external_authenticity_or_trust_validation",
-                "retry_authorization",
-                "portable_export",
-                "public_view_model_schema",
-            ],
         }
 
 
@@ -442,7 +400,6 @@ def _linked_context_summary(import_plan: HandoffImportPlanRun | None) -> dict[st
     return {
         "handling": "keep_reference_only",
         "plans": [plan.to_dict() for plan in import_plan.linked_context_plans],
-        "does_not_claim": "linked_context_payload_import",
     }
 
 

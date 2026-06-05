@@ -116,9 +116,6 @@ class HandoffReceivingReviewStateProjectionTest(unittest.TestCase):
             summary["review_state"]["next_action"],
             "review_storage_acceptance_destination_before_durable_import",
         )
-        self.assertIn("persisted_gui_state", summary["does_not_claim"])
-        self.assertEqual(summary["review_state_policy"]["storage_mutation"], "not_performed")
-        self.assertEqual(summary["review_state_policy"]["gui_state_persistence"], "not_performed")
 
     def test_writes_local_receiving_review_state_receipt_for_resume(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -145,17 +142,15 @@ class HandoffReceivingReviewStateProjectionTest(unittest.TestCase):
 
         self.assertTrue(receipt.written)
         self.assertEqual(written["artifact_posture"], "local_receiving_review_state_receipt")
-        self.assertEqual(written["package_id"], "handoff-package-legacy-rabi-001")
         self.assertEqual(
-            written["receipt_policy"]["authority"],
-            "local_review_continuity_receipt",
+            written["receipt_schema"],
+            "scopecat.handoff_receiving_review_state_receipt.v0",
         )
+        self.assertEqual(written["package_id"], "handoff-package-legacy-rabi-001")
         self.assertEqual(
             written["projection"]["artifact_posture"],
             "local_receiving_review_state_projection",
         )
-        self.assertIn("gui_state_store", written["does_not_claim"])
-        self.assertIn("storage_mutation", written["does_not_claim"])
 
     def test_receiving_review_state_receipt_no_overwrite(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -286,7 +281,6 @@ class HandoffReceivingReviewStateProjectionTest(unittest.TestCase):
             summary["review_state"]["retry_requires"],
             "fresh_valid_handoff_request_or_receipt",
         )
-        self.assertIn("retry_authorization", summary["does_not_claim"])
 
     def test_rejects_inconsistent_receipt_continuity(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
