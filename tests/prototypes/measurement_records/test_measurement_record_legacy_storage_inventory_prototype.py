@@ -5,17 +5,19 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scopecat.measurement_records import (
-    LegacyRunLocator,
-    LegacyRunRecordRequest,
+from scopecat.measurement_records.creation import (
     MeasurementRecordCreationRequest,
-    MeasurementRecordStorageInventoryRequest,
     create_measurement_record_from_request,
-    list_measurement_record_storage_from_request,
-    record_legacy_measurement_run_from_request,
 )
 from scopecat.measurement_records.legacy_run import (
     LEGACY_RUN_RECEIPT_SCHEMA,
+    LegacyRunLocator,
+    LegacyRunRecordRequest,
+    record_legacy_measurement_run_from_request,
+)
+from scopecat.measurement_records.storage_inventory import (
+    MeasurementRecordStorageInventoryRequest,
+    list_measurement_record_storage_from_request,
 )
 
 

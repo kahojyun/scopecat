@@ -5,15 +5,19 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scopecat.measurement_records import (
+from scopecat.measurement_records.durable_import import MeasurementRecordImportSource
+from scopecat.measurement_records.legacy_primary_import import (
     LegacyPrimaryImportRequest,
+    attach_converted_primary_data_to_legacy_record_from_request,
+)
+from scopecat.measurement_records.legacy_run import (
     LegacyRunLocator,
     LegacyRunRecordRequest,
-    MeasurementRecordImportSource,
-    MeasurementRecordReadRequest,
-    attach_converted_primary_data_to_legacy_record_from_request,
-    read_created_record_primary_table_from_request,
     record_legacy_measurement_run_from_request,
+)
+from scopecat.measurement_records.read_view import (
+    MeasurementRecordReadRequest,
+    read_created_record_primary_table_from_request,
 )
 
 NORMALIZED_CSV = (

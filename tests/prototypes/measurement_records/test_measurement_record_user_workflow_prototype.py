@@ -9,13 +9,15 @@ from scopecat.measurement_records import (
     ConvertedPrimaryData,
     LegacyMeasurementRecordRequest,
     LegacyMeasurementSource,
-    MeasurementRecordCreationRequest,
     RecordedReferenceInput,
-    create_measurement_record_from_request,
-    legacy_measurement_slug,
     record_legacy_measurement,
     record_legacy_measurement_from_request,
 )
+from scopecat.measurement_records.creation import (
+    MeasurementRecordCreationRequest,
+    create_measurement_record_from_request,
+)
+from scopecat.measurement_records.user_workflow import legacy_measurement_slug
 
 
 def _write_csv(path: Path) -> None:

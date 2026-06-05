@@ -23,48 +23,29 @@ and
 [`../../../docs/engineering/prototype-boundaries/measurement-records-legacy-run-storage.md`](../../../docs/engineering/prototype-boundaries/measurement-records-legacy-run-storage.md).
 Historical slice-by-slice promotion notes live in [`HISTORY.md`](HISTORY.md).
 
-## Current Surfaces
+## Package-Level Surfaces
 
-Durable record creation and primary-data pipeline:
+The package root exposes current caller-facing Measurement Records
+capabilities:
 
-- `create_measurement_record_from_request(...)`
-- `write_created_record_primary_data_from_request(...)`
-- `summarize_normalized_primary_table_from_request(...)`
-- `read_created_record_primary_table_from_request(...)`
-- `finalize_measurement_record_from_read_view(...)`
-- `project_measurement_record_read_model_from_read_view(...)`
-- `catalog_measurement_record_read_models_from_request(...)`
-- `refresh_measurement_record_read_model_from_read_view(...)`
-- `import_measurement_record_from_request(...)`
+- `import_measurement_record_from_request(...)` for importing reviewed
+  normalized primary data into durable local storage;
+- `record_legacy_measurement(...)` and
+  `record_legacy_measurement_from_request(...)` for adopting one legacy or
+  externally executed measurement behind user-facing facts;
+- `record_measurement_record_references_from_request(...)` and
+  `list_measurement_record_references(...)` for declared context links attached
+  to a Measurement Record;
+- `review_measurement_records_from_request(...)` for local Measurement Records
+  review.
 
-Legacy and brownfield storage review:
-
-- `record_legacy_measurement_run_from_request(...)`
-- `attach_converted_primary_data_to_legacy_record_from_request(...)`
-- `record_measurement_record_references_from_request(...)`
-- `record_legacy_measurement(...)`
-- `list_measurement_record_storage_from_request(...)`
-
-In-progress and existing-record local review:
-
-- `append_in_progress_measurement_record_from_request(...)`
-- `inspect_running_measurement_record_from_request(...)`
-- `append_existing_measurement_record_from_request(...)`
-- `review_measurement_records_from_request(...)`
-- `save_measurement_record_operator_review_receipt(...)`
-- `summarize_measurement_record_operator_review_receipt(...)`
-- `build_measurement_record_review_html(...)`
-- `write_measurement_record_review_artifact(...)`
-
-Supporting projection helpers:
-
-- `summarize_running_measurement_inspection(...)`
-- `legacy_measurement_slug(...)`
-
-Current entrypoints take typed request objects. Raw dictionaries belong at
-explicit adapter boundaries such as CLI JSON loading, not as parallel domain
-APIs. Treat lower-level helpers and private modules as route-local
-implementation details, not shared APIs.
+These package-level APIs use typed request/value objects. Slice-level
+operations such as creation, writer integration, finalization, read-model
+projection/refresh/catalog, normalized-table summary, storage inventory,
+in-progress update, existing-record update, operator-review receipt writing,
+and static review artifact writing remain available only from their owning
+submodules for route-local composition, tests, and future cleanup. Do not treat
+those submodule entrypoints as package-level contracts.
 
 ## Artifact Boundaries
 
@@ -82,11 +63,12 @@ record-local artifacts include:
 
 Runtime redaction is required only at declared or effective portable/export
 boundaries. Ordinary local storage, local receipts, and local review surfaces
-are not portable handoff artifacts unless a slice explicitly promotes them.
+are not portable handoff artifacts unless an accepted boundary explicitly
+promotes them.
 
 ## Tests And Fixtures
 
-Module behavior is covered by tests under
+Package-level behavior and route-local submodule behavior are covered by tests under
 [`../../../tests/prototypes/measurement_records/`](../../../tests/prototypes/measurement_records/)
 and selected repository-safe fixture families under
 [`../../../tests/fixtures/`](../../../tests/fixtures/). Run the repository

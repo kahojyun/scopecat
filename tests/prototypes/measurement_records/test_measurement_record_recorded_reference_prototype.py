@@ -6,12 +6,14 @@ import unittest
 from pathlib import Path
 
 from scopecat.measurement_records import (
-    MeasurementRecordCreationRequest,
     MeasurementRecordReference,
     MeasurementRecordReferenceRequest,
-    create_measurement_record_from_request,
     list_measurement_record_references,
     record_measurement_record_references_from_request,
+)
+from scopecat.measurement_records.creation import (
+    MeasurementRecordCreationRequest,
+    create_measurement_record_from_request,
 )
 
 

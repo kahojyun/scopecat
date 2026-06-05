@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scopecat.measurement_records import (
+from scopecat.measurement_records.existing_record_update import (
     MeasurementRecordExistingAppendChunk,
     MeasurementRecordExistingUpdateRequest,
     append_existing_measurement_record_from_request,

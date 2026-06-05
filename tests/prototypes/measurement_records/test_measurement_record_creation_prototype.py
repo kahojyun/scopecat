@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scopecat.measurement_records import (
+from scopecat.measurement_records.creation import (
     MeasurementRecordCreationRequest,
     create_measurement_record_from_request,
 )

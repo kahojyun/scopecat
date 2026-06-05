@@ -7,17 +7,23 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scopecat.measurement_records import (
-    MeasurementRecordAppendChunk,
+from scopecat.measurement_records.creation import (
     MeasurementRecordCreationRequest,
-    MeasurementRecordInProgressUpdateRequest,
-    MeasurementRecordRunningInspectionRequest,
-    MeasurementRecordWriterChunk,
-    MeasurementRecordWriterRequest,
-    append_in_progress_measurement_record_from_request,
     create_measurement_record_from_request,
+)
+from scopecat.measurement_records.in_progress_update import (
+    MeasurementRecordAppendChunk,
+    MeasurementRecordInProgressUpdateRequest,
+    append_in_progress_measurement_record_from_request,
+)
+from scopecat.measurement_records.running_inspection import (
+    MeasurementRecordRunningInspectionRequest,
     inspect_running_measurement_record_from_request,
     summarize_running_measurement_inspection,
+)
+from scopecat.measurement_records.writer_integration import (
+    MeasurementRecordWriterChunk,
+    MeasurementRecordWriterRequest,
     write_created_record_primary_data_from_request,
 )
 

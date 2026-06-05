@@ -4,7 +4,7 @@ import json
 import unittest
 from pathlib import Path
 
-from scopecat.measurement_records import (
+from scopecat.measurement_records.normalized_primary_table import (
     MeasurementRecordNormalizedPrimaryColumnDeclaration,
     MeasurementRecordNormalizedPrimaryTableRequest,
     summarize_normalized_primary_table_from_request,

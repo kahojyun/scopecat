@@ -7,15 +7,21 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scopecat.measurement_records import (
+from scopecat.measurement_records.creation import (
     MeasurementRecordCreationRequest,
+    create_measurement_record_from_request,
+)
+from scopecat.measurement_records.finalization import (
     MeasurementRecordFinalizationRequest,
+    finalize_measurement_record_from_read_view,
+)
+from scopecat.measurement_records.read_view import (
     MeasurementRecordReadRequest,
+    read_created_record_primary_table_from_request,
+)
+from scopecat.measurement_records.writer_integration import (
     MeasurementRecordWriterChunk,
     MeasurementRecordWriterRequest,
-    create_measurement_record_from_request,
-    finalize_measurement_record_from_read_view,
-    read_created_record_primary_table_from_request,
     write_created_record_primary_data_from_request,
 )
 

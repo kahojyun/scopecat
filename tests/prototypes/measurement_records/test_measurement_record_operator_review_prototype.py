@@ -8,35 +8,51 @@ import unittest
 from pathlib import Path
 
 from scopecat.measurement_records import (
-    MEASUREMENT_RECORD_REVIEW_ARTIFACT_NAME,
-    MeasurementRecordAppendChunk,
-    MeasurementRecordCreationRequest,
-    MeasurementRecordFinalizationRequest,
-    MeasurementRecordInProgressUpdateRequest,
-    MeasurementRecordOperatorReviewReceiptRequest,
     MeasurementRecordOperatorReviewRequest,
-    MeasurementRecordReadModelProjectionRequest,
-    MeasurementRecordReadRequest,
     MeasurementRecordReference,
     MeasurementRecordReferenceRequest,
-    MeasurementRecordRunningInspectionRequest,
-    MeasurementRecordWriterChunk,
-    MeasurementRecordWriterRequest,
-    append_in_progress_measurement_record_from_request,
-    build_measurement_record_review_html,
-    create_measurement_record_from_request,
-    finalize_measurement_record_from_read_view,
-    project_measurement_record_read_model_from_read_view,
-    read_created_record_primary_table_from_request,
     record_measurement_record_references_from_request,
     review_measurement_records_from_request,
-    save_measurement_record_operator_review_receipt,
-    summarize_measurement_record_operator_review_receipt,
-    write_created_record_primary_data_from_request,
-    write_measurement_record_review_artifact,
+)
+from scopecat.measurement_records.creation import (
+    MeasurementRecordCreationRequest,
+    create_measurement_record_from_request,
+)
+from scopecat.measurement_records.finalization import (
+    MeasurementRecordFinalizationRequest,
+    finalize_measurement_record_from_read_view,
+)
+from scopecat.measurement_records.in_progress_update import (
+    MeasurementRecordAppendChunk,
+    MeasurementRecordInProgressUpdateRequest,
+    append_in_progress_measurement_record_from_request,
 )
 from scopecat.measurement_records.operator_review import (
     OPERATOR_REVIEW_RECEIPT_SCHEMA,
+    MeasurementRecordOperatorReviewReceiptRequest,
+    save_measurement_record_operator_review_receipt,
+    summarize_measurement_record_operator_review_receipt,
+)
+from scopecat.measurement_records.read_model_projection import (
+    MeasurementRecordReadModelProjectionRequest,
+    project_measurement_record_read_model_from_read_view,
+)
+from scopecat.measurement_records.read_view import (
+    MeasurementRecordReadRequest,
+    read_created_record_primary_table_from_request,
+)
+from scopecat.measurement_records.review_artifact import (
+    MEASUREMENT_RECORD_REVIEW_ARTIFACT_NAME,
+    build_measurement_record_review_html,
+    write_measurement_record_review_artifact,
+)
+from scopecat.measurement_records.running_inspection import (
+    MeasurementRecordRunningInspectionRequest,
+)
+from scopecat.measurement_records.writer_integration import (
+    MeasurementRecordWriterChunk,
+    MeasurementRecordWriterRequest,
+    write_created_record_primary_data_from_request,
 )
 
 ROOT = Path(__file__).resolve().parents[3]
