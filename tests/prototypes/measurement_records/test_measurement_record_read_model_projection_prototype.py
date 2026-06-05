@@ -22,10 +22,9 @@ from scopecat.measurement_records import (
     write_created_record_primary_data_from_request,
 )
 from scopecat.measurement_records.read_model_projection import (
-    READ_MODEL_PROJECTION_POLICY,
     READ_MODEL_PROJECTION_SCHEMA,
 )
-from scopecat.measurement_records.read_view import READ_VIEW_POLICY, READ_VIEW_SCHEMA
+from scopecat.measurement_records.read_view import READ_VIEW_SCHEMA
 
 ROOT = Path(__file__).resolve().parents[3]
 CHUNK_FIXTURE = (
@@ -84,7 +83,6 @@ def _read_request() -> MeasurementRecordReadRequest:
 def _read_source() -> dict:
     return {
         "read_view_schema": READ_VIEW_SCHEMA,
-        "read_view_policy": READ_VIEW_POLICY,
         "read_request": _read_request().to_dict(),
     }
 
@@ -120,7 +118,6 @@ def _projection_request(**overrides: object) -> MeasurementRecordReadModelProjec
 def _projection_source(**overrides: object) -> dict:
     return {
         "read_model_projection_schema": READ_MODEL_PROJECTION_SCHEMA,
-        "read_model_projection_policy": READ_MODEL_PROJECTION_POLICY,
         "projection_request": _projection_request(**overrides).to_dict(),
         "read_view_source": _read_source(),
     }
@@ -208,9 +205,33 @@ class MeasurementRecordReadModelProjectionPrototypeTest(unittest.TestCase):
             read_model["sources"]["finalization_receipt"]["path"],
             "records/run-3101-rabi/finalization-receipt.json",
         )
-        self.assertIn("manifest_replacement", read_model["does_not_claim"])
+        self.assertEqual(
+            set(read_model),
+            {
+                "schema",
+                "record",
+                "sources",
+                "primary_data",
+                "table",
+                "review",
+                "finalization",
+                "projection",
+            },
+        )
         self.assertEqual(manifest_after, manifest_before)
-        self.assertIn("canonical_storage_authority", run.to_dict()["workflow"]["does_not_claim"])
+        summary = run.to_dict()
+        self.assertEqual(
+            set(summary),
+            {
+                "artifact_posture",
+                "classification",
+                "request",
+                "read_view",
+                "finalization_receipt",
+                "projection",
+            },
+        )
+        self.assertEqual(summary["classification"], "projected_read_model")
 
     def test_raw_source_projection_composes_read_view(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -377,19 +398,6 @@ class MeasurementRecordReadModelProjectionPrototypeTest(unittest.TestCase):
                     "records/run-3101-rabi/record-read-model.json/finalization-receipt.json"
                 )
             )
-
-    def test_source_policy_must_match_candidate_boundary(self) -> None:
-        source = _projection_source()
-        source["read_model_projection_policy"] = {
-            **READ_MODEL_PROJECTION_POLICY,
-            "record_manifest": "replaced",
-        }
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir) / "storage"
-            storage_root.mkdir()
-
-            with self.assertRaisesRegex(ValueError, "policy"):
-                project_measurement_record_read_model(source, storage_root=storage_root)
 
 
 if __name__ == "__main__":

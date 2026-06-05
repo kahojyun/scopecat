@@ -33,13 +33,12 @@ from scopecat.measurement_records._storage import (
     validate_strict_child_path as _validate_strict_child_path,
 )
 from scopecat.measurement_records.read_model_refresh import (
-    READ_MODEL_REFRESH_POLICY,
     READ_MODEL_REFRESH_SCHEMA,
     MeasurementRecordReadModelRefreshRun,
     refresh_measurement_record_read_model,
 )
 from scopecat.measurement_records.read_model_shared import READ_MODEL_SCHEMA
-from scopecat.measurement_records.read_view import READ_VIEW_POLICY, READ_VIEW_SCHEMA
+from scopecat.measurement_records.read_view import READ_VIEW_SCHEMA
 
 SELECTED_RECORD_EXPORT_POLICY = {
     "workflow_authority": "approved_selected_measurement_record_export_request",
@@ -1328,11 +1327,9 @@ def _pre_export_refresh_source(
         refresh_request["expected_current_read_model_digest"] = expected_digest
     return {
         "read_model_refresh_schema": READ_MODEL_REFRESH_SCHEMA,
-        "read_model_refresh_policy": READ_MODEL_REFRESH_POLICY,
         "refresh_request": refresh_request,
         "read_view_source": {
             "read_view_schema": READ_VIEW_SCHEMA,
-            "read_view_policy": READ_VIEW_POLICY,
             "read_request": {
                 "request_id": f"pre-export-read-{request.record_id}",
                 "record_id": request.record_id,

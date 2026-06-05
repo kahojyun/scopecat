@@ -327,7 +327,7 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
             payload["initial_export"]["read_model_freshness_review"]["classification"],
             "missing_read_model_requires_projection",
         )
-        self.assertEqual(payload["refresh"]["workflow"]["classification"], "refreshed_read_model")
+        self.assertEqual(payload["refresh"]["classification"], "refreshed_read_model")
         self.assertEqual(payload["refresh"]["request"]["expected_target_condition"], "missing")
         self.assertEqual(payload["final_export"]["export"]["performed"], True)
         self.assertEqual(payload["preflight_review"]["refresh_performed"], True)

@@ -247,19 +247,7 @@ class LegacyMeasurementRecordRun:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_legacy_measurement_user_workflow",
-            "workflow": {
-                "classification": self.classification,
-                "steps": _workflow_steps(self),
-                "does_not_claim": [
-                    "final_public_sdk",
-                    "legacy_payload_observation",
-                    "legacy_format_parsing",
-                    "reference_payload_import",
-                    "code_execution",
-                    "analysis_execution",
-                    "gui_state_persistence",
-                ],
-            },
+            "classification": self.classification,
             "request": self.request.to_dict(),
             "generated_ids": self.generated_ids.to_dict(),
             "storage_root": str(self.storage_root),
@@ -370,20 +358,6 @@ def record_legacy_measurement_from_request(
         recorded_reference=recorded_reference,
         read_view=read_view,
     )
-
-
-def _workflow_steps(run: LegacyMeasurementRecordRun) -> list[str]:
-    steps = [
-        "generate_scopecat_ids_from_legacy_facts",
-        "record_legacy_run",
-    ]
-    if run.primary_attach is not None:
-        steps.append("attach_converted_primary_data")
-    if run.recorded_reference is not None:
-        steps.append("record_measurement_references")
-    if run.read_view is not None:
-        steps.append("read_primary_data_preview")
-    return steps
 
 
 def legacy_measurement_slug(source: LegacyMeasurementSource) -> str:

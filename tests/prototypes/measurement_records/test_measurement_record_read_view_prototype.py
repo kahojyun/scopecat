@@ -17,7 +17,7 @@ from scopecat.measurement_records import (
     read_created_record_primary_table_from_request,
     write_created_record_primary_data_from_request,
 )
-from scopecat.measurement_records.read_view import READ_VIEW_POLICY, READ_VIEW_SCHEMA
+from scopecat.measurement_records.read_view import READ_VIEW_SCHEMA
 
 ROOT = Path(__file__).resolve().parents[3]
 CHUNK_FIXTURE = (
@@ -79,7 +79,6 @@ def _read_source(**overrides: object) -> dict:
     request = _read_request(**overrides).to_dict()
     return {
         "read_view_schema": READ_VIEW_SCHEMA,
-        "read_view_policy": READ_VIEW_POLICY,
         "read_request": request,
     }
 
@@ -141,8 +140,18 @@ class MeasurementRecordReadViewPrototypeTest(unittest.TestCase):
         self.assertEqual(run.table["row_count"], 5)
         self.assertEqual(run.table["declared_row_count"], 5)
         self.assertEqual(
-            run.table["table_policy"]["table_parser"],
-            "measurement_records_normalized_primary_table",
+            set(run.table),
+            {
+                "table_schema",
+                "source",
+                "format",
+                "classification",
+                "columns",
+                "row_count",
+                "declared_row_count",
+                "rows",
+                "preview",
+            },
         )
         self.assertEqual(
             [column["name"] for column in run.table["columns"]],
@@ -153,9 +162,20 @@ class MeasurementRecordReadViewPrototypeTest(unittest.TestCase):
         self.assertEqual(creation_manifest["primary_data"]["state"], "not_recorded")
 
         summary = run.to_dict()
+        self.assertEqual(
+            set(summary),
+            {
+                "artifact_posture",
+                "classification",
+                "request",
+                "record_manifest",
+                "writer_receipt",
+                "table",
+                "review_findings",
+            },
+        )
         self.assertEqual(summary["artifact_posture"], "local_record_read_view")
-        self.assertEqual(summary["workflow"]["classification"], "primary_table_ready")
-        self.assertIn("read_model_refresh", summary["workflow"]["does_not_claim"])
+        self.assertEqual(summary["classification"], "primary_table_ready")
         self.assertEqual(
             summary["writer_receipt"]["primary_data_path"],
             "records/run-3101-rabi/primary.csv",
@@ -275,16 +295,6 @@ class MeasurementRecordReadViewPrototypeTest(unittest.TestCase):
     def test_read_request_writer_receipt_must_stay_under_record_dir(self) -> None:
         with self.assertRaisesRegex(ValueError, "writer_receipt_path"):
             _read_request(writer_receipt_path="outside/writer-receipt.json")
-
-    def test_source_policy_must_match_candidate_boundary(self) -> None:
-        source = _read_source()
-        source["read_view_policy"] = {**READ_VIEW_POLICY, "storage_mutation": "performed"}
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir) / "storage"
-            storage_root.mkdir()
-
-            with self.assertRaisesRegex(ValueError, "policy"):
-                read_created_record_primary_table(source, storage_root=storage_root)
 
 
 if __name__ == "__main__":

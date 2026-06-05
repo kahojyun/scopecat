@@ -195,16 +195,6 @@ def summarize_observed_primary_table_for_read_view(
     return (
         {
             "table_schema": "measurement_record_primary_table_read_v0",
-            "table_policy": {
-                "input_authority": "writer_receipt_declared_primary_data",
-                "format": "csv_table",
-                "file_observation": "declared_primary_data_only",
-                "schema_inference": "not_performed",
-                "scalar_type_inference": "not_performed",
-                "dataframe_adapter": "not_invoked",
-                "storage_mutation": "not_performed",
-                "table_parser": "measurement_records_normalized_primary_table",
-            },
             "source": source,
             "format": "csv_table",
             "classification": "primary_table_review_needed" if findings else "primary_table_ready",

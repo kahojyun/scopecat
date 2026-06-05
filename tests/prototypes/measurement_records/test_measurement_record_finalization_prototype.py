@@ -20,7 +20,7 @@ from scopecat.measurement_records import (
     write_created_record_primary_data_from_request,
 )
 from scopecat.measurement_records.finalization import FINALIZATION_SCHEMA
-from scopecat.measurement_records.read_view import READ_VIEW_POLICY, READ_VIEW_SCHEMA
+from scopecat.measurement_records.read_view import READ_VIEW_SCHEMA
 
 ROOT = Path(__file__).resolve().parents[3]
 CHUNK_FIXTURE = (
@@ -79,7 +79,6 @@ def _read_request() -> MeasurementRecordReadRequest:
 def _read_source() -> dict:
     return {
         "read_view_schema": READ_VIEW_SCHEMA,
-        "read_view_policy": READ_VIEW_POLICY,
         "read_request": _read_request().to_dict(),
     }
 

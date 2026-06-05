@@ -14,7 +14,9 @@ from scopecat.measurement_records.creation import (
     validate_text,
 )
 from scopecat.measurement_records.read_model_shared import (
-    READ_MODEL_DOES_NOT_CLAIM,
+    READ_MODEL_SCHEMA as _READ_MODEL_SCHEMA,
+)
+from scopecat.measurement_records.read_model_shared import (
     _ensure_no_symlink_parents,
     _existing_directory_root,
     _finalization_ref,
@@ -29,9 +31,6 @@ from scopecat.measurement_records.read_model_shared import (
     _validate_request_against_read_view,
     _validate_strict_child_path,
 )
-from scopecat.measurement_records.read_model_shared import (
-    READ_MODEL_SCHEMA as _READ_MODEL_SCHEMA,
-)
 from scopecat.measurement_records.read_view import (
     MeasurementRecordReadRun,
     read_created_record_primary_table,
@@ -39,21 +38,7 @@ from scopecat.measurement_records.read_view import (
 
 READ_MODEL_PROJECTION_SCHEMA = "scopecat.measurement_record_read_model_projection.v0"
 READ_MODEL_SCHEMA = _READ_MODEL_SCHEMA
-READ_MODEL_PROJECTION_POLICY = {
-    "workflow_authority": "approved_measurement_record_read_model_projection_request",
-    "record_authority": "existing_measurement_record_creation_manifest",
-    "writer_receipt_authority": "record_local_writer_receipt",
-    "read_view_authority": "local_record_read_view",
-    "finalization_authority": "record_local_finalization_receipt",
-    "read_model_materialization": "write_record_local_read_model",
-    "record_manifest": "not_replaced",
-    "read_model_refresh": "not_performed",
-    "collision_policy": "no_overwrite",
-    "storage_root_concurrency": "not_supported",
-    "final_storage_schema": "not_defined",
-}
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
-DOES_NOT_CLAIM = list(READ_MODEL_DOES_NOT_CLAIM)
 
 
 @dataclass(frozen=True)
@@ -164,17 +149,7 @@ class MeasurementRecordReadModelProjectionRun:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_record_read_model_projection_receipt",
-            "read_model_projection_policy": copy.deepcopy(READ_MODEL_PROJECTION_POLICY),
-            "workflow": {
-                "classification": self.classification,
-                "steps": [
-                    "read_created_record_primary_table",
-                    "validate_projection_request",
-                    *([] if not self.request.approved else ["read_finalization_receipt"]),
-                    *([] if not self.projected else ["write_read_model"]),
-                ],
-                "does_not_claim": list(DOES_NOT_CLAIM),
-            },
+            "classification": self.classification,
             "request": self.request.to_dict(),
             "read_view": {
                 "classification": self.read_view.classification,
@@ -290,8 +265,6 @@ def _parse_source(
         raise ValueError(
             f"read model projection source schema must be {READ_MODEL_PROJECTION_SCHEMA}"
         )
-    if source.get("read_model_projection_policy") != READ_MODEL_PROJECTION_POLICY:
-        raise ValueError("read model projection source policy is unsupported")
     request = _require_dict(source, "projection_request")
     read_view_source = _require_dict(source, "read_view_source")
     return (

@@ -41,32 +41,6 @@ from scopecat.measurement_records.writer_integration import (
 
 IN_PROGRESS_UPDATE_SCHEMA = "scopecat.measurement_record_in_progress_update.v0"
 UPDATE_RECEIPT_SCHEMA = "measurement_record_update_receipt_v0"
-IN_PROGRESS_UPDATE_POLICY = {
-    "workflow_authority": "approved_in_progress_update_request",
-    "record_authority": "existing_in_progress_creation_manifest",
-    "writer_receipt_authority": "record_local_writer_receipt",
-    "previous_update_receipt_authority": "caller_declared_for_second_and_later_appends",
-    "storage_authority": "caller_provided_storage_root",
-    "update_behavior": "append_segment_and_receipt_only",
-    "primary_data_materialization": "not_merged",
-    "record_manifest": "read_only_creation_manifest_continuity_check",
-    "read_model_refresh": "not_performed",
-    "collision_policy": "no_overwrite",
-    "rollback": "best_effort_synchronous_cleanup",
-    "storage_root_concurrency": "not_supported",
-}
-DOES_NOT_CLAIM = [
-    "final_storage_schema",
-    "manifest_replacement",
-    "primary_data_merge_or_compaction",
-    "read_model_refresh",
-    "lifecycle_finalization",
-    "conflict_resolution",
-    "crash_recovery",
-    "concurrent_storage_root_mutation",
-    "schema_inference",
-    "scientific_validity",
-]
 
 
 @dataclass(frozen=True)
@@ -242,17 +216,7 @@ class MeasurementRecordInProgressUpdateRun:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_record_in_progress_update_receipt",
-            "in_progress_update_policy": copy.deepcopy(IN_PROGRESS_UPDATE_POLICY),
-            "workflow": {
-                "classification": self.classification,
-                "steps": [
-                    "validate_in_progress_update_request",
-                    "read_creation_manifest",
-                    "read_writer_receipt",
-                    *([] if not self.updated else ["write_append_segment", "write_update_receipt"]),
-                ],
-                "does_not_claim": list(DOES_NOT_CLAIM),
-            },
+            "classification": self.classification,
             "request": self.request.to_dict(),
             "record_manifest": _manifest_ref(self.record_manifest),
             "writer_receipt": _writer_receipt_ref(self.writer_receipt),
@@ -355,7 +319,6 @@ def append_in_progress_measurement_record_from_request(
                 "result": "written",
                 "bytes_written": len(segment_content),
                 "digest": segment_digest,
-                "does_not_claim": "merged_primary_data_or_schema_validity",
             },
             {
                 "path": request.update_receipt_path,
@@ -363,7 +326,6 @@ def append_in_progress_measurement_record_from_request(
                 "result": "written",
                 "bytes_written": len(receipt_content),
                 "digest": receipt_digest,
-                "does_not_claim": "manifest_replacement_or_read_model_refresh",
             },
         ),
     )
@@ -372,8 +334,6 @@ def append_in_progress_measurement_record_from_request(
 def _parse_source(source: dict[str, Any]) -> MeasurementRecordInProgressUpdateRequest:
     if source.get("in_progress_update_schema") != IN_PROGRESS_UPDATE_SCHEMA:
         raise ValueError(f"in-progress update source schema must be {IN_PROGRESS_UPDATE_SCHEMA}")
-    if source.get("in_progress_update_policy") != IN_PROGRESS_UPDATE_POLICY:
-        raise ValueError("in-progress update source policy is unsupported")
     request = _require_dict(source, "in_progress_update_request")
     return MeasurementRecordInProgressUpdateRequest(
         request_id=_require_text(request, "request_id"),
@@ -622,7 +582,6 @@ def _update_receipt_bytes(
             "size_bytes": segment_size,
         },
         "append_chunk": request.append_chunk.to_dict(),
-        "does_not_claim": list(DOES_NOT_CLAIM),
     }
     return json.dumps(receipt, indent=2, sort_keys=True).encode("utf-8") + b"\n"
 

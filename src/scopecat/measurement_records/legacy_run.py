@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import json
 import shutil
 from collections.abc import Callable
@@ -38,18 +37,6 @@ from scopecat.measurement_records.creation import (
 LEGACY_RUN_RECORD_SCHEMA = "scopecat.measurement_record_legacy_run_record.v0"
 LEGACY_RUN_RECEIPT_SCHEMA = "measurement_record_legacy_run_receipt_v0"
 LEGACY_RUN_RECEIPT_NAME = "legacy-run-receipt.json"
-LEGACY_RUN_RECORD_POLICY = {
-    "workflow_authority": "approved_legacy_run_record_request",
-    "record_creation": "create_measurement_record_shell",
-    "legacy_run_authority": "caller_declared_legacy_run_facts",
-    "legacy_locator_handling": "declared_references_only",
-    "receipt_materialization": "record_local_no_overwrite_receipt",
-    "primary_data_import": "not_performed",
-    "legacy_payload_observation": "not_performed",
-    "storage_mutation": "create_record_shell_and_legacy_receipt_only",
-    "read_model_projection": "not_performed",
-    "final_storage_schema": "not_defined",
-}
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 LOCATOR_KINDS = {"workspace_relative_path", "package_relative_path", "opaque_reference"}
 LOCATOR_ROLES = {
@@ -78,20 +65,6 @@ CONTEXT_ROLES = {
     "operator_selected_context",
 }
 CONTEXT_STATES = {"declared", "unavailable", "redacted"}
-DOES_NOT_CLAIM = [
-    "legacy_code_execution",
-    "legacy_file_observation",
-    "legacy_payload_import",
-    "primary_data_import",
-    "primary_data_schema_inference",
-    "scientific_validity",
-    "context_payload_import",
-    "hardware_control",
-    "parameter_write_back",
-    "read_model_projection",
-    "final_storage_schema",
-    "gui_review_state",
-]
 
 
 @dataclass(frozen=True)
@@ -290,16 +263,7 @@ class LegacyRunRecordRun:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_legacy_run_record_receipt",
-            "legacy_run_record_policy": copy.deepcopy(LEGACY_RUN_RECORD_POLICY),
-            "workflow": {
-                "classification": self.classification,
-                "steps": [
-                    "validate_legacy_run_request",
-                    *([] if not self.request.approved else ["create_measurement_record_shell"]),
-                    *([] if not self.recorded else ["write_legacy_run_receipt"]),
-                ],
-                "does_not_claim": list(DOES_NOT_CLAIM),
-            },
+            "classification": self.classification,
             "request": self.request.to_dict(),
             "creation": None if self.creation_run is None else self.creation_run.to_dict(),
             "legacy_receipt": {
@@ -385,8 +349,6 @@ def record_legacy_measurement_run_from_request(
 def _parse_source(source: dict[str, Any]) -> LegacyRunRecordRequest:
     if source.get("legacy_run_record_schema") != LEGACY_RUN_RECORD_SCHEMA:
         raise ValueError(f"legacy run source schema must be {LEGACY_RUN_RECORD_SCHEMA}")
-    if source.get("legacy_run_record_policy") != LEGACY_RUN_RECORD_POLICY:
-        raise ValueError("legacy run source policy is unsupported")
     request = _require_dict(source, "legacy_run_record_request")
     return LegacyRunRecordRequest(
         request_id=_require_text(request, "request_id"),
@@ -429,7 +391,6 @@ def _parse_source(source: dict[str, Any]) -> LegacyRunRecordRequest:
 def _legacy_receipt(request: LegacyRunRecordRequest) -> dict[str, Any]:
     return {
         "schema": LEGACY_RUN_RECEIPT_SCHEMA,
-        "legacy_run_record_policy": copy.deepcopy(LEGACY_RUN_RECORD_POLICY),
         "record": {
             "record_id": request.record_id,
             "record_dir": request.record_dir,
@@ -445,10 +406,9 @@ def _legacy_receipt(request: LegacyRunRecordRequest) -> dict[str, Any]:
         },
         "declared_locators": [locator.to_dict() for locator in request.locators],
         "context_references": [reference.to_dict() for reference in request.context_references],
-        "workflow": {
+        "operation": {
             "request_id": request.request_id,
             "classification": "legacy_run_recorded_for_review",
-            "does_not_claim": list(DOES_NOT_CLAIM),
         },
     }
 

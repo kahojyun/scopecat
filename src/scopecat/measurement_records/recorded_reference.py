@@ -36,42 +36,6 @@ from scopecat.measurement_records.creation import (
 RECORDED_REFERENCE_SCHEMA = "scopecat.measurement_record_recorded_reference.v0"
 RECORDED_REFERENCE_RECEIPT_SCHEMA = "measurement_record_recorded_reference_receipt_v0"
 RECORDED_REFERENCE_RECEIPT_DIR = "recorded-references"
-RECORDED_REFERENCE_POLICY = {
-    "workflow_authority": "approved_measurement_record_recorded_reference_request",
-    "record_authority": "existing_measurement_record_creation_manifest",
-    "reference_authority": "caller_declared_record_references",
-    "payload_handling": "references_only",
-    "receipt_materialization": "record_local_no_overwrite_receipt",
-    "storage_mutation": "append_record_local_recorded_reference_receipt_only",
-    "read_model_refresh": "not_performed",
-    "manifest_replacement": "not_performed",
-    "final_storage_schema": "not_defined",
-}
-RECORDED_REFERENCE_REVIEW_POLICY = {
-    "input_authority": "record_local_recorded_reference_receipts",
-    "payload_handling": "references_only",
-    "storage_mutation": "not_performed",
-    "read_model_refresh": "not_performed",
-    "manifest_replacement": "not_performed",
-    "final_storage_schema": "not_defined",
-}
-DOES_NOT_CLAIM = [
-    "referenced_payload_import",
-    "file_observation",
-    "checksum_verification_against_target",
-    "parameter_file_parsing",
-    "setup_binding_payload_parsing",
-    "code_snapshot_capture",
-    "code_execution",
-    "analysis_execution",
-    "analysis_validity",
-    "parameter_write_back",
-    "hardware_control",
-    "read_model_refresh",
-    "manifest_replacement",
-    "final_storage_schema",
-    "gui_review_state",
-]
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 REFERENCE_FAMILIES = {
     "parameter_state",
@@ -283,24 +247,7 @@ class MeasurementRecordReferenceRun:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_measurement_record_recorded_reference_receipt_run",
-            "recorded_reference_policy": copy.deepcopy(RECORDED_REFERENCE_POLICY),
-            "workflow": {
-                "classification": self.classification,
-                "steps": [
-                    "validate_recorded_reference_request",
-                    *([] if not self.request.approved else ["read_creation_manifest"]),
-                    *(
-                        []
-                        if (
-                            not self.request.approved
-                            or not self.request.previous_reference_receipt_path
-                        )
-                        else ["read_previous_recorded_reference_receipt"]
-                    ),
-                    *([] if not self.recorded else ["write_recorded_reference_receipt"]),
-                ],
-                "does_not_claim": list(DOES_NOT_CLAIM),
-            },
+            "classification": self.classification,
             "request": self.request.to_dict(),
             "receipt": {
                 "saved": self.recorded,
@@ -445,8 +392,6 @@ def list_measurement_record_references(
 def _parse_source(source: dict[str, Any]) -> MeasurementRecordReferenceRequest:
     if source.get("recorded_reference_schema") != RECORDED_REFERENCE_SCHEMA:
         raise ValueError(f"recorded reference source schema must be {RECORDED_REFERENCE_SCHEMA}")
-    if source.get("recorded_reference_policy") != RECORDED_REFERENCE_POLICY:
-        raise ValueError("recorded reference source policy is unsupported")
     request = _require_dict(source, "recorded_reference_request")
     return MeasurementRecordReferenceRequest(
         request_id=_require_text(request, "request_id"),
@@ -539,7 +484,6 @@ def _recorded_reference_receipt(
     return {
         "schema": RECORDED_REFERENCE_RECEIPT_SCHEMA,
         "artifact_posture": "local_measurement_record_recorded_reference_receipt",
-        "recorded_reference_policy": copy.deepcopy(RECORDED_REFERENCE_POLICY),
         "record": {
             "record_id": request.record_id,
             "record_dir": request.record_dir,
@@ -553,10 +497,9 @@ def _recorded_reference_receipt(
             "operator_notes": request.operator_notes,
         },
         "references": [references.to_dict() for references in request.references],
-        "workflow": {
+        "operation": {
             "request_id": request.request_id,
             "classification": "measurement_record_references_recorded_for_review",
-            "does_not_claim": list(DOES_NOT_CLAIM),
         },
     }
 
@@ -599,12 +542,10 @@ def _validate_recorded_reference_receipt(receipt: dict[str, Any]) -> None:
         raise ValueError("Recorded reference receipt schema is unsupported.")
     if receipt.get("artifact_posture") != "local_measurement_record_recorded_reference_receipt":
         raise ValueError("Recorded reference receipt posture is unsupported.")
-    if receipt.get("recorded_reference_policy") != RECORDED_REFERENCE_POLICY:
-        raise ValueError("Recorded reference receipt policy is unsupported.")
-    workflow = _require_dict(receipt, "workflow")
-    if workflow.get("does_not_claim") != DOES_NOT_CLAIM:
-        raise ValueError("Recorded reference receipt non-claims are unsupported.")
-    validate_public_identifier(workflow.get("request_id"), "recorded reference workflow request_id")
+    operation = _require_dict(receipt, "operation")
+    validate_public_identifier(operation.get("request_id"), "recorded reference request_id")
+    if operation.get("classification") != "measurement_record_references_recorded_for_review":
+        raise ValueError("Recorded reference receipt classification is unsupported.")
     record = _require_dict(receipt, "record")
     validate_public_identifier(record.get("record_id"), "recorded reference record_id")
     record_dir = validate_relative_path(record.get("record_dir"), "recorded reference record_dir")
@@ -721,19 +662,11 @@ def _recorded_reference_review(
 ) -> dict[str, Any]:
     return {
         "artifact_posture": "local_measurement_record_recorded_reference_review",
-        "recorded_reference_review_policy": copy.deepcopy(RECORDED_REFERENCE_REVIEW_POLICY),
-        "workflow": {
-            "classification": (
-                "measurement_record_recorded_reference_review_needed"
-                if findings
-                else "measurement_record_recorded_reference_review_ready"
-            ),
-            "steps": [
-                "scan_record_local_recorded_reference_receipts",
-                "project_recorded_reference_references",
-            ],
-            "does_not_claim": list(DOES_NOT_CLAIM),
-        },
+        "classification": (
+            "measurement_record_recorded_reference_review_needed"
+            if findings
+            else "measurement_record_recorded_reference_review_ready"
+        ),
         "entries": entries,
         "review_findings": findings,
     }
@@ -761,7 +694,6 @@ def _finding(code: str, target: str, message: str) -> dict[str, str]:
         "severity": "review",
         "target": target,
         "message": message,
-        "does_not_claim": "record_repair_or_payload_observation",
     }
 
 

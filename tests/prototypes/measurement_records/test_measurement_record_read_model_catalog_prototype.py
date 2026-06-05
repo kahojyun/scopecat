@@ -24,7 +24,6 @@ from scopecat.measurement_records import (
     write_created_record_primary_data_from_request,
 )
 from scopecat.measurement_records.read_model_catalog import (
-    READ_MODEL_CATALOG_POLICY,
     READ_MODEL_CATALOG_SCHEMA,
 )
 
@@ -123,7 +122,6 @@ def _catalog_request(**overrides: object) -> MeasurementRecordCatalogRequest:
 def _catalog_source(**overrides: object) -> dict:
     return {
         "read_model_catalog_schema": READ_MODEL_CATALOG_SCHEMA,
-        "read_model_catalog_policy": READ_MODEL_CATALOG_POLICY,
         "catalog_request": _catalog_request(**overrides).to_dict(),
     }
 
@@ -212,9 +210,21 @@ class MeasurementRecordReadModelCatalogPrototypeTest(unittest.TestCase):
         self.assertEqual(run.entries[0]["table"]["preview_row_count"], 2)
         self.assertEqual(run.review_findings, ())
         self.assertEqual(read_model_after, read_model_before)
-        self.assertIn("read_model_refresh", run.to_dict()["workflow"]["does_not_claim"])
+        summary = run.to_dict()
+        self.assertEqual(
+            set(summary),
+            {
+                "artifact_posture",
+                "classification",
+                "request",
+                "storage_root",
+                "entries",
+                "review_findings",
+            },
+        )
+        self.assertEqual(summary["classification"], "read_model_catalog_ready")
 
-    def test_raw_source_catalog_uses_candidate_policy(self) -> None:
+    def test_raw_source_catalogs_projected_read_model(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root = Path(temp_dir) / "storage"
             content_root = Path(temp_dir) / "content"
@@ -305,7 +315,10 @@ class MeasurementRecordReadModelCatalogPrototypeTest(unittest.TestCase):
         self.assertEqual(run.classification, "read_model_catalog_review_needed")
         self.assertEqual(len(run.entries), 1)
         self.assertEqual(run.review_findings[0]["code"], "read_model_source_digest_mismatch")
-        self.assertIn("read_model_refresh_or_repair", run.review_findings[0]["does_not_claim"])
+        self.assertEqual(
+            set(run.review_findings[0]),
+            {"code", "severity", "target", "message"},
+        )
 
     def test_source_digest_verification_rejects_symlink_parent(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -370,19 +383,6 @@ class MeasurementRecordReadModelCatalogPrototypeTest(unittest.TestCase):
         self.assertEqual(run.classification, "read_model_catalog_ready")
         self.assertEqual(run.entries, ())
         self.assertEqual(run.review_findings, ())
-
-    def test_source_policy_must_match_candidate_boundary(self) -> None:
-        source = _catalog_source()
-        source["read_model_catalog_policy"] = {
-            **READ_MODEL_CATALOG_POLICY,
-            "read_model_refresh": "performed",
-        }
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir) / "storage"
-            storage_root.mkdir()
-
-            with self.assertRaisesRegex(ValueError, "policy"):
-                catalog_measurement_record_read_models(source, storage_root=storage_root)
 
 
 if __name__ == "__main__":

@@ -32,30 +32,6 @@ from scopecat.measurement_records.read_model_shared import (
 )
 
 STORAGE_INVENTORY_SCHEMA = "scopecat.measurement_record_storage_inventory.v0"
-STORAGE_INVENTORY_POLICY = {
-    "inventory_authority": "record_local_storage_artifacts",
-    "record_discovery": "records_dir_scan",
-    "manifest_handling": "read_record_manifest",
-    "legacy_receipt_handling": "read_record_local_legacy_receipt_when_present",
-    "read_model_handling": "read_record_local_read_model_when_present",
-    "primary_data_observation": "not_performed",
-    "storage_mutation": "not_performed",
-    "read_model_refresh": "not_performed",
-    "legacy_payload_import": "not_performed",
-    "final_storage_schema": "not_defined",
-}
-DOES_NOT_CLAIM = [
-    "canonical_storage_authority",
-    "record_repair",
-    "read_model_refresh",
-    "primary_data_revalidation",
-    "legacy_file_observation",
-    "legacy_payload_import",
-    "manifest_replacement",
-    "update_receipt_discovery",
-    "gui_review_state",
-    "public_export_schema",
-]
 
 
 @dataclass(frozen=True)
@@ -102,25 +78,7 @@ class MeasurementRecordStorageInventoryRun:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_measurement_record_storage_inventory",
-            "storage_inventory_policy": copy.deepcopy(STORAGE_INVENTORY_POLICY),
-            "workflow": {
-                "classification": self.classification,
-                "steps": [
-                    "scan_records_dir",
-                    "read_record_manifests",
-                    *(
-                        ["read_record_local_read_models"]
-                        if self.request.include_read_models
-                        else []
-                    ),
-                    *(
-                        ["read_record_local_legacy_receipts"]
-                        if self.request.include_legacy_receipts
-                        else []
-                    ),
-                ],
-                "does_not_claim": list(DOES_NOT_CLAIM),
-            },
+            "classification": self.classification,
             "request": self.request.to_dict(),
             "storage_root": str(self.storage_root),
             "entries": [copy.deepcopy(entry) for entry in self.entries],
@@ -195,8 +153,6 @@ def list_measurement_record_storage_from_request(
 def _parse_source(source: dict[str, Any]) -> MeasurementRecordStorageInventoryRequest:
     if source.get("storage_inventory_schema") != STORAGE_INVENTORY_SCHEMA:
         raise ValueError(f"storage inventory source schema must be {STORAGE_INVENTORY_SCHEMA}")
-    if source.get("storage_inventory_policy") != STORAGE_INVENTORY_POLICY:
-        raise ValueError("storage inventory source policy is unsupported")
     request = _require_dict(source, "storage_inventory_request")
     return MeasurementRecordStorageInventoryRequest(
         request_id=_require_text(request, "request_id"),
@@ -437,7 +393,6 @@ def _finding(code: str, path: str, message: str) -> dict[str, str]:
         "code": code,
         "path": path,
         "message": message,
-        "does_not_claim": "storage_repair_or_import",
     }
 
 

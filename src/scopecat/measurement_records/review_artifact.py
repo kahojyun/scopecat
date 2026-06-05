@@ -37,7 +37,7 @@ def build_measurement_record_review_html(
       <p class="eyebrow">local measurement records review artifact</p>
       <h1>Measurement Records Review</h1>
       <div class="facts">
-        <span><b>review</b>{_esc(review["workflow"]["classification"])}</span>
+        <span><b>review</b>{_esc(review["classification"])}</span>
         <span><b>catalog records</b>{_esc(review["catalog"]["entry_count"])}</span>
         <span><b>running inspections</b>{_esc(len(running))}</span>
         <span><b>findings</b>{_esc(len(findings))}</span>
@@ -112,7 +112,7 @@ def write_measurement_record_review_artifact(
         },
         "operator_review": {
             "request_id": review["request"]["request_id"],
-            "classification": review["workflow"]["classification"],
+            "classification": review["classification"],
             "catalog_entry_count": review["catalog"]["entry_count"],
             "running_inspection_count": len(review["running_inspections"]),
             "review_finding_count": len(review["review_findings"]),

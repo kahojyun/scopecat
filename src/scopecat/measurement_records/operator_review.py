@@ -47,54 +47,6 @@ OPERATOR_REVIEW_RECEIPT_SUMMARY_SCHEMA = (
     "scopecat.measurement_record_operator_review_receipt_summary.v0"
 )
 OPERATOR_REVIEW_RECEIPT_DIR = "operator-reviews"
-OPERATOR_REVIEW_POLICY = {
-    "catalog_authority": "record_local_projected_read_models",
-    "running_inspection_authority": "caller_declared_running_inspection_requests",
-    "recorded_reference_authority": "record_local_recorded_reference_receipts",
-    "selected_record_authority": "catalog_entry_or_running_inspection_summary",
-    "storage_mutation": "not_performed",
-    "record_discovery": "catalog_records_dir_only",
-    "update_receipt_discovery": "not_performed",
-    "referenced_payload_import": "not_performed",
-    "read_model_refresh": "not_performed",
-    "manifest_replacement": "not_performed",
-    "gui_state": "not_persisted",
-}
-OPERATOR_REVIEW_RECEIPT_POLICY = {
-    "input_authority": "measurement_record_operator_review_run",
-    "workflow_authority": "approved_operator_review_receipt_request",
-    "receipt_materialization": "local_no_overwrite_receipt",
-    "record_mutation": "not_performed",
-    "review_state_authority": "local_continuation_note_only",
-    "finding_resolution": "not_performed",
-    "retry_authority": "not_granted",
-    "gui_state": "not_persisted",
-}
-DOES_NOT_CLAIM = [
-    "canonical_storage_authority",
-    "record_repair",
-    "read_model_refresh",
-    "update_receipt_discovery",
-    "primary_data_revalidation_beyond_child_operations",
-    "lifecycle_finalization",
-    "manifest_replacement",
-    "storage_mutation",
-    "referenced_payload_import",
-    "recorded_reference_mutation",
-    "gui_review_state",
-    "public_export_schema",
-]
-RECEIPT_DOES_NOT_CLAIM = [
-    "record_mutation",
-    "finding_resolution",
-    "retry_authority",
-    "import_approval",
-    "refresh_approval",
-    "lifecycle_finalization",
-    "canonical_review_state",
-    "gui_review_state",
-    "public_export_schema",
-]
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 OPERATOR_DISPOSITIONS = {"recorded_for_continuation", "recorded_as_reviewed"}
 SELECTED_RECORD_SOURCES = {"catalog", "running_inspection", "not_visible"}
@@ -220,17 +172,7 @@ class MeasurementRecordOperatorReviewRun:
         )
         return {
             "artifact_posture": "local_measurement_record_operator_review",
-            "operator_review_policy": copy.deepcopy(OPERATOR_REVIEW_POLICY),
-            "workflow": {
-                "classification": self.classification,
-                "steps": [
-                    "catalog_record_read_models",
-                    "run_declared_running_inspections",
-                    "project_selected_record_summary",
-                    "aggregate_review_findings",
-                ],
-                "does_not_claim": list(DOES_NOT_CLAIM),
-            },
+            "classification": self.classification,
             "request": self.request.to_dict(),
             "storage_root": str(self.storage_root),
             "catalog": {
@@ -329,15 +271,7 @@ class MeasurementRecordOperatorReviewReceiptRun:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_measurement_record_operator_review_receipt_run",
-            "operator_review_receipt_policy": copy.deepcopy(OPERATOR_REVIEW_RECEIPT_POLICY),
-            "workflow": {
-                "classification": self.classification,
-                "steps": [
-                    "validate_operator_review_receipt_request",
-                    *([] if not self.saved else ["write_operator_review_receipt"]),
-                ],
-                "does_not_claim": list(RECEIPT_DOES_NOT_CLAIM),
-            },
+            "classification": self.classification,
             "request": self.request.to_dict(),
             "operator_review": _operator_review_ref(self.operator_review),
             "receipt": {
@@ -394,7 +328,6 @@ def review_measurement_records_from_request(
                     "running_inspection_unavailable",
                     inspection_request.record_id,
                     str(exc),
-                    does_not_claim="record_repair_or_update_receipt_discovery",
                 )
             )
 
@@ -477,13 +410,6 @@ def summarize_measurement_record_operator_review_receipt(
     return {
         "summary_schema": OPERATOR_REVIEW_RECEIPT_SUMMARY_SCHEMA,
         "artifact_posture": "local_measurement_record_operator_review_receipt_summary",
-        "summary_policy": {
-            "input_authority": "saved_operator_review_receipt",
-            "record_mutation": "not_performed",
-            "continuation_authority": "not_granted",
-            "gui_state": "not_persisted",
-            "redaction_boundary": "local_workspace_only",
-        },
         "receipt": {
             "request_id": parsed["receipt_request_id"],
             "review_receipt_path": parsed["review_receipt_path"],
@@ -498,15 +424,12 @@ def summarize_measurement_record_operator_review_receipt(
             "review_finding_codes": parsed["review_finding_codes"],
             "next_action": parsed["next_action"],
         },
-        "does_not_claim": list(RECEIPT_DOES_NOT_CLAIM),
     }
 
 
 def _parse_source(source: dict[str, Any]) -> MeasurementRecordOperatorReviewRequest:
     if source.get("operator_review_schema") != OPERATOR_REVIEW_SCHEMA:
         raise ValueError(f"operator review source schema must be {OPERATOR_REVIEW_SCHEMA}")
-    if source.get("operator_review_policy") != OPERATOR_REVIEW_POLICY:
-        raise ValueError("operator review source policy is unsupported")
     request = _require_dict(source, "operator_review_request")
     running_sources = request.get("running_inspection_requests", [])
     if not isinstance(running_sources, list):
@@ -532,10 +455,6 @@ def _parse_operator_review_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("operator review receipt schema is unsupported")
     if receipt.get("artifact_posture") != "local_measurement_record_operator_review_receipt":
         raise ValueError("operator review receipt artifact_posture is unsupported")
-    if receipt.get("operator_review_receipt_policy") != OPERATOR_REVIEW_RECEIPT_POLICY:
-        raise ValueError("operator review receipt policy is unsupported")
-    if receipt.get("does_not_claim") != RECEIPT_DOES_NOT_CLAIM:
-        raise ValueError("operator review receipt does_not_claim is unsupported")
 
     receipt_request = _require_dict(receipt, "receipt_request")
     receipt_request_id = validate_public_identifier(
@@ -574,7 +493,6 @@ def _parse_operator_review_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
     saved_review = _require_dict(receipt, "operator_review")
     _validate_saved_operator_review_contract(saved_review)
     review_request = _require_dict(saved_review, "request")
-    review_workflow = _require_dict(saved_review, "workflow")
     saved_catalog = _require_dict(saved_review, "catalog")
     saved_entries = _require_list(saved_catalog, "entries")
     saved_running_summaries = _require_list(saved_review, "running_inspections")
@@ -606,7 +524,7 @@ def _parse_operator_review_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
         "saved operator review request_id",
     )
     operator_review_classification = validate_text(
-        review_workflow.get("classification"),
+        saved_review.get("classification"),
         "saved operator review classification",
     )
     expected_classification = (
@@ -665,13 +583,8 @@ def _parse_operator_review_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
 def _validate_saved_operator_review_contract(saved_review: dict[str, Any]) -> None:
     if saved_review.get("artifact_posture") != "local_measurement_record_operator_review":
         raise ValueError("saved operator review artifact_posture is unsupported")
-    if saved_review.get("operator_review_policy") != OPERATOR_REVIEW_POLICY:
-        raise ValueError("saved operator review policy is unsupported")
-    workflow = _require_dict(saved_review, "workflow")
-    if workflow.get("does_not_claim") != DOES_NOT_CLAIM:
-        raise ValueError("saved operator review does_not_claim is unsupported")
     classification = validate_text(
-        workflow.get("classification"),
+        saved_review.get("classification"),
         "saved operator review classification",
     )
     if classification not in {
@@ -740,7 +653,6 @@ def _aggregate_findings(
                     "selected_record_not_visible",
                     request.selected_record_id,
                     "Selected record was not found in catalog entries or running inspections.",
-                    does_not_claim="record_discovery_beyond_declared_inputs",
                 )
             )
     return findings
@@ -763,7 +675,6 @@ def _entry_review_finding(entry: dict[str, Any]) -> dict[str, str]:
         "read_model_review_findings_present",
         entry["record_id"],
         "Projected read model includes review findings.",
-        does_not_claim="read_model_refresh_or_repair",
     )
 
 
@@ -775,7 +686,6 @@ def _operator_review_receipt(
     return {
         "schema": OPERATOR_REVIEW_RECEIPT_SCHEMA,
         "artifact_posture": "local_measurement_record_operator_review_receipt",
-        "operator_review_receipt_policy": copy.deepcopy(OPERATOR_REVIEW_RECEIPT_POLICY),
         "receipt_request": request.to_dict(),
         "operator_disposition": {
             "state": request.operator_disposition,
@@ -791,7 +701,6 @@ def _operator_review_receipt(
             ],
             "next_action": review_dict["next_action"],
         },
-        "does_not_claim": list(RECEIPT_DOES_NOT_CLAIM),
     }
 
 
@@ -918,15 +827,12 @@ def _finding(
     code: str,
     target: str,
     message: str,
-    *,
-    does_not_claim: str,
 ) -> dict[str, str]:
     return {
         "code": code,
         "severity": "review",
         "target": target,
         "message": message,
-        "does_not_claim": does_not_claim,
     }
 
 

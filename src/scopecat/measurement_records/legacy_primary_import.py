@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import csv
 import io
 import json
@@ -57,34 +56,7 @@ from scopecat.measurement_records.writer_integration import (
 )
 
 LEGACY_PRIMARY_IMPORT_SCHEMA = "scopecat.measurement_record_legacy_primary_import.v0"
-LEGACY_PRIMARY_IMPORT_POLICY = {
-    "workflow_authority": "approved_legacy_primary_import_request",
-    "record_authority": "existing_legacy_system_measurement_record",
-    "legacy_receipt_authority": "record_local_legacy_run_receipt",
-    "source_authority": "reviewed_converted_normalized_primary_data_facts",
-    "primary_data_materialization": "write_primary_data_to_existing_legacy_record",
-    "read_view": "read_created_record_primary_table",
-    "lifecycle_finalization": "finalize_measurement_record_complete",
-    "read_model_projection": "project_measurement_record_read_model",
-    "record_manifest": "not_replaced",
-    "collision_policy": "no_overwrite_existing_legacy_record_targets",
-    "rollback": "best_effort_synchronous_created_artifact_cleanup",
-    "final_storage_schema": "not_defined",
-}
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
-DOES_NOT_CLAIM = [
-    "new_record_import",
-    "manifest_replacement",
-    "primary_data_merge_or_compaction",
-    "legacy_payload_observation",
-    "legacy_adapter_framework",
-    "automatic_legacy_file_discovery",
-    "record_id_generation_policy",
-    "conflict_resolution_beyond_no_overwrite",
-    "crash_recovery",
-    "concurrent_storage_root_mutation",
-    "public_storage_schema",
-]
 
 
 @dataclass(frozen=True)
@@ -192,33 +164,7 @@ class LegacyPrimaryImportRun:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_legacy_primary_import_receipt",
-            "legacy_primary_import_policy": copy.deepcopy(LEGACY_PRIMARY_IMPORT_POLICY),
-            "workflow": {
-                "classification": self.classification,
-                "steps": [
-                    "validate_legacy_primary_import_request",
-                    *(
-                        []
-                        if not self.request.approved
-                        else [
-                            "validate_existing_legacy_record",
-                            "validate_legacy_receipt_continuity",
-                            "preflight_converted_primary_data",
-                        ]
-                    ),
-                    *(
-                        []
-                        if not self.attached
-                        else [
-                            "write_primary_data_to_legacy_record",
-                            "read_created_record_primary_table",
-                            "finalize_measurement_record",
-                            "project_measurement_record_read_model",
-                        ]
-                    ),
-                ],
-                "does_not_claim": list(DOES_NOT_CLAIM),
-            },
+            "classification": self.classification,
             "request": self.request.to_dict(),
             "storage_root": str(self.storage_root),
             "content_root": str(self.content_root),
@@ -348,8 +294,6 @@ def _parse_source(source: dict[str, Any]) -> LegacyPrimaryImportRequest:
         raise ValueError(
             f"legacy primary import source schema must be {LEGACY_PRIMARY_IMPORT_SCHEMA}"
         )
-    if source.get("legacy_primary_import_policy") != LEGACY_PRIMARY_IMPORT_POLICY:
-        raise ValueError("legacy primary import source policy is unsupported")
     request = _require_dict(source, "legacy_primary_import_request")
     source_facts = _require_dict(request, "import_source")
     return LegacyPrimaryImportRequest(

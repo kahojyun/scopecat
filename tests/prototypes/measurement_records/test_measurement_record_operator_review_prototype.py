@@ -40,7 +40,6 @@ from scopecat.measurement_records import (
 )
 from scopecat.measurement_records.__main__ import main as measurement_records_main
 from scopecat.measurement_records.operator_review import (
-    OPERATOR_REVIEW_POLICY,
     OPERATOR_REVIEW_RECEIPT_SCHEMA,
     OPERATOR_REVIEW_SCHEMA,
 )
@@ -205,7 +204,6 @@ def _recorded_reference_request(
 def _operator_source(**overrides: object) -> dict:
     return {
         "operator_review_schema": OPERATOR_REVIEW_SCHEMA,
-        "operator_review_policy": OPERATOR_REVIEW_POLICY,
         "operator_review_request": _operator_request(**overrides).to_dict(),
     }
 
@@ -386,7 +384,7 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
         self.assertEqual(payload["recorded_references"]["entries"], [])
         self.assertEqual(payload["review_findings"], [])
         self.assertEqual(after, before)
-        self.assertIn("storage_mutation", payload["workflow"]["does_not_claim"])
+        self.assertEqual(payload["classification"], "measurement_record_operator_review_ready")
 
     def test_operator_review_surfaces_recorded_references(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -587,7 +585,6 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
         self.assertEqual(run.classification, "measurement_record_operator_review_needed")
         self.assertIsNone(payload["selected_record"])
         self.assertEqual(payload["review_findings"][0]["code"], "selected_record_not_visible")
-        self.assertIn("declared_inputs", payload["review_findings"][0]["does_not_claim"])
 
     def test_operator_review_cli_prints_local_review_json(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -615,7 +612,7 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(payload["artifact_posture"], "local_measurement_record_operator_review")
         self.assertEqual(
-            payload["workflow"]["classification"],
+            payload["classification"],
             "measurement_record_operator_review_ready",
         )
         self.assertEqual(payload["selected_record"]["source"], "catalog")
@@ -796,7 +793,7 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(
-            payload["workflow"]["classification"],
+            payload["classification"],
             "measurement_record_operator_review_ready",
         )
         self.assertEqual(len(payload["running_inspections"]), 2)
@@ -883,7 +880,6 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
         self.assertEqual(
             summary["operator_review"]["next_action"], "review_selected_record_summary"
         )
-        self.assertIn("retry_authority", summary["does_not_claim"])
         self.assertEqual(read_model_after, read_model_before)
         self.assertEqual(
             save_run.to_dict()["receipt"]["receipt_digest"],
@@ -971,7 +967,7 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
 
         self.assertEqual(save_run.classification, "blocked_before_operator_review_receipt")
         self.assertIn("already exists", save_run.save_error or "")
-        self.assertNotIn("write_operator_review_receipt", save_run.to_dict()["workflow"]["steps"])
+        self.assertFalse(save_run.to_dict()["receipt"]["saved"])
 
     def test_operator_review_receipt_file_exists_race_does_not_delete_target(
         self,
@@ -1023,28 +1019,6 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "finding must be an object"):
             summarize_measurement_record_operator_review_receipt(receipt)
 
-    def test_operator_review_receipt_summary_rejects_tampered_policy(self) -> None:
-        receipt = _saved_operator_review_receipt()
-        receipt["operator_review_receipt_policy"]["record_mutation"] = "performed"
-
-        with self.assertRaisesRegex(ValueError, "policy"):
-            summarize_measurement_record_operator_review_receipt(receipt)
-
-    def test_operator_review_receipt_summary_rejects_tampered_non_claims(
-        self,
-    ) -> None:
-        receipt = _saved_operator_review_receipt()
-        receipt["does_not_claim"] = ["record_mutation"]
-
-        with self.assertRaisesRegex(ValueError, "does_not_claim"):
-            summarize_measurement_record_operator_review_receipt(receipt)
-
-        receipt = _saved_operator_review_receipt()
-        receipt["operator_review"]["workflow"]["does_not_claim"] = ["storage_mutation"]
-
-        with self.assertRaisesRegex(ValueError, "does_not_claim"):
-            summarize_measurement_record_operator_review_receipt(receipt)
-
     def test_operator_review_receipt_summary_rejects_inconsistent_summary(
         self,
     ) -> None:
@@ -1085,9 +1059,7 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
         receipt["operator_review"]["catalog"]["entries"] = []
         receipt["operator_review"]["selected_record"] = None
         receipt["operator_review"]["review_findings"] = []
-        receipt["operator_review"]["workflow"]["classification"] = (
-            "measurement_record_operator_review_ready"
-        )
+        receipt["operator_review"]["classification"] = "measurement_record_operator_review_ready"
         receipt["operator_review"]["next_action"] = (
             "select_visible_record_or_update_declared_inputs"
         )
@@ -1161,7 +1133,6 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
             payload["receipt"]["operator_disposition"],
             "recorded_for_continuation",
         )
-        self.assertIn("continuation_authority", payload["summary_policy"])
 
 
 if __name__ == "__main__":

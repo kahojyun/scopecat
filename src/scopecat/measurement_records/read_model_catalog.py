@@ -32,28 +32,6 @@ from scopecat.measurement_records.read_model_projection import READ_MODEL_SCHEMA
 from scopecat.measurement_records.read_model_shared import READ_MODEL_FILENAME
 
 READ_MODEL_CATALOG_SCHEMA = "scopecat.measurement_record_read_model_catalog.v0"
-READ_MODEL_CATALOG_POLICY = {
-    "catalog_authority": "record_local_projected_read_models",
-    "record_authority": "derived_read_model_not_canonical_storage",
-    "source_consistency_check": "declared_source_digests_only",
-    "primary_data_revalidation": "not_performed",
-    "storage_mutation": "not_performed",
-    "read_model_refresh": "not_performed",
-    "manifest_replacement": "not_performed",
-    "final_storage_schema": "not_defined",
-}
-DOES_NOT_CLAIM = [
-    "canonical_storage_authority",
-    "manifest_replacement",
-    "read_model_refresh",
-    "stale_read_model_repair",
-    "primary_data_revalidation",
-    "conflict_resolution",
-    "crash_recovery",
-    "database_index",
-    "public_export_schema",
-    "gui_review_state",
-]
 LIFECYCLE_STATES = {"complete", "failed"}
 SOURCE_KINDS = ("creation_manifest", "writer_receipt", "finalization_receipt")
 
@@ -98,20 +76,7 @@ class MeasurementRecordCatalogRun:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_record_read_model_catalog",
-            "read_model_catalog_policy": copy.deepcopy(READ_MODEL_CATALOG_POLICY),
-            "workflow": {
-                "classification": self.classification,
-                "steps": [
-                    "scan_records_dir",
-                    "read_record_read_models",
-                    *(
-                        ["verify_declared_source_digests"]
-                        if self.request.verify_source_digests
-                        else []
-                    ),
-                ],
-                "does_not_claim": list(DOES_NOT_CLAIM),
-            },
+            "classification": self.classification,
             "request": self.request.to_dict(),
             "storage_root": str(self.storage_root),
             "entries": [copy.deepcopy(entry) for entry in self.entries],
@@ -192,8 +157,6 @@ def catalog_measurement_record_read_models_from_request(
 def _parse_source(source: dict[str, Any]) -> MeasurementRecordCatalogRequest:
     if source.get("read_model_catalog_schema") != READ_MODEL_CATALOG_SCHEMA:
         raise ValueError(f"read model catalog source schema must be {READ_MODEL_CATALOG_SCHEMA}")
-    if source.get("read_model_catalog_policy") != READ_MODEL_CATALOG_POLICY:
-        raise ValueError("read model catalog source policy is unsupported")
     request = _require_dict(source, "catalog_request")
     return MeasurementRecordCatalogRequest(
         request_id=_require_text(request, "request_id"),
@@ -375,11 +338,6 @@ def _validate_entry_against_scan(
     projection = _require_dict(model, "projection")
     if projection.get("read_model_path") != read_model_path:
         raise ValueError("Projected read model path conflicts with scanned file.")
-    policy = _require_dict(model, "read_model_policy")
-    if policy.get("canonical_storage_authority") != "not_claimed":
-        raise ValueError("Projected read model claims canonical storage authority.")
-    if policy.get("refresh") not in {"not_performed", "performed_by_approved_refresh"}:
-        raise ValueError("Projected read model claims refresh behavior.")
 
 
 def _source_digest_findings(
@@ -443,7 +401,6 @@ def _finding(code: str, target: str, message: str) -> dict[str, str]:
         "severity": "review",
         "target": target,
         "message": message,
-        "does_not_claim": "read_model_refresh_or_repair",
     }
 
 

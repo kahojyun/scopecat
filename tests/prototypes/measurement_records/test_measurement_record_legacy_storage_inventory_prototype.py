@@ -21,13 +21,9 @@ from scopecat.measurement_records import (
 from scopecat.measurement_records.__main__ import main as measurement_records_main
 from scopecat.measurement_records.legacy_run import (
     LEGACY_RUN_RECEIPT_SCHEMA,
-    LEGACY_RUN_RECORD_POLICY,
     LEGACY_RUN_RECORD_SCHEMA,
 )
-from scopecat.measurement_records.storage_inventory import (
-    STORAGE_INVENTORY_POLICY,
-    STORAGE_INVENTORY_SCHEMA,
-)
+from scopecat.measurement_records.storage_inventory import STORAGE_INVENTORY_SCHEMA
 
 
 def _legacy_request(**overrides: object) -> LegacyRunRecordRequest:
@@ -67,7 +63,6 @@ def _legacy_request(**overrides: object) -> LegacyRunRecordRequest:
 def _legacy_source(**overrides: object) -> dict:
     return {
         "legacy_run_record_schema": LEGACY_RUN_RECORD_SCHEMA,
-        "legacy_run_record_policy": LEGACY_RUN_RECORD_POLICY,
         "legacy_run_record_request": _legacy_request(**overrides).to_dict(),
     }
 
@@ -82,7 +77,6 @@ def _inventory_source(**overrides: object) -> dict:
     request.update(overrides)
     return {
         "storage_inventory_schema": STORAGE_INVENTORY_SCHEMA,
-        "storage_inventory_policy": STORAGE_INVENTORY_POLICY,
         "storage_inventory_request": request,
     }
 
@@ -147,9 +141,12 @@ class MeasurementRecordLegacyStorageInventoryPrototypeTest(unittest.TestCase):
         self.assertEqual(receipt["legacy_run"]["legacy_system_id"], "legacy-labview")
         self.assertEqual(receipt["legacy_run"]["legacy_run_id"], "lv-run-001")
         self.assertEqual(len(receipt["declared_locators"]), 2)
-        self.assertIn("legacy_payload_import", receipt["workflow"]["does_not_claim"])
+        self.assertEqual(
+            receipt["operation"]["classification"],
+            "legacy_run_recorded_for_review",
+        )
 
-    def test_raw_source_records_missing_legacy_paths_without_observing_them(self) -> None:
+    def test_raw_source_records_declared_legacy_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root = Path(temp_dir) / "storage"
             storage_root.mkdir()
@@ -158,7 +155,7 @@ class MeasurementRecordLegacyStorageInventoryPrototypeTest(unittest.TestCase):
 
         self.assertEqual(run.classification, "recorded_legacy_run")
         self.assertTrue(run.recorded)
-        self.assertIn("legacy_file_observation", run.to_dict()["workflow"]["does_not_claim"])
+        self.assertEqual(run.to_dict()["classification"], "recorded_legacy_run")
 
     def test_unapproved_legacy_run_does_not_mutate_storage(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -281,7 +278,7 @@ class MeasurementRecordLegacyStorageInventoryPrototypeTest(unittest.TestCase):
         self.assertEqual(inventory_status, 0)
         record_payload = json.loads(record_stdout.getvalue())
         inventory_payload = json.loads(inventory_stdout.getvalue())
-        self.assertEqual(record_payload["workflow"]["classification"], "recorded_legacy_run")
+        self.assertEqual(record_payload["classification"], "recorded_legacy_run")
         self.assertEqual(inventory_payload["entries"][0]["record_id"], "legacy-run-001")
 
 

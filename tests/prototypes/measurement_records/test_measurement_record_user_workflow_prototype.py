@@ -97,18 +97,18 @@ class MeasurementRecordUserWorkflowPrototypeTest(unittest.TestCase):
             "references-legacy-labview-lv-run-001",
         )
         self.assertEqual(
-            payload["legacy_run"]["workflow"]["classification"],
+            payload["legacy_run"]["classification"],
             "recorded_legacy_run",
         )
         self.assertEqual(
-            payload["primary_attach"]["workflow"]["classification"],
+            payload["primary_attach"]["classification"],
             "attached_legacy_primary_data",
         )
         self.assertEqual(
-            payload["recorded_reference"]["workflow"]["classification"],
+            payload["recorded_reference"]["classification"],
             "recorded_measurement_record_references",
         )
-        self.assertEqual(payload["read_view"]["workflow"]["classification"], "primary_table_ready")
+        self.assertEqual(payload["read_view"]["classification"], "primary_table_ready")
         self.assertNotIn("record_id", payload["request"]["source"])
 
     def test_request_entrypoint_matches_direct_facade(self) -> None:
@@ -190,19 +190,13 @@ class MeasurementRecordUserWorkflowPrototypeTest(unittest.TestCase):
         self.assertEqual(run.classification, "legacy_measurement_recording_review_needed")
         self.assertFalse(run.recorded)
         self.assertEqual(
-            payload["legacy_run"]["workflow"]["classification"],
+            payload["legacy_run"]["classification"],
             "blocked_before_legacy_run_record",
         )
         self.assertIsNone(run.primary_attach)
         self.assertIsNone(run.recorded_reference)
         self.assertIsNone(run.read_view)
-        self.assertEqual(
-            payload["workflow"]["steps"],
-            [
-                "generate_scopecat_ids_from_legacy_facts",
-                "record_legacy_run",
-            ],
-        )
+        self.assertEqual(payload["classification"], "legacy_measurement_recording_review_needed")
 
     def test_attach_failure_does_not_continue_into_reference_or_read_steps(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -229,19 +223,12 @@ class MeasurementRecordUserWorkflowPrototypeTest(unittest.TestCase):
         self.assertEqual(run.classification, "legacy_measurement_recording_review_needed")
         self.assertFalse(run.recorded)
         self.assertEqual(
-            payload["primary_attach"]["workflow"]["classification"],
+            payload["primary_attach"]["classification"],
             "blocked_before_legacy_primary_import",
         )
         self.assertIsNone(run.recorded_reference)
         self.assertIsNone(run.read_view)
-        self.assertEqual(
-            payload["workflow"]["steps"],
-            [
-                "generate_scopecat_ids_from_legacy_facts",
-                "record_legacy_run",
-                "attach_converted_primary_data",
-            ],
-        )
+        self.assertEqual(payload["classification"], "legacy_measurement_recording_review_needed")
 
 
 if __name__ == "__main__":

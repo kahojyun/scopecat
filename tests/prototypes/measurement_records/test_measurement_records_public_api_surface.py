@@ -12,9 +12,6 @@ class MeasurementRecordsPublicApiSurfaceTest(unittest.TestCase):
 
     def test_private_helpers_are_not_top_level_exports(self) -> None:
         private_names = {
-            "DURABLE_IMPORT_POLICY",
-            "READ_MODEL_PROJECTION_POLICY",
-            "READ_MODEL_REFRESH_POLICY",
             "READ_MODEL_SCHEMA",
             "_path_under",
             "_read_model",

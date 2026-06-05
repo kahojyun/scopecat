@@ -39,29 +39,6 @@ from scopecat.measurement_records.writer_integration import (
 
 RUNNING_INSPECTION_SCHEMA = "scopecat.measurement_record_running_inspection.v0"
 RUNNING_INSPECTION_SUMMARY_SCHEMA = "scopecat.measurement_record_running_inspection_summary.v0"
-RUNNING_INSPECTION_POLICY = {
-    "record_authority": "existing_in_progress_creation_manifest",
-    "writer_receipt_authority": "record_local_writer_receipt",
-    "update_receipt_authority": "caller_declared_update_receipts",
-    "table_read": "base_primary_data_plus_declared_append_segments",
-    "storage_mutation": "not_performed",
-    "record_manifest_refresh": "not_performed",
-    "read_model_refresh": "not_performed",
-    "lifecycle_finalization": "not_performed",
-    "schema_inference": "not_performed",
-}
-DOES_NOT_CLAIM = [
-    "final_storage_schema",
-    "manifest_replacement",
-    "primary_data_merge_or_compaction",
-    "read_model_refresh",
-    "lifecycle_finalization",
-    "schema_inference",
-    "scalar_type_inference",
-    "dataframe_adapter",
-    "plot_series",
-    "scientific_validity",
-]
 
 
 @dataclass(frozen=True)
@@ -146,18 +123,7 @@ class MeasurementRecordRunningInspectionRun:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_record_running_inspection_view",
-            "running_inspection_policy": copy.deepcopy(RUNNING_INSPECTION_POLICY),
-            "workflow": {
-                "classification": self.classification,
-                "steps": [
-                    "read_creation_manifest",
-                    "read_writer_receipt",
-                    "read_declared_update_receipts",
-                    "verify_visible_primary_data",
-                    "read_visible_primary_table",
-                ],
-                "does_not_claim": list(DOES_NOT_CLAIM),
-            },
+            "classification": self.classification,
             "request": self.request.to_dict(),
             "record_manifest": _manifest_ref(self.record_manifest),
             "writer_receipt": _writer_receipt_ref(self.writer_receipt),
@@ -213,7 +179,6 @@ def inspect_running_measurement_record_from_request(
                 "severity": "review",
                 "target": request.record_id,
                 "message": "Visible row count exceeds the requested expected total.",
-                "does_not_claim": "source_repair_or_compaction",
             }
         )
     progress = {
@@ -255,14 +220,6 @@ def summarize_running_measurement_inspection(
     return {
         "summary_schema": RUNNING_INSPECTION_SUMMARY_SCHEMA,
         "artifact_posture": "local_record_running_inspection_summary",
-        "summary_policy": {
-            "input_authority": "running_inspection_run",
-            "storage_mutation": "not_performed",
-            "continuation_authority": "not_granted",
-            "gui_state": "not_persisted",
-            "fit_or_range_selection": "not_recorded",
-            "redaction_boundary": "local_workspace_only",
-        },
         "record": {
             "record_id": run.request.record_id,
             "record_dir": run.request.record_dir,
@@ -279,22 +236,12 @@ def summarize_running_measurement_inspection(
             "review_finding_codes": finding_codes,
             "next_action": _summary_next_action(run),
         },
-        "does_not_claim": [
-            "storage_mutation",
-            "manifest_replacement",
-            "read_model_refresh",
-            "primary_data_compaction",
-            "saved_monitor_or_gui_state",
-            "saved_fit_or_range_selection",
-        ],
     }
 
 
 def _parse_source(source: dict[str, Any]) -> MeasurementRecordRunningInspectionRequest:
     if source.get("running_inspection_schema") != RUNNING_INSPECTION_SCHEMA:
         raise ValueError(f"running inspection source schema must be {RUNNING_INSPECTION_SCHEMA}")
-    if source.get("running_inspection_policy") != RUNNING_INSPECTION_POLICY:
-        raise ValueError("running inspection source policy is unsupported")
     request = _require_dict(source, "running_inspection_request")
     paths = request.get("update_receipt_paths", [])
     if not isinstance(paths, list):
@@ -608,22 +555,12 @@ def _read_table(
                 "severity": "review",
                 "target": source,
                 "message": "Visible row count differs from declared append receipt progress.",
-                "does_not_claim": "source_repair_or_primary_data_compaction",
             }
         )
 
     return (
         {
             "table_schema": "measurement_record_running_primary_table_read_v0",
-            "table_policy": {
-                "input_authority": "writer_receipt_plus_declared_update_receipts",
-                "format": "csv_table",
-                "file_observation": "declared_primary_data_and_append_segments_only",
-                "schema_inference": "not_performed",
-                "scalar_type_inference": "not_performed",
-                "dataframe_adapter": "not_invoked",
-                "storage_mutation": "not_performed",
-            },
             "source": source,
             "format": "csv_table",
             "classification": (

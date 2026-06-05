@@ -37,35 +37,8 @@ from scopecat.measurement_records.read_view import (
 from scopecat.measurement_records.writer_integration import validate_sha256_digest
 
 READ_MODEL_REFRESH_SCHEMA = "scopecat.measurement_record_read_model_refresh.v0"
-READ_MODEL_REFRESH_POLICY = {
-    "workflow_authority": "approved_measurement_record_read_model_refresh_request",
-    "record_authority": "existing_measurement_record_creation_manifest",
-    "writer_receipt_authority": "record_local_writer_receipt",
-    "read_view_authority": "local_record_read_view",
-    "finalization_authority": "record_local_finalization_receipt",
-    "previous_read_model_authority": "overwrite_guard_only",
-    "read_model_materialization": "temporary_write_then_atomic_replace",
-    "record_manifest": "not_replaced",
-    "receipt_mutation": "not_performed",
-    "primary_data_repair": "not_performed",
-    "collision_policy": "expected_target_condition_required",
-    "storage_root_concurrency": "not_supported",
-    "final_storage_schema": "not_defined",
-}
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 TARGET_CONDITIONS = {"missing", "replace_existing"}
-DOES_NOT_CLAIM = [
-    "manifest_replacement",
-    "canonical_storage_authority",
-    "receipt_mutation",
-    "primary_data_repair",
-    "broad_overwrite",
-    "conflict_resolution",
-    "crash_recovery",
-    "concurrent_refresh",
-    "public_export_schema",
-    "gui_review_state",
-]
 
 
 @dataclass(frozen=True)
@@ -202,21 +175,7 @@ class MeasurementRecordReadModelRefreshRun:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_record_read_model_refresh_receipt",
-            "read_model_refresh_policy": copy.deepcopy(READ_MODEL_REFRESH_POLICY),
-            "workflow": {
-                "classification": self.classification,
-                "steps": [
-                    "read_created_record_primary_table",
-                    "validate_refresh_request",
-                    *([] if not self.request.approved else ["read_finalization_receipt"]),
-                    *(
-                        []
-                        if not self.request.approved
-                        else ["write_temporary_read_model", "atomic_replace_read_model"]
-                    ),
-                ],
-                "does_not_claim": list(DOES_NOT_CLAIM),
-            },
+            "classification": self.classification,
             "request": self.request.to_dict(),
             "read_view": {
                 "classification": self.read_view.classification,
@@ -324,8 +283,6 @@ def _parse_source(
 ) -> tuple[MeasurementRecordReadModelRefreshRequest, dict[str, Any]]:
     if source.get("read_model_refresh_schema") != READ_MODEL_REFRESH_SCHEMA:
         raise ValueError(f"read model refresh source schema must be {READ_MODEL_REFRESH_SCHEMA}")
-    if source.get("read_model_refresh_policy") != READ_MODEL_REFRESH_POLICY:
-        raise ValueError("read model refresh source policy is unsupported")
     request = _require_dict(source, "refresh_request")
     read_view_source = _require_dict(source, "read_view_source")
     return (
@@ -418,7 +375,6 @@ def _build_refresh_content(
         finalization_receipt=finalization_receipt,
         finalization_receipt_digest=finalization_digest,
     )
-    model["read_model_policy"]["refresh"] = "performed_by_approved_refresh"
     model["refresh"] = {
         "request_id": request.request_id,
         "expected_target_condition": request.expected_target_condition,

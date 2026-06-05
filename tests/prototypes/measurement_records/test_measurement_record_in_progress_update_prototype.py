@@ -26,11 +26,9 @@ from scopecat.measurement_records import (
 )
 from scopecat.measurement_records.__main__ import main as measurement_records_main
 from scopecat.measurement_records.in_progress_update import (
-    IN_PROGRESS_UPDATE_POLICY,
     IN_PROGRESS_UPDATE_SCHEMA,
 )
 from scopecat.measurement_records.running_inspection import (
-    RUNNING_INSPECTION_POLICY,
     RUNNING_INSPECTION_SCHEMA,
 )
 
@@ -107,7 +105,6 @@ def _update_request(**overrides: object) -> MeasurementRecordInProgressUpdateReq
 def _update_source(**overrides: object) -> dict:
     return {
         "in_progress_update_schema": IN_PROGRESS_UPDATE_SCHEMA,
-        "in_progress_update_policy": IN_PROGRESS_UPDATE_POLICY,
         "in_progress_update_request": _update_request(**overrides).to_dict(),
     }
 
@@ -129,7 +126,6 @@ def _inspection_request(**overrides: object) -> MeasurementRecordRunningInspecti
 def _inspection_source(**overrides: object) -> dict:
     return {
         "running_inspection_schema": RUNNING_INSPECTION_SCHEMA,
-        "running_inspection_policy": RUNNING_INSPECTION_POLICY,
         "running_inspection_request": _inspection_request(**overrides).to_dict(),
     }
 
@@ -202,8 +198,11 @@ class MeasurementRecordInProgressUpdatePrototypeTest(unittest.TestCase):
         self.assertEqual(receipt["record"]["record_id"], "run-3101-rabi")
         self.assertEqual(receipt["append_chunk"]["previous_total_rows_recorded"], 3)
         self.assertEqual(receipt["append_chunk"]["total_rows_recorded"], 5)
-        self.assertIn("primary_data_merge_or_compaction", receipt["does_not_claim"])
-        self.assertIn("read_model_refresh", run.to_dict()["workflow"]["does_not_claim"])
+        self.assertEqual(run.to_dict()["classification"], "appended_to_in_progress_record")
+        self.assertEqual(
+            [item["kind"] for item in run.to_dict()["in_progress_update"]["write_results"]],
+            ["append_segment", "update_receipt"],
+        )
 
     def test_unapproved_update_does_not_write_append_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -361,7 +360,6 @@ class MeasurementRecordInProgressUpdatePrototypeTest(unittest.TestCase):
             summary["inspection"]["next_action"],
             "ready_for_later_finalization_decision",
         )
-        self.assertIn("saved_fit_or_range_selection", summary["does_not_claim"])
 
     def test_running_inspection_summary_cli_prints_compact_json(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

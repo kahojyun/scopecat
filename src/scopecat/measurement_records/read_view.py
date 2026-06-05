@@ -35,30 +35,6 @@ from scopecat.measurement_records.normalized_primary_table import (
 from scopecat.measurement_records.writer_integration import WRITER_RECEIPT_SCHEMA
 
 READ_VIEW_SCHEMA = "scopecat.measurement_record_read_view.v0"
-READ_VIEW_POLICY = {
-    "record_authority": "existing_measurement_record_creation_manifest",
-    "writer_receipt_authority": "record_local_writer_receipt",
-    "primary_data_authority": "writer_receipt_declared_primary_data",
-    "table_read": "normalized_csv_string_rows",
-    "file_observation": "declared_writer_receipt_and_primary_data_only",
-    "storage_mutation": "not_performed",
-    "record_manifest_refresh": "not_performed",
-    "lifecycle_finalization": "not_performed",
-    "schema_inference": "not_performed",
-    "stable_public_api": "not_defined",
-}
-DOES_NOT_CLAIM = [
-    "final_storage_schema",
-    "manifest_replacement",
-    "read_model_refresh",
-    "lifecycle_finalization",
-    "schema_inference",
-    "scalar_type_inference",
-    "scan_shape_inference",
-    "dataframe_adapter",
-    "plot_series",
-    "scientific_validity",
-]
 
 
 @dataclass(frozen=True)
@@ -118,17 +94,7 @@ class MeasurementRecordReadRun:
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_record_read_view",
-            "read_view_policy": copy.deepcopy(READ_VIEW_POLICY),
-            "workflow": {
-                "classification": self.classification,
-                "steps": [
-                    "read_creation_manifest",
-                    "read_writer_receipt",
-                    "verify_primary_data_file",
-                    "read_primary_table",
-                ],
-                "does_not_claim": list(DOES_NOT_CLAIM),
-            },
+            "classification": self.classification,
             "request": self.request.to_dict(),
             "record_manifest": _manifest_ref(self.record_manifest),
             "writer_receipt": _writer_receipt_ref(self.writer_receipt),
@@ -178,8 +144,6 @@ def read_created_record_primary_table_from_request(
 def _parse_source(source: dict[str, Any]) -> MeasurementRecordReadRequest:
     if source.get("read_view_schema") != READ_VIEW_SCHEMA:
         raise ValueError(f"read view source schema must be {READ_VIEW_SCHEMA}")
-    if source.get("read_view_policy") != READ_VIEW_POLICY:
-        raise ValueError("read view source policy is unsupported")
     request = _require_dict(source, "read_request")
     return MeasurementRecordReadRequest(
         request_id=_require_text(request, "request_id"),

@@ -15,7 +15,6 @@ from scopecat.measurement_records import (
     record_measurement_record_references_from_request,
 )
 from scopecat.measurement_records.recorded_reference import (
-    RECORDED_REFERENCE_POLICY,
     RECORDED_REFERENCE_SCHEMA,
 )
 
@@ -91,7 +90,6 @@ def _request(**overrides: object) -> MeasurementRecordReferenceRequest:
 def _source(**overrides: object) -> dict:
     return {
         "recorded_reference_schema": RECORDED_REFERENCE_SCHEMA,
-        "recorded_reference_policy": RECORDED_REFERENCE_POLICY,
         "recorded_reference_request": _request(**overrides).to_dict(),
     }
 
@@ -134,12 +132,12 @@ class MeasurementRecordReferencePrototypeTest(unittest.TestCase):
             ],
         )
         self.assertEqual(
-            review["workflow"]["classification"],
+            review["classification"],
             "measurement_record_recorded_reference_review_ready",
         )
         self.assertEqual(review["entries"][0]["reference_count"], 4)
 
-    def test_raw_source_uses_declared_policy(self) -> None:
+    def test_raw_source_records_declared_references(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root = Path(temp_dir) / "storage"
             storage_root.mkdir()

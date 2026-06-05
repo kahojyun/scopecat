@@ -26,10 +26,9 @@ from scopecat.measurement_records import (
     write_created_record_primary_data_from_request,
 )
 from scopecat.measurement_records.read_model_refresh import (
-    READ_MODEL_REFRESH_POLICY,
     READ_MODEL_REFRESH_SCHEMA,
 )
-from scopecat.measurement_records.read_view import READ_VIEW_POLICY, READ_VIEW_SCHEMA
+from scopecat.measurement_records.read_view import READ_VIEW_SCHEMA
 
 ROOT = Path(__file__).resolve().parents[3]
 CHUNK_FIXTURE = (
@@ -88,7 +87,6 @@ def _read_request() -> MeasurementRecordReadRequest:
 def _read_source() -> dict:
     return {
         "read_view_schema": READ_VIEW_SCHEMA,
-        "read_view_policy": READ_VIEW_POLICY,
         "read_request": _read_request().to_dict(),
     }
 
@@ -137,7 +135,6 @@ def _refresh_request(**overrides: object) -> MeasurementRecordReadModelRefreshRe
 def _refresh_source(**overrides: object) -> dict:
     return {
         "read_model_refresh_schema": READ_MODEL_REFRESH_SCHEMA,
-        "read_model_refresh_policy": READ_MODEL_REFRESH_POLICY,
         "refresh_request": _refresh_request(**overrides).to_dict(),
         "read_view_source": _read_source(),
     }
@@ -236,13 +233,36 @@ class MeasurementRecordReadModelRefreshPrototypeTest(unittest.TestCase):
         self.assertTrue(run.replacement_performed)
         self.assertFalse(temp_path.exists())
         self.assertEqual(
-            read_model["read_model_policy"]["refresh"], "performed_by_approved_refresh"
+            set(read_model),
+            {
+                "schema",
+                "record",
+                "sources",
+                "primary_data",
+                "table",
+                "review",
+                "finalization",
+                "projection",
+                "refresh",
+            },
         )
         self.assertEqual(
             read_model["refresh"]["previous_read_model_authority"], "overwrite_guard_only"
         )
         self.assertEqual(manifest_after, manifest_before)
-        self.assertIn("manifest_replacement", run.to_dict()["workflow"]["does_not_claim"])
+        summary = run.to_dict()
+        self.assertEqual(
+            set(summary),
+            {
+                "artifact_posture",
+                "classification",
+                "request",
+                "read_view",
+                "finalization_receipt",
+                "refresh",
+            },
+        )
+        self.assertEqual(summary["classification"], "refreshed_read_model")
 
     def test_raw_source_refresh_composes_read_view(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -286,9 +306,7 @@ class MeasurementRecordReadModelRefreshPrototypeTest(unittest.TestCase):
         self.assertEqual(run.classification, "refreshed_read_model")
         self.assertEqual(run.previous_read_model_digest, previous_digest)
         self.assertNotEqual(run.refreshed_read_model_digest, previous_digest)
-        self.assertEqual(
-            read_model["read_model_policy"]["refresh"], "performed_by_approved_refresh"
-        )
+        self.assertEqual(read_model["refresh"]["request_id"], "refresh-read-model-run-3101-rabi")
 
     def test_replace_existing_blocks_when_digest_does_not_match(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -471,19 +489,6 @@ class MeasurementRecordReadModelRefreshPrototypeTest(unittest.TestCase):
                     "records/run-3101-rabi/record-read-model.json/finalization-receipt.json"
                 )
             )
-
-    def test_source_policy_must_match_candidate_boundary(self) -> None:
-        source = _refresh_source()
-        source["read_model_refresh_policy"] = {
-            **READ_MODEL_REFRESH_POLICY,
-            "record_manifest": "replaced",
-        }
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir) / "storage"
-            storage_root.mkdir()
-
-            with self.assertRaisesRegex(ValueError, "policy"):
-                refresh_measurement_record_read_model(source, storage_root=storage_root)
 
 
 if __name__ == "__main__":

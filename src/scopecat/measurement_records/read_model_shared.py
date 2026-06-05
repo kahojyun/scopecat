@@ -31,18 +31,6 @@ from scopecat.measurement_records.read_view import MeasurementRecordReadRun
 
 READ_MODEL_SCHEMA = "measurement_record_read_model_v0"
 READ_MODEL_FILENAME = "record-read-model.json"
-READ_MODEL_DOES_NOT_CLAIM = (
-    "manifest_replacement",
-    "canonical_storage_authority",
-    "read_model_refresh",
-    "stale_read_model_repair",
-    "final_storage_schema",
-    "conflict_resolution",
-    "crash_recovery",
-    "concurrent_storage_root_mutation",
-    "export_schema",
-    "gui_review_state",
-)
 
 
 class ReadModelRequest(Protocol):
@@ -138,12 +126,6 @@ def _read_model(
     }
     return {
         "schema": READ_MODEL_SCHEMA,
-        "read_model_policy": {
-            "authority": "derived_from_record_local_receipts",
-            "canonical_storage_authority": "not_claimed",
-            "manifest_replacement": "not_performed",
-            "refresh": "not_performed",
-        },
         "record": {
             "record_id": request.record_id,
             "record_dir": request.record_dir,
@@ -192,7 +174,6 @@ def _read_model(
             "read_model_path": request.read_model_path,
             "projection_kind": "derived_local_summary",
         },
-        "does_not_claim": list(READ_MODEL_DOES_NOT_CLAIM),
     }
 
 

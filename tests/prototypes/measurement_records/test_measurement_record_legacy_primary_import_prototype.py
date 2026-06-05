@@ -17,7 +17,6 @@ from scopecat.measurement_records import (
     record_legacy_measurement_run_from_request,
 )
 from scopecat.measurement_records.legacy_primary_import import (
-    LEGACY_PRIMARY_IMPORT_POLICY,
     LEGACY_PRIMARY_IMPORT_SCHEMA,
 )
 
@@ -91,7 +90,6 @@ def _request(**overrides: object) -> LegacyPrimaryImportRequest:
 def _raw_source(**overrides: object) -> dict:
     return {
         "legacy_primary_import_schema": LEGACY_PRIMARY_IMPORT_SCHEMA,
-        "legacy_primary_import_policy": LEGACY_PRIMARY_IMPORT_POLICY,
         "legacy_primary_import_request": _request(**overrides).to_dict(),
     }
 
@@ -132,7 +130,7 @@ class MeasurementRecordLegacyPrimaryImportPrototypeTest(unittest.TestCase):
         self.assertEqual(read_view.table["row_count"], 3)
         self.assertEqual(run.to_dict()["pipeline"]["projection"], "projected_read_model")
 
-    def test_raw_source_attach_uses_policy_boundary(self) -> None:
+    def test_raw_source_attach_converted_primary_data(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root = Path(temp_dir) / "storage"
             content_root = Path(temp_dir) / "content"
@@ -167,10 +165,7 @@ class MeasurementRecordLegacyPrimaryImportPrototypeTest(unittest.TestCase):
 
         self.assertEqual(run.classification, "blocked_before_legacy_primary_import")
         self.assertIsNone(run.import_error)
-        self.assertEqual(
-            run.to_dict()["workflow"]["steps"],
-            ["validate_legacy_primary_import_request"],
-        )
+        self.assertEqual(run.to_dict()["classification"], "blocked_before_legacy_primary_import")
 
     def test_source_id_must_match_existing_legacy_record(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
