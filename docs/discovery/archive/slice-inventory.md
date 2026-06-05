@@ -16,7 +16,7 @@ architecture, roadmap, API, schema, or implementation guidance.
 
 | Current Owner | Use For |
 | --- | --- |
-| [`../../architecture/README.md`](../../architecture/README.md) | Brownfield-guided domain model, context map, and transition architecture. |
+| [`../../architecture/README.md`](../../architecture/README.md) | Brownfield-guided domain model, context map, and architecture boundaries. |
 | [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md) | Current use-case and workflow validation state. |
 | [`../../engineering/implementation-register.md`](../../engineering/implementation-register.md) | Live implementation owners. |
 | [`../../engineering/prototype-boundaries/README.md`](../../engineering/prototype-boundaries/README.md) | Accepted engineering prototype boundaries. |
@@ -44,8 +44,7 @@ The removed slice bodies should not be restored wholesale. If a future task
 needs a deleted slice, recover only the narrow fact needed from Git history and
 move that fact into the current owner.
 
-Before reusing a former slice concept, classify it with
-[`../../architecture/transition-architecture.md`](../../architecture/transition-architecture.md):
+Before reusing a former slice concept, classify it as one of:
 
 - current architecture evidence;
 - accepted boundary evidence;

@@ -7,9 +7,9 @@ Initial architecture model for brownfield-guided design.
 ## Purpose
 
 Architecture docs translate brownfield current-state evidence into a small
-domain model, context map, and transition design frame. Use these docs before
-promoting discovery slices, extracting shared models, or cleaning historical
-discovery material.
+domain model and context map. Use these docs before promoting discovery
+evidence, extracting shared models, or changing accepted architecture
+boundaries.
 
 These docs are not public user documentation, final storage schema, stable
 Python SDK, complete target architecture, or implementation task list.
@@ -21,21 +21,20 @@ Python SDK, complete target architecture, or implementation task list.
 | [`as-is-architecture.md`](as-is-architecture.md) | Current lab-system architecture as integration pressure for Scopecat. |
 | [`domain-model.md`](domain-model.md) | Candidate domain concepts, maturity labels, and concept boundaries. |
 | [`context-map.md`](context-map.md) | Bounded contexts, ownership posture, and anti-corruption relationships. |
-| [`transition-architecture.md`](transition-architecture.md) | Brownfield entrypoint-driven transition architecture and slice-classification frame. |
 | [`artifact-boundary-and-redaction.md`](artifact-boundary-and-redaction.md) | Artifact surfaces, repository-safe fixtures, local review surfaces, and portable/public/export redaction boundaries. |
 
 ## Reading Rules
 
 Read these docs after brownfield current-state material and before engineering
-workflow validation when deciding what a slice means architecturally.
+workflow validation when deciding what evidence means architecturally.
 
 Use architecture docs to answer:
 
 - which brownfield entrypoint a concept supports;
 - whether a concept is core, supporting, or historical;
 - which context owns a behavior;
-- whether a slice should influence current architecture, remain evidence, or
-  be removed from active docs.
+- whether historical evidence should influence current architecture or remain
+  archived evidence.
 
 Do not use these docs to claim final public contracts. Use decision records
 when a candidate concept becomes an accepted architecture decision.

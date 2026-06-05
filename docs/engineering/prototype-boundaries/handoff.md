@@ -333,11 +333,9 @@ and rollback pressure, but they are not live runtime dependencies, no longer
 exist as installable `src` modules, and should not be extended as the durable
 Measurement Records import path.
 
-Archived context lives in:
-
-- [`../archive/handoff-prototype-readiness.md`](../archive/handoff-prototype-readiness.md);
-- [`../archive/handoff-candidate-storage-acceptance.md`](../archive/handoff-candidate-storage-acceptance.md);
-- [`../archive/handoff-storage-import-requirements-synthesis.md`](../archive/handoff-storage-import-requirements-synthesis.md).
+The detailed historical notes were removed from active docs and are indexed in
+[`../archive/README.md`](../archive/README.md). Recover narrow facts from Git
+history only when current handoff or Measurement Records owners need them.
 
 ## Out Of Scope
 

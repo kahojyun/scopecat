@@ -14,8 +14,8 @@ flat navigation map when you already know which owner you need.
   [`product/README.md`](product/README.md)
 - Brownfield current state, transition, migration, and risks:
   [`brownfield/README.md`](brownfield/README.md)
-- Initial domain model, context map, and entrypoint-driven transition
-  architecture: [`architecture/README.md`](architecture/README.md)
+- Initial domain model, context map, and architecture boundaries:
+  [`architecture/README.md`](architecture/README.md)
 - Decision index and decision-record rules:
   [`decisions/README.md`](decisions/README.md)
 - Cross-document current-state to implementation traceability:
@@ -48,8 +48,7 @@ For product vision, outcomes, and implementation direction:
    transition architecture, migration strategy, migration roadmap, and risk
    register.
 7. [`architecture/README.md`](architecture/README.md) for the initial
-   architecture model, domain concepts, context map, and entrypoint-driven
-   transition lens.
+   architecture model, domain concepts, context map, and boundary lens.
 8. [`decisions/README.md`](decisions/README.md) for decision type rules,
    current decision status, and decision-record templates.
 9. [`traceability.md`](traceability.md) for current-state to target journey,

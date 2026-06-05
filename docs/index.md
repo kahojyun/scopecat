@@ -13,8 +13,7 @@ docs/
               capabilities, and adoption strategy
   brownfield/ current-state assessment, transition architecture, migration
               strategy, and migration roadmap
-  architecture/ initial domain model, context map, and entrypoint-driven
-                transition architecture
+  architecture/ initial domain model, context map, and architecture boundaries
   decisions/  decision register, decision taxonomy, and template
   engineering/ delivery maturity model, workflow validation map,
                implementation register, prototype boundaries, and engineering
@@ -45,7 +44,6 @@ docs/
 | [`architecture/as-is-architecture.md`](architecture/as-is-architecture.md) | Current lab-system architecture as integration pressure. |
 | [`architecture/domain-model.md`](architecture/domain-model.md) | Initial candidate domain model and concept maturity labels. |
 | [`architecture/context-map.md`](architecture/context-map.md) | Bounded contexts, ownership posture, and anti-corruption relationships. |
-| [`architecture/transition-architecture.md`](architecture/transition-architecture.md) | Brownfield entrypoint-driven transition architecture and slice-classification frame. |
 | [`architecture/artifact-boundary-and-redaction.md`](architecture/artifact-boundary-and-redaction.md) | Artifact boundary and redaction architecture policy. |
 | [`decisions/README.md`](decisions/README.md) | Decision-record navigation and governance. |
 | [`decisions/register.md`](decisions/register.md) | Current product, architecture, engineering, discovery, and operational decision index. |

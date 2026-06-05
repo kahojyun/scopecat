@@ -48,9 +48,8 @@ durable boundary that future work must obey.
 
 ## Historical Reference
 
-Use [`archive/README.md`](archive/README.md) only when an active owner points to
-retired prototype plans, readiness checkpoints, or historical engineering
-decisions.
+Use [`archive/README.md`](archive/README.md) only as a compact index for retired
+prototype plans, readiness checkpoints, or historical engineering decisions.
 
 ## Scope
 

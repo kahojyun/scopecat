@@ -32,7 +32,7 @@ current owner points to historical validation-slice evidence. Git history
 preserves the deleted slice bodies.
 
 Do not restart unbounded slice accumulation. New validation should start from a
-brownfield entrypoint, architecture transition gap, target journey gap,
+brownfield entrypoint, architecture boundary gap, target journey gap,
 workflow/use-case validation question, or clearly scoped technical risk. Write
 new validation material beside the current owner it informs unless a narrow
 temporary plan/result file is clearly earned.
@@ -55,9 +55,8 @@ discovery should start from one of the active owners:
 - a brownfield entrypoint or migration gap in [`../brownfield/README.md`](../brownfield/README.md);
 - a target journey or adoption gap in [`../product/target-journeys.md`](../product/target-journeys.md);
 - a workflow/use-case validation gap in [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md);
-- an architecture transition gap in [`../architecture/transition-architecture.md`](../architecture/transition-architecture.md);
+- an architecture boundary gap in [`../architecture/README.md`](../architecture/README.md);
 - an evidence-backed problem brief in [`problem-briefs/README.md`](problem-briefs/README.md);
-- a focused architecture boundary in [`../architecture/README.md`](../architecture/README.md).
 
 ## Promotion Discipline
 
