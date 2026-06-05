@@ -14,7 +14,6 @@ from scopecat.handoff.durable_import import (
     HandoffDurableImportDestination,
     HandoffDurableImportRequest,
     run_handoff_durable_import_from_plan,
-    summarize_handoff_durable_import_receipt,
 )
 from scopecat.handoff.errors import HandoffContractError, HandoffError
 from scopecat.handoff.import_plan import HandoffImportPlanRequest, build_import_plan
@@ -57,5 +56,4 @@ __all__ = [
     "open_package",
     "run_handoff_durable_import_from_plan",
     "run_receiving_gate_from_request",
-    "summarize_handoff_durable_import_receipt",
 ]

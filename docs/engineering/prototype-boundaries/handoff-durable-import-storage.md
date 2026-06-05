@@ -64,11 +64,10 @@ The current adapter:
 - returns a local handoff durable-import receipt that records package,
   selected measurement, destination, and durable-import classification.
 
-Durable-import receipts and summaries include compact local state for
-successful import, blocked import-plan handoff, durable source-preflight
-blocks, rollback, and partial-commit cases. They expose `block_reason` without
-authorizing retry, reusing stale plans, or bypassing destination/package
-rechecks.
+Durable-import receipts include compact local state for successful import,
+blocked import-plan handoff, durable source-preflight blocks, rollback, and
+partial-commit cases. They expose `block_reason` without authorizing retry,
+reusing stale plans, or bypassing destination/package rechecks.
 
 Public durable-import API functions promote route contract failures to
 `HandoffContractError`, which remains `ValueError`-compatible. The
@@ -124,9 +123,9 @@ Durable Measurement Records storage is owned by
 `scopecat.measurement_records`. The handoff durable-import adapter owns request
 adaptation and local review continuity only.
 
-Local handoff durable-import receipts and receipt summaries are local review
-surfaces. They are not portable handoff artifacts, retry approval, persistent
-GUI state, destination freshness proof, or storage mutation authority.
+Local handoff durable-import receipts are local review surfaces. They are not
+portable handoff artifacts, retry approval, persistent GUI state, destination
+freshness proof, or storage mutation authority.
 
 The durable-import adapter may consume declared digest integrity from the
 reviewed package path, but it does not verify external authenticity, trusted
@@ -196,7 +195,7 @@ Relevant regression expectations:
 - package-id and selected-measurement mismatches block before mutation;
 - stale package bytes are revalidated by the delegated durable-import operation;
 - linked context remains reference-only review context;
-- receipt summaries expose compact local block reasons but do not authorize
+- durable-import receipts expose compact local block reasons but do not authorize
   mutation.
 
 Run repository checks with:

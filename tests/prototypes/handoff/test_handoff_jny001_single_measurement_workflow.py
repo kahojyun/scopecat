@@ -20,7 +20,6 @@ from scopecat.handoff import (
     materialize_handoff_archive_package_from_request,
     open_package,
     run_handoff_durable_import_from_plan,
-    summarize_handoff_durable_import_receipt,
 )
 from scopecat.handoff.import_plan import build_import_plan
 from scopecat.handoff.receiving import run_receiving_gate_from_request
@@ -469,7 +468,7 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
                     package_dir=workflow["package_dir"],
                 )
 
-    def test_import_summary_reports_destination_conflict_without_authorizing_retry(
+    def test_durable_import_receipt_reports_destination_conflict(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -483,10 +482,10 @@ class HandoffJny001SingleMeasurementWorkflowTest(unittest.TestCase):
                 import_plan=workflow["import_plan"],
                 storage_root=receiving_storage,
             )
-            summary = summarize_handoff_durable_import_receipt(durable_import.to_dict())
+            receipt = durable_import.to_dict()
 
         self.assertEqual(durable_import.classification, "blocked_before_handoff_durable_import")
-        self.assertEqual(summary.block_reason, "durable_import_blocked_before_import")
+        self.assertEqual(receipt["block_reason"], "durable_import_blocked_before_import")
 
 
 if __name__ == "__main__":

@@ -50,7 +50,6 @@ class HandoffPublicApiSurfaceTest(unittest.TestCase):
         self.assertTrue(hasattr(handoff, "build_import_plan"))
         self.assertTrue(hasattr(handoff, "run_receiving_gate_from_request"))
         self.assertTrue(hasattr(handoff, "run_handoff_durable_import_from_plan"))
-        self.assertIn("summarize_handoff_durable_import_receipt", handoff.__all__)
 
     def test_archive_materialization_is_top_level_export(self) -> None:
         self.assertIn("HandoffArchiveCreationRequest", handoff.__all__)
@@ -73,7 +72,6 @@ class HandoffPublicApiSurfaceTest(unittest.TestCase):
             "HandoffArchiveCreationRun",
             "HandoffArchiveMaterializationRun",
             "HandoffContextReferenceSummary",
-            "HandoffDurableImportReceiptSummary",
             "HandoffDurableImportRun",
             "HandoffErrorDiagnostic",
             "HandoffImportPlanRun",

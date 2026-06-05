@@ -40,14 +40,13 @@ Receiving-side read-only planning:
 Durable Measurement Records import adaptation:
 
 - `run_handoff_durable_import_from_plan(request, import_plan=..., storage_root=...)`
-- `summarize_handoff_durable_import_receipt(receipt)`
 
 The top-level module exports active operation entrypoints and caller-supplied
 request/value objects needed to invoke those operations. Route projection,
-run/result, receipt-summary, direct writer, context-summary, durable-request
-builder, and inspection helpers remain importable from their owning submodules
-when tests or route-local integrations need them, but they are not package-root
-contracts. `HandoffError` and
+run/result, direct writer, context-summary, durable-request builder, and
+inspection helpers remain importable from their owning submodules when tests or
+route-local integrations need them, but they are not package-root contracts.
+`HandoffError` and
 `HandoffContractError` remain the package-root error types. Modules with
 leading underscores are route-private implementation modules.
 
@@ -85,9 +84,9 @@ Under DEC-025 this path creates a new Measurement Record only; it does not
 update existing records, merge primary data, replace manifests, or publish a
 final storage schema.
 
-Durable-import receipts and summaries include compact local state and
-`block_reason` fields. They do not approve retry, reuse stale plans, skip
-destination checks, or bypass package revalidation.
+Durable-import receipts include compact local state and `block_reason` fields.
+They do not approve retry, reuse stale plans, skip destination checks, or
+bypass package revalidation.
 
 Public receiving, import-planning, and durable-import API functions promote
 route contract failures to `HandoffContractError`, which remains
@@ -183,8 +182,8 @@ retired from installable `src` modules and remains only as historical
 engineering evidence in git history and archived notes.
 
 That route proved reviewed destination continuity, no-overwrite checks, local
-operator decisions, rollback classification, receipt summary, and retry review
-for `measurement_record_directory_candidate_v0`. It should not be restored or
+operator decisions, and rollback classification for
+`measurement_record_directory_candidate_v0`. It should not be restored or
 extended as the durable Measurement Records import path.
 
 ## Boundary
