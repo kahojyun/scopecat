@@ -2,8 +2,6 @@
 
 ## Status
 
-Decision type: product / architecture.
-
 Decision status: accepted.
 
 Date: not recorded.

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Decision status: accepted.
 
 ## Context
 

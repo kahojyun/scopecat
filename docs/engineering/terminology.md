@@ -102,7 +102,7 @@ Decision status: No decision
 is clearer than describing the same file by what it is not.
 
 Use [`../decisions/README.md`](../decisions/README.md) for decision-record
-classification, flat record layout, ADR usage, and the current decision
+admission rules, flat record layout, ADR usage, and the current decision
 register.
 
 ## Scope Language

@@ -2,8 +2,6 @@
 
 ## Status
 
-Architecture decision.
-
 Decision status: accepted.
 
 Current implementation note: the former `scopecat.parameter_state` prototype

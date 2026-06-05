@@ -2,8 +2,6 @@
 
 ## Status
 
-Architecture decision.
-
 Decision status: accepted.
 
 This note records a negative architecture decision for the current stage: do

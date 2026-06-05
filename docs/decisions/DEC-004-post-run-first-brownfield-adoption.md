@@ -2,8 +2,6 @@
 
 ## Status
 
-Architecture decision.
-
 Decision status: accepted.
 
 This note records the current low-intrusion brownfield adoption boundary for

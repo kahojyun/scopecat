@@ -7,64 +7,53 @@ Decision-record navigation and governance.
 ## Purpose
 
 Provide one flat entry point for durable Scopecat decisions. This directory
-owns the decision taxonomy, the decision register, and the template for new
-decision records.
+owns the decision register, the template for new decision records, and the rules
+for deciding what deserves a durable decision record.
 
-Use this directory when a change needs to answer:
-
-- whether a choice is a product, architecture, engineering, discovery, or
-  operational decision;
-- whether a decision is accepted, superseded, retired, or only proposed;
-- what should trigger a future review or superseding decision.
+Use this directory when a change needs to answer whether a decision is durable,
+what future work must obey, whether the decision is accepted, superseded,
+retired, or only proposed, and what should trigger future review.
 
 Use [`register.md`](register.md) as the current index. Use
 [`template.md`](template.md) when creating a new decision record.
 
 Registered decision records live directly in this directory as
 `DEC-*-short-title.md` files. Do not create type-specific subdirectories such
-as `architecture/`, `product/`, or `engineering/`; keep the type in the record
-metadata and register row instead. Do not assign a `DEC-*` ID to a decision that
-only lives inside another source document.
+as `architecture/`, `product/`, or `engineering/`. Do not assign a `DEC-*` ID to
+a decision that only lives inside another source document.
 
-## Decision Types
+## Admission Signals
 
-| Type | Use For |
-| --- | --- |
-| Architecture | System boundaries, integration patterns, authority transfer, shared models, execution/runtime/hardware ownership, storage or artifact architecture. |
-| Product | Target journeys, adoption scope, deferred umbrella journeys, non-goals, user-facing product boundaries. |
-| Engineering | Implementation strategy, prototype promotion, module boundary, test strategy, compatibility policy, live owner-local technical tradeoff. |
-| Discovery | Discovery closeout, stop rule, reopen trigger, accepted-for-now evidence interpretation that has not yet become architecture, product, or engineering scope. |
-| Operational | Development process, tooling, release, CI, package-management, or documentation workflow choices. |
+Create or update a decision record when a branch accepts, rejects, defers,
+supersedes, or retires a durable boundary that future work must obey. Common
+signals include:
 
-## ADR Usage
+- product scope, target journey, adoption scope, or non-goal boundaries;
+- authority boundaries for import, export, storage, execution, runtime,
+  scheduling, hardware control, write-back, or service lifecycle;
+- artifact, package, public/export, redaction, compatibility, or trust
+  boundaries;
+- shared model, schema, adapter, integration, or ownership boundaries;
+- prototype promotion or explicit deferral that affects multiple future
+  documents, modules, fixtures, tests, or generated outputs.
 
-ADR means Architecture Decision Record. Use `ADR` only for
-architecture-affecting decisions. Do not call every product, discovery, or
-engineering decision an ADR.
-
-Create or update an architecture decision record when a branch:
-
-- moves Scopecat toward hardware control, execution, scheduling, runtime,
-  service, or write-back authority;
-- extracts a shared domain model across capabilities;
-- changes storage, package, artifact, or adapter architecture;
-- replaces, retires, or becomes primary owner for a legacy path;
-- changes trust, authenticity, redaction, or public/export artifact
-  architecture.
+ADR means Architecture Decision Record. Use `ADR` only when a decision changes
+architecture-affecting boundaries such as system ownership, storage, package,
+artifact, adapter, trust, runtime, execution, or shared model behavior. Do not
+use ADR as a required category for every decision record.
 
 ## Lightweight Rule
 
 Not every choice needs a new file or a `DEC-*` ID. If a decision is local to one
 discovery track, prototype boundary, product map, module README, issue, or PR,
 keep it in that source document without registering it here. Create and register a
-standalone decision record when multiple owners need the decision or when
+standalone decision record when multiple future sources need the decision or when
 supersession history matters.
 
 ## Granularity Rule
 
 Create or promote a `DEC-*` entry only when a branch accepts, rejects,
-supersedes, or defers a durable product, architecture, engineering, discovery,
-or operational boundary that future work must obey.
+supersedes, or defers a durable boundary that future work must obey.
 
 Prefer updating the active source document instead of creating a new decision when the
 change only records:

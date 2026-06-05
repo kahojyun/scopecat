@@ -2,8 +2,6 @@
 
 ## Status
 
-Decision type: product.
-
 Decision status: accepted.
 
 Date: not recorded.

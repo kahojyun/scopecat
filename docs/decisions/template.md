@@ -2,8 +2,6 @@
 
 ## Status
 
-Decision type: architecture | product | engineering | discovery | operational.
-
 Decision status: proposed | accepted | superseded | retired.
 
 Date: YYYY-MM-DD.

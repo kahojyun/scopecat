@@ -2,8 +2,6 @@
 
 ## Status
 
-Decision type: architecture.
-
 Decision status: accepted.
 
 Date: 2026-06-04.
