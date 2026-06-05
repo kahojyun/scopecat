@@ -1,35 +1,36 @@
 # Test Stages
 
-Tests are organized by behavior stage. Promoted route-local prototype tests
-live under `tests/prototypes/<route>/`. The old flat candidate-test surface has
-been removed; the flat root is reserved for narrow repository-level tests such
-as scan/data-shape discovery checks.
+Tests are organized by behavior stage. Prototype tests live under
+`tests/prototypes/<owner>/`. Integration tests live under
+`tests/integration/<workflow>/`. The flat root is reserved for narrow
+repository-level tests such as scan/data-shape discovery checks.
 
 ## Discovery Validation
 
 Discovery tests are now exceptional and should answer a bounded evidence
-question that is not yet owned by a live route. They must not import removed
-candidate packages or make broad expected-output parity an accepted boundary.
+question that is not yet owned by a live implementation owner. They must not
+import candidate packages or make broad expected-output parity an accepted
+boundary.
 
 Recommended names should describe the evidence question directly, for example
 `test_scan_data_shape_generator.py`.
 
 ## Engineering Prototype
 
-Engineering prototype tests prove route-local behavior. They should start from
-route-native requests, commands, package/storage state, or explicit event-like
-inputs, then assert the resulting operation, receipt, plan, review state, read
-model, or non-mutation behavior.
+Engineering prototype tests prove implementation-owner behavior. They should
+start from owner-native requests, commands, package/storage state, or explicit
+event-like inputs, then assert the resulting operation, receipt, plan, review
+state, read model, or non-mutation behavior.
 
 Prototype tests should not primarily prove that a promoted API matches a
 discovery candidate summary. If prior discovery evidence is still useful,
-rename or wrap it as prior evidence and make route-native behavior the
+rename or wrap it as prior evidence and make owner-native behavior the
 acceptance surface.
 
 Recommended names:
 
-- `test_<route>_<operation>.py`
-- `test_<route>_<workflow_step>.py`
+- `test_<owner>_<operation>.py`
+- `test_<owner>_<workflow_step>.py`
 
 Current layout:
 
@@ -49,14 +50,14 @@ Good assertion targets:
 
 ## Integration And Workflow
 
-Integration/workflow tests prove that a user-visible step works across route
+Integration/workflow tests prove that a user-visible step works across owner
 boundaries or real entrypoints. They should start from realistic local
 storage/package/CLI/API state and end with a next usable user result.
 
 Recommended names:
 
 - `test_<journey>_<workflow>.py`
-- `test_<route>_<workflow>.py`
+- `test_<owner>_<workflow>.py`
 
 Current layout:
 

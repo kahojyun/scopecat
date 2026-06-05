@@ -141,11 +141,8 @@ Next validation focus:
 
 Evidence status:
 
-- retired parameter-state prototype evidence exists for adapter-authored intake,
-  local storage/read views, source-agnostic selection, and pre-run
-  consumption;
-- bounded environment-operation evidence remains available as a sealed
-  supporting prototype.
+- parameter-state and environment-operation evidence remains historical input;
+  no active implementation owner is accepted for prepared-run context review.
 
 Decision gate:
 
@@ -175,11 +172,8 @@ Next validation focus:
 
 Evidence status:
 
-- retired parameter-state prototype evidence exists for adapter-authored intake,
-  local storage/read views, source-agnostic selection, and pre-run
-  consumption;
-- reviewable calibration action and continuation summaries create
-  accepted-write pressure.
+- parameter-state evidence remains historical input; reviewable calibration
+  action and continuation summaries create accepted-write pressure.
 
 Decision gate:
 

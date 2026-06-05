@@ -20,7 +20,7 @@ Use these documents before adding or promoting live code:
 | [`implementation-register.md`](implementation-register.md) | Track live implementation owners and route readers to module and prototype-boundary detail. |
 | [`../product/target-capabilities.md`](../product/target-capabilities.md) | Track product capabilities, maturity, evidence state, and open advancement questions. |
 | [`terminology.md`](terminology.md) | Use standard terms for workflows, capabilities, maturity, validation methods, decisions, evidence, artifact boundaries, and ownership. |
-| [`prototype-boundaries/README.md`](prototype-boundaries/README.md) | Find current route-local engineering prototype boundaries and next decision gates. |
+| [`prototype-boundaries/README.md`](prototype-boundaries/README.md) | Find current implementation-owner prototype boundaries and next decision gates. |
 | [`pr-documentation-drift-checklist.md`](pr-documentation-drift-checklist.md) | Lightweight PR checklist for avoiding documentation drift without freezing future decisions. |
 
 ## Planning Inputs
@@ -45,11 +45,6 @@ decision granularity rule in [`../decisions/README.md`](../decisions/README.md).
 Roadmap questions, PR scope, hardening inventories, and review findings should
 stay in the active owner unless they accept, reject, supersede, or defer a
 durable boundary that future work must obey.
-
-## Historical Reference
-
-Use [`archive/README.md`](archive/README.md) only as a compact index for retired
-prototype plans, readiness checkpoints, or historical engineering decisions.
 
 ## Scope
 

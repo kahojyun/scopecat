@@ -34,7 +34,7 @@ context family or implementation capability. A journey should have:
 
 - an actor-facing trigger;
 - a clear done state or review outcome;
-- a product surface that composes more than one route-local capability or
+- a product surface that composes more than one owner-local capability or
   authority boundary;
 - brownfield migration pressure that is hard to solve as a single capability
   use case.
@@ -130,7 +130,7 @@ post-run results review are separate journeys or workflow segments that feed
 this journey.
 
 The DEC-010 directory manifest package format is accepted for the current
-production vertical slice candidate. DEC-011 keeps that package as local
+production vertical slice path. DEC-011 keeps that package as local
 declared-integrity evidence: digest integrity is observed, but external
 authenticity, sender trust, and scientific validity are not claimed.
 DEC-021 accepts safe zip materialization into the DEC-010 package of record,
@@ -191,13 +191,12 @@ Supporting capabilities:
 - Measurement Records context links;
 - setup-binding candidate workflow.
 
-Validation orientation: the former parameter-state prototype is retired
-historical evidence, not active implementation coverage. Prepared-run context
-and acknowledgement remain scenario evidence without a live route owner.
-Environment operation is operation evidence for later readiness/context use, not
-a standalone journey. This journey should compose review-ready summaries from
-supporting capabilities; it should not own all parameter, code, environment, or
-setup management UX.
+Validation orientation: prepared-run context and acknowledgement remain
+scenario evidence without a live implementation owner. Parameter-state and
+environment-operation evidence is historical input for later readiness/context
+use, not standalone journey ownership. This journey should compose review-ready
+summaries from supporting capabilities; it should not own all parameter, code,
+environment, or setup management UX.
 
 Source evidence:
 

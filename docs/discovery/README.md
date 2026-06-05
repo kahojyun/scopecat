@@ -2,9 +2,9 @@
 
 ## Purpose
 
-Discovery owns problem briefs and the compact historical validation-slice
-inventory. Product, brownfield, architecture, decision, and engineering docs
-own active direction, sequencing, boundaries, and implementation ownership.
+Discovery owns problem briefs and bounded validation guidance. Product,
+brownfield, architecture, decision, and engineering docs own active direction,
+sequencing, boundaries, and implementation ownership.
 
 These documents are not user documentation, accepted architecture, validation
 plans, or prototype-boundary owners unless a narrower current owner says so.
@@ -23,7 +23,6 @@ slice vocabulary into shared product contracts.
 | [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md) | Start from use case validation state, evidence scopes, and missing seams before selecting the next use-case-driven prototype. |
 | [`../engineering/implementation-register.md`](../engineering/implementation-register.md) | Current live implementation owners. |
 | [`problem-briefs/README.md`](problem-briefs/README.md) | Start from evidence-backed problem framing before choosing a validation question. |
-| [`archive/slice-inventory.md`](archive/slice-inventory.md) | Compact index for removed validation-slice bodies when an active owner points there. |
 
 ## Historical Reference
 
@@ -56,7 +55,7 @@ discovery should start from one of the active owners:
 - a target journey or adoption gap in [`../product/target-journeys.md`](../product/target-journeys.md);
 - a workflow/use-case validation gap in [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md);
 - an architecture boundary gap in [`../architecture/README.md`](../architecture/README.md);
-- an evidence-backed problem brief in [`problem-briefs/README.md`](problem-briefs/README.md);
+- an evidence-backed problem brief in [`problem-briefs/README.md`](problem-briefs/README.md).
 
 ## Promotion Discipline
 

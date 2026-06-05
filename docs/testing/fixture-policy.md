@@ -5,9 +5,10 @@
 Testing policy.
 
 Fixtures should match the test stage they support. Prototype-owned fixtures
-live under `tests/fixtures/prototypes/<route>/`. The historical flat
-candidate-fixture surface has been removed; the remaining flat fixture family
-is bounded scan/data-shape discovery evidence.
+live under `tests/fixtures/prototypes/<owner>/`. Integration fixtures, when
+needed, live under `tests/fixtures/integration/<workflow>/`. Bounded
+repository-level evidence may keep a named top-level fixture family such as
+`tests/fixtures/scan_data_shapes/`.
 
 ## Discovery Fixtures
 
@@ -15,32 +16,25 @@ Discovery fixtures support bounded evidence questions before a live owner
 exists.
 They may contain:
 
-- `candidate_summary`;
 - broad expected-output JSON;
 - synthetic boundary cases;
 - internal-validation posture only.
 
 Use discovery fixtures for evidence, not as the main acceptance target for a
-promoted prototype. Do not add new fixtures that depend on removed
-`implementation_candidates` packages.
+promoted prototype. Do not add fixtures that depend on candidate packages or
+recreate old candidate summary shapes.
 
 Discovery fixture notes are evidence-local. They do not own active route
 boundaries, architecture decisions, or accepted non-claims.
 
-Recommended layout for new discovery fixtures:
-
-```text
-tests/fixtures/discovery/<slice>/<case>/
-  <slice>-input.json
-  expected-<slice>-summary.json
-  README.md
-```
+New discovery fixture families need a named evidence question and should use
+plain input and expected-output names that describe that question directly.
 
 ## Prototype Fixtures
 
-Prototype fixtures support route-local engineering behavior. They should
-prefer inputs that look like route requests, commands, local packages, storage
-roots, operation receipts, or review-plan inputs.
+Prototype fixtures support implementation-owner behavior. They should prefer
+inputs that look like requests, commands, local packages, storage roots,
+operation receipts, or review-plan inputs for that owner.
 
 Do not put fixture classification metadata inside prototype payloads. The
 fixture path, test name, and an optional directory README should carry case
@@ -52,18 +46,18 @@ emitted by the code under test. They should not be used as fixture-local
 guardrail comments.
 
 Prefer module-owned constants or typed request/result builders for invariant
-route policy. Accepted boundary and decision documents own boundary guidance,
+owner policy. Accepted boundary and decision documents own boundary guidance,
 while tests assert the behavior that matters.
 
-Prototype fixtures should avoid making `candidate_summary` the central object.
-If a discovery summary is required as prior evidence, keep it clearly named as
-prior evidence, assert route behavior separately, and migrate the useful case
-into `tests/fixtures/prototypes/<route>/` when the test is next changed.
+Prototype fixtures should avoid making prior discovery summaries the central
+object. If prior evidence is still useful, keep it clearly named as prior
+evidence, assert owner behavior separately, and migrate the useful case into
+`tests/fixtures/prototypes/<owner>/` when the test is next changed.
 
 Recommended layout for new prototype fixtures:
 
 ```text
-tests/fixtures/prototypes/<route>/<workflow-step>/
+tests/fixtures/prototypes/<owner>/<workflow-step>/
   request.json
   storage/
   package/
@@ -74,8 +68,9 @@ tests/fixtures/prototypes/<route>/<workflow-step>/
 ```
 
 Not every directory needs every subdirectory. Keep fixtures small and explicit.
-Prototype tests should not read from flat fixture directories. Move useful
-prototype evidence under the owning route before changing the test.
+Prototype tests should not read from unrelated flat fixture directories. Move
+useful prototype evidence under the owning implementation owner before
+changing the test.
 
 `expected-receipt.json` and `expected-review.json` normally assert local
 receipt or review-summary behavior; they remain repository-safe expected
@@ -84,12 +79,12 @@ promotes that output boundary.
 
 ## Integration Fixtures
 
-Integration fixtures support cross-route or user-visible workflows. They should
-model realistic local state and avoid discovery expected-output parity as the
-acceptance target.
+Integration fixtures support cross-owner or user-visible workflows. They
+should model realistic local state and avoid discovery expected-output parity
+as the acceptance target.
 
 Integration tests may reuse prototype fixtures as input state when the
-workflow intentionally starts from an accepted route-local behavior. Add a
+workflow intentionally starts from an accepted owner behavior. Add a
 dedicated `tests/fixtures/integration/<workflow>/` fixture only when the
 workflow needs its own cross-route state, expected outputs, or non-obvious
 setup.

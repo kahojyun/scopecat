@@ -23,7 +23,7 @@ Read it with:
 - [`../../decisions/architecture/DEC-011-package-trust-authenticity-posture.md`](../../decisions/architecture/DEC-011-package-trust-authenticity-posture.md)
   for the current package trust/authenticity posture;
 - [`../../decisions/architecture/DEC-012-linked-context-payload-packaging.md`](../../decisions/architecture/DEC-012-linked-context-payload-packaging.md)
-  for the current route-local linked-context payload boundary;
+  for the current package-writer linked-context payload boundary;
 - [`../../decisions/architecture/DEC-013-batch-receiving-import-planning.md`](../../decisions/architecture/DEC-013-batch-receiving-import-planning.md)
   for the current batch receiving/import planning boundary;
 - [`../../decisions/architecture/DEC-014-selected-record-linked-context-payload-export.md`](../../decisions/architecture/DEC-014-selected-record-linked-context-payload-export.md)
@@ -92,11 +92,12 @@ The current package writer:
 - returns a local write receipt;
 - proves generated packages open through the read-only opener.
 
-The package writer is a route-local capability, not the normal JNY-001 Share A
-Selected Measurement entrypoint. Caller-declared package ids, measurement ids,
-and linked-context ids are reviewed package-input facts. They are not durable
-Scopecat Measurement Record identity and do not replace storage lifecycle
-evidence, record-local read models, creation manifests, or writer receipts.
+The package writer is an owner-local capability, not the normal JNY-001 Share
+A Selected Measurement entrypoint. Caller-declared package ids, measurement
+ids, and linked-context ids are reviewed package-input facts. They are not
+durable Scopecat Measurement Record identity and do not replace storage
+lifecycle evidence, record-local read models, creation manifests, or writer
+receipts.
 
 The selected stored-record export adapter:
 
@@ -133,14 +134,14 @@ composition does not repair primary data, replace record manifests, mutate
 writer/finalization receipts, or accept/import packages.
 
 For JNY-001 Share A Selected Measurement, this storage-backed selected-record
-export path is the production vertical slice candidate. Direct package-writer
-input remains an adapter or engineering route for already-reviewed normalized
+export path is the production vertical slice backbone. Direct package-writer
+input remains an adapter or engineering path for already-reviewed normalized
 data, not a user-facing bypass around Measurement Records storage.
 
 The current read-only package use:
 
 - validates raw manifest dictionaries at the package boundary;
-- uses typed route-local manifest fragments after validation;
+- uses typed owner-local manifest fragments after validation;
 - projects package, measurement, table, finding, and
   linked-context review facts;
 - opens package-local primary CSV data for `preview_ready` measurements;
@@ -248,9 +249,9 @@ replacement, primary-data compaction, post-run results review, and final storage
 schema publication remain outside the current JNY-001 production readiness
 boundary.
 
-## Production Vertical Slice Candidate
+## Production Vertical Slice
 
-JNY-001 Share A Selected Measurement is a production vertical slice candidate
+JNY-001 Share A Selected Measurement has a production vertical slice smoke path
 when one workflow-level regression proves this full path:
 
 ```text
@@ -264,7 +265,7 @@ source-side durable Measurement Record
   -> durable import into a second storage root
 ```
 
-Acceptance for that candidate is intentionally narrow:
+Acceptance for that slice is intentionally narrow:
 
 - exactly one selected, complete Measurement Record is exported;
 - primary CSV bytes, digest, size, label, experiment type, and record identity
@@ -293,7 +294,7 @@ Acceptance for that candidate is intentionally narrow:
   storage, and receiving durable import creates a new record rather than
   updating an existing one.
 
-This candidate is not production readiness for the whole handoff capability.
+This slice is not production readiness for the whole handoff capability.
 Persisted GUI/review state, public SDK contracts, and final storage schemas
 remain separate decisions. Zip transport archive materialization into the
 DEC-010 directory package of record is governed by

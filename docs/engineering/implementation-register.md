@@ -26,7 +26,7 @@ Update this register when live code:
 - changes which module owns an API family, artifact authority, test/fixture
   orientation, or boundary note;
 - promotes a use case, scenario, operation, workflow step, or seam into live
-  route-local code;
+  implementation-owner code;
 - supersedes a historical candidate path.
 
 Do not copy product capability strategy here. Keep detailed test and fixture

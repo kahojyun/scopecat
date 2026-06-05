@@ -44,7 +44,7 @@ same user problem.
 - Capabilities may support multiple journeys; do not infer a shared domain
   model from one row.
 - Validation rows prove named behavior only; they do not automatically promote
-  candidate fixtures, summaries, or route-local vocabulary into product
+  candidate fixtures, summaries, or owner-local vocabulary into product
   contracts.
 - Implementation owners own live behavior, not the full product journey.
 

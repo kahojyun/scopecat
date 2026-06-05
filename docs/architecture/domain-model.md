@@ -6,9 +6,8 @@ Initial layered domain model.
 
 ## Purpose
 
-Provide a shared analysis language for architecture, discovery cleanup, and
-next-slice design while keeping brownfield concepts separate from Scopecat
-transition concepts.
+Provide a shared analysis language for architecture and future design while
+keeping brownfield concepts separate from Scopecat transition concepts.
 
 ## Layers
 
@@ -68,10 +67,10 @@ entities.
 | --- | --- | --- | --- |
 | Review Summary | Process object | Present local findings, readiness, missing context, or blocked state for a human decision. | Review text or JSON is not durable authority unless a boundary says so. |
 | Operation Result | Process object | Report the outcome of one command, observation, write, import, package, or review operation. | May be transient or durable. A result is not automatically a domain object. |
-| Durable Audit Record | Process object | Persist a narrow fact that an accepted operation, observation, import, write, or user decision occurred. | Historical `receipt` slice outputs should be classified here only when durable audit value is real. |
+| Durable Audit Record | Process object | Persist a narrow fact that an accepted operation, observation, import, write, or user decision occurred. | Use only when durable audit value is real; do not treat every operation result as an audit record. |
 | Import Plan | Integration object | Let a receiver preview what could be imported before storage mutation. | Non-mutating by default; durable import needs explicit acceptance and delegated storage rules. |
 | Operator Acknowledgement | Process object | Capture user acceptance, deferral, note, or continuation choice without claiming run permission. | Should not become an approval bureaucracy or hardware-safety gate by default. |
-| Environment Operation Evidence | Supporting transition concept | Review bounded local manager-operation intent/result facts when a named workflow earns the boundary. | Retired prototype evidence only; does not prove runnable readiness. |
+| Environment Operation Evidence | Supporting transition concept | Review bounded local manager-operation intent/result facts when a named workflow earns the boundary. | Historical evidence only; does not prove runnable readiness. |
 | Calibration Continuation State | Supporting transition concept | Preserve fit review, proposed writes, blocked downstream work, and continuation decisions. | Should remain grounded in failed-fit and manual-continuation entrypoints, not an invented scheduler. |
 | Reference Comparison Finding | Supporting transition concept | Compare declared facts against a selected reference without explaining causes. | Does not claim setup truth, reproducibility, or user judgment. |
 
@@ -163,9 +162,9 @@ flowchart TD
   Scopecat-introduced terms, not brownfield-native vocabulary.
 - Do not promote a fixture field into domain vocabulary unless it maps to a
   brownfield object or a named transition boundary.
-- Reclassify historical `receipt` outputs before using them architecturally:
-  many are operation results, durable audit records, review summaries, or
-  slice-to-slice glue rather than domain concepts.
+- Classify operation outputs before using them architecturally: many are
+  operation results, durable audit records, review summaries, or artifact
+  descriptors rather than domain concepts.
 - Keep source, storage, package, and external references distinct.
 - Treat review, acceptance, import, and mutation as separate concepts.
 - Keep context families separate until two or more accepted boundaries need

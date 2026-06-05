@@ -2,7 +2,7 @@
 
 ## Status
 
-Current route-local engineering prototype boundary notes.
+Current implementation-owner engineering prototype boundary notes.
 
 ## Purpose
 

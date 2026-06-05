@@ -16,10 +16,9 @@ docs/
   architecture/ initial domain model, context map, and architecture boundaries
   decisions/  decision register, decision taxonomy, and template
   engineering/ delivery maturity model, workflow validation map,
-               implementation register, prototype boundaries, and engineering
-               archive
+               implementation register, and prototype boundaries
   testing/    fixture and expected-output policy
-  discovery/  problem briefs and historical validation-slice inventory
+  discovery/  problem briefs and bounded validation guidance
 ```
 
 | Document | Use For |
@@ -53,8 +52,7 @@ docs/
 | [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md) | Use case validation state, evidence scopes, missing seams, and next validation questions. |
 | [`engineering/implementation-register.md`](engineering/implementation-register.md) | Live implementation owners and primary module or boundary detail docs. |
 | [`engineering/terminology.md`](engineering/terminology.md) | Standard engineering terms for workflow, capability, maturity, validation method, decision, evidence, artifact boundary, and ownership. |
-| [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) | Current route-local engineering prototype boundaries promoted from discovery-backed implementation work. |
+| [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) | Current implementation-owner prototype boundaries and decision gates. |
 | [`testing/fixture-policy.md`](testing/fixture-policy.md) | Fixture stage, layout, expected-output, and repository-safety policy. |
 | [`discovery/README.md`](discovery/README.md) | Discovery navigation for problem briefs and historical validation evidence. |
-| [`discovery/archive/slice-inventory.md`](discovery/archive/slice-inventory.md) | Compact historical index for removed validation slice bodies. |
 | [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md) | Evidence-backed problem briefs. |

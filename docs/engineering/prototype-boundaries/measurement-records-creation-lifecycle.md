@@ -6,7 +6,7 @@ Accepted engineering-prototype boundary.
 
 This file owns the current durable Measurement Records prototype boundary. The
 filename is historical: the first accepted slice was record creation, but the
-live boundary now includes the route-local storage, import, and reference
+live boundary now includes the owner-local storage, import, and reference
 surfaces listed below plus internal primary-table reads used for composition.
 Keep public entrypoint
 orientation in
