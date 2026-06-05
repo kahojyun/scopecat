@@ -22,19 +22,13 @@ PACKAGE = (
     / "fixtures"
     / "prototypes"
     / "handoff"
-    / "handoff_package_opener"
+    / "package_opening"
     / "basic_package"
     / "package"
     / "handoff-package-legacy-rabi-001"
 )
 WRITER_FIXTURE = (
-    ROOT
-    / "tests"
-    / "fixtures"
-    / "prototypes"
-    / "handoff"
-    / "handoff_engineering_prototype_writer"
-    / "basic_package"
+    ROOT / "tests" / "fixtures" / "prototypes" / "handoff" / "package_writer" / "basic_package"
 )
 
 
@@ -118,7 +112,7 @@ def _multi_measurement_package(temp_root: Path) -> Path:
     return package_root / "handoff-package-legacy-rabi-001"
 
 
-class HandoffEngineeringPrototypeImportPlanTest(unittest.TestCase):
+class HandoffImportPlanTest(unittest.TestCase):
     def test_import_plan_is_ready_after_reviewed_verified_receiving_gate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)

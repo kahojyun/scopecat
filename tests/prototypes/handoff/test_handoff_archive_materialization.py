@@ -21,7 +21,7 @@ PACKAGE_FIXTURE = (
     / "fixtures"
     / "prototypes"
     / "handoff"
-    / "handoff_package_opener"
+    / "package_opening"
     / "basic_package"
     / "package"
     / "handoff-package-legacy-rabi-001"

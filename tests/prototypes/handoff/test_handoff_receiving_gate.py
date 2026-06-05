@@ -14,7 +14,7 @@ PACKAGE = (
     / "fixtures"
     / "prototypes"
     / "handoff"
-    / "handoff_package_opener"
+    / "package_opening"
     / "basic_package"
     / "package"
     / "handoff-package-legacy-rabi-001"
@@ -38,7 +38,7 @@ def _copy_package(temp_root: Path) -> Path:
     return package_dir
 
 
-class HandoffEngineeringPrototypeReceivingTest(unittest.TestCase):
+class HandoffReceivingGateTest(unittest.TestCase):
     def test_receiving_gate_allows_reviewed_verified_package_without_storage_write(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             package_dir = _copy_package(Path(temp_dir))

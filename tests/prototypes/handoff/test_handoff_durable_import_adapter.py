@@ -26,19 +26,13 @@ PACKAGE = (
     / "fixtures"
     / "prototypes"
     / "handoff"
-    / "handoff_package_opener"
+    / "package_opening"
     / "basic_package"
     / "package"
     / "handoff-package-legacy-rabi-001"
 )
 WRITER_FIXTURE = (
-    ROOT
-    / "tests"
-    / "fixtures"
-    / "prototypes"
-    / "handoff"
-    / "handoff_engineering_prototype_writer"
-    / "basic_package"
+    ROOT / "tests" / "fixtures" / "prototypes" / "handoff" / "package_writer" / "basic_package"
 )
 
 

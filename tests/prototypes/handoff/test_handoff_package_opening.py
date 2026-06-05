@@ -15,7 +15,7 @@ PACKAGE = (
     / "fixtures"
     / "prototypes"
     / "handoff"
-    / "handoff_package_opener"
+    / "package_opening"
     / "basic_package"
     / "package"
     / "handoff-package-legacy-rabi-001"
@@ -39,7 +39,7 @@ def _write_manifest(package_dir: Path, manifest: dict) -> None:
     )
 
 
-class HandoffEngineeringPrototypeOpenerTest(unittest.TestCase):
+class HandoffPackageOpeningTest(unittest.TestCase):
     def test_opens_package_without_import_or_integrity_claims(self) -> None:
         package = open_handoff_package(PACKAGE)
 

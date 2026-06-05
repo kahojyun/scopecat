@@ -24,7 +24,7 @@ SOURCE_FIXTURE = (
     / "fixtures"
     / "prototypes"
     / "measurement_records"
-    / "measurement_storage_writer"
+    / "durable_import"
     / "basic_append"
     / "chunks"
     / "chunk-1.csv"

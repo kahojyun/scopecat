@@ -17,13 +17,13 @@ PACKAGE = (
     / "fixtures"
     / "prototypes"
     / "handoff"
-    / "handoff_package_opener"
+    / "package_opening"
     / "basic_package"
     / "package"
     / "handoff-package-legacy-rabi-001"
 )
 ROUTE_PRESSURE_ROOT = (
-    ROOT / "tests" / "fixtures" / "prototypes" / "handoff" / "handoff_package_route_pressure"
+    ROOT / "tests" / "fixtures" / "prototypes" / "handoff" / "package_review_cases"
 )
 RICHER_PACKAGE = (
     ROUTE_PRESSURE_ROOT
@@ -56,7 +56,7 @@ def _write_manifest(package_dir: Path, manifest: dict) -> None:
     )
 
 
-class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
+class HandoffPackageReadModelTest(unittest.TestCase):
     def test_open_package_exposes_read_only_handoff_projection(self) -> None:
         package = open_package(PACKAGE)
 
@@ -249,7 +249,7 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
         )
         self.assertEqual(references[1]["reference_id"], "managed-code-version-rabi-001")
 
-    def test_route_pressure_fixture_exposes_table_measurements(self) -> None:
+    def test_review_case_package_exposes_table_measurements(self) -> None:
         package = open_package(RICHER_PACKAGE)
         rabi = package.measurement("pressure-rabi-001")
         check = package.measurement("pressure-check-001")
@@ -264,7 +264,7 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
         self.assertEqual(check.primary_table.columns, ("delay", "contrast"))
         self.assertEqual(check.preview_table.row_count, 4)
 
-    def test_route_pressure_fixture_associates_shared_context_with_each_measurement(self) -> None:
+    def test_review_case_package_associates_shared_context_with_each_measurement(self) -> None:
         package = open_package(RICHER_PACKAGE)
 
         for measurement_id in ("pressure-rabi-001", "pressure-check-001"):
@@ -279,7 +279,7 @@ class HandoffEngineeringPrototypeReadOnlyTest(unittest.TestCase):
             )
             self.assertIsNone(measurement.findings[0].measurement_record_id)
 
-    def test_degraded_route_pressure_package_remains_not_openable(self) -> None:
+    def test_degraded_review_case_package_remains_not_openable(self) -> None:
         with self.assertRaisesRegex(ValueError, "requires preview_ready metadata"):
             open_package(DEGRADED_PACKAGE)
 

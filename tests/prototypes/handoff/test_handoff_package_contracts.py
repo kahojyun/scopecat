@@ -15,7 +15,7 @@ PACKAGE = (
     / "fixtures"
     / "prototypes"
     / "handoff"
-    / "handoff_package_opener"
+    / "package_opening"
     / "basic_package"
     / "package"
     / "handoff-package-legacy-rabi-001"
@@ -27,7 +27,7 @@ def _load_manifest() -> dict:
     return json.loads((PACKAGE / "package-manifest.json").read_text(encoding="utf-8"))
 
 
-class HandoffEngineeringPrototypeContractsTest(unittest.TestCase):
+class HandoffPackageContractsTest(unittest.TestCase):
     def test_manifest_preview_is_route_local_product_state(self) -> None:
         preview = preview_handoff_manifest(_load_manifest())
 
@@ -108,7 +108,7 @@ class HandoffEngineeringPrototypeContractsTest(unittest.TestCase):
                 owner="primary data",
             )
 
-    def test_handoff_prototype_no_longer_imports_implementation_candidates(self) -> None:
+    def test_handoff_package_no_longer_imports_implementation_candidates(self) -> None:
         self.assertTrue(HANDOFF_MODULE.is_dir())
         offenders = []
         for path in HANDOFF_MODULE.glob("*.py"):

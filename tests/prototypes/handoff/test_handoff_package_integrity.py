@@ -17,7 +17,7 @@ PACKAGE = (
     / "fixtures"
     / "prototypes"
     / "handoff"
-    / "handoff_package_opener"
+    / "package_opening"
     / "basic_package"
     / "package"
     / "handoff-package-legacy-rabi-001"
@@ -41,7 +41,7 @@ def _write_manifest(package_dir: Path, manifest: dict) -> None:
     )
 
 
-class HandoffEngineeringPrototypeIntegrityTest(unittest.TestCase):
+class HandoffPackageIntegrityTest(unittest.TestCase):
     def test_observes_verified_declared_primary_data_integrity(self) -> None:
         report = observe_package_integrity(PACKAGE)
         summary = report.to_dict()

@@ -19,13 +19,7 @@ from tests.prototypes.handoff.package_writer_helpers import write_package_from_f
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURE = (
-    ROOT
-    / "tests"
-    / "fixtures"
-    / "prototypes"
-    / "handoff"
-    / "handoff_engineering_prototype_writer"
-    / "basic_package"
+    ROOT / "tests" / "fixtures" / "prototypes" / "handoff" / "package_writer" / "basic_package"
 )
 SOURCE_ROOT = FIXTURE / "source"
 
@@ -42,7 +36,7 @@ def _package_tree(package_dir: Path) -> list[str]:
     return sorted(path.relative_to(package_dir).as_posix() for path in package_dir.rglob("*"))
 
 
-class HandoffEngineeringPrototypeWriterTest(unittest.TestCase):
+class HandoffPackageWriterTest(unittest.TestCase):
     def assertRejected(self, source: dict, pattern: str) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             with self.assertRaisesRegex(ValueError, pattern):

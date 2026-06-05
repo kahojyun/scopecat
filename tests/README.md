@@ -28,8 +28,8 @@ acceptance surface.
 
 Recommended names:
 
-- `test_<route>_<operation>_prototype.py`
-- `test_<route>_<workflow_step>_prototype.py`
+- `test_<route>_<operation>.py`
+- `test_<route>_<workflow_step>.py`
 
 Current layout:
 
@@ -55,8 +55,14 @@ storage/package/CLI/API state and end with a next usable user result.
 
 Recommended names:
 
-- `test_<workflow>_workflow.py`
-- `test_<route>_integration.py`
+- `test_<journey>_<workflow>.py`
+- `test_<route>_<workflow>.py`
+
+Current layout:
+
+```text
+tests/integration/handoff/
+```
 
 These tests should not assert discovery expected-output parity. They may reuse
 discovery fixtures as input evidence, but the acceptance target is the workflow

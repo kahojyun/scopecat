@@ -154,7 +154,7 @@ Discovery fixtures and expected outputs remain validation evidence. Prototype
 fixtures become engineering regression assets.
 
 The promoted writer fixtures live under
-`tests/fixtures/prototypes/handoff/handoff_engineering_prototype_writer/` and
+`tests/fixtures/prototypes/handoff/package_writer/` and
 use source-root terminology directly. The older discovery candidate writer
 fixtures remain recoverable from git history as historical evidence for the
 candidate shape and are not translated in promoted writer tests.

@@ -105,4 +105,4 @@ Revisit this decision when:
 - [`DEC-010-package-format-directory-manifest.md`](DEC-010-package-format-directory-manifest.md)
 - [`../../engineering/prototype-boundaries/handoff.md`](../../engineering/prototype-boundaries/handoff.md)
 - [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
-- [`../../../tests/prototypes/handoff/test_handoff_jny001_single_measurement_workflow.py`](../../../tests/prototypes/handoff/test_handoff_jny001_single_measurement_workflow.py)
+- [`../../../tests/integration/handoff/test_jny001_single_measurement_handoff.py`](../../../tests/integration/handoff/test_jny001_single_measurement_handoff.py)
