@@ -13,7 +13,6 @@ from unittest.mock import patch
 
 from scopecat.handoff import (
     HandoffDurableImportDestination,
-    HandoffDurableImportReceiptSummary,
     HandoffDurableImportRequest,
     HandoffImportPlanRequest,
     HandoffReceivingReviewRequest,
@@ -24,6 +23,7 @@ from scopecat.handoff import (
     summarize_handoff_durable_import_receipt,
     write_package,
 )
+from scopecat.handoff.durable_import import HandoffDurableImportReceiptSummary
 from scopecat.handoff.import_plan import build_import_plan
 from scopecat.handoff.receiving import run_receiving_gate_from_request
 

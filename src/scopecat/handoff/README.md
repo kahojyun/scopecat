@@ -53,11 +53,13 @@ Durable Measurement Records import adaptation:
 - `summarize_handoff_durable_import_receipt(receipt)`
 - `review_handoff_durable_import_retry(previous_summary, fresh_import_plan=...)`
 
-The top-level module also exports route projection objects such as
-`HandoffPackage`, `HandoffMeasurement`, `HandoffTable`, `HandoffPlotSeries`,
-receiving/import run objects, durable-import receipt/retry summaries, and
-`HandoffError` / `HandoffContractError` diagnostics. Modules with leading
-underscores are route-private implementation modules.
+The top-level module exports active operation entrypoints and caller-supplied
+request/value objects needed to invoke those operations. Route projection,
+run/result, receipt-summary, and inspection model types remain importable from
+their owning submodules when tests or route-local integrations need them, but
+they are not package-root contracts. `HandoffError` and
+`HandoffContractError` remain the package-root error types. Modules with
+leading underscores are route-private implementation modules.
 
 ## Boundary Split
 

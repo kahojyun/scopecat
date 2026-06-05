@@ -10,12 +10,11 @@ from pathlib import Path
 
 from scopecat.handoff import (
     HANDOFF_INSPECTION_ARTIFACT_NAME,
-    HandoffPackage,
-    HandoffPlotSeries,
-    HandoffTable,
     open_package,
     summarize_package_context_references,
 )
+from scopecat.handoff.package import HandoffPackage
+from scopecat.handoff.tables import HandoffPlotSeries, HandoffTable
 
 ROOT = Path(__file__).resolve().parents[3]
 PACKAGE = (
