@@ -8,6 +8,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from scopecat.measurement_records._contracts import (
+    validate_public_identifier,
+    validate_relative_path,
+    validate_text,
+)
 from scopecat.measurement_records._storage import (
     ensure_no_symlink_parents as _ensure_no_symlink_parents,
 )
@@ -22,11 +27,6 @@ from scopecat.measurement_records._storage import (
 )
 from scopecat.measurement_records._storage import (
     validate_strict_child_path as _validate_strict_child_path,
-)
-from scopecat.measurement_records.creation import (
-    validate_public_identifier,
-    validate_relative_path,
-    validate_text,
 )
 from scopecat.measurement_records.read_model_projection import READ_MODEL_SCHEMA
 from scopecat.measurement_records.read_model_shared import READ_MODEL_FILENAME

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from scopecat.measurement_records.creation import (
+from scopecat.measurement_records._contracts import (
     validate_public_identifier,
     validate_relative_path,
     validate_text,

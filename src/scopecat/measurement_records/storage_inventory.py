@@ -8,6 +8,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from scopecat.measurement_records._contracts import (
+    MANIFEST_SCHEMA,
+    RECORD_MANIFEST_NAME,
+    validate_public_identifier,
+    validate_relative_path,
+)
 from scopecat.measurement_records._storage import (
     ensure_no_symlink_parents as _ensure_no_symlink_parents,
 )
@@ -16,12 +22,6 @@ from scopecat.measurement_records._storage import (
 )
 from scopecat.measurement_records._storage import path_under as _path_under_common
 from scopecat.measurement_records._storage import sha256 as _sha256
-from scopecat.measurement_records.creation import (
-    MANIFEST_SCHEMA,
-    RECORD_MANIFEST_NAME,
-    validate_public_identifier,
-    validate_relative_path,
-)
 from scopecat.measurement_records.legacy_run import (
     LEGACY_RUN_RECEIPT_NAME,
     LEGACY_RUN_RECEIPT_SCHEMA,

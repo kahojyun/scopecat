@@ -8,8 +8,8 @@ This module owns the live route-local APIs for creating, importing, reviewing,
 and reading local measurement records. It is not a final storage architecture,
 public SDK contract, maintained product capability, or shared domain model.
 It supports the target journeys for recording/adopting measurements,
-post-run results review, running inspection, and selected-record handoff, but it
-does not own those full product journeys.
+post-run results review, and selected-record handoff, but it does not own those
+full product journeys.
 
 For workflow and implementation ownership, start from
 [`../../../docs/engineering/workflow-validation-map.md`](../../../docs/engineering/workflow-validation-map.md)
@@ -21,7 +21,6 @@ For accepted engineering boundaries, use
 [`../../../docs/engineering/prototype-boundaries/measurement-records-creation-lifecycle.md`](../../../docs/engineering/prototype-boundaries/measurement-records-creation-lifecycle.md)
 and
 [`../../../docs/engineering/prototype-boundaries/measurement-records-legacy-run-storage.md`](../../../docs/engineering/prototype-boundaries/measurement-records-legacy-run-storage.md).
-Historical slice-by-slice promotion notes live in [`HISTORY.md`](HISTORY.md).
 
 ## Package-Level Surfaces
 
@@ -54,7 +53,7 @@ record-local artifacts include:
 
 - `record-manifest.json` as the immutable creation shell and origin identity;
 - record-local receipts for creation, writer integration, finalization, import,
-  legacy-run recording, references, and updates;
+  legacy-run recording, and references;
 - primary CSV bytes written through approved writer/import paths;
 - derived `record-read-model.json` as a replaceable local convenience
   projection, not canonical storage authority;

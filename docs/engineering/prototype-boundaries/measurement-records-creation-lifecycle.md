@@ -30,10 +30,8 @@ Accepted surface groups:
 | Record creation | Creates one no-overwrite record shell with `record-manifest.json` and a local creation receipt. |
 | Primary-data pipeline | Writes reviewed normalized primary CSV, reads it back, finalizes the record, and projects/catalogs/refreshes `record-read-model.json`. |
 | Durable import | Imports one reviewed normalized primary table into a new record with synchronous partial-failure rollback. |
-| Existing and in-progress updates | Appends explicit update evidence without replacing the creation manifest or merging append segments into canonical primary data. |
-| Running inspection | Reads caller-declared in-progress data and update receipts for local progress review without persisting GUI state. |
 | Recorded references | Writes record-local receipts for user-declared context references while leaving referenced payloads outside Measurement Records ownership. |
-| Operator review | Composes cataloged read models, recorded references, and optional running inspections into read-only local review summaries. |
+| Operator review | Composes cataloged read models and recorded references into read-only local review summaries. |
 | Local review artifacts and receipts | Writes local static review HTML and operator-review continuation receipts as caller-rooted review artifacts outside durable record storage authority. |
 
 Legacy-run storage and converted-primary attach are owned separately by
@@ -89,7 +87,6 @@ Relevant fixture families live under
 and include:
 
 - `normalized_primary_table/`
-- `existing_record_update/`
 - `measurement_storage_writer/`
 
 The retained scan/data-shape discovery fixtures live separately under

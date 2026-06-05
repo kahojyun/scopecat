@@ -8,6 +8,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from scopecat.measurement_records._contracts import (
+    validate_public_identifier,
+    validate_relative_path,
+    validate_text,
+)
 from scopecat.measurement_records._storage import (
     ensure_no_symlink_parents as _ensure_no_symlink_parents,
 )
@@ -20,11 +25,6 @@ from scopecat.measurement_records._storage import (
 from scopecat.measurement_records._storage import (
     sha256 as _sha256,
 )
-from scopecat.measurement_records.creation import (
-    validate_public_identifier,
-    validate_relative_path,
-    validate_text,
-)
 from scopecat.measurement_records.read_model_catalog import (
     MeasurementRecordCatalogRequest,
     MeasurementRecordCatalogRun,
@@ -34,12 +34,6 @@ from scopecat.measurement_records.read_model_shared import _json_bytes
 from scopecat.measurement_records.recorded_reference import (
     list_measurement_record_references,
 )
-from scopecat.measurement_records.running_inspection import (
-    MeasurementRecordRunningInspectionRequest,
-    MeasurementRecordRunningInspectionRun,
-    inspect_running_measurement_record_from_request,
-    summarize_running_measurement_inspection,
-)
 
 OPERATOR_REVIEW_RECEIPT_SCHEMA = "measurement_record_operator_review_receipt_v0"
 OPERATOR_REVIEW_RECEIPT_SUMMARY_SCHEMA = (
@@ -48,13 +42,11 @@ OPERATOR_REVIEW_RECEIPT_SUMMARY_SCHEMA = (
 OPERATOR_REVIEW_RECEIPT_DIR = "operator-reviews"
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
 OPERATOR_DISPOSITIONS = {"recorded_for_continuation", "recorded_as_reviewed"}
-SELECTED_RECORD_SOURCES = {"catalog", "running_inspection", "not_visible"}
+SELECTED_RECORD_SOURCES = {"catalog", "not_visible"}
 REVIEW_NEXT_ACTIONS = {
-    "continue_monitoring_in_progress_record",
     "no_measurement_records_visible",
     "ready_for_later_finalization_decision",
     "review_measurement_record_operator_findings",
-    "review_running_inspection_findings",
     "review_selected_record_summary",
     "select_record_for_review",
     "select_visible_record_or_update_declared_inputs",
@@ -90,8 +82,6 @@ class MeasurementRecordOperatorReviewRequest:
     records_dir: str = "records"
     selected_record_id: str | None = None
     verify_source_digests: bool = True
-    running_inspection_requests: tuple[MeasurementRecordRunningInspectionRequest, ...] = ()
-    latest_row_limit: int = 3
 
     def __post_init__(self) -> None:
         validate_public_identifier(self.request_id, "operator review request_id")
@@ -103,27 +93,6 @@ class MeasurementRecordOperatorReviewRequest:
             )
         if not isinstance(self.verify_source_digests, bool):
             raise ValueError("operator review verify_source_digests must be boolean")
-        if not isinstance(self.running_inspection_requests, tuple):
-            raise ValueError("operator review running_inspection_requests must be a tuple")
-        request_ids: set[str] = set()
-        record_ids: set[str] = set()
-        for request in self.running_inspection_requests:
-            if not isinstance(request, MeasurementRecordRunningInspectionRequest):
-                raise ValueError(
-                    "operator review running_inspection_requests must contain "
-                    "MeasurementRecordRunningInspectionRequest objects"
-                )
-            if request.request_id in request_ids:
-                raise ValueError(
-                    "operator review running_inspection_requests must have unique request_id values"
-                )
-            if request.record_id in record_ids:
-                raise ValueError(
-                    "operator review running_inspection_requests must have unique record_id values"
-                )
-            request_ids.add(request.request_id)
-            record_ids.add(request.record_id)
-        _validate_positive_integer(self.latest_row_limit, "operator review latest_row_limit")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -131,22 +100,16 @@ class MeasurementRecordOperatorReviewRequest:
             "records_dir": self.records_dir,
             "selected_record_id": self.selected_record_id,
             "verify_source_digests": self.verify_source_digests,
-            "running_inspection_requests": [
-                request.to_dict() for request in self.running_inspection_requests
-            ],
-            "latest_row_limit": self.latest_row_limit,
         }
 
 
 @dataclass(frozen=True)
 class MeasurementRecordOperatorReviewRun:
-    """Read-only local review composed from catalog and running inspection views."""
+    """Read-only local review composed from catalog and reference views."""
 
     request: MeasurementRecordOperatorReviewRequest
     storage_root: Path
     catalog_run: MeasurementRecordCatalogRun
-    running_inspection_runs: tuple[MeasurementRecordRunningInspectionRun, ...] = ()
-    running_inspection_failures: tuple[dict[str, str], ...] = ()
     recorded_reference_review: dict[str, Any] | None = None
     review_findings: tuple[dict[str, str], ...] = ()
 
@@ -157,17 +120,9 @@ class MeasurementRecordOperatorReviewRun:
         return "measurement_record_operator_review_ready"
 
     def to_dict(self) -> dict[str, Any]:
-        running_summaries = [
-            summarize_running_measurement_inspection(
-                run,
-                latest_row_limit=self.request.latest_row_limit,
-            )
-            for run in self.running_inspection_runs
-        ]
         selected_record = _selected_record_summary(
             self.request.selected_record_id,
             self.catalog_run.entries,
-            running_summaries,
         )
         return {
             "artifact_posture": "local_measurement_record_operator_review",
@@ -182,7 +137,6 @@ class MeasurementRecordOperatorReviewRun:
                     copy.deepcopy(finding) for finding in self.catalog_run.review_findings
                 ],
             },
-            "running_inspections": running_summaries,
             "recorded_references": (
                 copy.deepcopy(self.recorded_reference_review)
                 if self.recorded_reference_review is not None
@@ -198,7 +152,6 @@ class MeasurementRecordOperatorReviewRun:
                 selected_record_id=self.request.selected_record_id,
                 selected_record=selected_record,
                 entries=self.catalog_run.entries,
-                running_summaries=running_summaries,
                 findings=self.review_findings,
             ),
         }
@@ -300,32 +253,6 @@ def review_measurement_records_from_request(
         ),
         storage_root=root,
     )
-    inspection_runs: list[MeasurementRecordRunningInspectionRun] = []
-    inspection_failures: list[dict[str, str]] = []
-    for inspection_request in request.running_inspection_requests:
-        try:
-            inspection_runs.append(
-                inspect_running_measurement_record_from_request(
-                    inspection_request,
-                    storage_root=root,
-                )
-            )
-        except ValueError as exc:
-            inspection_failures.append(
-                _finding(
-                    "running_inspection_unavailable",
-                    inspection_request.record_id,
-                    str(exc),
-                )
-            )
-
-    running_summaries = [
-        summarize_running_measurement_inspection(
-            run,
-            latest_row_limit=request.latest_row_limit,
-        )
-        for run in inspection_runs
-    ]
     recorded_reference_review = list_measurement_record_references(
         storage_root=root,
         records_dir=request.records_dir,
@@ -333,17 +260,12 @@ def review_measurement_records_from_request(
     findings = _aggregate_findings(
         request,
         catalog_run,
-        inspection_runs,
-        tuple(inspection_failures),
-        running_summaries,
         recorded_reference_review,
     )
     return MeasurementRecordOperatorReviewRun(
         request=request,
         storage_root=catalog_run.storage_root,
         catalog_run=catalog_run,
-        running_inspection_runs=tuple(inspection_runs),
-        running_inspection_failures=tuple(inspection_failures),
         recorded_reference_review=recorded_reference_review,
         review_findings=tuple(findings),
     )
@@ -460,7 +382,6 @@ def _parse_operator_review_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
     review_request = _require_dict(saved_review, "request")
     saved_catalog = _require_dict(saved_review, "catalog")
     saved_entries = _require_list(saved_catalog, "entries")
-    saved_running_summaries = _require_list(saved_review, "running_inspections")
     requested_selected_id = _optional_identifier(review_request, "selected_record_id")
     selected_record = saved_review.get("selected_record")
     if selected_record is not None and not isinstance(selected_record, dict):
@@ -468,7 +389,6 @@ def _parse_operator_review_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
     expected_selected_record = _selected_record_summary(
         requested_selected_id,
         tuple(saved_entries),
-        saved_running_summaries,
     )
     if selected_record != expected_selected_record:
         raise ValueError("saved operator review selected_record must match review snapshot")
@@ -509,7 +429,6 @@ def _parse_operator_review_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
         selected_record_id=requested_selected_id,
         selected_record=expected_selected_record,
         entries=tuple(saved_entries),
-        running_summaries=saved_running_summaries,
         findings=tuple(findings),
     )
     if next_action != expected_next_action:
@@ -562,27 +481,14 @@ def _validate_saved_operator_review_contract(saved_review: dict[str, Any]) -> No
 def _aggregate_findings(
     request: MeasurementRecordOperatorReviewRequest,
     catalog_run: MeasurementRecordCatalogRun,
-    inspection_runs: list[MeasurementRecordRunningInspectionRun],
-    inspection_failures: tuple[dict[str, str], ...],
-    running_summaries: list[dict[str, Any]],
     recorded_reference_review: dict[str, Any],
 ) -> list[dict[str, str]]:
-    running_record_dirs = {
-        _require_dict(summary, "record")["record_dir"] for summary in running_summaries
-    }
     findings = []
     for finding in catalog_run.review_findings:
-        if _is_running_record_missing_read_model_finding(finding, running_record_dirs):
-            continue
         findings.append(_child_finding("catalog", finding))
     for entry in catalog_run.entries:
         if entry["review_finding_count"] > 0:
             findings.append(_entry_review_finding(entry))
-    for run in inspection_runs:
-        findings.extend(
-            _child_finding("running_inspection", finding) for finding in run.review_findings
-        )
-    findings.extend(copy.deepcopy(finding) for finding in inspection_failures)
     findings.extend(
         _child_finding("recorded_reference", finding)
         for finding in recorded_reference_review["review_findings"]
@@ -591,29 +497,16 @@ def _aggregate_findings(
         selected = _selected_record_summary(
             request.selected_record_id,
             catalog_run.entries,
-            running_summaries,
         )
         if selected is None:
             findings.append(
                 _finding(
                     "selected_record_not_visible",
                     request.selected_record_id,
-                    "Selected record was not found in catalog entries or running inspections.",
+                    "Selected record was not found in catalog entries.",
                 )
             )
     return findings
-
-
-def _is_running_record_missing_read_model_finding(
-    finding: dict[str, str],
-    running_record_dirs: set[str],
-) -> bool:
-    if finding.get("code") != "read_model_missing":
-        return False
-    return any(
-        finding.get("target") == f"{record_dir}/record-read-model.json"
-        for record_dir in running_record_dirs
-    )
 
 
 def _entry_review_finding(entry: dict[str, Any]) -> dict[str, str]:
@@ -713,18 +606,9 @@ class _ReceiptWriteFailure(RuntimeError):
 def _selected_record_summary(
     selected_record_id: str | None,
     entries: tuple[dict[str, Any], ...],
-    running_summaries: list[dict[str, Any]],
 ) -> dict[str, Any] | None:
     if selected_record_id is None:
         return None
-    for summary in running_summaries:
-        record = _require_dict(summary, "record")
-        if record.get("record_id") == selected_record_id:
-            return {
-                "source": "running_inspection",
-                "record": copy.deepcopy(record),
-                "inspection": copy.deepcopy(summary["inspection"]),
-            }
     for entry in entries:
         if entry.get("record_id") == selected_record_id:
             return {
@@ -747,18 +631,15 @@ def _next_action(
     selected_record_id: str | None,
     selected_record: dict[str, Any] | None,
     entries: tuple[dict[str, Any], ...],
-    running_summaries: list[dict[str, Any]],
     findings: tuple[dict[str, str], ...],
 ) -> str:
     if findings:
         return "review_measurement_record_operator_findings"
-    if selected_record is not None and selected_record.get("source") == "running_inspection":
-        return str(selected_record["inspection"]["next_action"])
     if selected_record is not None:
         return "review_selected_record_summary"
     if selected_record_id is not None:
         return "select_visible_record_or_update_declared_inputs"
-    if entries or running_summaries:
+    if entries:
         return "select_record_for_review"
     return "no_measurement_records_visible"
 

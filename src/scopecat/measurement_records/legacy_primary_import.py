@@ -10,6 +10,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from scopecat.measurement_records._contracts import (
+    MANIFEST_SCHEMA,
+    validate_public_identifier,
+    validate_relative_path,
+    validate_text,
+)
 from scopecat.measurement_records._storage import (
     ensure_no_symlink_parents as _ensure_no_symlink_parents,
 )
@@ -23,12 +29,6 @@ from scopecat.measurement_records._storage import (
 )
 from scopecat.measurement_records._storage import (
     validate_strict_child_path as _validate_strict_child_path,
-)
-from scopecat.measurement_records.creation import (
-    MANIFEST_SCHEMA,
-    validate_public_identifier,
-    validate_relative_path,
-    validate_text,
 )
 from scopecat.measurement_records.durable_import import MeasurementRecordImportSource
 from scopecat.measurement_records.finalization import (

@@ -22,11 +22,6 @@ from scopecat.measurement_records.finalization import (
     MeasurementRecordFinalizationRequest,
     finalize_measurement_record_from_read_view,
 )
-from scopecat.measurement_records.in_progress_update import (
-    MeasurementRecordAppendChunk,
-    MeasurementRecordInProgressUpdateRequest,
-    append_in_progress_measurement_record_from_request,
-)
 from scopecat.measurement_records.operator_review import (
     OPERATOR_REVIEW_RECEIPT_SCHEMA,
     MeasurementRecordOperatorReviewReceiptRequest,
@@ -45,9 +40,6 @@ from scopecat.measurement_records.review_artifact import (
     MEASUREMENT_RECORD_REVIEW_ARTIFACT_NAME,
     build_measurement_record_review_html,
     write_measurement_record_review_artifact,
-)
-from scopecat.measurement_records.running_inspection import (
-    MeasurementRecordRunningInspectionRequest,
 )
 from scopecat.measurement_records.writer_integration import (
     MeasurementRecordWriterChunk,
@@ -99,21 +91,6 @@ def _writer_chunk_two() -> MeasurementRecordWriterChunk:
     )
 
 
-def _append_chunk_two() -> MeasurementRecordAppendChunk:
-    path = CHUNK_FIXTURE / "chunks" / "chunk-2.csv"
-    return MeasurementRecordAppendChunk(
-        chunk_id="chunk-3101-2",
-        sequence=2,
-        event_id="evt-3101-data-2",
-        content_ref="chunks/chunk-2.csv",
-        declared_digest=_digest(path),
-        size_bytes=path.stat().st_size,
-        rows_recorded=2,
-        previous_total_rows_recorded=3,
-        total_rows_recorded=5,
-    )
-
-
 def _record_dir(record_id: str) -> str:
     return f"records/{record_id}"
 
@@ -154,29 +131,12 @@ def _projection_request(
     )
 
 
-def _running_request(**overrides: object) -> MeasurementRecordRunningInspectionRequest:
-    record_id = str(overrides.pop("record_id", "run-3101-rabi"))
-    values = {
-        "request_id": f"inspect-{record_id}",
-        "record_id": record_id,
-        "record_dir": _record_dir(record_id),
-        "writer_receipt_path": f"{_record_dir(record_id)}/writer-receipt.json",
-        "update_receipt_paths": (f"{_record_dir(record_id)}/updates/update-3101-2.json",),
-        "expected_total_rows": 5,
-        "preview_row_limit": 5,
-    }
-    values.update(overrides)
-    return MeasurementRecordRunningInspectionRequest(**values)
-
-
 def _operator_request(**overrides: object) -> MeasurementRecordOperatorReviewRequest:
     values = {
         "request_id": "operator-review-records",
         "records_dir": "records",
         "selected_record_id": "run-3101-rabi",
         "verify_source_digests": True,
-        "running_inspection_requests": (),
-        "latest_row_limit": 2,
     }
     values.update(overrides)
     return MeasurementRecordOperatorReviewRequest(**values)
@@ -309,42 +269,6 @@ def _populate_projected_record(
         raise AssertionError(projection_run.to_dict())
 
 
-def _populate_in_progress_with_append(
-    storage_root: Path,
-    content_root: Path,
-    *,
-    record_id: str = "run-3101-rabi",
-) -> None:
-    _populate_record(
-        storage_root,
-        content_root,
-        record_id=record_id,
-        state="in_progress",
-        chunks=(_writer_chunk_one(),),
-        expected_rows=3,
-    )
-    append_run = append_in_progress_measurement_record_from_request(
-        MeasurementRecordInProgressUpdateRequest(
-            request_id=f"append-{record_id}",
-            approval_state="approved",
-            update_id="update-3101-2",
-            record_id=record_id,
-            record_dir=_record_dir(record_id),
-            writer_receipt_path=f"{_record_dir(record_id)}/writer-receipt.json",
-            previous_update_receipt_path=None,
-            append_segment_path=f"{_record_dir(record_id)}/segments/chunk-2.csv",
-            update_receipt_path=f"{_record_dir(record_id)}/updates/update-3101-2.json",
-            primary_data_format="csv_table",
-            expected_total_rows=5,
-            append_chunk=_append_chunk_two(),
-        ),
-        storage_root=storage_root,
-        content_root=content_root,
-    )
-    if not append_run.updated:
-        raise AssertionError(append_run.to_dict())
-
-
 def _saved_operator_review_receipt() -> dict:
     with tempfile.TemporaryDirectory() as temp_dir:
         storage_root = Path(temp_dir) / "storage"
@@ -428,92 +352,6 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
         self.assertIn("Legacy parameter file", html)
         self.assertIn("Initial analysis summary", html)
 
-    def test_operator_review_can_surface_selected_running_inspection(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir) / "storage"
-            content_root = Path(temp_dir) / "content"
-            storage_root.mkdir()
-            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
-            _populate_in_progress_with_append(storage_root, content_root)
-
-            run = review_measurement_records_from_request(
-                _operator_request(running_inspection_requests=(_running_request(),)),
-                storage_root=storage_root,
-            )
-
-        payload = run.to_dict()
-        self.assertEqual(run.classification, "measurement_record_operator_review_ready")
-        self.assertEqual(payload["catalog"]["entry_count"], 0)
-        self.assertEqual(payload["selected_record"]["source"], "running_inspection")
-        self.assertEqual(
-            payload["selected_record"]["inspection"]["visible_rows_recorded"],
-            5,
-        )
-        self.assertEqual(
-            payload["next_action"],
-            "ready_for_later_finalization_decision",
-        )
-
-    def test_operator_review_keeps_mixed_record_findings_visible(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root = Path(temp_dir) / "storage"
-            content_root = Path(temp_dir) / "content"
-            storage_root.mkdir()
-            shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
-            _populate_projected_record(
-                storage_root,
-                content_root,
-                record_id="run-3101-rabi",
-            )
-            _populate_in_progress_with_append(
-                storage_root,
-                content_root,
-                record_id="run-4101-t1",
-            )
-            _populate_record(
-                storage_root,
-                content_root,
-                record_id="run-9999-needs-review",
-                state="created",
-                chunks=(_writer_chunk_one(),),
-                expected_rows=3,
-            )
-
-            run = review_measurement_records_from_request(
-                _operator_request(
-                    selected_record_id="run-4101-t1",
-                    running_inspection_requests=(_running_request(record_id="run-4101-t1"),),
-                ),
-                storage_root=storage_root,
-            )
-
-        payload = run.to_dict()
-        self.assertEqual(run.classification, "measurement_record_operator_review_needed")
-        self.assertEqual(payload["catalog"]["entry_count"], 1)
-        self.assertEqual(payload["catalog"]["entries"][0]["record_id"], "run-3101-rabi")
-        self.assertEqual(payload["selected_record"]["source"], "running_inspection")
-        self.assertEqual(payload["selected_record"]["record"]["record_id"], "run-4101-t1")
-        self.assertEqual(
-            payload["selected_record"]["inspection"]["visible_rows_recorded"],
-            5,
-        )
-        self.assertEqual(
-            [finding["target"] for finding in payload["review_findings"]],
-            ["records/run-9999-needs-review/record-read-model.json"],
-        )
-        self.assertEqual(payload["review_findings"][0]["code"], "read_model_missing")
-        self.assertEqual(
-            payload["next_action"],
-            "review_measurement_record_operator_findings",
-        )
-        self.assertEqual(
-            sorted(finding["target"] for finding in payload["catalog"]["review_findings"]),
-            [
-                "records/run-4101-t1/record-read-model.json",
-                "records/run-9999-needs-review/record-read-model.json",
-            ],
-        )
-
     def test_operator_review_surfaces_embedded_read_model_review_findings(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root = Path(temp_dir) / "storage"
@@ -546,24 +384,6 @@ class MeasurementRecordOperatorReviewPrototypeTest(unittest.TestCase):
             payload["next_action"],
             "review_measurement_record_operator_findings",
         )
-
-    def test_operator_review_rejects_duplicate_running_record_snapshots(self) -> None:
-        with self.assertRaisesRegex(ValueError, "unique record_id"):
-            _operator_request(
-                running_inspection_requests=(
-                    _running_request(record_id="run-4101-t1", request_id="inspect-t1-a"),
-                    _running_request(record_id="run-4101-t1", request_id="inspect-t1-b"),
-                )
-            )
-
-    def test_operator_review_rejects_duplicate_running_request_ids(self) -> None:
-        with self.assertRaisesRegex(ValueError, "unique request_id"):
-            _operator_request(
-                running_inspection_requests=(
-                    _running_request(record_id="run-4101-t1", request_id="inspect-duplicate"),
-                    _running_request(record_id="run-4102-ramsey", request_id="inspect-duplicate"),
-                )
-            )
 
     def test_missing_selected_record_is_review_finding(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

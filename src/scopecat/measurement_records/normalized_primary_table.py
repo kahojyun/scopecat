@@ -8,7 +8,7 @@ import io
 from dataclasses import dataclass
 from typing import Any
 
-from scopecat.measurement_records.creation import validate_relative_path, validate_text
+from scopecat.measurement_records._contracts import validate_relative_path, validate_text
 
 NORMALIZED_PRIMARY_TABLE_SCHEMA = "scopecat.normalized_primary_table.v0"
 DECLARED_COLUMN_ROLES = {

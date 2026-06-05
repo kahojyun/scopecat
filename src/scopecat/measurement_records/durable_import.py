@@ -11,6 +11,11 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any
 
+from scopecat.measurement_records._contracts import (
+    validate_public_identifier,
+    validate_relative_path,
+    validate_text,
+)
 from scopecat.measurement_records._storage import (
     ensure_no_symlink_parents as _ensure_no_symlink_parents,
 )
@@ -33,9 +38,6 @@ from scopecat.measurement_records.creation import (
     MeasurementRecordCreationRequest,
     MeasurementRecordCreationRun,
     create_measurement_record_from_request,
-    validate_public_identifier,
-    validate_relative_path,
-    validate_text,
 )
 from scopecat.measurement_records.finalization import (
     MeasurementRecordFinalizationRequest,

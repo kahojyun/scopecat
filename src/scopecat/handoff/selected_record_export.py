@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,15 +31,10 @@ from scopecat.measurement_records._storage import path_under as _path_under
 from scopecat.measurement_records._storage import (
     validate_strict_child_path as _validate_strict_child_path,
 )
-from scopecat.measurement_records.read_model_refresh import (
-    MeasurementRecordReadModelRefreshRequest,
-    MeasurementRecordReadModelRefreshRun,
-    refresh_measurement_record_read_model_from_read_view,
-)
-from scopecat.measurement_records.read_model_shared import READ_MODEL_SCHEMA
-from scopecat.measurement_records.read_view import (
-    MeasurementRecordReadRequest,
-    read_created_record_primary_table_from_request,
+from scopecat.measurement_records.selected_record_access import (
+    SELECTED_RECORD_READ_MODEL_SCHEMA,
+    SelectedRecordReadModelRefreshRun,
+    refresh_selected_record_read_model_for_export,
 )
 
 APPROVAL_STATES = {"approved", "rejected", "needs_review"}
@@ -386,7 +380,7 @@ class SelectedMeasurementRecordPreflightExportRun:
     storage_root: Path
     package_root: Path
     initial_export: SelectedMeasurementRecordExportRun
-    refresh_run: MeasurementRecordReadModelRefreshRun | None = None
+    refresh_run: SelectedRecordReadModelRefreshRun | None = None
     final_export: SelectedMeasurementRecordExportRun | None = None
     preflight_error: str | None = None
 
@@ -592,14 +586,10 @@ def export_selected_measurement_record_with_preflight_refresh(
         )
 
     try:
-        refresh_request, read_request = _pre_export_refresh_requests(request, storage)
-        read_view = read_created_record_primary_table_from_request(
-            read_request,
-            storage_root=storage,
-        )
-        refresh_run = refresh_measurement_record_read_model_from_read_view(
-            refresh_request,
-            read_view=read_view,
+        refresh_run = refresh_selected_record_read_model_for_export(
+            record_id=request.record_id,
+            record_dir=request.record_dir,
+            read_model_path=request.read_model_path,
             storage_root=storage,
         )
     except ValueError as exc:
@@ -964,7 +954,7 @@ def _read_read_model(
     root: Path, request: SelectedMeasurementRecordBatchExportRecord
 ) -> dict[str, Any]:
     read_model = _read_json(root, request.read_model_path, "record read model")
-    if read_model.get("schema") != READ_MODEL_SCHEMA:
+    if read_model.get("schema") != SELECTED_RECORD_READ_MODEL_SCHEMA:
         raise ValueError("selected record export read model schema is unsupported")
     return read_model
 
@@ -1195,47 +1185,6 @@ def _should_refresh_before_export(run: SelectedMeasurementRecordExportRun) -> bo
         "invalid_read_model",
         "stale_read_model",
     }
-
-
-def _pre_export_refresh_requests(
-    request: SelectedMeasurementRecordExportRequest,
-    storage: Path,
-) -> tuple[MeasurementRecordReadModelRefreshRequest, MeasurementRecordReadRequest]:
-    expected_target_condition = "missing"
-    expected_digest = None
-    read_model_path = _path_under(
-        storage,
-        request.read_model_path,
-        "selected record preflight read model",
-    )
-    if read_model_path.exists():
-        expected_target_condition = "replace_existing"
-        expected_digest = _file_digest(read_model_path)
-
-    return (
-        MeasurementRecordReadModelRefreshRequest(
-            request_id=f"pre-export-refresh-{request.record_id}",
-            approval_state="approved",
-            record_id=request.record_id,
-            record_dir=request.record_dir,
-            writer_receipt_path=f"{request.record_dir}/writer-receipt.json",
-            finalization_receipt_path=f"{request.record_dir}/finalization-receipt.json",
-            read_model_path=request.read_model_path,
-            expected_target_condition=expected_target_condition,
-            expected_current_read_model_digest=expected_digest,
-        ),
-        MeasurementRecordReadRequest(
-            request_id=f"pre-export-read-{request.record_id}",
-            record_id=request.record_id,
-            record_dir=request.record_dir,
-            writer_receipt_path=f"{request.record_dir}/writer-receipt.json",
-            preview_row_limit=2,
-        ),
-    )
-
-
-def _file_digest(path: Path) -> str:
-    return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
 
 
 def _preflight_block_reason(run: SelectedMeasurementRecordPreflightExportRun) -> str | None:

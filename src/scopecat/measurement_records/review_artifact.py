@@ -19,7 +19,6 @@ def build_measurement_record_review_html(
 
     review = _review_payload(operator_review)
     entries = review["catalog"]["entries"]
-    running = review["running_inspections"]
     recorded_references = review.get("recorded_references", {"entries": []})
     selected = review["selected_record"]
     findings = review["review_findings"]
@@ -39,7 +38,6 @@ def build_measurement_record_review_html(
       <div class="facts">
         <span><b>review</b>{_esc(review["classification"])}</span>
         <span><b>catalog records</b>{_esc(review["catalog"]["entry_count"])}</span>
-        <span><b>running inspections</b>{_esc(len(running))}</span>
         <span><b>findings</b>{_esc(len(findings))}</span>
       </div>
     </header>
@@ -57,11 +55,6 @@ def build_measurement_record_review_html(
     <section>
       <h2>Recorded References</h2>
       {_recorded_reference_table(recorded_references.get("entries", []))}
-    </section>
-
-    <section>
-      <h2>Running Inspections</h2>
-      {_running_table(running)}
     </section>
 
     <section>
@@ -114,7 +107,6 @@ def write_measurement_record_review_artifact(
             "request_id": review["request"]["request_id"],
             "classification": review["classification"],
             "catalog_entry_count": review["catalog"]["entry_count"],
-            "running_inspection_count": len(review["running_inspections"]),
             "review_finding_count": len(review["review_findings"]),
         },
     }
@@ -162,19 +154,11 @@ def _selected_record(selected: dict[str, Any] | None) -> str:
         return '<p class="empty">No selected record is visible.</p>'
     record = selected.get("record") or {}
     source = selected.get("source")
-    inspection = selected.get("inspection")
     facts = [
         ("source", source),
         ("record", record.get("record_id")),
         ("lifecycle", record.get("lifecycle_state")),
     ]
-    if inspection is not None:
-        facts.extend(
-            [
-                ("visible rows", inspection.get("visible_rows_recorded")),
-                ("remaining rows", inspection.get("remaining_rows")),
-            ]
-        )
     return _fact_list(facts)
 
 
@@ -199,31 +183,6 @@ def _recorded_reference_table(entries: list[dict[str, Any]]) -> str:
         "<table><thead><tr>"
         "<th>Record</th><th>Family</th><th>Role</th><th>Label</th>"
         "<th>Reference</th><th>Value</th><th>State</th>"
-        "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
-    )
-
-
-def _running_table(running: list[dict[str, Any]]) -> str:
-    if not running:
-        return '<p class="empty">No running inspections were declared.</p>'
-    rows = []
-    for summary in running:
-        record = summary["record"]
-        inspection = summary["inspection"]
-        rows.append(
-            "<tr>"
-            f"<td><code>{_esc(record['record_id'])}</code></td>"
-            f"<td>{_esc(record['lifecycle_state'])}</td>"
-            f"<td>{_esc(inspection['classification'])}</td>"
-            f"<td>{_esc(inspection['visible_rows_recorded'])}</td>"
-            f"<td>{_esc(inspection['expected_total_rows'])}</td>"
-            f"<td>{_esc(inspection['remaining_rows'])}</td>"
-            "</tr>"
-        )
-    return (
-        "<table><thead><tr>"
-        "<th>Record</th><th>Lifecycle</th><th>Inspection</th>"
-        "<th>Visible Rows</th><th>Expected Rows</th><th>Remaining</th>"
         "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
     )
 
