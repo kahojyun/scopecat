@@ -136,10 +136,6 @@ class HandoffEngineeringPrototypeImportPlanTest(unittest.TestCase):
         self.assertEqual(summary["artifact_posture"], "local_import_plan_receipt")
         self.assertEqual(summary["classification"], "ready_for_import_acceptance_decision")
         self.assertEqual(
-            summary["steps"],
-            ["open_package", "run_receiving_gate_from_request", "build_import_plan"],
-        )
-        self.assertEqual(
             summary["receiving_gate"]["classification"],
             "ready_for_acceptance_mutation",
         )
@@ -148,14 +144,7 @@ class HandoffEngineeringPrototypeImportPlanTest(unittest.TestCase):
             summary["import_plan"]["planned_measurement_imports"][0]["source"]["package_path"],
             "measurements/legacy-rabi-001/primary.csv",
         )
-        self.assertEqual(
-            summary["import_plan"]["planned_measurement_imports"][0]["destination"],
-            {
-                "storage_schema": "not_assigned",
-                "storage_path": "not_assigned",
-                "conflict_resolution": "not_decided",
-            },
-        )
+        self.assertNotIn("destination", summary["import_plan"]["planned_measurement_imports"][0])
         self.assertFalse(records_exist)
 
     def test_import_plan_can_list_multiple_measurements_without_batch_mutation(self) -> None:

@@ -130,19 +130,15 @@ class HandoffArchiveCreationRun:
             return "blocked_before_archive_creation"
         return "created_zip_transport_archive"
 
+    @property
+    def block_reason(self) -> str | None:
+        return _creation_block_reason(self)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_archive_creation_receipt",
             "classification": self.classification,
-            "steps": [
-                "validate_archive_creation_request",
-                *([] if not self.request.approved else ["open_dec010_package"]),
-                *(
-                    []
-                    if not self.created
-                    else ["review_package_members", "create_zip_transport_archive"]
-                ),
-            ],
+            "block_reason": self.block_reason,
             "request": self.request.to_dict(),
             "package": {
                 "package_root": str(self.package_root),
@@ -154,9 +150,6 @@ class HandoffArchiveCreationRun:
                 "archive_path": None if self.archive_path is None else str(self.archive_path),
                 "archived_files": list(self.archived_files),
                 "creation_error": self.creation_error,
-            },
-            "creation_review": {
-                "block_reason": _creation_block_reason(self),
             },
         }
 
@@ -186,20 +179,15 @@ class HandoffArchiveMaterializationRun:
             return "blocked_before_archive_materialization"
         return "materialized_dec010_package_from_archive"
 
+    @property
+    def block_reason(self) -> str | None:
+        return _materialization_block_reason(self)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "artifact_posture": "local_archive_materialization_receipt",
             "classification": self.classification,
-            "steps": [
-                "validate_archive_materialization_request",
-                *([] if not self.request.approved else ["open_zip_archive"]),
-                *([] if not self.member_reviews else ["review_archive_members"]),
-                *(
-                    []
-                    if not self.materialized
-                    else ["materialize_archive_members", "open_materialized_package"]
-                ),
-            ],
+            "block_reason": self.block_reason,
             "request": self.request.to_dict(),
             "archive": {
                 "archive_root": str(self.archive_root),
@@ -214,9 +202,6 @@ class HandoffArchiveMaterializationRun:
                 "materialization_error": self.materialization_error,
             },
             "member_reviews": [member.to_dict() for member in self.member_reviews],
-            "materialization_review": {
-                "block_reason": _materialization_block_reason(self),
-            },
         }
 
 

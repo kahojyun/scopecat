@@ -181,22 +181,10 @@ class HandoffDurableImportRun:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        workflow_steps = [
-            "build_import_plan",
-            *(
-                [
-                    "map_handoff_measurement_to_durable_import_request",
-                    "run_measurement_record_durable_import",
-                ]
-                if self.durable_import_request is not None
-                else []
-            ),
-        ]
         return {
             "artifact_posture": "local_handoff_durable_import_receipt",
             "classification": self.classification,
             "block_reason": self.block_reason,
-            "steps": workflow_steps,
             "request": self.request.to_dict(),
             "import_plan": {
                 "classification": self.import_plan.classification,

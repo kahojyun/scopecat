@@ -57,7 +57,7 @@ class HandoffEngineeringPrototypeReceivingTest(unittest.TestCase):
             summary["package"]["integrity_classification"],
             "declared_integrity_verified",
         )
-        self.assertTrue(summary["acceptance_gate"]["allowed"])
+        self.assertTrue(summary["acceptance_allowed"])
         self.assertFalse(records_exist)
 
     def test_receiving_gate_blocks_when_integrity_requires_review(self) -> None:
@@ -84,7 +84,7 @@ class HandoffEngineeringPrototypeReceivingTest(unittest.TestCase):
             "integrity_review_required",
         )
         self.assertEqual(summary["block_reason"], "package_integrity_review_required")
-        self.assertFalse(summary["acceptance_gate"]["allowed"])
+        self.assertFalse(summary["acceptance_allowed"])
         self.assertFalse(records_exist)
 
     def test_receiving_gate_returns_blocked_review_when_declared_primary_is_missing(self) -> None:

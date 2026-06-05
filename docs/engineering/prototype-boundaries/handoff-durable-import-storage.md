@@ -140,8 +140,7 @@ cleanup.
 ## Current Failure Shape
 
 The durable import operation reports storage outcomes. Handoff preserves those
-outcomes in its local receipt and summary instead of reclassifying storage
-semantics.
+outcomes in its local receipt instead of reclassifying storage semantics.
 
 Expected classifications include:
 

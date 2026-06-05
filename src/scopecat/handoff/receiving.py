@@ -40,7 +40,6 @@ class HandoffReceivingReviewRequest:
     def to_dict(self) -> dict[str, str]:
         return {
             "request_id": self.request_id,
-            "approval_state": "approved",
             "reviewed_package_id": self.reviewed_package_id,
             "reviewed_preview_classification": self.reviewed_preview_classification,
             "reviewed_integrity_classification": self.reviewed_integrity_classification,
@@ -97,10 +96,7 @@ class HandoffReceivingGateRun:
                 "member_count": self.integrity_report.member_count,
                 "finding_count": len(self.integrity_report.integrity_findings),
             },
-            "acceptance_gate": {
-                "required_integrity_classification": "declared_integrity_verified",
-                "allowed": self.acceptance_allowed,
-            },
+            "acceptance_allowed": self.acceptance_allowed,
         }
 
 

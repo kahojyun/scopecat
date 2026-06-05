@@ -98,7 +98,7 @@ class HandoffArchiveMaterializationTest(unittest.TestCase):
             "handoff-package-legacy-rabi-001/package-manifest.json",
             creation_payload["archive"]["archived_files"],
         )
-        self.assertEqual(creation_payload["creation_review"]["block_reason"], None)
+        self.assertEqual(creation_payload["block_reason"], None)
 
     def test_archive_creation_blocks_existing_archive_collision(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -121,7 +121,7 @@ class HandoffArchiveMaterializationTest(unittest.TestCase):
 
         self.assertFalse(creation.created)
         self.assertEqual(
-            creation.to_dict()["creation_review"]["block_reason"],
+            creation.to_dict()["block_reason"],
             "archive_destination_collision",
         )
 
@@ -146,7 +146,7 @@ class HandoffArchiveMaterializationTest(unittest.TestCase):
 
         self.assertFalse(creation.created)
         self.assertEqual(
-            creation.to_dict()["creation_review"]["block_reason"],
+            creation.to_dict()["block_reason"],
             "archive_destination_collision",
         )
 
@@ -174,7 +174,7 @@ class HandoffArchiveMaterializationTest(unittest.TestCase):
 
         self.assertFalse(creation.created)
         self.assertEqual(
-            creation.to_dict()["creation_review"]["block_reason"],
+            creation.to_dict()["block_reason"],
             "archive_creation_symlink_blocked",
         )
 
@@ -201,7 +201,7 @@ class HandoffArchiveMaterializationTest(unittest.TestCase):
             "handoff-package-legacy-rabi-001/package-manifest.json",
             payload["materialization"]["materialized_files"],
         )
-        self.assertEqual(payload["materialization_review"]["block_reason"], None)
+        self.assertEqual(payload["block_reason"], None)
 
     def test_materialization_blocks_parent_traversal_before_writing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

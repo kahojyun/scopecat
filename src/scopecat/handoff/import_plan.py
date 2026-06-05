@@ -59,7 +59,6 @@ class HandoffImportPlanRequest:
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {
             "request_id": self.request_id,
-            "approval_state": "approved",
             "requested_package_id": self.requested_package_id,
             "measurement_scope": {
                 "selection": self.measurement_selection,
@@ -87,11 +86,6 @@ class HandoffMeasurementImportPlan:
                 "format": self.measurement.primary_format,
                 "observed_size_bytes": self.measurement.observed_size_bytes,
                 "integrity_check": self.measurement.integrity_check,
-            },
-            "destination": {
-                "storage_schema": "not_assigned",
-                "storage_path": "not_assigned",
-                "conflict_resolution": "not_decided",
             },
         }
 
@@ -146,16 +140,10 @@ class HandoffImportPlanRun:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        steps = [
-            "open_package",
-            "run_receiving_gate_from_request",
-            "build_import_plan",
-        ]
         return {
             "artifact_posture": "local_import_plan_receipt",
             "classification": self.classification,
             "block_reason": self.block_reason,
-            "steps": steps,
             "request": self.request.to_dict(),
             "package": {
                 "package_id": self.package.package_id,
