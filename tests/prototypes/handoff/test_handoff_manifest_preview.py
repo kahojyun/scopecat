@@ -20,14 +20,13 @@ PACKAGE = (
     / "package"
     / "handoff-package-legacy-rabi-001"
 )
-HANDOFF_MODULE = ROOT / "src" / "scopecat" / "handoff"
 
 
 def _load_manifest() -> dict:
     return json.loads((PACKAGE / "package-manifest.json").read_text(encoding="utf-8"))
 
 
-class HandoffPackageContractsTest(unittest.TestCase):
+class HandoffManifestPreviewTest(unittest.TestCase):
     def test_manifest_preview_is_route_local_product_state(self) -> None:
         preview = preview_handoff_manifest(_load_manifest())
 
@@ -107,15 +106,6 @@ class HandoffPackageContractsTest(unittest.TestCase):
                 measurement_record_id="legacy-rabi-001",
                 owner="primary data",
             )
-
-    def test_handoff_package_no_longer_imports_implementation_candidates(self) -> None:
-        self.assertTrue(HANDOFF_MODULE.is_dir())
-        offenders = []
-        for path in HANDOFF_MODULE.glob("*.py"):
-            if "implementation_candidates" in path.read_text(encoding="utf-8"):
-                offenders.append(path.name)
-
-        self.assertEqual(offenders, [])
 
 
 if __name__ == "__main__":

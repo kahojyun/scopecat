@@ -6,9 +6,8 @@ Testing policy.
 
 Fixtures should match the test stage they support. Prototype-owned fixtures
 live under `tests/fixtures/prototypes/<owner>/`. Integration fixtures, when
-needed, live under `tests/fixtures/integration/<workflow>/`. Bounded
-repository-level evidence may keep a named top-level fixture family such as
-`tests/fixtures/scan_data_shapes/`.
+needed, live under `tests/fixtures/integration/<workflow>/`. Discovery evidence
+fixtures live under `tests/fixtures/discovery/<topic>/`.
 
 ## Discovery Fixtures
 

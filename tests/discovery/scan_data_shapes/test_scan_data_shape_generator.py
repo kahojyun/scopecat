@@ -7,7 +7,8 @@ from tempfile import TemporaryDirectory
 
 from spikes.scan_data_shapes.generate import generate_review, generate_summary
 
-FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "scan_data_shapes"
+ROOT = Path(__file__).resolve().parents[3]
+FIXTURE_ROOT = ROOT / "tests" / "fixtures" / "discovery" / "scan_data_shapes"
 
 
 class ScanDataShapeGeneratorTest(unittest.TestCase):

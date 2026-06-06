@@ -88,7 +88,7 @@ Relevant fixture families live under
 The active Measurement Records tests currently use `durable_import/`.
 
 The retained scan/data-shape discovery fixtures live separately under
-[`../../../tests/fixtures/scan_data_shapes/`](../../../tests/fixtures/scan_data_shapes/).
+[`../../../tests/fixtures/discovery/scan_data_shapes/`](../../../tests/fixtures/discovery/scan_data_shapes/).
 
 Run repository checks with:
 

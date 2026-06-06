@@ -6,20 +6,15 @@ import unittest
 from itertools import product
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-GRID_FIXTURE = ROOT / "tests" / "fixtures" / "scan_data_shapes" / "2d_grid_table"
-SIDECAR_FIXTURE = ROOT / "tests" / "fixtures" / "scan_data_shapes" / "sidecar_declared_table"
-RAGGED_FIXTURE = ROOT / "tests" / "fixtures" / "scan_data_shapes" / "ragged_adaptive_table"
-OBSERVED_RAGGED_FIXTURE = (
-    ROOT / "tests" / "fixtures" / "scan_data_shapes" / "ragged_observed_only_table"
-)
-TRACE_FIXTURE = ROOT / "tests" / "fixtures" / "scan_data_shapes" / "trace_per_point_table"
-FIXED_VECTOR_FIXTURE = (
-    ROOT / "tests" / "fixtures" / "scan_data_shapes" / "fixed_vector_response_table"
-)
-COMPLEX_FIXED_VECTOR_FIXTURE = (
-    ROOT / "tests" / "fixtures" / "scan_data_shapes" / "complex_fixed_vector_response_table"
-)
+ROOT = Path(__file__).resolve().parents[3]
+FIXTURE_ROOT = ROOT / "tests" / "fixtures" / "discovery" / "scan_data_shapes"
+GRID_FIXTURE = FIXTURE_ROOT / "2d_grid_table"
+SIDECAR_FIXTURE = FIXTURE_ROOT / "sidecar_declared_table"
+RAGGED_FIXTURE = FIXTURE_ROOT / "ragged_adaptive_table"
+OBSERVED_RAGGED_FIXTURE = FIXTURE_ROOT / "ragged_observed_only_table"
+TRACE_FIXTURE = FIXTURE_ROOT / "trace_per_point_table"
+FIXED_VECTOR_FIXTURE = FIXTURE_ROOT / "fixed_vector_response_table"
+COMPLEX_FIXED_VECTOR_FIXTURE = FIXTURE_ROOT / "complex_fixed_vector_response_table"
 
 
 class ScanDataShapeFixtureTest(unittest.TestCase):

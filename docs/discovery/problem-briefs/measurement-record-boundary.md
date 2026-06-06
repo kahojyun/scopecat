@@ -6,7 +6,7 @@ Evidence-backed problem brief.
 
 Related historical validation is summarized in
 [`slice-inventory.md`](../archive/slice-inventory.md). Current public-safe
-data-shape evidence lives in `tests/fixtures/scan_data_shapes/`.
+data-shape evidence lives in `tests/fixtures/discovery/scan_data_shapes/`.
 
 ## User-Facing Failure
 
