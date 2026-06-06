@@ -38,6 +38,11 @@ repositories, backup folders, notebook checkpoints, copied helper packages,
 generated files, and unclear entrypoints. Scopecat should be able to record
 useful run or step code context without pretending the folder is well managed.
 
+A concrete brownfield driver is cross-computer code alignment: users may need
+the intended experiment scripts, helper modules, notebooks, or generated
+companions on another measurement computer without turning Git workflow,
+package management, or execution readiness into the first product surface.
+
 The first useful boundary is explicit code-context recording:
 
 - record only files or references the user explicitly includes;
@@ -112,4 +117,5 @@ Revisit this posture when a named workflow needs one of these boundaries:
   compatibility expectations.
 
 Brownfield workflow pain for experiment-code context is tracked in
-[`../brownfield/pain-points.md`](../brownfield/pain-points.md).
+[`BR-PAIN-005`](../brownfield/pain-points.md) and
+[`BR-PAIN-010`](../brownfield/pain-points.md).

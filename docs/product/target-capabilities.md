@@ -21,12 +21,12 @@ capability relationships.
 
 | ID | Capability | Maturity | Evidence State | Open Advancement Questions |
 | --- | --- | --- | --- | --- |
-| CAP-001 | Measurement Records | Engineering prototype | Live prototype evidence | Decide whether production readiness for selected stored measurement export, existing-record update/import beyond ADR-0017, running measurement lifecycle, or storage schema publication beyond ADR-0017 is the next validation focus. |
+| CAP-001 | Measurement Records | Engineering prototype | Live prototype evidence | Decide whether production readiness for selected stored measurement export, existing-record update/import beyond ADR-0017, declared primary-data shape, running measurement lifecycle, or storage schema publication beyond ADR-0017 is the next validation focus. |
 | CAP-002 | Handoff Packages | Engineering prototype | Live prototype evidence | Decide whether to validate production readiness hardening, archive-backed import beyond ADR-0015 and ADR-0016, or a future persisted GUI/batch/context contract next. |
 | CAP-003 | Parameter State Review | Discovery | Brownfield pain-point evidence | Restart from a named brownfield entrypoint before promoting implementation; decide whether reviewed parameter snapshots, compatibility-file writing, hardware apply, catalog discovery, automatic run start, or a shared parameter/run-context schema is justified by a workflow. |
 | CAP-004 | Environment Operation | Discovery | Brownfield pain-point and historical evidence | Restart from a named brownfield entrypoint before promoting implementation; decide whether bounded manager operations, runtime-readiness review, manifest integration, manager expansion, execution hardening, or GUI/runtime monitoring is justified by a workflow. |
 | CAP-005 | Experiment Code Context | Discovery | Brownfield pain-point and implementation-candidate evidence | Decide which concrete user step merits promotion first: record, materialize, observe editable folder, prepare rerun, or GUI review. |
-| CAP-006 | Running Measurement Monitor | Discovery | Brownfield pain-point validation question | Validate whether Python measurement scripts can emit lifecycle/progress/partial-data events that a long-lived local GUI can monitor across multiple active measurements. |
+| CAP-006 | Running Measurement Monitor | Discovery | Brownfield pain-point validation question | Validate whether Python measurement scripts can emit lifecycle, progress, partial-data, and shape/completeness events that a long-lived local GUI can monitor across multiple active measurements. |
 
 ## Candidate Feature Areas
 

@@ -81,6 +81,9 @@ This boundary does not accept:
 
 - legacy file observation, legacy parsing, notebook execution, runner hooks,
   hardware control, adapter discovery, or source workspace scanning;
+- richer primary-data formats, final declared scan-shape schema, plot
+  semantics, or shaped-data completeness authority beyond the current
+  normalized primary CSV/read-model prototype;
 - automatic reference repair, referenced payload import, relation traversal, or
   final cross-route context schema;
 - creating a second imported record for the same user measurement;
@@ -94,5 +97,6 @@ This boundary does not accept:
 
 Advance this boundary only when a named workflow requires broader storage
 behavior, such as existing-record merge import, manifest replacement,
-referenced payload import, running-monitor durable decisions, GUI state
-persistence, stronger recovery/locking, or final storage schema publication.
+referenced payload import, declared primary-data shape, richer primary payloads,
+running-monitor durable decisions, GUI state persistence, stronger
+recovery/locking, or final storage schema publication.

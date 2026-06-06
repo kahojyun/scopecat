@@ -152,6 +152,9 @@ The main current-state flows are:
 - live inspection and early stop: appended rows can be inspected through live
   graphing or plotting surfaces, and operators may interrupt unpromising runs
   before the intended scan completes;
+- shaped data review: users often infer scan shape, axis roles, completeness,
+  and richer payload meaning from rows, sidecars, plotting helpers, notebooks,
+  or reshape code rather than from one durable primary-data contract;
 - parameter context preservation: active JSON may be copied near a run, saved
   as a dated variant, diffed through helper code, or overwritten by calibration
   paths;
@@ -203,6 +206,9 @@ The existing system appears to run as an operator-managed workstation workflow:
 - selected work can move to another computer through copied folders, shared
   storage, or manually assembled bundles rather than a declared portable
   package;
+- experiment and tool code can move separately through copied folders, shared
+  storage, manual Git operations, or zipped workspaces before another
+  measurement computer uses it;
 - copied workspaces, nested repositories, backups, caches, checkpoints, and
   dated variants make deployment identity and selected-code identity ambiguous.
 
@@ -225,6 +231,9 @@ The existing system appears to run as an operator-managed workstation workflow:
 - Lifecycle ambiguity: lazy dataset creation, row buffering workarounds,
   controlled aborts, partial data, suppressed artifacts, and stale generated
   files blur complete versus partial versus invalid state.
+- Primary-data shape ambiguity: row/table storage, CSV-like persisted files,
+  metadata sidecars, arrays, notebooks, and plotting helpers can require users
+  to infer intended scan shape, axis roles, expected counts, and completeness.
 - Handoff and portability fragility: selected IDs, derived arrays, figures,
   reports, notebooks, local paths, service names, host details, instrument
   addresses, helper imports, and missing companions can all become receiver-side
@@ -241,8 +250,20 @@ recording/storage process.
 
 Current-state pressure summary: run identity, primary data, transformed data,
 and context references are often inferred from nearby files and naming
-conventions. Detailed pain is tracked in
-[`BR-PAIN-001`](pain-points.md).
+conventions. Detailed pain is tracked in [`BR-PAIN-001`](pain-points.md);
+primary-data shape pressure is tracked in
+[`BR-PAIN-011`](pain-points.md).
+
+### Recording And Reviewing Shaped Measurement Data
+
+Users record or review grid scans, partial scans, traces, multi-response
+tables, and sidecar-backed results through row-oriented storage, CSV-like
+files, arrays, metadata sidecars, notebooks, and plotting helpers.
+
+Current-state pressure summary: intended scan shape, axis roles, expected
+counts, observed completeness, and richer payload meaning are often inferred
+from code or review context rather than recorded as a durable primary-data
+fact. Detailed pain is tracked in [`BR-PAIN-011`](pain-points.md).
 
 ### Selecting Measurements For Sharing
 
@@ -273,6 +294,18 @@ Current-state pressure summary: parameter, registry, setup, and wiring variants
 coexist without a stable review boundary or live hardware truth claim.
 Detailed pain is tracked in [`BR-PAIN-004`](pain-points.md).
 
+### Moving Or Synchronizing Experiment Code
+
+Users move experiment scripts, notebooks, helper modules, generated
+companions, and local tool code between measurement computers through copied
+folders, shared storage, manual Git operations, or zipped workspaces.
+
+Current-state pressure summary: the intended code/tool version for another
+measurement computer can diverge from the local workstation across editable
+folders, helper imports, generated companions, service assumptions, and
+environment state. Detailed pain is tracked in
+[`BR-PAIN-010`](pain-points.md).
+
 ### Checking Instrument And Service Readiness
 
 Users often check whether instruments, services, drivers, environments, or
@@ -301,7 +334,8 @@ temporary files, plots, or notebook output.
 Current-state pressure summary: partial-but-useful data can exist before full
 completion, but completeness and readiness are not explicit while execution
 and scan control remain outside Scopecat. Detailed pain is tracked in
-[`BR-PAIN-006`](pain-points.md).
+[`BR-PAIN-006`](pain-points.md); primary-data shape pressure is tracked in
+[`BR-PAIN-011`](pain-points.md).
 
 ### Reviewing Completed Results
 
@@ -313,7 +347,8 @@ comparing, or handing off.
 Current-state pressure summary: completed-result review depends on folder
 names, notebooks, sidecars, reports, plots, helper code, local services, and
 memory rather than a records browser. Detailed pain is tracked in
-[`BR-PAIN-008`](pain-points.md).
+[`BR-PAIN-008`](pain-points.md); primary-data shape pressure is tracked in
+[`BR-PAIN-011`](pain-points.md).
 
 ### Reconstructing A Reference Or Rerun
 
@@ -324,7 +359,8 @@ Current-state pressure summary: reconstructing a reference or rerun requires
 declared boundaries around code context, parameters, setup, generated
 artifacts, environment evidence, and user/domain judgment. Detailed pain is
 tracked in [`BR-PAIN-009`](pain-points.md) and
-[`BR-PAIN-005`](pain-points.md).
+[`BR-PAIN-005`](pain-points.md). Cross-computer code alignment pressure is
+tracked in [`BR-PAIN-010`](pain-points.md).
 
 ## Update Rule
 
