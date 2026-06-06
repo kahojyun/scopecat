@@ -7,13 +7,20 @@ Evidence-backed problem framing.
 ## Purpose
 
 Keep user-facing failure cases close to their evidence without turning them
-into requirements, validation artifacts, or prototype plans.
+into requirements, validation artifacts, product scope, or prototype plans.
 
-A brief may combine sample-backed evidence, project-owner clarification,
-derived hypotheses, and current boundaries, but it must keep those layers
-separate.
+Problem briefs preserve observed evidence, project-owner clarification, and
+historical hypotheses. They do not own active roadmap, journey/use-case
+relationships, validation queues, capability maturity, or implementation
+boundaries.
 
-Use these briefs when selecting future validation questions.
+Use these briefs when selecting future validation questions. Use
+[`../../product/target-journeys.md`](../../product/target-journeys.md) for
+canonical journey/use-case ownership,
+[`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md)
+for validation evidence, and
+[`../../engineering/implementation-register.md`](../../engineering/implementation-register.md)
+for live implementation owners.
 
 ## Support Levels
 
@@ -22,8 +29,8 @@ Use these briefs when selecting future validation questions.
 | Direct sample evidence | Visible in static sample source, artifact metadata, or extracted research. |
 | Sample plus owner clarification | The sample shows the current pattern or pressure; project-owner clarification supplies desired future meaning. |
 | Owner clarification only | Explicitly clarified by the project owner, but not directly visible in the sample. |
-| Derived hypothesis | A reasonable product or validation hypothesis inferred from evidence and clarification. |
-| Out of scope | Too solution-shaped or under-supported for this brief. |
+| Historical hypothesis | A reasonable product or validation hypothesis inferred from evidence and clarification; not current scope by itself. |
+| Out of scope | Too solution-shaped, under-supported, or already owned elsewhere for this brief. |
 
 ## Brief Shape
 
@@ -32,9 +39,12 @@ Each brief should separate:
 - user-facing failure;
 - observed sample evidence;
 - project-owner clarification;
-- derived hypotheses;
+- historical hypotheses;
 - out-of-scope items for this brief;
 - possible validation questions.
+
+Possible validation questions are prompts for future owner selection. They are
+not an active task queue.
 
 ## Brief Index
 
@@ -53,4 +63,5 @@ Each brief should separate:
 ## Promotion Rule
 
 Do not promote a brief directly into product scope. First choose the smallest
-validation question.
+validation question and attach it to the current product, engineering, or
+architecture owner that will consume the evidence.

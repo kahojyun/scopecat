@@ -15,14 +15,14 @@ slice vocabulary into shared product contracts.
 
 | Document | Use For |
 | --- | --- |
-| [`../product/adoption-strategy.md`](../product/adoption-strategy.md) | Current product adoption paths. |
+| [`../product/adoption-strategy.md`](../product/adoption-strategy.md) | Current product adoption modes. |
 | [`../product/target-journeys.md`](../product/target-journeys.md) | Canonical target journey, use case, candidate use case, and supporting workflow index. |
 | [`../product/target-capabilities.md`](../product/target-capabilities.md) | Current target product capabilities, maturity, evidence, and open advancement questions. |
 | [`../brownfield/README.md`](../brownfield/README.md) | Current-state, transition architecture, migration strategy, and migration roadmap for brownfield context. |
 | [`../engineering/delivery-maturity-model.md`](../engineering/delivery-maturity-model.md) | Classify maturity owners before promoting code; treat candidates, spikes, prototypes, scenarios, and operations as evidence or validation methods. |
 | [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md) | Validation evidence, missing seams, and next validation questions for canonical use cases. |
 | [`../engineering/implementation-register.md`](../engineering/implementation-register.md) | Current live implementation owners. |
-| [`problem-briefs/README.md`](problem-briefs/README.md) | Start from evidence-backed problem framing before choosing a validation question. |
+| [`problem-briefs/README.md`](problem-briefs/README.md) | Start from evidence-only problem framing before choosing a validation question. |
 
 ## Historical Reference
 

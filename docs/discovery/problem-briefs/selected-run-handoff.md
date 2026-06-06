@@ -4,6 +4,11 @@
 
 Evidence-backed problem brief.
 
+This brief preserves evidence only. Current journey/use-case ownership lives
+in [`../../product/target-journeys.md`](../../product/target-journeys.md);
+validation evidence lives in
+[`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md).
+
 Related historical validation is summarized in
 [`slice-inventory.md`](../archive/slice-inventory.md).
 

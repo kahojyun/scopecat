@@ -10,7 +10,7 @@ flat navigation map when you already know which owner you need.
 ## Where To Find Current State
 
 - Product vision, success metrics, canonical journey/use-case index,
-  capabilities, and adoption strategy:
+  capabilities, and adoption modes:
   [`product/README.md`](product/README.md)
 - Brownfield current state, transition, migration, and risks:
   [`brownfield/README.md`](brownfield/README.md)
@@ -40,13 +40,13 @@ For product vision, outcomes, and implementation direction:
 4. [`product/target-capabilities.md`](product/target-capabilities.md) for product
    capabilities, maturity, supporting evidence, and open advancement
    questions.
-5. [`product/adoption-strategy.md`](product/adoption-strategy.md) for how users
-   start adopting Scopecat.
+5. [`product/adoption-strategy.md`](product/adoption-strategy.md) for adoption
+   modes and first-user-change posture.
 6. [`brownfield/README.md`](brownfield/README.md) for as-is lab context,
    transition architecture, migration strategy, migration roadmap, and risk
    register.
-7. [`architecture/README.md`](architecture/README.md) for the initial
-   architecture model, domain concepts, context map, and boundary lens.
+7. [`architecture/README.md`](architecture/README.md) for domain vocabulary,
+   context map, and boundary lens.
 8. [`adr/README.md`](adr/README.md) for ADR admission rules, flat record
    layout, current ADR status, and templates.
 9. [`engineering/README.md`](engineering/README.md) for delivery maturity,
@@ -62,7 +62,7 @@ For product vision, outcomes, and implementation direction:
 For new discovery work:
 
 1. [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md)
-   for problem framing.
+   for evidence-only problem framing.
 2. [`discovery/README.md`](discovery/README.md) for discovery problem framing
    and historical validation evidence.
 

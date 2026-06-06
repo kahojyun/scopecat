@@ -4,6 +4,11 @@
 
 Evidence-backed problem brief.
 
+This brief preserves evidence only. Current journey/use-case ownership lives
+in [`../../product/target-journeys.md`](../../product/target-journeys.md);
+validation evidence lives in
+[`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md).
+
 ## User-Facing Failure
 
 Users can often reopen a run or inspect a code bundle, but they still cannot

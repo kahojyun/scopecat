@@ -21,7 +21,7 @@ queues.
 | --- | --- |
 | [`current-state-assessment.md`](current-state-assessment.md) | As-is lab workflow and artifact patterns observed from the local sample corpus and discovery evidence. |
 | [`transition-architecture.md`](transition-architecture.md) | Brownfield current pattern, transition posture, Scopecat-owned boundary, and deferred authority map. |
-| [`migration-strategy.md`](migration-strategy.md) | Brownfield modernization approach, migration patterns, and authority-transfer rules. |
+| [`migration-strategy.md`](migration-strategy.md) | Brownfield modernization strategy, migration patterns, and authority-transfer rules. |
 | [`migration-roadmap.md`](migration-roadmap.md) | Brownfield design-validation sequence and decision gates. |
 | [`risk-register.md`](risk-register.md) | Recurring brownfield risks, mitigation owners, and review triggers. |
 
@@ -36,8 +36,10 @@ Read in this order when aligning migration work:
    journey labels.
 2. [`../product/target-journeys.md`](../product/target-journeys.md) for the
    canonical journey/use-case index.
-3. `migration-strategy.md` for the current-to-target migration model,
-   coexistence phases, and authority-transfer rules.
-4. `migration-roadmap.md` for design-validation sequence. Actual adoption may
+3. [`transition-architecture.md`](transition-architecture.md) for the
+   current-pattern to transition-boundary posture.
+4. `migration-strategy.md` for coexistence phases, modernization patterns, and
+   authority-transfer rules.
+5. `migration-roadmap.md` for design-validation sequence. Actual adoption may
    start from any high-value pain point, but the roadmap preserves dependency
    and authority order.
