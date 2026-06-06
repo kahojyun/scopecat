@@ -19,7 +19,7 @@ user documentation, implementation plans, or task queues.
 | Document | Use For |
 | --- | --- |
 | [`current-state-assessment.md`](current-state-assessment.md) | As-is lab workflow and artifact patterns observed from current-state evidence. |
-| [`pain-points.md`](pain-points.md) | Brownfield workflow friction, user impact, current workarounds, Scopecat opportunities, related owners, and non-claims. |
+| [`pain-points.md`](pain-points.md) | Brownfield workflow friction, user impact, current workarounds, Scopecat opportunities, related owners, and boundary/risk owner pointers. |
 | [`transition-architecture.md`](transition-architecture.md) | Brownfield current pattern, transition posture, Scopecat-owned boundary, and deferred authority map. |
 | [`migration-strategy.md`](migration-strategy.md) | Brownfield modernization strategy, migration patterns, and authority-transfer rules. |
 | [`migration-roadmap.md`](migration-roadmap.md) | Brownfield design-validation sequence and decision gates. |

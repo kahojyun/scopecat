@@ -84,6 +84,22 @@ Use [`workflow-validation-map.md`](workflow-validation-map.md) for validation
 evidence, missing seams, and next validation questions about canonical use
 case IDs.
 
+Concept relationship:
+
+```text
+current-state pattern
+  -> pain point
+  -> journey or use case
+  -> capability
+  -> validation evidence
+  -> implementation boundary
+```
+
+Each arrow points to the next owner, not to duplicated content. Current-state
+docs observe work patterns; pain points explain friction and opportunity;
+journey/use-case and capability docs choose product shape; validation docs
+record proof; implementation-boundary docs own live module and storage limits.
+
 ## Decision Status
 
 Use decision status only for documents that actually make or preserve a
