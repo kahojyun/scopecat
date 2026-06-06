@@ -1,4 +1,4 @@
-# Handoff Durable Import Prototype Boundary
+# Handoff Durable Import Boundary
 
 ## Status
 
@@ -6,89 +6,45 @@ Accepted engineering-prototype boundary.
 
 ## Purpose
 
-This note owns the current handoff-to-durable-storage boundary: how one
-reviewed handoff package measurement becomes one new durable Measurement
-Record.
+Own the cross-owner adapter boundary where one reviewed handoff package
+measurement becomes one new durable Measurement Record.
 
-Read it with:
+Package writing, opening, receiving gates, and non-mutating import plans are
+owned by [`handoff.md`](handoff.md). Durable Measurement Records storage is
+owned by [`measurement-records-storage.md`](measurement-records-storage.md).
 
-- [`handoff.md`](handoff.md) for package writing, opening, receiving gates, and
-  non-mutating import plans;
-- [`measurement-records-creation-lifecycle.md`](measurement-records-creation-lifecycle.md)
-  for durable Measurement Records creation, writing, finalization, read models,
-  import, and storage authority;
-- [`../../../src/scopecat/handoff/README.md`](../../../src/scopecat/handoff/README.md)
-  for the live handoff API surface;
-- [`../../adr/ADR-0012-defer-linked-context-payload-import.md`](../../adr/ADR-0012-defer-linked-context-payload-import.md)
-  for the current linked-context payload import deferral;
-- [`../../adr/ADR-0013-defer-batch-durable-import.md`](../../adr/ADR-0013-defer-batch-durable-import.md)
-  for the current batch durable import deferral;
-- [`../../adr/ADR-0014-defer-archive-authority-and-archive-backed-durable-import.md`](../../adr/ADR-0014-defer-archive-authority-and-archive-backed-durable-import.md)
-  for the current archive-backed durable import and archive-authority
-  deferral;
-- [`../../adr/ADR-0017-defer-existing-record-update-and-final-storage-schema.md`](../../adr/ADR-0017-defer-existing-record-update-and-final-storage-schema.md)
-  for the current new-record-only durable import and storage-schema deferral.
+## Boundary
 
-## Current Boundary
-
-The accepted prototype flow is:
+The adapter flow is:
 
 ```text
-open read-only handoff package
-  -> observe package integrity
-  -> pass receiving gate
-  -> build ready non-mutating import plan
-  -> select one package measurement
-  -> build approved durable import request
-  -> delegate mutation to Measurement Records durable import
-  -> return local handoff import receipt
+ready handoff import plan
+  -> approved durable import request with destination record_id
+  -> MeasurementRecordImportSource
+  -> Measurement Records by-id import facade
+  -> local handoff durable-import receipt
 ```
 
-Handoff adapts package review facts into Measurement Records import inputs. It
-does not own durable storage mutation.
+The adapter:
 
-The current adapter:
-
-- requires a ready `HandoffImportPlanRun`;
 - imports exactly one selected planned measurement per operation;
 - requires an approved `HandoffDurableImportRequest`;
-- requires a caller-declared destination `record_id` for the new durable record;
-- maps the package measurement to `MeasurementRecordImportSource` with
+- requires a caller-declared destination `record_id` for the new durable
+  record;
+- maps reviewed package facts to `MeasurementRecordImportSource` with
   `source_kind="handoff_package"`;
-- delegates canonical record-local path construction to the Measurement Records
-  by-id import facade with creation source kind `handoff`;
-- delegates creation, primary-data writing, primary-table summary,
-  finalization, read-model
-  write, no-overwrite handling, and rollback classification to
+- delegates canonical record-local path construction, creation,
+  primary-data writing, primary-table summary, finalization, read-model writing,
+  no-overwrite handling, and rollback classification to
   `scopecat.measurement_records`;
 - returns a local handoff durable-import receipt that records package,
   selected measurement, destination record id, and durable-import
   classification.
 
-Durable-import receipts include compact local state for successful import,
-blocked import-plan handoff, durable source-preflight blocks, rollback, and
-partial-commit cases. They expose `block_reason` without authorizing retry,
-reusing stale plans, or bypassing destination-record/package rechecks.
-
-Public durable-import API functions promote route contract failures to
-`HandoffContractError`, which remains `ValueError`-compatible. The
-`to_diagnostic()` output is local operator error guidance only; it is not a
-portable/export artifact, retry authorization, storage mutation authority, or
-public error schema.
-
-ADR-0013 keeps multi-measurement package plans as review and coordination
-evidence only. They do not authorize one durable batch mutation until a
-separate destination-record, conflict, partial-success, rollback, and retry
-contract exists.
-
-ADR-0017 keeps handoff durable import new-record-only. The adapter does not
-import into existing records, attach to pre-created shells, replace manifests,
-merge primary data, or publish a final storage schema for Measurement Records.
-
 The import plan is not write authority. Before mutation, the delegated
-Measurement Records durable import operation reopens the package member through
-the package directory content root and validates digest, byte size, normalized
-CSV shape, format, and row count.
+Measurement Records operation reopens the package member through the package
+directory content root and validates digest, byte size, normalized CSV shape,
+format, and row count.
 
 ## Source Facts
 
@@ -108,40 +64,14 @@ package and ready import-plan path:
 | `label`, `experiment_type` | selected package measurement metadata |
 | `creation_source_kind` | `handoff` |
 
-Linked context remains review context. Optional managed context-reference
-metadata may be preserved in local package, import-plan, and handoff
-durable-import review surfaces. ADR-0012 keeps packaged linked-context payloads
-out of Measurement Records storage until a separate context artifact import
-contract exists.
+Linked context remains review context. Durable import keeps packaged
+linked-context payloads out of Measurement Records storage until a separate
+context artifact import contract exists.
 
-## Artifact And Storage Authority
+## Failure Shape
 
-The handoff package directory and `package-manifest.json` are portable handoff
-artifacts. Package contents use package-relative paths and validated managed
-references at the package/export boundary.
-
-Durable Measurement Records storage is owned by
-`scopecat.measurement_records`. The handoff durable-import adapter owns request
-adaptation and local review continuity only.
-
-Local handoff durable-import receipts are local review surfaces. They are not
-portable handoff artifacts, retry approval, persistent GUI state,
-destination-record freshness proof, or storage mutation authority.
-
-The durable-import adapter may consume declared digest integrity from the
-reviewed package path, but it does not verify external authenticity, trusted
-source, package provenance, or trust-gated mutation policy.
-
-ADR-0015 and ADR-0016 accept zip archive materialization and creation as transport
-steps around the ADR-0006 package of record. The durable-import adapter consumes
-an already-opened directory manifest package; it does not extract archives,
-treat archive bytes as durable-import authority, or own archive materialization
-cleanup.
-
-## Current Failure Shape
-
-The durable import operation reports storage outcomes. Handoff preserves those
-outcomes in its local receipt instead of reclassifying storage semantics.
+Handoff preserves delegated storage outcomes in its local receipt instead of
+reclassifying Measurement Records storage semantics.
 
 Expected classifications include:
 
@@ -156,19 +86,28 @@ Rollback remains best-effort process-local cleanup. It is not crash recovery,
 transactional durability, stale-lock cleanup, or concurrent storage-root
 protection.
 
+## Artifact And Storage Authority
+
+The handoff package directory and `package-manifest.json` are portable handoff
+artifacts. Durable Measurement Records storage is owned by
+`scopecat.measurement_records`.
+
+Local handoff durable-import receipts are local review surfaces. They are not
+portable handoff artifacts, retry approval, persistent GUI state,
+destination-record freshness proof, or storage mutation authority.
+
 ## Out Of Scope
 
 This boundary does not accept:
 
-- importing multiple measurements in one durable operation beyond ADR-0013;
+- importing multiple measurements in one durable operation;
 - importing into an existing record or attaching to a pre-created shell;
-- using the older `measurement_record_directory_candidate_v0` storage layout;
 - primary-data merge, compaction, or append visibility as canonical import
   behavior;
 - final record-id generation policy;
 - manifest replacement or canonical-current-state manifest updates;
-- linked-context payload materialization beyond ADR-0012;
-- archive extraction beyond ADR-0014;
+- linked-context payload materialization;
+- archive extraction or archive-backed durable import;
 - external authenticity or package trust policy;
 - adapter discovery, drop-folder protocol, service API, or stable public
   adapter API;
@@ -178,40 +117,9 @@ This boundary does not accept:
 - public storage schema, export schema, database index, or GUI import review
   state.
 
-## Tests And Fixtures
-
-Active prototype tests live under
-[`../../../tests/prototypes/handoff/`](../../../tests/prototypes/handoff/),
-especially the durable-import adapter coverage. Handoff fixtures live under
-[`../../../tests/fixtures/prototypes/handoff/`](../../../tests/fixtures/prototypes/handoff/).
-
-Relevant regression expectations:
-
-- successful single-measurement durable import;
-- raw-edge composition through import planning and durable import;
-- unapproved or not-ready plans block before mutation;
-- package-id and selected-measurement mismatches block before mutation;
-- stale package bytes are revalidated by the delegated durable-import operation;
-- linked context remains reference-only review context;
-- durable-import receipts expose compact local block reasons but do not authorize
-  mutation.
-
-Run repository checks with:
-
-```sh
-uv run python -m unittest discover -s tests
-uv run ruff check .
-uv run ruff format --check .
-```
-
 ## Advancement Questions
 
-Advance this boundary only when a named workflow requires a broader behavior.
-Likely separate decisions include:
-
-- batch package receiving/import and partial-success policy beyond ADR-0013;
-- package archive format beyond ADR-0014;
-- linked-context payload import beyond ADR-0012;
-- existing-record update/import conflict behavior beyond ADR-0017;
-- persisted receiving review state or GUI durable review workflow;
-- stronger recovery, locking, or concurrent storage behavior.
+Advance this boundary only when a named workflow requires broader durable
+handoff import behavior, such as batch durable import, linked-context payload
+import, existing-record update/import, GUI durable review state, or stronger
+storage recovery.

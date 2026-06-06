@@ -15,7 +15,7 @@ brownfield migration document, test inventory, or second module README.
 
 | Implementation Owner | Product Capability | Owns | Primary Detail Owner |
 | --- | --- | --- | --- |
-| `scopecat.measurement_records` | CAP-001 | Durable local Measurement Records storage, read/import/adoption, and declared references. | [`src/scopecat/measurement_records/README.md`](../../src/scopecat/measurement_records/README.md), [`measurement-records-creation-lifecycle.md`](prototype-boundaries/measurement-records-creation-lifecycle.md), [`measurement-records-legacy-run-storage.md`](prototype-boundaries/measurement-records-legacy-run-storage.md) |
+| `scopecat.measurement_records` | CAP-001 | Durable local Measurement Records storage, read/import/adoption, declared references, and handoff projection. | [`src/scopecat/measurement_records/README.md`](../../src/scopecat/measurement_records/README.md), [`measurement-records-storage.md`](prototype-boundaries/measurement-records-storage.md) |
 | `scopecat.handoff` | CAP-002 | Scopecat-authored package writing/opening/preview, selected stored-record export, receiving gate, import plan, and durable-import adaptation. | [`src/scopecat/handoff/README.md`](../../src/scopecat/handoff/README.md), [`handoff.md`](prototype-boundaries/handoff.md), [`handoff-durable-import-storage.md`](prototype-boundaries/handoff-durable-import-storage.md) |
 
 ## Update Rule

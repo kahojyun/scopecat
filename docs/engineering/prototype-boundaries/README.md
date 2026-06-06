@@ -19,10 +19,9 @@ product capability maturity.
 
 | Boundary | Use For |
 | --- | --- |
-| [`handoff.md`](handoff.md) | Handoff package writer, reader, local review, receiving gate, import plan, and durable-import adapter boundary. |
-| [`handoff-durable-import-storage.md`](handoff-durable-import-storage.md) | Current handoff durable-import adaptation into Measurement Records. |
-| [`measurement-records-creation-lifecycle.md`](measurement-records-creation-lifecycle.md) | Current durable Measurement Records storage, read/import, and reference boundary. |
-| [`measurement-records-legacy-run-storage.md`](measurement-records-legacy-run-storage.md) | Legacy run storage, converted-primary attach, and references. |
+| [`handoff.md`](handoff.md) | Handoff package writer, reader, local review, receiving gate, and non-mutating import-plan boundary. |
+| [`handoff-durable-import-storage.md`](handoff-durable-import-storage.md) | Handoff durable-import adapter boundary into Measurement Records. |
+| [`measurement-records-storage.md`](measurement-records-storage.md) | Durable Measurement Records storage, adoption/import/open-by-id, references, read models, and handoff projection boundary. |
 
 These notes are not final product architecture, public API commitments, or
 production vertical-slice acceptance.
