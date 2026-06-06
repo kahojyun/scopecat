@@ -287,25 +287,34 @@ Goal: record existing, external, legacy-backed, adapter-authored, or manually
 declared run facts as a local Scopecat Measurement Record without replacing the
 system that produced the measurement.
 
-Primary workflows:
+Primary workflow:
 
-- create a local Measurement Record shell;
-- record source identity and source posture;
-- import or attach reviewed normalized primary data;
-- record context references supplied by the operator or adapter;
-- write the created record to the local Measurement Records store for
-  downstream journeys;
+- record an already-produced measurement into local Scopecat Measurement
+  Records without replacing the producing workflow;
+- use an adopt-first route when source identity and posture are known before
+  reviewed primary data is ready: create a local Measurement Record shell,
+  write a source receipt, and optionally attach reviewed normalized primary
+  data later to the same record;
+- use an import-ready route when reviewed normalized primary data is already
+  available: create the local Measurement Record and write primary data in one
+  durable import step;
+- record context references supplied by the operator or adapter as
+  record-local receipts;
+- make the created record visible enough for downstream journeys;
 - keep raw source execution, parsing, and scientific validity outside
   Scopecat unless a narrower adapter slice earns that authority.
 
-Use cases to prove:
+Use cases and route segments to prove:
 
-- record existing or externally produced measurement facts locally;
-- attach reviewed normalized primary data;
-- import reviewed normalized primary data into a new durable record;
-- record parameter, setup, code, artifact, and evidence references as
-  record-local receipts;
-- expose the created record to the local Measurement Records store.
+- adopt-first recording: a known legacy, external, notebook, or manually
+  declared run becomes a local Measurement Record, and reviewed primary data
+  can later attach to the same user measurement;
+- import-ready recording: reviewed normalized primary data becomes a local
+  Measurement Record directly. This is a fused route through the same user
+  workflow, not a separate product journey;
+- declared context reference recording: parameter, setup, code, artifact, and
+  evidence references become record-local receipts without importing or
+  validating referenced payloads.
 
 Supporting capabilities:
 
@@ -319,9 +328,11 @@ Validation orientation: this target journey separates the input side of
 Measurement Records from JNY-001 handoff. Current evidence exists as
 engineering prototype work under Measurement Records and as the input
 scaffolding used by JNY-001. The open question is not whether JNY-007 belongs
-in the target catalog; it is which first user-facing route or use case should
-own recording beyond handoff support. Opening, browsing, plotting, and post-run
-readiness review belong to JNY-008.
+in the target catalog; it is which first user-facing route should own recording
+beyond handoff support. Local storage visibility, read-model
+projection, and catalog refresh are success criteria for the recording routes,
+not standalone user tasks. Opening, browsing, plotting, and post-run readiness
+review belong to JNY-008.
 
 Source evidence:
 

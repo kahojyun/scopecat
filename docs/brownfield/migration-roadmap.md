@@ -66,9 +66,10 @@ not read every `Already validated` bullet as a maintained product capability.
 Target boundary: JNY-007 Record Runs, supported by CAP-001
 Measurement Records.
 
-Target use case: UC-001 and UC-002 as current supporting use cases; promote a
-new candidate only when recording needs a user-facing route beyond
-Measurement Records scaffolding.
+Target framing: one recording workflow with two current route segments:
+UC-001 adopt-first recording and UC-002 import-ready recording. Treat them as
+supporting engineering use cases until a user-facing route beyond Measurement
+Records scaffolding earns promotion.
 
 Related risks: BR-RISK-003, BR-RISK-004, BR-RISK-011.
 
@@ -76,19 +77,20 @@ Related ADRs: ADR-0003, ADR-0017.
 
 Next validation focus:
 
-- decide which first user-facing route or use case should own recording beyond
-  the existing Measurement Records capability path feeding JNY-001 and JNY-008.
+- decide which first user-facing route should own recording beyond the
+  existing Measurement Records capability path feeding JNY-001 and JNY-008.
 
 Already validated:
 
 - legacy-backed measurement record shell and storage visibility;
-- normalized primary-data durable import;
+- normalized primary-data durable import as the import-ready route through the
+  same recording workflow;
 - record-local references and storage visibility scaffolding.
 
 Decision gate:
 
-- a user-facing recording use case has explicit source posture,
-  reviewed primary-data handling, repository-safe context references, and clear
+- a user-facing recording route has explicit source posture, reviewed
+  primary-data handling, repository-safe context references, and clear
   non-claims around legacy execution, adapter discovery, and scientific
   validity.
 
