@@ -14,8 +14,8 @@ from scopecat.handoff.errors import promote_handoff_contract_error
 from scopecat.handoff.import_plan import HandoffImportPlanRun
 from scopecat.handoff.package import HandoffMeasurement
 from scopecat.measurement_records.durable_import import (
-    MeasurementRecordDurableImportRun,
     MeasurementRecordImportByIdRequest,
+    MeasurementRecordImportByIdRun,
     MeasurementRecordImportSource,
     import_measurement_record_from_source_by_id,
 )
@@ -71,7 +71,7 @@ class HandoffDurableImportRun:
     request: HandoffDurableImportRequest
     import_plan: HandoffImportPlanRun
     durable_import_request: MeasurementRecordImportByIdRequest | None = None
-    durable_import_run: MeasurementRecordDurableImportRun | None = None
+    durable_import_run: MeasurementRecordImportByIdRun | None = None
 
     @property
     def imported(self) -> bool:

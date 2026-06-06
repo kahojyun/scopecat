@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scopecat.measurement_records import (
+from scopecat.measurement_records.durable_import import (
     MeasurementRecordDurableImportRequest,
     MeasurementRecordImportSource,
     import_measurement_record_from_request,

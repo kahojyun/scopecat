@@ -60,11 +60,9 @@ class HandoffPublicApiSurfaceTest(unittest.TestCase):
         self.assertTrue(hasattr(handoff, "create_handoff_archive_package_from_request"))
         self.assertTrue(hasattr(handoff, "materialize_handoff_archive_package_from_request"))
 
-    def test_selected_record_preflight_export_is_top_level_export(self) -> None:
-        self.assertIn("export_selected_measurement_record_with_preflight_refresh", handoff.__all__)
-        self.assertTrue(
-            hasattr(handoff, "export_selected_measurement_record_with_preflight_refresh")
-        )
+    def test_selected_record_export_is_top_level_export(self) -> None:
+        self.assertIn("export_selected_measurement_record_from_request", handoff.__all__)
+        self.assertTrue(hasattr(handoff, "export_selected_measurement_record_from_request"))
 
     def test_selected_record_export_does_not_parse_measurement_record_storage(self) -> None:
         source = (
@@ -116,6 +114,7 @@ class HandoffPublicApiSurfaceTest(unittest.TestCase):
             "SelectedMeasurementRecordBatchExportRun",
             "SelectedMeasurementRecordExportRun",
             "SelectedMeasurementRecordPreflightExportRun",
+            "export_selected_measurement_record_with_preflight_refresh",
             "build_durable_import_request_from_handoff_plan",
             "write_package_from_source",
         }

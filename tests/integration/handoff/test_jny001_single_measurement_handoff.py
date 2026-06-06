@@ -22,7 +22,7 @@ from scopecat.handoff import (
 )
 from scopecat.handoff.import_plan import build_import_plan
 from scopecat.handoff.receiving import run_receiving_gate_from_request
-from scopecat.measurement_records import (
+from scopecat.measurement_records.durable_import import (
     MeasurementRecordDurableImportRequest,
     MeasurementRecordImportSource,
     import_measurement_record_from_request,

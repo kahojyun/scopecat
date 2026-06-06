@@ -42,7 +42,6 @@ class MeasurementRecordSummary:
     def to_dict(self) -> dict[str, Any]:
         return {
             "record_id": self.record_id,
-            "record_dir": self.record_dir,
             "lifecycle_state": self.lifecycle_state,
             "creation_source_kind": self.creation_source_kind,
             "label": self.label,
@@ -154,7 +153,6 @@ class MeasurementRecordReferenceSetView:
         return {
             "reference_set_id": self.reference_set_id,
             "operator_notes": self.operator_notes,
-            "previous_reference_receipt_path": self.previous_reference_receipt_path,
             "previous_reference_set_id": self.previous_reference_set_id,
             "references": [reference.to_dict() for reference in self.references],
         }
@@ -184,7 +182,6 @@ class MeasurementRecordView:
         return {
             "classification": self.classification,
             "handle": self.handle.to_dict(),
-            "storage_root": str(self.storage_root),
             "record": None if self.record is None else self.record.to_dict(),
             "source": None if self.source is None else self.source.to_dict(),
             "primary_data": None if self.primary_data is None else self.primary_data.to_dict(),

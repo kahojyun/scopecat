@@ -66,9 +66,7 @@ class MeasurementRecordHandle:
     def to_dict(self) -> dict[str, Any]:
         return {
             "record_id": self.record_id,
-            "record_dir": self.record_dir,
-            "manifest_path": self.manifest_path,
-            "read_model_path": self.read_model_path,
+            "primary_data_attached": self.read_model_path is not None,
         }
 
 
@@ -189,7 +187,6 @@ class MeasurementRecordAdoptionRequest:
             "request_id": self.request_id,
             "approval_state": self.approval_state,
             "record_id": self.record_id,
-            "record_dir": self.record_dir,
             "route": self.route,
             "import_source": None if self.import_source is None else self.import_source.to_dict(),
             "legacy_system_id": self.legacy_system_id,
@@ -237,13 +234,26 @@ class MeasurementRecordAdoptionRun:
         return {
             "classification": self.classification,
             "request": self.request.to_dict(),
-            "storage_root": str(self.storage_root),
             "handle": None if self.handle is None else self.handle.to_dict(),
-            "legacy_run": None if self.legacy_run is None else self.legacy_run.to_dict(),
-            "primary_data": None if self.primary_data is None else self.primary_data.to_dict(),
-            "recorded_references": None
-            if self.recorded_references is None
-            else self.recorded_references.to_dict(),
+            "steps": {
+                "legacy_run": None
+                if self.legacy_run is None
+                else {
+                    "performed": self.legacy_run.recorded,
+                    "classification": self.legacy_run.classification,
+                    "record_error": self.legacy_run.record_error,
+                },
+                "primary_data": None
+                if self.primary_data is None
+                else _primary_data_step_summary(self.primary_data),
+                "recorded_references": None
+                if self.recorded_references is None
+                else {
+                    "performed": self.recorded_references.recorded,
+                    "classification": self.recorded_references.classification,
+                    "references_error": self.recorded_references.references_error,
+                },
+            },
             "adoption_error": self.adoption_error,
         }
 
@@ -252,6 +262,18 @@ def canonical_record_dir(record_id: str) -> str:
     """Return the canonical local record directory for a public record id."""
 
     return f"records/{validate_public_identifier(record_id, 'record_id')}"
+
+
+def _primary_data_step_summary(
+    run: MeasurementRecordDurableImportRun | LegacyPrimaryImportRun,
+) -> dict[str, Any]:
+    import_error = getattr(run, "import_error", None)
+    performed = bool(getattr(run, "imported", getattr(run, "attached", False)))
+    return {
+        "performed": performed,
+        "classification": run.classification,
+        "import_error": import_error,
+    }
 
 
 def canonical_record_handle(

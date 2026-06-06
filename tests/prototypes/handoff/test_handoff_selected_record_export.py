@@ -15,15 +15,16 @@ from scopecat.handoff import (
     SelectedMeasurementRecordExportRequest,
     export_selected_measurement_record_batch_from_request,
     export_selected_measurement_record_from_request,
-    export_selected_measurement_record_with_preflight_refresh,
     observe_package_integrity,
     open_package,
 )
 from scopecat.measurement_records import (
     MeasurementRecordAdoptionRequest,
-    MeasurementRecordDurableImportRequest,
     MeasurementRecordImportSource,
     adopt_existing_run_from_request,
+)
+from scopecat.measurement_records.durable_import import (
+    MeasurementRecordDurableImportRequest,
     import_measurement_record_from_request,
 )
 
@@ -305,11 +306,11 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
             "exported_selected_measurement_record",
         )
 
-    def test_preflight_export_uses_existing_fresh_read_model_without_refresh(self) -> None:
+    def test_selected_export_uses_existing_fresh_read_model_without_refresh(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root, package_root = self._create_imported_record(Path(temp_dir))
 
-            run = export_selected_measurement_record_with_preflight_refresh(
+            run = export_selected_measurement_record_from_request(
                 _export_request(),
                 storage_root=storage_root,
                 package_root=package_root,
@@ -317,22 +318,20 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
 
         payload = run.to_dict()
         self.assertTrue(run.exported)
-        self.assertIsNone(
-            run.export_run.preparation.refresh_run if run.export_run.preparation else None
-        )
+        self.assertIsNone(run.preparation.refresh_run if run.preparation else None)
         self.assertEqual(
             payload["classification"],
-            "exported_selected_measurement_record_after_preflight",
+            "exported_selected_measurement_record",
         )
         self.assertIsNone(payload["block_reason"])
 
-    def test_preflight_export_refreshes_missing_read_model_then_exports(self) -> None:
+    def test_selected_export_refreshes_missing_read_model_then_exports(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root, package_root = self._create_imported_record(Path(temp_dir))
             read_model_path = storage_root / "records" / "run-3101-rabi" / "record-read-model.json"
             read_model_path.unlink()
 
-            run = export_selected_measurement_record_with_preflight_refresh(
+            run = export_selected_measurement_record_from_request(
                 _export_request(),
                 storage_root=storage_root,
                 package_root=package_root,
@@ -343,15 +342,16 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
         self.assertTrue(run.exported)
         self.assertEqual(package.measurement_ids, ("run-3101-rabi",))
         self.assertEqual(
-            payload["initial_export"]["preparation"]["initial_error"],
+            payload["preparation"]["initial_error"],
             "record read model is required",
         )
-        self.assertEqual(payload["refresh"]["classification"], "refreshed_read_model")
-        self.assertEqual(payload["refresh"]["request"]["expected_target_condition"], "missing")
-        self.assertIsNone(payload["final_export"])
+        self.assertEqual(
+            payload["preparation"]["refresh"]["classification"], "refreshed_read_model"
+        )
+        self.assertTrue(payload["preparation"]["refresh"]["refreshed"])
         self.assertIsNone(payload["block_reason"])
 
-    def test_preflight_export_refreshes_stale_read_model_then_exports(self) -> None:
+    def test_selected_export_refreshes_stale_read_model_then_exports(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root, package_root = self._create_imported_record(Path(temp_dir))
             read_model_path = storage_root / "records" / "run-3101-rabi" / "record-read-model.json"
@@ -363,7 +363,7 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
             read_model_path.write_text(json.dumps(read_model, indent=2), encoding="utf-8")
             stale_digest = _digest(read_model_path)
 
-            run = export_selected_measurement_record_with_preflight_refresh(
+            run = export_selected_measurement_record_from_request(
                 _export_request(),
                 storage_root=storage_root,
                 package_root=package_root,
@@ -373,25 +373,22 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
         self.assertTrue(run.exported)
         self.assertNotEqual(stale_digest, previous_digest)
         self.assertEqual(
-            payload["initial_export"]["preparation"]["initial_error"],
+            payload["preparation"]["initial_error"],
             "primary data digest must match writer receipt",
         )
         self.assertEqual(
-            payload["refresh"]["request"]["expected_current_read_model_digest"],
-            stale_digest,
+            payload["preparation"]["refresh"]["classification"], "refreshed_read_model"
         )
-        self.assertEqual(
-            payload["refresh"]["request"]["expected_target_condition"], "replace_existing"
-        )
-        self.assertIsNone(payload["final_export"])
+        self.assertTrue(payload["preparation"]["refresh"]["refreshed"])
+        self.assertTrue(payload["preparation"]["refresh"]["replacement_performed"])
 
-    def test_preflight_export_blocks_when_refresh_fails(self) -> None:
+    def test_selected_export_blocks_when_refresh_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root, package_root = self._create_imported_record(Path(temp_dir))
             (storage_root / "records" / "run-3101-rabi" / "record-read-model.json").unlink()
             (storage_root / "records" / "run-3101-rabi" / "finalization-receipt.json").unlink()
 
-            run = export_selected_measurement_record_with_preflight_refresh(
+            run = export_selected_measurement_record_from_request(
                 _export_request(),
                 storage_root=storage_root,
                 package_root=package_root,
@@ -401,13 +398,12 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
 
         payload = run.to_dict()
         self.assertFalse(run.exported)
-        self.assertEqual(run.classification, "blocked_before_export_refresh_failed")
-        self.assertEqual(payload["refresh"], None)
-        self.assertEqual(payload["final_export"], None)
+        self.assertEqual(run.classification, "blocked_before_export")
+        self.assertEqual(payload["preparation"]["refresh"], None)
         self.assertEqual(payload["block_reason"], "read_model_refresh_failed")
         self.assertIn(
             "finalization receipt is required",
-            payload["initial_export"]["preparation"]["preparation_error"],
+            payload["preparation"]["preparation_error"],
         )
 
     def test_exports_selected_stored_record_batch_to_one_openable_package(self) -> None:

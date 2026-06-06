@@ -259,6 +259,53 @@ class MeasurementRecordImportByIdRequest:
 
 
 @dataclass(frozen=True)
+class MeasurementRecordImportByIdRun:
+    """Compact local result for canonical import-by-id UX."""
+
+    request: MeasurementRecordImportByIdRequest
+    durable_import_run: MeasurementRecordDurableImportRun
+
+    @property
+    def imported(self) -> bool:
+        return self.durable_import_run.imported
+
+    @property
+    def classification(self) -> str:
+        return self.durable_import_run.classification
+
+    @property
+    def rollback_performed(self) -> bool:
+        return self.durable_import_run.rollback_performed
+
+    @property
+    def partial_commit(self) -> bool:
+        return self.durable_import_run.partial_commit
+
+    @property
+    def import_error(self) -> str | None:
+        return self.durable_import_run.import_error
+
+    def to_dict(self) -> dict[str, Any]:
+        stored = self.durable_import_run.stored_record or {}
+        return {
+            "classification": self.classification,
+            "request": self.request.to_dict(),
+            "stored_record": {
+                "record_id": stored.get("record_id"),
+                "lifecycle_state": stored.get("lifecycle_state"),
+            }
+            if stored
+            else None,
+            "import_result": {
+                "performed": self.imported,
+                "rollback_performed": self.rollback_performed,
+                "partial_commit": self.partial_commit,
+                "import_error": self.import_error,
+            },
+        }
+
+
+@dataclass(frozen=True)
 class MeasurementRecordDurableImportRun:
     """Local result for durable new-record import."""
 
@@ -370,14 +417,18 @@ def import_measurement_record_from_source_by_id(
     content_root: str | Path,
     storage_root: str | Path,
     read_model_writer: Callable[[Path, bytes], None] | None = None,
-) -> MeasurementRecordDurableImportRun:
+) -> MeasurementRecordImportByIdRun:
     """Import reviewed normalized data into canonical storage by record_id."""
 
-    return import_measurement_record_from_request(
+    durable_run = import_measurement_record_from_request(
         request.to_durable_import_request(),
         content_root=content_root,
         storage_root=storage_root,
         read_model_writer=read_model_writer,
+    )
+    return MeasurementRecordImportByIdRun(
+        request=request,
+        durable_import_run=durable_run,
     )
 
 

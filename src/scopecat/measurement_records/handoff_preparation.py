@@ -218,13 +218,11 @@ class MeasurementRecordHandoffPreparationRun:
             "classification": self.classification,
             "block_reason": self.block_reason,
             "record_id": self.record_id,
-            "storage_root": str(self.storage_root),
-            "linked_context_selection": [item.to_dict() for item in self.linked_context_selection],
             "packageable_record": (
                 None if self.packageable_record is None else self.packageable_record.to_dict()
             ),
             "initial_error": self.initial_error,
-            "refresh": None if self.refresh_run is None else self.refresh_run.to_dict(),
+            "refresh": None if self.refresh_run is None else _refresh_summary(self.refresh_run),
             "preparation_error": self.preparation_error,
         }
 
@@ -465,6 +463,16 @@ def _project_linked_context(
         expected_digest=item.expected_digest,
         expected_size_bytes=item.expected_size_bytes,
     )
+
+
+def _refresh_summary(refresh_run: SelectedRecordReadModelRefreshRun) -> dict[str, Any]:
+    return {
+        "classification": refresh_run.classification,
+        "refreshed": refresh_run.refreshed,
+        "replacement_performed": refresh_run.replacement_performed,
+        "cleanup_performed": refresh_run.cleanup_performed,
+        "refresh_error": refresh_run.refresh_error,
+    }
 
 
 def _should_refresh_before_preparation(error: str) -> bool:

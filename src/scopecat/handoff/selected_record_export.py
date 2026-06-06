@@ -33,7 +33,7 @@ from scopecat.handoff.writer import (
     HandoffPackageWriteSource,
     write_package_from_source,
 )
-from scopecat.measurement_records import (
+from scopecat.measurement_records.handoff_preparation import (
     MeasurementRecordHandoffLinkedContextSelection,
     MeasurementRecordHandoffPreparationRun,
     PackageableMeasurementRecord,
@@ -311,9 +311,6 @@ class _SelectedRecordExportRecordRef:
         result: dict[str, Any] = {
             "record_id": self.record_id,
             "lifecycle_state": self.lifecycle_state,
-            "primary_data_path": self.primary_data_path,
-            "primary_data_digest": self.primary_data_digest,
-            "primary_data_size_bytes": self.primary_data_size_bytes,
             "primary_data_format": self.primary_data_format,
             "primary_data_row_count": self.primary_data_row_count,
         }
@@ -365,66 +362,8 @@ class SelectedMeasurementRecordExportRun:
             "package_write": None if self.package_write is None else self.package_write.to_dict(),
             "export": {
                 "performed": self.exported,
-                "storage_root": str(self.storage_root),
-                "package_root": str(self.package_root),
                 "package_dir": self.request.package_dir if self.exported else None,
                 "export_error": self.export_error,
-            },
-        }
-
-
-@dataclass(frozen=True)
-class SelectedMeasurementRecordPreflightExportRun:
-    """Transparent pre-export read-model refresh followed by selected export."""
-
-    request: SelectedMeasurementRecordExportRequest
-    storage_root: Path
-    package_root: Path
-    initial_export: SelectedMeasurementRecordExportRun
-    final_export: SelectedMeasurementRecordExportRun | None = None
-    preflight_error: str | None = None
-
-    @property
-    def export_run(self) -> SelectedMeasurementRecordExportRun:
-        return self.final_export or self.initial_export
-
-    @property
-    def exported(self) -> bool:
-        return self.export_run.exported
-
-    @property
-    def classification(self) -> str:
-        if self.exported:
-            return "exported_selected_measurement_record_after_preflight"
-        if self.preflight_error is not None:
-            return "blocked_before_export_refresh_failed"
-        if self.block_reason == "read_model_refresh_failed":
-            return "blocked_before_export_refresh_failed"
-        return "blocked_or_exported_without_preflight_refresh"
-
-    @property
-    def block_reason(self) -> str | None:
-        return _preflight_block_reason(self)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "classification": self.classification,
-            "block_reason": self.block_reason,
-            "request": self.request.to_dict(),
-            "initial_export": self.initial_export.to_dict(),
-            "refresh": (
-                None
-                if self.export_run.preparation is None
-                else self.export_run.preparation.to_dict()["refresh"]
-            ),
-            "final_export": None if self.final_export is None else self.final_export.to_dict(),
-            "preflight_error": self.preflight_error,
-            "export": {
-                "performed": self.exported,
-                "storage_root": str(self.storage_root),
-                "package_root": str(self.package_root),
-                "package_dir": self.request.package_dir if self.exported else None,
-                "export_error": self.export_run.export_error,
             },
         }
 
@@ -478,8 +417,6 @@ class SelectedMeasurementRecordBatchExportRun:
             "package_write": None if self.package_write is None else self.package_write.to_dict(),
             "export": {
                 "performed": self.exported,
-                "storage_root": str(self.storage_root),
-                "package_root": str(self.package_root),
                 "package_dir": self.request.package_dir if self.exported else None,
                 "export_error": self.export_error,
             },
@@ -536,35 +473,6 @@ def export_selected_measurement_record_from_request(
         record=evidence.record_ref,
         preparation=evidence.preparation,
         package_write=package_write,
-    )
-
-
-def export_selected_measurement_record_with_preflight_refresh(
-    request: SelectedMeasurementRecordExportRequest,
-    *,
-    storage_root: str | Path,
-    package_root: str | Path,
-) -> SelectedMeasurementRecordPreflightExportRun:
-    """Export a selected record, transparently refreshing stale read-model evidence."""
-
-    storage = _existing_directory_root(
-        Path(storage_root),
-        "selected record preflight export storage root",
-    )
-    packages = _existing_directory_root(
-        Path(package_root),
-        "selected record preflight export package root",
-    )
-    initial_export = export_selected_measurement_record_from_request(
-        request,
-        storage_root=storage,
-        package_root=packages,
-    )
-    return SelectedMeasurementRecordPreflightExportRun(
-        request=request,
-        storage_root=storage,
-        package_root=packages,
-        initial_export=initial_export,
     )
 
 
@@ -780,14 +688,6 @@ def _export_block_reason(*, approved: bool, export_error: str | None) -> str | N
     if "must stay under record_dir" in export_error:
         return "record_path_scope_violation"
     return "export_validation_error"
-
-
-def _preflight_block_reason(run: SelectedMeasurementRecordPreflightExportRun) -> str | None:
-    if run.exported:
-        return None
-    if run.preflight_error is not None:
-        return "read_model_refresh_failed"
-    return run.export_run.block_reason
 
 
 def _record_ref_from_packageable(

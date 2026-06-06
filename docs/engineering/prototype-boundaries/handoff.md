@@ -126,11 +126,11 @@ invalid, stale, incomplete, or out-of-scope record evidence is classified by
 Measurement Records before package writing. Handoff consumes only the typed
 packageable projection and package writer facts.
 
-The preflight selected-record export composition makes read-model refresh
-user-transparent while keeping ownership explicit. Missing, invalid, or stale
-read-model recovery happens inside the Measurement Records preparation route.
-The composition does not repair primary data, replace record manifests, mutate
-writer/finalization receipts, or accept/import packages.
+Selected-record export makes read-model refresh user-transparent while keeping
+ownership explicit. Missing, invalid, or stale read-model recovery happens
+inside the Measurement Records preparation route. The export path does not
+repair primary data, replace record manifests, mutate writer/finalization
+receipts, or accept/import packages.
 
 For JNY-001 Share A Selected Measurement, this storage-backed selected-record
 export path is the production vertical slice backbone. Direct package-writer

@@ -156,9 +156,7 @@ class MeasurementRecordAdoptionReadApiTest(unittest.TestCase):
             run.handle.to_dict(),
             {
                 "record_id": "generic-rabi-run-00042",
-                "record_dir": "records/generic-rabi-run-00042",
-                "manifest_path": "records/generic-rabi-run-00042/record-manifest.json",
-                "read_model_path": "records/generic-rabi-run-00042/record-read-model.json",
+                "primary_data_attached": True,
             },
         )
         self.assertTrue(primary_exists)

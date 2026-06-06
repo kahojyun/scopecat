@@ -32,12 +32,9 @@ class MeasurementRecordsPublicApiSurfaceTest(unittest.TestCase):
             "MeasurementRecordAdoptionLocator",
             "MeasurementRecordAdoptionRequest",
             "MeasurementRecordAdoptionRun",
-            "MeasurementRecordDurableImportRequest",
-            "MeasurementRecordDurableImportRun",
             "MeasurementRecordHandle",
-            "MeasurementRecordHandoffLinkedContextSelection",
-            "MeasurementRecordHandoffPreparationRun",
             "MeasurementRecordImportByIdRequest",
+            "MeasurementRecordImportByIdRun",
             "MeasurementRecordImportSource",
             "MeasurementRecordLocatorView",
             "MeasurementRecordPrimaryDataView",
@@ -49,13 +46,9 @@ class MeasurementRecordsPublicApiSurfaceTest(unittest.TestCase):
             "MeasurementRecordSourceView",
             "MeasurementRecordSummary",
             "MeasurementRecordView",
-            "PackageableMeasurementRecord",
-            "PackageableMeasurementRecordLinkedContext",
             "adopt_existing_run_from_request",
             "import_measurement_record_from_source_by_id",
-            "import_measurement_record_from_request",
             "open_measurement_record",
-            "prepare_measurement_record_for_handoff",
             "record_measurement_record_references_from_request",
         }
 
@@ -64,7 +57,15 @@ class MeasurementRecordsPublicApiSurfaceTest(unittest.TestCase):
     def test_slice_level_routes_are_not_top_level_exports(self) -> None:
         slice_names = {
             "attach_converted_primary_data_to_legacy_record_from_request",
+            "MeasurementRecordDurableImportRequest",
+            "MeasurementRecordDurableImportRun",
+            "import_measurement_record_from_request",
             "legacy_measurement_slug",
+            "MeasurementRecordHandoffLinkedContextSelection",
+            "MeasurementRecordHandoffPreparationRun",
+            "PackageableMeasurementRecord",
+            "PackageableMeasurementRecordLinkedContext",
+            "prepare_measurement_record_for_handoff",
             "record_legacy_measurement_run_from_request",
         }
 

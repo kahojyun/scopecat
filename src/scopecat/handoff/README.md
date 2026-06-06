@@ -133,10 +133,8 @@ projection succeeds or blocks. Handoff consumes the resulting typed primary
 data and linked-context facts; it does not reopen Measurement Record manifests,
 receipts, or read models.
 
-`export_selected_measurement_record_with_preflight_refresh()` composes that
-selected export path with the same Measurement Records-owned preparation
-facade. It is retained as the product-shaped entrypoint name for transparent
-cache freshness, but read-model refresh now happens inside Measurement Records
+`export_selected_measurement_record_from_request()` is the selected-record
+export entrypoint. Read-model refresh happens inside Measurement Records
 preparation rather than through handoff-owned storage inspection.
 
 Receiving gate and import-plan receipts keep compact `block_reason` state for
