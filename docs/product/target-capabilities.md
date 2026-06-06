@@ -25,7 +25,7 @@ capability relationships.
 | CAP-002 | Handoff Packages | Engineering prototype | Live prototype evidence | Decide whether to validate production readiness hardening, archive-backed import beyond ADR-0015 and ADR-0016, or a future persisted GUI/batch/context contract next. |
 | CAP-003 | Parameter State Review | Discovery | Brownfield pain-point evidence | Restart from a named brownfield entrypoint before promoting implementation; decide whether reviewed parameter snapshots, compatibility-file writing, hardware apply, catalog discovery, automatic run start, or a shared parameter/run-context schema is justified by a workflow. |
 | CAP-004 | Environment Operation | Discovery | Brownfield pain-point and historical evidence | Restart from a named brownfield entrypoint before promoting implementation; decide whether bounded manager operations, runtime-readiness review, manifest integration, manager expansion, execution hardening, or GUI/runtime monitoring is justified by a workflow. |
-| CAP-005 | Experiment Code Context | Discovery | Brownfield pain-point and implementation-candidate evidence | Decide which concrete user step merits promotion first: record, materialize, observe editable folder, prepare rerun, or GUI review. |
+| CAP-005 | Experiment Code Context | Discovery | Brownfield pain-point evidence | Decide which concrete user step merits promotion first: record, materialize, observe editable folder, prepare rerun, or GUI review. |
 | CAP-006 | Running Measurement Monitor | Discovery | Brownfield pain-point validation question | Validate whether Python measurement scripts can emit lifecycle, progress, partial-data, and shape/completeness events that a long-lived local GUI can monitor across multiple active measurements. |
 
 ## Candidate Feature Areas
@@ -36,7 +36,7 @@ validated scope is still scenario-shaped.
 
 | ID | Feature Area | Current Level | Evidence State | Promotion Question |
 | --- | --- | --- | --- | --- |
-| CAND-001 | Calibration Continuation Review | Scenario | Discovery and implementation-candidate evidence | Promote to a product capability only if repeated use cases require stable review state, continuation actions, and support expectations beyond one calibration scenario. |
+| CAND-001 | Calibration Continuation Review | Scenario | Brownfield pain-point evidence | Promote to a product capability only if repeated use cases require stable review state, continuation actions, and support expectations beyond one calibration scenario. |
 
 ## Update Rule
 

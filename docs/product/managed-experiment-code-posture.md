@@ -117,5 +117,5 @@ Revisit this posture when a named workflow needs one of these boundaries:
   compatibility expectations.
 
 Brownfield workflow pain for experiment-code context is tracked in
-[`BR-PAIN-005`](../brownfield/pain-points.md) and
-[`BR-PAIN-010`](../brownfield/pain-points.md).
+[`BR-PAIN-005`](../brownfield/pain-points.md#br-pain-005) and
+[`BR-PAIN-010`](../brownfield/pain-points.md#br-pain-010).

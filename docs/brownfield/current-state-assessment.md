@@ -250,9 +250,9 @@ recording/storage process.
 
 Current-state pressure summary: run identity, primary data, transformed data,
 and context references are often inferred from nearby files and naming
-conventions. Detailed pain is tracked in [`BR-PAIN-001`](pain-points.md);
-primary-data shape pressure is tracked in
-[`BR-PAIN-011`](pain-points.md).
+conventions. Detailed pain is tracked in
+[`BR-PAIN-001`](pain-points.md#br-pain-001); primary-data shape pressure is
+tracked in [`BR-PAIN-011`](pain-points.md#br-pain-011).
 
 ### Recording And Reviewing Shaped Measurement Data
 
@@ -263,7 +263,8 @@ files, arrays, metadata sidecars, notebooks, and plotting helpers.
 Current-state pressure summary: intended scan shape, axis roles, expected
 counts, observed completeness, and richer payload meaning are often inferred
 from code or review context rather than recorded as a durable primary-data
-fact. Detailed pain is tracked in [`BR-PAIN-011`](pain-points.md).
+fact. Detailed pain is tracked in
+[`BR-PAIN-011`](pain-points.md#br-pain-011).
 
 ### Selecting Measurements For Sharing
 
@@ -273,7 +274,7 @@ files, notebooks, sidecar notes, reports, and folder structure.
 Current-state pressure summary: selected measurement identity, primary data,
 derived outputs, and missing context are easy to lose when work moves through
 manual folders. Detailed pain is tracked in
-[`BR-PAIN-002`](pain-points.md).
+[`BR-PAIN-002`](pain-points.md#br-pain-002).
 
 ### Checking Context Before A Run
 
@@ -283,7 +284,7 @@ and environment state before running.
 Current-state pressure summary: selected pre-run context is scattered across
 files, notebooks, code, setup notes, and environment checks while existing
 systems remain authoritative for run start. Detailed pain is tracked in
-[`BR-PAIN-003`](pain-points.md).
+[`BR-PAIN-003`](pain-points.md#br-pain-003).
 
 ### Maintaining Parameter And Setup Files
 
@@ -292,7 +293,7 @@ working artifacts across run preparation, calibration, and later analysis.
 
 Current-state pressure summary: parameter, registry, setup, and wiring variants
 coexist without a stable review boundary or live hardware truth claim.
-Detailed pain is tracked in [`BR-PAIN-004`](pain-points.md).
+Detailed pain is tracked in [`BR-PAIN-004`](pain-points.md#br-pain-004).
 
 ### Moving Or Synchronizing Experiment Code
 
@@ -304,7 +305,7 @@ Current-state pressure summary: the intended code/tool version for another
 measurement computer can diverge from the local workstation across editable
 folders, helper imports, generated companions, service assumptions, and
 environment state. Detailed pain is tracked in
-[`BR-PAIN-010`](pain-points.md).
+[`BR-PAIN-010`](pain-points.md#br-pain-010).
 
 ### Checking Instrument And Service Readiness
 
@@ -314,7 +315,7 @@ helper processes are ready enough before they trust a run.
 Current-state pressure summary: readiness checks and recovery knowledge are
 local, bounded, and scattered across scripts, notebooks, GUIs, logs, and
 operator habits. Detailed pain is tracked in
-[`BR-PAIN-003`](pain-points.md).
+[`BR-PAIN-003`](pain-points.md#br-pain-003).
 
 ### Continuing Calibration Work
 
@@ -324,7 +325,7 @@ manual actions, proposed writes, and downstream blocking decisions.
 Current-state pressure summary: continuation state, fit review, proposed
 writes, accepted writes, and downstream blocking remain notebook-local or
 implicit after interruption. Detailed pain is tracked in
-[`BR-PAIN-007`](pain-points.md).
+[`BR-PAIN-007`](pain-points.md#br-pain-007).
 
 ### Inspecting Running Measurements
 
@@ -334,8 +335,8 @@ temporary files, plots, or notebook output.
 Current-state pressure summary: partial-but-useful data can exist before full
 completion, but completeness and readiness are not explicit while execution
 and scan control remain outside Scopecat. Detailed pain is tracked in
-[`BR-PAIN-006`](pain-points.md); primary-data shape pressure is tracked in
-[`BR-PAIN-011`](pain-points.md).
+[`BR-PAIN-006`](pain-points.md#br-pain-006); primary-data shape pressure is
+tracked in [`BR-PAIN-011`](pain-points.md#br-pain-011).
 
 ### Reviewing Completed Results
 
@@ -347,8 +348,8 @@ comparing, or handing off.
 Current-state pressure summary: completed-result review depends on folder
 names, notebooks, sidecars, reports, plots, helper code, local services, and
 memory rather than a records browser. Detailed pain is tracked in
-[`BR-PAIN-008`](pain-points.md); primary-data shape pressure is tracked in
-[`BR-PAIN-011`](pain-points.md).
+[`BR-PAIN-008`](pain-points.md#br-pain-008); primary-data shape pressure is
+tracked in [`BR-PAIN-011`](pain-points.md#br-pain-011).
 
 ### Reconstructing A Reference Or Rerun
 
@@ -358,9 +359,9 @@ code context, parameter/setup context, and local environment evidence.
 Current-state pressure summary: reconstructing a reference or rerun requires
 declared boundaries around code context, parameters, setup, generated
 artifacts, environment evidence, and user/domain judgment. Detailed pain is
-tracked in [`BR-PAIN-009`](pain-points.md) and
-[`BR-PAIN-005`](pain-points.md). Cross-computer code alignment pressure is
-tracked in [`BR-PAIN-010`](pain-points.md).
+tracked in [`BR-PAIN-009`](pain-points.md#br-pain-009) and
+[`BR-PAIN-005`](pain-points.md#br-pain-005). Cross-computer code alignment
+pressure is tracked in [`BR-PAIN-010`](pain-points.md#br-pain-010).
 
 ## Update Rule
 
