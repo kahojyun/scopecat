@@ -11,14 +11,13 @@ the recommended top-down reading path.
 docs/
   product/   product vision, success metrics, canonical journey/use-case
               index, target capabilities, and adoption modes
-  brownfield/ current-state assessment, transition architecture, migration
-              strategy, and migration roadmap
+  brownfield/ current-state assessment, pain points, transition architecture,
+              migration strategy, and migration roadmap
   architecture/ initial domain model, context map, and architecture boundaries
   adr/       architecture decision records, register, and template
   engineering/ delivery maturity model, workflow validation map,
                implementation register, and prototype boundaries
   testing/    fixture and expected-output policy
-  discovery/  problem briefs and bounded validation guidance
 ```
 
 | Document | Use For |
@@ -34,6 +33,7 @@ docs/
 | [`product/managed-experiment-code-posture.md`](product/managed-experiment-code-posture.md) | Product posture and current boundary for managed experiment-code versions. |
 | [`brownfield/README.md`](brownfield/README.md) | Brownfield documentation navigation. |
 | [`brownfield/current-state-assessment.md`](brownfield/current-state-assessment.md) | As-is lab workflow and artifact patterns. |
+| [`brownfield/pain-points.md`](brownfield/pain-points.md) | Brownfield workflow friction, user impact, current workarounds, and Scopecat opportunities. |
 | [`brownfield/transition-architecture.md`](brownfield/transition-architecture.md) | Brownfield current pattern, transition posture, Scopecat-owned boundary, and deferred authority map. |
 | [`brownfield/migration-strategy.md`](brownfield/migration-strategy.md) | Brownfield modernization strategy, migration patterns, and authority-transfer rules. |
 | [`brownfield/migration-roadmap.md`](brownfield/migration-roadmap.md) | Brownfield design-validation sequence and decision gates. |
@@ -53,5 +53,3 @@ docs/
 | [`engineering/terminology.md`](engineering/terminology.md) | Standard engineering terms for workflow, capability, maturity, validation method, decision, evidence, artifact boundary, and ownership. |
 | [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) | Current implementation-owner prototype boundaries and decision gates. |
 | [`testing/fixture-policy.md`](testing/fixture-policy.md) | Fixture stage, layout, expected-output, and repository-safety policy. |
-| [`discovery/README.md`](discovery/README.md) | Discovery navigation for problem briefs and historical validation evidence. |
-| [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md) | Evidence-only problem briefs. |

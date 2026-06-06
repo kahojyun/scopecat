@@ -26,7 +26,7 @@ nearest owner and avoid turning candidates or future plans into current truth.
   brownfield docs for current-state, transition-state, migration, and
   authority-transfer state; implementation register for live module ownership;
   prototype-boundary notes for route boundaries; module READMEs for API
-  details; or discovery docs for evidence.
+  details; or owner-local evidence notes for retained evidence.
 - **No duplicate state**: avoid copying the same current state, owner table,
   next work, or non-goal into multiple README files.
 - **Candidate promotion**: if historical discovery results or retained

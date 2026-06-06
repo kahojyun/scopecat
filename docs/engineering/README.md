@@ -41,7 +41,8 @@ new durable source of truth:
 - implementation register for live module ownership;
 - prototype-boundary notes and module READMEs for accepted contracts, API
   orientation, tests, fixtures, and artifact boundaries;
-- discovery docs only as evidence, not as live implementation ownership.
+- brownfield pain points or owner-local evidence notes only as evidence, not as
+  live implementation ownership.
 
 Before promoting planning or validation material into a new decision, apply the
 decision granularity rule in [`../adr/README.md`](../adr/README.md).

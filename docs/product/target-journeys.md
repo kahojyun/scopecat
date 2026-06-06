@@ -11,10 +11,12 @@ relationship between journeys, use cases, candidate use cases, supporting
 workflows, and product capabilities.
 
 Use this file as the first stop when deciding what user journey or use case a
-discovery result, prototype, validation row, ADR, risk, or implementation owner
-supports. Keep validation evidence in
+brownfield pain point, prototype, validation row, ADR, risk, or implementation
+owner supports. Keep validation evidence in
 [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md),
 capability maturity in [`target-capabilities.md`](target-capabilities.md),
+brownfield pain points in
+[`../brownfield/pain-points.md`](../brownfield/pain-points.md),
 brownfield transition posture in
 [`../brownfield/transition-architecture.md`](../brownfield/transition-architecture.md),
 and implementation ownership in

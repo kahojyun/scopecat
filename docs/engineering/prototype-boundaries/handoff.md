@@ -102,7 +102,7 @@ This boundary does not accept:
 
 Validation evidence for the JNY-001 smoke path lives in
 [`../workflow-validation-map.md`](../workflow-validation-map.md). Historical
-candidate context lives in Git history and archived discovery notes.
+candidate context lives in Git history.
 
 Advance this boundary only when a named workflow requires broader package-use
 behavior, such as production readiness hardening, GUI-owned receiving review

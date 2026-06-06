@@ -56,6 +56,7 @@ Titles may change, but IDs should not be reused.
 | `CAP-*` | [`../product/target-capabilities.md`](../product/target-capabilities.md) | Accepted product capabilities. |
 | `CAND-*` | [`../product/target-capabilities.md`](../product/target-capabilities.md) | Candidate feature areas that are not product capabilities yet. |
 | `ADR-*` | [`../adr/register.md`](../adr/register.md) | Architecture decisions that future work must obey. |
+| `BR-PAIN-*` | [`../brownfield/pain-points.md`](../brownfield/pain-points.md) | Brownfield workflow pain points and migration opportunities. |
 | `BR-RISK-*` | [`../brownfield/risk-register.md`](../brownfield/risk-register.md) | Brownfield risks that need ongoing management. |
 
 Cross-document references may include `ID + short label` in headings or first
@@ -76,8 +77,8 @@ Lifecycle rules:
 - Delete from active use: do not reuse the ID.
 
 Do not assign stable IDs to scenarios, operations, fixtures, modules, roadmap
-steps, or discovery files unless they are promoted into one of the owner types
-above.
+steps, or owner-local evidence notes unless they are promoted into one of the
+owner types above.
 
 Use [`workflow-validation-map.md`](workflow-validation-map.md) for validation
 evidence, missing seams, and next validation questions about canonical use

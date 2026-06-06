@@ -12,7 +12,7 @@ flat navigation map when you already know which owner you need.
 - Product vision, success metrics, canonical journey/use-case index,
   capabilities, and adoption modes:
   [`product/README.md`](product/README.md)
-- Brownfield current state, transition, migration, and risks:
+- Brownfield current state, pain points, transition, migration, and risks:
   [`brownfield/README.md`](brownfield/README.md)
 - Initial domain model, context map, and architecture boundaries:
   [`architecture/README.md`](architecture/README.md)
@@ -22,8 +22,6 @@ flat navigation map when you already know which owner you need.
   [`engineering/README.md`](engineering/README.md)
 - Fixture and expected-output policy:
   [`testing/fixture-policy.md`](testing/fixture-policy.md)
-- Discovery problem framing and historical validation evidence:
-  [`discovery/README.md`](discovery/README.md)
 - Active execution work should live in issues, PRs, or branch-specific working
   notes when implementation starts rather than this landing page.
 
@@ -43,8 +41,8 @@ For product vision, outcomes, and implementation direction:
 5. [`product/adoption-strategy.md`](product/adoption-strategy.md) for adoption
    modes and first-user-change posture.
 6. [`brownfield/README.md`](brownfield/README.md) for as-is lab context,
-   transition architecture, migration strategy, migration roadmap, and risk
-   register.
+   brownfield pain points, transition architecture, migration strategy,
+   migration roadmap, and risk register.
 7. [`architecture/README.md`](architecture/README.md) for domain vocabulary,
    context map, and boundary lens.
 8. [`adr/README.md`](adr/README.md) for ADR admission rules, flat record
@@ -59,12 +57,14 @@ For product vision, outcomes, and implementation direction:
 12. [`engineering/prototype-boundaries/README.md`](engineering/prototype-boundaries/README.md) and the owning module
    README for live implementation boundaries and API details.
 
-For new discovery work:
+For new brownfield evidence:
 
-1. [`discovery/problem-briefs/README.md`](discovery/problem-briefs/README.md)
-   for evidence-only problem framing.
-2. [`discovery/README.md`](discovery/README.md) for discovery problem framing
-   and historical validation evidence.
+1. [`brownfield/current-state-assessment.md`](brownfield/current-state-assessment.md)
+   for as-is workflow and artifact patterns.
+2. [`brownfield/pain-points.md`](brownfield/pain-points.md) for workflow
+   friction, user impact, workarounds, and Scopecat opportunities.
+3. [`engineering/workflow-validation-map.md`](engineering/workflow-validation-map.md)
+   for validation evidence and next validation questions.
 
 ## Editing Rules
 

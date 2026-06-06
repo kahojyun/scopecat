@@ -111,5 +111,5 @@ Revisit this posture when a named workflow needs one of these boundaries:
 - workflow/DAG nodes with stable inputs, outputs, review gates, and
   compatibility expectations.
 
-Historical evidence and hypotheses remain in
-[`../discovery/problem-briefs/experiment-code-recording.md`](../discovery/problem-briefs/experiment-code-recording.md).
+Brownfield workflow pain for experiment-code context is tracked in
+[`../brownfield/pain-points.md`](../brownfield/pain-points.md).
