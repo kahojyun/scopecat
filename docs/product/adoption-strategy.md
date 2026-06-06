@@ -45,14 +45,18 @@ User value:
 - make reviewed primary data visible in a durable local record;
 - attach later parameter, code, setup, artifact, or evidence references.
 
-Supports:
+Supports now:
 
 - Record Runs;
-- Browse And Review Completed Results later;
-- Reproduce Or Rerun From A Reference later;
-- Measurement Records;
-- Experiment Code Context later;
-- Parameter State Review later.
+- Measurement Records.
+
+May feed later:
+
+- Browse And Review Completed Results;
+- Reproduce Or Rerun From A Reference;
+- Parameter State Review or Experiment Code Context when those capabilities
+  own review of referenced payloads instead of JNY-007 merely recording
+  receipts.
 
 Main adoption risk: users may expect Scopecat to understand raw legacy formats,
 scientific validity, or execution semantics before those boundaries are owned.

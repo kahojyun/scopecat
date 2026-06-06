@@ -316,13 +316,19 @@ Use cases and route segments to prove:
   evidence references become record-local receipts without importing or
   validating referenced payloads.
 
-Supporting capabilities:
+Supporting capability:
 
-- Measurement Records;
-- adapter-authored import and review surfaces;
-- Handoff Packages later;
-- Parameter State Review later;
-- Experiment Code Context later.
+- Measurement Records.
+
+Related but not current supporting capabilities:
+
+- adapter-authored import and review surfaces are possible route owners or
+  integration surfaces, not a named product capability yet;
+- Parameter State Review and Experiment Code Context may later own richer
+  review of referenced payloads, but JNY-007 currently records references
+  only;
+- Handoff Packages consume recorded measurements through JNY-001; they do not
+  support the input-side recording workflow itself.
 
 Validation orientation: this target journey separates the input side of
 Measurement Records from JNY-001 handoff. Current evidence exists as
