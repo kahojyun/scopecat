@@ -17,10 +17,10 @@ architecture, roadmap, API, schema, or implementation guidance.
 | Current Owner | Use For |
 | --- | --- |
 | [`../../architecture/README.md`](../../architecture/README.md) | Brownfield-guided domain model, context map, and architecture boundaries. |
-| [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md) | Current use-case and workflow validation state. |
+| [`../../engineering/workflow-validation-map.md`](../../engineering/workflow-validation-map.md) | Validation evidence, missing seams, and next validation questions for canonical use cases. |
 | [`../../engineering/implementation-register.md`](../../engineering/implementation-register.md) | Live implementation owners. |
 | [`../../engineering/prototype-boundaries/README.md`](../../engineering/prototype-boundaries/README.md) | Accepted engineering prototype boundaries. |
-| [`../../product/target-journeys.md`](../../product/target-journeys.md) | Target journeys and use cases. |
+| [`../../product/target-journeys.md`](../../product/target-journeys.md) | Canonical target journey, use case, candidate use case, and supporting workflow index. |
 | [`../../brownfield/README.md`](../../brownfield/README.md) | Current-state, migration, transition, and risk posture. |
 
 ## Former Slice Groups

@@ -45,7 +45,8 @@ discovery evidence
 
 Candidate-summary parity is not progress by itself. It becomes useful evidence
 when it closes a named use case, workflow seam, capability risk, or product risk
-in [`workflow-validation-map.md`](workflow-validation-map.md) or
+in [`../product/target-journeys.md`](../product/target-journeys.md),
+[`workflow-validation-map.md`](workflow-validation-map.md), or
 [`../product/target-capabilities.md`](../product/target-capabilities.md).
 
 ## Maturity Owners
@@ -109,8 +110,11 @@ diagnostics, compatibility review, migration review, and user-facing docs.
 Before moving a concept into `src/scopecat/` or treating it as an accepted
 prototype boundary, update or reference:
 
-- [`workflow-validation-map.md`](workflow-validation-map.md), to name the user
-  journey, workflow, use case, seam, or evidence scope;
+- [`../product/target-journeys.md`](../product/target-journeys.md), to name the
+  user journey, workflow, use case, candidate use case, or supporting workflow;
+- [`workflow-validation-map.md`](workflow-validation-map.md), to name the
+  validated behavior, missing seam, next validation question, or evidence
+  scope;
 - [`../product/target-capabilities.md`](../product/target-capabilities.md), to name the
   product capability, maturity, evidence, and advancement question;
 - [`implementation-register.md`](implementation-register.md), to name the live

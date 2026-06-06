@@ -11,7 +11,11 @@ Track Scopecat product capabilities and their maturity. A capability may
 support multiple journeys and may be implemented by one or more modules.
 
 Use stable `CAP-*` IDs when referencing product capabilities from journey,
-validation, traceability, implementation, decision, or risk documents.
+use-case, validation, implementation, decision, or risk documents.
+
+This file owns capability maturity and advancement questions. Use
+[`target-journeys.md`](target-journeys.md) for canonical journey/use-case to
+capability relationships.
 
 ## Product Capabilities
 

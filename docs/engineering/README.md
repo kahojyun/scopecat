@@ -16,7 +16,8 @@ Use these documents before adding or promoting live code:
 | Document | Use For |
 | --- | --- |
 | [`delivery-maturity-model.md`](delivery-maturity-model.md) | Classify maturity for user journeys, workflows, use cases, vertical slices, and product capabilities; choose validation methods without treating candidate/prototype counts as progress. |
-| [`workflow-validation-map.md`](workflow-validation-map.md) | Start from user journeys, use cases, scenarios, operations, validated behavior, missing seams, and next validation questions. |
+| [`../product/target-journeys.md`](../product/target-journeys.md) | Find canonical target journeys, use cases, candidate use cases, and supporting workflows. |
+| [`workflow-validation-map.md`](workflow-validation-map.md) | Find validation evidence, missing seams, and next validation questions for canonical use cases. |
 | [`implementation-register.md`](implementation-register.md) | Track live implementation owners and route readers to module and prototype-boundary detail. |
 | [`../product/target-capabilities.md`](../product/target-capabilities.md) | Track product capabilities, maturity, evidence state, and open advancement questions. |
 | [`terminology.md`](terminology.md) | Use standard terms for workflows, capabilities, maturity, validation methods, decisions, evidence, artifact boundaries, and ownership. |
@@ -29,8 +30,10 @@ Write issue, PR, or branch-specific plans only when work is actually starting.
 Those plans should gather facts from the existing owners instead of creating a
 new durable source of truth:
 
-- workflow and use case map for the user journey, use case, scenario, operation,
-  validated behavior, missing seam, and next validation question;
+- journey/use-case index for the canonical user journey, use case, candidate
+  use case, or supporting workflow;
+- validation map for validated behavior, missing seam, and next validation
+  question;
 - target capability map for product capability maturity and advancement
   pressure;
 - brownfield docs for current-state, transition-state, migration, or

@@ -16,11 +16,11 @@ slice vocabulary into shared product contracts.
 | Document | Use For |
 | --- | --- |
 | [`../product/adoption-strategy.md`](../product/adoption-strategy.md) | Current product adoption paths. |
-| [`../product/target-journeys.md`](../product/target-journeys.md) | Current target product user journeys, primary workflows, and use cases to prove before promotion. |
+| [`../product/target-journeys.md`](../product/target-journeys.md) | Canonical target journey, use case, candidate use case, and supporting workflow index. |
 | [`../product/target-capabilities.md`](../product/target-capabilities.md) | Current target product capabilities, maturity, evidence, and open advancement questions. |
 | [`../brownfield/README.md`](../brownfield/README.md) | Current-state, transition architecture, migration strategy, and migration roadmap for brownfield context. |
 | [`../engineering/delivery-maturity-model.md`](../engineering/delivery-maturity-model.md) | Classify maturity owners before promoting code; treat candidates, spikes, prototypes, scenarios, and operations as evidence or validation methods. |
-| [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md) | Start from use case validation state, evidence scopes, and missing seams before selecting the next use-case-driven prototype. |
+| [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md) | Validation evidence, missing seams, and next validation questions for canonical use cases. |
 | [`../engineering/implementation-register.md`](../engineering/implementation-register.md) | Current live implementation owners. |
 | [`problem-briefs/README.md`](problem-briefs/README.md) | Start from evidence-backed problem framing before choosing a validation question. |
 
@@ -32,7 +32,7 @@ preserves the deleted slice bodies.
 
 Do not restart unbounded slice accumulation. New validation should start from a
 brownfield entrypoint, architecture boundary gap, target journey gap,
-workflow/use-case validation question, or clearly scoped technical risk. Write
+validation question, or clearly scoped technical risk. Write
 new validation material beside the current owner it informs unless a narrow
 temporary plan/result file is clearly earned.
 
@@ -53,7 +53,7 @@ discovery should start from one of the active owners:
 
 - a brownfield entrypoint or migration gap in [`../brownfield/README.md`](../brownfield/README.md);
 - a target journey or adoption gap in [`../product/target-journeys.md`](../product/target-journeys.md);
-- a workflow/use-case validation gap in [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md);
+- a validation evidence gap in [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md);
 - an architecture boundary gap in [`../architecture/README.md`](../architecture/README.md);
 - an evidence-backed problem brief in [`problem-briefs/README.md`](problem-briefs/README.md).
 
@@ -62,8 +62,8 @@ discovery should start from one of the active owners:
 Before moving discovery evidence into accepted schema, shared implementation,
 live route code, or `docs/engineering/prototype-boundaries/`, classify the work
 in [`../engineering/delivery-maturity-model.md`](../engineering/delivery-maturity-model.md)
-and attach it to a named journey in
-[`../product/target-journeys.md`](../product/target-journeys.md), plus a use case,
-workflow seam, evidence scope, or risk question in
+and attach it to a named journey, use case, candidate use case, or supporting
+workflow in [`../product/target-journeys.md`](../product/target-journeys.md),
+plus validated behavior, a missing seam, evidence scope, or risk question in
 [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md).
 Do not promote validation-result wording by copy/paste.

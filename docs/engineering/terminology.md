@@ -51,8 +51,8 @@ Titles may change, but IDs should not be reused.
 | Prefix | Owner | Use For |
 | --- | --- | --- |
 | `JNY-*` | [`../product/target-journeys.md`](../product/target-journeys.md) | Target user journeys. |
-| `UC-*` | [`workflow-validation-map.md`](workflow-validation-map.md) | Use cases and workflow segments that can drive use-case-driven validation. |
-| `UC-CAND-*` | [`workflow-validation-map.md`](workflow-validation-map.md) | Candidate use cases that may become `UC-*` after validation. |
+| `UC-*` | [`../product/target-journeys.md`](../product/target-journeys.md) | Use cases and workflow segments that can drive use-case-driven validation. |
+| `UC-CAND-*` | [`../product/target-journeys.md`](../product/target-journeys.md) | Candidate use cases that may become `UC-*` after validation. |
 | `CAP-*` | [`../product/target-capabilities.md`](../product/target-capabilities.md) | Accepted product capabilities. |
 | `CAND-*` | [`../product/target-capabilities.md`](../product/target-capabilities.md) | Candidate feature areas that are not product capabilities yet. |
 | `ADR-*` | [`../adr/register.md`](../adr/register.md) | Architecture decisions that future work must obey. |
@@ -78,6 +78,10 @@ Lifecycle rules:
 Do not assign stable IDs to scenarios, operations, fixtures, modules, roadmap
 steps, or discovery files unless they are promoted into one of the owner types
 above.
+
+Use [`workflow-validation-map.md`](workflow-validation-map.md) for validation
+evidence, missing seams, and next validation questions about canonical use
+case IDs.
 
 ## Decision Status
 
