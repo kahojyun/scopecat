@@ -26,7 +26,15 @@ nearest owner and avoid turning candidates or future plans into current truth.
   brownfield docs for current-state, transition-state, migration, and
   authority-transfer state; implementation register for live module ownership;
   prototype-boundary notes for route boundaries; module READMEs for API
-  details; or discovery docs for evidence.
+  details; or owner-local evidence notes for retained evidence.
+- **Stable ID links**: when a stable ID is used as a link target, ensure the
+  owner document exposes a stable heading or anchor for that ID.
+- **Validation evidence**: validation rows must cite owned evidence, such as a
+  test, fixture note, prototype-boundary note, ADR, or pain-point row. If the
+  evidence has no durable owner, phrase the row as pressure or an unvalidated
+  seam instead of proof.
+- **Scope flow**: update the canonical journey/use-case owner before expanding
+  scope in validation, capability, roadmap, boundary, or pain-point docs.
 - **No duplicate state**: avoid copying the same current state, owner table,
   next work, or non-goal into multiple README files.
 - **Candidate promotion**: if historical discovery results or retained

@@ -126,10 +126,10 @@ Revisit this decision when:
 
 ## Related Evidence
 
-- [`../../engineering/prototype-boundaries/handoff.md`](../engineering/prototype-boundaries/handoff.md)
-- [`../../engineering/prototype-boundaries/handoff-durable-import-storage.md`](../engineering/prototype-boundaries/handoff-durable-import-storage.md)
-- [`../../engineering/prototype-boundaries/measurement-records-creation-lifecycle.md`](../engineering/prototype-boundaries/measurement-records-creation-lifecycle.md)
-- [`../../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
-- [`../../../src/scopecat/handoff/selected_record_export.py`](../../src/scopecat/handoff/selected_record_export.py)
-- [`../../../src/scopecat/handoff/durable_import.py`](../../src/scopecat/handoff/durable_import.py)
-- [`../../../tests/integration/handoff/test_jny001_single_measurement_handoff.py`](../../tests/integration/handoff/test_jny001_single_measurement_handoff.py)
+- [`../engineering/prototype-boundaries/handoff.md`](../engineering/prototype-boundaries/handoff.md)
+- [`../engineering/prototype-boundaries/handoff-durable-import-storage.md`](../engineering/prototype-boundaries/handoff-durable-import-storage.md)
+- [`../engineering/prototype-boundaries/measurement-records-storage.md`](../engineering/prototype-boundaries/measurement-records-storage.md)
+- [`../engineering/workflow-validation-map.md`](../engineering/workflow-validation-map.md)
+- [`../../src/scopecat/handoff/selected_record_export.py`](../../src/scopecat/handoff/selected_record_export.py)
+- [`../../src/scopecat/handoff/durable_import.py`](../../src/scopecat/handoff/durable_import.py)
+- [`../../tests/integration/handoff/test_jny001_single_measurement_handoff.py`](../../tests/integration/handoff/test_jny001_single_measurement_handoff.py)

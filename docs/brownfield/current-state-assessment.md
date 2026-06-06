@@ -14,6 +14,9 @@ The local sample corpus is used as a current-state reference, but stable docs
 should avoid carrying private paths, hostnames, lab identifiers, or full raw
 file inventories.
 
+Use [`pain-points.md`](pain-points.md) for detailed workflow friction, user
+impact, current workarounds, and Scopecat opportunities.
+
 ## Current-State Architecture
 
 The current environment is a LabRAD/Data Vault-era experiment-code workspace,
@@ -149,6 +152,9 @@ The main current-state flows are:
 - live inspection and early stop: appended rows can be inspected through live
   graphing or plotting surfaces, and operators may interrupt unpromising runs
   before the intended scan completes;
+- shaped data review: users often infer scan shape, axis roles, completeness,
+  and richer payload meaning from rows, sidecars, plotting helpers, notebooks,
+  or reshape code rather than from one durable primary-data contract;
 - parameter context preservation: active JSON may be copied near a run, saved
   as a dated variant, diffed through helper code, or overwritten by calibration
   paths;
@@ -200,6 +206,9 @@ The existing system appears to run as an operator-managed workstation workflow:
 - selected work can move to another computer through copied folders, shared
   storage, or manually assembled bundles rather than a declared portable
   package;
+- experiment and tool code can move separately through copied folders, shared
+  storage, manual Git operations, or zipped workspaces before another
+  measurement computer uses it;
 - copied workspaces, nested repositories, backups, caches, checkpoints, and
   dated variants make deployment identity and selected-code identity ambiguous.
 
@@ -222,6 +231,9 @@ The existing system appears to run as an operator-managed workstation workflow:
 - Lifecycle ambiguity: lazy dataset creation, row buffering workarounds,
   controlled aborts, partial data, suppressed artifacts, and stale generated
   files blur complete versus partial versus invalid state.
+- Primary-data shape ambiguity: row/table storage, CSV-like persisted files,
+  metadata sidecars, arrays, notebooks, and plotting helpers can require users
+  to infer intended scan shape, axis roles, expected counts, and completeness.
 - Handoff and portability fragility: selected IDs, derived arrays, figures,
   reports, notebooks, local paths, service names, host details, instrument
   addresses, helper imports, and missing companions can all become receiver-side
@@ -236,95 +248,95 @@ nearby run-adjacent files, with notebooks and local folders often adding output
 or context around the recorded data. Numeric IDs are generated as part of that
 recording/storage process.
 
-Current pressure:
+Current-state pressure summary: run identity, primary data, transformed data,
+and context references are often inferred from nearby files and naming
+conventions. Detailed pain is tracked in
+[`BR-PAIN-001`](pain-points.md#br-pain-001); primary-data shape pressure is
+tracked in [`BR-PAIN-011`](pain-points.md#br-pain-011).
 
-- source identity, operator intent, primary data, transformed data, and context
-  references are often inferred from nearby files and naming conventions;
-- a useful run can leave evidence as a Data Vault-style dataset, generated
-  numeric ID, folder, notebook output, dated table, or nearby artifact;
-- run meaning depends on nearby parameter snapshots, setup references, generated
-  companions, analysis outputs, and notebook-local choices.
+### Recording And Reviewing Shaped Measurement Data
+
+Users record or review grid scans, partial scans, traces, multi-response
+tables, and sidecar-backed results through row-oriented storage, CSV-like
+files, arrays, metadata sidecars, notebooks, and plotting helpers.
+
+Current-state pressure summary: intended scan shape, axis roles, expected
+counts, observed completeness, and richer payload meaning are often inferred
+from code or review context rather than recorded as a durable primary-data
+fact. Detailed pain is tracked in
+[`BR-PAIN-011`](pain-points.md#br-pain-011).
 
 ### Selecting Measurements For Sharing
 
 Users often need to identify a useful run or result from a mixture of data
 files, notebooks, sidecar notes, reports, and folder structure.
 
-Current pressure:
-
-- useful measurement identity is inferred from filenames, folders, notebook
-  cells, IDs, or human memory;
-- transformed data and primary data can be hard to distinguish later;
-- moving a result to another computer or collaborator risks losing context;
-- the receiver may need to trust folder residue before they can inspect the
-  data.
+Current-state pressure summary: selected measurement identity, primary data,
+derived outputs, and missing context are easy to lose when work moves through
+manual folders. Detailed pain is tracked in
+[`BR-PAIN-002`](pain-points.md#br-pain-002).
 
 ### Checking Context Before A Run
 
 Users inspect parameter files, setup notes, wiring spreadsheets, code folders,
 and environment state before running.
 
-Current pressure:
-
-- selected pre-run context is not gathered into one stable, reviewable place;
-- existing systems remain authoritative for hardware apply and run start;
-- evidence about readiness is scattered;
-- notebooks and local scripts can hide which context was actually used.
+Current-state pressure summary: selected pre-run context is scattered across
+files, notebooks, code, setup notes, and environment checks while existing
+systems remain authoritative for run start. Detailed pain is tracked in
+[`BR-PAIN-003`](pain-points.md#br-pain-003).
 
 ### Maintaining Parameter And Setup Files
 
 Users maintain parameter, registry, wiring, and setup snapshots as practical
 working artifacts across run preparation, calibration, and later analysis.
 
-Current pressure:
+Current-state pressure summary: parameter, registry, setup, and wiring variants
+coexist without a stable review boundary or live hardware truth claim.
+Detailed pain is tracked in [`BR-PAIN-004`](pain-points.md#br-pain-004).
 
-- multiple dated or variant parameter and registry files can coexist;
-- lock files or sidecar files may indicate local editing or runtime state, but
-  they do not by themselves prove current hardware state;
-- setup and wiring context often lives in workbooks or notes outside the
-  scripts that consume parameters;
-- users may need to inspect history, compare variants, or plot parameter changes
-  before they can decide which files matter for a run or analysis step.
+### Moving Or Synchronizing Experiment Code
+
+Users move experiment scripts, notebooks, helper modules, generated
+companions, and local tool code between measurement computers through copied
+folders, shared storage, manual Git operations, or zipped workspaces.
+
+Current-state pressure summary: the intended code/tool version for another
+measurement computer can diverge from the local workstation across editable
+folders, helper imports, generated companions, service assumptions, and
+environment state. Detailed pain is tracked in
+[`BR-PAIN-010`](pain-points.md#br-pain-010).
 
 ### Checking Instrument And Service Readiness
 
 Users often check whether instruments, services, drivers, environments, or
 helper processes are ready enough before they trust a run.
 
-Current pressure:
-
-- readiness checks may live in scripts, notebooks, GUIs, logs, or operator
-  habits rather than a stable review surface;
-- failure recovery can require local knowledge about drivers, services,
-  hardware state, or lab-specific restart order;
-- readiness evidence is bounded and local; it does not by itself prove hardware
-  safety or define recovery authority.
+Current-state pressure summary: readiness checks and recovery knowledge are
+local, bounded, and scattered across scripts, notebooks, GUIs, logs, and
+operator habits. Detailed pain is tracked in
+[`BR-PAIN-003`](pain-points.md#br-pain-003).
 
 ### Continuing Calibration Work
 
 Calibration work often depends on interrupted notebook state, fit previews,
 manual actions, proposed writes, and downstream blocking decisions.
 
-Current pressure:
-
-- continuation state is difficult to inspect after interruption;
-- proposed writes and accepted writes can be separated from later measurement
-  context;
-- fit review and retry decisions often remain notebook-local or implicit;
-- execution, write-back, and hardware-control concerns are entangled in the
-  existing notebooks, scripts, drivers, and operator habits.
+Current-state pressure summary: continuation state, fit review, proposed
+writes, accepted writes, and downstream blocking remain notebook-local or
+implicit after interruption. Detailed pain is tracked in
+[`BR-PAIN-007`](pain-points.md#br-pain-007).
 
 ### Inspecting Running Measurements
 
 Long-running measurements may expose partial data or progress through scripts,
 temporary files, plots, or notebook output.
 
-Current pressure:
-
-- partial-but-useful data can be available before full completion;
-- readiness and completeness are not always explicit;
-- monitoring needs are real, but execution and scan control remain owned by the
-  measurement code.
+Current-state pressure summary: partial-but-useful data can exist before full
+completion, but completeness and readiness are not explicit while execution
+and scan control remain outside Scopecat. Detailed pain is tracked in
+[`BR-PAIN-006`](pain-points.md#br-pain-006); primary-data shape pressure is
+tracked in [`BR-PAIN-011`](pain-points.md#br-pain-011).
 
 ### Reviewing Completed Results
 
@@ -333,47 +345,29 @@ manually managed folders, analyze data, plot selected series, summarize, and
 report selected results before deciding whether the data is worth preserving,
 comparing, or handing off.
 
-Current pressure:
-
-- finding the relevant result can depend on folder names, notebook residue,
-  sidecars, reports, plots, and memory rather than a records browser;
-- reopening can require the original session/path context, helper code, local
-  services, and operator memory, not only the stored rows;
-- analysis artifacts can be mixed with primary data, transformed data,
-  notebooks, figures, reports, and presentation material;
-- selected "useful" results may be identified after several exploratory plots
-  or notebook edits;
-- later handoff or comparison depends on knowing which data is primary, which
-  artifacts are derived, which review notes matter, and which context is
-  missing;
-- static reports or presentations can be useful review evidence, but they can
-  hide which source data, transformations, and operator decisions produced the
-  final result.
+Current-state pressure summary: completed-result review depends on folder
+names, notebooks, sidecars, reports, plots, helper code, local services, and
+memory rather than a records browser. Detailed pain is tracked in
+[`BR-PAIN-008`](pain-points.md#br-pain-008); primary-data shape pressure is
+tracked in [`BR-PAIN-011`](pain-points.md#br-pain-011).
 
 ### Reconstructing A Reference Or Rerun
 
 Users reconstruct a prior or known-good run by combining reference selection,
 code context, parameter/setup context, and local environment evidence.
 
-Current pressure:
-
-- the code that mattered for a run may not be a clean Git commit;
-- notebooks, helper modules, and generated environment files may all be
-  relevant;
-- a folder can be useful evidence without being a trustworthy execution
-  environment;
-- changed, missing, unverified, and not-compared facts are easy to collapse
-  into vague gap language;
-- reference goodness is user/domain judgment, not something Scopecat should
-  claim by default;
-- objective comparison needs declared context boundaries;
-- reconstructing a rerun requires deciding which records, files, code folders,
-  parameters, setup references, and generated artifacts still apply.
+Current-state pressure summary: reconstructing a reference or rerun requires
+declared boundaries around code context, parameters, setup, generated
+artifacts, environment evidence, and user/domain judgment. Detailed pain is
+tracked in [`BR-PAIN-009`](pain-points.md#br-pain-009) and
+[`BR-PAIN-005`](pain-points.md#br-pain-005). Cross-computer code alignment
+pressure is tracked in [`BR-PAIN-010`](pain-points.md#br-pain-010).
 
 ## Update Rule
 
 Update this assessment when a new current-state pattern changes Scopecat's
 brownfield assumptions.
 
-Do not use this document to track target journeys, adoption paths, validation
-maturity, implementation entrypoints, tests, or raw local file inventories.
+Do not use this document to track target journeys, adoption paths, pain-point
+detail, validation maturity, implementation entrypoints, tests, or raw local
+file inventories.

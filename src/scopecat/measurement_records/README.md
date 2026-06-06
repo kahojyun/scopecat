@@ -4,85 +4,59 @@
 
 Current implementation owner for durable local Measurement Records.
 
-This module owns the live route-local APIs for importing, adopting, and linking
-local measurement records. It is not a final storage architecture,
-public SDK contract, maintained product capability, or shared domain model.
-It supports the target journeys for recording/adopting measurements and
-selected-record handoff, but it does not own those full product journeys.
+This README is an API orientation for `scopecat.measurement_records`. It is not
+a final storage architecture, public SDK contract, maintained product
+capability, or shared domain model.
 
-For workflow and implementation ownership, start from
-[`../../../docs/engineering/workflow-validation-map.md`](../../../docs/engineering/workflow-validation-map.md)
-and
-[`../../../docs/engineering/implementation-register.md`](../../../docs/engineering/implementation-register.md).
-For product capability maturity, use
-[`../../../docs/product/target-capabilities.md`](../../../docs/product/target-capabilities.md).
-For accepted engineering boundaries, use
-[`../../../docs/engineering/prototype-boundaries/measurement-records-creation-lifecycle.md`](../../../docs/engineering/prototype-boundaries/measurement-records-creation-lifecycle.md)
-and
-[`../../../docs/engineering/prototype-boundaries/measurement-records-legacy-run-storage.md`](../../../docs/engineering/prototype-boundaries/measurement-records-legacy-run-storage.md).
+Use [`../../../docs/product/target-journeys.md`](../../../docs/product/target-journeys.md)
+for canonical JNY/UC ownership,
+[`../../../docs/product/target-capabilities.md`](../../../docs/product/target-capabilities.md)
+for capability maturity, and
+[`../../../docs/engineering/prototype-boundaries/measurement-records-storage.md`](../../../docs/engineering/prototype-boundaries/measurement-records-storage.md)
+for accepted storage boundary details.
 
-## Package-Level Surfaces
+## Package-Root Entrypoints
 
-The package root exposes current caller-facing Measurement Records
-capabilities:
+Recording and import:
 
-- `adopt_existing_run_from_request(...)` for JNY-007 basic UX: adopt an
-  already-produced measurement through an adopt-first or import-ready route
-  while hiding canonical record-local path construction;
-- `open_measurement_record(...)` for opening one canonical local record by
-  `record_id` and reviewing user-shaped record, source-locator, openable
-  primary-data, and reference-set summaries;
-- `import_measurement_record_from_source_by_id(...)` for importing reviewed
-  normalized primary data into canonical `records/{record_id}` storage without
-  caller-supplied record-local paths;
-- `record_measurement_record_references_from_request(...)` for declared
-  context links attached to a Measurement Record.
+- `adopt_existing_run_from_request(...)`
+- `import_measurement_record_from_source_by_id(...)`
 
-These package-level APIs use typed request/value objects. Slice-level
-operations such as legacy-run recording, converted-primary attach,
+Read-only access:
+
+- `open_measurement_record(...)`
+
+Declared context references:
+
+- `record_measurement_record_references_from_request(...)`
+
+These package-level APIs use typed request/value objects and hide canonical
+record-local path construction from callers.
+
+Route-local helpers such as legacy-run recording, converted-primary attach,
 normalized-table summary, handoff preparation projection, path-explicit durable
-import, and stored-primary reads remain
-available only from their owning internal modules for route-local composition,
-tests, and future cleanup.
-Do not treat those submodule entrypoints as package-level contracts.
-The adoption facade and open-by-id view are workflow UX helpers for the current
-JNY-007 engineering prototype. The handoff preparation submodule is the current
-JNY-001 projection boundary from local record storage to packageable metadata
-and payload facts. These surfaces do not publish a final storage schema,
-catalog/index contract, legacy parser, or JNY-008 browsing surface.
+import, and stored-primary reads remain submodule-owned implementation
+surfaces. They may be used for route-local composition and tests, but they are
+not package-root contracts.
 
-## Artifact Boundaries
+## Boundary Split
 
-Measurement Records storage is caller-rooted local storage. Current accepted
-record-local artifacts include:
+The package-root JNY-007 facade supports adopt-first and import-ready recording
+routes for already-produced measurements. `open_measurement_record(...)` opens
+one canonical local record by `record_id` and returns user-shaped summaries.
+The by-id import facade imports reviewed normalized primary data into canonical
+`records/{record_id}` storage without caller-supplied record-local paths.
 
-- `record-manifest.json` as the immutable creation shell and origin identity;
-- record-local receipts for writer, finalization, import, legacy-run recording,
-  and references;
-- primary CSV bytes written through approved writer/import paths;
-- derived `record-read-model.json` as a replaceable local convenience
-  summary, not canonical storage authority.
+Measurement Records also owns declared reference receipts and the packageable
+handoff projection consumed by `scopecat.handoff` selected-record export.
 
-Runtime redaction is required only at declared or effective portable/export
-boundaries. Ordinary local storage, local receipts, and local review surfaces
-are not portable handoff artifacts unless an accepted boundary explicitly
-promotes them.
+The module does not parse legacy files, scan sample workspaces, publish a final
+storage schema, provide a catalog/index contract, own JNY-008 browse/plot UX,
+or claim scientific validity.
 
-## Tests And Fixtures
+## Artifact Orientation
 
-Package-level behavior and route-local submodule behavior are covered by tests under
-[`../../../tests/prototypes/measurement_records/`](../../../tests/prototypes/measurement_records/)
-and selected repository-safe fixture families under
-[`../../../tests/fixtures/`](../../../tests/fixtures/). Run the repository
-checks with:
-
-```sh
-uv run python -m unittest discover -s tests
-uv run ruff check .
-uv run ruff format --check .
-```
-
-## Boundary
-
-This README owns live API orientation. Detailed scope limits live in the
-engineering boundary notes linked above.
+Measurement Records storage is caller-rooted local storage. Ordinary local
+storage, local receipts, read models, and local review surfaces are not
+portable handoff artifacts unless an accepted boundary explicitly promotes
+them.

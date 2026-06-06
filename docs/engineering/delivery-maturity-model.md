@@ -45,7 +45,8 @@ discovery evidence
 
 Candidate-summary parity is not progress by itself. It becomes useful evidence
 when it closes a named use case, workflow seam, capability risk, or product risk
-in [`workflow-validation-map.md`](workflow-validation-map.md) or
+in [`../product/target-journeys.md`](../product/target-journeys.md),
+[`workflow-validation-map.md`](workflow-validation-map.md), or
 [`../product/target-capabilities.md`](../product/target-capabilities.md).
 
 ## Maturity Owners
@@ -78,7 +79,7 @@ maturity owners by themselves.
 
 | Maturity | Purpose | Exit Criteria | Typical Deliverables |
 | --- | --- | --- | --- |
-| Discovery | Understand the problem, user job, workflow pressure, and evidence-backed boundaries. | The next question is specific enough to test with a candidate, prototype, or explicit deferral. | Problem briefs, owner-local validation notes when needed, repository-safe fixtures, expected outputs. |
+| Discovery | Understand the problem, user job, workflow pressure, and evidence-backed boundaries. | The next question is specific enough to test with a candidate, prototype, or explicit deferral. | Brownfield pain-point rows, owner-local validation notes when needed, repository-safe fixtures, expected outputs. |
 | Engineering prototype | Validate production-shaped implementation-owner behavior for one use case, workflow step, workflow seam, capability risk, or technical risk. Scenario and operation evidence may be used, but they do not become maturity owners. | The prototype has a clear entrypoint, typed or explicit contracts, workflow/failure tests, and a documented boundary. | `src/scopecat/<owner>/`, module README, owner-local typed objects, acceptance/failure tests, local review artifacts. |
 | Production vertical slice | Deliver one end-to-end user workflow from entrypoint to durable state or output with defined failure behavior. | The slice can be used as a coherent product path and has acceptance tests, compatibility expectations, and documented user-visible behavior. | Owned module, acceptance/scenario tests, storage/output authority docs, route decision, compatibility and failure rules. |
 | Production readiness | Prepare a vertical slice for reliable use beyond prototype conditions. | Operational, compatibility, migration, diagnostics, documentation, and support risks are reviewed and either closed or explicitly accepted. | Readiness checklist, release criteria, compatibility notes, migration/upgrade notes, diagnostic expectations. |
@@ -91,7 +92,7 @@ project progress metrics by themselves.
 
 Common methods include:
 
-- discovery interview, workflow mapping, or problem brief;
+- discovery interview, workflow mapping, or brownfield pain-point analysis;
 - fixture-based validation plan or result;
 - technical spike;
 - implementation candidate;
@@ -109,8 +110,11 @@ diagnostics, compatibility review, migration review, and user-facing docs.
 Before moving a concept into `src/scopecat/` or treating it as an accepted
 prototype boundary, update or reference:
 
-- [`workflow-validation-map.md`](workflow-validation-map.md), to name the user
-  journey, workflow, use case, seam, or evidence scope;
+- [`../product/target-journeys.md`](../product/target-journeys.md), to name the
+  user journey, workflow, use case, candidate use case, or supporting workflow;
+- [`workflow-validation-map.md`](workflow-validation-map.md), to name the
+  validated behavior, missing seam, next validation question, or evidence
+  scope;
 - [`../product/target-capabilities.md`](../product/target-capabilities.md), to name the
   product capability, maturity, evidence, and advancement question;
 - [`implementation-register.md`](implementation-register.md), to name the live

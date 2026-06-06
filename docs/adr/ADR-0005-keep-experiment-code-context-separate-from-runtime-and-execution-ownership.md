@@ -81,4 +81,4 @@ Revisit this decision when:
 - [`../product/target-journeys.md`](../product/target-journeys.md)
 - [`../product/managed-experiment-code-posture.md`](../product/managed-experiment-code-posture.md)
 - [`../brownfield/transition-architecture.md`](../brownfield/transition-architecture.md)
-- [`../discovery/problem-briefs/experiment-code-recording.md`](../discovery/problem-briefs/experiment-code-recording.md)
+- [`../brownfield/pain-points.md`](../brownfield/pain-points.md)

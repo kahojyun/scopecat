@@ -2,335 +2,56 @@
 
 ## Status
 
-Current brownfield transition architecture.
+Current brownfield ownership-posture map.
 
 ## Purpose
 
-Describe how Scopecat bridges from current lab workflows to target product
-journeys.
+Describe how Scopecat moves authority from current lab workflows to target
+Scopecat boundaries one narrow slice at a time.
 
-Use this document to separate:
-
-- current journey: how users complete the work today;
-- transition journey: the intermediate Scopecat-supported path;
-- target journey: the product journey Scopecat wants to make normal;
-- ownership posture: what authority has moved from legacy systems to Scopecat;
-- deferred authority: what remains outside Scopecat.
+Use this document for current pattern, transition posture, Scopecat-owned
+boundary, and deferred authority. Use
+[`../product/target-journeys.md`](../product/target-journeys.md) for canonical
+journey/use-case ownership and
+[`migration-roadmap.md`](migration-roadmap.md) for sequencing.
 
 ## Ownership Posture Vocabulary
 
-Ownership posture is separate from delivery maturity. It records what authority
-has moved from a brownfield system to Scopecat. A use case can be an engineering
-prototype while still leaving most legacy authority in place.
-
-Use the narrowest posture that matches the accepted behavior:
-
-- `Observe`: Scopecat reads or observes legacy/system output without changing
-  it.
-- `Record`: Scopecat records declared facts, references, receipts, snapshots,
-  or lifecycle evidence from legacy/system behavior.
-- `Review`: Scopecat provides local review, preview, comparison, or gate
-  behavior while a user or legacy system remains the authority.
-- `Bridge`: Scopecat explicitly adapts between a legacy/system artifact and a
-  Scopecat-owned boundary.
-- `Shadow`: Scopecat computes, checks, or validates beside the legacy path, but
-  the legacy path remains authoritative.
-- `Assist`: Scopecat helps prepare or perform user-directed work without owning
-  final mutation or execution authority.
-- `Partial owner`: Scopecat owns a narrow durable state, package, receipt,
-  review, or mutation boundary.
-- `Primary owner`: Scopecat is the primary authority for the named boundary.
-- `Retired legacy path`: the old path has been explicitly replaced or stopped
-  for the named boundary.
-
-## Journey Transitions
-
-### JNY-001 Share A Selected Measurement
-
-Current journey:
-
-- users manually copy selected legacy run data, sidecar files, notebooks,
-  reports, or analysis folders;
-- source identity, missing context, and transformed-versus-primary data are
-  easy to lose;
-- receiving users often must trust folder structure or notebook residue before
-  they can inspect the data.
-
-Transition journey:
-
-- select a complete-enough local Measurement Record;
-- write a Scopecat-authored package from the selected record;
-- open the package read-only on the receiving side;
-- import one approved package measurement into local storage.
-
-Target journey:
-
-- select a measurement record regardless of original system;
-- preview the selected measurement and context before export;
-- export a package with clear identity, primary data, and explicit missing
-  context;
-- preview package contents before import;
-- import or reference the package through explicit user acceptance.
-
-Ownership posture:
-
-- selected stored-record export: `Review` and `Partial owner`;
-- handoff package writing/opening: `Partial owner` for Scopecat-authored
-  package artifacts;
-- receiving-side review/import plan: `Review`;
-- durable import from an approved package measurement: `Bridge` and
-  `Partial owner`.
-
-Deferred authority:
-
-- legacy execution, raw historical file semantics, adapter discovery, and
-  scientific validity remain outside Scopecat;
-- Measurement Record creation, run recording, running updates, and post-run
-  results review belong to separate journeys or workflow segments that feed
-  this handoff journey.
-
-### JNY-002 Prepare A Manual Run
-
-Current journey:
-
-- users inspect parameter files, code folders, environment state, setup notes,
-  and notebooks manually before running;
-- existing systems still own hardware apply and run start;
-- evidence about readiness or context is scattered.
-
-Transition journey:
-
-- reuse historical parameter-state evidence as domain input only when useful;
-- reuse sealed bounded environment-operation evidence when useful;
-- compose prepared-run context evidence without granting run-start authority.
-
-Target journey:
-
-- assemble selected parameter, code, environment, setup, and prior context into
-  a reviewable pre-run package;
-- show missing or risky context before run start;
-- record the operator's acknowledgement, deferral, or note without taking
-  hardware-control authority by default;
-- let a later Measurement Record reference the prepared-run receipt as context
-  evidence.
-
-Ownership posture:
-
-- parameter-state intake, storage, selection, and review chain: retired
-  prototype evidence, not an active owner;
-- bounded environment-operation evidence: sealed supporting evidence until a
-  later use case chooses an `Assist` or `Shadow` posture;
-- prepared-run review receipt: candidate `Record` and `Review` evidence.
-
-Deferred authority:
-
-- hardware apply, live write-back, current instrument-state truth, automatic
-  run start, and shared run-context authority remain outside Scopecat.
-
-### JNY-003 Recover Or Continue Calibration Work
-
-Current journey:
-
-- users recover failed fits, retry decisions, and downstream blocking from
-  scattered notebook state;
-- manual continuation choices are hard to inspect later.
-
-Transition journey:
-
-- record reviewable fit, evidence, action, and continuation summaries;
-- preserve accepted calibration write pressure for future parameter-state
-  review if a real entrypoint earns it;
-- keep execution and write-back outside Scopecat.
-
-Target journey:
-
-- review failed or suspicious calibration steps;
-- record continuation decisions and blocked downstream work;
-- optionally assist local sequential calibration only after a narrow use case
-  proves the need.
-
-Ownership posture:
-
-- reviewable fit, action, and continuation summaries: `Record` and `Review`;
-- accepted calibration write handoff to parameter-state review: historical
-  pressure, not an active bridge.
-
-Deferred authority:
-
-- local sequential execution is not accepted yet, but may become `Assist`;
-- Scopecat-decided retry, mutation, write-back, and hardware control remain
-  outside Scopecat.
-
-### JNY-004 Monitor A Running Measurement
-
-Current journey:
-
-- users inspect long-running measurements through existing scripts, partial
-  files, or live plotting tools;
-- partial completeness and latest useful sweep status are ambiguous.
-
-Transition journey:
-
-- observe explicit lifecycle/progress events from Python measurement scripts;
-- record partial data markers and local inspection state;
-- review the latest useful sweep without controlling scan execution.
-
-Target journey:
-
-- monitor running measurements from a local review surface;
-- inspect partial-but-useful data before completion;
-- save selected fit or operator decisions only when the user asks.
-
-Ownership posture:
-
-- partial-data and progress observation: candidate `Observe` and `Record`;
-- monitor review surface: candidate `Review`.
-
-Deferred authority:
-
-- experiment execution, scan-plan changes, automatic retune, and scheduling
-  remain outside Scopecat.
-
-### JNY-007 Record Runs
-
-Current journey:
-
-- users record and preserve legacy, external, notebook, or manually reviewed
-  measurement facts by copying files, preserving notes, or relying on folder
-  conventions;
-- durable identity, source posture, and primary-data readiness are often mixed
-  together.
-
-Transition journey:
-
-- record an already-produced measurement through one of two routes;
-- adopt-first route: create a local Measurement Record shell, record declared
-  source identity and source posture, then optionally attach reviewed
-  normalized primary data later to the same record;
-- import-ready route: create the local Measurement Record and write reviewed
-  normalized primary data in one durable import step;
-- record operator- or adapter-declared context references as receipts.
-
-Target journey:
-
-- turn externally produced, legacy-backed, adapter-authored, or manually
-  declared run facts into a local Scopecat Measurement Record;
-- keep source execution, raw historical file semantics, adapter discovery, and
-  scientific validity outside Scopecat unless narrower slices earn that
-  authority;
-- make the created record visible through local storage/catalog behavior for
-  downstream workflows.
-
-Ownership posture:
-
-- adopt-first legacy or external run recording: `Record` and `Bridge`;
-- import-ready normalized primary-data durable import: `Bridge` and
-  `Partial owner`;
-- recorded references: `Record`;
-- local storage/catalog visibility: `Record` success criterion for both
-  recording routes.
-
-Deferred authority:
-
-- opening, browsing, plotting, and post-run readiness review belong to
-  JNY-008;
-- raw legacy parsing, legacy execution, reference repair, current instrument
-  truth, and scientific validity remain outside Scopecat by default.
-
-### JNY-008 Browse And Review Completed Results
-
-Current journey:
-
-- users browse and reopen completed results through manually managed folders,
-  notebooks, plots, reports, sidecars, and memory before deciding whether a
-  measurement is ready to share or use;
-- primary data, derived artifacts, plots, missing context, and operator notes
-  often remain separate and hard to filter together.
-
-Transition journey:
-
-- review a completed Measurement Record read model and record-local receipts;
-- browse, open, and filter candidate records;
-- plot selected primary-data or derived-result series;
-- identify missing, stale, or incomplete context;
-- record operator review notes or continuation receipts;
-- maintain a derived read model for downstream selection.
-
-Target journey:
-
-- browse, open, filter, and plot completed or near-completed measurement
-  results;
-- inspect primary data, context references, derived artifacts, and operator
-  notes together;
-- make the selected result understandable and ready for handoff, comparison,
-  calibration continuation, or rerun preparation;
-- keep post-run review separate from canonical source replacement.
-
-Ownership posture:
-
-- records browser, open, filtering, and plotter surfaces: candidate `Review`;
-- operator notes and review receipts: candidate `Record`;
-- derived read model: `Review` convenience summary, not canonical storage
-  authority.
-
-Deferred authority:
-
-- final public storage schema, manifest replacement, broad merge import,
-  scientific validity, and GUI-owned review state remain outside this journey
-  until narrower decisions accept them.
-
-### JNY-009 Reproduce Or Rerun From A Reference
-
-Current journey:
-
-- users compare against last-working or notable references by reopening files,
-  notebooks, setup notes, copied folders, and memory;
-- changed, missing, unverified, and not-compared facts are easy to collapse
-  into vague gap language.
-
-Transition journey:
-
-- mark or select reference records;
-- compare declared measurement, code, parameter, or setup context;
-- capture selected code-context evidence and reuse sealed environment-operation
-  evidence when useful;
-- surface objective findings without claiming domain judgment.
-
-Target journey:
-
-- choose a reference record or context bundle;
-- review objective comparison findings across declared context;
-- prepare enough reviewed context to reproduce, rerun, or investigate
-  differences;
-- keep interpretation, setup truth, execution, and mutation with the user or a
-  later workflow until stronger authority is earned.
-
-Ownership posture:
-
-- selected reference marking: candidate `Record`;
-- declared context comparison: candidate `Review`;
-- explicit run/step code-context recording: candidate `Record`;
-- selected-code comparison or workspace materialization: candidate `Review` or
-  `Assist`, depending on the later use case.
-
-Deferred authority:
-
-- setup truth, user/domain judgment, rollback, dependency closure, code
-  execution, managed deployment, remote execution, and hardware or environment
-  mutation remain outside Scopecat.
-
-## Supporting Workflow Posture
-
-The former target journey entries JNY-005 Experiment Code Context Recovery And
-Reuse and JNY-006 Selected Reference Comparison are now supporting workflows.
-They remain important validation owners for code-context and comparison slices,
-but they should not drive standalone journey UX unless a consuming journey
-proves a user-recognizable end-to-end job.
+Ownership posture records what authority has moved from a brownfield system to
+Scopecat. It is separate from delivery maturity.
+
+| Posture | Meaning |
+| --- | --- |
+| Observe | Scopecat reads or observes legacy/system output without changing it. |
+| Record | Scopecat records declared facts, references, receipts, snapshots, or lifecycle evidence from legacy/system behavior. |
+| Review | Scopecat provides local review, preview, comparison, or gate behavior while a user or legacy system remains the authority. |
+| Bridge | Scopecat adapts explicitly between a legacy/system artifact and a Scopecat-owned boundary. |
+| Shadow | Scopecat computes, checks, or validates beside the legacy path, while the legacy path remains authoritative. |
+| Assist | Scopecat helps prepare or perform user-directed work without owning final mutation or execution authority. |
+| Partial owner | Scopecat owns a narrow durable state, package, receipt, review, or mutation boundary. |
+| Primary owner | Scopecat is the primary authority for the named boundary. |
+| Retired legacy path | The old path has been explicitly replaced or stopped for the named boundary. |
+
+## Transition Map
+
+| Boundary | Current Pattern | Transition Posture | Scopecat-Owned Boundary | Deferred Authority |
+| --- | --- | --- | --- | --- |
+| JNY-001 Share A Selected Measurement | Users manually copy selected run data, sidecars, notebooks, reports, or folders, and receivers infer identity and completeness from layout. | `Review`, `Bridge`, and `Partial owner`. | Scopecat-authored handoff package, read-only package open, receiving gate, import plan, selected-record export projection, and approved new-record durable import. | Legacy execution, raw historical file semantics, adapter discovery, sender trust, authenticity, scientific validity, GUI-owned persisted receiving state, archive-backed durable import, linked-context durable import, and existing-record merge/update. |
+| JNY-002 Prepare A Manual Run | Users inspect parameter files, code folders, environment state, setup notes, and notebooks manually before a run. | Candidate `Record` and `Review`. | Future prepared-run context review receipt that records selected context, acknowledgement, deferral, or note. | Hardware apply, live write-back, current instrument truth, automatic run start, scheduling, and shared run-context authority. |
+| JNY-003 Recover Or Continue Calibration Work | Users recover failed fits, retry decisions, and downstream blocking from scattered notebook state. | Candidate `Record` and `Review`. | Reviewable fit, evidence, action, and continuation summaries; accepted-write pressure for future parameter-state review. | Local sequential execution, Scopecat-decided retry, mutation, write-back, and hardware control. |
+| JNY-004 Monitor A Running Measurement | Users inspect long-running measurements through existing scripts, partial files, or live plotting tools. | Candidate `Observe`, `Record`, and `Review`. | Future lifecycle/progress event observation, partial-data markers, and latest-useful-sweep review. | Experiment execution, scan-plan changes, automatic retune, scheduling, and scan control. |
+| JNY-007 Record Runs | Users preserve legacy, external, notebook, or manually reviewed measurement facts through copied files, notes, or folder conventions. | `Record`, `Bridge`, and `Partial owner`. | Measurement Record shell, source receipt, reviewed normalized primary-data durable import, record-local declared references, canonical open-by-id record view. | Raw legacy parsing, legacy execution, adapter discovery, reference repair, current instrument truth, opening/browsing/plotting/readiness review, and scientific validity. |
+| JNY-008 Browse And Review Completed Results | Users reopen completed results through folders, notebooks, plots, reports, sidecars, and memory. | Candidate `Review` and `Record`. | Future records browser, open/filter/plot surfaces, operator review notes, readiness review, and derived read model as a review convenience. | Final public storage schema, manifest replacement, broad merge import, scientific validity, GUI-owned review state, and canonical source replacement. |
+| JNY-009 Reproduce Or Rerun From A Reference | Users compare against references by reopening files, notebooks, setup notes, copied folders, and memory. | Candidate `Record`, `Review`, and possible `Assist`. | Future reference selection, declared context comparison, selected code-context evidence, workspace preparation, and objective finding classification. | Setup truth, user/domain judgment, rollback, dependency closure, code execution, managed deployment, remote execution, and hardware or environment mutation. |
+| Experiment Code Context supporting workflow | Code context is reconstructed from copied folders, notebooks, helper libraries, backups, and editable working trees. | Candidate `Record`, `Review`, or `Assist`, depending on consuming use case. | Supporting evidence for code-context recording, comparison, materialization, editable-folder observation, rerun preparation, or GUI review. | Git replacement, package-manager ownership, runtime execution, dependency closure, managed deployment, and universal code-truth claims. |
+| Selected Reference Comparison supporting workflow | Users compare current work to last-working or notable references through memory and reopened artifacts. | Candidate `Review`. | Supporting objective comparison findings for declared facts and selected context. | Setup truth, scientific judgment, automatic action, rollback, and universal reference semantics. |
+| Setup Binding Snapshot supporting workflow | Setup context is inferred from notes, configuration files, registry files, and operator memory. | Candidate `Record` and `Review`. | Supporting prepared-run or reference-rerun context snapshot when a consuming use case earns it. | Universal setup ontology, live setup truth, hardware topology authority, and automatic compatibility decisions. |
 
 ## Update Rule
 
-Update this architecture when a branch changes a brownfield current journey,
-transition path, target mapping, ownership posture, or deferred authority.
+Update this architecture when a branch changes a brownfield current pattern,
+transition posture, Scopecat-owned boundary, or deferred authority.
 
-Do not use this file to track adoption messaging, delivery maturity,
-implementation entrypoints, tests, fixtures, or task sequencing.
+Do not use this file to track journey goals, canonical use-case membership,
+capability maturity, validation evidence, implementation entrypoints, tests,
+fixtures, or task sequencing.

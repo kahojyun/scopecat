@@ -65,9 +65,9 @@ flowchart LR
 
 ## Brownfield Entrypoints
 
-Use these entrypoints as the first architecture lens. A discovery slice that
-does not support one of these entrypoints should be treated as concept evidence
-until a new entrypoint is named.
+Use these entrypoints as the first architecture lens. Evidence that does not
+support one of these entrypoints should remain concept evidence until a new
+entrypoint is named.
 
 | Entrypoint | Current Anchor | First Scopecat Role |
 | --- | --- | --- |

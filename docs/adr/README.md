@@ -10,11 +10,11 @@ Provide one flat entry point for Scopecat architecture decisions. This
 directory owns the ADR register, the ADR template, and the rules for deciding
 what prototype-stage work is formal enough to become an ADR.
 
-Scopecat is still a prototype. Most discovery notes, product journey posture,
-migration sequencing, validation findings, and implementation checklists should
-stay in their source documents. Create an ADR only when a prototype result or
-branch accepts, rejects, defers, supersedes, or retires an architecture
-boundary that future work must obey.
+Scopecat is still a prototype. Most brownfield pain-point evidence, product
+journey posture, migration sequencing, validation findings, and implementation
+checklists should stay in their source documents. Create an ADR only when a
+prototype result or branch accepts, rejects, defers, supersedes, or retires an
+architecture boundary that future work must obey.
 
 Use [`register.md`](register.md) as the current index. Use
 [`template.md`](template.md) when creating a new ADR.
@@ -48,8 +48,8 @@ Do not create an ADR for:
 ## Prototype Rule
 
 Prototype work can create an ADR only when it promotes or defers a boundary
-that future work must obey. Otherwise keep the evidence in discovery,
-prototype-boundary, workflow-validation, product, brownfield, issue, or PR
+that future work must obey. Otherwise keep the evidence in prototype-boundary,
+workflow-validation, product, brownfield, issue, PR, or owner-local evidence
 documents.
 
 ## Update Rule

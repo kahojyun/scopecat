@@ -8,7 +8,7 @@ supersession, review triggers, and related evidence belong in the linked ADR
 file.
 
 Use stable `ADR-*` IDs when referencing architecture decisions from product,
-brownfield, engineering, discovery, risk, source, or test documents.
+brownfield, engineering, risk, source, or test documents.
 
 ## Active ADRs
 

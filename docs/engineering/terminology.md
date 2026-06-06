@@ -51,11 +51,12 @@ Titles may change, but IDs should not be reused.
 | Prefix | Owner | Use For |
 | --- | --- | --- |
 | `JNY-*` | [`../product/target-journeys.md`](../product/target-journeys.md) | Target user journeys. |
-| `UC-*` | [`workflow-validation-map.md`](workflow-validation-map.md) | Use cases and workflow segments that can drive use-case-driven validation. |
-| `UC-CAND-*` | [`workflow-validation-map.md`](workflow-validation-map.md) | Candidate use cases that may become `UC-*` after validation. |
+| `UC-*` | [`../product/target-journeys.md`](../product/target-journeys.md) | Use cases and workflow segments that can drive use-case-driven validation. |
+| `UC-CAND-*` | [`../product/target-journeys.md`](../product/target-journeys.md) | Candidate use cases that may become `UC-*` after validation. |
 | `CAP-*` | [`../product/target-capabilities.md`](../product/target-capabilities.md) | Accepted product capabilities. |
 | `CAND-*` | [`../product/target-capabilities.md`](../product/target-capabilities.md) | Candidate feature areas that are not product capabilities yet. |
 | `ADR-*` | [`../adr/register.md`](../adr/register.md) | Architecture decisions that future work must obey. |
+| `BR-PAIN-*` | [`../brownfield/pain-points.md`](../brownfield/pain-points.md) | Brownfield workflow pain points and migration opportunities. |
 | `BR-RISK-*` | [`../brownfield/risk-register.md`](../brownfield/risk-register.md) | Brownfield risks that need ongoing management. |
 
 Cross-document references may include `ID + short label` in headings or first
@@ -76,8 +77,28 @@ Lifecycle rules:
 - Delete from active use: do not reuse the ID.
 
 Do not assign stable IDs to scenarios, operations, fixtures, modules, roadmap
-steps, or discovery files unless they are promoted into one of the owner types
-above.
+steps, or owner-local evidence notes unless they are promoted into one of the
+owner types above.
+
+Use [`workflow-validation-map.md`](workflow-validation-map.md) for validation
+evidence, missing seams, and next validation questions about canonical use
+case IDs.
+
+Concept relationship:
+
+```text
+current-state pattern
+  -> pain point
+  -> journey or use case
+  -> capability
+  -> validation evidence
+  -> implementation boundary
+```
+
+Each arrow points to the next owner, not to duplicated content. Current-state
+docs observe work patterns; pain points explain friction and opportunity;
+journey/use-case and capability docs choose product shape; validation docs
+record proof; implementation-boundary docs own live module and storage limits.
 
 ## Decision Status
 
