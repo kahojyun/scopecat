@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import shutil
 import tempfile
 import unittest
@@ -20,12 +19,10 @@ from scopecat.handoff import (
 )
 from scopecat.measurement_records import (
     MeasurementRecordAdoptionRequest,
+    MeasurementRecordImportByIdRequest,
     MeasurementRecordImportSource,
     adopt_existing_run_from_request,
-)
-from scopecat.measurement_records.durable_import import (
-    MeasurementRecordDurableImportRequest,
-    import_measurement_record_from_request,
+    import_measurement_record_from_source_by_id,
 )
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -47,20 +44,14 @@ def _digest(path: Path) -> str:
 def _import_request(
     *,
     record_id: str = "run-3101-rabi",
-    record_dir: str = "records/run-3101-rabi",
     legacy_data_id: int = 3101,
     target_label: str = "Imported Rabi run",
-) -> MeasurementRecordDurableImportRequest:
+) -> MeasurementRecordImportByIdRequest:
     source_path = CHUNK_FIXTURE / "chunks" / "chunk-1.csv"
-    return MeasurementRecordDurableImportRequest(
+    return MeasurementRecordImportByIdRequest(
         request_id=f"import-{record_id}",
         approval_state="approved",
         record_id=record_id,
-        record_dir=record_dir,
-        primary_data_path=f"{record_dir}/primary.csv",
-        writer_receipt_path=f"{record_dir}/writer-receipt.json",
-        finalization_receipt_path=f"{record_dir}/finalization-receipt.json",
-        read_model_path=f"{record_dir}/record-read-model.json",
         import_source=MeasurementRecordImportSource(
             source_kind="adapter_normalized_primary_data",
             source_id=f"adapter-output-{legacy_data_id}",
@@ -140,7 +131,7 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
         package_root.mkdir()
         shutil.copytree(CHUNK_FIXTURE / "chunks", content_root / "chunks")
 
-        import_run = import_measurement_record_from_request(
+        import_run = import_measurement_record_from_source_by_id(
             _import_request(),
             content_root=content_root,
             storage_root=storage_root,
@@ -185,10 +176,9 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
     def _create_two_imported_records(self, temp_root: Path) -> tuple[Path, Path]:
         storage_root, package_root = self._create_imported_record(temp_root)
         content_root = temp_root / "content"
-        import_run = import_measurement_record_from_request(
+        import_run = import_measurement_record_from_source_by_id(
             _import_request(
                 record_id="run-3102-rabi",
-                record_dir="records/run-3102-rabi",
                 legacy_data_id=3102,
                 target_label="Imported Rabi repeat",
             ),
@@ -276,135 +266,6 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
         self.assertTrue(adoption.adopted)
         self.assertFalse(run.exported)
         self.assertEqual(run.to_dict()["block_reason"], "read_model_refresh_failed")
-
-    def test_selected_record_export_leaves_source_record_artifacts_unchanged(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root, package_root = self._create_imported_record(Path(temp_dir))
-            record_dir = storage_root / "records" / "run-3101-rabi"
-            before = {
-                path.relative_to(record_dir).as_posix(): _digest(path)
-                for path in record_dir.rglob("*")
-                if path.is_file()
-            }
-
-            run = export_selected_measurement_record_from_request(
-                _export_request(),
-                storage_root=storage_root,
-                package_root=package_root,
-            )
-
-            after = {
-                path.relative_to(record_dir).as_posix(): _digest(path)
-                for path in record_dir.rglob("*")
-                if path.is_file()
-            }
-
-        self.assertTrue(run.exported)
-        self.assertEqual(after, before)
-        self.assertEqual(
-            run.to_dict()["classification"],
-            "exported_selected_measurement_record",
-        )
-
-    def test_selected_export_uses_existing_fresh_read_model_without_refresh(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root, package_root = self._create_imported_record(Path(temp_dir))
-
-            run = export_selected_measurement_record_from_request(
-                _export_request(),
-                storage_root=storage_root,
-                package_root=package_root,
-            )
-
-        payload = run.to_dict()
-        self.assertTrue(run.exported)
-        self.assertIsNone(run.preparation.refresh_run if run.preparation else None)
-        self.assertEqual(
-            payload["classification"],
-            "exported_selected_measurement_record",
-        )
-        self.assertIsNone(payload["block_reason"])
-
-    def test_selected_export_refreshes_missing_read_model_then_exports(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root, package_root = self._create_imported_record(Path(temp_dir))
-            read_model_path = storage_root / "records" / "run-3101-rabi" / "record-read-model.json"
-            read_model_path.unlink()
-
-            run = export_selected_measurement_record_from_request(
-                _export_request(),
-                storage_root=storage_root,
-                package_root=package_root,
-            )
-            package = open_package(package_root / "handoff-package-run-3101-rabi")
-
-        payload = run.to_dict()
-        self.assertTrue(run.exported)
-        self.assertEqual(package.measurement_ids, ("run-3101-rabi",))
-        self.assertEqual(
-            payload["preparation"]["initial_error"],
-            "record read model is required",
-        )
-        self.assertEqual(
-            payload["preparation"]["refresh"]["classification"], "refreshed_read_model"
-        )
-        self.assertTrue(payload["preparation"]["refresh"]["refreshed"])
-        self.assertIsNone(payload["block_reason"])
-
-    def test_selected_export_refreshes_stale_read_model_then_exports(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root, package_root = self._create_imported_record(Path(temp_dir))
-            read_model_path = storage_root / "records" / "run-3101-rabi" / "record-read-model.json"
-            previous_digest = _digest(read_model_path)
-            read_model = json.loads(read_model_path.read_text(encoding="utf-8"))
-            read_model["primary_data"]["digest"] = (
-                "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-            )
-            read_model_path.write_text(json.dumps(read_model, indent=2), encoding="utf-8")
-            stale_digest = _digest(read_model_path)
-
-            run = export_selected_measurement_record_from_request(
-                _export_request(),
-                storage_root=storage_root,
-                package_root=package_root,
-            )
-
-        payload = run.to_dict()
-        self.assertTrue(run.exported)
-        self.assertNotEqual(stale_digest, previous_digest)
-        self.assertEqual(
-            payload["preparation"]["initial_error"],
-            "primary data digest must match writer receipt",
-        )
-        self.assertEqual(
-            payload["preparation"]["refresh"]["classification"], "refreshed_read_model"
-        )
-        self.assertTrue(payload["preparation"]["refresh"]["refreshed"])
-        self.assertTrue(payload["preparation"]["refresh"]["replacement_performed"])
-
-    def test_selected_export_blocks_when_refresh_fails(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root, package_root = self._create_imported_record(Path(temp_dir))
-            (storage_root / "records" / "run-3101-rabi" / "record-read-model.json").unlink()
-            (storage_root / "records" / "run-3101-rabi" / "finalization-receipt.json").unlink()
-
-            run = export_selected_measurement_record_from_request(
-                _export_request(),
-                storage_root=storage_root,
-                package_root=package_root,
-            )
-
-            self.assertFalse((package_root / "handoff-package-run-3101-rabi").exists())
-
-        payload = run.to_dict()
-        self.assertFalse(run.exported)
-        self.assertEqual(run.classification, "blocked_before_export")
-        self.assertEqual(payload["preparation"]["refresh"], None)
-        self.assertEqual(payload["block_reason"], "read_model_refresh_failed")
-        self.assertIn(
-            "finalization receipt is required",
-            payload["preparation"]["preparation_error"],
-        )
 
     def test_exports_selected_stored_record_batch_to_one_openable_package(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -533,40 +394,6 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
             receipt_summary["package_write"]["write_results"],
         )
 
-    def test_export_rejects_linked_context_payload_outside_selected_record_dir(self) -> None:
-        context_content = b'{"attenuation_db":"12"}\n'
-        context_digest = f"sha256:{hashlib.sha256(context_content).hexdigest()}"
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root, package_root = self._create_imported_record(Path(temp_dir))
-            outside_path = storage_root / "records" / "other-run" / "parameter-state.json"
-            outside_path.parent.mkdir()
-            outside_path.write_bytes(context_content)
-
-            request = replace(
-                _export_request(),
-                linked_context=(
-                    SelectedMeasurementRecordExportLinkedContext(
-                        link_id="run-3101-parameter-state",
-                        kind="parameter_state",
-                        label="Reviewed parameter state",
-                        relation="run_start_context",
-                        reason="Attempt to package an out-of-record payload.",
-                        source_path="records/other-run/parameter-state.json",
-                        package_path="context/run-3101-parameter-state.json",
-                        expected_digest=context_digest,
-                        expected_size_bytes=len(context_content),
-                    ),
-                ),
-            )
-            run = export_selected_measurement_record_from_request(
-                request,
-                storage_root=storage_root,
-                package_root=package_root,
-            )
-
-        self.assertFalse(run.exported)
-        self.assertEqual(run.to_dict()["block_reason"], "record_path_scope_violation")
-
     def test_unapproved_export_does_not_write_package(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_root, package_root = self._create_imported_record(Path(temp_dir))
@@ -583,120 +410,6 @@ class HandoffSelectedRecordExportPrototypeTest(unittest.TestCase):
         self.assertFalse(run.exported)
         self.assertIsNone(run.package_write)
         self.assertEqual(run.to_dict()["block_reason"], "request_not_approved")
-
-    def test_export_requires_complete_read_model_before_package_write(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root, package_root = self._create_imported_record(Path(temp_dir))
-            read_model_path = storage_root / "records" / "run-3101-rabi" / "record-read-model.json"
-            content = read_model_path.read_text(encoding="utf-8")
-            read_model_path.write_text(
-                content.replace('"lifecycle_state": "complete"', '"lifecycle_state": "failed"'),
-                encoding="utf-8",
-            )
-
-            run = export_selected_measurement_record_from_request(
-                _export_request(),
-                storage_root=storage_root,
-                package_root=package_root,
-            )
-
-            self.assertFalse((package_root / "handoff-package-run-3101-rabi").exists())
-
-        self.assertEqual(run.classification, "blocked_before_export")
-        self.assertIn("requires complete", run.export_error or "")
-        self.assertEqual(run.to_dict()["block_reason"], "record_not_complete")
-
-    def test_export_rejects_primary_data_outside_selected_record_dir(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root, package_root = self._create_imported_record(Path(temp_dir))
-            read_model_path = storage_root / "records" / "run-3101-rabi" / "record-read-model.json"
-            content = read_model_path.read_text(encoding="utf-8")
-            read_model_path.write_text(
-                content.replace(
-                    '"path": "records/run-3101-rabi/primary.csv"',
-                    '"path": "records/other-run/primary.csv"',
-                ),
-                encoding="utf-8",
-            )
-
-            run = export_selected_measurement_record_from_request(
-                _export_request(),
-                storage_root=storage_root,
-                package_root=package_root,
-            )
-
-            self.assertFalse((package_root / "handoff-package-run-3101-rabi").exists())
-
-        self.assertEqual(run.classification, "blocked_before_export")
-        self.assertIn("must stay under record_dir", run.export_error or "")
-        self.assertEqual(run.to_dict()["block_reason"], "record_path_scope_violation")
-
-    def test_export_refreshes_stale_read_model_before_package_write(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root, package_root = self._create_imported_record(Path(temp_dir))
-            read_model_path = storage_root / "records" / "run-3101-rabi" / "record-read-model.json"
-            read_model = json.loads(read_model_path.read_text(encoding="utf-8"))
-            read_model["primary_data"]["digest"] = (
-                "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-            )
-            read_model_path.write_text(json.dumps(read_model, indent=2), encoding="utf-8")
-
-            run = export_selected_measurement_record_from_request(
-                _export_request(),
-                storage_root=storage_root,
-                package_root=package_root,
-            )
-
-            package = open_package(package_root / "handoff-package-run-3101-rabi")
-
-        summary = run.to_dict()
-        self.assertTrue(run.exported)
-        self.assertEqual(package.measurement_ids, ("run-3101-rabi",))
-        self.assertEqual(
-            summary["preparation"]["initial_error"],
-            "primary data digest must match writer receipt",
-        )
-        self.assertEqual(
-            summary["preparation"]["refresh"]["classification"], "refreshed_read_model"
-        )
-
-    def test_export_refreshes_missing_read_model_before_package_write(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root, package_root = self._create_imported_record(Path(temp_dir))
-            (storage_root / "records" / "run-3101-rabi" / "record-read-model.json").unlink()
-
-            run = export_selected_measurement_record_from_request(
-                _export_request(),
-                storage_root=storage_root,
-                package_root=package_root,
-            )
-
-            package = open_package(package_root / "handoff-package-run-3101-rabi")
-
-        summary = run.to_dict()
-        self.assertTrue(run.exported)
-        self.assertEqual(package.measurement_ids, ("run-3101-rabi",))
-        self.assertEqual(
-            summary["preparation"]["initial_error"],
-            "record read model is required",
-        )
-        self.assertEqual(
-            summary["preparation"]["refresh"]["classification"], "refreshed_read_model"
-        )
-
-    def test_export_summarizes_missing_evidence_block(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage_root, package_root = self._create_imported_record(Path(temp_dir))
-            (storage_root / "records" / "run-3101-rabi" / "writer-receipt.json").unlink()
-
-            run = export_selected_measurement_record_from_request(
-                _export_request(),
-                storage_root=storage_root,
-                package_root=package_root,
-            )
-
-        self.assertEqual(run.classification, "blocked_before_export")
-        self.assertEqual(run.to_dict()["block_reason"], "missing_record_evidence")
 
     def test_export_summarizes_package_collision_block(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

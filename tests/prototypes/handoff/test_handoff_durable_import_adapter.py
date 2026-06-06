@@ -16,6 +16,7 @@ from scopecat.handoff import (
 from scopecat.handoff.durable_import import build_durable_import_request_from_handoff_plan
 from scopecat.handoff.import_plan import build_import_plan
 from scopecat.handoff.receiving import run_receiving_gate_from_request
+from scopecat.measurement_records import open_measurement_record
 from tests.prototypes.handoff.package_writer_helpers import write_package_from_fixture_source
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -221,17 +222,18 @@ class HandoffDurableImportAdapterTest(unittest.TestCase):
                 import_plan=_import_plan_run(package_dir),
                 storage_root=storage_root,
             )
-            record_dir = storage_root / "records" / "imported-legacy-rabi-001"
-            manifest = json.loads((record_dir / "record-manifest.json").read_text())
-            read_model = json.loads((record_dir / "record-read-model.json").read_text())
+            record = open_measurement_record(
+                "imported-legacy-rabi-001",
+                storage_root=storage_root,
+            )
             summary = run.to_dict()
 
         self.assertEqual(run.classification, "imported_handoff_measurement_record")
         self.assertTrue(run.imported)
         self.assertIsNone(summary["block_reason"])
-        self.assertEqual(manifest["creation"]["source_kind"], "handoff")
-        self.assertEqual(manifest["record"]["label"], "Rabi calibration follow-up")
-        self.assertEqual(read_model["primary_data"]["observed_row_count"], 5)
+        self.assertEqual(record.record.creation_source_kind, "handoff")
+        self.assertEqual(record.record.label, "Rabi calibration follow-up")
+        self.assertEqual(record.primary_data.observed_row_count, 5)
         self.assertEqual(
             summary["durable_import_request"]["import_source"],
             {
